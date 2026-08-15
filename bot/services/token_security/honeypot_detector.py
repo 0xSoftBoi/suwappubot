@@ -17,10 +17,11 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -32,6 +33,7 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 class HoneypotReason(Enum):
     """Reasons a token might be flagged as honeypot."""
+
     SELL_FAILED = "sell_failed"
     HIGH_SELL_TAX = "high_sell_tax"
     TRANSFER_BLOCKED = "transfer_blocked"
@@ -43,6 +45,7 @@ class HoneypotReason(Enum):
 @dataclass
 class HoneypotResult:
     """Result of honeypot detection."""
+
     token_mint: str
     is_honeypot: bool
     confidence: float  # 0-1
@@ -62,6 +65,7 @@ class HoneypotResult:
 
 class HoneypotDetectorError(Exception):
     """Exception for honeypot detection errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -79,7 +83,7 @@ class HoneypotDetector:
     def __init__(self):
         self._cache: Dict[str, tuple[HoneypotResult, datetime]] = {}
         self._cache_ttl = 300  # 5 minutes
-        self._jupiter_api = "https://quote-api.jup.ag/v6"
+        self._jupiter_api = "https://lite-api.jup.ag/swap/v1"
 
     async def detect(
         self,
@@ -101,7 +105,7 @@ class HoneypotDetector:
         # Check cache
         if use_cache and token_mint in self._cache:
             result, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return result
 
         result = HoneypotResult(
@@ -122,7 +126,7 @@ class HoneypotDetector:
             self._calculate_verdict(result)
 
             # Cache result
-            self._cache[token_mint] = (result, datetime.utcnow())
+            self._cache[token_mint] = (result, datetime.now(timezone.utc))
 
         except Exception as e:
             logger.error(f"Honeypot detection error for {token_mint}: {e}")
@@ -144,7 +148,7 @@ class HoneypotDetector:
         # Check cache first
         if use_cache and token_mint in self._cache:
             result, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return result
 
         result = HoneypotResult(
@@ -190,7 +194,7 @@ class HoneypotDetector:
                     "outputMint": token_mint,
                     "amount": str(amount_lamports),
                     "slippageBps": "1000",
-                }
+                },
             ) as response:
                 if response.status != 200:
                     result.can_buy = False
@@ -245,7 +249,7 @@ class HoneypotDetector:
                     "outputMint": token_mint,
                     "amount": str(buy_amount_lamports),
                     "slippageBps": "1000",
-                }
+                },
             ) as response:
                 if response.status != 200:
                     return
@@ -266,7 +270,7 @@ class HoneypotDetector:
                     "outputMint": WSOL_MINT,
                     "amount": str(tokens_received),
                     "slippageBps": "1000",
-                }
+                },
             ) as response:
                 if response.status != 200:
                     result.can_sell = False
@@ -294,7 +298,9 @@ class HoneypotDetector:
 
                 # Calculate effective tax (buy + sell round trip)
                 if sol_returned > 0 and buy_amount_lamports > 0:
-                    round_trip_loss = (buy_amount_lamports - sol_returned) / buy_amount_lamports * 100
+                    round_trip_loss = (
+                        (buy_amount_lamports - sol_returned) / buy_amount_lamports * 100
+                    )
                     result.sell_tax = round_trip_loss - (result.buy_tax or 0)
 
                     if result.sell_tax > 50:
@@ -318,7 +324,7 @@ class HoneypotDetector:
         try:
             await api_limiter.wait_and_acquire("solana")
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get recent signatures for the token
             async with session.post(
@@ -327,8 +333,8 @@ class HoneypotDetector:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getSignaturesForAddress",
-                    "params": [token_mint, {"limit": 50}]
-                }
+                    "params": [token_mint, {"limit": 50}],
+                },
             ) as response:
                 if response.status != 200:
                     return
@@ -366,7 +372,7 @@ class HoneypotDetector:
                     "outputMint": WSOL_MINT,
                     "amount": "1000000",  # 1 token with 6 decimals
                     "slippageBps": "5000",  # High slippage for test
-                }
+                },
             ) as response:
                 if response.status != 200:
                     return False

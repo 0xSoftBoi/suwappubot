@@ -11,6 +11,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   type ReactNode,
 } from 'react'
 import type {
@@ -342,7 +343,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     clearAuthToken()
   }, [])
 
-  const value: AuthContextType = {
+  const value: AuthContextType = useMemo(() => ({
     telegramUser,
     isTelegramAuth,
     linkedWallets,
@@ -360,7 +361,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
     refreshWallets,
     clearError,
     logout,
-  }
+  }), [
+    telegramUser,
+    isTelegramAuth,
+    linkedWallets,
+    passkeySupported,
+    platformAuthAvailable,
+    isLoading,
+    error,
+    isAuthenticated,
+    authMethod,
+    walletInfo,
+    createPasskeyWallet,
+    loginWithPasskey,
+    loginWithOAuth,
+    createWallet,
+    refreshWallets,
+    clearError,
+    logout,
+  ])
 
   return (
     <AuthContext.Provider value={value}>

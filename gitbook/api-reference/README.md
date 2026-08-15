@@ -1,93 +1,63 @@
 # API Reference
 
+The complete reference for Suwappu's agent API. All endpoints are served under `https://api.suwappu.bot/v1/agent` and, unless noted as public, require an `Authorization: Bearer suwappu_sk_...` header.
+
 ## Base URL
 
 ```
 https://api.suwappu.bot/v1/agent
 ```
 
-All endpoints are relative to this base URL.
+## Conventions
 
-## Content Type
+- Requests and responses are JSON. Send `Content-Type: application/json` on any request with a body.
+- Successful responses include `"success": true`. Errors include `"error"` and usually a `"message"`. See [Error Codes](errors.md).
+- Amounts in requests are human-readable decimal strings (e.g. `"0.1"`), not wei or lamports.
+- Quotes expire 60 seconds after they are issued.
 
-All requests and responses use `application/json`.
+## Endpoints
 
-## Authentication
+### Account
 
-Most endpoints require a Bearer token in the `Authorization` header:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/register`](registration.md) | POST | Register a new agent (public) |
+| [`/me`](agent-profile.md) | GET / PATCH / DELETE | Read, update, or delete your agent profile |
+| [`/keys/rotate`](keys.md) | POST | Rotate your API key |
 
-```
-Authorization: Bearer suwappu_sk_your_api_key_here
-```
+### Market data
 
-API keys are issued during [agent registration](registration.md). Keys use the prefix `suwappu_sk_` followed by a random string.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/chains`](chains.md) | GET | List supported chains (public) |
+| [`/tokens`](tokens.md) | GET | List available tokens per chain |
+| [`/prices`](prices.md) | GET | Get USD prices for token symbols |
 
-## Response Envelope
+### Trading
 
-Every response follows a consistent envelope format.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/quote`](quote.md) | POST | Get a swap quote |
+| [`/swap`](swap.md) | POST | Build an unsigned swap transaction |
+| [`/swap/execute`](swap-execute.md) | POST | Execute a swap with your managed wallet |
+| [`/swap/status/:id`](swap-status.md) | GET | Get the status of a swap |
+| [`/swaps`](swap-history.md) | GET | Paginated swap history |
+| [`/execute`](execute.md) | POST | Run a natural-language command |
 
-### Success
+### Wallets and portfolio
 
-```json
-{
-  "success": true,
-  ...data
-}
-```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/portfolio`](portfolio.md) | GET | Get wallet balances and total USD value |
+| [`/wallets`](wallets.md) | GET / POST | List or create managed wallets |
 
-The `success` field is always `true` for 2xx responses. Additional fields depend on the endpoint.
+### Webhooks
 
-### Error
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`/webhooks`](webhooks.md) | GET | List webhook delivery events |
+| [`/webhooks/test`](webhooks.md) | POST | Send a test webhook to your callback URL |
 
-```json
-{
-  "success": false,
-  "error": "Human-readable error message",
-  "fields": {
-    "field_name": "Validation error for this field"
-  }
-}
-```
+## Other surfaces
 
-The `fields` object is included only for validation errors (400). Other error responses omit it.
-
-### Common HTTP Status Codes
-
-| Code | Meaning |
-|------|---------|
-| 200 | Success |
-| 201 | Created |
-| 204 | No Content (successful deletion) |
-| 400 | Bad Request / Validation Error |
-| 401 | Unauthorized (missing or invalid API key) |
-| 404 | Resource Not Found |
-| 409 | Conflict (e.g., duplicate name) |
-| 429 | Rate Limit Exceeded |
-| 500 | Internal Server Error |
-
-## Rate Limiting
-
-Rate limits are applied per API key. The current tier and limits are returned in the agent profile via `GET /me`. Rate limit headers are included in every response:
-
-| Header | Description |
-|--------|-------------|
-| `X-RateLimit-Limit` | Maximum requests per window |
-| `X-RateLimit-Remaining` | Remaining requests in current window |
-| `X-RateLimit-Reset` | Unix timestamp when the window resets |
-
-## Endpoint Index
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | [/register](registration.md) | None | Register a new agent and receive an API key |
-| GET | [/me](agent-profile.md#get-me) | Required | Get current agent profile and stats |
-| PATCH | [/me](agent-profile.md#patch-me) | Required | Update agent profile |
-| DELETE | [/me](agent-profile.md#delete-me) | Required | Permanently delete agent |
-| POST | [/me/deactivate](agent-profile.md#post-medeactivate) | Required | Temporarily deactivate agent |
-| POST | [/reactivate](agent-profile.md#post-reactivate) | Required | Reactivate a deactivated agent |
-| GET | [/chains](chains.md) | None | List supported blockchain networks |
-| GET | [/tokens](tokens.md) | Required | List tokens for a chain |
-| GET | [/prices](prices.md) | Required | Get current token prices |
-| GET | [/portfolio](portfolio.md) | Required | Get wallet balances and portfolio value |
-| POST | [/quote](quote.md) | Required | Get a swap quote |
-| POST | [/swap](swap.md) | Required | Build an unsigned swap transaction |
+Perpetual futures, prediction markets, and lending live under `/v1/agent/perps`, `/v1/agent/predict`, and `/v1/agent/lend` — see [Perpetual Futures](perps.md), [Prediction Markets](predict.md), and [Lending](lend.md). The same engine is also exposed over [MCP and A2A](../protocols/README.md).

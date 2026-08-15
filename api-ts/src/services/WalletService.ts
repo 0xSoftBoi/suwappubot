@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
-import { type DrizzleService, requireDb, type Wallet, wallets } from '../db'
+import { type DrizzleService, requireDb, requireRow, type Wallet, wallets } from '../db'
 import { DatabaseError } from '../errors'
 
 export interface CreateTurnkeyWalletParams {
@@ -9,6 +9,7 @@ export interface CreateTurnkeyWalletParams {
 	turnkeySubOrgId: string
 	turnkeyWalletId: string
 	turnkeyAccountId: string
+	chainType?: 'evm' | 'solana'
 }
 
 export interface WalletServiceInterface {
@@ -75,7 +76,7 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 						.values({
 							userId: params.userId,
 							address: params.address,
-							chainType: 'evm',
+							chainType: params.chainType ?? 'evm',
 							walletProvider: 'turnkey',
 							turnkeySubOrgId: params.turnkeySubOrgId,
 							turnkeyWalletId: params.turnkeyWalletId,
@@ -88,6 +89,6 @@ export const WalletServiceLive = Layer.succeed(WalletService, {
 					new DatabaseError({ message: `Failed to create Turnkey wallet: ${e}`, cause: e }),
 			})
 
-			return result[0]
+			return yield* requireRow(result, 'Failed to create Turnkey wallet: no row returned')
 		}),
 })

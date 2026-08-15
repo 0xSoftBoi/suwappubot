@@ -1,106 +1,69 @@
 # Swap Status
 
-`GET /swap/status/{swapId}` | Auth: Required
+Look up the current status of a single swap by its ID. Poll this after [`POST /v1/agent/swap/execute`](swap-execute.md), or use [Webhooks](webhooks.md) to be notified instead.
 
-Retrieve the current status of a swap by its ID. Use this endpoint to poll for transaction completion after executing a swap via `POST /swap/execute`.
+## GET /v1/agent/swap/status/:swapId
 
-## Request
+Requires authentication. `:swapId` is the numeric `swap_id` returned by the execute endpoint. You can only read swaps belonging to your own agent.
 
-### Path Parameters
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `swapId` | integer | Yes | The swap ID returned from `POST /swap/execute` |
-
-### Example Request
-
+```bash
+curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-GET /swap/status/4821
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/status/4812", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const status = await res.json();
 ```
+```python
+import os, requests
 
-## Response
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the request succeeded |
-| `swap_id` | integer | The swap identifier |
-| `status` | string | Current status: `"submitted"`, `"pending"`, `"completed"`, or `"failed"` |
-| `tx_hash` | string \| null | Transaction hash, or `null` if not yet broadcast |
-| `from_token` | string | Source token symbol (e.g., `"ETH"`) |
-| `to_token` | string | Destination token symbol (e.g., `"USDC"`) |
-
-### Status Lifecycle
-
-```
-submitted → pending → completed
-                    → failed
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/swap/status/4812",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+status = res.json()
 ```
 
-- **submitted** -- The transaction has been signed and sent to the network.
-- **pending** -- The transaction is waiting for on-chain confirmation.
-- **completed** -- The swap executed successfully and is confirmed on-chain.
-- **failed** -- The transaction reverted or could not be confirmed.
-
-### Example Response
+**Response:**
 
 ```json
 {
   "success": true,
-  "swap_id": 4821,
+  "swap_id": 4812,
   "status": "completed",
-  "tx_hash": "0x8a3c...f29e",
+  "tx_hash": "0xabc...def",
+  "from_chain": "base",
+  "to_chain": "base",
   "from_token": "ETH",
-  "to_token": "USDC"
+  "to_token": "USDC",
+  "from_amount": "0.1",
+  "to_amount": "324.12",
+  "error_message": null,
+  "created_at": "2026-06-18T12:00:10.000Z",
+  "completed_at": "2026-06-18T12:00:28.000Z"
 }
 ```
 
-## Errors
+### Fields
 
-| Status | Error | Cause |
-|--------|-------|-------|
-| 401 | `"Unauthorized"` | Missing or invalid API key |
-| 404 | `"Swap not found"` | No swap exists with the given ID, or it belongs to a different agent |
+| Field | Type | Description |
+|-------|------|-------------|
+| `swap_id` | number | The swap's ID |
+| `status` | string | Current status (e.g. `pending`, `completed`, `failed`) |
+| `tx_hash` | string \| null | On-chain transaction hash once broadcast |
+| `from_chain` / `to_chain` | string | Source and destination chains |
+| `from_token` / `to_token` | string | Token symbols |
+| `from_amount` / `to_amount` | string | Input and output amounts |
+| `error_message` | string \| null | Failure reason when `status` is `failed` |
+| `created_at` / `completed_at` | string \| null | Timestamps |
 
-## Code Examples
+### Errors
 
-### curl
+| Status | Cause |
+|--------|-------|
+| `400` | `swapId` is not a valid integer, or the swap was not found for your agent |
+| `401` | Missing or invalid API key |
 
-```bash
-curl https://api.suwappu.bot/v1/agent/swap/status/4821 \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
-
-### Python
-
-```python
-import requests
-
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/swap/status/4821",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-)
-
-data = response.json()
-if data["success"]:
-    print(f"Swap {data['swap_id']}: {data['status']}")
-    print(f"{data['from_token']} → {data['to_token']}, tx: {data['tx_hash']}")
-```
-
-### TypeScript
-
-```typescript
-const response = await fetch(
-  "https://api.suwappu.bot/v1/agent/swap/status/4821",
-  {
-    headers: {
-      Authorization: "Bearer suwappu_sk_your_api_key",
-    },
-  }
-);
-
-const data = await response.json();
-if (data.success) {
-  console.log(`Swap ${data.swap_id}: ${data.status}`);
-  console.log(`${data.from_token} → ${data.to_token}, tx: ${data.tx_hash}`);
-}
-```
+For a list of all your swaps, see [Swap History](swap-history.md).

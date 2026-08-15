@@ -1,83 +1,82 @@
 #!/usr/bin/env bash
-# Suwappu verification checks — run after deployments or significant changes.
-# Usage: bash scripts/verify.sh [section]
-# Sections: api, agent, npm, registry, schema, workflow, all (default)
-set -uo pipefail
+set -e
+MODE=${1:-all}
 
-SECTION="${1:-all}"
-PASS=0; FAIL=0
-
-check() {
-  local name="$1"; shift
-  if "$@" >/dev/null 2>&1; then
-    echo "  PASS  $name"; PASS=$((PASS+1))
-  else
-    echo "  FAIL  $name"; FAIL=$((FAIL+1))
-  fi
-}
-
-run_api() {
-  echo "=== API-TS Health ==="
-  check "Health endpoint (dev)" curl -sf https://devapi.suwappu.bot/health
-  check "ECS service running" bash -c "
-    aws ecs describe-services --cluster suwappu-cluster --services suwappu-api-ts-dev \
-      --query 'services[0].deployments[?status==\`PRIMARY\`].runningCount' --output text | grep -q 1"
-}
-
-run_agent() {
-  echo "=== Agent Card ==="
-  check "Agent card returns 200" curl -sf https://devapi.suwappu.bot/.well-known/agent.json
-  check "securitySchemes is dict" bash -c '
-    curl -sf https://devapi.suwappu.bot/.well-known/agent.json | python3 -c "
-import sys,json; d=json.load(sys.stdin); assert isinstance(d[\"securitySchemes\"],dict)"'
-  check "All skills have inputModes" bash -c '
-    curl -sf https://devapi.suwappu.bot/.well-known/agent.json | python3 -c "
-import sys,json; d=json.load(sys.stdin)
-for s in d[\"skills\"]: assert \"inputModes\" in s and \"outputModes\" in s, s[\"id\"]"'
-  check "7 skills present" bash -c '
-    curl -sf https://devapi.suwappu.bot/.well-known/agent.json | python3 -c "
-import sys,json; assert len(json.load(sys.stdin)[\"skills\"])==7"'
-}
-
-run_npm() {
-  echo "=== npm Packages ==="
-  for pkg in "@suwappu/mcp-server" "@suwappu/sdk" "@suwappu/langchain-suwappu"; do
-    check "$pkg" curl -sf "https://registry.npmjs.org/$pkg"
-  done
-}
-
-run_registry() {
-  echo "=== Registry Listings ==="
-  check "a2aregistry.org" curl -sf "https://a2aregistry.org/api/agents/925fd01b-886f-4ae0-bdb8-6daab71948e3"
-  check "awesome-a2a PR #36" gh pr view 36 --repo ai-boost/awesome-a2a --json state
-}
-
-run_schema() {
-  echo "=== api-ts Schema & Validators ==="
-  check "traderStats.ts exists" test -f api-ts/src/db/schema/traderStats.ts
-  check "traderStats exported" grep -q "traderStats" api-ts/src/db/schema/index.ts
-  for s in ExecuteSwapSchema SwapStatusQuerySchema WebhookEventsQuerySchema; do
-    check "$s in validators" grep -q "$s" api-ts/src/routes/validators.ts
-  done
-}
-
-run_workflow() {
-  echo "=== Deploy Workflow ==="
-  check "Defaults to dev" grep -q 'Default to development' .github/workflows/deploy-api-ts.yml
-  check "smithery.yaml exists" test -f packages/mcp-server/smithery.yaml
-}
-
-case "$SECTION" in
-  api)      run_api ;;
-  agent)    run_agent ;;
-  npm)      run_npm ;;
-  registry) run_registry ;;
-  schema)   run_schema ;;
-  workflow) run_workflow ;;
-  all)      run_api; run_agent; run_npm; run_registry; run_schema; run_workflow ;;
-  *)        echo "Unknown section: $SECTION"; exit 1 ;;
+case "$MODE" in
+  all|python|api|agent|env|health|onchain) ;;
+  *)
+    echo "✗ Unknown verify lane: '$MODE'" >&2
+    echo "  Valid lanes: all python api agent env health onchain" >&2
+    exit 2
+    ;;
 esac
 
-echo ""
-echo "Results: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] || exit 1
+if [[ "$MODE" == "all" || "$MODE" == "python" ]]; then
+  echo "=== Python syntax ==="
+  find api bot database -name "*.py" -not -path "*/\.*" | xargs python3 -m py_compile
+  echo "✓ Python OK"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "api" ]]; then
+  echo "=== TypeScript types ==="
+  (cd api-ts && bun run check)
+  echo "✓ TypeScript OK"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
+  echo "=== OpenAPI spec drift ==="
+  if ! (cd api-ts && bun run check:openapi); then
+    echo "✗ openapi-agent.json is out of sync with the Zod validators."
+    echo "  Run: (cd api-ts && bun run generate:openapi) and commit the result."
+    exit 1
+  fi
+  echo "✓ OpenAPI spec in sync"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "api" || "$MODE" == "agent" ]]; then
+  echo "=== MCP tool schema drift ==="
+  if ! (cd api-ts && bun run check:mcp); then
+    echo "✗ MCP tool schemas disagree with the Zod validators that actually run."
+    echo "  Derive the tool's inputSchema with mcpInputSchema() in src/routes/mcpTools.ts."
+    echo "  See docs/plans/mcp-unification.md."
+    exit 1
+  fi
+  echo "✓ MCP tool schemas in sync"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "env" ]]; then
+  echo "=== Env contract drift ==="
+  if ! python3 scripts/check_env_schema.py; then
+    echo "✗ .env.schema is out of sync with the settings schemas."
+    echo "  Run: python3 scripts/check_env_schema.py --write and commit the result."
+    exit 1
+  fi
+  echo "✓ Env contract in sync"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then
+  echo "=== Production health ==="
+  curl -fsS https://api.suwappu.bot/health | python3 -m json.tool
+  echo "✓ Python API healthy"
+fi
+
+# Cross-chain constants (CCTP contracts + domain ids, USDT0 token/OFT pairs,
+# LayerZero EIDs) checked against the live chains. Deliberately NOT part of
+# "all": it hits ~8 public RPC endpoints, which rate-limit and intermittently
+# fail individual methods, so folding it into the general gate would make
+# verify.sh flaky for reasons unrelated to the change under test. Run it
+# explicitly before shipping anything that touches a bridge address, a CCTP
+# domain, or a LayerZero endpoint id.
+if [[ "$MODE" == "onchain" ]]; then
+  echo "=== On-chain constants ==="
+  python3.12 scripts/verify_onchain_constants.py
+  echo "✓ On-chain constants verified"
+fi
+
+echo "All checks passed ✓"
+
+if [[ "$MODE" == "all" ]]; then
+  echo
+  echo "Note: on-chain constant verification is not included in 'all'."
+  echo "  Run: bash scripts/verify.sh onchain"
+fi

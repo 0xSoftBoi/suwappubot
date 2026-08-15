@@ -54,7 +54,8 @@ const CHAIN_COLORS: Record<string, string> = {
   optimism: 'bg-red-500',
   base: 'bg-blue-700',
   avalanche: 'bg-red-600',
-  solana: 'bg-gradient-to-r from-purple-500 to-teal-400',
+  solana: 'bg-linear-to-r from-purple-500 to-teal-400',
+  tempo: 'bg-amber-500',
 }
 
 const CHAIN_LABELS: Record<string, string> = {
@@ -66,6 +67,7 @@ const CHAIN_LABELS: Record<string, string> = {
   base: 'BASE',
   avalanche: 'AVAX',
   solana: 'SOL',
+  tempo: 'USD',
 }
 
 // --- Risk level config ---
@@ -146,7 +148,7 @@ function TraderAvatar({ trader, size = 'md' }: { trader: Trader; size?: 'sm' | '
 
   return (
     <div
-      className={`${sizeClasses[size]} rounded-suwappu-pill bg-gradient-to-br ${getAvatarGradient(trader.id)} flex items-center justify-center text-white font-bold shrink-0`}
+      className={`${sizeClasses[size]} rounded-suwappu-pill bg-linear-to-br ${getAvatarGradient(trader.id)} flex items-center justify-center text-white font-bold shrink-0`}
     >
       {getInitials(trader.displayName)}
     </div>
@@ -252,7 +254,7 @@ function CopySettings({
               type="number"
               value={allocation}
               onChange={(e) => setAllocation(e.target.value)}
-              className="w-full pl-5 pr-2 py-1.5 rounded-suwappu-lg border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-xs text-suwappu-text font-medium focus:outline-none focus:ring-2 focus:ring-suwappu-magenta/30"
+              className="w-full pl-5 pr-2 py-1.5 rounded-suwappu-lg border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-xs text-suwappu-text font-medium focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta/30"
             />
           </div>
         </div>
@@ -264,7 +266,7 @@ function CopySettings({
               type="number"
               value={maxPerTrade}
               onChange={(e) => setMaxPerTrade(e.target.value)}
-              className="w-full pl-5 pr-2 py-1.5 rounded-suwappu-lg border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-xs text-suwappu-text font-medium focus:outline-none focus:ring-2 focus:ring-suwappu-magenta/30"
+              className="w-full pl-5 pr-2 py-1.5 rounded-suwappu-lg border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-xs text-suwappu-text font-medium focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta/30"
             />
           </div>
         </div>
@@ -275,7 +277,7 @@ function CopySettings({
               type="number"
               value={stopLoss}
               onChange={(e) => setStopLoss(e.target.value)}
-              className="w-full pl-2 pr-5 py-1.5 rounded-suwappu-lg border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-xs text-suwappu-text font-medium focus:outline-none focus:ring-2 focus:ring-suwappu-magenta/30"
+              className="w-full pl-2 pr-5 py-1.5 rounded-suwappu-lg border border-suwappu-sakura-200/40 bg-suwappu-sakura-light/30 text-xs text-suwappu-text font-medium focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta/30"
             />
             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-suwappu-text-secondary text-xs">%</span>
           </div>

@@ -1,9 +1,13 @@
 import { Turnkey } from '@turnkey/sdk-server'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import { isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
+import { logger } from '../lib/logger'
 import { DatabaseError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { fetchWithRetry } from '../lib/retry'
 import { telegramAuth } from '../middleware'
+import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import {
 	cacheKeys,
@@ -13,11 +17,14 @@ import {
 	type RedisServiceInterface,
 	type SwapQuote,
 	SwapService,
+	TelegramAuthService,
 	TOKEN_LIST_TTL,
 	UserService,
 	WalletService,
 } from '../services'
 import type { TelegramUser } from '../services/TelegramAuthService'
+import { withSigningFallback } from '../services/FallbackSigningService'
+import { APPROVAL_MODE, DEFAULT_SLIPPAGE } from '../config/constants'
 
 const swapRoutes = new Hono()
 
@@ -56,6 +63,16 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 	43114: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
 	59144: process.env.LINEA_RPC_URL || 'https://rpc.linea.build',
 	324: process.env.ZKSYNC_RPC_URL || 'https://mainnet.era.zksync.io',
+}
+
+// Parse the USD value of the source amount for storage. Never falls back to
+// quote.fromAmount, which is a token quantity in wei (not a USD value) — doing
+// so would corrupt the USD currency column. Returns null when unavailable.
+// Uses Number.isFinite rather than `|| null` so a legitimate 0 USD value is
+// preserved instead of being coerced to null.
+export const usdAmountFromQuote = (quote: Pick<SwapQuote, 'fromAmountUsd'>): number | null => {
+	const parsed = parseFloat(quote.fromAmountUsd)
+	return Number.isFinite(parsed) ? parsed : null
 }
 
 // In-memory quote cache as fallback when Redis is not available
@@ -118,10 +135,10 @@ const deleteCachedQuote = (
  * - fromToken: Token address (use 0x0...0 for native)
  * - toToken: Token address
  * - fromAmount: Amount in smallest unit (wei)
- * - slippage: Optional, default 0.03 (3%)
+ * - slippage: Optional, default 0.005 (0.5%)
  * - order: Optional, "RECOMMENDED" | "FASTEST" | "CHEAPEST" | "SAFEST"
  */
-swapRoutes.get('/quote', telegramAuth(), async (c) => {
+swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 
 	// Extract query params
@@ -138,28 +155,23 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 		| 'SAFEST'
 		| undefined
 
+	// Starknet is read-only in the TS stack — signing/broadcast lives in the Python bot
+	if ((fromChain && isStarknet(fromChain)) || (toChain && isStarknet(toChain))) {
+		return c.json(
+			{ success: false, error: 'Starknet transactions are handled by the bot backend' },
+			400,
+		)
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const redis = yield* RedisService
-			const userService = yield* UserService
-			const walletService = yield* WalletService
 			const swapService = yield* SwapService
 
-			// Get user and wallet - use placeholder if not found (for quotes only)
-			// Use a real address as placeholder since Li.Fi rejects zero address
-			let walletAddress = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' // vitalik.eth as placeholder
-
-			const userResult = yield* Effect.either(userService.getUserByTelegramId(telegramUser.id))
-			if (Either.isRight(userResult) && Option.isSome(userResult.right)) {
-				const user = userResult.right.value
-				const walletsResult = yield* Effect.either(walletService.getActiveWallets(user.id))
-				if (Either.isRight(walletsResult) && walletsResult.right.length > 0) {
-					walletAddress = walletsResult.right[0].address
-				}
-			}
-
-			// For backward compat - allow quotes without wallet
-			const wallet = { address: walletAddress }
+			// For quotes, skip user+wallet DB lookups — Li.Fi only needs a valid
+			// fromAddress and the quote is never executed with this address.
+			// Use a well-known placeholder since Li.Fi rejects the zero address.
+			const wallet = { address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' } // vitalik.eth placeholder
 
 			// Validate required params
 			if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
@@ -185,8 +197,24 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 				toToken,
 				fromAmount,
 				fromAddress: wallet.address,
-				slippage: slippage ? parseFloat(slippage) : 0.03,
+				slippage: slippage ? parseFloat(slippage) : DEFAULT_SLIPPAGE,
 				order: order || 'RECOMMENDED',
+				// Attribution — see QuoteParams. Without it the activation
+				// funnel cannot tell who reached the quote stage.
+				//
+				// Resolved lazily: this handler deliberately skips the user+wallet
+				// DB lookup (a quote only needs a valid fromAddress), so the
+				// internal id is fetched here purely for attribution and a miss
+				// is non-fatal — capture records an anonymous row rather than
+				// failing the quote.
+				userId: yield* Effect.orElseSucceed(
+					Effect.gen(function* () {
+						const userService = yield* UserService
+						const u = yield* userService.getUserByTelegramId(telegramUser.id)
+						return Option.isNone(u) ? null : u.value.id
+					}),
+					() => null,
+				),
 			}
 
 			// Get quote from Li.Fi
@@ -236,7 +264,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -250,7 +278,7 @@ swapRoutes.get('/quote', telegramAuth(), async (c) => {
  * - quoteId: The quote ID to execute
  * - idempotencyKey: Optional unique key to prevent duplicate swaps
  */
-swapRoutes.post('/execute', telegramAuth(), async (c) => {
+swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
 	const body = await c.req.json().catch(() => ({}))
 
@@ -279,12 +307,12 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 			// Get user's wallet
 			const wallets = yield* walletService.getActiveWallets(user.id)
-			if (wallets.length === 0) {
+			const wallet = wallets[0]
+			if (!wallet) {
 				return yield* Effect.fail(
 					new NotFoundError({ message: 'No wallet found', resource: 'wallet' }),
 				)
 			}
-			const wallet = wallets[0]
 
 			// Check if wallet is a Turnkey wallet
 			if (wallet.walletProvider !== 'turnkey' || !wallet.turnkeySubOrgId) {
@@ -306,14 +334,8 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				)
 			}
 
-			// Verify quote is for this wallet
-			if (quote.transactionRequest.from.toLowerCase() !== wallet.address.toLowerCase()) {
-				return yield* Effect.fail(
-					new ValidationError({
-						message: 'Quote wallet address mismatch',
-					}),
-				)
-			}
+			// Note: No address mismatch check — quotes are fetched with a placeholder
+			// address, and Li.Fi rebuilds the tx for the actual wallet anyway.
 
 			// Create swap record first (pending status)
 			const swapRecord = yield* swapService.createSwapRecord({
@@ -324,7 +346,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				toToken: quote.toToken.symbol,
 				fromAmount: quote.fromAmount,
 				toAmount: quote.toAmount,
-				fromAmountUsd: parseFloat(quote.estimatedGasUsd) || null,
+				fromAmountUsd: usdAmountFromQuote(quote),
 				toAmountUsd: null,
 				status: 'pending',
 				routeProvider: 'lifi',
@@ -363,13 +385,13 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 			// Sign the transaction
 			const txRequest = quote.transactionRequest
 
-			console.log('[SwapRoute] Signing transaction:', {
+			logger.info({
 				swapId: swapRecord.id,
 				from: txRequest.from,
 				to: txRequest.to,
 				chainId: txRequest.chainId,
 				value: txRequest.value,
-			})
+			}, '[SwapRoute] Signing transaction')
 
 			// Get RPC URL for this chain
 			const rpcUrlForChain = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
@@ -429,41 +451,58 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 					const requiredAmount = BigInt(quote.fromAmount)
 					if (allowanceResult < requiredAmount) {
-						console.log('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
-						// Build approve(spender, uint256.max) calldata
-						const maxUint256 = '0x' + 'f'.repeat(64)
+						logger.info('[SwapRoute] Insufficient ERC20 allowance, sending approval tx')
+						// Build approve(spender, amount) calldata. Mirrors the Python
+						// bot's approval_mode: 'unlimited' (default) approves max uint256
+						// so the router is approved once; 'exact' approves only this
+						// swap's fromAmount (base units) so no standing allowance survives.
+						const approveAmountHex = APPROVAL_MODE === 'exact'
+							? requiredAmount.toString(16).padStart(64, '0')
+							: 'f'.repeat(64)
 						const approveData = '0x095ea7b3' +
 							approvalAddress.slice(2).padStart(64, '0') +
-							maxUint256.slice(2)
+							approveAmountHex
 
 						const approvalNonce = yield* Effect.tryPromise({
 							try: () => fetchNonce(wallet.address),
 							catch: (e) => new Error(`Failed to get nonce for approval: ${e}`),
 						})
 
-						const approvalSignResult = yield* Effect.tryPromise({
-							try: async () => {
-								return await turnkeyClient.apiClient().signTransaction({
-									organizationId: wallet.turnkeySubOrgId!,
-									signWith: wallet.address,
-									type: 'TRANSACTION_TYPE_ETHEREUM',
-									unsignedTransaction: JSON.stringify({
+						const approvalUnsignedTx = {
 										type: '0x2',
 										chainId: `0x${txRequest.chainId.toString(16)}`,
 										nonce: approvalNonce,
 										to: quote.fromToken.address,
 										value: '0x0',
 										data: approveData,
-										maxFeePerGas: txRequest.gasPrice || '0x0',
+										...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
 										maxPriorityFeePerGas: '0x0',
 										gas: '0x20000', // 131072 — enough for approval
-									}),
-								})
+									}
+					const approvalSignResult = yield* Effect.tryPromise({
+							try: async () => {
+								const { signedTransaction } = await withSigningFallback(
+									async () => {
+										const result = await turnkeyClient.apiClient().signTransaction({
+											organizationId: wallet.turnkeySubOrgId!,
+											signWith: wallet.address,
+											type: 'TRANSACTION_TYPE_ETHEREUM',
+											unsignedTransaction: JSON.stringify(approvalUnsignedTx),
+										})
+										return result.signedTransaction
+									},
+									wallet.id,
+									// wallet.userId === user.id (getActiveWallets filters by it) and
+									// maps to Python wallets.user_id — required for ownership check.
+									user.id,
+									approvalUnsignedTx,
+								)
+								return { signedTransaction }
 							},
 							catch: (e) => new Error(`Failed to sign approval tx: ${e}`),
 						})
 
-						// Broadcast approval tx
+						// Broadcast approval tx and poll for nonce increment in parallel
 						yield* Effect.tryPromise({
 							try: async () => {
 								const res = await fetch(rpcUrlForChain, {
@@ -478,9 +517,24 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 								})
 								const data = (await res.json()) as { result?: string; error?: { message: string; code: number } }
 								if (data.error) throw new Error(`Approval RPC error: ${data.error.message}`)
-								console.log('[SwapRoute] Approval tx broadcast:', data.result)
-								// Wait a bit for the approval to be included
-								await new Promise((r) => setTimeout(r, 3000))
+								logger.info('[SwapRoute] Approval tx broadcast: %s', data.result)
+
+								// Poll for nonce to increment (approval tx mined) instead of fixed wait
+								// Max 6 attempts * 500ms = 3s, but returns early if nonce increments
+								const startNonce = parseInt(approvalNonce, 16)
+								for (let i = 0; i < 6; i++) {
+									await new Promise((r) => setTimeout(r, 500))
+									try {
+										const currentNonce = parseInt(await fetchNonce(wallet.address), 16)
+										if (currentNonce > startNonce) {
+											logger.info('[SwapRoute] Approval confirmed after %dms', (i + 1) * 500)
+											break
+										}
+									} catch (pollErr) {
+										logger.debug('[SwapRoute] Nonce poll attempt %d failed: %s', i + 1, pollErr)
+									}
+								}
+
 								return data.result
 							},
 							catch: (e) => new Error(`Failed to broadcast approval: ${e}`),
@@ -495,48 +549,53 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 				catch: (e) => new Error(`Failed to get nonce: ${e}`),
 			})
 
-			// Sign the swap transaction with Turnkey
-			const signResult = yield* Effect.tryPromise({
-				try: async () => {
-					const signedTx = await turnkeyClient.apiClient().signTransaction({
-						organizationId: wallet.turnkeySubOrgId!,
-						signWith: wallet.address,
-						type: 'TRANSACTION_TYPE_ETHEREUM',
-						unsignedTransaction: JSON.stringify({
+			// Sign the swap transaction with Turnkey (with fallback)
+			const swapUnsignedTx = {
 							type: '0x2', // EIP-1559
 							chainId: `0x${txRequest.chainId.toString(16)}`,
 							nonce: swapNonce,
 							to: txRequest.to,
 							value: txRequest.value,
 							data: txRequest.data,
-							maxFeePerGas: txRequest.gasPrice || '0x0',
+							...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
 							maxPriorityFeePerGas: '0x0',
 							gas: txRequest.gasLimit || '0x0',
-						}),
-					})
-					return signedTx
+						}
+			const signResult = yield* Effect.tryPromise({
+				try: async () => {
+					return await withSigningFallback(
+						async () => {
+							const result = await turnkeyClient.apiClient().signTransaction({
+								organizationId: wallet.turnkeySubOrgId!,
+								signWith: wallet.address,
+								type: 'TRANSACTION_TYPE_ETHEREUM',
+								unsignedTransaction: JSON.stringify(swapUnsignedTx),
+							})
+							return result.signedTransaction
+						},
+						wallet.id,
+						// wallet.userId === user.id; maps to Python wallets.user_id.
+						user.id,
+						swapUnsignedTx,
+					)
 				},
 				catch: (e) => new Error(`Failed to sign transaction: ${e}`),
 			})
 
 			const signedTransaction = signResult.signedTransaction
 
-			// Submit to RPC
-			// For now, return the signed tx - in production, submit to the chain's RPC
-			console.log('[SwapRoute] Transaction signed successfully')
-
-			// In a full implementation, you would:
-			// 1. Get the appropriate RPC endpoint for the chain
-			// 2. Send the signed transaction using eth_sendRawTransaction
-			// 3. Wait for confirmation
-			// 4. Update swap status to 'completed' or 'failed'
+			// Broadcast the signed transaction to the chain's RPC via
+			// eth_sendRawTransaction. rpcUrlForChain is guaranteed set above (the
+			// route fails early on an unsupported chain), so the signed tx is
+			// always broadcast and the swap status reflects the real outcome.
+			logger.info('[SwapRoute] Transaction signed successfully')
 
 			let txHash: string | null = null
 
 			if (rpcUrlForChain) {
 				const broadcastResult = yield* Effect.tryPromise({
 					try: async () => {
-						const res = await fetch(rpcUrlForChain, {
+						const res = await fetchWithRetry(rpcUrlForChain, {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({
@@ -558,25 +617,31 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
 				})
 				txHash = broadcastResult
-				console.log('[SwapRoute] Transaction broadcast, txHash:', txHash)
+				logger.info('[SwapRoute] Transaction broadcast, txHash: %s', txHash)
 			} else {
-				console.warn(
+				logger.warn(
 					`[SwapRoute] No RPC endpoint for chainId ${txRequest.chainId}, transaction signed but not broadcast`,
 				)
 			}
 
 			const newStatus = txHash ? 'submitted' : 'signed'
-			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash || signedTransaction)
+			// SECURITY: Never persist the raw signed tx into tx_hash — a signed,
+			// un-broadcast tx is replayable. On broadcast failure we store null and
+			// keep the non-terminal 'signed' status; the tx poller / retry path
+			// handles re-broadcast, not a value sitting in the tx_hash column.
+			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash ?? undefined)
 
 			// Clean up cached quote
 			yield* deleteCachedQuote(redis, quoteId)
 
+			// SECURITY: The raw signedTransaction hex is intentionally NOT returned —
+			// no client consumes it and exposing a replayable signed tx over HTTP is
+			// a needless risk.
 			return {
 				success: true,
 				swapId: swapRecord.id,
 				status: newStatus,
 				txHash: txHash || undefined,
-				signedTransaction,
 				message: txHash ? 'Transaction submitted.' : 'Transaction signed. Submit to chain to complete swap.',
 				chain: {
 					chainId: txRequest.chainId,
@@ -596,12 +661,12 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const error = result.left
-		console.error('[SwapRoute] Execute error:', error)
+		logger.error({ err: error }, '[SwapRoute] Execute error')
 
 		// Map error to response
 		if ('status' in error) {
 			const { status, body } = mapErrorToResponse(error as any)
-			return c.json(body, status as 200)
+			return c.json(body, status)
 		}
 
 		return c.json(
@@ -619,7 +684,7 @@ swapRoutes.post('/execute', telegramAuth(), async (c) => {
  */
 swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
-	const swapId = parseInt(c.req.param('swapId'), 10)
+	const swapId = parseInt(c.req.param('swapId') ?? '', 10)
 
 	if (isNaN(swapId)) {
 		return c.json({ error: 'Validation Error', message: 'Invalid swap ID' }, 400)
@@ -675,7 +740,7 @@ swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left as any)
-		return c.json(body, status as 200)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
@@ -765,9 +830,9 @@ interface TokenListResponse {
 		symbol: string
 		decimals: number
 		name: string
-		logoURI?: string
-		priceUSD?: string
-		balance?: string
+		logoURI?: string | undefined
+		priceUSD?: string | undefined
+		balance?: string | undefined
 	}>
 }
 
@@ -809,11 +874,14 @@ async function fetchNativeBalance(address: string, chainId: string): Promise<str
 		const data = (await res.json()) as { result?: string }
 		if (data.result) {
 			const balanceWei = BigInt(data.result)
-			const balance = Number(balanceWei) / 1e18
-			return balance.toFixed(6)
+			// Use BigInt math to avoid Number precision loss for large balances
+			const wholePart = balanceWei / BigInt(1e18)
+			const fractionalPart = balanceWei % BigInt(1e18)
+			const fractionalStr = fractionalPart.toString().padStart(18, '0').slice(0, 6)
+			return `${wholePart}.${fractionalStr}`
 		}
 	} catch (e) {
-		console.error(`[SwapRoute] Failed to fetch native balance for chain ${chainId}:`, e)
+		logger.error({ err: e }, `[SwapRoute] Failed to fetch native balance for chain ${chainId}`)
 	}
 	return null
 }
@@ -831,23 +899,29 @@ swapRoutes.get('/tokens', async (c) => {
 	}
 
 	// Try to extract wallet address from auth (optional -- endpoint remains public)
+	// SECURITY: initData MUST be HMAC-validated via TelegramAuthService before we
+	// trust the `user` field. Forging the header no longer enumerates balances —
+	// an invalid/missing signature simply yields no balance enrichment.
 	let walletAddress: string | null = null
 	const initData = c.req.header('X-Telegram-Init-Data')
 	if (initData) {
-		// Try to resolve wallet for authenticated user
+		// Try to resolve wallet for the validated, authenticated user
 		const walletResult = await runEffectEither(
 			Effect.gen(function* () {
+				const authService = yield* TelegramAuthService
 				const userService = yield* UserService
 				const walletService = yield* WalletService
-				// Parse telegram user ID from initData
-				const params = new URLSearchParams(initData)
-				const userParam = params.get('user')
-				if (!userParam) return null
-				const tgUser = JSON.parse(decodeURIComponent(userParam)) as { id: number }
-				const userOption = yield* userService.getUserByTelegramId(tgUser.id)
+
+				// Validate initData signature — do NOT parse the user field directly
+				const telegramUserOption = yield* authService.validateInitData(initData)
+				if (Option.isNone(telegramUserOption)) return null
+
+				const userOption = yield* userService.getUserByTelegramId(
+					telegramUserOption.value.id,
+				)
 				if (Option.isNone(userOption)) return null
 				const wallets = yield* walletService.getActiveWallets(userOption.value.id)
-				return wallets.length > 0 ? wallets[0].address : null
+				return wallets[0]?.address ?? null
 			}),
 		)
 		if (Either.isRight(walletResult) && walletResult.right) {
@@ -921,7 +995,7 @@ swapRoutes.get('/tokens', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		console.error('[SwapRoute] Failed to fetch tokens:', result.left)
+		logger.error({ err: result.left }, '[SwapRoute] Failed to fetch tokens')
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 

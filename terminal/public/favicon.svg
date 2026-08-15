@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000" fill="none">
+  <defs>
+    <radialGradient id="fruit" cx="34%" cy="24%" r="76%">
+      <stop offset="0%" stop-color="#FFD08A" />
+      <stop offset="46%" stop-color="#F28B2F" />
+      <stop offset="100%" stop-color="#C34A1B" />
+    </radialGradient>
+    <linearGradient id="leaf" x1="220" y1="100" x2="760" y2="380" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9DCA6A" />
+      <stop offset="1" stop-color="#326D3A" />
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1000" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#171216" />
+      <stop offset="1" stop-color="#2A1B18" />
+    </linearGradient>
+  </defs>
+  <rect width="1000" height="1000" rx="190" fill="url(#bg)" />
+  <ellipse cx="500" cy="838" rx="252" ry="46" fill="#080607" opacity="0.22" />
+  <path d="M500 214C711 214 838 354 838 572C838 778 690 890 500 890C310 890 162 778 162 572C162 354 289 214 500 214Z" fill="url(#fruit)" />
+  <ellipse cx="398" cy="408" rx="120" ry="154" fill="#FFF8EA" opacity="0.16" transform="rotate(-18 398 408)" />
+  <path d="M360 148C419 180 456 232 464 308C390 292 337 253 304 191C322 171 341 157 360 148Z" fill="url(#leaf)" />
+  <path d="M474 120C529 163 555 224 548 304C482 274 442 224 428 154C443 139 458 128 474 120Z" fill="url(#leaf)" />
+  <path d="M596 138C638 178 658 232 648 300C592 277 557 235 542 174C558 158 576 146 596 138Z" fill="url(#leaf)" />
+  <path d="M479 155C487 114 513 114 521 155L536 286C539 312 519 336 500 336C481 336 461 312 464 286L479 155Z" fill="#5D3B1E" />
+  <circle cx="500" cy="314" r="34" fill="#3F7A3E" />
+</svg>

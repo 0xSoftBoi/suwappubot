@@ -21,12 +21,13 @@ import json
 import base64
 from typing import Optional, Dict, Any, List, Callable, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from solders.pubkey import Pubkey
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -47,6 +48,7 @@ WRAPPED_SOL = "So11111111111111111111111111111111111111112"
 
 class PoolType(Enum):
     """Type of Raydium pool."""
+
     AMM_V4 = "amm_v4"
     CLMM = "clmm"
     CPSWAP = "cpswap"
@@ -55,6 +57,7 @@ class PoolType(Enum):
 @dataclass
 class RaydiumPool:
     """Raydium liquidity pool information."""
+
     pool_id: str
     pool_type: PoolType
     base_mint: str
@@ -98,6 +101,7 @@ class RaydiumPool:
 @dataclass
 class PoolCreationEvent:
     """Event emitted when a new pool is created."""
+
     pool: RaydiumPool
     signature: str
     slot: int
@@ -118,6 +122,7 @@ class PoolCreationEvent:
 
 class RaydiumError(Exception):
     """Exception for Raydium monitor errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -159,7 +164,7 @@ class RaydiumMonitor:
 
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get account info
             async with session.post(
@@ -168,8 +173,8 @@ class RaydiumMonitor:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getAccountInfo",
-                    "params": [pool_id, {"encoding": "base64"}]
-                }
+                    "params": [pool_id, {"encoding": "base64"}],
+                },
             ) as response:
                 if response.status != 200:
                     return None
@@ -209,7 +214,7 @@ class RaydiumMonitor:
         pools = []
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get recent signatures for Raydium programs
             program = RAYDIUM_AMM_V4
@@ -224,8 +229,8 @@ class RaydiumMonitor:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getSignaturesForAddress",
-                    "params": [program, {"limit": limit * 2}]
-                }
+                    "params": [program, {"limit": limit * 2}],
+                },
             ) as response:
                 if response.status != 200:
                     return []
@@ -283,7 +288,7 @@ class RaydiumMonitor:
 
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get recent signatures for AMM program
             params = {"limit": 10}
@@ -296,8 +301,8 @@ class RaydiumMonitor:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getSignaturesForAddress",
-                    "params": [RAYDIUM_AMM_V4, params]
-                }
+                    "params": [RAYDIUM_AMM_V4, params],
+                },
             ) as response:
                 if response.status != 200:
                     return
@@ -329,7 +334,7 @@ class RaydiumMonitor:
         """Check if a transaction is a pool creation."""
         try:
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             async with session.post(
                 rpc_url,
@@ -339,9 +344,9 @@ class RaydiumMonitor:
                     "method": "getTransaction",
                     "params": [
                         signature,
-                        {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}
-                    ]
-                }
+                        {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0},
+                    ],
+                },
             ) as response:
                 if response.status != 200:
                     return None
@@ -359,9 +364,7 @@ class RaydiumMonitor:
             return None
 
     def _parse_pool_creation_event(
-        self,
-        tx_data: Dict,
-        signature: str
+        self, tx_data: Dict, signature: str
     ) -> Optional[PoolCreationEvent]:
         """Parse a transaction to extract pool creation event."""
         try:
@@ -447,7 +450,11 @@ class RaydiumMonitor:
                         pool=pool,
                         signature=signature,
                         slot=slot,
-                        timestamp=datetime.fromtimestamp(block_time) if block_time else datetime.utcnow(),
+                        timestamp=(
+                            datetime.fromtimestamp(block_time)
+                            if block_time
+                            else datetime.now(timezone.utc)
+                        ),
                         creator=creator,
                         initial_base_amount=initial_base,
                         initial_quote_amount=initial_quote,
@@ -468,10 +475,7 @@ class RaydiumMonitor:
         return event.pool if event else None
 
     def _parse_pool_account(
-        self,
-        pool_id: str,
-        account_data: str,
-        owner: str
+        self, pool_id: str, account_data: str, owner: str
     ) -> Optional[RaydiumPool]:
         """Parse pool account data."""
         try:

@@ -1,0 +1,129 @@
+.demoCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-top: 2.5rem;
+  padding: 2rem 2.25rem;
+  border: 1px solid var(--sw-hairline-strong);
+  border-radius: var(--sw-r-lg);
+  background:
+    radial-gradient(120% 160% at 0% 0%, var(--sw-accent-wash) 0%, transparent 60%),
+    var(--sw-panel);
+  box-shadow: var(--sw-shadow-sm);
+}
+
+.demoEyebrow {
+  margin: 0 0 0.35rem;
+  padding: 2px 10px;
+  display: inline-block;
+  border-radius: var(--sw-r-pill);
+  background: var(--sw-accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.demoCard h2 {
+  margin: 0 0 0.5rem;
+}
+
+.demoBody {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--sw-muted);
+  line-height: 1.6;
+}
+
+.demoCard :global(.summer-button) {
+  flex: none;
+}
+
+@media (max-width: 720px) {
+  .demoCard {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: var(--sw-gap);
+  align-items: start;
+  margin-top: var(--sw-section);
+  padding-top: var(--sw-gap);
+  border-top: 1px solid var(--sw-hairline);
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+}
+
+.pitch h2 {
+  margin: 0 0 0.75rem;
+}
+
+.pitch p {
+  margin: 0 0 1.75rem;
+  color: var(--sw-muted);
+  line-height: 1.65;
+  max-width: 42ch;
+}
+
+.trustLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sw-muted);
+  margin: 0 0 0.85rem;
+}
+
+.trustList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.trustList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.94rem;
+  line-height: 1.45;
+  color: var(--sw-ink);
+}
+
+.check {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--sw-accent);
+  font-weight: 700;
+}
+
+.note {
+  color: var(--sw-muted);
+}
+
+.panel {
+  padding: 2rem;
+  background: var(--sw-panel);
+  border: 1px solid var(--sw-hairline);
+  border-radius: var(--sw-r-lg);
+  box-shadow: var(--sw-shadow-sm);
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: 1.25rem;
+  }
+}

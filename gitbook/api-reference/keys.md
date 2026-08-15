@@ -1,85 +1,52 @@
-# Rotate API Key
+# API Key Rotation
 
-`POST /keys/rotate` | Auth: Required
+Rotate your agent's API key. The old key is invalidated immediately and a new one is returned exactly once. Use this if a key is leaked or on a regular rotation schedule.
 
-Rotate your API key. The current key is immediately invalidated and a new key is returned. Store the new key securely -- it will not be shown again.
+## POST /v1/agent/keys/rotate
 
-## Request
+Requires authentication with your current (still valid) key.
 
-No body required. Authenticate with your current API key.
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/keys/rotate \
+  -H "Authorization: Bearer suwappu_sk_OLD_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/keys/rotate", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const rotated = await res.json();
+```
+```python
+import os, requests
 
-## Response
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/keys/rotate",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+rotated = res.json()
+```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the request succeeded |
-| `api_key` | string | The new API key (prefixed with `suwappu_sk_`) |
-| `message` | string | Confirmation message |
-
-### Example Response
+**Response:**
 
 ```json
 {
   "success": true,
-  "api_key": "suwappu_sk_new_8f3a1b9c4d2e7f6a",
-  "message": "API key rotated. Old key is now invalid."
+  "api_key": "suwappu_sk_NEW_KEY",
+  "message": "API key rotated. Save this key — the old key is now invalid."
 }
 ```
 
-> **Warning:** Your old API key is immediately invalidated the moment this request succeeds. All subsequent requests must use the new key. Store it securely -- you will not be able to retrieve it again.
+### Important
 
-## Errors
+- The **old key stops working immediately**. Update every client before making the next request.
+- The new key is shown **only once** — Suwappu stores only a hash and cannot return it again.
+- Your agent's identity, managed wallet, and history are unchanged; only the key changes.
 
-| Status | Error | Cause |
-|--------|-------|-------|
-| 401 | `"Unauthorized"` | Missing or invalid API key |
-| 500 | `"Key rotation failed"` | Internal error during key generation |
+### Errors
 
-## Code Examples
+| Status | Cause |
+|--------|-------|
+| `401` | Missing or invalid (e.g. already-rotated) API key |
 
-### curl
-
-```bash
-curl -X POST https://api.suwappu.bot/v1/agent/keys/rotate \
-  -H "Authorization: Bearer suwappu_sk_your_current_key"
-```
-
-### Python
-
-```python
-import requests
-
-response = requests.post(
-    "https://api.suwappu.bot/v1/agent/keys/rotate",
-    headers={"Authorization": "Bearer suwappu_sk_your_current_key"},
-)
-
-data = response.json()
-if data["success"]:
-    new_key = data["api_key"]
-    print(f"New key: {new_key}")
-    # IMPORTANT: Update your stored key immediately
-    # The old key no longer works
-```
-
-### TypeScript
-
-```typescript
-const response = await fetch(
-  "https://api.suwappu.bot/v1/agent/keys/rotate",
-  {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer suwappu_sk_your_current_key",
-    },
-  }
-);
-
-const data = await response.json();
-if (data.success) {
-  const newKey = data.api_key;
-  console.log(`New key: ${newKey}`);
-  // IMPORTANT: Update your stored key immediately
-  // The old key no longer works
-}
-```
+See [Authentication](../authentication/README.md) for how keys are issued and used.

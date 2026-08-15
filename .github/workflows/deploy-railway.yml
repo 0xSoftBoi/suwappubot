@@ -1,0 +1,142 @@
+name: Deploy to Railway
+
+# Manual recovery/operations deploy only. Normal main/dev deploys are created by
+# Railway's native GitHub integration, which applies per-service watch paths and can
+# wait for GitHub status checks. Keeping a second push-triggered `railway up` path
+# would duplicate deployments (and notifications) for the same commit.
+#
+# Replaces the AWS ECS workflows (deploy-api.yml / deploy-frontend.yml, kept for
+# reversibility but now manual-only).
+#
+# Auth: each GitHub Environment (production, development) holds a RAILWAY_TOKEN secret =
+# a Railway PROJECT token, which is scoped to one Railway project + environment. So
+# `railway up --service X` deploys to the environment that token belongs to — no
+# --environment flag needed. Create the tokens in Railway: Project → Settings → Tokens.
+#
+# `railway up` uploads the repo as the build context and honors each service's configured
+# Root Directory + railway.json, so one command works for every service from the repo root.
+#
+# The matrix `service` values MUST match the service names in the Railway dashboard.
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Which service(s) to deploy
+        type: choice
+        default: all
+        options: [all, python-api, api-ts, terminal, webapp, showcase]
+      environment:
+        description: Target environment (auto = from branch)
+        type: choice
+        default: auto
+        options: [auto, production, development]
+
+concurrency:
+  # One in-flight deploy per branch; don't cancel a deploy mid-flight.
+  group: railway-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  setup:
+    name: Resolve environment + changed services
+    runs-on: ubuntu-latest
+    outputs:
+      gh_env: ${{ steps.decide.outputs.gh_env }}
+      services: ${{ steps.decide.outputs.services }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+          INPUT_SVC: ${{ github.event.inputs.service }}
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # ---- environment: explicit input wins, else map branch ----
+          if [ -n "${INPUT_ENV:-}" ] && [ "${INPUT_ENV}" != "auto" ]; then
+            ENV="${INPUT_ENV}"
+          elif [ "${REF}" = "main" ]; then
+            ENV="production"
+          else
+            ENV="development"
+          fi
+          echo "gh_env=${ENV}" >> "$GITHUB_OUTPUT"
+
+          # ---- services ----
+          ALL='["python-api","api-ts","terminal","webapp","showcase"]'
+          if [ "${EVENT}" = "workflow_dispatch" ]; then
+            if [ "${INPUT_SVC:-all}" = "all" ]; then
+              SVCS="${ALL}"
+            else
+              SVCS="[\"${INPUT_SVC}\"]"
+            fi
+          else
+            # push: deploy only services whose files changed (mirrors railway.json watchPatterns)
+            if [ -z "${BEFORE:-}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+              SVCS="${ALL}"   # new branch / no base commit — deploy all
+            else
+              CHANGED="$(git diff --name-only "${BEFORE}" "${SHA}" 2>/dev/null || git diff --name-only HEAD~1 HEAD)"
+              sel=()
+              echo "${CHANGED}" | grep -qE '^(api/|bot/|database/|requirements\.txt)' && sel+=('"python-api"') || true
+              echo "${CHANGED}" | grep -qE '^api-ts/'                                && sel+=('"api-ts"')     || true
+              echo "${CHANGED}" | grep -qE '^(terminal/|packages/design-tokens/)'    && sel+=('"terminal"')   || true
+              echo "${CHANGED}" | grep -qE '^(webapp/|packages/design-tokens/)'      && sel+=('"webapp"')     || true
+              echo "${CHANGED}" | grep -qE '^showcase/'                              && sel+=('"showcase"')   || true
+              if [ "${#sel[@]}" -eq 0 ]; then
+                SVCS="[]"
+              else
+                SVCS="[$(IFS=,; echo "${sel[*]}")]"
+              fi
+            fi
+          fi
+          echo "services=${SVCS}" >> "$GITHUB_OUTPUT"
+          echo "Resolved: env=${ENV} services=${SVCS}"
+
+  deploy:
+    name: Deploy ${{ matrix.service }}
+    needs: setup
+    if: needs.setup.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.setup.outputs.gh_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.setup.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install Railway CLI
+        # The CLI's postinstall fetches a binary from GitHub releases, which
+        # intermittently 502/504s and fails the whole deploy. Retry with backoff.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if npm i -g @railway/cli; then
+              railway --version && exit 0
+            fi
+            echo "::warning::Railway CLI install attempt ${attempt} failed; retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          echo "::error::Railway CLI install failed after 5 attempts"
+          exit 1
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          svc="${{ matrix.service }}"
+          # api-ts and showcase are sub-directory services: each has a self-contained
+          # railway.json + Dockerfile in its own folder. Upload that folder as the
+          # archive root (--path-as-root) so Railway builds it via its Dockerfile
+          # instead of detecting the repo root as a Python app (root pyproject.toml).
+          # python-api, terminal, and webapp deploy from the repo root and use their
+          # dashboard Config path (railway.<svc>.json).
+          case "$svc" in
+            api-ts)   railway up ./api-ts   --path-as-root --ci --service "$svc" ;;
+            showcase) railway up ./showcase --path-as-root --ci --service "$svc" ;;
+            *)        railway up --ci --service "$svc" ;;
+          esac

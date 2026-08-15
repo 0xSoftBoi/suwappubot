@@ -1,0 +1,10 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.DS_Store
+
+# Local env (API keys) — never commit
+.env
+.env.local
+.env.*.local

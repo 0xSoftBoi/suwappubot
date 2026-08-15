@@ -1,5 +1,8 @@
 import { Context, Effect, Layer } from 'effect'
 import type { Wallet } from '../db'
+import { logger } from '../lib/logger'
+import { fetchTokenPrices } from '../lib/prices'
+import { RPC_ENDPOINTS, NATIVE_TOKENS } from '../config/chains'
 
 // Token balance with USD value
 export interface TokenBalance {
@@ -11,53 +14,6 @@ export interface TokenBalance {
 	usdValue: number
 	decimals: number
 }
-
-// Chain RPC endpoints (use env vars in production, Alchemy as primary fallback)
-const alchemyKey = process.env.ALCHEMY_API_KEY || ''
-const RPC_ENDPOINTS: Record<string, string> = {
-	ethereum:
-		process.env.ETH_RPC_URL ||
-		(alchemyKey
-			? `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://eth.llamarpc.com'),
-	arbitrum:
-		process.env.ARBITRUM_RPC_URL ||
-		(alchemyKey
-			? `https://arb-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://arbitrum.llamarpc.com'),
-	optimism:
-		process.env.OPTIMISM_RPC_URL ||
-		(alchemyKey
-			? `https://opt-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://optimism.llamarpc.com'),
-	polygon:
-		process.env.POLYGON_RPC_URL ||
-		(alchemyKey
-			? `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://polygon.llamarpc.com'),
-	base:
-		process.env.BASE_RPC_URL ||
-		(alchemyKey
-			? `https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`
-			: 'https://base.llamarpc.com'),
-	bsc: process.env.BSC_RPC_URL || 'https://bsc.llamarpc.com',
-	solana: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-}
-
-// Native token info by chain
-const NATIVE_TOKENS: Record<string, { symbol: string; name: string; decimals: number }> = {
-	ethereum: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
-	polygon: { symbol: 'MATIC', name: 'Polygon', decimals: 18 },
-	arbitrum: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
-	optimism: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
-	base: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
-	bsc: { symbol: 'BNB', name: 'BNB Chain', decimals: 18 },
-	solana: { symbol: 'SOL', name: 'Solana', decimals: 9 },
-}
-
-// Simple price cache (in production, use Redis)
-const priceCache: Map<string, { price: number; timestamp: number }> = new Map()
-const PRICE_CACHE_TTL = 60 * 1000 // 1 minute
 
 export interface BalanceServiceInterface {
 	readonly getWalletBalances: (wallet: Wallet) => Effect.Effect<TokenBalance[], Error>
@@ -97,9 +53,9 @@ async function fetchEvmNativeBalance(address: string, chain: string): Promise<st
 				return balance.toFixed(6)
 			}
 		} catch (e) {
-			console.error(
-				`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl}):`,
-				e,
+			logger.error(
+				{ err: e },
+				`Failed to fetch ${chain} balance (attempt ${attempt}/${maxAttempts}, rpc=${rpcUrl})`,
 			)
 			if (attempt < maxAttempts) continue
 		}
@@ -132,50 +88,18 @@ async function fetchSolanaBalance(address: string): Promise<string> {
 			return sol.toFixed(6)
 		}
 	} catch (e) {
-		console.error('Failed to fetch SOL balance:', e)
+		logger.error({ err: e }, 'Failed to fetch SOL balance')
 	}
 
 	return '0'
 }
 
-// Fetch token price from CoinGecko (free tier)
-async function fetchTokenPrice(symbol: string): Promise<number> {
-	// Check cache first
-	const cached = priceCache.get(symbol.toLowerCase())
-	if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
-		return cached.price
-	}
-
-	// Map symbols to CoinGecko IDs
-	const coinGeckoIds: Record<string, string> = {
-		eth: 'ethereum',
-		sol: 'solana',
-		matic: 'matic-network',
-		bnb: 'binancecoin',
-		usdc: 'usd-coin',
-		usdt: 'tether',
-	}
-
-	const id = coinGeckoIds[symbol.toLowerCase()]
-	if (!id) return 0
-
-	try {
-		const response = await fetch(
-			`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
-		)
-		const data = (await response.json()) as Record<string, { usd?: number }>
-
-		if (data[id]?.usd) {
-			const price = data[id].usd
-			priceCache.set(symbol.toLowerCase(), { price, timestamp: Date.now() })
-			return price
-		}
-	} catch (e) {
-		console.error(`Failed to fetch price for ${symbol}:`, e)
-	}
-
-	return 0
-}
+// All native symbols across EVM chains (for pre-fetching prices in parallel with balances)
+const ALL_NATIVE_SYMBOLS = [...new Set(
+	['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
+		.map((c) => NATIVE_TOKENS[c]?.symbol)
+		.filter(Boolean),
+)] as string[]
 
 export const BalanceServiceLive = Layer.succeed(BalanceService, {
 	getWalletBalances: (wallet: Wallet) =>
@@ -184,9 +108,12 @@ export const BalanceServiceLive = Layer.succeed(BalanceService, {
 				const balances: TokenBalance[] = []
 
 				if (wallet.chainType === 'solana') {
-					// Fetch SOL balance
-					const balance = await fetchSolanaBalance(wallet.address)
-					const price = await fetchTokenPrice('SOL')
+					// Fetch SOL balance and price in parallel
+					const [balance, prices] = await Promise.all([
+						fetchSolanaBalance(wallet.address),
+						fetchTokenPrices(['SOL']),
+					])
+					const price = prices.SOL?.usd ?? 0
 					const usdValue = parseFloat(balance) * price
 
 					balances.push({
@@ -199,17 +126,26 @@ export const BalanceServiceLive = Layer.succeed(BalanceService, {
 						decimals: 9,
 					})
 				} else {
-					// EVM wallet - fetch balance for common chains
 					const evmChains = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
 
-					for (const chain of evmChains) {
-						const balance = await fetchEvmNativeBalance(wallet.address, chain)
-						const balanceNum = parseFloat(balance)
+					// Fetch ALL chain balances AND prices in parallel
+					const [chainBalances, prices] = await Promise.all([
+						Promise.all(
+							evmChains.map(async (chain) => ({
+								chain,
+								balance: await fetchEvmNativeBalance(wallet.address, chain),
+							})),
+						),
+						fetchTokenPrices(ALL_NATIVE_SYMBOLS),
+					])
 
-						// Only include if balance > 0
+					// Assemble results (only chains with balance > 0)
+					for (const { chain, balance } of chainBalances) {
+						const balanceNum = parseFloat(balance)
 						if (balanceNum > 0) {
 							const token = NATIVE_TOKENS[chain]
-							const price = await fetchTokenPrice(token.symbol)
+							if (!token) continue
+							const price = prices[token.symbol]?.usd ?? 0
 							const usdValue = balanceNum * price
 
 							balances.push({
@@ -232,7 +168,10 @@ export const BalanceServiceLive = Layer.succeed(BalanceService, {
 
 	getTokenPrice: (symbol: string) =>
 		Effect.tryPromise({
-			try: () => fetchTokenPrice(symbol),
+			try: async () => {
+				const prices = await fetchTokenPrices([symbol])
+				return prices[symbol.toUpperCase()]?.usd ?? 0
+			},
 			catch: (e) => new Error(`Failed to fetch price for ${symbol}: ${e}`),
 		}),
 })

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "bot.suwappu/mcp",
+  "description": "Cross-chain DeFi tools for AI agents: quotes, swap simulation and unsigned transaction preparation, portfolio/prices, perps, prediction-market, and lending research. Streamable HTTP transport; public discovery plus four zero-cost discovery tools work without a key, while scoped/metered tools require bearer auth.",
+  "version": "0.6.0",
+  "repository": {
+    "url": "https://github.com/0xSoftBoi/suwappubot",
+    "source": "github"
+  },
+  "websiteUrl": "https://suwappu.bot",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <SUWAPPU_API_KEY>. Required for write/scoped tools and any metered read (get_quote, get_portfolio, get_prices, etc). NOT required for the four public read tools (list_chains, list_tokens, get_tempo_tokens, browse_mpp_directory). Register a free key at POST https://api.suwappu.bot/v1/agent/register.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "bot.suwappu/tools": [
+      { "name": "get_quote", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Get a swap quote for exchanging tokens across EVM (Li.Fi), Solana (Jupiter), and Tempo (internal router)." },
+      { "name": "execute_swap", "readOnly": false, "auth": "bearer", "credits": 5, "description": "Prepare an unsigned self-custody transaction from a quote_id; never signs or broadcasts." },
+      { "name": "simulate_swap", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Dry-run a swap (balance/allowance/gas/eth_call checks) with zero funds moved." },
+      { "name": "get_swap_status", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Get status for a managed swap created through the REST managed-execution path." },
+      { "name": "get_swap_history", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Paginated managed-swap history for the authenticated agent." },
+      { "name": "get_portfolio", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Token balances and USD portfolio value for a wallet across all supported chains." },
+      { "name": "get_prices", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Current USD prices with 24h change for up to 20 symbols." },
+      { "name": "list_chains", "readOnly": true, "auth": "none", "credits": 0, "description": "List all supported blockchain networks. Public, no API key required." },
+      { "name": "list_tokens", "readOnly": true, "auth": "none", "credits": 0, "description": "List available tokens on a chain. Public, no API key required." },
+      { "name": "get_tempo_tokens", "readOnly": true, "auth": "none", "credits": 0, "description": "TIP-20 token list on Tempo mainnet. Public, no API key required." },
+      { "name": "browse_mpp_directory", "readOnly": true, "auth": "none", "credits": 0, "description": "Browse the third-party MPP service directory (directory.mpp.dev). Public, no API key required." },
+      { "name": "list_wallet_policies", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List Turnkey spending/whitelist policies on the agent's managed wallet." },
+      { "name": "predict_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Search and browse Polymarket prediction markets." },
+      { "name": "predict_market", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Detailed prediction market info with live CLOB midpoint prices per outcome." },
+      { "name": "predict_book", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Live CLOB order book for every outcome of a prediction market." },
+      { "name": "predict_price", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Live CLOB midpoint prices for every outcome of a prediction market." },
+      { "name": "predict_trades", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Recent trades across all outcomes of a prediction market." },
+      { "name": "perps_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List HyperLiquid perpetual futures markets." },
+      { "name": "perps_quote", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Quote a HyperLiquid perpetual position (entry, margin, liquidation price, funding, fees)." },
+      { "name": "perps_positions", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Open HyperLiquid perpetual positions for a wallet." },
+      { "name": "lend_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List current Morpho lending markets on a chain (APY, utilization, USD liquidity, listing status, warnings)." },
+      { "name": "lend_market", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Chain-scoped detail for a single Morpho lending market by ID." }
+    ],
+    "bot.suwappu/payment": {
+      "protocol": "x402",
+      "scheme": "exact",
+      "network": "base",
+      "asset": "USDC",
+      "unit": "1 credit = $0.001 USD",
+      "challenge": "HTTP 402 with X-Payment-Required (base64 JSON) + Accept-Payment headers, and an accepts[] body per the x402 spec, when prepaid credit balance is insufficient",
+      "topup": "POST https://api.suwappu.bot/v1/agent/billing/topup {txHash, chain, amount}",
+      "docs": "https://suwappu.bot/docs/billing/agentic-payments"
+    }
+  }
+}

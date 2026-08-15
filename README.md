@@ -1,417 +1,312 @@
-# Suwappu 🌸
+<div align="center">
+  <a href="https://www.suwappu.bot">
+    <img src="showcase/public/logo.svg" width="84" alt="Suwappu">
+  </a>
+</div>
 
-Cross-chain DEX bot & liquidity infrastructure for humans and AI agents.
+<h1 align="center">Suwappu</h1>
 
-[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/features/agent_integration.md)
-[![A2A-Optimized](https://img.shields.io/badge/A2A-Optimized-blue)](agent-card.json)
+<div align="center">
 
-## Overview
+[![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)
+[![CI](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/test.yml?branch=main&label=CI)](.github/workflows/test.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/codeql.yml?branch=main&label=CodeQL)](.github/workflows/codeql.yml)
+[![Scorecard](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/scorecard.yml?branch=main&label=scorecard)](.github/workflows/scorecard.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-```mermaid
-flowchart LR
-    subgraph Clients["Clients"]
-        TG["Telegram"]
-        WA["WhatsApp"]
-        DC["Discord"]
-        AI["AI Agents"]
-    end
+[![Chains](https://img.shields.io/badge/Chains-45-green)](showcase/src/data/stats.generated.json)
+[![Providers](https://img.shields.io/badge/Swap_Providers-19-orange)](showcase/src/data/stats.generated.json)
+[![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
+[![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
+[![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
 
-    subgraph Suwappu["Suwappu Platform"]
-        Bot["Bot (Python)"]
-        API["API (TypeScript)"]
-        Web["Webapp (React)"]
-        SC["Showcase (Next.js)"]
-    end
+</div>
 
-    subgraph Providers["9 Swap Providers"]
-        EVM["EVM Chains (12)"]
-        SOL["Solana"]
-        SUI["Sui"]
-    end
+<p align="center">
+  <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
+  Swap tokens across 45 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+</p>
 
-    TG --> Bot & Web
-    WA --> Bot
-    DC --> Bot
-    AI --> API
-    Bot --> API
-    Web --> API
-    API --> EVM & SOL & SUI
-```
+<p align="center">
+  <b><a href="https://www.suwappu.bot">Trade now</a></b> &nbsp;·&nbsp;
+  <b><a href="https://terminal.suwappu.bot">Open Terminal</a></b> &nbsp;·&nbsp;
+  <b><a href="https://t.me/SuwappuBot">Telegram Bot</a></b> &nbsp;·&nbsp;
+  <b><a href="docs/agent-clients.md">Agent Docs</a></b> &nbsp;·&nbsp;
+  <b><a href="#security">Security</a></b>
+</p>
 
-**Swap tokens across 15 chains** via Telegram, WhatsApp, Discord, or programmatic API.
+<br>
 
-| Feature | Description |
-|---------|-------------|
-| **Cross-Chain Swaps** | 12 EVM chains + Solana + Sui + TON |
-| **9 Swap Providers** | CoW, Socket, Jupiter, CCTP, Across, Wormhole, Li.Fi, LayerZero, Chainlink |
-| **MEV Protection** | CoW Protocol (EVM) + Jito bundles (Solana) |
-| **Web Trading Terminal** | TradingView charts, token discovery, quick-trade |
-| **Advanced Orders** | Limit, DCA, trailing stop-loss, multi take-profit |
-| **Copy Trading** | Smart money tracking with auto-mirror |
-| **AI-Powered Analysis** | Natural language trades, token safety analysis |
-| **Perps Trading** | HyperLiquid integration with TP/SL |
-| **Security** | 2FA, whitelisting, spending limits, AES-256-GCM wallets |
-| **Agent API** | MCP + A2A ready for AI integrations |
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<a href="https://www.suwappu.bot"><img src="docs/assets/screenshots/showcase.jpg" alt="Suwappu marketing site — trade anything, no limits"></a>
+
+<sub>**[www.suwappu.bot](https://www.suwappu.bot)** — marketing site, embedded terminal preview</sub>
+
+</td>
+<td width="50%" valign="top">
+
+<a href="https://terminal.suwappu.bot"><img src="docs/assets/screenshots/terminal.png" alt="Suwappu Terminal — live TradingView chart, order book, and swap panel"></a>
+
+<sub>**[terminal.suwappu.bot](https://terminal.suwappu.bot)** — the live Telegram Mini App: chart, order book, swap/limit/DCA, portfolio</sub>
+
+</td>
+</tr>
+</table>
 
 ---
 
-## Features
+<details>
+<summary><b>Table of contents</b></summary>
 
-### Phase 1 — Table Stakes
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Features](#features)
+4. [Quick Start](#quick-start)
+5. [Swap Routing](#swap-routing)
+6. [Supported Chains](#supported-chains)
+7. [Bot Commands](#bot-commands)
+8. [Project Structure](#project-structure)
+9. [API Endpoints (TypeScript)](#api-endpoints-typescript)
+10. [npm Packages](#npm-packages)
+11. [Deployment](#deployment)
+12. [Security](#security)
+13. [Documentation](#documentation)
+14. [Links](#links)
 
-- **MEV Protection** — User-toggleable shield. CoW Protocol for EVM, Jito bundles for Solana. Shield indicator on every swap quote.
-- **Token Safety Scoring** — GoPlus Security integration for all users. Honeypot detection, liquidity lock status, top holder concentration.
-- **PnL Tracking** — Realized and unrealized PnL per position with average cost basis and price capture at execution.
-- **TON Chain Support** — TON Connect SDK, STON.fi DEX integration, Jetton token support.
+</details>
 
-### Phase 2 — Competitive Edge
+---
 
-- **Advanced Order Types** — DCA scheduling, limit orders, trailing stop-loss, multi take-profit targets, buy-the-dip automation.
-- **Gamification** — Points-based tier system (Bronze/Silver/Gold/Diamond), daily quests, jackpot pool, volume cashback tiers, daily check-ins.
-- **Multi-Tier Referrals** — 3-tier commission structure (25%/5%/2%), 10% fee discount for referred users, referral network view.
-- **Quick-Trade UX** — Preset buy amounts, post-swap PnL card with quick-sell buttons, guided first-trade flow.
-- **Smart Notifications** — PnL alerts, notification batching, quiet hours, actionable inline buttons.
+## Overview
 
-### Phase 3 — Differentiation
+**45 chains. 19 swap providers. 3 agent protocols. 5 frontends.**
 
-- **Web Trading Terminal** — Telegram Mini App with TradingView charts (lightweight-charts), token discovery dashboard, trending tokens, token detail pages, fullscreen mode.
-- **Enhanced Copy Trading** — Real-time smart money tracking, auto-sell mirroring, configurable modes, filtered leaderboard.
-- **Telegram Stars Monetization** — Native in-app payments for Pro (500 Stars) and Premium (1500 Stars) subscription tiers.
-- **Anti-Rug Protection** — Post-purchase token monitoring with 60s background checks for liquidity drops, tax increases, ownership changes. Emergency auto-sell.
-- **AI-Powered Features** — Claude API integration for natural language trade parsing (multi-language), token safety analysis, portfolio summaries.
-
-### Phase 4 — Expansion
-
-- **New Chains** — Sui (Aftermath/Cetus routing, Ed25519 wallets), Monad, Berachain, Mantle, Gnosis, Scroll, plus 4 additional EVM chains.
-- **Perps Trading** — HyperLiquid REST client for 10 markets, position management with TP/SL, background monitor, `/perps` Telegram command.
-- **Security Hardening** — TOTP 2FA via pyotp, withdrawal address whitelisting with 24h cooldown, Redis-backed spending limits, audit logging, backup codes.
-- **Points-Based Tiers** — Fee discounts up to 50% based on accumulated points. Replaced token staking model.
-- **Trade Queue** — SQS-backed async trade processing with DLQ and inline fallback, circuit breaker pattern for RPC failover.
-- **Discord Bot** — Modular discord.py bot with `/swap`, `/wallet`, `/portfolio`, `/price`, `/long`, `/short`, `/positions`, whale alerts, trending tokens, daily leaderboard.
+| | |
+|---|---|
+| **Chains** | 45 mainnet chains — EVM + Solana + TRON + Starknet (canonical list: `bot/config/chains.py`; 18 served on the agent API) |
+| **Swap Providers** | 19 routing providers — 0x, 1inch, Across, AVNU, CCIP, CCTP, CoW, GoatSwap, JuiceSwap, Jupiter, KyberSwap, LayerZero, Li.Fi, OKX, Socket, SunSwap, Tempo DEX, usdt0, Wormhole (chain-gated per route; source of truth: `showcase/src/data/stats.generated.json`) |
+| **Agent Protocols** | REST API (50+ endpoints) · MCP (22 tools) · A2A (JSON-RPC) |
+| **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Browser Extension |
+| **SDKs** | [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) · [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) · Python SDK |
 
 ---
 
 ## Architecture
 
-### System Overview
-
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph Clients["Entry Points"]
-        TG["Telegram Bot\n/s /w /b /p /a /o /perps"]
-        MiniApp["Telegram Mini App\nTrading Terminal"]
+        TG["Telegram Bot"]
         WA["WhatsApp"]
-        DC["Discord Bot"]
-        AgentAPI["AI Agents\nMCP + A2A"]
-        Dash["Dashboard"]
-        Mobile["Mobile (iOS)"]
-        Showcase["Showcase\nwww.suwappu.bot"]
+        DC["Discord"]
+        AI["AI Agents\nMCP + A2A + REST"]
+        Web["Webapp + Terminal"]
+        Ext["Browser Extension"]
     end
 
-    subgraph Backend["Backend Services"]
-        BotService["Python Monolith\nBot + FastAPI\nSwap Engine, Alerts, Orders,\nSniping, Perps, Copy Trading"]
-        APITS["TypeScript API\nHono + Effect-TS\nAgent routes, Webapp routes"]
-        WebService["Webapp\nReact + Vite\n(Nginx)"]
-        ShowcaseService["Showcase\nNext.js"]
+    subgraph Backend["Backend"]
+        Bot["Python Monolith\nSwap Engine · 60+ Handlers\n120+ Services"]
+        API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
     end
 
-    subgraph Data["Data Layer"]
-        PG[(PostgreSQL 15\nMulti-AZ)]
-        Redis[(Redis 7.1\nCache + Sessions\n+ Rate Limits)]
-        SQS["SQS\nTrade Queue + DLQ"]
-    end
-
-    subgraph SwapProviders["Swap Providers (9)"]
-        CoW["CoW Protocol"]
-        Socket["Socket"]
-        Jup["Jupiter + Jito"]
-        CCTP["Circle CCTP"]
-        Across["Across"]
-        Wormhole["Wormhole"]
-        LiFi["Li.Fi"]
-        LZ["LayerZero/Stargate"]
-        CCIP["Chainlink CCIP"]
-    end
-
-    subgraph Chains["15 Chains"]
-        EVM["ETH / BSC / Polygon / Arbitrum\nOptimism / Base / Avalanche / Fantom\nLinea / Mantle / Gnosis / Scroll"]
+    subgraph Providers["19 Swap Providers"]
+        EVM["EVM Chains"]
         SOL["Solana"]
-        SUI["Sui"]
-        TON["TON"]
+        TRON["TRON"]
     end
 
-    TG --> BotService
-    MiniApp --> WebService
-    WA --> BotService
-    DC --> BotService
-    AgentAPI --> APITS
-    Dash --> APITS
-    Mobile --> APITS
-    Showcase --> ShowcaseService
-
-    BotService --> APITS
-    WebService --> APITS
-    APITS --> PG & Redis
-    BotService --> PG & Redis & SQS
-
-    BotService --> CoW & Socket & Jup & CCTP & Across & Wormhole & LiFi & LZ & CCIP
-
-    CoW & Socket & Across & LiFi & LZ & CCIP --> EVM
-    Jup --> SOL
-    Wormhole & CCTP --> EVM & SOL
+    TG & WA & DC --> Bot
+    AI & Web & Ext --> API
+    Bot --> API
+    API --> EVM & SOL & TRON
+    Bot --> EVM & SOL & TRON
 ```
 
-### AWS Infrastructure
+---
 
-```mermaid
-flowchart TB
-    subgraph VPC["VPC (2 AZs)"]
-        subgraph Public["Public Subnets"]
-            ALB["ALB\n+ ACM Certificate"]
-            NAT["NAT Gateway"]
-        end
+## Features
 
-        subgraph Private["Private Subnets (ECS Fargate)"]
-            subgraph ProdServices["Production"]
-                BotProd["suwappu-bot-prod"]
-                APIProd["suwappu-api-ts-prod"]
-                WebProd["suwappu-webapp-prod"]
-                ShowcaseSvc["suwappu-showcase"]
-            end
-            subgraph DevServices["Development"]
-                BotDev["suwappu-bot-dev"]
-                APIDev["suwappu-api-ts-dev"]
-                WebDev["suwappu-webapp-dev"]
-            end
-        end
+### Trading
+- **Cross-chain swaps** — 19 providers, chain-gated per route and raced in parallel, best-price selection, slippage protection
+- **MEV protection** — CoW Protocol batch auctions (EVM) + Jito bundles (Solana)
+- **Limit orders** — Buy/sell triggers, stop-loss, trailing stop with expiry
+- **DCA orders** — Dollar-cost averaging on daily/weekly/monthly intervals
+- **Token sniping** — Pump.fun + Raydium launch detection, instant/conditional/first-block modes
+- **Perpetuals** — HyperLiquid integration (1-20x leverage, TP/SL, position monitoring)
+- **Copy trading** — Follow up to 5 traders, auto-mirror swaps, PnL leaderboard
 
-        subgraph Isolated["Isolated Subnets"]
-            RDS[(RDS PostgreSQL 15\nt3.micro, Multi-AZ\n20-100 GB GP3)]
-            ElastiCache[(ElastiCache Redis 7.1\ncache.t4g.micro)]
-        end
-    end
+### Security
+- **Anti-rug engine** — Safety scoring (0-100), honeypot detection, mint/freeze authority checks, blacklist, liquidity analysis
+- **Transaction simulation** — Simulate before execution
+- **Wallet encryption** — AES-256-GCM envelope encryption with AWS KMS (auto-migrates from legacy Fernet)
+- **Turnkey TEE wallets** — Hardware-isolated key management with sub-org policies
+- **2FA** — TOTP (Google Authenticator compatible) with configurable threshold (default $1,000+)
+- **Spending limits** — Per-swap ($5K), hourly ($10K), daily ($50K) — user-customizable
+- **Withdrawal whitelisting** — Pre-approved addresses with 24h cooldown
 
-    WAF["WAF\nAWS Common Rules\nRate Limit: 300/IP"]
-    WAF --> ALB
-    ALB --> ProdServices & DevServices
-    Private --> NAT --> Internet["Internet\n(Outbound)"]
-    Private --> Isolated
+### Agent Integration
 
-    subgraph Support["Supporting Services"]
-        SM["Secrets Manager\nsuwappu/app-secrets\nsuwappu/db-credentials"]
-        ECR["ECR\nsuwappu\nsuwappu-api-ts\nsuwappu-webapp\nsuwappu-showcase"]
-        KMS["KMS\nRDS + Wallet Encryption"]
-        S3["S3\nsuwappu-db-backups\n90-day lifecycle"]
-        CW["CloudWatch\nContainer Insights\nLog Groups"]
-        SNS["SNS Alerts\n5xx, CPU, Storage"]
-        SQS2["SQS\nTrade Queue + DLQ"]
-    end
+| Protocol | Endpoint | Tools/Skills |
+|----------|----------|-------------|
+| **REST API** | `/v1/agent/*` | 50+ endpoints — swaps, wallets, portfolio, perps, predictions, lending, webhooks |
+| **MCP** | `/mcp` | 22 tools — quotes, swaps, portfolio, perps, predictions, lending, wallet policies, and more |
+| **A2A** | `/a2a` | Natural-language quotes/prices/discovery — `swap ...` returns a quote; no A2A execution method |
 
-    SM --> Private
-    ECR --> Private
-    KMS --> RDS
+**Framework toolkits:** [LangChain](https://github.com/0xSoftBoi/suwappu-langchain) · [CrewAI](https://github.com/0xSoftBoi/suwappu-crewai-crew) · **[OpenClaw](packages/openclaw/SKILL.md)** (zero-code, native MCP). Add Suwappu to any OpenClaw agent in one command:
+
+```bash
+openclaw mcp add suwappu --url https://api.suwappu.bot/mcp \
+  --transport streamable-http \
+  --header "Authorization=Bearer $SUWAPPU_API_KEY" --exclude execute_swap
 ```
 
-**Domains:**
+See [docs/features/openclaw_integration.md](docs/features/openclaw_integration.md).
 
-| Environment | Bot | API (TS) | Webapp | Showcase |
-|-------------|-----|----------|--------|----------|
-| **Production** | bot.suwappu.bot | api.suwappu.bot | app.suwappu.bot | www.suwappu.bot |
-| **Development** | devbot.suwappu.bot | devapi.suwappu.bot | devfront.suwappu.bot | — |
+### Engagement
+- **Points/XP system** — Levels (Bronze → Platinum), daily check-ins, milestones, reward store
+- **3-tier referrals** — 30% fee share to referrers
+- **Subscription tiers** — Free / Pro ($9.99) / Premium ($29.99) / Enterprise ($99.99) with rate limits
+- **x402 micropayments** — Token-gated access protocol
+- **Tax export** — CSV/JSON yearly reports with cost-basis tracking
 
-### Swap Routing
+### Multi-Platform
 
-The SwapEngine orchestrates 9 providers with priority-based routing:
+| Platform | Capabilities |
+|----------|-------------|
+| **Telegram** | Full feature set — 60+ commands across 60+ handlers, Mini App, inline keyboards |
+| **WhatsApp** | Swaps, orders, DCA, alerts, voice messages, conversation flows |
+| **Discord** | Whale alerts, trending tokens, leaderboard, analysis forum |
+| **Web Terminal** | TradingView charts, order book, 20+ panels, keyboard shortcuts |
+| **Browser Extension** | MV3 wallet — injects `window.ethereum`/`window.solana`, EIP-1193/6963 + Wallet Standard |
 
-```mermaid
-flowchart LR
-    Request["Swap\nRequest"] --> Checks["Pre-Checks\nSpending Limits\nSafety Score\nMEV Config"]
-    Checks --> Engine["SwapEngine\nPriority Router"]
+---
 
-    Engine --> P1["1. CoW Protocol\nSame-chain EVM\nMEV-protected, P2P"]
-    Engine --> P2["2. Socket\nSuper-aggregated\ncross-chain + same-chain"]
-    Engine --> P3["3. Jupiter + Jito\nSolana swaps\nMEV bundles"]
-    Engine --> P4["4. Circle CCTP\nNative USDC\ncross-chain (0 fee)"]
-    Engine --> P5["5. Across\nFast EVM bridges\n~0.04% fee"]
-    Engine --> P6["6. Wormhole\nSolana <> EVM\nbridging"]
-    Engine --> P7["7. Li.Fi\nAggregated\nfallback"]
-    Engine --> P8["8. LayerZero\nSame-token\ncross-chain"]
-    Engine --> P9["9. Chainlink CCIP\nGeneric\ncross-chain"]
+## Quick Start
 
-    P1 & P2 & P5 & P7 & P8 & P9 --> EVM["EVM Chains"]
-    P3 --> SOL["Solana"]
-    P4 & P6 --> EVM & SOL
+### MCP (Claude Desktop / Cursor)
 
-    Engine --> Discount["Points-Based\nFee Discount\n(up to 50%)"]
+Add to your Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "suwappu": {
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": { "Authorization": "Bearer suwappu_sk_YOUR_KEY" }
+    }
+  }
+}
 ```
 
-### CI/CD Pipeline
+For stdio-only clients, repository source `packages/mcp-server` contains the
+`0.6.0` forwarding bridge. The npm release is still `0.1.1`, so use hosted
+MCP for the current catalog until `0.6.0` is published.
 
-```mermaid
-flowchart LR
-    Push["Push to\nmain / dev"] --> Detect["Detect\nChanges"]
+### A2A (Agent-to-Agent)
 
-    Detect --> BotCI["Bot CI\nruff + pytest"]
-    Detect --> APICI["API-TS CI\ntypecheck + biome"]
-    Detect --> WebCI["Webapp CI\nlint + build + test"]
-    Detect --> ShowCI["Showcase CI\nlint + build"]
+```bash
+# Discover capabilities
+curl https://api.suwappu.bot/.well-known/agent.json
 
-    BotCI --> Build1["Docker Build\n+ Trivy Scan"]
-    APICI --> Build2["Docker Build\n+ Trivy Scan"]
-    WebCI --> Build3["Docker Build"]
-    ShowCI --> Build4["Docker Build"]
-
-    Build1 & Build2 & Build3 & Build4 --> ECR["Push to ECR"]
-
-    ECR --> Backup["Pre-deploy\nDB Backup → S3"]
-    Backup --> Deploy["ECS Deploy\nCircuit Breaker\n+ Rollback"]
-    Deploy --> Health["Health Check\n+ Summary"]
+# Natural-language quote (`swap` wording is quote-only in A2A)
+curl -X POST https://api.suwappu.bot/a2a \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","role":"user","parts":[{"kind":"text","type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
 ```
 
-### Data Flow
+### Local Development
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant TG as Telegram
-    participant W as Webapp
-    participant A as API
-    participant SE as SwapEngine
-    participant C as Chain
+```bash
+# TypeScript API
+cd api-ts && bun install && bun run dev
 
-    U->>TG: Open Mini App
-    TG->>W: Load webapp
-    W->>A: GET /webapp/user (initData)
-    A-->>W: User profile + wallets
+# Webapp
+cd webapp && npm install && npm run dev
 
-    U->>W: Request swap
-    W->>A: POST /webapp/swap/quote
-    A->>SE: Get best quote (9 providers)
-    SE-->>A: Best quote + provider + safety score
-    A-->>W: Display quote + MEV shield status
+# Bot (Python)
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-    U->>W: Confirm swap
-    W->>A: POST /webapp/swap/execute
-    A->>SE: Check spending limits + apply fee discount
-    SE->>C: Submit transaction
-    C-->>SE: Tx hash
-    SE-->>A: Swap confirmed + PnL update
-    A-->>W: Show success + PnL card
+Each service needs its own `.env` — see [`.env.schema`](.env.schema) for the full contract
+and `python3 scripts/doctor.py` to check what's configured locally.
+
+---
+
+## Swap Routing
+
+The SwapEngine races all eligible providers for a given route in parallel and returns the
+best output amount — it's quote comparison, not a fixed priority list:
+
+```
+Request → Pre-checks (spending limits, safety score, MEV config)
+        → SwapEngine: race eligible providers in parallel, pick best output
+           Same-chain EVM   — CoW Protocol (MEV-protected batch auctions), OKX DEX,
+                              1inch, KyberSwap, 0x, Li.Fi
+           Solana           — Jupiter + Jito (MEV bundle protection)
+           Cross-chain      — Socket, Li.Fi, Circle CCTP (USDC), Across, Wormhole,
+                              LayerZero, Chainlink CCIP
+           Chain-specific   — SunSwap (TRON), plus other per-chain DEX integrations
+        → Points-based fee discount (up to 50%)
 ```
 
 ---
 
 ## Supported Chains
 
-| Chain | ID | Native | Type | Status |
-|-------|-----|--------|------|--------|
-| Ethereum | 1 | ETH | EVM | Live |
-| BSC | 56 | BNB | EVM | Live |
-| Polygon | 137 | MATIC | EVM | Live |
-| Arbitrum | 42161 | ETH | EVM | Live |
-| Optimism | 10 | ETH | EVM | Live |
-| Base | 8453 | ETH | EVM | Live |
-| Avalanche | 43114 | AVAX | EVM | Live |
-| Fantom | 250 | FTM | EVM | Live |
-| Linea | 59144 | ETH | EVM | Live |
-| Mantle | 5000 | MNT | EVM | Live |
-| Gnosis | 100 | xDAI | EVM | Live |
-| Scroll | 534352 | ETH | EVM | Live |
-| Solana | — | SOL | Solana | Live |
-| Sui | — | SUI | Move | Live |
-| TON | — | TON | TON | Live |
+The table below highlights the original launch chains. The canonical list of all **45 mainnet chains** lives in `bot/config/chains.py`, drift-checked into `showcase/src/data/stats.generated.json` (18 of them are served on the agent API).
 
-**Swap Providers:** CoW Protocol, Socket, Jupiter + Jito, Circle CCTP, Across, Wormhole, Li.Fi, LayerZero/Stargate, Chainlink CCIP
+| Chain | ID | Native | Type | Swap Providers |
+|-------|-----|--------|------|---------------|
+| Ethereum | 1 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP, CCIP, LayerZero |
+| BSC | 56 | BNB | EVM | Socket, Li.Fi, Across, LayerZero |
+| Polygon | 137 | MATIC | EVM | CoW, Socket, Li.Fi, Across, CCTP |
+| Arbitrum | 42161 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP, LayerZero |
+| Optimism | 10 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP, LayerZero |
+| Base | 8453 | ETH | EVM | CoW, Socket, Li.Fi, Across, CCTP |
+| Avalanche | 43114 | AVAX | EVM | Socket, Li.Fi, Across, CCTP |
+| Fantom | 250 | FTM | EVM | Socket, Li.Fi |
+| Linea | 59144 | ETH | EVM | Socket, Li.Fi |
+| Mantle | 5000 | MNT | EVM | Socket, Li.Fi |
+| Gnosis | 100 | xDAI | EVM | Socket, Li.Fi |
+| Scroll | 534352 | ETH | EVM | Socket, Li.Fi |
+| Solana | — | SOL | Solana | Jupiter, Jito, Wormhole |
+| TRON | — | TRX | TRON | Li.Fi |
 
 ---
 
 ## Bot Commands
 
-### Trading
+Core commands below — the bot has grown to 60+ handlers (savings, borrow, P2P, bulk pay,
+airdrops, gift cards, and more); see [docs/features/README.md](docs/features/README.md) for
+the fuller map, or `/start` in the bot for the current menu.
 
 | Command | Description |
 |---------|-------------|
 | `/s` | Quick swap — `/s <amount> <token>` |
-| `/snipe` | Token sniping |
-| `/o` | Limit orders, DCA, trailing stops |
-| `/traders` | Copy trading |
-| `/perps` | Perpetuals trading (HyperLiquid) |
-
-### Portfolio
-
-| Command | Description |
-|---------|-------------|
-| `/w` | Wallet management |
-| `/b` | Check balances (all chains) |
+| `/w` | Wallet management (create/import EVM, Solana, TRON) |
+| `/b` | Balances across all chains |
 | `/p` | Portfolio overview with PnL |
-| `/hx` | Transaction history |
-| `/tax` | Tax export (CSV) |
-| `/f` | Favorite tokens |
-| `/g` | Gas tracker |
+| `/o` | Limit orders + DCA |
+| `/snipe` | Token sniping (Pump.fun, Raydium) |
+| `/perps` | Perpetuals (HyperLiquid, 1-20x) |
+| `/traders` | Copy trading leaderboard |
 | `/a` | Price alerts |
-
-### Engagement
-
-| Command | Description |
-|---------|-------------|
-| `/xp` | Points & tier status |
-| `/checkin` | Daily check-in (earn points) |
-| `/ref` | Referral program (3-tier) |
-| `/set` | Settings (MEV, notifications, 2FA) |
-
-### Admin
-
-| Command | Description |
-|---------|-------------|
-| `/st` | Bot statistics |
-| `/hw` | Hot wallet management |
-| `/fee` | Fee settings |
-| `/m` | Metrics dashboard |
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- [Bun](https://bun.sh) v1.3+
-- PostgreSQL 14+
-- Telegram Bot Token
-
-### Local Development
-
-```bash
-# Clone
-git clone https://github.com/0xSoftBoi/suwappubot.git
-cd suwappubot
-
-# API (TypeScript)
-cd api-ts
-bun install
-cp .env.example .env
-bun run dev
-
-# Webapp (separate terminal)
-cd webapp
-bun install
-bun run dev
-
-# Bot (Python - optional)
-cd bot
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python -m bot.main
-```
-
-### Docker
-
-```bash
-# Full stack local
-docker-compose -f docker-compose.local.yml up
-
-# Production (webhook mode)
-docker-compose up
-```
+| `/hx` | Transaction history |
+| `/xp` | Points, levels, rewards |
+| `/checkin` | Daily check-in (streak bonus) |
+| `/ref` | Referral program (30% fee share) |
+| `/tax` | Tax export (CSV/JSON) |
+| `/c` | Custodial deposits/withdrawals |
+| `/sub` | Subscription tiers |
+| `/set` | Settings (slippage, 2FA, limits, notifications) |
+| `/g` | Gas tracker |
+| `/f` | Favorite tokens |
 
 ---
 
@@ -419,172 +314,185 @@ docker-compose up
 
 ```
 suwappubot/
-├── api/              # Python FastAPI (webhook handlers, legacy API)
-├── api-ts/           # TypeScript API (Hono + Effect-TS + Drizzle)
-├── bot/              # Python Telegram bot
-│   ├── handlers/     # 27 command handlers
-│   ├── services/     # 49 service modules (swap, PnL, alerts, copy, perps, security)
-│   ├── models/       # SQLAlchemy models
-│   └── config/       # Chain configs, token configs, settings
-├── webapp/           # Telegram Mini App (React + Vite) — trading terminal
-├── showcase/         # Homepage (Next.js) → www.suwappu.bot
-├── dashboard/        # Admin Dashboard (Turnkey EWK)
-├── mobile/           # Expo iOS Mobile App
-├── tui/              # Terminal Monitoring Dashboard
-├── packages/shared/  # Shared TypeScript types (api-ts, webapp, mobile)
-├── infra/            # AWS CDK infrastructure
-├── database/         # DB init + runtime migrations
-├── scripts/          # Utility scripts (sw worktree manager, db-backup)
-├── cpp/              # C++ core for high-performance math
-├── tests/            # Python unit & integration tests
-├── docs/             # Centralized documentation
-│   ├── architecture/ # Design & roadmap
-│   ├── deployment/   # AWS, CI/CD, releases
-│   ├── development/  # Setup, debug, migrations
-│   ├── features/     # Feature-specific guides
-│   ├── operations/   # Health, post-mortems, fixes
-│   └── archive/      # Historical docs
-└── .github/workflows/# CI/CD pipelines (4 deploy + 1 CI + 1 rollback)
+├── api-ts/             # TypeScript API (Hono + Effect-TS + Drizzle)
+│   └── src/
+│       ├── routes/     # 22 route modules, 50+ endpoints
+│       ├── services/   # Services (swap, agent, perps, lending, etc.)
+│       └── middleware/  # Auth (bearer, telegram, flex, admin, internal)
+├── bot/                # Python Telegram bot
+│   ├── handlers/       # 60+ command handlers
+│   ├── services/       # 120+ services (swap engine, sniping, copy, security)
+│   └── config/         # Chain configs, token configs, settings
+├── api/                # Python FastAPI (webhook handlers)
+├── webapp/             # React + Vite Telegram Mini App — 29 pages, dev-only, not deployed
+├── terminal/           # Live Telegram Mini App (app.suwappu.bot) — 20+ panels, TradingView
+├── extension/          # Browser wallet extension (MV3, EIP-1193/6963 + Wallet Standard)
+├── showcase/           # Marketing site (Next.js)
+├── contracts/          # SUWP token + on-chain harness (Solidity)
+├── cloudflare/         # Cloudflare Worker (router)
+├── packages/
+│   ├── shared/         # Shared TypeScript types
+│   ├── sdk/            # @suwappu/sdk (npm, published)
+│   ├── mcp-server/     # @suwappu/mcp-server stdio -> hosted MCP bridge
+│   ├── openclaw/       # @suwappu/openclaw (npm, published)
+│   ├── design-tokens/  # @suwappu/design-tokens
+│   └── sdk-python/     # Python SDK (development)
+├── gitbook/            # API documentation (50+ files)
+├── infra/              # AWS CDK — legacy, unused for app deploys (see Deployment)
+├── database/           # DB init + runtime migrations
+├── docs/               # Architecture, deployment, and feature docs
+├── skills/             # Claude Code skills for this repo
+├── monitoring/         # External health-check endpoint manifest
+├── tests/              # Python tests
+└── .github/workflows/  # CI/CD
 ```
+
+`packages/mcp-server` source is vendored here and can be ahead of the published npm release; see the package README for the current version boundary.
 
 ---
 
-## Documentation
+## API Endpoints (TypeScript)
 
-| Category | Description | Key Links |
-|-----------|-------------|--------|
-| **Core Components** | Service-specific readmes | [API (TS)](api-ts/README.md) - [Webapp](webapp/README.md) - [Bot](bot/) - [Infra](infra/README.md) |
-| **Architecture** | High-level design | [Scaling Guide](docs/architecture/scaling_guide.md) |
-| **Development** | Setup & Debugging | [Debug Guide](docs/development/debug.md) - [Local Setup](docs/development/local_setup.md) - [Migrations](docs/development/migrations.md) |
-| **Deployment** | AWS, CI/CD, Releases | [AWS Guide](docs/deployment/aws_deployment.md) - [CI/CD](docs/deployment/ci_cd.md) - [Releasing](docs/deployment/releasing.md) |
-| **Features** | Swaps, Agents, Mobile | [Agent Integration](docs/features/agent_integration.md) - [Mobile Plan](docs/features/mobile_plan.md) |
-| **Operations** | Health & Improvements | [Health Check](docs/operations/health_check.md) - [Improvements](docs/operations/improvements.md) |
+| Route Module | Auth | Key Endpoints |
+|-------------|------|--------------|
+| **Agent** (`/v1/agent/*`) | Bearer | register, quote, swap, execute, portfolio, prices, tokens, wallets, wallet policies, webhooks, key rotation |
+| **Perps** (`/v1/agent/perps/*`) | Bearer | markets, quote, positions |
+| **Predictions** (`/v1/agent/predict/*`) | Bearer | markets, market details (Polymarket) |
+| **Lending** (`/v1/agent/lend/*`) | Bearer | markets, market details (Morpho) |
+| **MCP** (`/mcp`) | Bearer | 22 tools via JSON-RPC |
+| **A2A** (`/a2a`) | Bearer | message/send, tasks/get, tasks/cancel |
+| **Webapp Swap** (`/webapp/swap/*`) | Telegram | quote, execute, status, chains, tokens |
+| **Webapp Auth** (`/webapp/*`) | Various | validate, telegram auth, Turnkey OAuth, trending, token info/chart |
+| **Public** (`/public/swap/*`) | Optional | chains, tokens, quote, execute, status (rate-limited) |
+| **Admin** (`/admin/*`) | Admin key | stats, agents, swaps, webhooks |
+| **Internal** (`/internal/*`) | Internal key | Service-to-service swap, user, events, payment verification |
+| **Health** (`/health`) | None | Health + DB connectivity |
 
 ---
 
-## Agent Integration
+## npm Packages
 
-Suwappu supports three protocols for AI agent integration. All share the same authentication and capabilities.
+| Package | Version | Description |
+|---------|---------|-------------|
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.4.0 | TypeScript SDK + `suwappu` CLI |
+| [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | 0.1.1 | MCP server for Claude Desktop/Cursor |
+| [`@suwappu/openclaw`](https://www.npmjs.com/package/@suwappu/openclaw) | 0.2.0 | OpenClaw skill module |
 
-| Protocol | Endpoint | Best For |
-|----------|----------|----------|
-| **REST API** | `/v1/agent/*` | Direct integration, backends, scripts |
-| **MCP** | `/mcp` | Claude Desktop, Claude Code, Cursor |
-| **A2A** | `/a2a` | Agent-to-agent communication, orchestration |
-
-### Quick Start: MCP (Claude Desktop)
-
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "suwappu": {
-      "url": "https://api.suwappu.bot/mcp",
-      "headers": {
-        "Authorization": "Bearer suwappu_sk_YOUR_KEY"
-      }
-    }
-  }
-}
-```
-
-Or use the local stdio server:
-
-```bash
-npm install -g @suwappu/mcp-server
-SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
-```
-
-### Quick Start: A2A
-
-```bash
-# Discover agent capabilities
-curl https://api.suwappu.bot/.well-known/agent.json
-
-# Send a natural language message
-curl -X POST https://api.suwappu.bot/a2a \
-  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
-```
-
-### npm Packages
-
-| Package | Description |
-|---------|-------------|
-| [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | MCP server (stdio transport) |
-| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | TypeScript SDK for REST API |
-| [`@suwappu/langchain-suwappu`](https://www.npmjs.com/package/@suwappu/langchain-suwappu) | LangChain toolkit integration |
-
-### Registry Listings
-
-- [Smithery.ai](https://smithery.ai) — MCP server registry
-- [awesome-a2a](https://github.com/ai-boost/awesome-a2a) — A2A protocol directory ([PR #36](https://github.com/ai-boost/awesome-a2a/pull/36))
-
-See [gitbook/protocols/](gitbook/protocols/README.md) for full protocol documentation.
+> Versions above are the current npm releases. Package source in this monorepo may be ahead while the next release is being prepared.
 
 ---
 
 ## Deployment
 
-### Environments
+Deploy target is **Railway** — there is no AWS/ECS/EC2 deploy path anymore. Railway is wired
+to GitHub, so merging to `main`/`dev` auto-deploys any service whose watched paths changed.
+See [docs/deployment/railway.md](docs/deployment/railway.md) and the `/deploy` skill.
+(The AWS Dockerfiles/CDK under `infra/` are left in place for reversibility, not because
+they're live.)
 
-All services run in a single `suwappu-cluster` on ECS Fargate.
+**`webapp/` is unused in production** — it has no Railway service and deploys nowhere. The
+live Telegram Mini App (`app.suwappu.bot`) is served by `terminal/`.
 
-| Environment | Bot | API (TS) | Webapp | Showcase | Branch |
-|-------------|-----|----------|--------|----------|--------|
-| **Production** | bot.suwappu.bot | api.suwappu.bot | app.suwappu.bot | www.suwappu.bot | `main` |
-| **Development** | devbot.suwappu.bot | devapi.suwappu.bot | devfront.suwappu.bot | — | `dev` |
+| Service | Production URL | Branch |
+|---------|-----------------|--------|
+| `python-api` (bot + FastAPI) | python-api-*.up.railway.app (no custom domain) | `main` |
+| `api-ts` | api.suwappu.bot | `main` |
+| `terminal` (live Mini App) | app.suwappu.bot · terminal.suwappu.bot | `main` |
+| `showcase` | www.suwappu.bot | `main` |
 
-### CI/CD
+Development env uses the same services on the `dev` branch, e.g. `devapi.suwappu.bot` for
+api-ts.
 
-Push to `main` or `dev` triggers GitHub Actions per service (path-filtered). Pipeline: Docker build → Trivy scan → ECR push → pre-deploy DB backup → ECS deploy with circuit breaker + rollback → health check.
-
-See [docs/deployment/aws_deployment.md](docs/deployment/aws_deployment.md) for details.
+CI/CD: GitHub Actions auto-deploys on push to `main`/`dev` (see
+[docs/deployment/monitoring.md](docs/deployment/monitoring.md) for how each layer's health is
+checked post-deploy).
 
 ---
 
 ## Security
 
-- **Wallet Encryption** — AES-256-GCM envelope encryption with AWS KMS (auto-migrates from legacy Fernet v1)
-- **Two-Factor Auth** — TOTP 2FA via pyotp with backup codes
-- **Withdrawal Whitelisting** — Pre-approved addresses with 24h cooldown for new additions
-- **Spending Limits** — Configurable daily/weekly limits tracked via Redis
-- **Audit Logging** — All security-sensitive actions are logged
-- **Token Safety** — GoPlus Security API for honeypot detection, liquidity analysis, holder concentration
-- **Anti-Rug Protection** — Background monitoring with emergency auto-sell
-- **Telegram Auth** — HMAC validation for all bot interactions
-- **WAF** — AWS WAF with rate limiting (300 req/IP)
-- **HTTPS** — Required in all environments
+- **Wallet encryption** — AES-256-GCM envelope encryption with AWS KMS
+- **Turnkey TEE** — Hardware-isolated key management
+- **2FA** — TOTP with backup codes, configurable threshold
+- **Spending limits** — Per-swap, hourly, daily (user-customizable)
+- **Anti-rug** — Safety scoring, honeypot detection, authority checks, emergency auto-sell
+- **Token analysis** — GoPlus Security API integration
+- **Transaction simulation** — Simulate before executing
+- **Withdrawal whitelisting** — 24h cooldown for new addresses
+- **Audit logging** — All security-sensitive actions logged
 
-Report vulnerabilities to security@suwappu.bot
+Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECURITY.md).
+
+### Supply chain
+
+We practice continuous open-source dependency scanning and ship a
+checked-in Software Bill of Materials (SBOM).
+
+- **Checked-in SBOM.** A [CycloneDX](https://cyclonedx.org/) SBOM lives
+  at [`sbom/suwappubot.cdx.json`](./sbom/suwappubot.cdx.json) —
+  every dependency across every ecosystem in this monorepo (Python,
+  npm, bun), deduplicated. Generated with
+  [Syft](https://github.com/anchore/syft), which auto-detects every
+  package manifest/lockfile in the tree; nothing is hand-authored.
+
+  Regenerate the SBOM:
+
+  ```sh
+  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+  syft . -o cyclonedx-json=sbom/suwappubot.cdx.json
+  ```
+
+- **CI workflows (SHA-pinned).** Two additive workflows live under
+  `.github/workflows/`:
+  - [`sbom.yml`](./.github/workflows/sbom.yml) — on each published
+    Release, regenerates the CycloneDX SBOM with Syft and attaches it
+    as a Release asset.
+  - [`scorecard.yml`](./.github/workflows/scorecard.yml) — weekly +
+    on push to `main`, runs [OpenSSF Scorecard](https://securityscorecards.dev/)
+    and uploads SARIF to the repo Security tab.
+
+  Both workflows pin every action to a full commit SHA (a stricter
+  convention than this repo's other workflows, deliberately — a
+  supply-chain-security workflow pinning its own dependencies loosely
+  would undercut the point). This repo's Actions billing is active, so
+  both run for real starting with the first push/release after merge —
+  not dormant pending billing, unlike the initial rollout on other
+  Suwappu satellite repos.
+
+  Not audited, not SOC 2 — this is dependency-inventory tooling
+  (what's in the tree and how it's fetched), not a security
+  certification. See [SECURITY.md](./SECURITY.md) for the actual
+  security posture and vulnerability-reporting process.
 
 ---
 
-## Contributing
+## Documentation
 
-1. Fork & create feature branch
-2. Follow existing patterns
-3. Add tests for new features
-4. PR with description
+| Resource | Description |
+|----------|-------------|
+| [GitBook API Docs](gitbook/) | Full API reference (50+ files) |
+| [Agent Clients](docs/agent-clients.md) | MCP, A2A, REST setup for AI agents |
+| [Features](docs/features/README.md) | User-facing feature guides (HyperLiquid, Tempo, etc.) |
+| [Deployment](docs/deployment/) | Railway, CI/CD, monitoring |
+| [CLAUDE.md](CLAUDE.md) | Local setup, build commands, migrations, architecture gotchas |
 
-### Code Style
+### Governance
 
-- **TypeScript:** Effect-TS patterns, strict mode
-- **React:** Functional components, hooks
-- **Python:** Type hints, async/await
-
----
-
-## License
-
-MIT
+| Resource | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System boundaries, decision taxonomy, standing decisions |
+| [CONVENTIONS.md](CONVENTIONS.md) | Toolchain, git, code, testing, and naming rules |
+| [AGENTS.md](AGENTS.md) | Policy for AI agents working in this repo |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SUPPORT.md](SUPPORT.md) · [SECURITY.md](SECURITY.md) | Contributing, getting help, vulnerability reporting |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes |
+| [`.env.schema`](.env.schema) · [`capabilities.yaml`](capabilities.yaml) | Generated env contract · optional-provider manifest (`python3 scripts/doctor.py` to probe) |
 
 ---
 
 ## Links
 
-- **Production:** https://app.suwappu.bot
-- **API Docs:** https://api.suwappu.bot/docs
+- **Webapp:** https://app.suwappu.bot
+- **API:** https://api.suwappu.bot
+- **Showcase:** https://www.suwappu.bot
 - **Telegram Bot:** [@SuwappuBot](https://t.me/SuwappuBot)
+- **Agent Card:** https://api.suwappu.bot/.well-known/agent.json

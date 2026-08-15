@@ -53,5 +53,19 @@ export const dcaOrders = pgTable('dca_orders', {
 	updatedAt: timestamp('updated_at').defaultNow(),
 })
 
+export const dcaExecutions = pgTable('dca_executions', {
+	id: serial('id').primaryKey(),
+	dcaOrderId: integer('dca_order_id')
+		.notNull()
+		.references(() => dcaOrders.id),
+	amountSpent: varchar('amount_spent', { length: 78 }).notNull(),
+	amountReceived: varchar('amount_received', { length: 78 }).notNull(),
+	price: real('price').notNull(),
+	txHash: varchar('tx_hash', { length: 100 }),
+	executedAt: timestamp('executed_at').defaultNow(),
+})
+
 export type DCAOrder = typeof dcaOrders.$inferSelect
 export type NewDCAOrder = typeof dcaOrders.$inferInsert
+export type DCAExecution = typeof dcaExecutions.$inferSelect
+export type NewDCAExecution = typeof dcaExecutions.$inferInsert

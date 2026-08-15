@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "bot.suwappu/mcp",
+  "description": "Cross-chain DeFi tools for AI agents: quotes, swap simulation and unsigned transaction preparation, portfolio/prices, and market research.",
+  "version": "0.6.0",
+  "repository": {
+    "url": "https://github.com/0xSoftBoi/suwappubot",
+    "source": "github"
+  },
+  "websiteUrl": "https://suwappu.bot",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.suwappu.bot/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <SUWAPPU_API_KEY>. Optional for public MCP discovery and four zero-cost discovery tools; required for scoped/metered tools. Get one at POST https://api.suwappu.bot/v1/agent/register",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

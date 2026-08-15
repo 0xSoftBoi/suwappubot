@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import toast from 'react-hot-toast'
+import toast from '@/lib/a11yToast'
 import { AppLayout, AppHeader } from '../components/layout'
 import { api, type TraderEntry, type CopyFollow } from '../lib/api'
 
@@ -207,7 +207,6 @@ export function CopyTrading() {
     
     try {
       await api.followTrader(selectedTrader.userId, {
-        walletId: 1, // TODO: Get from wallet context
         ...settings,
       })
       setShowFollowModal(false)

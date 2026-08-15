@@ -1,0 +1,54 @@
+# Supply-chain SBOM publishing (workspace PLAN.md Track B, item B3-core).
+#
+# Generates a CycloneDX SBOM for this mixed-language monorepo (Python +
+# npm/bun across api-ts, webapp, showcase, extension, packages/*) with
+# Syft, which auto-detects every package manifest/lockfile in the repo
+# in a single pass, and attaches it to the GitHub Release as a
+# downloadable asset. A checked-in SBOM also lives under `sbom/` in the
+# repo (generated the same way, run once locally); this workflow keeps
+# the per-release artifact in sync without anyone running a tool by hand.
+#
+# Mirrors the pattern already shipped on the 5 flagship satellite repos
+# (suwappu-dag, suwappu-db, suwappu-revm, suwappu-lattice-protocol,
+# evmsec) — see each repo's `sbom.yml` for the single-ecosystem
+# (cargo-cyclonedx / cyclonedx-npm) variant. This repo uses Syft instead
+# of a per-ecosystem tool because it spans multiple package managers
+# (pip, npm, bun) in one tree; Syft handles all of them without needing
+# separate jobs per ecosystem.
+#
+# Unlike the satellites, this repo's Actions billing is active (it runs
+# real deploy/test workflows already), so this workflow runs for real on
+# first push — not committed dormant pending billing.
+#
+# All `uses:` refs are pinned to a full 40-char commit SHA; the trailing
+# comment records the human-readable version.
+
+name: sbom
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to attach the SBOM as a Release asset
+
+jobs:
+  sbom:
+    name: generate + attach CycloneDX SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Generate CycloneDX SBOM (Syft, all ecosystems)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: suwappubot.cdx.json
+          artifact-name: suwappubot.cdx.json
+          # Attach the SBOM to the published Release. No-op on
+          # workflow_dispatch runs (no release context), where the SBOM
+          # is still uploaded as a workflow artifact instead.
+          upload-release-assets: true

@@ -1,38 +1,20 @@
 {
-  "cli": {
-    "version": ">= 13.0.0"
-  },
+  "cli": { "version": ">= 16.0.1", "appVersionSource": "remote" },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": {
-        "simulator": true
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:8000"
-      }
+      "env": { "EXPO_PUBLIC_API_URL": "https://devapi.suwappu.bot" }
     },
     "preview": {
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://staging.suwappu.xyz"
-      }
+      "env": { "EXPO_PUBLIC_API_URL": "https://devapi.suwappu.bot" }
     },
     "production": {
       "autoIncrement": true,
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.suwappu.xyz"
-      }
+      "ios": { "image": "sdk-57" },
+      "env": { "EXPO_PUBLIC_API_URL": "https://api.suwappu.bot" }
     }
   },
-  "submit": {
-    "production": {
-      "ios": {
-        "appleId": "team@suwappu.xyz",
-        "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "YOUR_TEAM_ID"
-      }
-    }
-  }
+  "submit": { "production": {} }
 }

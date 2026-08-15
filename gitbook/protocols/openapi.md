@@ -1,172 +1,73 @@
-# OpenAPI Specification
+# OpenAPI Spec
 
-Suwappu publishes an OpenAPI 3.1.0 specification that describes all REST API endpoints. The spec enables automated code generation, API documentation, and programmatic agent discovery.
+Suwappu publishes several machine-readable discovery files so agents can learn the API without reading docs: an OpenAPI 3.1 specification, an `llms.txt` summary, an A2A agent card, and an OpenAI-style plugin manifest. Point an LLM or agent at any of these and it can start swapping tokens immediately.
 
-## Endpoint
+## Discovery Endpoints
 
-```
-GET https://api.suwappu.bot/v1/agent/openapi
-```
+All discovery files are public — no authentication required.
 
-No authentication is required to fetch the OpenAPI spec.
+| File | Endpoint | Purpose |
+|------|----------|---------|
+| OpenAPI 3.1 spec | `GET https://api.suwappu.bot/v1/agent/openapi` | Full endpoint schema for client/code generation |
+| llms.txt | `GET https://api.suwappu.bot/llms.txt` | Plain-text API summary LLMs can read directly |
+| Agent card | `GET https://api.suwappu.bot/.well-known/agent.json` | A2A-compatible agent descriptor |
+| Agent card (alt) | `GET https://api.suwappu.bot/.well-known/agent-card.json` | Same card, alternate well-known path |
+| Agent card (root) | `GET https://api.suwappu.bot/agent-card.json` | Same card at the root path |
+| Plugin manifest | `GET https://api.suwappu.bot/ai-plugin.json` | OpenAI-style plugin manifest |
 
-## Fetching the Spec
+## OpenAPI Specification
+
+The full OpenAPI 3.1 document describes every REST endpoint, its parameters, request bodies, and response shapes. Fetch it at:
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/openapi
 ```
 
-To save it to a file:
+Use it to generate a typed client in any language, or to feed an agent a complete map of the REST surface. The spec is also referenced from the agent card's `openApiUrl` field.
 
-```bash
-curl -o suwappu-openapi.json https://api.suwappu.bot/v1/agent/openapi
-```
+### Generating a Client
 
-To pretty-print it:
-
-```bash
-curl -s https://api.suwappu.bot/v1/agent/openapi | python3 -m json.tool
-```
-
-## What the Spec Contains
-
-The OpenAPI 3.1.0 JSON document describes:
-
-- **Info** --- API name, version, description, and contact details.
-- **Servers** --- Base URL (`https://api.suwappu.bot`).
-- **Paths** --- All REST API endpoints with request/response schemas, including:
-  - `POST /v1/agent/register` --- Agent registration
-  - `GET /v1/agent/quote` --- Get a swap quote
-  - `POST /v1/agent/swap` --- Execute a swap
-  - `GET /v1/agent/portfolio` --- Check wallet portfolio
-  - `GET /v1/agent/prices` --- Get token prices
-  - `GET /v1/agent/chains` --- List supported chains
-  - `GET /v1/agent/tokens` --- List and search tokens
-  - `GET /v1/agent/openapi` --- This spec itself
-- **Components** --- Reusable schemas for request/response objects.
-- **Security** --- Bearer token authentication scheme.
-
-## Using with Code Generation Tools
-
-### openapi-generator
-
-Generate a client library in any supported language:
-
-```bash
-# Install openapi-generator
-npm install -g @openapitools/openapi-generator-cli
-
-# Generate a Python client
-openapi-generator-cli generate \
-  -i https://api.suwappu.bot/v1/agent/openapi \
-  -g python \
-  -o ./suwappu-python-client
-
-# Generate a TypeScript client
-openapi-generator-cli generate \
-  -i https://api.suwappu.bot/v1/agent/openapi \
-  -g typescript-axios \
-  -o ./suwappu-ts-client
-
-# Generate a Go client
-openapi-generator-cli generate \
-  -i https://api.suwappu.bot/v1/agent/openapi \
-  -g go \
-  -o ./suwappu-go-client
-```
-
-### openapi-typescript
-
-Generate TypeScript types from the spec:
+Any OpenAPI-compatible generator works. For example, with `openapi-typescript`:
 
 ```bash
 npx openapi-typescript https://api.suwappu.bot/v1/agent/openapi -o suwappu.d.ts
 ```
 
-### Swagger UI
+## llms.txt
 
-You can load the spec into Swagger UI for an interactive API explorer:
+`llms.txt` is a concise, human- and LLM-readable summary of the API: base URL, auth, the quick-start flow, and a categorized endpoint list. It is the fastest way for an LLM to understand Suwappu.
 
 ```bash
-docker run -p 8080:8080 \
-  -e SWAGGER_JSON_URL=https://api.suwappu.bot/v1/agent/openapi \
-  swaggerapi/swagger-ui
+curl https://api.suwappu.bot/llms.txt
 ```
 
-Then open `http://localhost:8080` in your browser.
+It documents the public endpoints (`/register`, `/chains`, `/openapi`), the authenticated endpoints (`/quote`, `/swap`, `/swap/execute`, `/portfolio`, `/wallets`, `/execute`, `/webhooks`, ...), and the three protocols (REST, MCP, A2A) with their base URLs.
 
-## Programmatic Usage
+## Agent Card
 
-### Auto-Discovery (Python)
+The agent card is an A2A-compatible JSON descriptor served at three paths (`/.well-known/agent.json`, `/.well-known/agent-card.json`, and `/agent-card.json`). It advertises the agent's name, description, skills, supported chains, authentication scheme, and protocol interfaces.
 
-An agent can fetch the spec at runtime to discover endpoints and their parameters without any hardcoded knowledge:
-
-```python
-import requests
-
-# Fetch the OpenAPI spec
-spec = requests.get("https://api.suwappu.bot/v1/agent/openapi").json()
-
-# List all available endpoints
-for path, methods in spec["paths"].items():
-    for method, details in methods.items():
-        print(f"{method.upper()} {path} - {details.get('summary', '')}")
-
-# Get the schema for a specific endpoint
-quote_params = spec["paths"]["/v1/agent/quote"]["get"]["parameters"]
-for param in quote_params:
-    required = "required" if param.get("required") else "optional"
-    print(f"  {param['name']} ({required}): {param.get('description', '')}")
+```bash
+curl https://api.suwappu.bot/.well-known/agent.json
 ```
 
-### Auto-Discovery (JavaScript)
+See [A2A Agent Card](agent-card.md) for the full field reference.
 
-```javascript
-const spec = await fetch("https://api.suwappu.bot/v1/agent/openapi").then(r => r.json());
+## Plugin Manifest
 
-// List all endpoints
-for (const [path, methods] of Object.entries(spec.paths)) {
-  for (const [method, details] of Object.entries(methods)) {
-    console.log(`${method.toUpperCase()} ${path} - ${details.summary || ""}`);
-  }
-}
+`ai-plugin.json` is an OpenAI-style plugin manifest with a model-facing description, Bearer auth declaration, and a pointer to the OpenAPI spec:
+
+```bash
+curl https://api.suwappu.bot/ai-plugin.json
 ```
 
-### Dynamic Client Construction
+## Discovery Flow for Agents
 
-AI agents can use the OpenAPI spec to dynamically build API calls without pre-built client libraries:
+A well-behaved agent bootstraps from these files in order:
 
-```python
-import requests
+1. **Fetch the agent card** at `/.well-known/agent.json` to learn the agent's identity, skills, and interfaces.
+2. **Read `securitySchemes`** to learn how to authenticate, then register at `POST /v1/agent/register` for a Bearer token.
+3. **Fetch the OpenAPI spec** (or `llms.txt`) from the card's `openApiUrl` to learn the REST surface.
+4. **Call the API** over REST, MCP, or A2A using the obtained token.
 
-spec = requests.get("https://api.suwappu.bot/v1/agent/openapi").json()
-base_url = spec["servers"][0]["url"]
-
-# Register to get a token
-reg = requests.post(f"{base_url}/v1/agent/register", json={
-    "name": "auto-agent",
-    "description": "Dynamically configured agent"
-})
-token = reg.json()["api_key"]
-headers = {"Authorization": f"Bearer {token}"}
-
-# Use the spec to build a quote request
-quote_endpoint = spec["paths"]["/v1/agent/quote"]["get"]
-response = requests.get(f"{base_url}/v1/agent/quote", params={
-    "from_token": "ETH",
-    "to_token": "USDC",
-    "amount": "1.0",
-    "chain": "base"
-}, headers=headers)
-
-print(response.json())
-```
-
-## Relationship to Other Protocols
-
-The OpenAPI spec describes the REST API. The same underlying functionality is also available through:
-
-- **A2A Protocol** (`/a2a`) --- Natural language interface over JSON-RPC. See [A2A Protocol](a2a.md).
-- **MCP Protocol** (`/mcp`) --- Tool-based interface for LLMs. See [MCP Protocol](mcp.md).
-
-The agent card at `/.well-known/agent.json` includes the `openApiUrl` field pointing to this spec, enabling agents to discover both the A2A and REST interfaces from a single entry point. See [Agent Card](agent-card.md).
+No hardcoded knowledge of Suwappu is required — every integration point is self-describing.

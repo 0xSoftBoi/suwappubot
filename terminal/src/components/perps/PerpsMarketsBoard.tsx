@@ -1,0 +1,205 @@
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../lib/api'
+import type { HLMarket, PerpsMarketContext } from '../../types/api'
+import { usePerpsFunding, formatFundingPct } from '../../hooks/usePerpsFunding'
+import { usePerpsContext } from '../../hooks/usePerpsContext'
+import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
+
+interface Props {
+  selectedMarket: string
+  onSelectMarket: (market: string) => void
+}
+
+// Funding cell uses the shared funding hook so the rate matches the order ticket.
+// Coloured by sign and always paired with a ▲/▼ glyph (never colour-only).
+function FundingCell({ market }: { market: HLMarket }) {
+  const funding = usePerpsFunding(market)
+  const positive = funding.hourlyRate >= 0
+  return (
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] tnum ${
+        positive ? 'up-wash text-bull' : 'down-wash text-bear'
+      }`}
+    >
+      <span aria-hidden="true">{positive ? '▲' : '▼'}</span>{' '}
+      {formatFundingPct(funding.hourlyRate)}
+    </span>
+  )
+}
+
+function formatMark(n: number) {
+  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  if (n >= 1) return n.toFixed(2)
+  return n.toPrecision(4)
+}
+
+function formatUsd(n: number) {
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toFixed(0)}`
+}
+
+// The full HyperLiquid markets board — every perp with live mark, funding and max
+// leverage. Selecting a row drives the order ticket. This is the perps desk's
+// equivalent of the spot pair list.
+export function PerpsMarketsBoard({ selectedMarket, onSelectMarket }: Props) {
+  const [search, setSearch] = useState('')
+  const { data: markets, isLoading } = useQuery({
+    queryKey: ['perps-markets'],
+    queryFn: () => api.getPerpsMarkets(),
+    staleTime: 15_000,
+    refetchInterval: 20_000,
+  })
+  const { data: context } = usePerpsContext()
+
+  // Index the intel feed by bare asset symbol for O(1) per-row lookup.
+  const ctxByAsset = useMemo(() => {
+    const map = new Map<string, PerpsMarketContext>()
+    for (const c of context ?? []) map.set(c.asset, c)
+    return map
+  }, [context])
+
+  const ctxFor = (name: string) => ctxByAsset.get(name.replace('-USD', '').toUpperCase())
+
+  // Default to heaviest markets first (open interest) — what traders scan for.
+  // Falls back to mark price before the intel feed lands.
+  const filtered = useMemo(() => {
+    const list = markets ?? []
+    const q = search.trim().toUpperCase()
+    const matched = q ? list.filter((m) => m.name.toUpperCase().includes(q)) : list
+    return [...matched].sort((a, b) => {
+      const oiA = ctxByAsset.get(a.name.replace('-USD', '').toUpperCase())?.oiNotional
+      const oiB = ctxByAsset.get(b.name.replace('-USD', '').toUpperCase())?.oiNotional
+      if (oiA != null && oiB != null) return oiB - oiA
+      return b.markPrice - a.markPrice
+    })
+  }, [markets, search, ctxByAsset])
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="hairline-b flex items-center justify-between gap-2 px-3 py-2">
+        <h3 className="text-sm font-semibold text-terminal-text">Markets</h3>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search…"
+          aria-label="Search markets"
+          className="terminal-input h-7 w-28 text-xs"
+        />
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {isLoading ? (
+          <div className="p-3">
+            <TerminalSkeletonRows rows={8} columns={4} label="Loading markets" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <TerminalEmptyState
+            kicker="Markets"
+            title={search ? `No perp matches “${search}”` : 'No markets available'}
+            description={
+              search
+                ? 'Try the bare symbol — HyperLiquid lists perps as ETH-USD, SOL-USD and so on.'
+                : 'HyperLiquid returned no markets. This is usually transient — the board refreshes every 20 seconds.'
+            }
+          />
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-terminal-panel">
+              <tr className="hairline-b text-terminal-text-muted">
+                <th className="terminal-theme-caption px-3 py-1.5 text-left text-[10px] uppercase">
+                  Market
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  Mark
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  24h
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  OI
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  Funding/1h
+                </th>
+                <th className="terminal-theme-caption px-3 py-1.5 text-right text-[10px] uppercase">
+                  Max lev
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((m) => {
+                const active = m.name === selectedMarket
+                const ctx = ctxFor(m.name)
+                const chg = ctx?.dayChangePct
+                return (
+                  <tr
+                    key={m.name}
+                    onClick={() => onSelectMarket(m.name)}
+                    aria-selected={active}
+                    className={`group hairline-b cursor-pointer ${
+                      active ? 'accent-wash' : 'terminal-row'
+                    }`}
+                  >
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`h-3.5 w-0.5 rounded-full transition-colors ${
+                            active
+                              ? 'bg-terminal-accent'
+                              : 'bg-transparent group-hover:bg-terminal-border-active'
+                          }`}
+                        />
+                        <span
+                          className={`font-semibold ${active ? 'text-terminal-accent' : 'text-terminal-text'}`}
+                        >
+                          {m.name.replace('-USD', '')}
+                        </span>
+                        <span className="text-[10px] text-terminal-text-muted">USD</span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tnum text-terminal-text">
+                      ${formatMark(ctx?.markPrice ?? m.markPrice)}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-mono tnum ${
+                        chg == null
+                          ? 'text-terminal-text-muted'
+                          : chg >= 0
+                            ? 'text-bull'
+                            : 'text-bear'
+                      }`}
+                    >
+                      {chg == null ? (
+                        '—'
+                      ) : (
+                        <>
+                          <span aria-hidden="true">{chg >= 0 ? '▲' : '▼'}</span>{' '}
+                          {`${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`}
+                        </>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tnum text-terminal-text-secondary">
+                      {ctx ? formatUsd(ctx.oiNotional) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <FundingCell market={m} />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span className="rounded bg-terminal-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] tnum text-terminal-text-secondary">
+                        {m.maxLeverage}×
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}

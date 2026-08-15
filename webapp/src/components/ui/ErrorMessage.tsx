@@ -202,7 +202,7 @@ function InlineError({
       exit={{ opacity: 0, y: -10 }}
       className="flex items-start gap-2 p-2 bg-suwappu-error/10 rounded-suwappu-md border border-suwappu-error/20"
     >
-      <span className="text-lg flex-shrink-0">{config.icon}</span>
+      <span className="text-lg shrink-0">{config.icon}</span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-suwappu-error font-medium">{message}</p>
         <p className="text-xs text-suwappu-error/70 mt-0.5">{config.suggestion}</p>
@@ -314,7 +314,7 @@ function ToastError({
       className="fixed bottom-20 left-4 right-4 z-50"
     >
       <div className="bg-white rounded-suwappu-xl shadow-suwappu-3 p-4 flex items-start gap-3 border border-suwappu-error/20">
-        <div className="w-8 h-8 rounded-full bg-suwappu-error/20 flex items-center justify-center flex-shrink-0">
+        <div className="w-8 h-8 rounded-full bg-suwappu-error/20 flex items-center justify-center shrink-0">
           {config.icon}
         </div>
         <div className="flex-1 min-w-0">

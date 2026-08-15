@@ -1,0 +1,318 @@
+/* ==========================================================================
+   HERO D - the register used by Linear / Vercel / Anthropic / Cursor.
+   Rules taken from research, not taste:
+     near-black base (never #000), ONE accent under 5% of surface,
+     tight display tracking, tabular numerals, hairline borders at 8%,
+     small radii, radial glow (not mesh), motion only on scroll entry.
+   ========================================================================== */
+.hd {
+  /* Soil tokens (warm aubergine-brown) live in globals.css's PERSIMMON
+     ORCHARD block — a tint shift off near-neutral black, not a brightness
+     change, so the page still reads dark and calm. */
+  --bg: var(--sw-soil-0, #1C1310);
+  --bg-elev: var(--sw-soil-1, #241A15);
+  --fg: #FAFAFA;
+  --fg-dim: #A1A1A1;
+  --fg-faint: #6E6E6E;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --accent: #F6A93C;
+  --r: 10px;
+
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  /* Every numeral on this page is tabular. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.hd__hero {
+  position: relative;
+  overflow-x: clip;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vh, 4.25rem) 1.5rem 5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* Pre-rendered-feel radial glow, ~7% — not an animated mesh. */
+.hd__glow {
+  position: absolute;
+  top: -14%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(1000px, 100%);
+  aspect-ratio: 2 / 1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(246, 169, 60, 0.09),
+    rgba(246, 169, 60, 0.03) 42%,
+    transparent 70%
+  );
+}
+
+.hd__eyebrow {
+  position: relative;
+  margin: 0 0 1.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.hd__h1 {
+  position: relative;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(3rem, 7vw, 5.6rem);
+  line-height: 1.02;
+  /* Display serifs need air, not the sans register's tight negative tracking. */
+  letter-spacing: -0.005em;
+  font-weight: 500;
+  color: var(--fg);
+  max-width: 17ch;
+}
+
+.hd__lead {
+  position: relative;
+  margin: 1.5rem 0 0;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 52ch;
+}
+
+.hd__cta {
+  position: relative;
+  display: flex;
+  gap: 0.625rem;
+  margin-top: 1.9rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hd__btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.72rem 1.5rem 0.72rem 1.35rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  background: var(--fg);
+  color: #0A0A0A;
+  border: 1px solid transparent;
+  /* Shared button silhouette (see D2 in the design system, .btn-cut below):
+     opposite corners cut so every CTA on the site reads as one family. */
+  clip-path: var(--btn-cut);
+  transition: opacity 0.18s ease, background 0.18s ease;
+}
+
+.hd__btn:hover { opacity: 0.88; }
+
+/* Secondary CTA = leaf, everywhere (see PERSIMMON ORCHARD block, globals.css):
+   persimmon stays reserved for the primary fill + route-swap + live. */
+.hd__btn--ghost {
+  background: transparent;
+  color: var(--sw-leaf-bright, #8FCC9E);
+  border-color: var(--sw-leaf-deep, #3E6B4F);
+}
+
+.hd__btn--ghost:hover {
+  background: var(--sw-leaf-fainter, rgba(94, 156, 111, 0.07));
+  border-color: var(--sw-leaf, #5E9C6F);
+}
+
+/* clip-path clips outline AND box-shadow drawn outside the border box, so the
+   site-wide outer focus ring (--sw-focus) is invisible here. Draw the ring
+   inset instead, in the button's own foreground colour. */
+.hd__btn:focus-visible,
+.hd__btn--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+/* One text link beside the one primary CTA (D4) — no second button shape
+   competing with the primary. */
+.hd__textlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.72rem 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--fg-dim);
+  text-decoration: none;
+  transition: color 0.18s ease, gap 0.18s ease;
+}
+.hd__textlink span { transition: transform 0.18s ease; }
+.hd__textlink:hover { color: var(--fg); }
+.hd__textlink:hover span { transform: translateX(3px); }
+
+/* ── The product ─────────────────────────────────────────────── */
+.hd__stage {
+  position: relative;
+  width: 100%;
+  max-width: 44rem;
+  margin-top: clamp(2rem, 4.5vh, 3rem);
+  text-align: left;
+}
+
+/* ── Fact rail ───────────────────────────────────────────────── */
+.hd__rail {
+  position: relative;
+  width: 100%;
+  max-width: 44rem;
+  margin-top: 1.75rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--line);
+}
+
+.hd__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 1.25rem 0.5rem 0;
+  text-align: left;
+}
+
+.hd__stat-v {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.hd__stat-l {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  color: var(--fg-faint);
+}
+
+@media (max-width: 640px) {
+  .hd__rail { grid-template-columns: repeat(2, 1fr); gap: 0.5rem 0; }
+  .hd__stat { padding-top: 1rem; }
+}
+
+/* ── The live quote, restyled into this register ─────────────── */
+.hd .lq {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--fg-dim);
+}
+
+.hd .lq__bar { border-bottom-color: var(--line); padding: 0.8rem 1.1rem; }
+.hd .lq__title { color: var(--fg); letter-spacing: 0.14em; font-size: 0.66rem; }
+/* Status chip: live/captured are the same "success/live" role (leaf), just
+   a dimmer step for captured — never live and never claimed to be. */
+.hd .lq__title--live {
+  color: var(--sw-leaf-bright, #8FCC9E);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+.hd .lq__title--live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sw-leaf, #5E9C6F);
+  animation: lq-pulse 2s var(--pp-ease, ease) infinite;
+}
+.hd .lq__title--stale { color: var(--sw-leaf-muted, #6BAF7C); }
+.hd .lq__title--expired,
+.hd .lq__title--unavailable { color: var(--sw-accent-muted, #BD7526); }
+.hd .lq__body--expired .lq__out { opacity: 0.62; }
+@keyframes lq-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(94, 156, 111, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(94, 156, 111, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(94, 156, 111, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hd .lq__title--live::before { animation: none; }
+}
+.hd .lq__src { font-size: 0.62rem; color: var(--fg-faint); opacity: 1; }
+.hd .lq__pairs { padding: 0.9rem 1.1rem 0; }
+
+.hd .lq__pair {
+  border-radius: 6px;
+  border-color: var(--line);
+  color: var(--fg-dim);
+  opacity: 1;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+/* Inverted chip (P3/cream) — the selected pair, e.g. "100 USDC to ETH". */
+.hd .lq__pair--on {
+  border-color: var(--sw-cream, #FAF3E6);
+  background: var(--sw-cream, #FAF3E6);
+  color: var(--sw-soil-0, #1C1310);
+  font-weight: 700;
+}
+
+.hd .lq__body { padding: 1.1rem; }
+.hd .lq__num { color: var(--fg); font-size: clamp(2.2rem, 5vw, 3.1rem); letter-spacing: -0.03em; }
+.hd .lq__sym { color: var(--fg-faint); }
+.hd .lq__sub { color: var(--fg-faint); font-size: 0.78rem; }
+
+.hd .lq__grid {
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+  margin-top: 1.1rem;
+  gap: 0.4rem 1rem;
+}
+
+.hd .lq__grid dt { font-family: var(--font-mono); color: var(--fg-faint); font-size: 0.62rem; }
+.hd .lq__grid dd { color: var(--fg); font-size: 0.82rem; }
+.hd .lq__warn { color: var(--accent); }
+
+@media (max-width: 560px) {
+  .hd .lq__grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Motion: scroll entry only ───────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal--in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* Dark header treatment for this page. */
+.hd .summer-nav {
+  background: rgba(28, 19, 16, 0.72);
+  border-bottom-color: var(--line);
+}
+.hd .summer-brand { color: var(--fg); }
+.hd .summer-nav nav { background: rgba(255,255,255,0.04); border-color: var(--line); }
+.hd .summer-nav nav a, .hd .summer-nav__trigger { color: var(--fg-dim); }
+.hd .summer-nav nav a:hover, .hd .summer-nav__trigger:hover {
+  color: var(--fg); background: rgba(255,255,255,0.07);
+}
+.hd .summer-nav__cta--ghost {
+  color: var(--sw-leaf-bright, #8FCC9E);
+  border-color: var(--sw-leaf-deep, #3E6B4F);
+  background: transparent;
+}
+.hd .summer-nav__cta--ghost:hover {
+  background: var(--sw-leaf-fainter, rgba(94, 156, 111, 0.07));
+  border-color: var(--sw-leaf, #5E9C6F);
+}
+.hd .summer-nav__burger .nav__hamburger-line { background: var(--fg); }

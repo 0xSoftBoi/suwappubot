@@ -1,6 +1,8 @@
+import nodeCrypto from 'crypto'
 import { Context, Effect, Layer, Option } from 'effect'
 import { EnvService } from '../config/EnvService'
 import { UnauthorizedError } from '../errors'
+import { logger } from '../lib/logger'
 
 export interface TelegramUser {
 	id: number
@@ -40,6 +42,23 @@ export const TelegramAuthServiceLive = Layer.effect(
 					const receivedHash = params.get('hash')
 
 					if (!receivedHash) {
+						return Option.none<TelegramUser>()
+					}
+
+					// Validate auth_date is present AND recent (±5 minutes) to reject
+					// replayed or fabricated init_data payloads. An initData string
+					// missing auth_date entirely is rejected too — even though the
+					// HMAC covers whatever params ARE present, an absent auth_date
+					// would silently skip the freshness check (fail-open), so treat
+					// it the same as a stale one.
+					const authDate = params.get('auth_date')
+					if (!authDate) {
+						return Option.none<TelegramUser>()
+					}
+					const authTimestamp = parseInt(authDate, 10)
+					const nowSec = Math.floor(Date.now() / 1000)
+					const MAX_AGE_SEC = 300 // 5 minutes
+					if (isNaN(authTimestamp) || Math.abs(nowSec - authTimestamp) > MAX_AGE_SEC) {
 						return Option.none<TelegramUser>()
 					}
 
@@ -90,12 +109,14 @@ export const TelegramAuthServiceLive = Layer.effect(
 						.join('')
 
 					// Constant-time comparison
-					if (calculatedHash !== receivedHash) {
-						console.log('Hash mismatch:', {
+					const isValid = calculatedHash.length === receivedHash.length &&
+						nodeCrypto.timingSafeEqual(Buffer.from(calculatedHash, 'hex'), Buffer.from(receivedHash, 'hex'))
+					if (!isValid) {
+						logger.info({
 							receivedHash: receivedHash.substring(0, 16) + '...',
 							calculatedHash: calculatedHash.substring(0, 16) + '...',
 							botTokenPrefix: env.TELEGRAM_BOT_TOKEN?.substring(0, 10) + '...',
-						})
+						}, 'Hash mismatch')
 						return Option.none<TelegramUser>()
 					}
 

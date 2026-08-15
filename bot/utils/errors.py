@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 @dataclass
 class UserFriendlyError:
     """An error with both technical and user-friendly messages."""
+
     code: str
     user_message: str
     technical_message: str
@@ -30,21 +31,20 @@ ERROR_MESSAGES = {
         code="INSUFFICIENT_LIQUIDITY",
         user_message="❌ Not enough liquidity for this swap.",
         technical_message="Insufficient liquidity in pools",
-        suggestion="Try a smaller amount or wait for more liquidity."
+        suggestion="Try a smaller amount or wait for more liquidity.",
     ),
     "AMOUNT_TOO_LOW": UserFriendlyError(
         code="AMOUNT_TOO_LOW",
         user_message="❌ Amount is too low for this swap.",
         technical_message="Amount below minimum threshold",
-        suggestion="Increase the swap amount."
+        suggestion="Increase the swap amount.",
     ),
     "AMOUNT_TOO_HIGH": UserFriendlyError(
         code="AMOUNT_TOO_HIGH",
         user_message="❌ Amount is too high for this swap.",
         technical_message="Amount exceeds maximum threshold",
-        suggestion="Try a smaller amount or split into multiple swaps."
+        suggestion="Try a smaller amount or split into multiple swaps.",
     ),
-
     # Transaction errors
     "INSUFFICIENT_BALANCE": UserFriendlyError(
         code="INSUFFICIENT_BALANCE",
@@ -71,57 +71,53 @@ ERROR_MESSAGES = {
         code="TRANSACTION_REVERTED",
         user_message="❌ Transaction was reverted.",
         technical_message="Smart contract reverted execution",
-        suggestion="Try again with higher gas or different settings."
+        suggestion="Try again with higher gas or different settings.",
     ),
     "TRANSACTION_TIMEOUT": UserFriendlyError(
         code="TRANSACTION_TIMEOUT",
         user_message="⏰ Transaction timed out.",
         technical_message="Transaction not mined in time",
-        suggestion="Check explorer for status. May still complete."
+        suggestion="Check explorer for status. May still complete.",
     ),
-
     # Network errors
     "RPC_ERROR": UserFriendlyError(
         code="RPC_ERROR",
         user_message="❌ Network connection error.",
         technical_message="RPC endpoint failed",
-        suggestion="Please try again in a moment."
+        suggestion="Please try again in a moment.",
     ),
     "NETWORK_CONGESTED": UserFriendlyError(
         code="NETWORK_CONGESTED",
         user_message="🚧 Network is congested.",
         technical_message="High network traffic",
-        suggestion="Wait a few minutes or increase gas price."
+        suggestion="Wait a few minutes or increase gas price.",
     ),
-
     # API errors
     "RATE_LIMITED": UserFriendlyError(
         code="RATE_LIMITED",
         user_message="⏳ Too many requests. Please wait.",
         technical_message="API rate limit exceeded",
-        suggestion="Wait a moment before trying again."
+        suggestion="Wait a moment before trying again.",
     ),
     "API_ERROR": UserFriendlyError(
         code="API_ERROR",
         user_message="❌ Service temporarily unavailable.",
         technical_message="External API error",
-        suggestion="Please try again in a moment."
+        suggestion="Please try again in a moment.",
     ),
-
     # Wallet errors
     "INVALID_ADDRESS": UserFriendlyError(
         code="INVALID_ADDRESS",
         user_message="❌ Invalid wallet address.",
         technical_message="Address validation failed",
-        suggestion="Check the address format."
+        suggestion="Check the address format.",
     ),
     "WALLET_NOT_FOUND": UserFriendlyError(
         code="WALLET_NOT_FOUND",
         user_message="❌ Wallet not found.",
         technical_message="No wallet in database",
-        suggestion="Add a wallet first with /w."
+        suggestion="Add a wallet first with /w.",
     ),
-
     # Quote errors
     "QUOTE_EXPIRED": UserFriendlyError(
         code="QUOTE_EXPIRED",
@@ -134,9 +130,8 @@ ERROR_MESSAGES = {
         code="PRICE_IMPACT_HIGH",
         user_message="⚠️ High price impact detected.",
         technical_message="Price impact > 5%",
-        suggestion="Consider swapping a smaller amount."
+        suggestion="Consider swapping a smaller amount.",
     ),
-
     # --- Provider-specific errors ---
     "PROVIDER_TIMEOUT": UserFriendlyError(
         code="PROVIDER_TIMEOUT",
@@ -240,13 +235,12 @@ ERROR_MESSAGES = {
         suggestion="Try a different token pair or chain combination.",
         recovery_actions=[("Try Different Pair", "swap_start"), ("Main Menu", "main_menu")],
     ),
-
     # Generic
     "UNKNOWN_ERROR": UserFriendlyError(
         code="UNKNOWN_ERROR",
         user_message="❌ An unexpected error occurred.",
         technical_message="Unknown error",
-        suggestion="Please try again or contact support."
+        suggestion="Please try again or contact support.",
     ),
 }
 
@@ -278,8 +272,7 @@ def format_error_with_buttons(error: UserFriendlyError):
         return text, None
 
     buttons = [
-        InlineKeyboardButton(label, callback_data=cb)
-        for label, cb in error.recovery_actions
+        InlineKeyboardButton(label, callback_data=cb) for label, cb in error.recovery_actions
     ]
     # Put all buttons in one row (max 2-3 is fine)
     keyboard = InlineKeyboardMarkup([buttons])
@@ -324,15 +317,38 @@ _ERROR_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+# Stringified SQLAlchemy / psycopg2 exceptions embed the full failing SQL
+# statement (including column names like `default_slippage`), so substring
+# patterns like /slippage/ will spuriously match and a DB failure will be
+# reported to users as a swap-slippage error. Any message containing one of
+# these markers is almost certainly a DB/ORM error, not a swap error.
+_DB_ERROR_MARKERS = (
+    "[sql:",
+    "psycopg2.",
+    "sqlalchemy.exc",
+    "integrityerror",
+    "operationalerror",
+    "dataerror",
+    "programmingerror",
+    "numericvalueoutofrange",
+)
+
+
 def detect_error_code(error_message: str) -> str:
     """Try to detect error code from error message string.
 
-    Checks exception's error_code attribute first (if present), then falls
-    back to pattern matching on the message text.
+    Falls back to pattern matching on the message text. DB/ORM errors
+    short-circuit to UNKNOWN_ERROR so that SQL text (column names,
+    parameter dicts) isn't misclassified as a swap-specific error.
     """
-    # Database/schema errors should never match swap-specific codes
     error_lower = error_message.lower()
-    if "column" in error_lower and ("does not exist" in error_lower or "no such column" in error_lower):
+
+    # DB/ORM errors — their stringified form embeds SQL text.
+    if any(marker in error_lower for marker in _DB_ERROR_MARKERS):
+        return "UNKNOWN_ERROR"
+    if "column" in error_lower and (
+        "does not exist" in error_lower or "no such column" in error_lower
+    ):
         return "UNKNOWN_ERROR"
 
     for pattern, code in _ERROR_PATTERNS:
@@ -348,6 +364,13 @@ def detect_error_code_from_exception(exception: Exception) -> str:
     error_code = getattr(exception, "error_code", None)
     if error_code and error_code in ERROR_MESSAGES:
         return error_code
+
+    # DB/ORM exceptions are classified by module rather than by message text,
+    # since their stringified form embeds SQL and can match swap patterns
+    # spuriously (e.g. column name 'default_slippage' matching /slippage/).
+    module = (type(exception).__module__ or "").lower()
+    if module.startswith(("psycopg2", "sqlalchemy", "asyncpg", "aiosqlite")):
+        return "UNKNOWN_ERROR"
 
     return detect_error_code(str(exception))
 

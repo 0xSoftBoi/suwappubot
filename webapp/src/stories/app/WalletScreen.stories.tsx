@@ -277,7 +277,7 @@ export const SendScreen: Story = {
             <input
               type="text"
               placeholder="0x..."
-              className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+              className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
             />
           </div>
 
@@ -292,7 +292,7 @@ export const SendScreen: Story = {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.0"
-                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                className="flex-1 px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
               />
               <button className="px-3 py-2 bg-suwappu-sakura-light rounded-suwappu-lg flex items-center gap-1.5">
                 <span>Ξ</span>

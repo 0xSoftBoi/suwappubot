@@ -1,73 +1,56 @@
-/**
- * Tab navigator — 5 main tabs matching the webapp bottom nav.
- */
-import React from 'react'
-import FontAwesome from '@expo/vector-icons/FontAwesome'
+import { useCallback, useEffect } from 'react'
+import { StyleSheet, Text, type ColorValue } from 'react-native'
+import { Image } from 'expo-image'
 import { Tabs } from 'expo-router'
+import { isAuthenticated } from '../../src/lib/auth'
+import { usePrefetch } from '../../src/hooks/use-prefetch'
+import { palette } from '../../src/theme'
 
-function TabBarIcon(props: { name: React.ComponentProps<typeof FontAwesome>['name']; color: string }) {
-  return <FontAwesome size={24} style={{ marginBottom: -3 }} {...props} />
+type TabIconProps = { symbol: `sf:${string}`; fallback: string; color: ColorValue }
+
+function TabIcon({ symbol, fallback, color }: TabIconProps) {
+  if (process.env.EXPO_OS === 'ios') {
+    return <Image source={symbol} style={[local.symbol, { tintColor: color }]} />
+  }
+  return <Text style={[local.fallbackIcon, { color }]}>{fallback}</Text>
 }
 
-export default function TabLayout() {
+export default function TabsLayout() {
+  const { prefetchSnapshot, prefetchActivity } = usePrefetch()
+  const icon = useCallback((symbol: TabIconProps['symbol'], fallback: string) => ({ color }: { color: ColorValue }) => (
+    <TabIcon symbol={symbol} fallback={fallback} color={color} />
+  ), [])
+
+  useEffect(() => {
+    if (!isAuthenticated()) return
+    prefetchSnapshot()
+    prefetchActivity()
+  }, [prefetchActivity, prefetchSnapshot])
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#FF85A1',
-        tabBarInactiveTintColor: '#666',
-        tabBarStyle: {
-          backgroundColor: '#111',
-          borderTopColor: '#222',
-          borderTopWidth: 1,
-          height: 88,
-          paddingBottom: 30,
-          paddingTop: 8,
-        },
-        headerStyle: { backgroundColor: '#000' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '600' },
+        headerShown: true,
+        headerShadowVisible: false,
+        headerStyle: local.header,
+        headerTitleStyle: local.headerTitle,
+        tabBarActiveTintColor: palette.accent,
+        tabBarInactiveTintColor: palette.textMuted,
+        tabBarStyle: local.tabBar,
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
-          headerShown: false,
-        }}
-      />
-      <Tabs.Screen
-        name="swap"
-        options={{
-          title: 'Swap',
-          tabBarIcon: ({ color }) => <TabBarIcon name="exchange" color={color} />,
-          headerTitle: 'Swap',
-        }}
-      />
-      <Tabs.Screen
-        name="portfolio"
-        options={{
-          title: 'Portfolio',
-          tabBarIcon: ({ color }) => <TabBarIcon name="pie-chart" color={color} />,
-          headerTitle: 'Portfolio',
-        }}
-      />
-      <Tabs.Screen
-        name="earn"
-        options={{
-          title: 'Discover',
-          tabBarIcon: ({ color }) => <TabBarIcon name="compass" color={color} />,
-          headerTitle: 'Discover',
-        }}
-      />
-      <Tabs.Screen
-        name="more"
-        options={{
-          title: 'More',
-          tabBarIcon: ({ color }) => <TabBarIcon name="th-large" color={color} />,
-          headerTitle: 'More',
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: icon('sf:house', '●') }} />
+      <Tabs.Screen name="ask" options={{ title: 'Ask', tabBarIcon: icon('sf:message', '✦') }} />
+      <Tabs.Screen name="money" options={{ title: 'Money', tabBarIcon: icon('sf:chart.pie', '$') }} />
+      <Tabs.Screen name="activity" options={{ title: 'Activity', tabBarIcon: icon('sf:clock', '≡') }} />
     </Tabs>
   )
 }
+
+const local = StyleSheet.create({
+  header: { backgroundColor: palette.bg },
+  headerTitle: { color: palette.text, fontWeight: '700' },
+  tabBar: { backgroundColor: palette.surface, borderTopColor: palette.border },
+  symbol: { width: 23, height: 23 },
+  fallbackIcon: { fontSize: 18, fontWeight: '700' },
+})

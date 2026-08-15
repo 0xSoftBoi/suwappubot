@@ -1,178 +1,82 @@
-/**
- * Home / Dashboard tab.
- *
- * Shows portfolio value, quick actions, and recent activity.
- */
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, RefreshControl } from 'react-native'
-import { useRouter } from 'expo-router'
-import { useQuery } from '@tanstack/react-query'
-import { useAuth } from '../../contexts/AuthContext'
-import { api } from '../../lib/api'
-import { useState, useCallback } from 'react'
-import { colors, spacing, radius } from '../../lib/theme'
+import { useCallback } from 'react'
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ErrorState, LegalLinks, LoadingState, SignedOutState } from '../../src/components/screen-state'
+import { useSnapshot } from '../../src/hooks/use-gecko'
+import { isAuthenticated } from '../../src/lib/auth'
+import { formatDate, formatUsd, snapshotChange } from '../../src/lib/format'
+import { palette, spacing, styles as s } from '../../src/theme'
 
-export default function HomeScreen() {
-  const { user, walletAddress } = useAuth()
-  const router = useRouter()
-  const [refreshing, setRefreshing] = useState(false)
+function greeting(): string {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning.'
+  if (hour < 18) return 'Good afternoon.'
+  return 'Good evening.'
+}
 
-  const { data: portfolio, refetch: refetchPortfolio } = useQuery({
-    queryKey: ['portfolio'],
-    queryFn: () => api.getPortfolio(),
-    refetchInterval: 30_000,
-  })
+export default function TodayScreen() {
+  const signedIn = isAuthenticated()
+  const { data, isLoading, isError, isRefetching, refetch } = useSnapshot(signedIn)
+  const refresh = useCallback(() => void refetch(), [refetch])
 
-  const { data: recentSwaps } = useQuery({
-    queryKey: ['swaps', 'recent'],
-    queryFn: () => api.getSwaps(3, 0),
-  })
+  if (!signedIn) return <SignedOutState />
+  if (isLoading && !data) return <LoadingState label="Reading your money…" />
+  if (isError && !data) return <ErrorState message="Gecko couldn’t load your money." onRetry={refresh} />
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true)
-    await refetchPortfolio()
-    setRefreshing(false)
-  }, [refetchPortfolio])
-
-  const totalValue = portfolio?.totalUsdValue ?? 0
+  const change = data?.coverage === 'complete'
+    ? snapshotChange(data.history, data.totalValueUsd)
+    : null
+  const top = data?.byToken[0]
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-      }
+      style={s.screen}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={local.content}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refresh} tintColor={palette.accent} />}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.greeting}>
-          {user?.firstName ? `Hey, ${user.firstName}` : 'Welcome'}
-        </Text>
-        {walletAddress && (
-          <Text style={styles.address}>
-            {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+      <View style={local.intro}>
+        <Text style={s.title}>{greeting()}</Text>
+        <Text style={local.lede}>Here’s what matters in your money right now.</Text>
+      </View>
+
+      <View style={s.card}>
+        <Text style={s.muted}>Money I can price</Text>
+        <Text selectable style={local.total}>{formatUsd(data?.totalValueUsd ?? 0)}</Text>
+        {data ? <Text style={s.muted}>Updated {formatDate(data.lastUpdated)}</Text> : null}
+      </View>
+
+      <Text style={s.heading}>Quick read</Text>
+      <View style={local.stack}>
+        <View style={s.card}>
+          <Text style={s.muted}>Change</Text>
+          <Text selectable style={s.body}>
+            {change
+              ? `${change.delta >= 0 ? 'Up' : 'Down'} ${formatUsd(Math.abs(change.delta))} (${Math.abs(change.percent).toFixed(1)}%) since ${formatDate(change.since)}`
+              : data?.coverage === 'best_effort'
+                ? 'I’m withholding gain/loss until I can verify complete source coverage.'
+                : 'History is still building. I’ll compare changes when there’s enough real data.'}
           </Text>
-        )}
+        </View>
+        <View style={s.card}>
+          <Text style={s.muted}>Concentration</Text>
+          <Text selectable style={s.body}>
+            {top
+              ? `${top.symbol} is your largest holding at ${top.allocationPct.toFixed(1)}% of the money I can price.`
+              : 'No priced holdings are available yet.'}
+          </Text>
+        </View>
       </View>
-
-      {/* Portfolio Value */}
-      <View style={styles.valueCard}>
-        <Text style={styles.valueLabel}>Total Balance</Text>
-        <Text style={styles.valueAmount}>
-          ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </Text>
-      </View>
-
-      {/* Quick Actions */}
-      <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/(tabs)/swap')}>
-          <Text style={styles.actionEmoji}>&#x21C4;</Text>
-          <Text style={styles.actionLabel}>Swap</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/(tabs)/portfolio')}>
-          <Text style={styles.actionEmoji}>&#x1F4B0;</Text>
-          <Text style={styles.actionLabel}>Portfolio</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/(features)/discover' as any)}>
-          <Text style={styles.actionEmoji}>&#x1F50D;</Text>
-          <Text style={styles.actionLabel}>Discover</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Recent Activity */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Activity</Text>
-        {recentSwaps && recentSwaps.length > 0 ? (
-          recentSwaps.map((swap) => (
-            <TouchableOpacity
-              key={swap.id}
-              style={styles.swapRow}
-              onPress={() =>
-                router.push({
-                  pathname: '/(features)/tx/[hash]' as any,
-                  params: {
-                    hash: swap.txHash || String(swap.id),
-                    fromToken: swap.fromToken,
-                    toToken: swap.toToken,
-                    fromAmount: swap.fromAmount,
-                    toAmount: swap.toAmount || '--',
-                    fromChain: swap.fromChain,
-                    toChain: swap.toChain,
-                    status: swap.status,
-                    date: swap.createdAt,
-                  },
-                })
-              }
-            >
-              <View>
-                <Text style={styles.swapTokens}>
-                  {swap.fromToken} → {swap.toToken}
-                </Text>
-                <Text style={styles.swapChain}>
-                  {swap.fromChain}{swap.fromChain !== swap.toChain ? ` → ${swap.toChain}` : ''}
-                </Text>
-              </View>
-              <View style={styles.swapRight}>
-                <Text style={styles.swapAmount}>{swap.fromAmount}</Text>
-                <Text style={[
-                  styles.swapStatus,
-                  swap.status === 'completed' && styles.statusComplete,
-                  swap.status === 'failed' && styles.statusFailed,
-                ]}>
-                  {swap.status}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>No recent swaps</Text>
-        )}
-      </View>
+      {isError && data ? <Text selectable style={local.stale}>Offline for now — showing your last saved snapshot.</Text> : null}
+      <LegalLinks />
     </ScrollView>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xxl, paddingTop: 60 },
-  header: { marginBottom: spacing.xxl },
-  greeting: { fontSize: 28, fontWeight: '700', color: colors.text },
-  address: { fontSize: 14, color: colors.textTertiary, marginTop: spacing.xs, fontFamily: 'SpaceMono' },
-  valueCard: {
-    backgroundColor: colors.card,
-    borderRadius: radius.xl,
-    padding: spacing.xxl,
-    marginBottom: spacing.xxl,
-  },
-  valueLabel: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.sm },
-  valueAmount: { fontSize: 36, fontWeight: '700', color: colors.text },
-  quickActions: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.xxxl },
-  actionButton: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  actionEmoji: { fontSize: 24 },
-  actionLabel: { fontSize: 13, color: colors.text, fontWeight: '500' },
-  section: {},
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: spacing.lg },
-  swapRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: colors.card,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-    marginBottom: spacing.sm,
-  },
-  swapTokens: { fontSize: 15, fontWeight: '500', color: colors.text },
-  swapChain: { fontSize: 12, color: colors.textTertiary, marginTop: spacing.xs },
-  swapRight: { alignItems: 'flex-end' },
-  swapAmount: { fontSize: 15, color: colors.text },
-  swapStatus: { fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs, textTransform: 'capitalize' },
-  statusComplete: { color: colors.success },
-  statusFailed: { color: colors.error },
-  emptyText: { fontSize: 14, color: colors.textTertiary, textAlign: 'center', paddingVertical: spacing.xxl },
+const local = StyleSheet.create({
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg },
+  intro: { gap: spacing.xs },
+  lede: { color: palette.textSecondary, fontSize: 17, lineHeight: 24 },
+  total: { color: palette.text, fontSize: 38, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  stack: { gap: spacing.sm },
+  stale: { color: palette.textMuted, fontSize: 12, textAlign: 'center' },
 })

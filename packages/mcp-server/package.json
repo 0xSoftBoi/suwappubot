@@ -1,0 +1,60 @@
+{
+  "name": "@suwappu/mcp-server",
+  "mcpName": "bot.suwappu/mcp",
+  "version": "0.6.0",
+  "description": "Stdio bridge to Suwappu's hosted MCP tools, resources, and prompts",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "suwappu-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xSoftBoi/suwappubot.git",
+    "directory": "packages/mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/0xSoftBoi/suwappubot/issues"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "start": "node dist/index.js",
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "suwappu",
+    "dex",
+    "swap",
+    "crypto",
+    "defi",
+    "claude-desktop"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.1.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}

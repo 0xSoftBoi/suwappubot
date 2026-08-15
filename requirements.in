@@ -1,0 +1,106 @@
+# Direct (top-level) Python dependencies for the api/ + bot/ + database/ monolith.
+#
+# This is the SOURCE file. The pinned lockfile `requirements.txt` is GENERATED from
+# it via pip-compile — do NOT hand-edit requirements.txt:
+#
+#     pip-compile requirements.in -o requirements.txt
+#
+# Only packages the code actually imports (or runtime entrypoints/drivers) belong
+# here. Transitive deps (pydantic-core, eth-keyfile, parsimonious, jsonalias, the
+# rest of the eth-*/anyio/yarl stack, …) are resolved + pinned by pip-compile so
+# they always satisfy their parents. This is what stops Dependabot from bumping a
+# transitive past its parent's constraint (see the #459 breakage).
+
+# ---- Web framework / server ----
+fastapi==0.141.1
+uvicorn[standard]>=0.52.1,<1.0          # ASGI server — entrypoint
+uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
+
+# ---- Error tracking (optional; no-op unless SENTRY_DSN is set) ----
+sentry-sdk[fastapi]==2.66.1
+
+# ---- Telegram bot ----
+python-telegram-bot[rate-limiter]==22.8
+
+# ---- HTTP clients ----
+httpx==0.28.1
+httpx2                                # required by starlette>=1.x TestClient; test-only, app clients still use httpx
+# Security floor: CVE-2026-71554 is fixed in h2 4.4.1.
+h2>=4.4.1
+requests==2.34.2
+aiohttp==3.14.3
+websockets==15.0.1
+# certifi is transitive, but pinned deliberately for the aiohttp SSL health-check
+# fix (commit 32d0805) — keep a floor so pip-compile can't resolve below it.
+certifi>=2026.7.22
+# urllib3 is transitive, but floored deliberately to pull in the patched
+# decompression-bomb + cross-origin-redirect-header advisories.
+urllib3>=2.7.0
+
+# ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
+anthropic
+openai==2.53.0
+
+# ---- Agent immune system (AEGIS scanner, observe mode — docs/plans/aegis-fork-extend.md) ----
+# Pinned to an immutable upstream commit; repoint to the 0xsoftboi/aegis fork once created.
+# Core install only (pyyaml/pydantic/httpx, all already pinned above) — NO optional extras;
+# ML/embedding extras are banned from the request path (latency).
+aegis-shield @ git+https://github.com/gaiarobotics/aegis@e3e87b3791fb99e5ddee767dee20a3ef1bf2b99e
+
+# ---- Database ----
+SQLAlchemy==2.0.51
+psycopg2-binary>=2.9,<3.0             # PostgreSQL driver
+
+# ---- Pydantic / settings ----
+pydantic==2.13.4
+pydantic-settings==2.14.2
+# Security floor: PYSEC-2026-2270 is fixed in python-dotenv 1.2.2.
+python-dotenv>=1.2.2
+
+# ---- Crypto / encryption ----
+cryptography==50.0.0
+dnspython==2.8.0                      # DKIM TXT lookup for email social recovery
+PyJWT==2.13.0
+pyotp==2.10.0
+
+# ---- EVM / web3 ----
+web3==7.16.0
+eth-account==0.13.7
+eth-abi==5.2.0
+eth-utils==5.3.1
+pytempo==0.5.1                        # Tempo type-0x76 gasless fee-payer SDK
+
+# ---- Solana ----
+solana==0.40.1
+solders==0.28.0
+base58==2.1.1
+
+# ---- Tron ----
+tronpy>=0.5,<1.0
+
+# ---- Starknet (lazy-imported; needs Python >= 3.10 — prod image is 3.12) ----
+starknet-py>=0.28.1; python_version >= "3.10"
+
+# ---- Perps / Polymarket / Hyperliquid ----
+hyperliquid-python-sdk==0.24.0
+py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client)
+msgpack==1.2.1
+
+# ---- Discord integration ----
+discord.py>=2.3,<3.0
+
+# ---- Media / QR ----
+qrcode>=7.4,<9.0
+Pillow>=12.3.0                          # imported as PIL
+
+# ---- Cache ----
+redis==8.1.0
+
+# ---- Serialization / misc ----
+orjson>=3.10
+
+# ---- AWS KMS ----
+# boto3 is intentionally NOT a runtime dependency — imported lazily in
+# AwsKmsClient and only needed by the one-time re-wrap migration
+# (scripts/requirements-migrate.txt). Keeping it out avoids a botocore<->urllib3
+# conflict on the pinned HTTP stack.

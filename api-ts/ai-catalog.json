@@ -1,0 +1,66 @@
+{
+  "$schema": "https://agenticresourcediscovery.org/schema/v0.9/ai-catalog.json",
+  "version": "0.9",
+  "id": "bot.suwappu",
+  "name": "Suwappu",
+  "description": "Cross-chain DEX and DeFi infrastructure for AI agents — swaps, perps, prediction markets, and lending across 14+ chains.",
+  "homepage": "https://suwappu.bot",
+  "provider": {
+    "name": "Suwappu",
+    "url": "https://suwappu.bot"
+  },
+  "resources": [
+    {
+      "type": "a2a-agent-card",
+      "mediaType": "application/a2a-agent-card+json",
+      "name": "Suwappu A2A Agent Card",
+      "description": "Agent-to-Agent (A2A) protocol discovery card — natural-language messaging, task lifecycle, and skill list.",
+      "url": "https://api.suwappu.bot/.well-known/agent-card.json"
+    },
+    {
+      "type": "mcp-server",
+      "mediaType": "application/mcp-server-card+json",
+      "name": "Suwappu MCP Server",
+      "description": "Model Context Protocol server (JSON-RPC 2.0 over Streamable HTTP). Exposes swap, portfolio, price, perps, prediction-market, and lending tools.",
+      "url": "https://api.suwappu.bot/mcp",
+      "authentication": {
+        "type": "bearer",
+        "description": "Register at POST https://api.suwappu.bot/v1/agent/register to obtain a Bearer API key."
+      }
+    },
+    {
+      "type": "openapi",
+      "mediaType": "application/vnd.oai.openapi+json;version=3.1",
+      "name": "Suwappu OpenAPI Specification",
+      "description": "OpenAPI 3.1 spec for the full Suwappu REST agent API.",
+      "url": "https://api.suwappu.bot/v1/agent/openapi"
+    },
+    {
+      "type": "llms-txt",
+      "mediaType": "text/markdown",
+      "name": "llms.txt",
+      "description": "Machine-readable, short-form API summary for LLM/agent bootstrapping.",
+      "url": "https://api.suwappu.bot/llms.txt"
+    },
+    {
+      "type": "llms-txt",
+      "mediaType": "text/markdown",
+      "name": "llms-full.txt",
+      "description": "Exhaustive machine-readable endpoint reference (full variant of llms.txt).",
+      "url": "https://api.suwappu.bot/llms-full.txt"
+    },
+    {
+      "type": "mcp-registry-entry",
+      "mediaType": "application/vnd.mcp-registry.server+json",
+      "name": "Suwappu MCP Registry Manifest",
+      "description": "Manifest published to the official MCP registry (registry.modelcontextprotocol.io) under the domain-verified bot.suwappu namespace.",
+      "url": "https://github.com/0xSoftBoi/suwappubot/blob/main/packages/openclaw/server.json"
+    }
+  ],
+  "authentication": {
+    "schemes": [
+      "bearer"
+    ],
+    "registrationUrl": "https://api.suwappu.bot/v1/agent/register"
+  }
+}

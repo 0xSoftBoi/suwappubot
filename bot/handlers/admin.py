@@ -3,18 +3,22 @@
 import asyncio
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType
 from bot.utils.cache import price_cache, quote_cache, balance_cache, gas_cache
+from bot.utils.http_client import get_session as get_http_session
 from database.db import get_session
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 
-
 # Admin user IDs from settings, fail-closed if not configured
-ADMIN_IDS = [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()] if settings.admin_telegram_ids else []
+ADMIN_IDS = (
+    [int(x) for x in settings.admin_telegram_ids.split(",") if x.strip()]
+    if settings.admin_telegram_ids
+    else []
+)
 
 
 def is_admin(user_id: int) -> bool:
@@ -22,48 +26,40 @@ def is_admin(user_id: int) -> bool:
     return len(ADMIN_IDS) > 0 and user_id in ADMIN_IDS
 
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /status command - show system health status."""
-    user = update.effective_user
-    
-    if not is_admin(user.id):
-        await update.message.reply_text("❌ This command is for admins only.")
-        return
-    
-    loading_msg = await update.message.reply_text("🔍 Checking system status...")
-    
+async def _build_status_report() -> tuple[str, InlineKeyboardMarkup]:
+    """Build the system status text + keyboard, shared by the command and refresh callback."""
     # Check RPC endpoints
     rpc_status = await _check_rpc_endpoints()
-    
+
     # Check external APIs
     api_status = await _check_external_apis()
-    
+
     # Get database stats
     db_stats = _get_database_stats()
-    
+
     # Get cache stats
     cache_stats = _get_cache_stats()
-    
+
     # Build status message
     lines = ["🖥️ *System Status*\n"]
-    
+
     # RPC Status
     lines.append("*RPC Endpoints:*")
     for chain, status in rpc_status.items():
         emoji = "✅" if status["ok"] else "❌"
         latency = f"{status['latency']:.0f}ms" if status.get("latency") else "N/A"
         lines.append(f"  {emoji} {chain}: {latency}")
-    
+
     lines.append("")
-    
+
     # API Status
     lines.append("*External APIs:*")
     for api, status in api_status.items():
         emoji = "✅" if status["ok"] else "❌"
         lines.append(f"  {emoji} {api}: {'OK' if status['ok'] else status.get('error', 'Error')}")
-    
+
     lines.append("")
-    
+
     # Database Stats
     lines.append("*Database:*")
     lines.append(f"  👥 Users: {db_stats['users']}")
@@ -71,87 +67,119 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lines.append(f"  🔄 Total Swaps: {db_stats['swaps']}")
     lines.append(f"  ✅ Completed: {db_stats['completed_swaps']}")
     lines.append(f"  ❌ Failed: {db_stats['failed_swaps']}")
-    
+
     lines.append("")
-    
+
     # Cache Stats
     lines.append("*Cache:*")
     lines.append(f"  💰 Price: {cache_stats['price']['active_entries']} entries")
     lines.append(f"  📊 Quote: {cache_stats['quote']['active_entries']} entries")
     lines.append(f"  ⛽ Gas: {cache_stats['gas']['active_entries']} entries")
-    
-    keyboard = [[InlineKeyboardButton("🔄 Refresh", callback_data="admin_status")]]
-    
-    await loading_msg.edit_text(
-        "\n".join(lines),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔄 Refresh", callback_data="admin_status")]]
     )
+
+    return "\n".join(lines), keyboard
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /status command - show system health status."""
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    loading_msg = await update.message.reply_text("🔍 Checking system status...")
+
+    text, keyboard = await _build_status_report()
+
+    await loading_msg.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def status_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the '🔄 Refresh' button on the /status output (callback_data=admin_status)."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    if not is_admin(user.id):
+        await query.edit_message_text("❌ This command is for admins only.")
+        return
+
+    text, keyboard = await _build_status_report()
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 async def _check_rpc_endpoints() -> dict:
     """Check health of RPC endpoints."""
     results = {}
-    
+
     for chain_name, chain in CHAINS.items():
         try:
             rpc_url = getattr(settings, chain.rpc_url_env.lower(), None)
             if not rpc_url:
                 results[chain_name] = {"ok": False, "error": "Not configured"}
                 continue
-            
+
             if chain.chain_type == ChainType.SOLANA:
                 payload = {"jsonrpc": "2.0", "method": "getHealth", "id": 1}
             else:
                 payload = {"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 1}
-            
+
             import time
+
             start = time.time()
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(rpc_url, json=payload, timeout=5) as resp:
-                    latency = (time.time() - start) * 1000
-                    
-                    if resp.status == 200:
-                        results[chain_name] = {"ok": True, "latency": latency}
-                    else:
-                        results[chain_name] = {"ok": False, "error": f"HTTP {resp.status}"}
+
+            session = await get_http_session()
+            async with session.post(rpc_url, json=payload, timeout=5) as resp:
+                latency = (time.time() - start) * 1000
+
+                if resp.status == 200:
+                    results[chain_name] = {"ok": True, "latency": latency}
+                else:
+                    results[chain_name] = {"ok": False, "error": f"HTTP {resp.status}"}
         except asyncio.TimeoutError:
             results[chain_name] = {"ok": False, "error": "Timeout"}
         except Exception as e:
             results[chain_name] = {"ok": False, "error": str(e)[:50]}
-    
+
     return results
 
 
 async def _check_external_apis() -> dict:
     """Check health of external APIs."""
     results = {}
-    
+
     # Check Li.Fi
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://li.quest/v1/chains", timeout=5) as resp:
-                results["Li.Fi"] = {"ok": resp.status == 200}
+        session = await get_http_session()
+        async with session.get("https://li.quest/v1/chains", timeout=5) as resp:
+            results["Li.Fi"] = {"ok": resp.status == 200}
     except Exception as e:
         results["Li.Fi"] = {"ok": False, "error": str(e)[:50]}
-    
+
     # Check Jupiter
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000", timeout=5) as resp:
-                results["Jupiter"] = {"ok": resp.status == 200}
+        session = await get_http_session()
+        async with session.get(
+            "https://lite-api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000",
+            timeout=5,
+        ) as resp:
+            results["Jupiter"] = {"ok": resp.status == 200}
     except Exception as e:
         results["Jupiter"] = {"ok": False, "error": str(e)[:50]}
-    
+
     # Check CoinGecko
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.coingecko.com/api/v3/ping", timeout=5) as resp:
-                results["CoinGecko"] = {"ok": resp.status == 200}
+        session = await get_http_session()
+        async with session.get("https://api.coingecko.com/api/v3/ping", timeout=5) as resp:
+            results["CoinGecko"] = {"ok": resp.status == 200}
     except Exception as e:
         results["CoinGecko"] = {"ok": False, "error": str(e)[:50]}
-    
+
     return results
 
 
@@ -161,13 +189,17 @@ def _get_database_stats() -> dict:
         users = session.query(User).count()
         wallets = session.query(Wallet).filter(Wallet.is_active == True).count()
         swaps = session.query(SwapTransaction).count()
-        completed = session.query(SwapTransaction).filter(
-            SwapTransaction.status == SwapStatus.COMPLETED.value
-        ).count()
-        failed = session.query(SwapTransaction).filter(
-            SwapTransaction.status == SwapStatus.FAILED.value
-        ).count()
-    
+        completed = (
+            session.query(SwapTransaction)
+            .filter(SwapTransaction.status == SwapStatus.COMPLETED.value)
+            .count()
+        )
+        failed = (
+            session.query(SwapTransaction)
+            .filter(SwapTransaction.status == SwapStatus.FAILED.value)
+            .count()
+        )
+
     return {
         "users": users,
         "wallets": wallets,
@@ -190,43 +222,42 @@ def _get_cache_stats() -> dict:
 async def clear_cache_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /clearcache command - clear all caches."""
     user = update.effective_user
-    
+
     if not is_admin(user.id):
         await update.message.reply_text("❌ This command is for admins only.")
         return
-    
+
     await price_cache.clear()
     await quote_cache.clear()
     await balance_cache.clear()
     await gas_cache.clear()
-    
+
     await update.message.reply_text("✅ All caches cleared!")
 
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /broadcast command - send message to all users."""
     user = update.effective_user
-    
+
     if not is_admin(user.id):
         await update.message.reply_text("❌ This command is for admins only.")
         return
-    
+
     if not context.args:
         await update.message.reply_text(
-            "Usage: /broadcast <message>\n\n"
-            "Example: /broadcast 🎉 New feature released!"
+            "Usage: /broadcast <message>\n\n" "Example: /broadcast 🎉 New feature released!"
         )
         return
-    
+
     message = " ".join(context.args)
-    
+
     with get_session() as session:
         users = session.query(User).all()
         user_ids = [u.telegram_id for u in users]
-    
+
     sent = 0
     failed = 0
-    
+
     for telegram_id in user_ids:
         try:
             await context.bot.send_message(
@@ -237,11 +268,166 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             sent += 1
         except Exception:
             failed += 1
-    
+
     await update.message.reply_text(
-        f"✅ Broadcast complete!\n"
-        f"Sent: {sent}\n"
-        f"Failed: {failed}"
+        f"✅ Broadcast complete!\n" f"Sent: {sent}\n" f"Failed: {failed}"
+    )
+
+
+async def hl_builder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /hlbuilder — show HyperLiquid builder-code status and account-value gate."""
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    builder_address = getattr(settings, "hl_builder_address", None)
+    if not builder_address:
+        await update.message.reply_text(
+            "⚙️ *HyperLiquid Builder Code*\n\n"
+            "Not configured. Set `HL_BUILDER_ADDRESS` to start earning builder fees "
+            "on perp orders.",
+            parse_mode="Markdown",
+        )
+        return
+
+    loading = await update.message.reply_text("🔍 Checking builder eligibility...")
+
+    from bot.services.hyperliquid_client import hyperliquid_client
+
+    elig = await hyperliquid_client.check_builder_eligibility(builder_address)
+
+    fee_tenths = int(getattr(settings, "hl_builder_fee_tenths_bps", 0) or 0)
+    fee_pct = fee_tenths / 1000.0  # tenths-of-bps -> percent
+    emoji = "✅" if elig["eligible"] else "⏳"
+    status = "ELIGIBLE — earning fees" if elig["eligible"] else "Not yet eligible"
+
+    lines = [
+        "🏗️ *HyperLiquid Builder Code*\n",
+        f"Builder: `{builder_address}`",
+        f"Per-order fee: {fee_tenths} tenths-bp ({fee_pct:.3f}%)",
+        f"Max approved rate: {getattr(settings, 'hl_builder_max_fee_rate', 'n/a')}",
+        "",
+        f"{emoji} *{status}*",
+        f"Account value: ${elig['account_value_usd']:,.2f} / "
+        f"${elig['required_usd']:,.0f} required",
+    ]
+    if not elig["eligible"]:
+        lines.append(
+            f"Deposit ${elig['remaining_usd']:,.2f} more to the builder wallet to unlock fees"
+        )
+    lines.append("\nUse /hlclaim to sweep accrued builder fees to spot.")
+
+    await loading.edit_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def hl_claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /hlclaim — claim accrued HyperLiquid builder fees to the builder's spot balance."""
+    user = update.effective_user
+
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    builder_key = getattr(settings, "hl_builder_private_key", None)
+    if not builder_key:
+        await update.message.reply_text(
+            "⚙️ Set `HL_BUILDER_PRIVATE_KEY` (the builder wallet's key) to claim fees.",
+            parse_mode="Markdown",
+        )
+        return
+
+    loading = await update.message.reply_text("💸 Claiming builder rewards...")
+
+    from bot.services.hyperliquid_client import hyperliquid_client
+
+    ok = await hyperliquid_client.claim_rewards(builder_key)
+    if ok:
+        await loading.edit_text(
+            "✅ Builder rewards claimed to the builder's spot balance.\n"
+            "(HyperLiquid only releases rewards once they exceed $1.)"
+        )
+    else:
+        await loading.edit_text(
+            "❌ Claim failed (nothing to claim yet, or an API error). Check logs."
+        )
+
+
+async def cctp_relay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/cctprelay — CCTP deposit-relayer health; `/cctprelay retry` requeues failed."""
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    from bot.services.cctp_relayer import cctp_relayer
+
+    arg = (context.args[0].lower() if context.args else "").strip()
+    if arg == "retry":
+        n = cctp_relayer.requeue_failed()
+        await update.message.reply_text(f"♻️ Requeued {n} failed CCTP deposit(s).")
+        return
+
+    health = cctp_relayer.health()
+    try:
+        bal = await cctp_relayer.relayer_balance_hype()
+    except Exception:  # noqa: BLE001
+        bal = None
+
+    counts = health["counts"]
+    lines = [
+        "🟢 *CCTP Relayer*\n",
+        f"Enabled: {'✅' if health['enabled'] else '❌'}   Running: {'✅' if health['running'] else '❌'}",
+        f"Relayer HYPE: {bal:.4f}" if bal is not None else "Relayer HYPE: (no key set)",
+        "",
+        f"In-flight: {health['in_flight']}   Credited: {health['credited']}   "
+        f"Failed: {health['failed']}",
+        "By status: " + (", ".join(f"{k}={v}" for k, v in counts.items()) or "none"),
+    ]
+    if health["failed"]:
+        lines.append("\nUse `/cctprelay retry` to requeue failed deposits.")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def set_region_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/setregion <telegram_id> <ISO2> — set a user's region (drives geo-gated features).
+
+    Operator/KYC-driven on purpose: region must come from a trusted verification,
+    NOT user self-attestation, or US users could claim a non-US region to reach
+    US-restricted features (e.g. HyperUnit native deposits).
+    """
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ This command is for admins only.")
+        return
+
+    if len(context.args) != 2 or not context.args[1].isalpha() or len(context.args[1]) != 2:
+        await update.message.reply_text(
+            "Usage: `/setregion <telegram_id> <ISO2>`\nExample: `/setregion 123456789 GB`\n"
+            "Use a 2-letter ISO-3166 code; clears with code `XX`.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ telegram_id must be a number.")
+        return
+    region = context.args[1].upper()
+
+    with get_session() as session:
+        target = session.query(User).filter(User.telegram_id == target_id).first()
+        if not target:
+            await update.message.reply_text(f"❌ No user with telegram_id {target_id}.")
+            return
+        target.region = None if region == "XX" else region
+
+    await update.message.reply_text(
+        f"✅ Set region for {target_id} to *{region}*."
+        + ("" if region != "US" else " (US — HyperUnit native deposits stay disabled.)"),
+        parse_mode="Markdown",
     )
 
 
@@ -249,4 +435,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 status_handler = CommandHandler("st", status_command)
 clear_cache_handler = CommandHandler("cc", clear_cache_command)
 broadcast_handler = CommandHandler("bc", broadcast_command)
-
+hl_builder_handler = CommandHandler("hlbuilder", hl_builder_command)
+hl_claim_handler = CommandHandler("hlclaim", hl_claim_command)
+set_region_handler = CommandHandler("setregion", set_region_command)
+cctp_relay_handler = CommandHandler("cctprelay", cctp_relay_command)

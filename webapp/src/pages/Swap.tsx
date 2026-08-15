@@ -1,11 +1,13 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AppLayout, AppHeader } from '../components/layout'
 import { TokenInput, SwapArrow, SwapDetails, TokenSelector } from '../components/swap'
+import { SwapConfirmationWithSimulation } from '../components/swap/SwapConfirmation'
 import { useTokens } from '../hooks/useTokens'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute } from '../hooks/useSwapExecute'
 import { api } from '../lib/api'
+import a11yToast from '../lib/a11yToast'
 import type { SwapToken, SwapExecuteResult } from '../types/swap'
 
 export function Swap() {
@@ -31,6 +33,29 @@ export function Swap() {
     }
   }, [tokens, fromToken])
 
+  // Honor the user's saved slippage preference (stored in basis points); fall back to 0.5%
+  const { data: prefsData } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => api.getUserPreferences(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+  const slippagePct =
+    prefsData?.preferences?.defaultSlippage != null
+      ? prefsData.preferences.defaultSlippage / 100
+      : 0.5
+
+  // VIP tier — drives XP multiplier
+  const { data: vipData } = useQuery({
+    queryKey: ['vipStatus'],
+    queryFn: () => api.getVipStatus(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+
+  // Snapshot XP at confirmation time so toast reflects what was shown
+  const xpAtConfirmRef = useRef(0)
+
   // Build quote request
   const quoteRequest = useMemo(() => {
     if (!fromToken || !toToken || !fromAmount) return null
@@ -41,9 +66,9 @@ export function Swap() {
       toChain: toToken.chain,
       amount: fromAmount,
       fromDecimals: fromToken.decimals,
-      slippage: 0.5,
+      slippage: slippagePct,
     }
-  }, [fromToken, toToken, fromAmount])
+  }, [fromToken, toToken, fromAmount, slippagePct])
 
   // Fetch quote (debounced)
   const { 
@@ -53,6 +78,12 @@ export function Swap() {
     isFetching: quoteFetching,
   } = useSwapQuote(quoteRequest)
 
+  // Estimated XP: 1 XP per dollar, scaled by tier multiplier
+  const estimatedXp = useMemo(
+    () => Math.round((quote?.fromAmountUsd ?? 0) * (vipData?.point_multiplier ?? 1)),
+    [quote?.fromAmountUsd, vipData?.point_multiplier]
+  )
+
   // Swap execution mutation
   const {
     mutate: executeSwap,
@@ -61,12 +92,21 @@ export function Swap() {
     reset: resetSwapState,
   } = useSwapExecute()
 
+  // 'signed' = tx signed but broadcast failed server-side; it never progresses, so stop polling
+  const TERMINAL_STATUSES = ['completed', 'failed', 'success', 'cancelled', 'signed']
+
   // Poll for swap status after execution
   const { data: swapStatus } = useQuery({
     queryKey: ['swapStatus', swapResult?.swapId],
     queryFn: () => api.getSwapStatus(swapResult!.swapId),
-    enabled: !!swapResult?.swapId && swapResult.status === 'submitted',
-    refetchInterval: 5000,
+    enabled: !!swapResult?.swapId,
+    // refetchInterval callback receives the Query object in React Query v5;
+    // return false to stop polling once a terminal status is reached.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return TERMINAL_STATUSES.includes(status ?? '') ? false : 5000
+    },
+    refetchIntervalInBackground: false,
   })
 
   const handleSwapTokens = () => {
@@ -87,19 +127,26 @@ export function Swap() {
   }
 
   const handleReview = () => {
+    xpAtConfirmRef.current = estimatedXp
     setIsConfirming(true)
   }
 
   const handleConfirm = () => {
     if (!quote) return
 
-    setIsConfirming(false)
     executeSwap(
       { quoteId: quote.id },
       {
         onSuccess: (result) => {
+          setIsConfirming(false)
           setSwapResult(result as SwapExecuteResult)
           setIsSuccess(true)
+          if (xpAtConfirmRef.current > 0) {
+            a11yToast.success(`+${xpAtConfirmRef.current} XP earned`)
+          }
+        },
+        onError: () => {
+          // Keep confirmation open so user can see the error or retry
         },
       }
     )
@@ -114,14 +161,13 @@ export function Swap() {
 
   // Format display values
   const toAmount = quote?.toAmount || ''
-  const fromUsdValue = quote ? `~$${quote.fromAmountUsd.toFixed(2)}` : undefined
-  const toUsdValue = quote ? `~$${quote.toAmountUsd.toFixed(2)}` : undefined
+  const fromUsdValue = quote?.fromAmountUsd != null ? `~$${quote.fromAmountUsd.toFixed(2)}` : undefined
+  const toUsdValue = quote?.toAmountUsd != null ? `~$${quote.toAmountUsd.toFixed(2)}` : undefined
   const exchangeRate = quote && fromToken && toToken 
     ? `1 ${fromToken.symbol} = ${quote.exchangeRate.toFixed(4)} ${toToken.symbol}`
     : undefined
   const priceImpact = quote ? `${quote.priceImpact.toFixed(2)}%` : undefined
   const networkFee = quote ? `~$${quote.gasUsd.toFixed(2)}` : undefined
-  const minReceived = quote && toToken ? `${quote.minReceived} ${toToken.symbol}` : undefined
 
   // Convert SwapToken to Token for TokenInput
   const fromTokenDisplay = fromToken ? {
@@ -235,81 +281,8 @@ export function Swap() {
     )
   }
 
-  // Confirmation modal
-  if (isConfirming && quote) {
-    return (
-      <AppLayout header={<AppHeader title="Confirm Swap" />} activeNav="swap">
-        <div className="p-3 pb-20 space-y-4">
-          <div className="bg-white rounded-suwappu-xl p-4 shadow-suwappu-1 text-center">
-            <div className="flex items-center justify-center gap-4 mb-4">
-              <div className="text-center">
-                <div className="w-12 h-12 rounded-full bg-suwappu-sakura-light flex items-center justify-center text-2xl mb-1 overflow-hidden">
-                  {fromToken?.logoUrl ? (
-                    <img src={fromToken.logoUrl} alt={fromToken.symbol} className="w-full h-full object-cover" />
-                  ) : (
-                    fromToken?.symbol.slice(0, 2)
-                  )}
-                </div>
-                <span className="font-heading font-bold text-lg text-suwappu-text">{fromAmount}</span>
-                <span className="text-xs text-suwappu-text-secondary block">{fromToken?.symbol}</span>
-              </div>
-              <svg className="w-6 h-6 text-suwappu-magenta-mid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-              </svg>
-              <div className="text-center">
-                <div className="w-12 h-12 rounded-full bg-suwappu-sakura-light flex items-center justify-center text-2xl mb-1 overflow-hidden">
-                  {toToken?.logoUrl ? (
-                    <img src={toToken.logoUrl} alt={toToken.symbol} className="w-full h-full object-cover" />
-                  ) : (
-                    toToken?.symbol.slice(0, 2)
-                  )}
-                </div>
-                <span className="font-heading font-bold text-lg text-suwappu-text">{toAmount}</span>
-                <span className="text-xs text-suwappu-text-secondary block">{toToken?.symbol}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-suwappu-xl p-3 shadow-suwappu-1">
-            <h3 className="font-heading font-semibold text-sm text-suwappu-purple-deep mb-2">Transaction Details</h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-suwappu-text-secondary">Rate</span>
-                <span className="text-suwappu-text">{exchangeRate}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-suwappu-text-secondary">Min. Received</span>
-                <span className="text-suwappu-text">{minReceived}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-suwappu-text-secondary">Slippage</span>
-                <span className="text-suwappu-text">{quote.slippage}%</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-suwappu-text-secondary">Network Fee</span>
-                <span className="text-suwappu-text">{networkFee}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setIsConfirming(false)}
-              className="px-4 py-3 bg-white text-suwappu-text-secondary font-heading font-bold text-sm rounded-suwappu-pill border border-suwappu-sakura-mid"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleConfirm}
-              className="px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button"
-            >
-              Confirm
-            </button>
-          </div>
-        </div>
-      </AppLayout>
-    )
-  }
+  // Confirmation modal — simulation-powered bottom sheet overlay
+  // (Rendered alongside the main layout below, not as a replacement)
 
   // Token selector modals
   if (showFromSelector) {
@@ -366,108 +339,123 @@ export function Swap() {
 
   // Main swap form
   return (
-    <AppLayout header={header} activeNav="swap">
-      <div className="p-3 pb-20 space-y-1">
-        {tokensLoading ? (
-          <div className="bg-white rounded-suwappu-xl p-6 shadow-suwappu-1 text-center">
-            <div className="animate-pulse">Loading tokens...</div>
-          </div>
-        ) : (
-          <>
-            <TokenInput
-              label="From"
-              amount={fromAmount}
-              onAmountChange={setFromAmount}
-              token={fromTokenDisplay}
-              onTokenClick={() => setShowFromSelector(true)}
-              balance={fromToken?.balance}
-              usdValue={fromUsdValue}
-            />
-            
-            {/* Amount preset buttons */}
-            {fromToken?.balance && parseFloat(fromToken.balance) > 0 && (
-              <div className="flex justify-end gap-2 px-1 -mt-1 mb-1">
-                <button
-                  onClick={() => setFromAmount((parseFloat(fromToken.balance!) * 0.25).toString())}
-                  className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
-                >
-                  25%
-                </button>
-                <button
-                  onClick={() => setFromAmount((parseFloat(fromToken.balance!) * 0.5).toString())}
-                  className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
-                >
-                  50%
-                </button>
-                <button
-                  onClick={() => setFromAmount(fromToken.balance!)}
-                  className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
-                >
-                  MAX
-                </button>
-              </div>
-            )}
+    <>
+      <AppLayout header={header} activeNav="swap">
+        <div className="p-3 pb-20 space-y-1">
+          {tokensLoading ? (
+            <div className="bg-white rounded-suwappu-xl p-6 shadow-suwappu-1 text-center">
+              <div className="animate-pulse">Loading tokens...</div>
+            </div>
+          ) : (
+            <>
+              <TokenInput
+                label="From"
+                amount={fromAmount}
+                onAmountChange={setFromAmount}
+                token={fromTokenDisplay}
+                onTokenClick={() => setShowFromSelector(true)}
+                balance={fromToken?.balance}
+                usdValue={fromUsdValue}
+              />
 
-            <SwapArrow onClick={handleSwapTokens} />
+              {/* Amount preset buttons */}
+              {fromToken?.balance && parseFloat(fromToken.balance) > 0 && (
+                <div className="flex justify-end gap-2 px-1 -mt-1 mb-1">
+                  <button
+                    onClick={() => setFromAmount((parseFloat(fromToken.balance!) * 0.25).toString())}
+                    className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
+                  >
+                    25%
+                  </button>
+                  <button
+                    onClick={() => setFromAmount((parseFloat(fromToken.balance!) * 0.5).toString())}
+                    className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
+                  >
+                    50%
+                  </button>
+                  <button
+                    onClick={() => setFromAmount(fromToken.balance!)}
+                    className="px-2 py-0.5 text-xs font-semibold text-suwappu-magenta-mid bg-suwappu-sakura-light rounded-full hover:bg-suwappu-sakura-mid transition-colors"
+                  >
+                    MAX
+                  </button>
+                </div>
+              )}
 
-            <TokenInput
-              label="To"
-              amount={quoteFetching ? '...' : toAmount}
-              onAmountChange={() => {}}
-              token={toTokenDisplay}
-              onTokenClick={() => setShowToSelector(true)}
-              usdValue={toUsdValue}
-              readOnly
-            />
+              <SwapArrow onClick={handleSwapTokens} />
 
-            {/* Quote loading indicator */}
-            {quoteFetching && (
-              <div className="text-center py-2">
-                <span className="text-xs text-suwappu-text-secondary animate-pulse">
-                  Fetching best rate...
-                </span>
-              </div>
-            )}
+              <TokenInput
+                label="To"
+                amount={quoteFetching ? '...' : toAmount}
+                onAmountChange={() => {}}
+                token={toTokenDisplay}
+                onTokenClick={() => setShowToSelector(true)}
+                usdValue={toUsdValue}
+                readOnly
+              />
 
-            {/* Quote error */}
-            {quoteError && (
-              <div className="bg-suwappu-error/10 rounded-suwappu-lg p-3 text-center">
-                <span className="text-xs text-suwappu-error">
-                  {(quoteError as { detail?: string })?.detail || 'Failed to get quote'}
-                </span>
-              </div>
-            )}
+              {/* Quote loading indicator */}
+              {quoteFetching && (
+                <div className="text-center py-2">
+                  <span className="text-xs text-suwappu-text-secondary animate-pulse">
+                    Fetching best rate...
+                  </span>
+                </div>
+              )}
 
-            {/* Swap error */}
-            {swapError && (
-              <div className="bg-suwappu-error/10 rounded-suwappu-lg p-3 text-center">
-                <span className="text-xs text-suwappu-error">
-                  {(swapError as { detail?: string })?.detail || 'Swap failed'}
-                </span>
-              </div>
-            )}
+              {/* Quote error */}
+              {quoteError && (
+                <div className="bg-suwappu-error/10 rounded-suwappu-lg p-3 text-center">
+                  <span className="text-xs text-suwappu-error">
+                    {(quoteError as { detail?: string })?.detail || 'Failed to get quote'}
+                  </span>
+                </div>
+              )}
 
-            {quote && !quoteFetching && (
-              <div className="mt-4">
-                <SwapDetails
-                  rate={exchangeRate}
-                  priceImpact={priceImpact}
-                  networkFee={networkFee}
-                  route={quote.route}
-                />
-              </div>
-            )}
+              {/* Swap error */}
+              {swapError && (
+                <div className="bg-suwappu-error/10 rounded-suwappu-lg p-3 text-center">
+                  <span className="text-xs text-suwappu-error">
+                    {(swapError as { detail?: string })?.detail || 'Swap failed'}
+                  </span>
+                </div>
+              )}
 
-            <button
-              onClick={handleReview}
-              disabled={!canSwap}
-              className="w-full px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {buttonText}
-            </button>
-          </>
-        )}
-      </div>
-    </AppLayout>
+              {quote && !quoteFetching && (
+                <div className="mt-4">
+                  <SwapDetails
+                    rate={exchangeRate}
+                    priceImpact={priceImpact}
+                    networkFee={networkFee}
+                    route={quote.route}
+                  />
+                </div>
+              )}
+
+              <button
+                onClick={handleReview}
+                disabled={!canSwap}
+                className="w-full px-4 py-3 bg-suwappu-gradient text-white font-heading font-bold text-sm rounded-suwappu-pill shadow-suwappu-button mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {buttonText}
+              </button>
+            </>
+          )}
+        </div>
+      </AppLayout>
+
+      {/* Transaction simulation preview — bottom sheet overlay */}
+      {isConfirming && quote && fromToken && toToken && (
+        <SwapConfirmationWithSimulation
+          quote={quote}
+          fromToken={fromToken}
+          toToken={toToken}
+          onConfirm={handleConfirm}
+          onCancel={() => setIsConfirming(false)}
+          isExecuting={swapPending}
+          estimatedXp={estimatedXp}
+        />
+      )}
+    </>
   )
 }

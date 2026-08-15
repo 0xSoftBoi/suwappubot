@@ -9,11 +9,19 @@ const AUTH_METHOD_KEY = 'suwappu_auth_method'
 export type StoredAuthMethod = 'telegram' | 'wallet' | 'passkey'
 
 /**
- * Store authentication token in localStorage
+ * Store authentication token — uses OS keychain on desktop, localStorage elsewhere
  */
 export function setAuthToken(token: string, expiresAt: string): void {
   if (typeof window === 'undefined') return
 
+  // On desktop, write to secure store as a fire-and-forget backup
+  const desktop = (window as any).__SUWAPPU_DESKTOP__?.secureStore
+  if (desktop) {
+    desktop.set(TOKEN_KEY, token)
+    desktop.set(TOKEN_EXPIRY_KEY, expiresAt)
+  }
+
+  // Always write to localStorage — it's the primary read source for getAuthToken()
   try {
     localStorage.setItem(TOKEN_KEY, token)
     localStorage.setItem(TOKEN_EXPIRY_KEY, expiresAt)
@@ -23,10 +31,13 @@ export function setAuthToken(token: string, expiresAt: string): void {
 }
 
 /**
- * Get stored authentication token
+ * Get stored authentication token — reads from OS keychain on desktop
  */
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null
+
+  // Desktop secure store is async — for sync callers, fall through to localStorage
+  // The desktop bridge syncs keychain → localStorage on init
 
   try {
     const token = localStorage.getItem(TOKEN_KEY)
@@ -48,10 +59,17 @@ export function getAuthToken(): string | null {
 }
 
 /**
- * Clear authentication token
+ * Clear authentication token — removes from OS keychain on desktop
  */
 export function clearAuthToken(): void {
   if (typeof window === 'undefined') return
+
+  const desktop = (window as any).__SUWAPPU_DESKTOP__?.secureStore
+  if (desktop) {
+    desktop.remove(TOKEN_KEY)
+    desktop.remove(TOKEN_EXPIRY_KEY)
+    desktop.remove(AUTH_METHOD_KEY)
+  }
 
   try {
     localStorage.removeItem(TOKEN_KEY)

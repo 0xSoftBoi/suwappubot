@@ -4,21 +4,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Line {
-  type: 'input' | 'output' | 'success' | 'muted';
+  type: 'input' | 'output' | 'success';
   text: string;
 }
 
 const DEMO_LINES: Line[] = [
-  { type: 'input', text: '/s 100 USDC ETH' },
-  { type: 'muted', text: 'Fetching quotes from Li.Fi...' },
+  { type: 'input', text: 'bun add @suwappu/sdk' },
+  { type: 'success', text: '\u2713 installed @suwappu/sdk@0.1.0' },
   { type: 'output', text: '' },
-  { type: 'output', text: 'Swap 100 USDC  →  0.0287 ETH' },
-  { type: 'output', text: 'Rate     $3,484.32/ETH' },
-  { type: 'output', text: 'Fee      0.3% (0.30 USDC)' },
-  { type: 'output', text: 'Route    USDC → WETH via Uniswap V3' },
+  { type: 'input', text: 'suwappu get_quote ETH USDC 1.0 arbitrum' },
+  { type: 'output', text: '1 ETH \u2192 2,847.32 USDC via Uniswap V3' },
+  { type: 'output', text: 'Gas ~$0.12 | Route: Uniswap V3' },
   { type: 'output', text: '' },
-  { type: 'input', text: 'confirm' },
-  { type: 'success', text: 'Tx submitted  ✓  0x3f8a...c291' },
+  { type: 'input', text: 'suwappu execute_swap quote_abc123' },
+  { type: 'success', text: '\u2713 Tx 0x3f8a...c291 confirmed' },
+  { type: 'output', text: 'status: success' },
 ];
 
 export default function Terminal() {
@@ -34,8 +34,7 @@ export default function Terminal() {
 
     const addNext = () => {
       if (i >= DEMO_LINES.length) {
-        // restart after a pause
-        timers.push(setTimeout(() => runDemo(), 3000));
+        timers.push(setTimeout(() => runDemo(), 4000));
         return;
       }
 
@@ -43,14 +42,13 @@ export default function Terminal() {
       i++;
 
       if (line.type === 'input') {
-        // Typewriter effect for inputs
         let charIdx = 0;
         setTyping('');
         const typeChar = () => {
           if (charIdx < line.text.length) {
             setTyping(line.text.slice(0, charIdx + 1));
             charIdx++;
-            timers.push(setTimeout(typeChar, 45 + Math.random() * 30));
+            timers.push(setTimeout(typeChar, 40 + Math.random() * 25));
           } else {
             timers.push(
               setTimeout(() => {
@@ -78,26 +76,30 @@ export default function Terminal() {
     return cleanup;
   }, [runDemo]);
 
-  // Blinking cursor
   useEffect(() => {
     const id = setInterval(() => setCursor((v) => !v), 530);
     return () => clearInterval(id);
   }, []);
 
+  // One source of truth: --sw-term-* group in globals.css.
+  const lineColor = (type: Line['type']) => {
+    switch (type) {
+      case 'input': return 'var(--sw-term-input)';
+      case 'success': return 'var(--sw-term-success)';
+      case 'output': return 'var(--sw-term-output)';
+    }
+  };
+
   return (
-    <div className="terminal rounded-2xl overflow-hidden shadow-suwappu-card">
-      {/* Title bar */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
-        <span className="terminal-dot bg-[#ff5f57]" />
-        <span className="terminal-dot bg-[#febc2e]" />
-        <span className="terminal-dot bg-[#28c840]" />
-        <span className="ml-3 text-[11px] text-white/30 font-medium">
-          @SuwappuBot
-        </span>
+    <div className="code-block">
+      <div className="code-block__header">
+        <span className="code-block__dot code-block__dot--red" />
+        <span className="code-block__dot code-block__dot--yellow" />
+        <span className="code-block__dot code-block__dot--green" />
+        <span className="code-block__filename">@suwappu/sdk</span>
       </div>
 
-      {/* Content */}
-      <div className="p-5 min-h-[280px] text-[13px] leading-relaxed space-y-0.5">
+      <div className="terminal-body" style={{ padding: '1.25rem', minHeight: 260, fontSize: '0.8125rem', lineHeight: 1.7, fontFamily: 'var(--font-mono)' }}>
         <AnimatePresence>
           {lines.map((line, i) => (
             <motion.div
@@ -105,38 +107,46 @@ export default function Terminal() {
               initial={{ opacity: 0, x: -4 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.15 }}
-              className={
-                line.type === 'input'
-                  ? 'text-suwappu-cyan/80'
-                  : line.type === 'success'
-                    ? 'text-suwappu-success/80'
-                    : line.type === 'muted'
-                      ? 'text-white/30 italic'
-                      : 'text-white/70'
-              }
+              style={{ color: lineColor(line.type) }}
             >
               {line.type === 'input' && (
-                <span className="text-suwappu-magenta/60 mr-2">{'>'}</span>
+                <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
               )}
               {line.text || '\u00A0'}
             </motion.div>
           ))}
         </AnimatePresence>
 
-        {/* Current typing line */}
         {typing !== '' && (
-          <div className="text-suwappu-cyan/80">
-            <span className="text-suwappu-magenta/60 mr-2">{'>'}</span>
+          <div style={{ color: 'var(--sw-term-input)' }}>
+            <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
             {typing}
-            <span className={`inline-block w-[7px] h-[14px] ml-0.5 -mb-0.5 ${cursor ? 'bg-suwappu-cyan/60' : 'bg-transparent'}`} />
+            <span
+              style={{
+                display: 'inline-block',
+                width: 7,
+                height: 14,
+                marginLeft: 2,
+                marginBottom: -2,
+                background: cursor ? 'var(--sw-term-input)' : 'transparent',
+              }}
+            />
           </div>
         )}
 
-        {/* Idle cursor */}
         {typing === '' && lines.length === 0 && (
-          <div className="text-suwappu-cyan/80">
-            <span className="text-suwappu-magenta/60 mr-2">{'>'}</span>
-            <span className={`inline-block w-[7px] h-[14px] ml-0.5 -mb-0.5 ${cursor ? 'bg-suwappu-cyan/60' : 'bg-transparent'}`} />
+          <div style={{ color: 'var(--sw-term-input)' }}>
+            <span style={{ color: 'var(--suwappu-summer-accent)', marginRight: 8 }}>{'>'}</span>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 7,
+                height: 14,
+                marginLeft: 2,
+                marginBottom: -2,
+                background: cursor ? 'var(--sw-term-input)' : 'transparent',
+              }}
+            />
           </div>
         )}
       </div>

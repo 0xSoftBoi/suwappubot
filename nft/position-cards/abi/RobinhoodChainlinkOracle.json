@@ -1,0 +1,373 @@
+[
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "initialOwner",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "nonpayable",
+  "type": "constructor"
+ },
+ {
+  "inputs": [],
+  "name": "FeedsAlreadySealed",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "LengthMismatch",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "owner",
+    "type": "address"
+   }
+  ],
+  "name": "OwnableInvalidOwner",
+  "type": "error"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "account",
+    "type": "address"
+   }
+  ],
+  "name": "OwnableUnauthorizedAccount",
+  "type": "error"
+ },
+ {
+  "inputs": [],
+  "name": "ZeroAddress",
+  "type": "error"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "aggregator",
+    "type": "address"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint8",
+    "name": "decimals",
+    "type": "uint8"
+   },
+   {
+    "indexed": false,
+    "internalType": "uint32",
+    "name": "maxAge",
+    "type": "uint32"
+   }
+  ],
+  "name": "FeedSet",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "uint256",
+    "name": "count",
+    "type": "uint256"
+   }
+  ],
+  "name": "FeedsSealed",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "previousOwner",
+    "type": "address"
+   },
+   {
+    "indexed": true,
+    "internalType": "address",
+    "name": "newOwner",
+    "type": "address"
+   }
+  ],
+  "name": "OwnershipTransferred",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": false,
+    "internalType": "address",
+    "name": "feed",
+    "type": "address"
+   }
+  ],
+  "name": "SequencerUptimeFeedSet",
+  "type": "event"
+ },
+ {
+  "inputs": [],
+  "name": "DEFAULT_MAX_AGE",
+  "outputs": [
+   {
+    "internalType": "uint32",
+    "name": "",
+    "type": "uint32"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "SEQUENCER_GRACE_PERIOD",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   }
+  ],
+  "name": "debugPrice",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "price1e18",
+    "type": "uint256"
+   },
+   {
+    "internalType": "bool",
+    "name": "hasFeed",
+    "type": "bool"
+   },
+   {
+    "internalType": "bool",
+    "name": "sequencerUp",
+    "type": "bool"
+   },
+   {
+    "internalType": "bool",
+    "name": "paused",
+    "type": "bool"
+   },
+   {
+    "internalType": "uint256",
+    "name": "updatedAt",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "feedOf",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "aggregator",
+    "type": "address"
+   },
+   {
+    "internalType": "uint8",
+    "name": "decimals",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint32",
+    "name": "maxAge",
+    "type": "uint32"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "feedsSealed",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "owner",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   }
+  ],
+  "name": "priceOf",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "renounceOwnership",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "count",
+    "type": "uint256"
+   }
+  ],
+  "name": "sealFeeds",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "sequencerOk",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "sequencerUptimeFeed",
+  "outputs": [
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address[]",
+    "name": "tokens",
+    "type": "address[]"
+   },
+   {
+    "internalType": "address[]",
+    "name": "aggregators",
+    "type": "address[]"
+   }
+  ],
+  "name": "setFeeds",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "token",
+    "type": "address"
+   },
+   {
+    "internalType": "uint32",
+    "name": "maxAge",
+    "type": "uint32"
+   }
+  ],
+  "name": "setMaxAge",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "feed",
+    "type": "address"
+   }
+  ],
+  "name": "setSequencerUptimeFeed",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
+    "name": "newOwner",
+    "type": "address"
+   }
+  ],
+  "name": "transferOwnership",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ }
+]

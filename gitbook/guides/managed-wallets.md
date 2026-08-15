@@ -1,287 +1,80 @@
 # Managed Wallets
 
-Managed wallets let your agent execute swaps without handling private keys. Suwappu generates the keypair, stores the private key securely, and signs transactions on your behalf when you call `POST /swap/execute`.
+Managed wallets let your agent swap without ever touching a private key. Suwappu provisions a server-side wallet (secured by Turnkey) tied to your agent, signs transactions on your behalf, and broadcasts them. Your code only ever sees a public address and a Bearer token.
 
-## How It Works
+## Why Managed Wallets
 
-1. **Create a wallet** -- `POST /wallets` generates a new keypair server-side
-2. **Fund the wallet** -- Send tokens to the wallet address using an external wallet or exchange
-3. **Get a quote** -- `POST /quote` to get swap pricing
-4. **Execute** -- `POST /swap/execute` signs and submits the transaction using your managed wallet's private key
+- **No key handling** — your agent never generates, stores, or signs with a private key.
+- **One EVM wallet, every EVM chain** — a single managed EVM address works across all 40+ EVM networks.
+- **Server-side execution** — call `POST /v1/agent/swap/execute` and Suwappu does the signing and broadcasting.
 
-You never see or handle the private key. The server does all signing.
-
-## Wallet Types
-
-| Type | Chains Supported | Address Format |
-|------|-----------------|----------------|
-| EVM | All 12 EVM chains (Ethereum, Base, Arbitrum, etc.) | `0x...` (42 characters) |
-| Solana | Solana | Base58 (32-44 characters) |
-
-A single EVM wallet works across all EVM chains. Solana requires a separate wallet.
-
-## Step-by-Step Workflow
-
-### Step 1: Create a Wallet
+## Step 1: Create a Wallet
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/wallets \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-
-#### Response
 
 ```json
 {
   "success": true,
   "wallet": {
-    "address": "0x9f8E163C2b4a1FA28cE3851F2B3D5C53bE6a4E71",
+    "address": "0xYOUR_MANAGED_ADDRESS",
     "chain_type": "evm",
-    "supported_chains": ["ethereum", "base", "arbitrum", "optimism"]
-  }
+    "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]
+  },
+  "message": "Wallet created. Fund it to start swapping."
 }
 ```
 
-### Step 2: List Your Wallets
+The returned `address` is your agent's managed EVM wallet. It is recorded against your agent, so quotes and swaps are automatically priced and executed against it. Although `supported_chains` lists a sample, the same EVM address works across every supported EVM chain.
+
+## Step 2: List Your Wallets
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/wallets \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-#### Response
+If you have not created a wallet yet, the response hints you to create one with `POST /v1/agent/wallets`.
 
-```json
-{
-  "success": true,
-  "wallets": [
-    {
-      "address": "0x9f8E163C2b4a1FA28cE3851F2B3D5C53bE6a4E71",
-      "chain_type": "evm",
-      "supported_chains": ["ethereum", "base", "arbitrum", "optimism"]
-    }
-  ]
-}
-```
+## Step 3: Fund the Wallet
 
-### Step 3: Fund the Wallet
+Send the native gas token (and any tokens you want to swap) to the managed address. The wallet needs gas on whichever chain you intend to swap on (ETH on Base/Arbitrum/Optimism, BNB on BSC, MATIC on Polygon, etc.).
 
-Send tokens to the wallet address from any external source (exchange, another wallet, faucet for testnets). The wallet address works like any standard address on its supported chains.
+## Step 4: Quote, Simulate, and Execute
 
-For EVM wallets, send tokens on any supported EVM chain to the same `0x` address. For Solana, send SPL tokens or SOL to the Base58 address.
-
-### Step 4: Get a Quote
+Use the managed wallet address on quote/simulation so routing and balance/gas checks run against the real sender. The final managed execution still resolves that wallet server-side:
 
 ```bash
+# Quote
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "from_token": "ETH",
-    "to_token": "USDC",
-    "amount": "0.5",
-    "chain": "base"
-  }'
-```
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.1", "chain": "base", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
 
-#### Response
+# Dry-run the returned q_abc123 before any broadcast
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
 
-```json
-{
-  "success": true,
-  "quote_id": "qt_a1b2c3d4e5f6",
-  "from_token": "ETH",
-  "to_token": "USDC",
-  "amount": "0.5",
-  "expected_output": "985.42",
-  "chain": "base",
-  "expires_at": "2026-03-07T12:05:00Z"
-}
-```
-
-### Step 5: Execute the Swap
-
-```bash
+# Only after would_execute=true and explicit approval: execute server-side
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"quote_id": "qt_a1b2c3d4e5f6"}'
+  -H "Idempotency-Key: rebalance-2026-08-06-001" \
+  -d '{"quote_id": "q_abc123"}'
 ```
 
-#### Response
+Persist the idempotency key. If an execution response is lost, reconcile status/history before retrying and reuse the same key.
 
-```json
-{
-  "success": true,
-  "swap_id": 4821,
-  "status": "submitted",
-  "tx_hash": "0x8a3c...f29e"
-}
-```
+## Ownership & Security
 
-### Step 6: Check Status
+- A managed wallet belongs to the agent that created it. Quotes are cached per agent and can only be executed by that agent.
+- Natural-language commands (`/v1/agent/execute`) that include a `wallet_address` are rejected unless the address is your own managed wallet — you cannot swap from a wallet you don't own.
+- Rotate your API key any time with `POST /v1/agent/keys/rotate`; this does not change your wallet address.
 
-```bash
-curl https://api.suwappu.bot/v1/agent/swap/status/4821 \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
+## Client-Signed Wallets (Opt-Out)
 
-## Complete Example: curl
-
-```bash
-API_KEY="suwappu_sk_your_api_key"
-BASE="https://api.suwappu.bot/v1/agent"
-
-# Create a wallet
-curl -X POST "$BASE/wallets" \
-  -H "Authorization: Bearer $API_KEY"
-
-# List wallets to confirm
-curl "$BASE/wallets" \
-  -H "Authorization: Bearer $API_KEY"
-
-# Get a quote (after funding the wallet)
-QUOTE_RESPONSE=$(curl -s -X POST "$BASE/quote" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "from_token": "ETH",
-    "to_token": "USDC",
-    "amount": "0.1",
-    "chain": "base"
-  }')
-
-QUOTE_ID=$(echo "$QUOTE_RESPONSE" | jq -r '.quote_id')
-echo "Quote ID: $QUOTE_ID"
-
-# Execute the swap
-SWAP_RESPONSE=$(curl -s -X POST "$BASE/swap/execute" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{\"quote_id\": \"$QUOTE_ID\"}")
-
-SWAP_ID=$(echo "$SWAP_RESPONSE" | jq -r '.swap_id')
-echo "Swap ID: $SWAP_ID"
-
-# Check status
-curl "$BASE/swap/status/$SWAP_ID" \
-  -H "Authorization: Bearer $API_KEY"
-```
-
-## Complete Example: Python
-
-```python
-import requests
-import time
-
-API_KEY = "suwappu_sk_your_api_key"
-BASE_URL = "https://api.suwappu.bot/v1/agent"
-headers = {"Authorization": f"Bearer {API_KEY}"}
-
-# Create a managed wallet
-wallet = requests.post(f"{BASE_URL}/wallets", headers=headers).json()
-address = wallet["wallet"]["address"]
-print(f"Wallet created: {address}")
-print(f"Fund this address with tokens, then continue.")
-
-# List wallets
-wallets = requests.get(f"{BASE_URL}/wallets", headers=headers).json()
-for w in wallets["wallets"]:
-    print(f"  {w['chain_type']}: {w['address']}")
-
-# After funding, get a quote
-quote = requests.post(
-    f"{BASE_URL}/quote",
-    headers=headers,
-    json={
-        "from_token": "ETH",
-        "to_token": "USDC",
-        "amount": "0.1",
-        "chain": "base",
-    },
-).json()
-print(f"Quote: {quote['expected_output']} USDC for 0.1 ETH")
-
-# Execute
-swap = requests.post(
-    f"{BASE_URL}/swap/execute",
-    headers=headers,
-    json={"quote_id": quote["quote_id"]},
-).json()
-print(f"Swap {swap['swap_id']}: {swap['status']}")
-
-# Poll for completion
-while True:
-    status = requests.get(
-        f"{BASE_URL}/swap/status/{swap['swap_id']}",
-        headers=headers,
-    ).json()
-    if status["status"] in ("completed", "failed"):
-        print(f"Final: {status['status']}, tx: {status['tx_hash']}")
-        break
-    time.sleep(5)
-```
-
-## Complete Example: TypeScript
-
-```typescript
-const API_KEY = "suwappu_sk_your_api_key";
-const BASE_URL = "https://api.suwappu.bot/v1/agent";
-const headers = {
-  Authorization: `Bearer ${API_KEY}`,
-  "Content-Type": "application/json",
-};
-
-// Create a managed wallet
-const walletRes = await fetch(`${BASE_URL}/wallets`, {
-  method: "POST",
-  headers,
-});
-const wallet = await walletRes.json();
-console.log(`Wallet created: ${wallet.wallet.address}`);
-
-// List wallets
-const listRes = await fetch(`${BASE_URL}/wallets`, { headers });
-const list = await listRes.json();
-for (const w of list.wallets) {
-  console.log(`  ${w.chain_type}: ${w.address}`);
-}
-
-// After funding, get a quote
-const quoteRes = await fetch(`${BASE_URL}/quote`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({
-    from_token: "ETH",
-    to_token: "USDC",
-    amount: "0.1",
-    chain: "base",
-  }),
-});
-const quote = await quoteRes.json();
-console.log(`Quote: ${quote.expected_output} USDC for 0.1 ETH`);
-
-// Execute
-const swapRes = await fetch(`${BASE_URL}/swap/execute`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({ quote_id: quote.quote_id }),
-});
-const swap = await swapRes.json();
-console.log(`Swap ${swap.swap_id}: ${swap.status}`);
-
-// Poll for completion
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-while (true) {
-  const statusRes = await fetch(`${BASE_URL}/swap/status/${swap.swap_id}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  });
-  const status = await statusRes.json();
-  if (status.status === "completed" || status.status === "failed") {
-    console.log(`Final: ${status.status}, tx: ${status.tx_hash}`);
-    break;
-  }
-  await sleep(5000);
-}
-```
+If you prefer to hold your own keys, skip managed wallets entirely. Use `POST /v1/agent/swap` with your own `wallet_address` to receive an unsigned transaction (`to`, `value`, `data`, `chain_id`) that you sign and broadcast yourself. See [Cross-Chain Swaps](cross-chain-swaps.md#client-signed-alternative).

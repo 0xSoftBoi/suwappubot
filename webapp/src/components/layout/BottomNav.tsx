@@ -1,14 +1,15 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useSubscriptionTier } from '../../hooks/useSubscriptionTier'
 
-export type NavItem = 'home' | 'wallet' | 'swap' | 'history' | 'settings'
+export type NavItem = 'home' | 'wallet' | 'swap' | 'history' | 'settings' | 'earn' | 'discover' | 'portfolio' | 'enterprise' | 'upgrade'
 
 export interface BottomNavProps {
   active?: NavItem
   onNavigate?: (item: NavItem) => void
 }
 
-const navItems: { id: NavItem; label: string; path: string; icon: React.ReactNode }[] = [
+const coreNavItems: { id: NavItem; label: string; path: string; icon: React.ReactNode }[] = [
   {
     id: 'home',
     label: 'Home',
@@ -62,11 +63,33 @@ const navItems: { id: NavItem; label: string; path: string; icon: React.ReactNod
   },
 ]
 
+// Icon for the enterprise/upgrade tab
+const buildingIcon = (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+  </svg>
+)
+
+const upgradeIcon = (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+  </svg>
+)
+
 export function BottomNav({ active, onNavigate }: BottomNavProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const tier = useSubscriptionTier()
 
-  const handleNavigate = (item: typeof navItems[0]) => {
+  // Build the dynamic last tab based on tier
+  const isEnterprise = tier === 'enterprise'
+  const dynamicTab = isEnterprise
+    ? { id: 'enterprise' as NavItem, label: 'Team', path: '/enterprise', icon: buildingIcon, badge: 'ENT' as string | null }
+    : { id: 'upgrade' as NavItem, label: 'Upgrade', path: '/premium', icon: upgradeIcon, badge: null }
+
+  const allItems = [...coreNavItems, { ...dynamicTab }]
+
+  const handleNavigate = (item: typeof allItems[0]) => {
     if (onNavigate) {
       onNavigate(item.id)
     } else {
@@ -75,25 +98,40 @@ export function BottomNav({ active, onNavigate }: BottomNavProps) {
   }
 
   // Determine active item from route if not explicitly provided
-  const activeItem = active || navItems.find(item => location.pathname.startsWith(item.path))?.id || 'home'
+  const activeItem = active || allItems.find(item => location.pathname.startsWith(item.path))?.id || 'home'
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-suwappu-sakura-mid/20 safe-area-bottom">
       <div className="flex items-center justify-around h-16 px-2">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => handleNavigate(item)}
-            className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${
-              activeItem === item.id
-                ? 'text-suwappu-magenta-mid'
-                : 'text-suwappu-text-secondary hover:text-suwappu-text'
-            }`}
-          >
-            {item.icon}
-            <span className="text-xs font-heading font-medium">{item.label}</span>
-          </button>
-        ))}
+        {allItems.map((item) => {
+          const badge = 'badge' in item ? item.badge : null
+          const isActive = activeItem === item.id
+          return (
+            <button
+              key={item.id}
+              onClick={() => handleNavigate(item)}
+              className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors relative ${
+                isActive
+                  ? 'text-suwappu-magenta-mid'
+                  : item.id === 'upgrade'
+                  ? 'text-suwappu-magenta-mid/70 hover:text-suwappu-magenta-mid'
+                  : 'text-suwappu-text-secondary hover:text-suwappu-text'
+              }`}
+            >
+              <div className="relative">
+                {item.icon}
+                {badge && (
+                  <span className="absolute -top-1.5 -right-2.5 text-[9px] font-bold bg-suwappu-magenta-mid text-white rounded px-1 py-px leading-none">
+                    {badge}
+                  </span>
+                )}
+              </div>
+              <span className={`text-xs font-heading font-medium ${item.id === 'upgrade' && !isActive ? 'text-suwappu-magenta-mid/70' : ''}`}>
+                {item.label}
+              </span>
+            </button>
+          )
+        })}
       </div>
     </nav>
   )

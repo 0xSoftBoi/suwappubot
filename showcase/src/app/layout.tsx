@@ -1,50 +1,144 @@
 import type { Metadata } from 'next';
+import stats from '@/data/stats.generated.json';
+import { Geist, EB_Garamond, JetBrains_Mono } from 'next/font/google';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale, getMessages } from 'next-intl/server';
+import Analytics from '@/components/Analytics';
+import AttributionCapture from '@/components/AttributionCapture';
+import './summer-token-vars.css';
 import './globals.css';
+import './institutional.css';
+
+// Two families, one voice: Geist carries display + UI + body, JetBrains Mono
+// is rationed to numerals, kickers, and code. Geist is loaded ONCE: globals.css
+// aliases --font-display to --font-sans so both var() names resolve to the same
+// instance (no second font download).
+const geist = Geist({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-mono',
+  display: 'swap',
+});
+
+// Display-only serif: hero + section headlines and the A2A pull-quote on the
+// homepage. Never used for body copy or UI — Geist and JetBrains Mono keep
+// carrying those. EB Garamond is a warm old-style face chosen over the
+// LLM-default display serifs after an A/B render of the real headline copy
+// (see docs/design/serif-decision.md): it matches the warm soil/persimmon
+// palette, keeps the pull-quote on one line, and ships a weight axis so
+// display type can carry 500 against dark without faking bold.
+const displaySerif = EB_Garamond({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  style: ['normal', 'italic'],
+  variable: '--font-serif',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
-  title: 'Suwappu — Swap tokens from chat',
+  metadataBase: new URL('https://suwappu.bot'),
+  title: {
+    default: 'Suwappu: Cross-chain DeFi SDK for AI Agents',
+    template: '%s | Suwappu',
+  },
   description:
-    'Type /s 100 USDC ETH in Telegram and get the best rate across 7 chains. Non-custodial, no app needed.',
+    `One API across ${stats.platformChains} chains: swap tokens, research HyperLiquid perps and Morpho markets, access prediction markets, and build agent automations. Built for AI agents, bots, and developers.`,
   keywords: [
     'cross-chain swap',
-    'Telegram bot',
+    'DEX SDK',
     'DEX aggregator',
-    'crypto',
-    'DeFi',
-    'non-custodial',
+    'Telegram trading bot',
+    'AI agent tooling',
+    'DeFi SDK',
+    'MCP server',
+    'agent-to-agent protocol',
+    'non-custodial swap',
+    'perpetual futures API',
+    'prediction markets API',
+    'DeFi lending API',
+    'token swap API',
+    'multi-chain',
+    'Ethereum',
+    'Base',
+    'Solana',
+    'Arbitrum',
+    'cross-chain bridge',
+    'MEV protection',
+    'Suwappu',
   ],
+  authors: [{ name: 'Suwappu', url: 'https://suwappu.bot' }],
+  creator: 'Suwappu',
+  publisher: 'Suwappu',
   openGraph: {
-    title: 'Suwappu — Swap tokens from chat',
+    title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      'Type /s 100 USDC ETH in Telegram and get the best rate across 7 chains.',
+      `Swap tokens across ${stats.platformChains} chains, research HyperLiquid perps and Morpho markets, and access prediction markets through one agent API.`,
     type: 'website',
     siteName: 'Suwappu',
+    url: 'https://suwappu.bot',
+    locale: 'en_US',
+    // og:image is auto-wired by Next from opengraph-image.tsx (file convention).
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Suwappu — Swap tokens from chat',
+    site: '@suwappubot',
+    creator: '@suwappubot',
+    title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      'Type /s 100 USDC ETH in Telegram and get the best rate across 7 chains.',
+      `Swap tokens across ${stats.platformChains} chains and build agent workflows with REST, SDK, MCP, and A2A.`,
+    // twitter:image is auto-wired by Next from twitter-image.tsx (file convention).
   },
+  // Deliberately no canonical at the root. Next inherits metadata down the tree
+  // rather than deriving a per-route URL, so a value here is emitted verbatim on
+  // every page and declares the whole site a duplicate of one URL. Routes that
+  // need a canonical set it themselves (see app/research/[slug]); the rest
+  // self-canonicalize, which is the correct default.
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  category: 'technology',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en">
+    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable} ${displaySerif.variable}`}>
       <head>
-        <link rel="icon" href="/favicon.ico" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="author" type="text/plain" href="/llms.txt" />
+        {/* No hardcoded canonical here: this <head> renders on every route, so a
+            literal homepage URL declared every page a duplicate of "/". The
+            canonical comes from metadata.alternates.canonical instead, which
+            defaults to "/" for the root and is overridden per route. */}
       </head>
-      <body className="font-body antialiased">{children}</body>
+      <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
+        <a href="#main-content" className="skip-to-content">Skip to content</a>
+        <Analytics />
+        <AttributionCapture />
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </body>
     </html>
   );
 }

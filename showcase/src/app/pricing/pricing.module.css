@@ -1,0 +1,461 @@
+/*
+ * Pricing — page-scoped styles (WS-C). Replaces the old four-equal-tower grid
+ * with three self-serve tiers plus an isolated Enterprise band, per the
+ * enterprise-isolation convention: a quote-only plan next to three prices
+ * makes every price look negotiable.
+ *
+ * Everything here consumes the WS-A foundation tokens/utilities
+ * (--sw-*, .sw-shine, .sw-card-dark, .sw-grain). Nothing is added to
+ * globals.css from this workstream.
+ */
+
+/* ── Self-serve tiers ───────────────────────────────────────────────────── */
+
+.plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sw-gap);
+  align-items: stretch;
+  margin-top: 2rem;
+  /* The recommended card sits 4px high and its badge overhangs by 11px —
+     reserve the headroom so nothing clips into the hero above. */
+  padding-top: 20px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 24px 24px;
+  border: 1px solid var(--sw-hairline);
+  border-radius: var(--sw-r-lg);
+  background: linear-gradient(180deg, #ffffff 0%, var(--sw-panel) 100%);
+  box-shadow: var(--sw-shadow-sm);
+  transition: transform 160ms var(--sw-ease), box-shadow 160ms var(--sw-ease);
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--sw-shadow-md);
+}
+
+/* Recommended tier: raised 4px at rest, shine ring, deeper shadow. The ring is
+   drawn by .sw-shine inside the border box, so the card's own border stays
+   transparent rather than doubling up. */
+.cardFeatured {
+  transform: translateY(-4px);
+  border-color: transparent;
+  box-shadow: var(--sw-shadow-md);
+}
+
+.cardFeatured:hover {
+  transform: translateY(-10px);
+}
+
+.badge {
+  position: absolute;
+  top: -11px;
+  left: 24px;
+  padding: 3px 10px;
+  border: 1px solid var(--sw-accent-deep);
+  border-radius: var(--sw-r-pill);
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  color: #17324a;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.name {
+  margin: 0;
+  color: var(--sw-ink);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.price {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 12px 0 0;
+  color: var(--sw-ink);
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.032em;
+  font-variant-numeric: tabular-nums;
+}
+
+.cadence {
+  color: var(--sw-muted);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.fee {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 4px 11px;
+  border-radius: var(--sw-r-pill);
+  background: var(--sw-accent-wash);
+  color: var(--sw-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.feeValue {
+  color: var(--sw-accent-deep);
+  font-size: 0.86rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.blurb {
+  margin: 16px 0 0;
+  min-height: 3.2em;
+  color: var(--sw-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.features {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 18px 0 0;
+  border-top: 1px solid var(--sw-hairline);
+}
+
+.features li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--sw-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.features li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--sw-accent);
+  font-weight: 600;
+}
+
+.noteLink {
+  display: block;
+  margin-top: 10px;
+  color: var(--sw-muted);
+  font-size: 0.8rem;
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.noteLink:hover {
+  color: var(--sw-ink);
+}
+
+/* ── Enterprise band — full-width dark register, isolated from the ladder ── */
+
+.enterprise {
+  margin-top: clamp(3rem, 6vw, 4.75rem);
+  padding: clamp(28px, 4vw, 46px);
+  border-radius: var(--sw-r-lg);
+  overflow: hidden;
+}
+
+.enterpriseGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: start;
+}
+
+.enterpriseTitle {
+  margin: 14px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+}
+
+.enterpriseBody {
+  margin: 16px 0 0;
+  max-width: 56ch;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.enterpriseStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 26px 0 0;
+  padding: 20px 0 0;
+  border-top: 1px solid var(--sw-hairline-dark);
+}
+
+.enterpriseStat {
+  display: grid;
+  gap: 5px;
+}
+
+.enterpriseStatValue {
+  color: var(--sw-accent-bright);
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.enterpriseStatLabel {
+  color: var(--sw-cosmic-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.enterpriseFeatures {
+  list-style: none;
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.enterpriseFeatures li {
+  padding: 11px 0 11px 22px;
+  position: relative;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.enterpriseFeatures li + li {
+  border-top: 1px solid var(--sw-hairline-dark);
+}
+
+.enterpriseFeatures li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  color: var(--sw-accent);
+  font-weight: 600;
+}
+
+.enterpriseActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.enterpriseNote {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* ── Fee calculator shell — mono numerals + the hairline register ───────── */
+
+.calcWrap > section {
+  border-color: var(--sw-hairline);
+  border-radius: var(--sw-r-lg);
+  box-shadow: var(--sw-shadow-sm);
+}
+
+.calcWrap input,
+.calcWrap button,
+.calcWrap ol li > span:last-child {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ── Plan comparison table — hairline rows, sticky head, washed column ──── */
+
+.compare {
+  margin-top: clamp(3.5rem, 7vw, 5rem);
+}
+
+.compareTitle {
+  margin: 12px 0 0;
+  color: var(--sw-ink);
+  font-family: var(--font-display);
+  font-size: var(--type-display-2-size);
+  line-height: var(--type-display-2-lh);
+  letter-spacing: var(--type-display-2-ls);
+  font-weight: 600;
+}
+
+.compareLead {
+  margin: 12px 0 0;
+  max-width: var(--type-measure);
+  color: var(--sw-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.tableWrap {
+  margin-top: 1.75rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.table thead th {
+  position: sticky;
+  top: 68px;
+  z-index: var(--z-sticky);
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--sw-hairline-strong);
+  background: var(--sw-canvas);
+  color: var(--sw-ink);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.table thead th:first-child {
+  padding-left: 4px;
+  color: var(--sw-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-kicker-size);
+  font-weight: 500;
+  letter-spacing: var(--type-kicker-ls);
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.catRow th {
+  padding: 26px 4px 8px;
+  border-bottom: 1px solid var(--sw-hairline-strong);
+  color: var(--sw-accent-deep);
+  font-family: var(--font-mono);
+  font-size: var(--type-kicker-size);
+  font-weight: 500;
+  letter-spacing: var(--type-kicker-ls);
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.rowHead {
+  padding: 13px 12px 13px 4px;
+  border-bottom: 1px solid var(--sw-hairline);
+  color: var(--sw-muted);
+  font-size: 0.88rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  min-width: 230px;
+}
+
+.cell {
+  padding: 13px 12px;
+  border-bottom: 1px solid var(--sw-hairline);
+  color: var(--sw-ink);
+  text-align: center;
+}
+
+/* Recommended column: persimmon wash top to bottom. The header keeps an opaque
+   canvas layer underneath so sticky rows never bleed through it. */
+.colUs {
+  background: linear-gradient(var(--sw-accent-wash), var(--sw-accent-wash)), var(--sw-canvas);
+}
+
+.cellUs {
+  background: var(--sw-accent-wash);
+}
+
+.yes {
+  color: var(--sw-accent);
+  font-weight: 600;
+}
+
+.no {
+  color: var(--sw-muted);
+  opacity: 0.45;
+}
+
+.val {
+  color: var(--sw-ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.tableNote {
+  margin: 14px 4px 0;
+  max-width: var(--type-measure);
+  color: var(--sw-muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  .plans {
+    grid-template-columns: 1fr;
+    padding-top: 20px;
+  }
+  .cardFeatured,
+  .cardFeatured:hover,
+  .card:hover {
+    transform: none;
+  }
+  .enterpriseGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .tableWrap {
+    overflow-x: auto;
+  }
+  .table {
+    min-width: 620px;
+  }
+  /* Inside a scroll container a sticky head anchors to the container, not the
+     viewport — drop it rather than leave a header that never sticks. */
+  .table thead th {
+    position: static;
+  }
+  .enterpriseStats {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card:hover,
+  .cardFeatured,
+  .cardFeatured:hover {
+    transform: none;
+    transition: none;
+  }
+}

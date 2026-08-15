@@ -4,23 +4,15 @@ import { useSwapQuote } from './useSwapQuote'
 import { useSwapExecute, useSwapStatus } from './useSwapExecute'
 import { useHaptic } from './useHaptic'
 import { parseAmountInput, toSmallestUnit } from '../lib/amount-parser'
-import type { SwapToken } from '@suwappu/shared'
+import { getExplorerTxUrlByChainId } from '../lib/chains'
+import type { SwapToken } from '../types/swap'
 
-// Explorer URL helper
-const EXPLORERS: Record<string, string> = {
-  '1': 'https://etherscan.io/tx/',
-  '10': 'https://optimistic.etherscan.io/tx/',
-  '56': 'https://bscscan.com/tx/',
-  '137': 'https://polygonscan.com/tx/',
-  '8453': 'https://basescan.org/tx/',
-  '42161': 'https://arbiscan.io/tx/',
-  '43114': 'https://snowtrace.io/tx/',
-  '59144': 'https://lineascan.build/tx/',
-  '324': 'https://explorer.zksync.io/tx/',
-}
-
-export function getExplorerUrl(txHash: string, chainId: string) {
-  return `${EXPLORERS[chainId] || 'https://etherscan.io/tx/'}${txHash}`
+/** Explorer tx URL for the numeric chain id used by this hook's `selectedChain` state.
+ *  Delegates to lib/chains.ts (single source of truth for chain metadata) — returns
+ *  `null` for an unknown chain id rather than guessing an explorer. Callers must
+ *  handle the `null` case (render no link). */
+export function getExplorerUrl(txHash: string, chainId: string): string | null {
+  return getExplorerTxUrlByChainId(chainId, txHash)
 }
 
 export function useSwapForm() {
@@ -37,7 +29,7 @@ export function useSwapForm() {
   const [activeTxHash, setActiveTxHash] = useState<string | null>(null)
 
   // Poll swap status after execution
-  const { data: swapStatus } = useSwapStatus(activeSwapId)
+  const { data: swapStatus } = useSwapStatus(activeSwapId === null ? null : String(activeSwapId))
 
   // Transition to success when swap completes
   useEffect(() => {
@@ -148,8 +140,8 @@ export function useSwapForm() {
       { quoteId: quote.id },
       {
         onSuccess: (result) => {
-          setActiveTxHash(result.signedTransaction)
-          if (result.signedTransaction) {
+          setActiveTxHash(result.txHash ?? null)
+          if (result.txHash) {
             setActiveSwapId(result.swapId)
           } else {
             setIsSuccess(true)

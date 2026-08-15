@@ -1,0 +1,17 @@
+/* Hero C - the number is the hero. Product centred, copy supports it. */
+.hc { min-height:100dvh; background:#0B0F14; color:#C9D6E4; }
+.hc__hero { max-width:820px; margin:0 auto; padding:clamp(2rem,5vw,3rem) 1.5rem 4rem;
+  display:flex; flex-direction:column; align-items:center; text-align:center; gap:1.25rem;
+  min-height:min(calc(100dvh - 67px), 44rem); justify-content:center; }
+.hc__eyebrow { margin:0; font-size:.72rem; font-weight:700; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--sw-accent-bright); }
+.hc__stage { width:100%; max-width:min(34rem,100%); }
+.hc__h1 { margin:.5rem 0 0; font-size:clamp(1.9rem,4.2vw,3rem); line-height:1.08;
+  letter-spacing:-.03em; font-weight:700; color:#F4F8FF; max-width:20ch; }
+.hc__h1 span { color:#8FA3B8; display:block; }
+.hc__cta { display:flex; gap:.75rem; flex-wrap:wrap; justify-content:center; }
+.hc__btn { display:inline-flex; align-items:center; padding:.8rem 1.4rem; border-radius:999px;
+  font-size:.9375rem; font-weight:700; text-decoration:none; white-space:nowrap;
+  background:linear-gradient(180deg,var(--sw-accent-bright),var(--sw-accent));
+  color:#17324A; border:1px solid var(--sw-accent-deep); }
+.hc__btn--ghost { background:transparent; color:#D7E4F2; border-color:rgba(150,180,210,.28); }

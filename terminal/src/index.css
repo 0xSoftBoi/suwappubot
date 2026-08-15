@@ -1,0 +1,749 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* ==========================================================================
+   SUWAPPU TERMINAL — institutional register
+   Near-black canvas, persimmon as the only interactive accent, green/red
+   reserved for PnL/direction, hairlines instead of shadows, motion confined to
+   numeric state.
+
+   Colour channels (`--terminal-c-*`, "r g b" triplets) are consumed by
+   tailwind.config.js as `rgb(var(--terminal-c-x) / <alpha-value>)`; the
+   per-theme values live in src/theme/TerminalThemeScope.tsx. The :root block
+   below is the institutional default so anything rendered OUTSIDE a
+   <TerminalThemeScope> (index.html shell, 404s, portals) is dark too.
+   ========================================================================== */
+
+@layer base {
+  * {
+    @apply border-terminal-border;
+  }
+
+  :root {
+    color-scheme: dark;
+
+    /* Fonts */
+    --terminal-font-ui: "Geist", system-ui, -apple-system, sans-serif;
+    --terminal-font-display: "Geist", system-ui, sans-serif;
+    --terminal-font-japanese: "Noto Sans JP", "Geist", sans-serif;
+    --terminal-font-mono: "JetBrains Mono", monospace;
+
+    /* Colour channels — institutional */
+    --terminal-c-canvas: 8 9 12;
+    --terminal-c-bg: 10 11 15;
+    --terminal-c-bg-secondary: 18 21 27;
+    --terminal-c-bg-tertiary: 22 26 33;
+    --terminal-c-panel: 14 16 20;
+    --terminal-c-border: 30 32 37;
+    --terminal-c-border-active: 111 72 30;
+    --terminal-c-text: 236 237 239;
+    --terminal-c-text-secondary: 155 161 171;
+    --terminal-c-text-muted: 107 114 128;
+    --terminal-c-accent: 229 141 43;
+    --terminal-c-accent-bright: 246 169 60;
+    --terminal-c-accent-deep: 201 115 29;
+    --terminal-c-on-accent: 10 11 15;
+    --terminal-c-up: 47 191 113;
+    --terminal-c-down: 229 72 77;
+    --terminal-c-up-dim: 18 37 27;
+    --terminal-c-down-dim: 42 21 23;
+    --terminal-c-warn: 229 161 60;
+    --terminal-c-sakura-50: 21 18 14;
+    --terminal-c-sakura-100: 27 23 16;
+    --terminal-c-sakura-200: 36 29 20;
+    --terminal-c-sakura-300: 58 43 24;
+    --terminal-c-sakura-400: 246 169 60;
+    --terminal-c-sakura-500: 229 141 43;
+    --terminal-c-sakura-600: 216 128 31;
+    --terminal-c-sakura-700: 201 115 29;
+    --terminal-c-sakura-800: 162 87 26;
+    --terminal-c-sakura-900: 124 65 20;
+
+    /* Surfaces */
+    --terminal-shell-background:
+      radial-gradient(
+        120% 60% at 70% -10%,
+        rgba(229, 141, 43, 0.06),
+        transparent 50%
+      ),
+      linear-gradient(180deg, #08090c 0%, #0a0b0f 100%);
+    --terminal-panel-background: #0e1014;
+    --terminal-inset-background: #0b0c10;
+    --terminal-card-background: #101318;
+    --terminal-control-background: #12151b;
+    --terminal-control-background-hover: #161a21;
+    --terminal-control-background-active: #181c24;
+
+    /* Structure — hairlines replace shadows */
+    --terminal-border-color: rgba(236, 237, 239, 0.07);
+    --terminal-border-active-color: rgba(229, 141, 43, 0.45);
+    --terminal-hairline: rgba(236, 237, 239, 0.07);
+    --terminal-hairline-strong: rgba(236, 237, 239, 0.13);
+    --terminal-edge-highlight: linear-gradient(
+      90deg,
+      transparent,
+      rgba(236, 237, 239, 0.06),
+      transparent
+    );
+
+    /* Washes */
+    --terminal-accent-wash: rgba(229, 141, 43, 0.1);
+    --terminal-accent-glow: rgba(229, 141, 43, 0.35);
+    --terminal-up-wash: rgba(47, 191, 113, 0.1);
+    --terminal-down-wash: rgba(229, 72, 77, 0.1);
+
+    /* Radii */
+    --terminal-radius-panel: 12px;
+    --terminal-radius-inset: 10px;
+    --terminal-radius-card: 8px;
+    --terminal-radius-control: 8px;
+    --terminal-radius-pill: 999px;
+
+    /* Shadows — panels/cards/controls are hairline-only; overlays get the one
+       real shadow. Legacy --terminal-shadow-* references degrade gracefully. */
+    --terminal-shadow-panel: none;
+    --terminal-shadow-panel-elevated: 0 0 0 1px rgba(236, 237, 239, 0.13);
+    --terminal-shadow-inset: none;
+    --terminal-shadow-card: none;
+    --terminal-shadow-control: none;
+    --terminal-shadow-raised: 0 0 0 1px rgba(236, 237, 239, 0.13);
+    --terminal-shadow-overlay:
+      0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(236, 237, 239, 0.07);
+
+    /* Buttons — flat persimmon, dark ink on top, no glow */
+    --terminal-button-background: #e58d2b;
+    --terminal-button-background-hover: #f6a93c;
+    --terminal-button-background-active: #c9731d;
+    --terminal-button-foreground: #0a0b0f;
+    --terminal-button-shadow: none;
+    --terminal-button-shadow-hover: none;
+
+    /* Type */
+    --terminal-heading-tracking: -0.02em;
+    --terminal-caption-tracking: 0.08em;
+
+    /* Spacing (precision-tier density) */
+    --terminal-space-page: 12px;
+    --terminal-space-panel: 10px;
+    --terminal-space-inset: 8px;
+    --terminal-space-card: 7px;
+    --terminal-space-section: 8px;
+
+    /* Orbs are off in the institutional register */
+    --terminal-panel-orb: none;
+    --terminal-inset-orb: none;
+    --terminal-card-orb: none;
+    --terminal-control-orb: none;
+
+    /* Focus */
+    --terminal-focus-ring:
+      0 0 0 2px rgb(var(--terminal-c-canvas)),
+      0 0 0 4px rgb(var(--terminal-c-accent));
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: rgb(var(--terminal-c-canvas));
+  }
+
+  body {
+    min-height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: var(--terminal-shell-background);
+    background-color: rgb(var(--terminal-c-canvas));
+    color: rgb(var(--terminal-c-text));
+    font-family: var(--terminal-font-ui);
+    line-height: 1.4;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  code,
+  kbd,
+  pre {
+    font-family: var(--terminal-font-mono);
+  }
+
+  /* Three-tier weight hierarchy: 600 is the ceiling in app UI. */
+  :where(b, strong) {
+    font-weight: 600;
+  }
+
+  /* Numerals are always tabular so columns don't jitter on tick. */
+  table,
+  [data-numeric],
+  .terminal-theme-root input {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* One focus treatment everywhere (a11y floor). */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: none;
+    box-shadow: var(--terminal-focus-ring);
+  }
+
+  ::selection {
+    background: rgba(229, 141, 43, 0.28);
+    color: rgb(var(--terminal-c-text));
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--terminal-c-text) / 0.14);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--terminal-c-text) / 0.22);
+  }
+
+  /* Allotment sash styling */
+  .sash-container .sash {
+    @apply bg-terminal-border hover:bg-sakura-500 transition-colors;
+  }
+}
+
+@layer components {
+  .terminal-theme-root {
+    min-height: 100%;
+    isolation: isolate;
+    color-scheme: var(--terminal-color-scheme, dark);
+    font-family: var(--terminal-font-ui);
+  }
+
+  .terminal-theme-page {
+    min-height: 100%;
+    background: var(--terminal-shell-background);
+    color: rgb(var(--terminal-c-text));
+  }
+
+  .terminal-theme-panel {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-panel);
+    background: var(--terminal-panel-orb), var(--terminal-panel-background);
+    box-shadow: var(--terminal-shadow-panel);
+    isolation: isolate;
+  }
+
+  .terminal-theme-panel-elevated {
+    box-shadow: var(--terminal-shadow-panel-elevated);
+  }
+
+  .terminal-theme-inset {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-inset);
+    background: var(--terminal-inset-orb), var(--terminal-inset-background);
+    box-shadow: var(--terminal-shadow-inset);
+    isolation: isolate;
+  }
+
+  .terminal-theme-card {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-card);
+    background: var(--terminal-card-orb), var(--terminal-card-background);
+    box-shadow: var(--terminal-shadow-card);
+    isolation: isolate;
+  }
+
+  .terminal-theme-control {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--terminal-border-color);
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-control-orb), var(--terminal-control-background);
+    box-shadow: var(--terminal-shadow-control);
+    /* Motion doctrine: background/border shift only, 120ms. No lift. */
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease,
+      background 120ms ease,
+      color 120ms ease;
+    isolation: isolate;
+  }
+
+  .terminal-theme-control:hover,
+  .terminal-theme-control:focus-within {
+    border-color: var(--terminal-border-active-color);
+    background:
+      var(--terminal-control-orb), var(--terminal-control-background-hover);
+  }
+
+  .terminal-theme-control:active {
+    transform: translateY(1px);
+  }
+
+  .terminal-theme-control-active {
+    border-color: var(--terminal-border-active-color);
+    background:
+      var(--terminal-control-orb), var(--terminal-control-background-active);
+  }
+
+  .terminal-theme-panel::after,
+  .terminal-theme-inset::after,
+  .terminal-theme-card::after,
+  .terminal-theme-control::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: var(--terminal-edge-highlight);
+    pointer-events: none;
+    opacity: 0.9;
+  }
+
+  .terminal-theme-pill {
+    border-radius: var(--terminal-radius-pill);
+  }
+
+  .terminal-theme-heading {
+    font-family: var(--terminal-font-display);
+    letter-spacing: var(--terminal-heading-tracking);
+    line-height: 1.1;
+  }
+
+  /* Caption / kicker: 10-11px, 500, uppercase, restrained tracking. */
+  .terminal-theme-caption {
+    font-weight: 500;
+    letter-spacing: var(--terminal-caption-tracking);
+    color: rgb(var(--terminal-c-text-secondary));
+  }
+
+  .terminal-theme-japanese {
+    font-family: var(--terminal-font-japanese);
+  }
+
+  .terminal-panel {
+    @apply bg-terminal-panel border border-terminal-border;
+    border-radius: var(--terminal-radius-panel);
+    box-shadow: var(--terminal-shadow-panel);
+  }
+
+  .terminal-input {
+    @apply border border-terminal-border px-2.5 py-1.5
+           text-terminal-text placeholder-terminal-text-muted
+           focus:outline-none focus:border-sakura-500 transition-colors;
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-control-background);
+    box-shadow: var(--terminal-shadow-control);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .terminal-button {
+    @apply px-3 py-1.5 font-medium transition-colors duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    border-radius: var(--terminal-radius-control);
+    background: var(--terminal-button-background);
+    color: var(--terminal-button-foreground);
+    box-shadow: var(--terminal-button-shadow);
+  }
+
+  .terminal-button:hover:not(:disabled) {
+    background: var(--terminal-button-background-hover);
+    box-shadow: var(--terminal-button-shadow-hover);
+  }
+
+  .terminal-button:active:not(:disabled) {
+    background: var(--terminal-button-background-active);
+    transform: translateY(1px);
+  }
+
+  .terminal-button-secondary {
+    @apply px-3 py-1.5 font-medium transition-colors duration-150
+           text-terminal-text
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    border: 1px solid var(--terminal-hairline-strong);
+    border-radius: var(--terminal-radius-control);
+    background: transparent;
+  }
+
+  .terminal-button-secondary:hover:not(:disabled) {
+    border-color: var(--terminal-border-active-color);
+    background: var(--terminal-control-background-hover);
+  }
+
+  .terminal-button-secondary:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .terminal-tab {
+    @apply px-2.5 py-1 text-[13px] font-medium text-terminal-text-secondary
+           hover:text-terminal-text transition-colors cursor-pointer
+           border-b-2 border-transparent;
+  }
+
+  .terminal-tab-active {
+    @apply text-terminal-text border-sakura-500;
+  }
+}
+
+/* ==========================================================================
+   Shared utilities (WS-A contract — see WS-A-TERMINAL-REPORT.md)
+
+   These deliberately live OUTSIDE @layer so Tailwind never tree-shakes them:
+   five workstreams consume them in parallel and a class that is momentarily
+   unreferenced must still exist in the bundle. Being last in the file also
+   means they win ties against equal-specificity Tailwind utilities.
+   ========================================================================== */
+
+/* Overlays (modals, command palette, dropdowns) — the only surface that keeps
+   a real drop shadow. */
+.terminal-theme-overlay {
+  border: 1px solid var(--terminal-hairline-strong);
+  border-radius: var(--terminal-radius-panel);
+  background: var(--terminal-panel-background);
+  box-shadow: var(--terminal-shadow-overlay);
+}
+
+.terminal-theme-scrim {
+  background: rgba(4, 5, 7, 0.72);
+}
+
+/* Tabular numerals — put this on every numeric cell. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Hairlines — the structural device that replaced shadows. */
+.hairline {
+  border: 1px solid var(--terminal-hairline);
+}
+.hairline-t {
+  border-top: 1px solid var(--terminal-hairline);
+}
+.hairline-b {
+  border-bottom: 1px solid var(--terminal-hairline);
+}
+.hairline-l {
+  border-left: 1px solid var(--terminal-hairline);
+}
+.hairline-r {
+  border-right: 1px solid var(--terminal-hairline);
+}
+.hairline-strong {
+  border: 1px solid var(--terminal-hairline-strong);
+}
+
+/* Washes */
+.accent-wash {
+  background-color: var(--terminal-accent-wash);
+}
+.up-wash {
+  background-color: var(--terminal-up-wash);
+}
+.down-wash {
+  background-color: var(--terminal-down-wash);
+}
+
+/* Interactive row: background shift only, 120ms. */
+.terminal-row {
+  transition: background-color 120ms ease;
+}
+.terminal-row:hover {
+  background-color: rgb(var(--terminal-c-text) / 0.04);
+}
+
+/* Price-tick flash. Remount with a changing React key (or toggle the class
+   off/on) to retrigger; always pair with a ▲/▼ or +/− glyph. */
+.flash-up,
+.flash-down {
+  border-radius: var(--terminal-radius-card);
+}
+
+/* Skeleton bar (see <TerminalSkeleton>). */
+.terminal-skeleton {
+  display: block;
+  background-color: rgb(var(--terminal-c-bg-tertiary));
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(var(--terminal-c-text) / 0.07) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  border-radius: var(--terminal-radius-card);
+}
+
+/* Connection / live status dot. */
+.pulse-live {
+  opacity: 1;
+}
+
+/* Mobile/wallet-browser shell. 100vh is the fallback for older embedded
+   browsers; dvh follows collapsing browser chrome and, where supported,
+   interactive-widget=resizes-content when the software keyboard opens. */
+.terminal-app-viewport {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--terminal-visual-height, 100vh);
+  min-height: 0;
+  padding-top: max(0.375rem, env(safe-area-inset-top));
+  padding-right: max(0.375rem, env(safe-area-inset-right));
+  padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
+  padding-left: max(0.375rem, env(safe-area-inset-left));
+}
+
+@supports (height: 100dvh) {
+  .terminal-app-viewport {
+    height: var(--terminal-visual-height, 100dvh);
+  }
+}
+
+@media (min-width: 768px) {
+  .terminal-app-viewport {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+  }
+}
+
+
+/* The same predicate as useIsMobile(): narrow layouts plus coarse-pointer
+   landscape phones. Keep these rules capability/layout driven rather than
+   sniffing MetaMask, Phantom, or any other in-app browser user-agent. */
+@media (max-width: 900px), (max-width: 950px) and (max-height: 500px) and (pointer: coarse) {
+  .terminal-mobile-header {
+    overflow: visible;
+  }
+
+
+  .terminal-mobile-header .terminal-theme-control {
+    min-height: 44px;
+  }
+
+
+  .terminal-mobile-touch {
+    min-height: 44px;
+  }
+
+  .terminal-mobile-touch-square {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .terminal-mobile-header-menu {
+    max-height: 28rem;
+    max-height: min(72dvh, 28rem);
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .terminal-mobile-mode-switch > button {
+    min-width: 0;
+    min-height: 44px;
+    flex: 1 1 0;
+    padding-inline: 0.5rem;
+    touch-action: manipulation;
+  }
+
+  .terminal-mobile-nav button,
+  .terminal-mobile-header button,
+  .terminal-mobile-header a {
+    touch-action: manipulation;
+  }
+
+
+  .terminal-chart-toolbar {
+    justify-content: flex-start;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .terminal-chart-toolbar > div {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+  }
+
+  .terminal-chart-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .terminal-toast-container {
+    bottom: calc(
+      4.25rem + env(safe-area-inset-bottom) + var(--terminal-keyboard-inset, 0px)
+    ) !important;
+  }
+
+  .terminal-mobile-scroll {
+    min-height: 0;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* iOS and WKWebView zoom focused controls below 16px. Force the mobile form
+     floor, then restore the intentionally larger trade amount field. */
+  .terminal-theme-root :where(input, select, textarea) {
+    font-size: 16px;
+  }
+
+  .terminal-theme-root .terminal-amount-input {
+    font-size: 1.25rem;
+  }
+
+  /* Command palette becomes a keyboard-safe bottom sheet instead of a 12vh
+     desktop dialog. dvh shrinks with dynamic browser chrome and supported
+     interactive keyboards. */
+  .terminal-command-scrim {
+    bottom: auto;
+    height: var(--terminal-visual-height, 100vh);
+    align-items: flex-end;
+    overflow-y: auto;
+    padding: max(0.5rem, env(safe-area-inset-top))
+      max(0.5rem, env(safe-area-inset-right))
+      max(0.5rem, env(safe-area-inset-bottom))
+      max(0.5rem, env(safe-area-inset-left));
+  }
+
+  .terminal-command-palette {
+    display: flex;
+    width: 100%;
+    height: min(88vh, 42rem);
+    max-height: calc(var(--terminal-visual-height, 100vh) - 1rem);
+    flex-direction: column;
+  }
+
+  .terminal-command-results {
+    min-height: 0;
+    max-height: none;
+    flex: 1 1 auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .terminal-command-input {
+    font-size: 16px;
+  }
+
+  @supports (height: 100dvh) {
+    .terminal-command-scrim {
+      height: var(--terminal-visual-height, 100dvh);
+    }
+
+    .terminal-command-palette {
+      height: min(88dvh, 42rem);
+      max-height: calc(
+        var(--terminal-visual-height, 100dvh) - env(safe-area-inset-top) -
+          env(safe-area-inset-bottom) - 1rem
+      );
+    }
+  }
+
+  /* Token dropdowns otherwise get clipped by the scrollable Swap panel. On
+     phones they are a fixed sheet above the persistent trading nav. */
+  .terminal-token-selector {
+    position: fixed;
+    top: auto;
+    right: max(0.5rem, env(safe-area-inset-right));
+    bottom: calc(
+      3.75rem + env(safe-area-inset-bottom) + var(--terminal-keyboard-inset, 0px)
+    );
+    left: max(0.5rem, env(safe-area-inset-left));
+    z-index: 120;
+    width: auto;
+    max-height: 60vh;
+    overflow: hidden;
+  }
+
+  .terminal-token-selector [role='listbox'] {
+    max-height: 45vh;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  @supports (height: 100dvh) {
+    .terminal-token-selector {
+      max-height: 60dvh;
+    }
+
+    .terminal-token-selector [role='listbox'] {
+      max-height: 45dvh;
+    }
+  }
+}
+
+/* All motion is opt-in for users who have not asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .flash-up {
+    animation: terminal-flash-up 160ms ease-out;
+  }
+
+  .flash-down {
+    animation: terminal-flash-down 160ms ease-out;
+  }
+
+  .terminal-skeleton {
+    animation: terminal-shimmer 1.4s ease-in-out infinite;
+  }
+
+  .pulse-live {
+    animation: terminal-pulse 2s ease-in-out infinite;
+  }
+}
+
+@keyframes terminal-flash-up {
+  0% {
+    background-color: var(--terminal-up-wash);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes terminal-flash-down {
+  0% {
+    background-color: var(--terminal-down-wash);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes terminal-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes terminal-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

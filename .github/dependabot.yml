@@ -1,78 +1,64 @@
+# Dependabot — free dependency-update PRs across the monorepo's ecosystems.
+# Weekly cadence + grouped minor/patch to keep PR noise low. (See OSS-RESOURCES free-trust-stack.)
 version: 2
 updates:
-  # Python dependencies
+  # Python (bot + api) — pip-tools: requirements.in (source) -> requirements.txt (lock).
+  # Dependabot detects the .in file and uses its pip-compile resolver, so it edits a
+  # DIRECT dep in requirements.in and re-compiles the whole lockfile holistically —
+  # transitive pins always stay consistent with their parents. `allow: direct` is
+  # belt-and-suspenders so it never proposes a bare transitive bump (the #459 breakage).
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "security"
-    reviewers:
-      - "0xSoftBoi"
+    allow:
+      - dependency-type: "direct"
     groups:
-      security-updates:
-        patterns:
-          - "aiohttp"
-          - "cryptography"
-          - "ecdsa"
-          - "protobuf"
-          - "sqlalchemy"
-          - "web3"
+      python-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # Dashboard (Next.js)
+  # JavaScript/TypeScript — all workspace packages + frontends
   - package-ecosystem: "npm"
-    directory: "/dashboard"
+    directories:
+      - "/webapp"
+      - "/terminal"
+      - "/showcase"
+      - "/api-ts"
+      - "/extension"
+      - "/packages/sdk"
+      - "/packages/mcp-server"
+      - "/packages/openclaw"
+      - "/packages/design-tokens"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "dashboard"
-    versioning-strategy: increase-if-necessary
     groups:
-      nextjs:
-        patterns:
-          - "next"
-          - "react*"
-          - "eslint*"
+      js-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # Webapp (Vite)
-  - package-ecosystem: "npm"
-    directory: "/webapp"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "webapp"
-
-  # API-TS (Bun)
-  - package-ecosystem: "npm"
-    directory: "/api-ts"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "api-ts"
-
-  # TUI (Bun)
-  - package-ecosystem: "npm"
-    directory: "/tui"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "tui"
-
-  # GitHub Actions
+  # CI workflow actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
-    labels:
-      - "dependencies"
-      - "github-actions"
+      interval: "weekly"
+
+  # Container base images for the deployed services
+  - package-ecosystem: "docker"
+    directories:
+      - "/api"
+      - "/api-ts"
+      - "/showcase"
+      - "/terminal"
+      - "/webapp"
+    schedule:
+      interval: "weekly"
+    # /api must stay on python 3.12: requirements.txt pins (coincurve==21.0.0,
+    # solders, etc.) have no cp313/cp314 wheels yet. 3.14 bump (#586) broke every
+    # python-api build on Railway for 2 days. Ignore 3.13+ so dependabot stops
+    # re-proposing the break.
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.13"]

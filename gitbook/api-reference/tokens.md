@@ -1,125 +1,108 @@
-# List Tokens
+# Tokens
 
-`GET /tokens` | Auth: Required
+List the tokens Suwappu recognizes by symbol on each chain. Use it to resolve a symbol to its on-chain address and decimals before quoting.
 
-List available tokens, optionally filtered by chain or symbol. Returns token contract addresses and decimals needed for building swap transactions.
+## GET /v1/agent/tokens
 
-## Request
+Requires authentication.
 
-### Parameters
+### Query parameters
 
-Query string parameters:
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `chain` | string | No | Chain key (e.g. `base`, `solana`). Omit to return tokens for all chains |
+| `search` | string | No | Case-insensitive symbol substring filter (e.g. `USD`) |
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `chain` | string | No | Filter by chain key (e.g., `"base"`, `"solana"`, `"ethereum"`). Use values from `GET /chains`. |
-| `search` | string | No | Filter by token symbol substring. Case-insensitive. |
+### List tokens on one chain
 
-### Example
-
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-GET /tokens?chain=base&search=USD
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/tokens?chain=base", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const tokens = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/tokens",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"chain": "base"},
+)
+tokens = res.json()
 ```
 
-## Response
-
-**Status: 200 OK**
-
-### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Always `true`. |
-| `chain` | string | The chain key that was queried. Present when `chain` parameter is provided. |
-| `chain_id` | number | The numeric chain ID. Present when `chain` parameter is provided. |
-| `tokens` | array | List of matching tokens. |
-| `tokens[].symbol` | string | Token symbol (e.g., `"USDC"`). |
-| `tokens[].address` | string | Contract address on the specified chain. Native tokens use the zero address. |
-| `tokens[].decimals` | number | Number of decimal places for the token. |
-
-### Example
+**Response:**
 
 ```json
 {
   "success": true,
-  "chain": "base",
+  "chain": "Base",
   "chain_id": 8453,
   "tokens": [
+    { "symbol": "ETH", "address": "0xEeee...EEeE", "decimals": 18 },
+    { "symbol": "USDC", "address": "0x833589...2913", "decimals": 6 }
+  ]
+}
+```
+
+### List tokens across all chains
+
+Omit `chain` to receive a grouped list:
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?search=USDC" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/tokens?search=USDC", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const tokens = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/tokens",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"search": "USDC"},
+)
+tokens = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "chains": [
     {
-      "symbol": "ETH",
-      "address": "0x0000000000000000000000000000000000000000",
-      "decimals": 18
+      "chain": "Ethereum",
+      "chain_id": 1,
+      "tokens": [{ "symbol": "USDC", "address": "0xA0b8...eB48", "decimals": 6 }]
     },
     {
-      "symbol": "WETH",
-      "address": "0x4200000000000000000000000000000000000006",
-      "decimals": 18
-    },
-    {
-      "symbol": "USDC",
-      "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-      "decimals": 6
-    },
-    {
-      "symbol": "DAI",
-      "address": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
-      "decimals": 18
+      "chain": "Solana",
+      "chain_id": "solana",
+      "tokens": [{ "symbol": "USDC", "address": "EPjF...Dt1v", "decimals": 6 }]
     }
   ]
 }
 ```
 
-## Errors
+### Notes
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | `"Unknown chain 'xyz'"` | The provided chain key does not match any supported chain. Use `GET /chains` to see valid values. |
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
+- `chain_id` is numeric for EVM chains and the string `"solana"` for Solana.
+- The symbols listed are the common, pre-resolved tokens. You can also pass any token address directly to [`POST /v1/agent/quote`](quote.md).
 
-## Code Examples
+### Errors
 
-### curl
-
-```bash
-# List all tokens on Base
-curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-
-# Search for USDC across all chains
-curl "https://api.suwappu.bot/v1/agent/tokens?search=USDC" \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
-
-### Python
-
-```python
-import requests
-
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/tokens",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-    params={"chain": "base", "search": "USD"},
-)
-
-tokens = response.json()["tokens"]
-for token in tokens:
-    print(f"{token['symbol']} - {token['address']} ({token['decimals']} decimals)")
-```
-
-### TypeScript
-
-```typescript
-const params = new URLSearchParams({ chain: "base", search: "USD" });
-
-const response = await fetch(
-  `https://api.suwappu.bot/v1/agent/tokens?${params}`,
-  {
-    headers: { Authorization: "Bearer suwappu_sk_your_api_key" },
-  }
-);
-
-const { tokens } = await response.json();
-tokens.forEach((token) => {
-  console.log(`${token.symbol} - ${token.address} (${token.decimals} decimals)`);
-});
-```
+| Status | Cause |
+|--------|-------|
+| `400` | Unknown `chain` value (the response lists supported chains) |
+| `401` | Missing or invalid API key |

@@ -1,236 +1,108 @@
 # Cross-Chain Swaps
 
-Cross-chain swaps (bridging) let you move tokens between different blockchain networks through a single API call. Suwappu handles the routing, bridging protocol selection, and settlement automatically.
+Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine aggregators and bridges (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, CCTP) to find the best route, so you never pick a bridge yourself.
 
-## How It Works
+## How Cross-Chain Works
 
-To perform a cross-chain swap, include both `from_chain` and `to_chain` parameters in your `POST /quote` request. When these differ, Suwappu routes the transaction through the optimal bridge.
+A same-chain swap passes a single `chain`. A cross-chain swap passes `from_chain` and `to_chain` instead — the routing engine handles bridging and settlement under the hood and returns a single quote with the expected output on the destination chain.
 
-```
-POST /quote
-{
-  "from_token": "USDC",
-  "to_token": "USDC",
-  "amount": "1000",
-  "from_chain": "ethereum",
-  "to_chain": "arbitrum"
-}
-```
+## Step 1: Get a Cross-Chain Quote
 
-The quote response includes the expected output amount after bridge fees and slippage. Execute the quote the same way as a single-chain swap -- via `POST /swap/execute`.
-
-## Important Considerations
-
-- **Settlement time**: Cross-chain swaps take longer than same-chain swaps. Ethereum to L2 bridges typically complete in 1-15 minutes. L2 to L1 withdrawals can take longer depending on the bridge used.
-- **Bridge fees**: The quoted output amount accounts for bridge fees. The `expected_output` field reflects what you will receive after all fees.
-- **Status tracking**: Use `GET /swap/status/{swapId}` to poll for completion. Cross-chain swaps may stay in `"pending"` status longer than same-chain swaps.
-- **Token availability**: Not all token pairs are available for cross-chain swaps. The quote endpoint will return an error if no route is found.
-
-## Full Example: Bridge USDC from Ethereum to Arbitrum
-
-### Step 1: Get a Cross-Chain Quote
+Move 100 USDC on Arbitrum into ETH on Base:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "from_token": "USDC",
-    "to_token": "USDC",
-    "amount": "1000",
-    "from_chain": "ethereum",
-    "to_chain": "arbitrum"
+    "to_token": "ETH",
+    "amount": "100",
+    "from_chain": "arbitrum",
+    "to_chain": "base",
+    "wallet_address": "0xYOUR_MANAGED_ADDRESS"
   }'
 ```
 
-#### Example Response
+The response includes a `quote_id`, the `expected_output`, the route, and estimated gas. Quotes are short-lived (roughly 60 seconds), so execute promptly.
 
 ```json
 {
   "success": true,
-  "quote_id": "qt_bridge_x1y2z3",
-  "from_token": "USDC",
-  "to_token": "USDC",
-  "amount": "1000",
-  "expected_output": "999.15",
-  "from_chain": "ethereum",
-  "to_chain": "arbitrum",
-  "expires_at": "2026-03-07T12:05:00Z"
+  "quote_id": "q_abc123",
+  "expected_output": "0.0392",
+  "from_chain": "arbitrum",
+  "to_chain": "base",
+  "route": "...",
+  "gas_usd": "0.41"
 }
 ```
 
-### Step 2: Execute the Swap
+## Step 2: Simulate, Then Execute the Swap
+
+With a managed wallet provisioned (see [Managed Wallets](managed-wallets.md)), dry-run the quote first:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
+```
+
+Only continue when `would_execute` is true and the route economics still meet your product's limits. Managed execution signs and broadcasts server-side:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"quote_id": "qt_bridge_x1y2z3"}'
+  -H "Idempotency-Key: cross-chain-intent-001" \
+  -d '{"quote_id": "q_abc123"}'
 ```
-
-#### Example Response
 
 ```json
 {
   "success": true,
-  "swap_id": 5201,
-  "status": "submitted",
-  "tx_hash": "0x7b2a...e91f"
+  "swap_id": "sw_xyz789",
+  "status": "pending"
 }
 ```
 
-### Step 3: Check Status Until Complete
+Treat a timeout/network/5xx as outcome-unknown: reconcile the managed swap before retrying and reuse the same idempotency key.
+
+## Step 3: Track the Swap
+
+Cross-chain swaps settle over multiple blocks. Poll the status endpoint until it reaches a terminal state:
 
 ```bash
-curl https://api.suwappu.bot/v1/agent/swap/status/5201 \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+curl https://api.suwappu.bot/v1/agent/swap/status/sw_xyz789 \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-
-#### Example Response (in progress)
 
 ```json
 {
   "success": true,
-  "swap_id": 5201,
-  "status": "pending",
-  "tx_hash": "0x7b2a...e91f",
-  "from_token": "USDC",
-  "to_token": "USDC"
-}
-```
-
-#### Example Response (completed)
-
-```json
-{
-  "success": true,
-  "swap_id": 5201,
   "status": "completed",
-  "tx_hash": "0x7b2a...e91f",
-  "from_token": "USDC",
-  "to_token": "USDC"
+  "tx_hash": "0x..."
 }
 ```
 
-## Python Example
+Instead of polling, you can set a `callback_url` on your agent and receive a signed webhook when the swap completes — see [Webhook Setup](webhook-setup.md).
 
-```python
-import requests
-import time
+## Client-Signed Alternative
 
-API_KEY = "suwappu_sk_your_api_key"
-BASE_URL = "https://api.suwappu.bot/v1/agent"
-headers = {"Authorization": f"Bearer {API_KEY}"}
+If you manage your own keys, use `POST /v1/agent/swap` instead of `/swap/execute`. It returns an unsigned transaction request (`to`, `value`, `data`, `chain_id`) that you sign and broadcast yourself. Pass your own `wallet_address` so the quote is priced and the transaction is built against your address.
 
-# Step 1: Get a cross-chain quote
-quote_response = requests.post(
-    f"{BASE_URL}/quote",
-    headers=headers,
-    json={
-        "from_token": "USDC",
-        "to_token": "USDC",
-        "amount": "1000",
-        "from_chain": "ethereum",
-        "to_chain": "arbitrum",
-    },
-)
-quote = quote_response.json()
-print(f"Expected output: {quote['expected_output']} USDC on Arbitrum")
-
-# Step 2: Execute the swap
-swap_response = requests.post(
-    f"{BASE_URL}/swap/execute",
-    headers=headers,
-    json={"quote_id": quote["quote_id"]},
-)
-swap = swap_response.json()
-swap_id = swap["swap_id"]
-print(f"Swap submitted: {swap_id}")
-
-# Step 3: Poll for completion
-while True:
-    status_response = requests.get(
-        f"{BASE_URL}/swap/status/{swap_id}",
-        headers=headers,
-    )
-    status = status_response.json()
-    print(f"Status: {status['status']}")
-
-    if status["status"] in ("completed", "failed"):
-        break
-
-    time.sleep(10)  # Cross-chain swaps can take minutes
-
-if status["status"] == "completed":
-    print(f"Bridge complete! TX: {status['tx_hash']}")
-else:
-    print("Bridge failed.")
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_ADDRESS"}'
 ```
 
-## TypeScript Example
+## Tips
 
-```typescript
-const API_KEY = "suwappu_sk_your_api_key";
-const BASE_URL = "https://api.suwappu.bot/v1/agent";
-const headers = {
-  Authorization: `Bearer ${API_KEY}`,
-  "Content-Type": "application/json",
-};
+- For stablecoin-to-stablecoin moves (e.g. USDC → USDC across chains), routing often uses CCTP or Across for fast, low-slippage bridging.
+- Always check `expected_output` before executing — cross-chain rates include bridge fees.
+- Re-quote if a `quote_id` has expired; executing a stale quote will fail.
 
-// Step 1: Get a cross-chain quote
-const quoteRes = await fetch(`${BASE_URL}/quote`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({
-    from_token: "USDC",
-    to_token: "USDC",
-    amount: "1000",
-    from_chain: "ethereum",
-    to_chain: "arbitrum",
-  }),
-});
-const quote = await quoteRes.json();
-console.log(`Expected output: ${quote.expected_output} USDC on Arbitrum`);
-
-// Step 2: Execute the swap
-const swapRes = await fetch(`${BASE_URL}/swap/execute`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({ quote_id: quote.quote_id }),
-});
-const swap = await swapRes.json();
-const swapId = swap.swap_id;
-console.log(`Swap submitted: ${swapId}`);
-
-// Step 3: Poll for completion
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-while (true) {
-  const statusRes = await fetch(`${BASE_URL}/swap/status/${swapId}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  });
-  const status = await statusRes.json();
-  console.log(`Status: ${status.status}`);
-
-  if (status.status === "completed" || status.status === "failed") {
-    if (status.status === "completed") {
-      console.log(`Bridge complete! TX: ${status.tx_hash}`);
-    } else {
-      console.log("Bridge failed.");
-    }
-    break;
-  }
-
-  await sleep(10_000); // Cross-chain swaps can take minutes
-}
-```
-
-## Supported Cross-Chain Routes
-
-Cross-chain swaps are supported between all EVM chains. The most common routes include:
-
-- Ethereum to/from L2s (Arbitrum, Optimism, Base)
-- Between L2s (e.g., Arbitrum to Base)
-- Stablecoin bridges (USDC, USDT) across any EVM pair
-
-Use the `POST /quote` endpoint to check if a specific route is available. If no bridge route exists, the API returns an error with a descriptive message.
+See [EVM Chains](../chains-reference/evm-chains.md) for the full list of supported source and destination chains.

@@ -1,97 +1,56 @@
-# Python
+.DS_Store
+
+# Local security-audit working directory (exploit paths, preconditions) —
+# never push exact exploitation steps for findings that may still be open.
+.audit/
+
+# Python cache/build artifacts
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-!webapp/src/lib/
-!mobile/lib/
-!showcase/src/lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv
-
-# Environment variables
-.env
-.env.local
-.env.production
-
-# Database
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
-*.log
-logs/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Testing
 .pytest_cache/
-.coverage
-htmlcov/
 
-# Encryption keys (never commit!)
-*.key
-*.pem
-
-# User data backups
-backups/
-data/
-
-# C++ Build artifacts
-*.dylib
-*.dll
-suwappu_core*.so
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-
-# Cursor
-.cursor/
-
-# Worktree AI context
-.ai-context.md
-
+# JavaScript package/build artifacts
 node_modules/
-.vercel
-webapp/bun.lock
-.env*.local
+**/node_modules/
+*.tsbuildinfo
+packages/*/dist/
 
-# Next.js build output
-.next/
+# Frontend generated artifacts
 showcase/.next/
-showcase/tsconfig.tsbuildinfo
-\!api-ts/src/lib/
-\!api-ts/src/lib/
+showcase/out/
+showcase/qa-screenshots/
+terminal/qa-screenshots/
+terminal/storybook-static/
+webapp/dist/
+
+# extension
+extension/dist/
+extension/node_modules/
+
+# local dev venv
+.venv/
+
+# Local testnet deployer key (never commit)
+scripts/.deployer_key
+scripts/deployed_addresses.json
+
+# crypto sec-tool artifacts
+contracts/crytic-export/
+contracts/slither_results.json
+.venv-test/
+.claude/settings.local.json
+contracts/lib/openzeppelin-contracts/package-lock.json
+
+# Local environment files (secrets). Nothing matching these may ever be
+# committed; .env.example / .env.sample are the documented, key-free templates.
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# AEGIS runtime state/telemetry (bot/services/aegis_service.py)
+.aegis/
+
+# MCP registry publish tokens (were committed once — never again)
+.mcpregistry_*

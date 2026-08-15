@@ -1,76 +1,16 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
+.git
+.github
+.pytest_cache
 .venv
-
-# Database
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Git
-.git/
-.gitignore
-.gitattributes
-
-# Documentation
-*.md
-!README.md
-
-# Tests
-tests/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
-logs/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Infrastructure & sub-projects
-infra/
-tui/
-.github/
-node_modules/
-webapp/node_modules/
-webapp/dist/
-webapp/.storybook/
-webapp/storybook-static/
-webapp/coverage/
-
-# Deployment
-deploy.sh
-DEPLOYMENT.md
-*.service
-
-# iOS
-ios/
-
-# Data
-data/
-*.db-journal
-
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/.cache
+showcase/.next
+terminal/dist
+terminal/storybook-static
+terminal/qa-screenshots
+infra/cdk.out

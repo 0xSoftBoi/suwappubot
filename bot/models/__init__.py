@@ -1,5 +1,5 @@
 from .user import User, Wallet
-from .swap import SwapTransaction, SwapStatus
+from .swap import SwapTransaction, SwapStatus, SwapRouteCandidate
 from .chain import Chain, Token
 from .favorites import FavoriteSwapPair, PriceAlert, UserSettings
 from .referral import Referral, ReferralCode, ReferralReward
@@ -35,11 +35,26 @@ from .subscription import (
     APICredit,
     APICredit,
 )
+from .predict import PredictionOrder, PredictionPosition
+from .p2p import (
+    P2POffer,
+    P2PTrade,
+    P2PSource,
+    P2POfferType,
+    P2POfferStatus,
+    P2PTradeStatus,
+)
+from .tracking import TrackedTwitterAccount, TrackedWallet
+from .btc_swap import BtcSwap
+from .tempo import TempoSponsorship
+from .tempo_access_key import TempoAccessKey
+from .waitlist import WaitlistSignup
 
 __all__ = [
     "User",
     "Wallet",
     "SwapTransaction",
+    "SwapRouteCandidate",
     "SwapStatus",
     "Chain",
     "Token",
@@ -81,5 +96,23 @@ __all__ = [
     "PaymentStatus",
     "TokenGate",
     "APICredit",
+    # Prediction markets
+    "PredictionOrder",
+    "PredictionPosition",
+    # P2P marketplace
+    "P2POffer",
+    "P2PTrade",
+    "P2PSource",
+    "P2POfferType",
+    "P2POfferStatus",
+    "P2PTradeStatus",
+    "TrackedTwitterAccount",
+    "TrackedWallet",
+    # BTC bridge (Atomiq)
+    "BtcSwap",
+    # Tempo (chain 4217)
+    "TempoSponsorship",
+    "TempoAccessKey",
+    # Handle-reservation waitlist + referral leaderboard
+    "WaitlistSignup",
 ]
-

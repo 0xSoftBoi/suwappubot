@@ -12,9 +12,14 @@ class FlowResponse:
     """What a flow step returns to the unified service for rendering."""
 
     __slots__ = (
-        "text", "buttons", "header", "footer",
-        "list_button_text", "list_sections",
-        "document", "image",
+        "text",
+        "buttons",
+        "header",
+        "footer",
+        "list_button_text",
+        "list_sections",
+        "document",
+        "image",
     )
 
     def __init__(

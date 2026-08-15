@@ -4,6 +4,7 @@ User settings and push notification REST API routes.
 These endpoints use JWT Bearer auth (no Telegram dependency)
 for the iOS/Android mobile app.
 """
+
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/v1", tags=["settings"])
 
 
 # --- Helpers ---
+
 
 def _get_user_from_jwt(request: Request):
     """
@@ -49,6 +51,7 @@ def _get_user_model(user_id: int):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     from bot.models.user import User
+
     with get_session() as session:
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
@@ -57,6 +60,7 @@ def _get_user_model(user_id: int):
 
 
 # --- Request/Response Models ---
+
 
 class PushTokenRequest(BaseModel):
     token: str
@@ -71,6 +75,7 @@ class PreferencesUpdateRequest(BaseModel):
 
 # --- Endpoints ---
 
+
 @router.get("/me")
 async def get_my_profile(request: Request):
     """Get authenticated user's full profile and preferences."""
@@ -81,15 +86,20 @@ async def get_my_profile(request: Request):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     from bot.models.user import User, Wallet
+
     with get_session() as session:
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        wallets = session.query(Wallet).filter(
-            Wallet.user_id == user_id,
-            Wallet.is_active == True,
-        ).all()
+        wallets = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == user_id,
+                Wallet.is_active == True,
+            )
+            .all()
+        )
 
         return {
             "user": {
@@ -129,6 +139,7 @@ async def update_preferences(request: Request, body: PreferencesUpdateRequest):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     from bot.models.user import User
+
     with get_session() as session:
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
@@ -169,6 +180,7 @@ async def register_push_token(request: Request, body: PushTokenRequest):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     from bot.models.user import User
+
     with get_session() as session:
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
@@ -190,6 +202,7 @@ async def unregister_push_token(request: Request):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     from bot.models.user import User
+
     with get_session() as session:
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
@@ -212,6 +225,7 @@ async def get_my_stats(request: Request):
 
     try:
         from bot.models.points import UserStats
+
         with get_session() as session:
             stats = session.query(UserStats).filter(UserStats.user_id == user_id).first()
             if not stats:

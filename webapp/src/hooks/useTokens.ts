@@ -3,9 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { SwapToken } from '../types/swap'
 
+const PREFETCH_CHAINS = ['1', '137', '42161', '8453', '10']
+
 /**
  * Hook to fetch available tokens for swapping
- * 
+ *
  * @param chain - Optional chain filter
  * @param includeBalances - Whether to include user balances (requires auth)
  */
@@ -13,7 +15,6 @@ export function useTokens(chain = '1', includeBalances = true) {
   const queryClient = useQueryClient()
 
   // Prefetch other common chains in background
-  const PREFETCH_CHAINS = ['1', '137', '42161', '8453', '10']
   useEffect(() => {
     PREFETCH_CHAINS.forEach((chainId) => {
       if (chainId !== chain) {
@@ -33,6 +34,7 @@ export function useTokens(chain = '1', includeBalances = true) {
     gcTime: 5 * 60 * 1000, // Keep in cache 5 minutes
     refetchOnWindowFocus: true,
     refetchInterval: 60 * 1000, // Auto-refresh every minute
+    refetchIntervalInBackground: false,
   })
 }
 

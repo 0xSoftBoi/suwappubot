@@ -1,12 +1,54 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { useTelegram } from './hooks/useTelegram'
-import { Welcome, Home, Swap, Wallet, Portfolio, History, Points, DCA, DCACreate, LimitOrders, PriceAlerts, Referrals, CopyTrading, Subscriptions, Settings, Recovery } from './pages'
+import { useDesktopHotkeys } from './hooks/useDesktopHotkeys'
+// Critical pages: static imports for instant first paint
+import { Welcome } from './pages/Welcome'
+import { Home } from './pages/Home'
+// All other pages: lazy-loaded for code splitting
+const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
+const Discover = lazy(() => import('./pages/Discover'))
+const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
+const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
+const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
+const Points = lazy(() => import('./pages/Points').then(m => ({ default: m.Points })))
+const DCA = lazy(() => import('./pages/DCA').then(m => ({ default: m.DCA })))
+const DCACreate = lazy(() => import('./pages/DCACreate').then(m => ({ default: m.DCACreate })))
+const LimitOrders = lazy(() => import('./pages/LimitOrders').then(m => ({ default: m.LimitOrders })))
+const PriceAlerts = lazy(() => import('./pages/PriceAlerts').then(m => ({ default: m.PriceAlerts })))
+const Referrals = lazy(() => import('./pages/Referrals').then(m => ({ default: m.Referrals })))
+const CopyTrading = lazy(() => import('./pages/CopyTrading').then(m => ({ default: m.CopyTrading })))
+const Subscriptions = lazy(() => import('./pages/Subscriptions').then(m => ({ default: m.Subscriptions })))
+const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
+const Recovery = lazy(() => import('./pages/Recovery').then(m => ({ default: m.Recovery })))
+const PredictionMarkets = lazy(() => import('./pages/PredictionMarkets').then(m => ({ default: m.PredictionMarkets })))
+const PredictionMarketDetail = lazy(() => import('./pages/PredictionMarketDetail').then(m => ({ default: m.PredictionMarketDetail })))
+const PerpsMarkets = lazy(() => import('./pages/PerpsMarkets').then(m => ({ default: m.PerpsMarkets })))
+const PerpsMarketDetail = lazy(() => import('./pages/PerpsMarketDetail').then(m => ({ default: m.PerpsMarketDetail })))
+const P2P = lazy(() => import('./pages/P2P').then(m => ({ default: m.P2P })))
+const Enterprise = lazy(() => import('./pages/Enterprise').then(m => ({ default: m.Enterprise })))
+const Battle = lazy(() => import('./pages/Battle').then(m => ({ default: m.Battle })))
+const Stocks = lazy(() => import('./pages/Stocks').then(m => ({ default: m.Stocks })))
+const Rewards = lazy(() => import('./pages/Rewards').then(m => ({ default: m.Rewards })))
+import { DesktopLayout } from './components/layout'
+import { HotkeyOverlay } from './components/desktop/HotkeyOverlay'
 import './theme/suwappu.css'
+
+const isDesktop = !!(typeof window !== 'undefined' && (window as any).__SUWAPPU_DESKTOP__?.isDesktop)
+
+// Suspense fallback for lazy-loaded pages
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-suwappu-bg">
+      <div className="animate-pulse text-suwappu-text-secondary">Loading...</div>
+    </div>
+  )
+}
 
 // Page transition variants
 const pageVariants: Variants = {
@@ -103,6 +145,21 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { webApp, colorScheme } = useTelegram()
 
+  // Desktop-only: register in-app keyboard shortcuts
+  useDesktopHotkeys()
+
+  useEffect(() => {
+    // The API intentionally trusts only Suwappu-owned browser origins for CORS
+    // and wallet-signature domain binding. Keep Railway's generated hostname as
+    // an infrastructure origin, never as a user-facing entry point.
+    if (window.location.hostname.endsWith('.up.railway.app')) {
+      const canonical = new URL(window.location.href)
+      canonical.protocol = 'https:'
+      canonical.host = 'app.suwappu.bot'
+      window.location.replace(canonical.toString())
+    }
+  }, [])
+
   useEffect(() => {
     // Sync theme with Telegram or default to light
     if (colorScheme === 'dark') {
@@ -122,7 +179,9 @@ function AppContent() {
 
   const location = useLocation()
 
-  return (
+  const content = (
+    <ErrorBoundary>
+    <Suspense fallback={<LazyFallback />}>
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         {/* Public routes */}
@@ -134,6 +193,14 @@ function AppContent() {
                 <Welcome />
               </PageTransition>
             </PublicRoute>
+          }
+        />
+        <Route
+          path="/discover"
+          element={
+            <PageTransition>
+              <Discover />
+            </PageTransition>
           }
         />
 
@@ -249,6 +316,16 @@ function AppContent() {
           }
         />
         <Route
+          path="/rewards"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Rewards />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/copy"
           element={
             <ProtectedRoute>
@@ -264,6 +341,56 @@ function AppContent() {
             <ProtectedRoute>
               <PageTransition>
                 <Subscriptions />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/predict"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PredictionMarkets />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/predict/:id"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PredictionMarketDetail />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/perps"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PerpsMarkets />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/perps/:symbol"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <PerpsMarketDetail />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/p2p"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <P2P />
               </PageTransition>
             </ProtectedRoute>
           }
@@ -289,11 +416,51 @@ function AppContent() {
           }
         />
 
+        <Route
+          path="/enterprise"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Enterprise />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/battle"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Battle />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stocks"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <Stocks />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+
         {/* Fallback redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatePresence>
+    </Suspense>
+    </ErrorBoundary>
   )
+
+  return isDesktop ? (
+    <>
+      <DesktopLayout>{content}</DesktopLayout>
+      <HotkeyOverlay />
+    </>
+  ) : content
 }
 
 function App() {

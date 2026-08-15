@@ -1,213 +1,173 @@
 # Webhooks
 
-Manage and test webhook event delivery. Webhook events are sent to the `callback_url` configured in your agent profile via `PATCH /me`.
+Receive signed HTTP callbacks when your swaps and other events change state, instead of polling. Set a `callback_url` on your agent, verify the signature on each delivery, and inspect delivery history through the API.
 
----
+## Setting your callback URL
 
-## List Webhook Events
+Configure where Suwappu posts events via [`PATCH /v1/agent/me`](agent-profile.md) (or at registration). The URL must be a public HTTPS host — private and cloud-metadata addresses are rejected.
 
-`GET /webhooks` | Auth: Required
+```bash
+curl -X PATCH https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"callback_url": "https://my-bot.example.com/webhooks"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
+  method: "PATCH",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ callback_url: "https://my-bot.example.com/webhooks" }),
+});
+const profile = await res.json();
+```
+```python
+import os, requests
 
-Retrieve a paginated list of webhook delivery attempts.
+res = requests.patch(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"callback_url": "https://my-bot.example.com/webhooks"},
+)
+profile = res.json()
+```
 
-### Request
+## Delivery format
 
-#### Query Parameters
+Suwappu POSTs a JSON body to your `callback_url` with these headers:
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `status` | string | No | -- | Filter by delivery status: `"pending"`, `"delivered"`, or `"failed"` |
-| `event_type` | string | No | -- | Filter by event type (e.g., `"swap.completed"`) |
-| `limit` | integer | No | 20 | Number of results per page (max 100) |
-| `offset` | integer | No | 0 | Number of results to skip for pagination |
+| Header | Description |
+|--------|-------------|
+| `X-Suwappu-Event` | Event type (e.g. `webhook.test`) |
+| `X-Suwappu-Delivery` | Unique delivery UUID |
+| `X-Suwappu-Timestamp` | Unix timestamp (seconds) of the delivery |
+| `X-Suwappu-Signature` | HMAC-SHA256 signature of the raw body |
 
-### Response
+Example payload:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the request succeeded |
-| `events` | array | List of webhook event objects |
-| `pagination` | object | Pagination metadata |
+```json
+{
+  "event": "webhook.test",
+  "timestamp": "2026-06-18T12:00:00.000Z",
+  "data": { "message": "Test webhook from Suwappu", "agent_id": "a1b2c3d4-..." }
+}
+```
 
-#### Event Object
+## Verifying the signature
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique event identifier |
-| `event_type` | string | Type of event (e.g., `"swap.completed"`, `"swap.failed"`) |
-| `status` | string | Delivery status: `"pending"`, `"delivered"`, or `"failed"` |
-| `attempts` | integer | Number of delivery attempts made |
-| `last_error` | string \| null | Error message from the most recent failed attempt |
-| `response_status` | integer \| null | HTTP status code returned by your callback endpoint |
-| `callback_url` | string | The URL the event was sent to |
-| `created_at` | string | ISO 8601 timestamp when the event was created |
-| `delivered_at` | string \| null | ISO 8601 timestamp when the event was successfully delivered |
+The signature is `HMAC-SHA256(body, key)` where `key` is the **SHA-256 hash of your API key** (the raw `suwappu_sk_...` bytes). Compute the same HMAC over the raw request body and compare in constant time.
 
-#### Pagination Object
+```ts
+import crypto from 'crypto'
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `total` | integer | Total number of matching events |
-| `limit` | integer | Current page size |
-| `offset` | integer | Current offset |
-| `has_more` | boolean | Whether more results exist beyond this page |
+function verify(rawBody: string, signature: string, apiKey: string): boolean {
+  const signingKey = crypto.createHash('sha256').update(apiKey).digest()
+  const expected = crypto.createHmac('sha256', signingKey).update(rawBody).digest('hex')
+  return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))
+}
+```
 
-### Example Response
+Reject any request whose signature does not match.
+
+## Testing delivery
+
+Send a test event to your configured `callback_url`:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/webhooks/test \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/webhooks/test", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const result = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/webhooks/test",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+result = res.json()
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "callback_url": "https://my-bot.example.com/webhooks",
+  "status_code": 200,
+  "response_time_ms": 142
+}
+```
+
+Your endpoint must respond within 10 seconds. A non-2xx or timeout is reported in the response.
+
+## Listing delivery history
+
+Inspect past webhook deliveries and their outcomes.
+
+### GET /v1/agent/webhooks
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | string | No | Filter by delivery status |
+| `event_type` | string | No | Filter by event type |
+| `limit` | number | No | Page size, 1–100. Defaults to 20 |
+| `offset` | number | No | Records to skip. Defaults to 0 |
+
+```bash
+curl "https://api.suwappu.bot/v1/agent/webhooks?limit=20" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/webhooks?limit=20", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const history = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/webhooks",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"limit": 20},
+)
+history = res.json()
+```
+
+**Response:**
 
 ```json
 {
   "success": true,
   "events": [
     {
-      "id": "evt_9f3a1b2c",
+      "id": 91,
       "event_type": "swap.completed",
       "status": "delivered",
       "attempts": 1,
       "last_error": null,
       "response_status": 200,
-      "callback_url": "https://yourapp.com/webhooks/suwappu",
-      "created_at": "2026-03-07T14:30:00Z",
-      "delivered_at": "2026-03-07T14:30:01Z"
-    },
-    {
-      "id": "evt_7d4e5f6a",
-      "event_type": "swap.failed",
-      "status": "failed",
-      "attempts": 3,
-      "last_error": "Connection timeout",
-      "response_status": null,
-      "callback_url": "https://yourapp.com/webhooks/suwappu",
-      "created_at": "2026-03-07T12:15:00Z",
-      "delivered_at": null
+      "callback_url": "https://my-bot.example.com/webhooks",
+      "created_at": "2026-06-18T12:00:28.000Z",
+      "delivered_at": "2026-06-18T12:00:29.000Z"
     }
   ],
-  "pagination": {
-    "total": 87,
-    "limit": 20,
-    "offset": 0,
-    "has_more": true
-  }
+  "pagination": { "total": 1, "limit": 20, "offset": 0, "has_more": false }
 }
 ```
 
----
+### Errors
 
-## Test Webhook
-
-`POST /webhooks/test` | Auth: Required
-
-Send a test event to your configured `callback_url`. You must have a `callback_url` set in your agent profile (via `PATCH /me`) before calling this endpoint.
-
-### Request
-
-No body required.
-
-### Response
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the test delivery succeeded |
-| `callback_url` | string | The URL the test event was sent to |
-| `status_code` | integer | HTTP status code returned by your callback endpoint |
-| `response_time_ms` | integer | Round-trip response time in milliseconds |
-
-### Example Response
-
-```json
-{
-  "success": true,
-  "callback_url": "https://yourapp.com/webhooks/suwappu",
-  "status_code": 200,
-  "response_time_ms": 142
-}
-```
-
----
-
-## Errors
-
-| Status | Error | Cause |
-|--------|-------|-------|
-| 400 | `"No callback_url configured"` | You have not set a `callback_url` in your agent profile |
-| 400 | `"Invalid status filter"` | The `status` parameter is not `"pending"`, `"delivered"`, or `"failed"` |
-| 400 | `"limit must be between 1 and 100"` | The `limit` parameter is out of range |
-| 401 | `"Unauthorized"` | Missing or invalid API key |
-
----
-
-## Code Examples
-
-### curl
-
-```bash
-# List webhook events
-curl "https://api.suwappu.bot/v1/agent/webhooks?status=failed&limit=10" \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-
-# Test webhook delivery
-curl -X POST https://api.suwappu.bot/v1/agent/webhooks/test \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
-
-### Python
-
-```python
-import requests
-
-headers = {"Authorization": "Bearer suwappu_sk_your_api_key"}
-
-# List webhook events
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/webhooks",
-    headers=headers,
-    params={"status": "failed", "limit": 10},
-)
-data = response.json()
-if data["success"]:
-    for event in data["events"]:
-        print(f"{event['event_type']}: {event['status']} (attempts: {event['attempts']})")
-
-# Test webhook
-response = requests.post(
-    "https://api.suwappu.bot/v1/agent/webhooks/test",
-    headers=headers,
-)
-data = response.json()
-if data["success"]:
-    print(f"Delivered to {data['callback_url']} in {data['response_time_ms']}ms")
-```
-
-### TypeScript
-
-```typescript
-const headers = {
-  Authorization: "Bearer suwappu_sk_your_api_key",
-};
-
-// List webhook events
-const params = new URLSearchParams({ status: "failed", limit: "10" });
-const listResponse = await fetch(
-  `https://api.suwappu.bot/v1/agent/webhooks?${params}`,
-  { headers }
-);
-const listData = await listResponse.json();
-if (listData.success) {
-  for (const event of listData.events) {
-    console.log(
-      `${event.event_type}: ${event.status} (attempts: ${event.attempts})`
-    );
-  }
-}
-
-// Test webhook
-const testResponse = await fetch(
-  "https://api.suwappu.bot/v1/agent/webhooks/test",
-  { method: "POST", headers }
-);
-const testData = await testResponse.json();
-if (testData.success) {
-  console.log(
-    `Delivered to ${testData.callback_url} in ${testData.response_time_ms}ms`
-  );
-}
-```
+| Status | Cause |
+|--------|-------|
+| `400` | No `callback_url` configured (for `/webhooks/test`), or invalid query parameters |
+| `401` | Missing or invalid API key |

@@ -1,407 +1,153 @@
 # Agent Profile
 
-Manage the authenticated agent's profile, stats, and lifecycle.
+Read, update, or permanently delete your agent. All three operations require your API key and act on the agent that key belongs to.
 
----
+## GET /v1/agent/me
 
-## GET /me
-
-`GET /me` | Auth: Required
-
-Retrieve the current agent's profile and usage statistics.
-
-### Request
-
-No parameters required.
-
-### Response
-
-**Status: 200 OK**
-
-#### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Always `true`. |
-| `agent.id` | string (UUID) | Unique agent identifier. |
-| `agent.name` | string | Agent name. |
-| `agent.description` | string \| null | Agent description. |
-| `agent.rate_limit_tier` | string | Current rate limit tier (e.g., `"standard"`, `"premium"`). |
-| `agent.stats.total_requests` | number | Total API requests made. |
-| `agent.stats.total_swaps` | number | Total swap transactions executed. |
-| `agent.created_at` | string (ISO 8601) | Registration timestamp. |
-| `agent.last_active_at` | string (ISO 8601) | Timestamp of last API request. |
-
-#### Example
-
-```json
-{
-  "success": true,
-  "agent": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "my-trading-bot",
-    "description": "Automated portfolio rebalancer for DeFi positions",
-    "rate_limit_tier": "standard",
-    "stats": {
-      "total_requests": 14832,
-      "total_swaps": 247
-    },
-    "created_at": "2026-01-15T08:30:00Z",
-    "last_active_at": "2026-03-07T14:22:10Z"
-  }
-}
-```
-
-### Errors
-
-| Status | Error | Description |
-|--------|-------|-------------|
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
-
-### Code Examples
-
-#### curl
+Return your agent's profile and usage stats.
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/me \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-
-#### Python
-
-```python
-import requests
-
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/me",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-)
-
-agent = response.json()["agent"]
-print(f"Total swaps: {agent['stats']['total_swaps']}")
-```
-
-#### TypeScript
-
 ```typescript
-const response = await fetch("https://api.suwappu.bot/v1/agent/me", {
-  headers: { Authorization: "Bearer suwappu_sk_your_api_key" },
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
 });
+const agent = await res.json();
+```
+```python
+import os, requests
 
-const { agent } = await response.json();
-console.log(`Total swaps: ${agent.stats.total_swaps}`);
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+agent = res.json()
 ```
 
----
-
-## PATCH /me
-
-`PATCH /me` | Auth: Required
-
-Update the authenticated agent's profile. At least one field must be provided.
-
-### Request
-
-#### Body
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `description` | string | No | Updated description. Max 500 characters. |
-| `callback_url` | string (URI) \| null | No | Updated webhook URL. Set to `null` to remove. |
-| `metadata` | object | No | Updated metadata. Replaces existing metadata entirely. |
-
-At least one field must be provided.
-
-#### Example
-
-```json
-{
-  "description": "Updated portfolio rebalancer v2.0",
-  "callback_url": "https://example.com/webhooks/suwappu/v2",
-  "metadata": {
-    "version": "2.0.0",
-    "environment": "production"
-  }
-}
-```
-
-### Response
-
-**Status: 200 OK**
-
-Returns the full updated agent profile (same shape as `GET /me`).
-
-#### Example
+**Response:**
 
 ```json
 {
   "success": true,
   "agent": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "my-trading-bot",
-    "description": "Updated portfolio rebalancer v2.0",
-    "rate_limit_tier": "standard",
+    "id": "a1b2c3d4-...",
+    "name": "my-agent",
+    "description": "Autonomous DCA bot",
+    "rate_limit_tier": "free",
     "stats": {
-      "total_requests": 14833,
-      "total_swaps": 247
+      "total_requests": 142,
+      "total_swaps": 17
     },
-    "created_at": "2026-01-15T08:30:00Z",
-    "last_active_at": "2026-03-07T14:25:00Z"
+    "created_at": "2026-06-18T12:00:00.000Z",
+    "last_active_at": "2026-06-18T15:30:00.000Z"
   }
 }
 ```
 
-### Errors
+## PATCH /v1/agent/me
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | `"At least one field must be provided"` | The request body is empty or contains no updatable fields. |
-| 400 | `"Validation failed"` | One or more fields failed validation. Check the `fields` object. |
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
+Update one or more profile fields. At least one field must be provided.
 
-### Code Examples
-
-#### curl
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string | New description, up to 500 chars |
+| `callback_url` | string \| null | Webhook URL (public host required). Send `null` to clear it |
+| `metadata` | object | Replacement metadata object |
 
 ```bash
 curl -X PATCH https://api.suwappu.bot/v1/agent/me \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"description": "Updated portfolio rebalancer v2.0"}'
+  -d '{"callback_url": "https://my-bot.example.com/webhooks"}'
 ```
-
-#### Python
-
-```python
-import requests
-
-response = requests.patch(
-    "https://api.suwappu.bot/v1/agent/me",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-    json={"description": "Updated portfolio rebalancer v2.0"},
-)
-
-agent = response.json()["agent"]
-```
-
-#### TypeScript
-
 ```typescript
-const response = await fetch("https://api.suwappu.bot/v1/agent/me", {
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
   method: "PATCH",
   headers: {
-    Authorization: "Bearer suwappu_sk_your_api_key",
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
     "Content-Type": "application/json",
   },
-  body: JSON.stringify({ description: "Updated portfolio rebalancer v2.0" }),
+  body: JSON.stringify({ callback_url: "https://my-bot.example.com/webhooks" }),
 });
+const agent = await res.json();
+```
+```python
+import os, requests
 
-const { agent } = await response.json();
+res = requests.patch(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"callback_url": "https://my-bot.example.com/webhooks"},
+)
+agent = res.json()
 ```
 
----
+**Response:**
 
-## DELETE /me
+```json
+{
+  "success": true,
+  "agent": {
+    "id": "a1b2c3d4-...",
+    "name": "my-agent",
+    "description": "Autonomous DCA bot",
+    "callback_url": "https://my-bot.example.com/webhooks",
+    "metadata": {},
+    "rate_limit_tier": "free",
+    "stats": { "total_requests": 142, "total_swaps": 17 },
+    "updated_at": "2026-06-18T15:31:00.000Z"
+  }
+}
+```
 
-`DELETE /me` | Auth: Required
+## DELETE /v1/agent/me
 
-Permanently delete the authenticated agent and all associated data. This action is irreversible.
-
-### Request
-
-No parameters required.
-
-### Response
-
-**Status: 204 No Content**
-
-No response body.
-
-### Errors
-
-| Status | Error | Description |
-|--------|-------|-------------|
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
-
-### Code Examples
-
-#### curl
+Permanently delete your agent. This is irreversible and invalidates your API key.
 
 ```bash
 curl -X DELETE https://api.suwappu.bot/v1/agent/me \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-
-#### Python
-
-```python
-import requests
-
-response = requests.delete(
-    "https://api.suwappu.bot/v1/agent/me",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-)
-
-assert response.status_code == 204
-```
-
-#### TypeScript
-
 ```typescript
-const response = await fetch("https://api.suwappu.bot/v1/agent/me", {
+const res = await fetch("https://api.suwappu.bot/v1/agent/me", {
   method: "DELETE",
-  headers: { Authorization: "Bearer suwappu_sk_your_api_key" },
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
 });
+// 204 No Content on success
+```
+```python
+import os, requests
 
-console.log(response.status); // 204
+res = requests.delete(
+    "https://api.suwappu.bot/v1/agent/me",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+# 204 No Content on success
 ```
 
----
+Returns `204 No Content` with an empty body on success.
 
-## POST /me/deactivate
+## Deactivate and reactivate
 
-`POST /me/deactivate` | Auth: Required
-
-Temporarily deactivate the agent. The agent's data is preserved, but the API key will stop working for all other endpoints until reactivated. Use this instead of deletion when you want to pause operations.
-
-### Request
-
-No parameters required.
-
-### Response
-
-**Status: 200 OK**
-
-#### Example
-
-```json
-{
-  "success": true,
-  "message": "Agent deactivated. Use POST /reactivate to restore access.",
-  "agent": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "my-trading-bot",
-    "status": "deactivated",
-    "deactivated_at": "2026-03-07T14:30:00Z"
-  }
-}
-```
-
-### Errors
-
-| Status | Error | Description |
-|--------|-------|-------------|
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
-| 409 | `"Agent is already deactivated"` | The agent is already in a deactivated state. |
-
-### Code Examples
-
-#### curl
+To temporarily disable an agent without deleting it:
 
 ```bash
+# Deactivate
 curl -X POST https://api.suwappu.bot/v1/agent/me/deactivate \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+
+# Reactivate (works even while inactive)
+curl -X POST https://api.suwappu.bot/v1/agent/reactivate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-#### Python
-
-```python
-import requests
-
-response = requests.post(
-    "https://api.suwappu.bot/v1/agent/me/deactivate",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-)
-
-print(response.json()["message"])
-```
-
-#### TypeScript
-
-```typescript
-const response = await fetch(
-  "https://api.suwappu.bot/v1/agent/me/deactivate",
-  {
-    method: "POST",
-    headers: { Authorization: "Bearer suwappu_sk_your_api_key" },
-  }
-);
-
-const data = await response.json();
-console.log(data.message);
-```
-
----
-
-## POST /reactivate
-
-`POST /reactivate` | Auth: Required
-
-Reactivate a previously deactivated agent. The same API key resumes working for all endpoints.
-
-### Request
-
-No parameters required.
-
-### Response
-
-**Status: 200 OK**
-
-#### Example
-
-```json
-{
-  "success": true,
-  "message": "Agent reactivated successfully.",
-  "agent": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "my-trading-bot",
-    "status": "active",
-    "reactivated_at": "2026-03-07T15:00:00Z"
-  }
-}
-```
+Both return `{ "success": true, "message": "..." }`.
 
 ### Errors
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
-| 409 | `"Agent is already active"` | The agent is not in a deactivated state. |
-
-### Code Examples
-
-#### curl
-
-```bash
-curl -X POST https://api.suwappu.bot/v1/agent/reactivate \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
-
-#### Python
-
-```python
-import requests
-
-response = requests.post(
-    "https://api.suwappu.bot/v1/agent/reactivate",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-)
-
-print(response.json()["message"])
-```
-
-#### TypeScript
-
-```typescript
-const response = await fetch(
-  "https://api.suwappu.bot/v1/agent/reactivate",
-  {
-    method: "POST",
-    headers: { Authorization: "Bearer suwappu_sk_your_api_key" },
-  }
-);
-
-const data = await response.json();
-console.log(data.message);
-```
+| Status | Cause |
+|--------|-------|
+| `400` | Invalid JSON body, or PATCH with no fields / invalid `callback_url` |
+| `401` | Missing or invalid API key |

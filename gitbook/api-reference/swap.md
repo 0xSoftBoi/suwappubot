@@ -1,202 +1,110 @@
-# Build Swap Transaction
+# Swap (Unsigned Transaction)
 
-`POST /swap` | Auth: Required
+Build an unsigned transaction from a quote so you can sign and broadcast it yourself. Use this for self-custody. If you want Suwappu to sign with your managed wallet instead, use [`POST /v1/agent/swap/execute`](swap-execute.md).
 
-Build an unsigned swap transaction. The response contains raw transaction data that the caller must sign and submit to the blockchain. This endpoint does **not** execute the swap -- it only prepares the transaction.
+## POST /v1/agent/swap
 
-> For server-side signing with managed wallets, use `POST /swap/execute` instead (not covered in this reference).
+Requires authentication.
 
-## Request
-
-### Body
-
-There are two usage modes:
-
-**Mode 1: Using a quote** (recommended)
+### Request body
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `quote_id` | string | Yes | Quote ID from `POST /quote`. Must not be expired (60s TTL). |
-| `wallet_address` | string | Yes | Address that will sign and submit the transaction. |
+| `quote_id` | string | Yes | A `quote_id` from [`POST /v1/agent/quote`](quote.md), issued within the last 60 seconds |
+| `wallet_address` | string | Yes | The wallet that will sign. For EVM this must be your agent's managed wallet |
 
-**Mode 2: Direct swap (no quote)**
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "0x9f3c...", "wallet_address": "0xAbC...123"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ quote_id: "0x9f3c...", wallet_address: "0xAbC...123" }),
+});
+const swap = await res.json();
+```
+```python
+import os, requests
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `wallet_address` | string | Yes | Address that will sign and submit the transaction. |
-| `from_token` | string | Yes | Source token symbol. |
-| `to_token` | string | Yes | Destination token symbol. |
-| `amount` | string | Yes | Human-readable amount to swap. |
-| `chain` | string | No | Chain key. Defaults to `"ethereum"`. |
-| `slippage` | number | No | Max slippage as a decimal (0-1). Default: `0.03`. |
-
-### Example (With Quote)
-
-```json
-{
-  "quote_id": "qt_8f3a9b2c1d4e5f6a7b8c9d0e",
-  "wallet_address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
-}
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/swap",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"quote_id": "0x9f3c...", "wallet_address": "0xAbC...123"},
+)
+swap = res.json()
 ```
 
-### Example (Direct)
-
-```json
-{
-  "wallet_address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  "from_token": "ETH",
-  "to_token": "USDC",
-  "amount": "0.5",
-  "chain": "base",
-  "slippage": 0.01
-}
-```
-
-## Response
-
-**Status: 200 OK**
-
-### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Always `true`. |
-| `transaction.to` | string | Contract address to send the transaction to. |
-| `transaction.data` | string | Hex-encoded calldata. |
-| `transaction.value` | string | Native token value in wei (hex-encoded). `"0x0"` for ERC-20 to ERC-20 swaps. |
-| `transaction.gas_estimate` | string | Estimated gas limit (hex-encoded). |
-| `transaction.chain_id` | number | Chain ID for the transaction. |
-| `meta.from_token` | string | Source token symbol. |
-| `meta.to_token` | string | Destination token symbol. |
-| `meta.amount_in` | string | Human-readable input amount. |
-| `meta.expected_out` | string | Human-readable expected output amount. |
-| `meta.min_out` | string | Minimum output after slippage. |
-
-### Example
+### Response (EVM)
 
 ```json
 {
   "success": true,
-  "transaction": {
-    "to": "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
-    "data": "0x3593564c000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000a0...",
-    "value": "0x6f05b59d3b20000",
-    "gas_estimate": "0x3d090",
-    "chain_id": 8453
-  },
-  "meta": {
+  "status": "ready",
+  "message": "Transaction ready for signing",
+  "quote_id": "0x9f3c...",
+  "chain_type": "evm",
+  "swap": {
+    "from_chain": "base",
+    "to_chain": "base",
     "from_token": "ETH",
     "to_token": "USDC",
-    "amount_in": "0.5",
-    "expected_out": "1748.21",
-    "min_out": "1730.73"
+    "amount_in": "500000000000000000",
+    "expected_amount_out": "1620591000",
+    "minimum_amount_out": "1572973000"
+  },
+  "transaction": {
+    "to": "0x1111...",
+    "from": "0xAbC...123",
+    "value": "500000000000000000",
+    "data": "0x...",
+    "chain_id": 8453,
+    "gas_limit": "210000",
+    "gas_price": "..."
+  },
+  "instructions": [
+    "1. Sign this transaction with your wallet",
+    "2. Submit the signed transaction to the chain RPC",
+    "3. Monitor the transaction hash for confirmation"
+  ]
+}
+```
+
+### Response (Solana)
+
+For a Solana quote, the response returns a base64-encoded transaction to deserialize, sign, and submit:
+
+```json
+{
+  "success": true,
+  "status": "ready",
+  "message": "Solana transaction ready for signing",
+  "quote_id": "jupiter_...",
+  "chain": "solana",
+  "transaction": {
+    "type": "solana",
+    "serialized_transaction": "<base64>",
+    "last_valid_block_height": 287654321
   }
 }
 ```
 
-> **Important:** The response contains an unsigned transaction. You must sign it with the private key of `wallet_address` and broadcast it to the chain yourself.
+### Notes
 
-## Errors
+- Amounts in this response are in smallest units (wei / lamports), not human-readable decimals.
+- The EVM transaction is built with `from: wallet_address`, so that address must be your agent's managed wallet — otherwise the request returns `403`.
+- This endpoint does **not** broadcast. To have Suwappu sign and submit, use [`POST /v1/agent/swap/execute`](swap-execute.md).
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | `"wallet_address is required"` | Missing required field. |
-| 400 | `"Provide quote_id or (from_token, to_token, amount)"` | Neither a quote ID nor direct swap parameters were provided. |
-| 400 | `"Quote has expired"` | The `quote_id` is older than 60 seconds. Request a new quote. |
-| 400 | `"Invalid quote_id"` | The `quote_id` does not exist. |
-| 400 | `"Insufficient liquidity for this trade"` | The swap cannot be completed at the requested size. |
-| 400 | `"Unknown token 'XYZ' on chain 'base'"` | Token not supported on the specified chain. |
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
+### Errors
 
-## Code Examples
-
-### curl
-
-```bash
-# Using a quote
-curl -X POST https://api.suwappu.bot/v1/agent/swap \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "quote_id": "qt_8f3a9b2c1d4e5f6a7b8c9d0e",
-    "wallet_address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
-  }'
-```
-
-### Python
-
-```python
-import requests
-
-# Step 1: Get a quote
-quote_resp = requests.post(
-    "https://api.suwappu.bot/v1/agent/quote",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-    json={
-        "from_token": "ETH",
-        "to_token": "USDC",
-        "amount": "0.5",
-        "chain": "base",
-    },
-)
-quote = quote_resp.json()
-
-# Step 2: Build the swap transaction
-swap_resp = requests.post(
-    "https://api.suwappu.bot/v1/agent/swap",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-    json={
-        "quote_id": quote["quote_id"],
-        "wallet_address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-    },
-)
-swap = swap_resp.json()
-
-tx = swap["transaction"]
-print(f"Send tx to: {tx['to']}")
-print(f"Value: {tx['value']}")
-print(f"Expected out: {swap['meta']['expected_out']} USDC")
-
-# Step 3: Sign and submit the transaction using your web3 library
-# e.g., web3.eth.account.sign_transaction(tx, private_key)
-```
-
-### TypeScript
-
-```typescript
-// Step 1: Get a quote
-const quoteResp = await fetch("https://api.suwappu.bot/v1/agent/quote", {
-  method: "POST",
-  headers: {
-    Authorization: "Bearer suwappu_sk_your_api_key",
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    from_token: "ETH",
-    to_token: "USDC",
-    amount: "0.5",
-    chain: "base",
-  }),
-});
-const quote = await quoteResp.json();
-
-// Step 2: Build the swap transaction
-const swapResp = await fetch("https://api.suwappu.bot/v1/agent/swap", {
-  method: "POST",
-  headers: {
-    Authorization: "Bearer suwappu_sk_your_api_key",
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    quote_id: quote.quote_id,
-    wallet_address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-  }),
-});
-const swap = await swapResp.json();
-
-console.log(`Send tx to: ${swap.transaction.to}`);
-console.log(`Expected out: ${swap.meta.expected_out} USDC`);
-
-// Step 3: Sign and submit using your wallet/signer
-// e.g., await signer.sendTransaction(swap.transaction);
-```
+| Status | Cause |
+|--------|-------|
+| `400` | Missing/invalid body, `quote_id` missing, or the quote is expired / not found / belongs to another agent |
+| `403` | `wallet_address` is not your managed wallet (EVM) |
+| `401` | Missing or invalid API key |

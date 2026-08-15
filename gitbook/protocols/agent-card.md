@@ -23,7 +23,7 @@ curl https://api.suwappu.bot/.well-known/agent.json
   "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
   "id": "suwappu-dex",
   "name": "Suwappu",
-  "description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
+  "description": "Cross-chain DEX for AI agents. Swap tokens across 15 chains via natural language.",
   "version": "0.4.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
@@ -58,7 +58,7 @@ curl https://api.suwappu.bot/.well-known/agent.json
     {
       "id": "swap",
       "name": "Token Swap",
-      "description": "Swap tokens across 7 chains (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana)",
+      "description": "Swap tokens across 15 chains (12 EVM + Solana + TRON + Starknet)",
       "tags": ["defi", "swap", "trading", "cross-chain"],
       "examples": ["swap 0.5 ETH to USDC on Base", "swap 100 USDC to SOL on Solana"],
       "inputModes": ["text"],
@@ -130,7 +130,15 @@ curl https://api.suwappu.bot/.well-known/agent.json
     {"id": 42161, "name": "Arbitrum", "native": "ETH"},
     {"id": 10, "name": "Optimism", "native": "ETH"},
     {"id": 8453, "name": "Base", "native": "ETH"},
-    {"id": "solana", "name": "Solana", "native": "SOL"}
+    {"id": 43114, "name": "Avalanche", "native": "AVAX"},
+    {"id": 250, "name": "Fantom", "native": "FTM"},
+    {"id": 59144, "name": "Linea", "native": "ETH"},
+    {"id": 5000, "name": "Mantle", "native": "MNT"},
+    {"id": 100, "name": "Gnosis", "native": "xDAI"},
+    {"id": 534352, "name": "Scroll", "native": "ETH"},
+    {"id": "solana", "name": "Solana", "native": "SOL"},
+    {"id": "tron", "name": "TRON", "native": "TRX"},
+    {"id": "SN_MAIN", "name": "Starknet", "native": "STRK"}
   ]
 }
 ```

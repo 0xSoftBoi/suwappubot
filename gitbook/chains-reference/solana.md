@@ -1,165 +1,76 @@
 # Solana
 
-Solana is supported as a first-class chain in Suwappu with its own dedicated swap routing through the Jupiter aggregator.
+Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets — a Solana swap signs with a Solana keypair, not an EVM `0x` address. Pass `chain: "solana"` (or `"sol"`) in your requests.
+
+## Overview
 
 | Property | Value |
 |----------|-------|
-| Chain Type | Solana |
-| Key | `solana` |
-| Alias | `sol` |
-| Native Token | SOL |
-| Address Format | Base58 (not `0x`) |
-| Token Standard | SPL |
+| Chain key | `solana` (alias `sol`) |
+| Address format | Base58 (e.g. `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`) |
+| Token standard | SPL |
+| Native token | SOL (9 decimals) |
+| Routing | Jupiter aggregator |
+| Default slippage | 3% (300 bps) for agent/A2A quotes |
 
-## Key Differences from EVM
+## Built-in Tokens
 
-- **Wallet addresses** are Base58-encoded (e.g., `7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU`), not hexadecimal `0x` addresses.
-- **Token addresses** are also Base58-encoded (e.g., `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` for USDC).
-- **Managed wallets** for Solana are separate from EVM wallets. When you create a wallet via `POST /wallets`, the response includes a `chain_type` field indicating `"solana"` or `"evm"`.
-- **Swap routing** uses the Jupiter aggregator instead of Li.Fi.
-- **Quote responses** for Solana return `price_impact` and `route` fields instead of `exchange_rate` and `gas_usd`.
+The API resolves these well-known SPL tokens by symbol. For any other mint, pass the SPL mint address directly.
 
-## Common Tokens
+| Symbol | Mint Address | Decimals | Name |
+|--------|-------------|----------|------|
+| SOL | `So11111111111111111111111111111111111111112` | 9 | Solana |
+| WSOL | `So11111111111111111111111111111111111111112` | 9 | Wrapped SOL |
+| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | 6 | USD Coin |
+| USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` | 6 | Tether USD |
+| BONK | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` | 5 | Bonk |
+| WIF | `EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm` | 6 | dogwifhat |
+| JUP | `JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN` | 6 | Jupiter |
+| RAY | `4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R` | 6 | Raydium |
+| PYTH | `HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3` | 6 | Pyth Network |
+| JTO | `jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL` | 9 | Jito |
+| ORCA | `orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE` | 6 | Orca |
+| MNDE | `MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey` | 9 | Marinade |
+| MSOL | `mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So` | 9 | Marinade Staked SOL |
+| JITOSOL | `J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn` | 9 | Jito Staked SOL |
 
-| Token | Address | Decimals |
-|-------|---------|----------|
-| SOL | `So11111111111111111111111111111111111111112` | 9 |
-| WSOL | `So11111111111111111111111111111111111111112` | 9 |
-| USDC | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | 6 |
-| USDT | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` | 6 |
-| BONK | `DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263` | 5 |
-| WIF | `EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm` | 6 |
-| JUP | `JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN` | 6 |
-| RAY | `4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R` | 6 |
-| PYTH | `HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3` | 6 |
-| JTO | `jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL` | 9 |
-| ORCA | `orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE` | 6 |
-| MNDE | `MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey` | 9 |
-| MSOL | `mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So` | 9 |
-| JITOSOL | `J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn` | 9 |
+## Jupiter Routing
 
-> **Note:** SOL and WSOL share the same mint address. The API handles wrapping and unwrapping automatically when needed for swaps.
+Solana swaps are priced by the Jupiter aggregator, which routes across Solana DEXs (Raydium, Orca, and others) for the best execution. The quote response includes:
 
-## Example: Swap SOL to USDC on Solana
+- `priceImpactPct` — estimated price impact of the swap
+- `routePlan` — the venues the swap is routed through (e.g. `Orca -> Raydium`)
+- `inAmount` / `outAmount` — amounts in base units (lamports / token decimals)
 
-### Get a Quote
+## Quote Example
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
+  -d '{"from_token": "SOL", "to_token": "USDC", "amount": "1.5", "chain": "solana"}'
+```
+
+## Natural Language (A2A / execute)
+
+The A2A endpoint and `/v1/agent/execute` both understand Solana commands, but these natural-language surfaces stop at quote/transaction preparation. They do **not** perform managed execution. Simulate the returned quote, get explicit approval, then use the managed REST execution endpoint or sign and broadcast the prepared transaction yourself.
+
+```bash
+curl -X POST https://api.suwappu.bot/a2a \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -d '{
-    "from_token": "SOL",
-    "to_token": "USDC",
-    "amount": "1.0",
-    "chain": "solana"
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "message/send",
+    "params": {
+      "message": { "role": "user", "parts": [{ "type": "text", "text": "swap 100 USDC to SOL on solana" }] }
+    }
   }'
 ```
 
-#### Example Response
+## Notes
 
-```json
-{
-  "success": true,
-  "quote_id": "qt_sol_a1b2c3d4",
-  "from_token": "SOL",
-  "to_token": "USDC",
-  "amount": "1.0",
-  "expected_output": "142.85",
-  "price_impact": "0.02",
-  "route": ["SOL", "USDC"],
-  "chain": "solana",
-  "expires_at": "2026-03-07T12:05:00Z"
-}
-```
-
-Note that Solana quotes include `price_impact` (percentage) and `route` (swap path) instead of the EVM fields `exchange_rate` and `gas_usd`.
-
-### Execute the Swap
-
-```bash
-curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
-  -H "Authorization: Bearer suwappu_sk_your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{"quote_id": "qt_sol_a1b2c3d4"}'
-```
-
-## Python Example
-
-```python
-import requests
-
-API_KEY = "suwappu_sk_your_api_key"
-BASE_URL = "https://api.suwappu.bot/v1/agent"
-headers = {"Authorization": f"Bearer {API_KEY}"}
-
-# Get a quote for SOL → USDC
-quote = requests.post(
-    f"{BASE_URL}/quote",
-    headers=headers,
-    json={
-        "from_token": "SOL",
-        "to_token": "USDC",
-        "amount": "2.5",
-        "chain": "solana",
-    },
-).json()
-
-print(f"Expected output: {quote['expected_output']} USDC")
-print(f"Price impact: {quote['price_impact']}%")
-
-# Execute the swap
-swap = requests.post(
-    f"{BASE_URL}/swap/execute",
-    headers=headers,
-    json={"quote_id": quote["quote_id"]},
-).json()
-
-print(f"Swap ID: {swap['swap_id']}, Status: {swap['status']}")
-```
-
-## TypeScript Example
-
-```typescript
-const API_KEY = "suwappu_sk_your_api_key";
-const BASE_URL = "https://api.suwappu.bot/v1/agent";
-const headers = {
-  Authorization: `Bearer ${API_KEY}`,
-  "Content-Type": "application/json",
-};
-
-// Get a quote for SOL → USDC
-const quoteRes = await fetch(`${BASE_URL}/quote`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({
-    from_token: "SOL",
-    to_token: "USDC",
-    amount: "2.5",
-    chain: "solana",
-  }),
-});
-
-const quote = await quoteRes.json();
-console.log(`Expected output: ${quote.expected_output} USDC`);
-console.log(`Price impact: ${quote.price_impact}%`);
-
-// Execute the swap
-const swapRes = await fetch(`${BASE_URL}/swap/execute`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({ quote_id: quote.quote_id }),
-});
-
-const swap = await swapRes.json();
-console.log(`Swap ID: ${swap.swap_id}, Status: ${swap.status}`);
-```
-
-## Discovering Solana Tokens
-
-Use the tokens endpoint to find available Solana tokens:
-
-```bash
-curl "https://api.suwappu.bot/v1/agent/tokens?chain=solana" \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
+- Solana managed wallets are distinct from EVM managed wallets. Fund the Solana wallet with SOL for transaction fees.
+- Quotes expire quickly (about 60 seconds) — act on an approved quote promptly, and refresh it before execution if it has expired.
+- For tokens not in the built-in list, pass the SPL mint address as the token field.

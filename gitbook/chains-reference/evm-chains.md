@@ -1,225 +1,113 @@
 # EVM Chains
 
-All 12 EVM chains use the same address format, ERC-20 token standard, and are routed through the Li.Fi aggregator for optimal swap pricing. A single EVM managed wallet works across all EVM chains.
+Suwappu supports 40+ EVM-compatible networks, all sharing the `0x...` address format and the ERC-20 token standard. A single EVM managed wallet works across every EVM chain. Pass the chain **key** (e.g. `base`, `arbitrum`, `tempo`) as the `chain` parameter in your API requests. Most chains route through Li.Fi and the other aggregators; a few Bitcoin L2s route through chain-specific venues only.
 
-Native tokens on all chains use the zero address: `0x0000000000000000000000000000000000000000`.
+## Major L1s & L2s
 
----
+| Chain | Chain ID | Key | Native Token |
+|-------|----------|-----|-------------|
+| Ethereum | 1 | `ethereum` | ETH |
+| Optimism | 10 | `optimism` | ETH |
+| Flare | 14 | `flare` | FLR |
+| BNB Chain | 56 | `bsc` | BNB |
+| Unichain | 130 | `unichain` | ETH |
+| Polygon | 137 | `polygon` | MATIC |
+| Sonic | 146 | `sonic` | S |
+| opBNB | 204 | `opbnb` | BNB |
+| Fantom | 250 | `fantom` | FTM |
+| Fraxtal | 252 | `fraxtal` | FRAX |
+| zkSync Era | 324 | `zksync` | ETH |
+| World Chain | 480 | `worldchain` | ETH |
+| Flow EVM | 747 | `flow` | FLOW |
+| Gnosis | 100 | `gnosis` | xDAI |
+| Lisk | 1135 | `lisk` | ETH |
+| Sei | 1329 | `sei` | SEI |
+| Soneium | 1868 | `soneium` | ETH |
+| Swellchain | 1923 | `swellchain` | ETH |
+| Abstract | 2741 | `abstract` | ETH |
+| Mantle | 5000 | `mantle` | MNT |
+| Kaia | 8217 | `kaia` | KAIA |
+| Base | 8453 | `base` | ETH |
+| Apechain | 33139 | `apechain` | APE |
+| Mode | 34443 | `mode` | ETH |
+| Arbitrum | 42161 | `arbitrum` | ETH |
+| Avalanche | 43114 | `avalanche` | AVAX |
+| Linea | 59144 | `linea` | ETH |
+| Berachain | 80094 | `berachain` | BERA |
+| Unichain | 130 | `unichain` | ETH |
+| Taiko | 167000 | `taiko` | ETH |
+| Scroll | 534352 | `scroll` | ETH |
 
-## Ethereum
+## Bitcoin L2s & BTC-Native Chains
 
-| Property | Value |
-|----------|-------|
-| Chain ID | 1 |
-| Key | `ethereum` |
-| Alias | `eth` |
-| Native Token | ETH |
+These chains settle to or are secured by Bitcoin. Note that GOAT and Citrea use 18-decimal native BTC (ETH-style), not 8.
 
-### Common Tokens
+| Chain | Chain ID | Key | Native Token | Routing notes |
+|-------|----------|-----|-------------|---------------|
+| Rootstock | 30 | `rootstock` | RBTC | Li.Fi only; legacy gas, 0.06 gwei minimum |
+| GOAT | 2345 | `goat` | BTC | GOATSwap only (not on aggregators) |
+| Citrea | 4114 | `citrea` | cBTC | JuiceSwap only (UniV3 fork) |
+| Hemi | 43111 | `hemi` | ETH | Aggregator-routed |
+| BOB | 60808 | `bob` | ETH | Aggregator-routed |
 
-| Token | Address | Decimals |
-|-------|---------|----------|
-| ETH | `0x0000000000000000000000000000000000000000` | 18 |
-| WETH | `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` | 18 |
-| USDC | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | 6 |
-| USDT | `0xdAC17F958D2ee523a2206206994597C13D831ec7` | 6 |
-| WBTC | `0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599` | 8 |
+## Emerging & Specialized Chains
 
----
+| Chain | Chain ID | Key | Native Token | Notes |
+|-------|----------|-----|-------------|-------|
+| Tempo | 4217 | `tempo` | USD | USD-denominated, 6 decimals; TIP-20 stablecoins; gasless sponsorship |
+| Plasma | 9745 | `plasma` | XPL | |
+| HyperEVM | 999 | `hyperevm` | HYPE | EVM layer of HyperLiquid |
 
-## Optimism
+## Routing
 
-| Property | Value |
-|----------|-------|
-| Chain ID | 10 |
-| Key | `optimism` |
-| Alias | `op` |
-| Native Token | ETH |
+EVM swaps race up to nine aggregators and bridges for the best execution price:
 
-### Common Tokens
+- **Li.Fi** — same-chain and cross-chain routing across most EVM chains
+- **CoW Protocol** — batch-auction, MEV-protected settlement
+- **OKX** — DEX aggregation
+- **1inch** — DEX aggregation
+- **KyberSwap** — DEX aggregation
+- **Across** — fast cross-chain bridging
+- **CCTP** — native USDC bridging
+- **GOATSwap / JuiceSwap** — chain-specific venues for GOAT and Citrea, which aggregators do not cover
 
-| Token | Address | Decimals |
-|-------|---------|----------|
-| ETH | `0x0000000000000000000000000000000000000000` | 18 |
-| WETH | `0x4200000000000000000000000000000000000006` | 18 |
-| USDC | `0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85` | 6 |
-| USDC.e | `0x7F5c764cBc14f9669B88837ca1490cCa17c31607` | 6 |
-| USDT | `0x94b008aA00579c1307B0EF2c499aD98a8ce58e58` | 6 |
+The API returns the best available route automatically — you do not choose the aggregator.
 
----
+## Native vs. Wrapped Tokens
 
-## BNB Chain
+For native-token swaps (ETH, BNB, MATIC, AVAX, etc.), pass the token symbol (e.g. `ETH`) as `from_token` or `to_token`. Chains with non-ETH native tokens (BNB, MATIC, AVAX, FTM, MNT, xDAI, SEI, BERA, S, FLR, KAIA, APE, RBTC, cBTC, BTC, HYPE, XPL, FRAX, FLOW) use that symbol as the native unit.
 
-| Property | Value |
-|----------|-------|
-| Chain ID | 56 |
-| Key | `bsc` |
-| Alias | `bnb` |
-| Native Token | BNB |
+## Discovering Tokens
 
-### Common Tokens
+Use `GET /v1/agent/tokens?chain=<key>` to list available tokens on any EVM chain:
 
-| Token | Address | Decimals |
-|-------|---------|----------|
-| BNB | `0x0000000000000000000000000000000000000000` | 18 |
-| WBNB | `0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c` | 18 |
-| USDC | `0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d` | 18 |
-| USDT | `0x55d398326f99059fF775485246999027B3197955` | 18 |
-| BUSD | `0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56` | 18 |
+```bash
+curl "https://api.suwappu.bot/v1/agent/tokens?chain=base" \
+  -H "Authorization: Bearer suwappu_sk_your_api_key"
+```
 
----
+## Example: Same-Chain Swap on Base
 
-## Polygon
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.5", "chain": "base"}'
+```
 
-| Property | Value |
-|----------|-------|
-| Chain ID | 137 |
-| Key | `polygon` |
-| Alias | `matic` |
-| Native Token | MATIC |
+## Example: Cross-Chain Swap (Arbitrum → Base)
 
-### Common Tokens
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "from_token": "USDC",
+    "to_token": "USDC",
+    "amount": "100",
+    "from_chain": "arbitrum",
+    "to_chain": "base"
+  }'
+```
 
-| Token | Address | Decimals |
-|-------|---------|----------|
-| MATIC | `0x0000000000000000000000000000000000000000` | 18 |
-| WMATIC | `0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270` | 18 |
-| USDC | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | 6 |
-| USDC.e | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | 6 |
-| USDT | `0xc2132D05D31c914a87C6611C10748AEb04B58e8F` | 6 |
-
----
-
-## Arbitrum
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 42161 |
-| Key | `arbitrum` |
-| Alias | `arb` |
-| Native Token | ETH |
-
-### Common Tokens
-
-| Token | Address | Decimals |
-|-------|---------|----------|
-| ETH | `0x0000000000000000000000000000000000000000` | 18 |
-| WETH | `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1` | 18 |
-| USDC | `0xaf88d065e77c8cC2239327C5EDb3A432268e5831` | 6 |
-| USDC.e | `0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8` | 6 |
-| USDT | `0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9` | 6 |
-
----
-
-## Base
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 8453 |
-| Key | `base` |
-| Alias | -- |
-| Native Token | ETH |
-
-### Common Tokens
-
-| Token | Address | Decimals |
-|-------|---------|----------|
-| ETH | `0x0000000000000000000000000000000000000000` | 18 |
-| WETH | `0x4200000000000000000000000000000000000006` | 18 |
-| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | 6 |
-| DAI | `0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb` | 18 |
-
----
-
-## Avalanche
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 43114 |
-| Key | `avalanche` |
-| Alias | `avax` |
-| Native Token | AVAX |
-
-### Common Tokens
-
-| Token | Address | Decimals |
-|-------|---------|----------|
-| AVAX | `0x0000000000000000000000000000000000000000` | 18 |
-| WAVAX | `0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7` | 18 |
-| USDC | `0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E` | 6 |
-| USDC.e | `0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664` | 6 |
-| USDT | `0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7` | 6 |
-
----
-
-## Fantom
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 250 |
-| Key | `fantom` |
-| Alias | `ftm` |
-| Native Token | FTM |
-
-Token addresses for Fantom are resolved dynamically via the Li.Fi API at runtime. Use `GET /tokens?chain=fantom` to fetch available tokens.
-
----
-
-## Linea
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 59144 |
-| Key | `linea` |
-| Alias | -- |
-| Native Token | ETH |
-
-Token addresses for Linea are resolved dynamically via the Li.Fi API at runtime. Use `GET /tokens?chain=linea` to fetch available tokens.
-
----
-
-## Mantle
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 5000 |
-| Key | `mantle` |
-| Alias | -- |
-| Native Token | MNT |
-
-Token addresses for Mantle are resolved dynamically via the Li.Fi API at runtime. Use `GET /tokens?chain=mantle` to fetch available tokens.
-
----
-
-## Gnosis
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 100 |
-| Key | `gnosis` |
-| Alias | -- |
-| Native Token | xDAI |
-
-Token addresses for Gnosis are resolved dynamically via the Li.Fi API at runtime. Use `GET /tokens?chain=gnosis` to fetch available tokens.
-
----
-
-## Scroll
-
-| Property | Value |
-|----------|-------|
-| Chain ID | 534352 |
-| Key | `scroll` |
-| Alias | -- |
-| Native Token | ETH |
-
-Token addresses for Scroll are resolved dynamically via the Li.Fi API at runtime. Use `GET /tokens?chain=scroll` to fetch available tokens.
-
----
-
-## Notes
-
-- **Native tokens** always use the zero address `0x0000000000000000000000000000000000000000` across all EVM chains.
-- **USDC vs USDC.e**: Several chains have both native USDC and bridged USDC.e. Native USDC is the canonical version issued by Circle; USDC.e is the older bridged version. Both are supported.
-- **Dynamic resolution**: For chains without hardcoded token lists above (Fantom, Linea, Mantle, Gnosis, Scroll), tokens are resolved at runtime via the Li.Fi API. Use `GET /tokens?chain=<key>` to discover available tokens.
-- **Decimals matter**: When specifying amounts in the API, use human-readable values (e.g., `"1.5"` for 1.5 ETH). The API handles decimal conversion internally.
+See [Cross-Chain Swaps](../guides/cross-chain-swaps.md) for the full walkthrough.

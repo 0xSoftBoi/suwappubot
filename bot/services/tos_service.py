@@ -1,7 +1,7 @@
 """Service for managing Terms of Service acceptance."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -24,9 +24,10 @@ Welcome to Suwappu Bot! By using this service, you agree to the following:
 Do you accept these terms and conditions?
 """
 
+
 class TosService:
     """Service for handling TOS acceptance."""
-    
+
     @staticmethod
     def is_accepted(user_id: int) -> bool:
         """Check if a user (by internal ID) has accepted the TOS."""
@@ -56,12 +57,12 @@ class TosService:
                 user = session.query(User).filter(User.id == user_id).first()
                 if user:
                     user.tos_accepted = True
-                    user.tos_accepted_at = datetime.utcnow()
+                    user.tos_accepted_at = datetime.now(timezone.utc)
                     return True
                 return False
         except Exception as e:
             logger.error(f"Error accepting TOS for user {user_id}: {e}")
             return False
 
-tos_service = TosService()
 
+tos_service = TosService()

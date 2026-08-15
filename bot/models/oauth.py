@@ -7,8 +7,19 @@ to Suwappu user accounts.
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from database.db import Base
+
+
+def _as_utc(dt):
+    """Normalize a possibly timezone-naive datetime to aware UTC.
+
+    Stored DateTime columns are UTC but come back naive (SQLite/older rows),
+    which raises TypeError when compared to an aware ``datetime.now(timezone.utc)``.
+    """
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class OAuthIdentity(Base):
@@ -18,6 +29,7 @@ class OAuthIdentity(Base):
     A user can have multiple OAuth identities (e.g., both Google and Twitter).
     Each identity stores the provider-specific user ID and profile info.
     """
+
     __tablename__ = "oauth_identities"
 
     id = Column(Integer, primary_key=True)
@@ -49,9 +61,7 @@ class OAuthIdentity(Base):
     tokens = relationship("OAuthToken", back_populates="identity", cascade="all, delete-orphan")
 
     # Composite unique constraint: one identity per provider per user
-    __table_args__ = (
-        Index('ix_oauth_provider_user', 'provider', 'provider_user_id', unique=True),
-    )
+    __table_args__ = (Index("ix_oauth_provider_user", "provider", "provider_user_id", unique=True),)
 
     def __repr__(self) -> str:
         return f"<OAuthIdentity(provider={self.provider}, user_id={self.user_id})>"
@@ -64,6 +74,7 @@ class OAuthToken(Base):
     Tokens are KMS-encrypted before storage for security.
     Refresh tokens allow automatic token renewal.
     """
+
     __tablename__ = "oauth_tokens"
 
     id = Column(Integer, primary_key=True)
@@ -101,7 +112,7 @@ class OAuthToken(Base):
         """Check if access token is expired."""
         if not self.expires_at:
             return False
-        return datetime.utcnow() >= self.expires_at
+        return datetime.now(timezone.utc) >= _as_utc(self.expires_at)
 
     @property
     def needs_refresh(self) -> bool:
@@ -109,7 +120,8 @@ class OAuthToken(Base):
         if not self.expires_at:
             return False
         from datetime import timedelta
-        return datetime.utcnow() >= (self.expires_at - timedelta(minutes=5))
+
+        return datetime.now(timezone.utc) >= (_as_utc(self.expires_at) - timedelta(minutes=5))
 
 
 class OAuthState(Base):
@@ -119,6 +131,7 @@ class OAuthState(Base):
     Stored in database to support distributed deployments.
     Automatically cleaned up after use or expiration.
     """
+
     __tablename__ = "oauth_states"
 
     id = Column(Integer, primary_key=True)
@@ -128,6 +141,13 @@ class OAuthState(Base):
     provider = Column(String(50), nullable=False)
     redirect_uri = Column(Text, nullable=True)
     code_verifier = Column(String(128), nullable=True)  # PKCE
+
+    # Login CSRF / session-fixation defense: a per-flow nonce that is also set as
+    # an HttpOnly cookie in the initiating browser at /authorize. The callback
+    # requires the cookie to match this value for login flows, so a code+state
+    # captured by an attacker cannot be replayed in a victim's browser to log the
+    # victim into the attacker's account.
+    login_nonce = Column(String(128), nullable=True)
 
     # Link to existing user (for account linking flows)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -145,4 +165,4 @@ class OAuthState(Base):
     @property
     def is_expired(self) -> bool:
         """Check if state has expired."""
-        return datetime.utcnow() >= self.expires_at
+        return datetime.now(timezone.utc) >= _as_utc(self.expires_at)

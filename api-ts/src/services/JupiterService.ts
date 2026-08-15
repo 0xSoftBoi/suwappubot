@@ -1,8 +1,10 @@
 import { Context, Effect, Layer } from 'effect'
+import { DEFAULT_AGENT_FEE_BPS, DEFAULT_FEE_WALLET_SOLANA } from '../config/constants'
 import { ValidationError } from '../errors'
+import { logger } from '../lib/logger'
 
 // Jupiter API base URL
-const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6'
+const JUPITER_API_BASE = 'https://lite-api.jup.ag/swap/v1'
 
 // Solana token addresses
 export const SOLANA_TOKENS: Record<string, { address: string; decimals: number; name: string }> = {
@@ -115,8 +117,10 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 				)
 			}
 
-			// Platform fee: 0.3% (30 bps) to Suwappu
-			const platformFeeBps = process.env.FEE_BPS || '30'
+			// Platform fee to Suwappu (flat agent-surface rate; default 0.3% / 30 bps).
+			// Sourced from the single DEFAULT_AGENT_FEE_BPS constant so the quote we
+			// build can never diverge from EnvService's FEE_BPS default.
+			const platformFeeBps = process.env.FEE_BPS || String(DEFAULT_AGENT_FEE_BPS)
 
 			const queryParams = new URLSearchParams({
 				inputMint,
@@ -130,7 +134,7 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 
 			const url = `${JUPITER_API_BASE}/quote?${queryParams.toString()}`
 
-			console.log('[JupiterService] Fetching quote:', url)
+			logger.info('[JupiterService] Fetching quote: %s', url)
 
 			const response = yield* Effect.tryPromise({
 				try: async () => {
@@ -164,9 +168,8 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 				)
 			}
 
-			// Fee account for platform fees
-			const feeAccount =
-				process.env.FEE_WALLET_SOLANA || '4Xxbeusi6NL46AtZQHJrPREtYFCByKE48oxrpLvWEWJh'
+			// Fee account for platform fees (same default as EnvService.FEE_WALLET_SOLANA)
+			const feeAccount = process.env.FEE_WALLET_SOLANA || DEFAULT_FEE_WALLET_SOLANA
 
 			const body: Record<string, unknown> = {
 				quoteResponse: quote,
@@ -182,7 +185,7 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 
 			const url = `${JUPITER_API_BASE}/swap`
 
-			console.log('[JupiterService] Getting swap transaction for:', userPublicKey)
+			logger.info('[JupiterService] Getting swap transaction for: %s', userPublicKey)
 
 			const response = yield* Effect.tryPromise({
 				try: async () => {

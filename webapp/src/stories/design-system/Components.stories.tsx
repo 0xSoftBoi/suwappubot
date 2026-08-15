@@ -115,7 +115,7 @@ export const Cards: Story = {
         </div>
 
         <div className="p-6 bg-white rounded-suwappu-xxl shadow-suwappu-2 text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full border-4 border-suwappu-sakura-mid shadow-suwappu-glow bg-gradient-to-br from-suwappu-sakura-light to-suwappu-rose flex items-center justify-center text-2xl">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full border-4 border-suwappu-sakura-mid shadow-suwappu-glow bg-linear-to-br from-suwappu-sakura-light to-suwappu-rose flex items-center justify-center text-2xl">
             🌸
           </div>
           <h3 className="font-heading text-lg font-bold text-suwappu-purple-deep mb-1">Avatar Card</h3>
@@ -139,7 +139,7 @@ export const Inputs: Story = {
           <input
             type="text"
             placeholder="Enter text..."
-            className="w-full px-5 py-4 bg-white/90 border-2 border-suwappu-sakura-mid/30 rounded-suwappu-lg shadow-suwappu-1 font-body text-suwappu-text placeholder-suwappu-text-secondary/50 transition-all duration-300 focus:outline-none focus:border-suwappu-magenta-mid focus:shadow-suwappu-glow"
+            className="w-full px-5 py-4 bg-white/90 border-2 border-suwappu-sakura-mid/30 rounded-suwappu-lg shadow-suwappu-1 font-body text-suwappu-text placeholder-suwappu-text-secondary/50 transition-all duration-300 focus:outline-hidden focus:border-suwappu-magenta-mid focus:shadow-suwappu-glow"
           />
         </div>
 
@@ -154,7 +154,7 @@ export const Inputs: Story = {
             <input
               type="search"
               placeholder="Search..."
-              className="w-full pl-12 pr-5 py-4 bg-white/90 border-2 border-suwappu-sakura-mid/30 rounded-suwappu-lg shadow-suwappu-1 font-body text-suwappu-text placeholder-suwappu-text-secondary/50 transition-all duration-300 focus:outline-none focus:border-suwappu-magenta-mid focus:shadow-suwappu-glow"
+              className="w-full pl-12 pr-5 py-4 bg-white/90 border-2 border-suwappu-sakura-mid/30 rounded-suwappu-lg shadow-suwappu-1 font-body text-suwappu-text placeholder-suwappu-text-secondary/50 transition-all duration-300 focus:outline-hidden focus:border-suwappu-magenta-mid focus:shadow-suwappu-glow"
             />
           </div>
         </div>
@@ -166,7 +166,7 @@ export const Inputs: Story = {
           <textarea
             placeholder="Enter message..."
             rows={4}
-            className="w-full px-5 py-4 bg-white/90 border-2 border-suwappu-sakura-mid/30 rounded-suwappu-xl shadow-suwappu-1 font-body text-suwappu-text placeholder-suwappu-text-secondary/50 transition-all duration-300 focus:outline-none focus:border-suwappu-magenta-mid focus:shadow-suwappu-glow resize-y"
+            className="w-full px-5 py-4 bg-white/90 border-2 border-suwappu-sakura-mid/30 rounded-suwappu-xl shadow-suwappu-1 font-body text-suwappu-text placeholder-suwappu-text-secondary/50 transition-all duration-300 focus:outline-hidden focus:border-suwappu-magenta-mid focus:shadow-suwappu-glow resize-y"
           />
         </div>
       </div>

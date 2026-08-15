@@ -1,75 +1,57 @@
 # Authentication
 
-The Suwappu Agent API uses Bearer token authentication. Every authenticated request must include your API key in the `Authorization` header.
+Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other credentials to manage — signing and settlement happen server-side with managed wallets.
 
-## Bearer Token Format
+## Getting a key
 
-```
-Authorization: Bearer suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
-```
-
-API keys follow this format:
-
-- **Prefix**: `suwappu_sk_`
-- **Body**: Alphanumeric characters, hyphens, and underscores (`[a-zA-Z0-9_-]+`)
-- **Minimum length**: 32 characters total (including the prefix)
-
-## Getting an API Key
-
-Call the registration endpoint to create an agent and receive your key. This endpoint is public and does not require authentication.
+Register an agent (no auth required) and Suwappu returns your key:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
   -H "Content-Type: application/json" \
-  -d '{"name":"my-agent","description":"My trading agent"}'
+  -d '{"name": "my-agent"}'
 ```
 
-**Response:**
+The response contains `agent.api_key`, a token of the form `suwappu_sk_...`:
 
 ```json
 {
   "success": true,
   "agent": {
-    "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "id": "a1b2c3d4-...",
     "name": "my-agent",
-    "api_key": "suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-    "created_at": "2025-01-15T10:30:00Z"
-  }
+    "api_key": "suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  "important": "SAVE YOUR API KEY! It cannot be retrieved later."
 }
 ```
 
-Store your API key securely. It is shown only once at registration time.
+**The key is shown only once.** Suwappu stores only a SHA-256 hash of it and cannot recover the plaintext. If you lose it, [rotate the key](rate-limits.md) (which invalidates the old one).
 
-## Using Your Key
+## Sending the key
 
-Include the key in the `Authorization` header on every authenticated request:
+Pass the key in the `Authorization` header on every authenticated endpoint:
 
 ```bash
-curl -X POST https://api.suwappu.bot/v1/agent/quote \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" \
-  -d '{"from_token":"USDC","to_token":"ETH","amount":"100.00","chain":"ethereum"}'
+curl https://api.suwappu.bot/v1/agent/me \
+  -H "Authorization: Bearer suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
-If the key is missing, malformed, or revoked, the API returns a `401 Unauthorized` response:
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Invalid or missing API key"
-  }
-}
+```ts
+fetch('https://api.suwappu.bot/v1/agent/me', {
+  headers: { Authorization: `Bearer ${process.env.SUWAPPU_KEY}` },
+})
 ```
 
-## Key Rotation
+Public endpoints — `POST /v1/agent/register` and `GET /v1/agent/chains` — do not require a key.
 
-Rotate your API key without re-registering. The old key is immediately invalidated and a new one is returned.
+## Key rotation
+
+Rotate a key at any time. The old key is invalidated immediately, so update your clients before the next request.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/keys/rotate \
-  -H "Authorization: Bearer suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+  -H "Authorization: Bearer suwappu_sk_OLD_KEY"
 ```
 
 **Response:**
@@ -77,33 +59,25 @@ curl -X POST https://api.suwappu.bot/v1/agent/keys/rotate \
 ```json
 {
   "success": true,
-  "api_key": "suwappu_sk_x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4",
-  "rotated_at": "2025-01-20T14:00:00Z"
+  "api_key": "suwappu_sk_NEW_KEY",
+  "message": "API key rotated. Save this key — the old key is now invalid."
 }
 ```
 
-Update your application to use the new key immediately after rotation. The previous key will no longer work.
+See [`POST /v1/agent/keys/rotate`](../api-reference/keys.md) for details.
 
-## Public Endpoints
+## Managed wallets and signing
 
-The following endpoints do not require authentication:
+Suwappu agents use **managed (Turnkey) wallets**. Private keys live in Turnkey's secure enclaves and never touch your code or Suwappu's application servers. When you call [`POST /v1/agent/swap/execute`](../api-reference/swap-execute.md), Suwappu signs and broadcasts on your behalf using your agent's managed wallet — you only ever send a `quote_id`.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/register` | Create a new agent and receive an API key |
-| `GET` | `/chains` | List supported blockchain networks |
-| `GET` | `/openapi` | OpenAPI specification for the API |
+A managed wallet's address is bound to your agent. Swap, portfolio, and execute endpoints reject any `wallet_address` that is not your own managed wallet, which prevents constructing fund-moving transactions from arbitrary addresses or enumerating other agents' balances.
 
-All other endpoints require a valid Bearer token.
+If you prefer self-custody, use [`POST /v1/agent/swap`](../api-reference/swap.md), which returns an unsigned transaction for you to sign and broadcast yourself.
 
-## Security Best Practices
+## Security notes
 
-- Never expose your API key in client-side code, public repositories, or logs.
-- Use environment variables or a secrets manager to store keys.
-- Rotate keys periodically and immediately if you suspect a compromise.
-- Each agent should have its own dedicated key.
-
-## Next Steps
-
-- Review [Rate Limits](rate-limits.md) to understand request quotas for each tier.
-- See [Quick Start](../quickstart/README.md) for a full walkthrough of the swap flow.
+- **Treat your key like a password.** Anyone with it can swap from your managed wallet. Store it in a secret manager, never in source control.
+- **Use HTTPS only.** All requests must go to `https://api.suwappu.bot`.
+- **Scope wallet permissions.** Attach Turnkey spending-limit and address-whitelist policies to your managed wallet via `POST /v1/agent/wallet/policy` to cap what a compromised key can do.
+- **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC (keyed with the SHA-256 of your API key) on every webhook before trusting it. See [Webhooks](../api-reference/webhooks.md).
+- See [Rate Limits](rate-limits.md) for per-tier request quotas.

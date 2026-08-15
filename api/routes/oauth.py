@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import logging
 import base64
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Response, Query, Request
 from fastapi.responses import RedirectResponse
@@ -29,17 +30,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/oauth", tags=["OAuth"])
 
+# Name of the HttpOnly cookie that binds a login OAuth flow to the browser that
+# initiated it. Set at /authorize (login action), required to match the stored
+# OAuthState.login_nonce at /callback. Prevents login CSRF / session fixation.
+OAUTH_NONCE_COOKIE = "suwappu_oauth_nonce"
+
 
 # --- Pydantic Models ---
 
+
 class OAuthStartResponse(BaseModel):
     """Response for starting OAuth flow."""
+
     authorization_url: str
     state: str
 
 
 class OAuthCallbackResponse(BaseModel):
     """Response for OAuth callback."""
+
     success: bool
     token: str
     user: Dict[str, Any]
@@ -49,17 +58,20 @@ class OAuthCallbackResponse(BaseModel):
 
 class OAuthLinkRequest(BaseModel):
     """Request to link OAuth to existing account."""
+
     provider: str
 
 
 class OAuthLinkResponse(BaseModel):
     """Response for OAuth linking."""
+
     authorization_url: str
     state: str
 
 
 class OAuthIdentityResponse(BaseModel):
     """OAuth identity info."""
+
     id: int
     provider: str
     email: Optional[str]
@@ -71,11 +83,13 @@ class OAuthIdentityResponse(BaseModel):
 
 class OAuthProviderStatus(BaseModel):
     """Status of OAuth providers."""
+
     google: bool
     twitter: bool
 
 
 # --- Dependencies ---
+
 
 def get_db():
     with get_session() as session:
@@ -99,6 +113,7 @@ async def get_current_user(
 
 # --- Endpoints ---
 
+
 @router.get("/providers", response_model=OAuthProviderStatus)
 async def get_oauth_providers():
     """
@@ -110,6 +125,37 @@ async def get_oauth_providers():
         google=settings.is_oauth_configured("google"),
         twitter=settings.is_oauth_configured("twitter"),
     )
+
+
+def _is_allowed_redirect(redirect_url: Optional[str]) -> bool:
+    """
+    Validate a user-supplied OAuth redirect URL against the allowlist.
+
+    Only absolute URLs whose origin (scheme+host, optionally a path beneath it)
+    match one of the configured ``oauth_redirect_base`` entries are permitted —
+    preventing open-redirect / authorization-code interception via attacker-
+    controlled destinations. ``None`` is allowed (the callback falls back to the
+    default dashboard URL). ``oauth_redirect_base`` may be a single base or a
+    comma-separated list.
+    """
+    if redirect_url is None:
+        return True
+
+    allowed_bases = [
+        base.strip().rstrip("/")
+        for base in (settings.oauth_redirect_base or "").split(",")
+        if base.strip()
+    ]
+    if not allowed_bases:
+        return False
+
+    for base in allowed_bases:
+        # Exact base, or a path beneath it. The trailing "/" stops
+        # "https://app.example.com.attacker.com" from matching
+        # "https://app.example.com".
+        if redirect_url == base or redirect_url.startswith(base + "/"):
+            return True
+    return False
 
 
 @router.get("/{provider}/authorize")
@@ -133,11 +179,23 @@ async def oauth_authorize(
     if not settings.is_oauth_configured(provider):
         raise HTTPException(status_code=501, detail=f"OAuth not configured for {provider}")
 
+    # Reject a non-allowlisted redirect_url before persisting any state, to
+    # prevent open redirect / authorization-code interception.
+    if not _is_allowed_redirect(redirect_url):
+        logger.warning(f"OAuth authorize: rejected redirect_url for provider {provider}")
+        raise HTTPException(status_code=400, detail="Invalid redirect URL")
+
     oauth_service = get_oauth_service()
 
     # Generate state and PKCE
     state = oauth_service.generate_state()
     auth_url, code_verifier = oauth_service.get_authorization_url(provider, state)
+
+    # Bind this login flow to the initiating browser: a random nonce is stored on
+    # the state row AND set as an HttpOnly cookie. The callback rejects the flow
+    # unless the cookie matches — so an attacker who captures a valid code+state
+    # cannot replay it in a victim's browser (login CSRF / session fixation).
+    login_nonce = secrets.token_urlsafe(32)
 
     # Store state in database for CSRF validation
     oauth_state = OAuthState(
@@ -147,12 +205,45 @@ async def oauth_authorize(
         code_verifier=code_verifier,
         expires_at=datetime.utcnow() + timedelta(minutes=10),
         action="login",
+        login_nonce=login_nonce,
     )
     db.add(oauth_state)
     db.commit()
 
-    # Redirect to OAuth provider
-    return RedirectResponse(url=auth_url, status_code=302)
+    # Redirect to OAuth provider, setting the browser-bound nonce cookie. Scoped
+    # narrowly to the callback path; Secure + HttpOnly + SameSite=Lax so it rides
+    # the top-level provider redirect back to us but is not JS-readable.
+    redirect = RedirectResponse(url=auth_url, status_code=302)
+    redirect.set_cookie(
+        key=OAUTH_NONCE_COOKIE,
+        value=login_nonce,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=600,
+        path="/auth/oauth",
+    )
+    return redirect
+
+
+def _oauth_failure_redirect(reason: str, detail: str = "") -> RedirectResponse:
+    """Send a failed login back to the UI with a MACHINE-READABLE reason.
+
+    These paths previously raised HTTPException, so a user whose sign-in failed
+    got a bare JSON body — `{"detail":"Invalid or expired state"}` — rendered as
+    a dead end, with no way to tell which of four distinct causes fired. That
+    made "it failed" unactionable for the user AND for anyone debugging: the
+    four rejections are indistinguishable from the outside, and the server log
+    buffer is short enough to lose the attempt entirely.
+
+    Each cause now carries its own `auth_error` slug on the redirect, so the
+    failure names itself in the address bar. The slug is deliberately coarse —
+    it must never leak whether a given state/nonce existed.
+    """
+    base = settings.oauth_callback_base
+    url = f"{base}/?auth_error={reason}"
+    logger.warning("OAuth login failed: reason=%s %s", reason, detail)
+    return RedirectResponse(url=url, status_code=302)
 
 
 @router.get("/{provider}/callback")
@@ -163,7 +254,9 @@ async def oauth_callback(
     error: Optional[str] = Query(None, description="Error from provider"),
     error_description: Optional[str] = Query(None),
     response: Response = None,
+    request: Request = None,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Handle OAuth callback from provider.
@@ -174,23 +267,78 @@ async def oauth_callback(
     if error:
         logger.warning(f"OAuth callback error: {error} - {error_description}")
         # Redirect to frontend with error
-        error_url = f"{settings.oauth_redirect_base}/auth/error?error={error}"
+        # Single URL -> oauth_callback_base (oauth_redirect_base may be a list).
+        error_url = f"{settings.oauth_callback_base}/auth/error?error={error}"
         return RedirectResponse(url=error_url, status_code=302)
 
     # Validate state (CSRF protection)
-    oauth_state = db.query(OAuthState).filter(
-        OAuthState.state == state,
-        OAuthState.provider == provider,
-    ).first()
+    oauth_state = (
+        db.query(OAuthState)
+        .filter(
+            OAuthState.state == state,
+            OAuthState.provider == provider,
+        )
+        .first()
+    )
 
     if not oauth_state:
-        logger.warning(f"OAuth callback: invalid state {state[:10]}...")
-        raise HTTPException(status_code=400, detail="Invalid or expired state")
+        # Most common real cause: the flow was STARTED on a different origin
+        # than it finished on, so the state row belongs to another host's
+        # request — or the user re-used a stale link.
+        return _oauth_failure_redirect("state_not_found", f"state={state[:10]}...")
 
     if oauth_state.is_expired:
         db.delete(oauth_state)
         db.commit()
-        raise HTTPException(status_code=400, detail="OAuth state expired")
+        return _oauth_failure_redirect("state_expired")
+
+    # For account-linking flows the OAuth identity must be bound to the user who
+    # actually initiated the flow and is currently authenticated. Without this,
+    # an attacker could pre-seed a "link" state bound to a victim's user_id and
+    # trick the victim into authorizing — binding the attacker's OAuth identity
+    # to the victim's account (or vice versa). Require the session to match the
+    # state's user_id. Login flows (action="login", no user_id) are unaffected.
+    if oauth_state.action == "link" or oauth_state.user_id is not None:
+        if current_user is None or current_user.id != oauth_state.user_id:
+            logger.warning(
+                "OAuth callback: link user mismatch "
+                f"(state_user={oauth_state.user_id}, "
+                f"session_user={getattr(current_user, 'id', None)})"
+            )
+            db.delete(oauth_state)
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="Authentication required to link this account",
+            )
+    else:
+        # Login flow: bind to the browser that started /authorize. The nonce
+        # cookie must be present and match the value stored on the state row.
+        # Missing/mismatched cookie => the callback was not initiated by this
+        # browser (login CSRF / session fixation) — reject before issuing any
+        # session. Constant-time compare avoids leaking the nonce via timing.
+        presented_nonce = request.cookies.get(OAUTH_NONCE_COOKIE) if request else None
+        expected_nonce = oauth_state.login_nonce
+        if (
+            not expected_nonce
+            or not presented_nonce
+            or not secrets.compare_digest(presented_nonce, expected_nonce)
+        ):
+            logger.warning(
+                "OAuth callback: login nonce mismatch "
+                f"(state={state[:10]}..., cookie_present={presented_nonce is not None})"
+            )
+            db.delete(oauth_state)
+            db.commit()
+            # cookie_present distinguishes the two very different causes:
+            #   absent  -> the browser never got the nonce, i.e. /authorize ran
+            #              on a DIFFERENT ORIGIN than this callback (host-only
+            #              cookie, Path=/auth/oauth)
+            #   present -> a genuine mismatch (replay / crossed flows)
+            return _oauth_failure_redirect(
+                "nonce_missing" if not presented_nonce else "nonce_mismatch",
+                f"state={state[:10]}...",
+            )
 
     oauth_service = get_oauth_service()
 
@@ -209,10 +357,14 @@ async def oauth_callback(
         )
 
     except OAuthError as e:
-        logger.error(f"OAuth flow failed: {e}")
+        # Provider-side rejection: bad/expired code, redirect_uri_mismatch,
+        # unverified app. The provider's message is the ONLY place the real
+        # cause appears, so log it in full — it is not sensitive.
+        logger.error("OAuth token exchange failed: %s", e, exc_info=True)
         db.delete(oauth_state)
         db.commit()
-        raise HTTPException(status_code=400, detail=str(e))
+        response.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
+        return _oauth_failure_redirect("provider_rejected", str(e)[:200])
 
     # Find or create user
     is_new_user = False
@@ -244,30 +396,50 @@ async def oauth_callback(
     db.delete(oauth_state)
     db.commit()
 
-    # Create JWT token
-    from api.main import create_jwt_token, JWT_EXPIRY_HOURS
+    # Create JWT token. Mirror the passkey flow: put the user's real wallet
+    # address in the session so address-keyed features (portfolio, perps
+    # positions, the terminal header) work. Fall back to a synthetic identifier
+    # only when no wallet exists yet (e.g. Turnkey wasn't configured).
+    from api.main import JWT_EXPIRY_HOURS, _session_cookie_kwargs, create_jwt_token
+
+    wallet = (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user.id,
+            Wallet.is_active == True,
+        )
+        .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+        .first()
+    )
+    session_address = wallet.address if wallet else f"oauth:{provider}:{user_info.provider_user_id}"
     jwt_token = create_jwt_token(
-        address=f"oauth:{provider}:{user_info.provider_user_id}",
+        address=session_address,
         user_id=user.id,
+        src="weak",
     )
-    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
-
-    # Set cookie
-    response.set_cookie(
-        key="suwappu_auth",
-        value=jwt_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=JWT_EXPIRY_HOURS * 3600,
-        path="/",
-    )
-
-    # Redirect to frontend success page
-    redirect_url = oauth_state.redirect_uri or f"{settings.oauth_redirect_base}/dashboard"
+    # Redirect to frontend success page. Re-validate the stored redirect_uri as
+    # defense-in-depth — never emit a Location header to a non-allowlisted
+    # destination even if a state row was somehow persisted with a bad value.
+    redirect_url = oauth_state.redirect_uri
+    if not redirect_url or not _is_allowed_redirect(redirect_url):
+        default_base = settings.oauth_callback_base
+        redirect_url = f"{default_base}/dashboard"
     success_url = f"{redirect_url}?auth=success&provider={provider}"
 
-    return RedirectResponse(url=success_url, status_code=302)
+    success_redirect = RedirectResponse(url=success_url, status_code=302)
+    # The route returns this RedirectResponse, not FastAPI's injected ``response``.
+    # Set the session cookie on the object that actually leaves the server or a
+    # successful Google login returns to Terminal with no authenticated session.
+    success_redirect.set_cookie(
+        key="suwappu_auth",
+        value=jwt_token,
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
+        path="/",
+    )
+    # The one-time login nonce has served its purpose; clear it from the browser.
+    success_redirect.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
+    return success_redirect
 
 
 @router.post("/link", response_model=OAuthLinkResponse)
@@ -293,12 +465,18 @@ async def oauth_link(
         raise HTTPException(status_code=501, detail=f"OAuth not configured for {provider}")
 
     # Check if provider not already linked
-    existing = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id,
-        OAuthIdentity.provider == provider,
-    ).first()
+    existing = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.provider == provider,
+        )
+        .first()
+    )
     if existing:
-        raise HTTPException(status_code=400, detail=f"{provider.capitalize()} account already linked")
+        raise HTTPException(
+            status_code=400, detail=f"{provider.capitalize()} account already linked"
+        )
 
     oauth_service = get_oauth_service()
 
@@ -343,35 +521,46 @@ async def oauth_unlink(
         raise HTTPException(status_code=400, detail="Invalid OAuth provider")
 
     # Find identity to unlink
-    identity = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id,
-        OAuthIdentity.provider == provider,
-    ).first()
+    identity = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.provider == provider,
+        )
+        .first()
+    )
 
     if not identity:
         raise HTTPException(status_code=404, detail=f"{provider.capitalize()} account not linked")
 
     # Safety check - must have other auth methods
-    other_identities = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id,
-        OAuthIdentity.id != identity.id,
-    ).count()
+    other_identities = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.user_id == current_user.id,
+            OAuthIdentity.id != identity.id,
+        )
+        .count()
+    )
 
     has_telegram = current_user.telegram_id is not None
     has_wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).count() > 0
 
     if other_identities == 0 and not has_telegram and not has_wallet:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot unlink: this is your only authentication method"
+            status_code=400, detail="Cannot unlink: this is your only authentication method"
         )
 
     # If unlinking primary, promote another to primary
     if identity.is_primary and other_identities > 0:
-        new_primary = db.query(OAuthIdentity).filter(
-            OAuthIdentity.user_id == current_user.id,
-            OAuthIdentity.id != identity.id,
-        ).first()
+        new_primary = (
+            db.query(OAuthIdentity)
+            .filter(
+                OAuthIdentity.user_id == current_user.id,
+                OAuthIdentity.id != identity.id,
+            )
+            .first()
+        )
         if new_primary:
             new_primary.is_primary = True
 
@@ -394,9 +583,7 @@ async def get_oauth_identities(
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    identities = db.query(OAuthIdentity).filter(
-        OAuthIdentity.user_id == current_user.id
-    ).all()
+    identities = db.query(OAuthIdentity).filter(OAuthIdentity.user_id == current_user.id).all()
 
     return [
         OAuthIdentityResponse(
@@ -414,6 +601,7 @@ async def get_oauth_identities(
 
 # --- Helper Functions ---
 
+
 async def _find_or_create_user(
     db: Session,
     user_info: OAuthUserInfo,
@@ -425,10 +613,14 @@ async def _find_or_create_user(
     Returns (user, identity) if found, (None, None) otherwise.
     """
     # Check if OAuth identity exists
-    identity = db.query(OAuthIdentity).filter(
-        OAuthIdentity.provider == user_info.provider,
-        OAuthIdentity.provider_user_id == user_info.provider_user_id,
-    ).first()
+    identity = (
+        db.query(OAuthIdentity)
+        .filter(
+            OAuthIdentity.provider == user_info.provider,
+            OAuthIdentity.provider_user_id == user_info.provider_user_id,
+        )
+        .first()
+    )
 
     if identity:
         user = db.query(User).filter(User.id == identity.user_id).first()
@@ -559,9 +751,7 @@ async def _store_oauth_tokens(
     from bot.utils.envelope_crypto import encrypt_private_key_v2, encode_for_db
 
     # Delete existing tokens for this identity
-    db.query(OAuthToken).filter(
-        OAuthToken.identity_id == identity.id
-    ).delete()
+    db.query(OAuthToken).filter(OAuthToken.identity_id == identity.id).delete()
 
     # Calculate expiration
     expires_at = datetime.utcnow() + timedelta(seconds=tokens.expires_in)
@@ -576,11 +766,13 @@ async def _store_oauth_tokens(
     if tokens.refresh_token:
         refresh_encrypted = encrypt_private_key_v2(tokens.refresh_token)
         # Store as "wrapped_dek|nonce|ciphertext" to preserve all metadata
-        refresh_token_encrypted = "|".join([
-            base64.b64encode(refresh_encrypted.wrapped_dek).decode("ascii"),
-            base64.b64encode(refresh_encrypted.nonce).decode("ascii"),
-            base64.b64encode(refresh_encrypted.ciphertext).decode("ascii"),
-        ])
+        refresh_token_encrypted = "|".join(
+            [
+                base64.b64encode(refresh_encrypted.wrapped_dek).decode("ascii"),
+                base64.b64encode(refresh_encrypted.nonce).decode("ascii"),
+                base64.b64encode(refresh_encrypted.ciphertext).decode("ascii"),
+            ]
+        )
 
     # Create new token record
     oauth_token = OAuthToken(
@@ -614,9 +806,7 @@ def _get_oauth_access_token(db: Session, identity_id: int) -> Optional[str]:
     from bot.utils.envelope_crypto import decrypt_wallet_key
 
     # Query token
-    oauth_token = db.query(OAuthToken).filter(
-        OAuthToken.identity_id == identity_id
-    ).first()
+    oauth_token = db.query(OAuthToken).filter(OAuthToken.identity_id == identity_id).first()
 
     if not oauth_token:
         return None

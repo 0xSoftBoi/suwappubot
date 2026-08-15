@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "suwappu"
+version = "0.3.0"
+description = "Python SDK for Suwappu agent quotes, swaps, portfolio, perps, predictions, and lending"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Suwappu" }]
+keywords = ["suwappu", "dex", "cross-chain", "swap", "defi"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "httpx>=0.24",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.urls]
+Homepage = "https://suwappu.bot"
+Documentation = "https://suwappu.bot/docs"
+Repository = "https://github.com/0xSoftBoi/suwappubot"
+Source = "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk-python"
+Issues = "https://github.com/0xSoftBoi/suwappubot/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/suwappu"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/suwappu", "tests", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--strict-markers -v --tb=short"
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]

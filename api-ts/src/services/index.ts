@@ -5,15 +5,32 @@ export {
 	type UpdateAgentParams,
 } from './AgentService'
 export { type Alert, AlertService, AlertServiceLive, type CreateAlertParams } from './AlertService'
+export {
+	ApprovalService,
+	ApprovalServiceLive,
+	APPROVAL_TTL_MS,
+	type ApprovalServiceInterface,
+	type CreateApprovalInput,
+	hashCoreTerms,
+} from './ApprovalService'
 export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
-	type CopyTradeEntry,
+	AgentTrustService,
+	AgentTrustServiceLive,
+	type AgentTrustServiceInterface,
+	RECOVERY_INTERVAL_MS,
+	TRUST_DEFAULT,
+	TRUST_MAX,
+	TRUST_MIN,
+} from './AgentTrustService'
+export {
 	CopyTradingService,
 	CopyTradingServiceLive,
-	type FollowingEntry,
 	type FollowSettings,
+	type FollowTraderParams,
 	type TopTraderEntry,
 	type TraderProfileDetail,
+	type UpdateCopySettingsParams,
 } from './CopyTradingService'
 export {
 	type CreateDCAOrderParams,
@@ -53,6 +70,27 @@ export {
 	type UserPointsStats,
 } from './PointsService'
 export {
+	type PolicyDecisionResult,
+	type PolicyIntent,
+	PolicyService,
+	PolicyServiceLive,
+	type PolicyVerdict,
+} from './PolicyService'
+export {
+	type ClaimPayload,
+	type RewardsEntryView,
+	RewardsService,
+	RewardsServiceLive,
+	type RewardsSummaryView,
+} from './RewardsService'
+export {
+	type SeasonHistoryEntry,
+	type SeasonLeaderboardEntry,
+	type SeasonStanding,
+	SeasonsService,
+	SeasonsServiceLive,
+} from './SeasonsService'
+export {
 	cacheKeys,
 	QUOTE_TTL,
 	RedisService,
@@ -85,10 +123,68 @@ export {
 	CHAINS,
 	type ChainInfo,
 	COMMON_TOKENS,
+	TEMPO_TOKEN_DECIMALS,
 	type TokenInfo,
 	TokenService,
 	TokenServiceLive,
 } from './TokenService'
-export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet } from './TurnkeyService'
+export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet, type RawSignatureResult } from './TurnkeyService'
+export {
+	type PredictAddressParams,
+	type PredictAddressResult,
+	resolveViemChain,
+	type SendUserOperationParams,
+	type SendUserOperationResult,
+	type SmartAccountCall,
+	type SmartAccountConfig,
+	SmartAccountService,
+	type SmartAccountServiceInterface,
+	SmartAccountServiceLive,
+	SUPPORTED_SMART_ACCOUNT_CHAIN_IDS,
+} from './SmartAccountService'
 export { UserService, UserServiceLive } from './UserService'
 export { WalletService, WalletServiceLive } from './WalletService'
+export {
+	type HLMarket,
+	type HLPosition,
+	type HLPositionQuote,
+	HyperliquidService,
+	HyperliquidServiceLive,
+} from './HyperliquidService'
+export {
+	buildClobOrderBody,
+	type ClobApiCredentials,
+	type ClobOrder,
+	type ClobOrderType,
+	type ClobPosition,
+	type PlaceOrderParams,
+	type PredictionMarket,
+	type PredictionMarketDetail,
+	PolymarketService,
+	PolymarketServiceLive,
+	type SignedClobOrder,
+} from './PolymarketService'
+export {
+	PolymarketCredentialService,
+	PolymarketCredentialServiceLive,
+} from './PolymarketCredentialService'
+export {
+	type CreateOfferParams,
+	type ListOffersParams,
+	P2PService,
+	P2PServiceLive,
+	type P2PServiceInterface,
+} from './P2PService'
+export {
+	type LendingMarket,
+	type LendingMarketDetail,
+	MorphoService,
+	MorphoServiceLive,
+} from './MorphoService'
+export {
+	EventBus,
+	EventBusLive,
+	type EventBusInterface,
+	type SuwappuEvent,
+	type EventEnvelope,
+} from './EventBus'

@@ -1,0 +1,141 @@
+{
+  "pre_break": {
+    "n_obs": 16,
+    "n_diffs": 15,
+    "corr_dC_dL": 0.9126,
+    "beta_dC_on_dL": 0.8904,
+    "beta_nw_se": 0.0493,
+    "t_beta_eq_1": -2.22,
+    "t_beta_eq_0": 18.06
+  },
+  "post_break": {
+    "n_obs": 165,
+    "n_diffs": 164,
+    "corr_dC_dL": 0.968,
+    "beta_dC_on_dL": 0.9668,
+    "beta_nw_se": 0.0343,
+    "t_beta_eq_1": -0.97,
+    "t_beta_eq_0": 28.18
+  },
+  "buffer_post_break": {
+    "corr_B_L_levels": -0.0954,
+    "corr_dB_dL": -0.1312,
+    "mean_dB_usd": -140346.0,
+    "buffer_at_L_peak": {
+      "date": "2025-10-18",
+      "liabilities": 7687371715.0,
+      "buffer": 34296997.0,
+      "buffer_bp": 44.6
+    },
+    "buffer_max": {
+      "date": "2025-12-15",
+      "buffer": 760329016.0,
+      "liabilities": 4075496934.0
+    },
+    "share_steps_abs_dB_lt_10m": 0.622,
+    "terminal_drawdown": {
+      "note": "the buffer was wound down across 2026 and collapsed to measurement noise at sample end; the final-8-day move is discretionary (collateral fell far beyond liability decline)",
+      "buffer_2025_12_31": 296875434.0,
+      "buffer_2026_07_17": 122369228.0,
+      "buffer_2026_07_25": 5094148.0,
+      "final_8d_dCollateral": -192943891.0,
+      "final_8d_dLiabilities": -75668811.0
+    },
+    "largest_dB_steps": [
+      {
+        "from": "2025-10-26",
+        "to": "2025-10-28",
+        "dB": 113693932.0,
+        "dL": -298482229.0,
+        "dC": -184788297.0
+      },
+      {
+        "from": "2025-10-30",
+        "to": "2025-11-01",
+        "dB": -102306507.0,
+        "dL": -1316906763.0,
+        "dC": -1419213271.0
+      },
+      {
+        "from": "2025-11-03",
+        "to": "2025-11-05",
+        "dB": 393828476.0,
+        "dL": -1584225311.0,
+        "dC": -1190396835.0
+      },
+      {
+        "from": "2025-11-05",
+        "to": "2025-11-07",
+        "dB": -395385513.0,
+        "dL": 210607386.0,
+        "dC": -184778127.0
+      },
+      {
+        "from": "2025-12-07",
+        "to": "2025-12-09",
+        "dB": 508094651.0,
+        "dL": 210894981.0,
+        "dC": 718989631.0
+      },
+      {
+        "from": "2025-12-13",
+        "to": "2025-12-15",
+        "dB": 230055260.0,
+        "dL": 43019298.0,
+        "dC": 273074558.0
+      },
+      {
+        "from": "2025-12-15",
+        "to": "2025-12-17",
+        "dB": -597334116.0,
+        "dL": 13830054.0,
+        "dC": -583504062.0
+      },
+      {
+        "from": "2025-12-29",
+        "to": "2025-12-31",
+        "dB": 208543205.0,
+        "dL": 41698841.0,
+        "dC": 250242045.0
+      },
+      {
+        "from": "2025-12-31",
+        "to": "2026-01-02",
+        "dB": -111697457.0,
+        "dL": 50433298.0,
+        "dC": -61264158.0
+      },
+      {
+        "from": "2026-01-10",
+        "to": "2026-01-12",
+        "dB": 105099978.0,
+        "dL": -156280061.0,
+        "dC": -51180083.0
+      },
+      {
+        "from": "2026-02-23",
+        "to": "2026-02-25",
+        "dB": -146856768.0,
+        "dL": 275749119.0,
+        "dC": 128892351.0
+      }
+    ]
+  },
+  "pre_break_per_leg": {
+    "dLockbox_on_dNonPolygonL": {
+      "beta": 1.0182,
+      "nw_se": 0.0104,
+      "corr": 0.9953
+    },
+    "dPredicate_on_dPolygonL": {
+      "beta": 1.0845,
+      "nw_se": 0.0318,
+      "corr": 0.9903
+    },
+    "dLockPlusPred_on_dTotalL": {
+      "beta": 1.002,
+      "nw_se": 0.0149,
+      "corr": 0.9929
+    }
+  }
+}

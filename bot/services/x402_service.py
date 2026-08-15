@@ -4,59 +4,129 @@ import logging
 import hashlib
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 from decimal import Decimal
 
 from web3 import Web3
+from sqlalchemy.exc import IntegrityError
 
 from bot.config.settings import settings
 from bot.models.subscription import (
-    Subscription, SubscriptionTier, X402Payment, PaymentStatus, APICredit
+    Subscription,
+    SubscriptionTier,
+    X402Payment,
+    PaymentStatus,
+    APICredit,
+    ConsumedPayment,
 )
+from bot.services.fee_service import TIER_FEE_RATES
 from bot.services.wallet import WalletService
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-# Beta access passwords (case-insensitive)
-BETA_PASSWORDS = {
-    "waifu": SubscriptionTier.PREMIUM,      # Full premium access
-    "suwappu": SubscriptionTier.PRO,        # Pro access
-    "earlybird": SubscriptionTier.PRO,      # Pro access
+import os as _os
+
+
+def _load_beta_passwords() -> dict:
+    raw = _os.getenv("BETA_PASSWORDS", "")
+    result = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            code, tier_name = pair.split(":", 1)
+            try:
+                result[code.strip().lower()] = SubscriptionTier[tier_name.strip().upper()]
+            except KeyError:
+                pass
+    return result
+
+
+BETA_PASSWORDS = _load_beta_passwords()
+
+
+# Subscription tier limits.
+#
+# ``fee_rate`` is DERIVED from the canonical fee table in fee_service
+# (TIER_FEE_RATES) — the single source of truth for what's actually charged
+# on-chain. Do NOT hardcode the fee here: it would let this copy drift from the
+# fee the swap engine collects. Update fee_service.TIER_FEE_RATES instead.
+# EIP-712 domains for the x402 `exact` (EIP-3009) scheme, keyed by chain.
+#
+# MIRRORS api-ts/src/config/x402Networks.ts. That file is the authority; this is
+# the Python-side copy so the bot can build a signable authorization without
+# calling into the TS stack. tests/test_membership.py asserts the two agree,
+# because a wrong domain does not fail loudly — it produces a signature that
+# recovers to the wrong address and silently fails settlement.
+#
+# USDG's `version()` REVERTS, so its version was recovered by brute-forcing the
+# domain against the on-chain DOMAIN_SEPARATOR
+# (0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036).
+# Do not "fix" this by calling version().
+X402_EIP712_DOMAINS = {
+    "base": {"name": "USD Coin", "version": "2", "chain_id": 8453, "symbol": "USDC"},
+    "robinhood": {
+        "name": "Global Dollar",
+        "version": "1",
+        "chain_id": 4663,
+        "symbol": "USDG",
+    },
 }
 
-
-# Subscription tier limits
 TIER_LIMITS = {
     SubscriptionTier.FREE: {
-        "daily_swaps": 5,
+        "daily_swaps": None,  # Unlimited — revenue comes from swap fee
         "daily_api_calls": 100,
-        "max_swap_usd": 1000,
+        "max_swap_usd": None,  # No cap — fee applies to all volume
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.FREE],  # 1%
         "features": ["basic_swap", "balance", "history"],
         "price_usd": 0,
     },
     SubscriptionTier.PRO: {
-        "daily_swaps": 50,
+        "daily_swaps": None,  # Unlimited
         "daily_api_calls": 1000,
-        "max_swap_usd": 50000,
-        "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca", "portfolio"],
+        "max_swap_usd": None,  # No per-swap USD cap
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.PRO],  # 0.5%
+        "features": [
+            "basic_swap",
+            "balance",
+            "history",
+            "alerts",
+            "limit_orders",
+            "dca",
+            "portfolio",
+            "copy_trading",
+        ],
         "price_usd": 9.99,
     },
     SubscriptionTier.PREMIUM: {
-        "daily_swaps": 500,
+        "daily_swaps": None,  # Unlimited
         "daily_api_calls": 10000,
-        "max_swap_usd": 500000,
-        "features": ["basic_swap", "balance", "history", "alerts", "limit_orders", "dca", 
-                     "portfolio", "tax_export", "priority_execution", "custom_slippage"],
+        "max_swap_usd": None,  # No per-swap USD cap
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.PREMIUM],  # 0.3%
+        "features": [
+            "basic_swap",
+            "balance",
+            "history",
+            "alerts",
+            "limit_orders",
+            "dca",
+            "portfolio",
+            "tax_export",
+            "priority_execution",
+            "custom_slippage",
+            "copy_trading",
+        ],
         "price_usd": 29.99,
     },
     SubscriptionTier.ENTERPRISE: {
-        "daily_swaps": -1,  # Unlimited
+        "daily_swaps": -1,  # Unlimited (legacy sentinel)
         "daily_api_calls": -1,
         "max_swap_usd": -1,
+        "fee_rate": TIER_FEE_RATES[SubscriptionTier.ENTERPRISE],  # 0.1%
         "features": ["all"],
         "price_usd": 99.99,
     },
@@ -66,6 +136,7 @@ TIER_LIMITS = {
 @dataclass
 class X402PaymentRequest:
     """x402 payment request structure."""
+
     payment_id: str
     amount: float
     token_symbol: str
@@ -76,9 +147,10 @@ class X402PaymentRequest:
     expires_at: int  # Unix timestamp
 
 
-@dataclass 
+@dataclass
 class X402Receipt:
     """x402 payment receipt."""
+
     payment_id: str
     tx_hash: str
     amount: float
@@ -92,13 +164,13 @@ class X402Receipt:
 
 class X402Service:
     """Service for handling x402 payments and token-gated subscriptions."""
-    
+
     def __init__(self):
         self.wallet_service = WalletService()
-        
+
         # Payment recipient (your fee collector)
-        self.payment_recipient = getattr(settings, 'fee_collector_address', None)
-        
+        self.payment_recipient = getattr(settings, "fee_collector_address", None)
+
         # Supported payment tokens (USDC + native token per chain)
         self.payment_tokens = {
             "ethereum": {
@@ -149,41 +221,84 @@ class X402Service:
                 "USDC": "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
+            "tempo": {
+                # Tempo TIP-20 stablecoins (18 decimals). pathUSD is the primary
+                # payment token; the others are accepted fallbacks. Decimals are
+                # resolved per-address at verify time via get_decimals_by_address.
+                "pathUSD": "0x20c0000000000000000000000000000000000000",
+                "AlphaUSD": "0x20c0000000000000000000000000000000000001",
+                "BetaUSD": "0x20c0000000000000000000000000000000000002",
+                "ThetaUSD": "0x20c0000000000000000000000000000000000003",
+            },
+            "robinhood": {
+                # Robinhood Chain (4663) has NO USDC. Paxos USDG ("Global Dollar")
+                # is the anchor stablecoin, 6 decimals — same base-unit scale as
+                # USDC, so credit math needs no special-casing. Decimals are still
+                # resolved per-address at verify time via get_decimals_by_address
+                # (USDG is registered in bot/config/tokens.py under chain
+                # "robinhood"). USDG supports EIP-3009, so the x402 `exact` scheme
+                # works; its EIP-712 domain is name="Global Dollar", version="1"
+                # (derived by matching the on-chain DOMAIN_SEPARATOR — version()
+                # reverts on this contract, so do NOT try to read it).
+                "USDG": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
         }
-    
+
     # =========================================================================
     # Subscription Management
     # =========================================================================
-    
+
     async def get_subscription(self, user_id: int) -> Subscription:
         """Get or create user subscription."""
         with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
+            sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+
             if not sub:
                 sub = Subscription(user_id=user_id, tier=SubscriptionTier.FREE)
                 session.add(sub)
                 session.flush()
-            
+
             # Reset daily counters if needed
-            if sub.last_reset_date.date() < datetime.utcnow().date():
+            if sub.last_reset_date.date() < datetime.now(timezone.utc).date():
                 sub.api_calls_today = 0
-                sub.last_reset_date = datetime.utcnow()
-            
+                sub.last_reset_date = datetime.now(timezone.utc)
+
             return sub
-    
+
     async def get_tier(self, user_id: int) -> SubscriptionTier:
-        """Get user's current subscription tier."""
+        """User's current tier: max(database subscription, on-chain membership).
+
+        The SuwappuMembership NFT on Robinhood Chain is an additional way to hold
+        a paid tier (docs/plans/robinhood-membership-integration.md). The max()
+        rule keeps the two systems composable: Stripe/x402 subscriptions work
+        exactly as before, and the chain can only ever RAISE the tier. The
+        on-chain lookup is TTL-cached and fail-open — any failure returns None
+        and the DB tier stands, so an RPC outage can never strip a paying
+        subscriber mid-swap.
+        """
         sub = await self.get_subscription(user_id)
-        
-        # Check if subscription expired
-        if sub.expires_at and sub.expires_at < datetime.utcnow():
-            return SubscriptionTier.FREE
-        
-        return sub.tier
-    
+
+        # Subscription.expires_at is a timestamp-without-time-zone column, so
+        # PostgreSQL returns it as a naive datetime even though we persist UTC.
+        # Normalize before comparing against an aware UTC clock; otherwise a
+        # real paid subscription with an expiry raises TypeError here.
+        expires_at = sub.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        db_tier = sub.tier
+        if expires_at is not None and expires_at < datetime.now(timezone.utc):
+            db_tier = SubscriptionTier.FREE
+
+        try:
+            from bot.services.membership_service import membership_service
+
+            onchain = await membership_service.get_onchain_tier(user_id)
+            return membership_service.best_tier(db_tier, onchain)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Membership tier lookup failed for user {user_id}: {e}")
+            return db_tier
+
     async def upgrade_subscription(
         self,
         user_id: int,
@@ -193,95 +308,108 @@ class X402Service:
     ) -> Subscription:
         """Upgrade user subscription."""
         with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
+            sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+
             if not sub:
                 sub = Subscription(user_id=user_id)
                 session.add(sub)
-            
+
             sub.tier = tier
-            sub.started_at = datetime.utcnow()
-            sub.expires_at = datetime.utcnow() + timedelta(days=duration_days)
-            
+            sub.started_at = datetime.now(timezone.utc)
+            sub.expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
+
             logger.info(f"User {user_id} upgraded to {tier.value} for {duration_days} days")
             return sub
-    
-    async def activate_beta(self, user_id: int, password: str) -> tuple[bool, str, Optional[SubscriptionTier]]:
+
+    async def activate_beta(
+        self, user_id: int, password: str
+    ) -> tuple[bool, str, Optional[SubscriptionTier]]:
         """
         Activate beta access with a password.
-        
+
         Returns:
             (success, message, tier_granted)
         """
         password_lower = password.strip().lower()
-        
+
         if password_lower not in BETA_PASSWORDS:
             return False, "Invalid beta code. Try again!", None
-        
+
         tier = BETA_PASSWORDS[password_lower]
-        
+
         # Check if already has this tier or higher
         current_tier = await self.get_tier(user_id)
-        tier_order = [SubscriptionTier.FREE, SubscriptionTier.PRO, 
-                     SubscriptionTier.PREMIUM, SubscriptionTier.ENTERPRISE]
-        
-        if tier_order.index(current_tier) >= tier_order.index(tier):
-            return False, f"You already have {current_tier.value.upper()} access!", None
-        
+        tier_order = [
+            SubscriptionTier.FREE,
+            SubscriptionTier.PRO,
+            SubscriptionTier.PREMIUM,
+            SubscriptionTier.ENTERPRISE,
+        ]
+
+        try:
+            if tier_order.index(current_tier) >= tier_order.index(tier):
+                return False, f"You already have {current_tier.value.upper()} access!", None
+        except ValueError:
+            pass  # Unknown tier — proceed with upgrade
+
         # Grant beta access (lifetime = 365 days)
         await self.upgrade_subscription(user_id, tier, duration_days=365)
-        
-        logger.info(f"User {user_id} activated beta code '{password_lower}' -> {tier.value}")
-        return True, f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!", tier
-    
-    
+
+        logger.info(f"User {user_id} activated beta code -> {tier.value}")
+        return (
+            True,
+            f"🎉 Beta access activated! You now have **{tier.value.upper()}** for 1 year!",
+            tier,
+        )
+
     # =========================================================================
     # Feature Access Control
     # =========================================================================
-    
+
     async def check_feature_access(self, user_id: int, feature: str) -> bool:
         """Check if user has access to a feature."""
         tier = await self.get_tier(user_id)
         limits = TIER_LIMITS.get(tier, TIER_LIMITS[SubscriptionTier.FREE])
-        
+
         allowed_features = limits["features"]
         return "all" in allowed_features or feature in allowed_features
-    
+
     async def check_swap_limit(self, user_id: int, amount_usd: float) -> tuple[bool, str]:
         """Check if user can perform swap of given amount."""
         sub = await self.get_subscription(user_id)
         tier = await self.get_tier(user_id)
         limits = TIER_LIMITS.get(tier, TIER_LIMITS[SubscriptionTier.FREE])
-        
-        # Check daily swap count
+
+        # Check daily swap count.
+        # None = unlimited (paid tiers); -1 = unlimited (legacy ENTERPRISE sentinel).
         daily_limit = limits["daily_swaps"]
-        if daily_limit != -1 and sub.api_calls_today >= daily_limit:
+        if daily_limit is not None and daily_limit != -1 and sub.api_calls_today >= daily_limit:
             return False, f"Daily swap limit reached ({daily_limit}). Upgrade to increase limits."
-        
-        # Check max swap amount
+
+        # Check max swap amount.
+        # None = no cap (paid tiers); -1 = no cap (legacy ENTERPRISE sentinel).
         max_amount = limits["max_swap_usd"]
-        if max_amount != -1 and amount_usd > max_amount:
-            return False, f"Swap amount exceeds limit (${max_amount:,.0f}). Upgrade for higher limits."
-        
+        if max_amount is not None and max_amount != -1 and amount_usd > max_amount:
+            return (
+                False,
+                f"Swap amount exceeds limit (${max_amount:,.0f}). Upgrade for higher limits.",
+            )
+
         return True, "OK"
-    
+
     async def record_api_call(self, user_id: int) -> None:
         """Record an API call for rate limiting."""
         with get_session() as session:
-            sub = session.query(Subscription).filter(
-                Subscription.user_id == user_id
-            ).first()
-            
+            sub = session.query(Subscription).filter(Subscription.user_id == user_id).first()
+
             if sub:
                 sub.api_calls_today += 1
                 sub.api_calls_total += 1
-    
+
     # =========================================================================
     # x402 Payment Flow
     # =========================================================================
-    
+
     def create_payment_request(
         self,
         amount: float,
@@ -292,9 +420,9 @@ class X402Service:
     ) -> X402PaymentRequest:
         """Create an x402 payment request."""
         payment_id = f"x402_{secrets.token_hex(16)}"
-        
+
         token_address = self.payment_tokens.get(chain, {}).get(token_symbol, "")
-        
+
         return X402PaymentRequest(
             payment_id=payment_id,
             amount=amount,
@@ -305,7 +433,7 @@ class X402Service:
             memo=memo,
             expires_at=int(time.time()) + expires_in,
         )
-    
+
     async def create_subscription_payment(
         self,
         user_id: int,
@@ -314,14 +442,14 @@ class X402Service:
     ) -> X402PaymentRequest:
         """Create payment request for subscription upgrade."""
         price = TIER_LIMITS[tier]["price_usd"]
-        
+
         payment = self.create_payment_request(
             amount=price,
             token_symbol="USDC",
             chain=chain,
             memo=f"Suwappu {tier.value} subscription",
         )
-        
+
         # Record pending payment
         with get_session() as session:
             x402_payment = X402Payment(
@@ -335,133 +463,218 @@ class X402Service:
                 status=PaymentStatus.PENDING,
             )
             session.add(x402_payment)
-        
+
         return payment
-    
-    def _verify_transaction_on_chain(
+
+    def _verify_transaction_on_chain_sync(
         self,
         tx_hash: str,
         chain: str,
         expected_recipient: str,
         expected_amount: float,
         token_address: Optional[str] = None,
-    ) -> tuple[bool, str]:
-        """
-        Verify a transaction on-chain.
+    ) -> tuple[bool, str, Optional[str]]:
+        """Synchronous on-chain verification (runs in thread pool).
 
-        Args:
-            tx_hash: Transaction hash to verify
-            chain: Chain name (e.g., "base", "ethereum")
-            expected_recipient: Expected recipient address
-            expected_amount: Expected amount (in token units, not wei)
-            token_address: Token contract address (None for native token)
-
-        Returns:
-            (success, message) tuple
+        Returns (verified, message, sender) where ``sender`` is the on-chain
+        payer (the tx ``from`` for native transfers, or the Transfer event's
+        ``from`` for ERC20). SECURITY: callers MUST assert this sender is a wallet
+        bound to the authenticated principal (sender-spoof defense) — a stateless
+        recipient/amount check alone lets anyone redeem another user's inbound
+        payment txHash.
         """
         try:
-            # Get RPC URL for chain
             from bot.config.chains import get_chain_by_name
 
             chain_config = get_chain_by_name(chain)
             if not chain_config:
-                return False, f"Unsupported chain: {chain}"
+                return False, f"Unsupported chain: {chain}", None
 
-            rpc_url = chain_config.rpc_url
-            web3 = Web3(Web3.HTTPProvider(rpc_url))
+            from bot.services.rpc_manager import rpc_manager
+
+            web3 = rpc_manager.get_web3(chain)
 
             # Fetch transaction receipt
             try:
                 receipt = web3.eth.get_transaction_receipt(tx_hash)
             except Exception as e:
                 logger.error(f"Failed to fetch transaction receipt: {e}")
-                return False, f"Transaction not found: {tx_hash}"
+                return False, f"Transaction not found: {tx_hash}", None
 
             # Check transaction succeeded
-            if receipt.get('status') != 1:
-                return False, "Transaction failed on-chain"
+            if receipt.get("status") != 1:
+                return False, "Transaction failed on-chain", None
 
             # Normalize addresses
             expected_recipient = Web3.to_checksum_address(expected_recipient)
 
             # Verify native token transfer
             if not token_address or token_address == "0x0000000000000000000000000000000000000000":
-                # Get the full transaction to check value
                 tx = web3.eth.get_transaction(tx_hash)
 
-                # Check recipient
-                if not tx.get('to'):
-                    return False, "Missing recipient address"
+                if not tx.get("to"):
+                    return False, "Missing recipient address", None
 
-                actual_recipient = Web3.to_checksum_address(tx['to'])
+                sender = Web3.to_checksum_address(tx["from"]) if tx.get("from") else None
+
+                actual_recipient = Web3.to_checksum_address(tx["to"])
                 if actual_recipient != expected_recipient:
-                    return False, f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}"
+                    return (
+                        False,
+                        f"Recipient mismatch: expected {expected_recipient}, got {actual_recipient}",
+                        sender,
+                    )
 
-                # Check amount (with 1% tolerance for rounding)
-                actual_amount = Decimal(tx['value']) / Decimal(10**18)  # Convert wei to ETH
+                actual_amount = Decimal(tx["value"]) / Decimal(10**18)
                 expected_decimal = Decimal(str(expected_amount))
                 min_amount = expected_decimal * Decimal("0.99")
 
                 if actual_amount < min_amount:
-                    return False, f"Amount too low: expected {expected_amount}, got {actual_amount}"
+                    return (
+                        False,
+                        f"Amount too low: expected {expected_amount}, got {actual_amount}",
+                        sender,
+                    )
 
-                return True, "Native token transfer verified"
+                return True, "Native token transfer verified", sender
 
             # Verify ERC20 token transfer
             else:
-                # ERC20 Transfer event signature
                 transfer_topic = web3.keccak(text="Transfer(address,address,uint256)").hex()
                 token_address_checksum = Web3.to_checksum_address(token_address)
 
-                # Find Transfer event in logs
-                for log in receipt.get('logs', []):
-                    log_address = Web3.to_checksum_address(log.get('address', ''))
+                for log in receipt.get("logs", []):
+                    log_address = Web3.to_checksum_address(log.get("address", ""))
 
-                    # Check if this log is from the expected token contract
                     if log_address != token_address_checksum:
                         continue
 
-                    # Check if this is a Transfer event
-                    topics = log.get('topics', [])
+                    topics = log.get("topics", [])
                     if not topics or topics[0].hex() != transfer_topic:
                         continue
 
-                    # Decode Transfer event: Transfer(address indexed from, address indexed to, uint256 value)
                     if len(topics) < 3:
                         continue
 
-                    # Extract 'to' address from topics[2]
+                    # topics[1] = Transfer `from` (the payer), topics[2] = `to`.
+                    from_address = Web3.to_checksum_address("0x" + topics[1].hex()[-40:])
                     to_address = Web3.to_checksum_address("0x" + topics[2].hex()[-40:])
 
-                    # Check recipient matches
                     if to_address != expected_recipient:
                         continue
 
-                    # Extract amount from data
-                    data = log.get('data', '0x')
+                    data = log.get("data", "0x")
                     if isinstance(data, str):
-                        amount_wei = int(data, 16) if data != '0x' else 0
+                        amount_wei = int(data, 16) if data != "0x" else 0
                     else:
-                        amount_wei = int.from_bytes(data, byteorder='big')
+                        amount_wei = int.from_bytes(data, byteorder="big")
 
-                    # Get token decimals (most stablecoins use 6 decimals)
-                    decimals = 6  # USDC standard
+                    # Resolve token decimals from the canonical token config so
+                    # non-6dp stablecoins (e.g. Tempo TIP-20 pathUSD/AlphaUSD/
+                    # BetaUSD/ThetaUSD = 18dp) are scaled correctly. Falls back to
+                    # 6 (USDC standard) when the address is unknown.
+                    try:
+                        from bot.config.tokens import get_decimals_by_address
+
+                        decimals = get_decimals_by_address(token_address, chain)
+                    except Exception:
+                        decimals = 6
                     actual_amount = Decimal(amount_wei) / Decimal(10**decimals)
 
-                    # Check amount (with 1% tolerance)
                     expected_decimal = Decimal(str(expected_amount))
                     min_amount = expected_decimal * Decimal("0.99")
 
                     if actual_amount < min_amount:
-                        return False, f"Amount too low: expected {expected_amount}, got {actual_amount}"
+                        return (
+                            False,
+                            f"Amount too low: expected {expected_amount}, got {actual_amount}",
+                            from_address,
+                        )
 
-                    return True, "ERC20 transfer verified"
+                    return True, "ERC20 transfer verified", from_address
 
-                return False, f"No matching Transfer event found for token {token_address}"
+                return False, f"No matching Transfer event found for token {token_address}", None
 
         except Exception as e:
             logger.error(f"On-chain verification error: {e}")
-            return False, f"Verification failed: {str(e)}"
+            return False, f"Verification failed: {str(e)}", None
+
+    async def _verify_transaction_on_chain(
+        self,
+        tx_hash: str,
+        chain: str,
+        expected_recipient: str,
+        expected_amount: float,
+        token_address: Optional[str] = None,
+    ) -> tuple[bool, str, Optional[str]]:
+        """Verify a transaction on-chain without blocking the event loop.
+
+        Returns (verified, message, sender) — see the sync variant.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(
+            self._verify_transaction_on_chain_sync,
+            tx_hash,
+            chain,
+            expected_recipient,
+            expected_amount,
+            token_address,
+        )
+
+    def _user_bound_evm_wallets(self, user_id: int) -> List[str]:
+        """Lowercased EVM wallet addresses bound to ``user_id`` (sender-spoof set)."""
+        try:
+            wallets = self.wallet_service.get_user_wallets(user_id, chain_type="evm")
+        except Exception as e:  # pragma: no cover - defensive
+            logger.error(f"Failed to load bound wallets for user {user_id}: {e}")
+            return []
+        return [w.address.lower() for w in wallets if getattr(w, "address", None)]
+
+    @staticmethod
+    def _sender_is_bound(sender: Optional[str], bound_wallets: List[str]) -> bool:
+        """Sender-spoof defense: the on-chain payer must be one of the caller's
+        bound EVM wallets. Fail closed if the sender could not be resolved.
+
+        Mirrors api-ts ``assertSenderBound`` (paymentConsumption.ts).
+        """
+        if not sender:
+            return False
+        return sender.lower() in bound_wallets
+
+    def _consume_shared_payment(
+        self,
+        session,
+        chain: str,
+        tx_hash: str,
+        purpose: str,
+        consumed_by: Optional[str] = None,
+    ) -> bool:
+        """Atomically consume ``(chain, tx_hash)`` in the SHARED consumed_payments
+        ledger (same table api-ts writes). Uses a SAVEPOINT so a UNIQUE-constraint
+        violation (already consumed anywhere — replay or cross-surface reuse) is
+        caught WITHOUT poisoning the outer transaction.
+
+        Returns True  → this caller won the consume; safe to credit/grant.
+        Returns False → already consumed (replay / cross-path double-redeem) →
+                        the caller MUST NOT credit.
+        """
+        norm_chain = (chain or "").strip().lower()
+        norm_tx = (tx_hash or "").strip().lower()
+        try:
+            with session.begin_nested():
+                session.add(
+                    ConsumedPayment(
+                        chain=norm_chain,
+                        tx_hash=norm_tx,
+                        purpose=purpose,
+                        consumed_by=consumed_by,
+                    )
+                )
+                session.flush()
+            return True
+        except IntegrityError:
+            return False
 
     async def verify_payment(
         self,
@@ -470,20 +683,20 @@ class X402Service:
     ) -> tuple[bool, str]:
         """Verify an x402 payment transaction."""
         with get_session() as session:
-            payment = session.query(X402Payment).filter(
-                X402Payment.payment_id == payment_id
-            ).first()
-            
+            payment = (
+                session.query(X402Payment).filter(X402Payment.payment_id == payment_id).first()
+            )
+
             if not payment:
                 return False, "Payment not found"
-            
+
             if payment.status == PaymentStatus.COMPLETED:
                 return True, "Already completed"
 
             # Verify transaction on-chain
             try:
                 # Verify the transaction matches payment parameters
-                success, message = self._verify_transaction_on_chain(
+                success, message, sender = await self._verify_transaction_on_chain(
                     tx_hash=tx_hash,
                     chain=payment.chain,
                     expected_recipient=self.payment_recipient,
@@ -496,10 +709,50 @@ class X402Service:
                     logger.warning(f"Payment {payment_id} verification failed: {message}")
                     return False, f"Verification failed: {message}"
 
+                # SECURITY (sender-spoof): the recipient/amount checks alone let
+                # ANYONE paste another user's valid inbound tx_hash to the shared
+                # collector and get upgraded. Bind the on-chain payer to one of
+                # THIS user's EVM wallets. Fail closed if we can't resolve it.
+                bound_wallets = self._user_bound_evm_wallets(payment.user_id)
+                if not self._sender_is_bound(sender, bound_wallets):
+                    payment.status = PaymentStatus.FAILED
+                    logger.warning(
+                        f"Payment {payment_id} sender-spoof rejected: on-chain payer "
+                        f"{sender} is not a wallet bound to user {payment.user_id}"
+                    )
+                    return (
+                        False,
+                        "Payment sender does not match your wallet (sender-spoof rejected).",
+                    )
+
+                # SECURITY (replay / cross-surface double-redeem): X402Payment.tx_hash
+                # is NOT unique and the per-payment_id status guard only protects THIS
+                # order, so one valid tx_hash could be redeemed across many payment_id
+                # orders AND on the api-ts surfaces. Consume (chain, tx_hash) in the
+                # SHARED ledger FIRST — the same global guard api-ts uses — so a given
+                # payment buys exactly one redemption across BOTH settlement domains.
+                consumed = self._consume_shared_payment(
+                    session,
+                    chain=payment.chain,
+                    tx_hash=tx_hash,
+                    purpose="bot_x402",
+                    consumed_by=str(payment.user_id),
+                )
+                if not consumed:
+                    payment.status = PaymentStatus.FAILED
+                    logger.warning(
+                        f"Payment {payment_id} rejected: tx_hash {tx_hash} already "
+                        f"consumed (replay / cross-surface double-redeem)."
+                    )
+                    return (
+                        False,
+                        "This payment has already been used. Each payment is valid once.",
+                    )
+
                 # Mark as completed
                 payment.tx_hash = tx_hash
                 payment.status = PaymentStatus.COMPLETED
-                payment.completed_at = datetime.utcnow()
+                payment.completed_at = datetime.now(timezone.utc)
 
                 logger.info(f"Payment {payment_id} verified on-chain: {message}")
 
@@ -511,65 +764,92 @@ class X402Service:
                     )
                 elif payment.product_type == "api_credits":
                     await self._add_api_credits(payment.user_id, payment.amount)
-                
+
                 logger.info(f"Payment {payment_id} verified and completed")
                 return True, "Payment verified"
-                
+
             except Exception as e:
                 payment.status = PaymentStatus.FAILED
                 logger.error(f"Payment verification failed: {e}")
                 return False, str(e)
-    
-    
+
     # =========================================================================
     # API Credits
     # =========================================================================
-    
+
     async def get_credits(self, user_id: int) -> float:
         """Get user's API credit balance."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(
-                APICredit.user_id == user_id
-            ).first()
-            
+            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+
             return credits.balance if credits else 0
-    
+
     async def _add_api_credits(self, user_id: int, amount: float) -> None:
-        """Add API credits to user account."""
+        """Add API credits to user account.
+
+        Takes the same row lock as every other balance mutation. Locking only
+        the debit side still loses updates: an unlocked top-up
+        read-modify-write can interleave with a concurrent LLM debit and write
+        back a balance computed before that debit, silently erasing it.
+        """
         with get_session() as session:
-            credits = session.query(APICredit).filter(
-                APICredit.user_id == user_id
-            ).first()
-            
+
+            def _locked():
+                return (
+                    session.query(APICredit)
+                    .filter(APICredit.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
+
+            credits = _locked()
             if not credits:
-                credits = APICredit(user_id=user_id)
-                session.add(credits)
-            
+                # FOR UPDATE cannot lock a row that doesn't exist yet: two
+                # concurrent first-time grants both reach the INSERT and
+                # user_id is UNIQUE, so the loser raises IntegrityError. That
+                # would consume an on-chain payment without crediting it, so
+                # recover and re-read the winner's row under the lock.
+                try:
+                    credits = APICredit(user_id=user_id)
+                    session.add(credits)
+                    session.flush()
+                except IntegrityError:
+                    session.rollback()
+                    credits = _locked()
+                    if credits is None:
+                        raise
+
             credits.balance += amount
             credits.lifetime_purchased += amount
-    
+
     async def use_credits(self, user_id: int, amount: float) -> bool:
         """Use API credits. Returns True if successful."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(
-                APICredit.user_id == user_id
-            ).first()
-            
+            # Row lock: llm_credit_service.record_usage debits this same row
+            # under FOR UPDATE; an unlocked read-modify-write here could
+            # interleave and silently erase a concurrent LLM debit.
+            credits = (
+                session.query(APICredit)
+                .filter(APICredit.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
+
             if not credits or credits.balance < amount:
                 return False
-            
+
             credits.balance -= amount
             credits.lifetime_used += amount
             return True
-    
+
     # =========================================================================
     # Helpers
     # =========================================================================
-    
+
     def get_tier_info(self, tier: SubscriptionTier) -> Dict[str, Any]:
         """Get information about a subscription tier."""
         return TIER_LIMITS.get(tier, TIER_LIMITS[SubscriptionTier.FREE])
-    
+
     def get_all_tiers(self) -> Dict[SubscriptionTier, Dict[str, Any]]:
         """Get all tier information."""
         return TIER_LIMITS
@@ -577,4 +857,3 @@ class X402Service:
 
 # Global instance
 x402_service = X402Service()
-

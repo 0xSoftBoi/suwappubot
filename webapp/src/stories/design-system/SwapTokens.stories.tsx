@@ -19,7 +19,7 @@ function Swatch({ name, color, dark }: { name: string; color: string; dark?: boo
   return (
     <div className="flex items-center gap-3">
       <div
-        className="w-12 h-12 rounded-suwappu-lg shadow-suwappu-2 flex-shrink-0 ring-1 ring-black/5"
+        className="w-12 h-12 rounded-suwappu-lg shadow-suwappu-2 shrink-0 ring-1 ring-black/5"
         style={{ backgroundColor: color }}
       />
       <div>
@@ -68,7 +68,7 @@ export const PriceImpactScale: Story = {
             { level: 'severe', pct: '> 5%', desc: 'Strongly recommend splitting', color: designTokens.colors.impact.severe },
           ].map((item) => (
             <div key={item.level} className="flex items-center gap-3 p-3 rounded-suwappu-lg bg-white shadow-suwappu-1">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
               <div className="flex-1">
                 <span className="font-heading font-semibold text-sm capitalize">{item.level}</span>
                 <span className="text-suwappu-text-secondary text-xs ml-2">{item.pct}</span>
@@ -185,7 +185,7 @@ export const ChainColors: Story = {
               className="w-14 h-14 rounded-full mx-auto shadow-suwappu-2 flex items-center justify-center ring-2 ring-white"
               style={{ backgroundColor: color }}
             >
-              <span className="text-white text-xs font-bold drop-shadow-sm">
+              <span className="text-white text-xs font-bold drop-shadow-xs">
                 {name.slice(0, 3).toUpperCase()}
               </span>
             </div>
@@ -285,7 +285,7 @@ export const ProviderColors: Story = {
             return (
               <div key={key} className="flex items-center gap-3 p-3 rounded-suwappu-lg bg-white shadow-suwappu-1">
                 <div
-                  className="w-10 h-10 rounded-suwappu-sm flex-shrink-0 flex items-center justify-center"
+                  className="w-10 h-10 rounded-suwappu-sm shrink-0 flex items-center justify-center"
                   style={{ backgroundColor: color }}
                 >
                   <span className="text-white text-[10px] font-bold">{key.slice(0, 3).toUpperCase()}</span>
@@ -541,18 +541,18 @@ export const SwapTimingPresets: Story = {
 export const DarkMode: Story = {
   name: 'Dark Mode Variants',
   render: () => (
-    <div className="dark p-8 min-h-screen" style={{ backgroundColor: designTokens.colors.dark.background }}>
-      <h1 className="font-heading text-2xl font-bold mb-2" style={{ color: designTokens.colors.dark.textPrimary }}>
+    <div className="dark p-8 min-h-screen" style={{ backgroundColor: designTokens.colors.surface.sakura.background }}>
+      <h1 className="font-heading text-2xl font-bold mb-2" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
         Dark Mode — Swap Tokens
       </h1>
-      <p className="font-body text-sm mb-8" style={{ color: designTokens.colors.dark.textSecondary }}>
+      <p className="font-body text-sm mb-8" style={{ color: designTokens.colors.surface.sakura.textSecondary }}>
         All swap tokens maintain contrast and readability in dark mode.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Impact badges on dark */}
-        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.dark.surface }}>
-          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.dark.textPrimary }}>
+        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.surface.sakura.surface }}>
+          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
             Impact Badges
           </h4>
           <div className="flex flex-wrap gap-2">
@@ -570,8 +570,8 @@ export const DarkMode: Story = {
         </div>
 
         {/* TX state badges on dark */}
-        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.dark.surface }}>
-          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.dark.textPrimary }}>
+        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.surface.sakura.surface }}>
+          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
             Transaction States
           </h4>
           <div className="flex flex-wrap gap-2">
@@ -589,8 +589,8 @@ export const DarkMode: Story = {
         </div>
 
         {/* Chain badges on dark */}
-        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.dark.surface }}>
-          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.dark.textPrimary }}>
+        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.surface.sakura.surface }}>
+          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
             Chain Badges
           </h4>
           <div className="flex flex-wrap gap-2">
@@ -598,7 +598,7 @@ export const DarkMode: Story = {
               <div
                 key={name}
                 className="w-8 h-8 rounded-full flex items-center justify-center ring-2"
-                style={{ backgroundColor: color, outlineColor: designTokens.colors.dark.surface }}
+                style={{ backgroundColor: color, outlineColor: designTokens.colors.surface.sakura.surface }}
               >
                 <span className="text-white text-[8px] font-bold">{name.slice(0, 2).toUpperCase()}</span>
               </div>
@@ -607,8 +607,8 @@ export const DarkMode: Story = {
         </div>
 
         {/* Provider badges on dark */}
-        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.dark.surface }}>
-          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.dark.textPrimary }}>
+        <div className="p-4 rounded-suwappu-lg" style={{ backgroundColor: designTokens.colors.surface.sakura.surface }}>
+          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
             Provider Logos
           </h4>
           <div className="flex flex-wrap gap-2">
@@ -625,24 +625,24 @@ export const DarkMode: Story = {
         </div>
 
         {/* Animations on dark */}
-        <div className="p-4 rounded-suwappu-lg md:col-span-2" style={{ backgroundColor: designTokens.colors.dark.surface }}>
-          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.dark.textPrimary }}>
+        <div className="p-4 rounded-suwappu-lg md:col-span-2" style={{ backgroundColor: designTokens.colors.surface.sakura.surface }}>
+          <h4 className="font-heading font-semibold text-sm mb-3" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
             Animations
           </h4>
           <div className="flex items-center gap-6">
             <div className="text-center">
               <div className="suwappu-pulse-pending w-4 h-4 rounded-full mx-auto" style={{ backgroundColor: designTokens.colors.txState.pending }} />
-              <span className="text-[10px] mt-1 block" style={{ color: designTokens.colors.dark.textSecondary }}>pending</span>
+              <span className="text-[10px] mt-1 block" style={{ color: designTokens.colors.surface.sakura.textSecondary }}>pending</span>
             </div>
             <div className="text-center">
               <div className="h-3 w-24 rounded suwappu-quote-shimmer opacity-40" />
-              <span className="text-[10px] mt-1 block" style={{ color: designTokens.colors.dark.textSecondary }}>shimmer</span>
+              <span className="text-[10px] mt-1 block" style={{ color: designTokens.colors.surface.sakura.textSecondary }}>shimmer</span>
             </div>
             <div className="text-center">
-              <span className="suwappu-price-up font-heading font-bold px-2 py-0.5 rounded" style={{ color: designTokens.colors.dark.textPrimary }}>
+              <span className="suwappu-price-up font-heading font-bold px-2 py-0.5 rounded" style={{ color: designTokens.colors.surface.sakura.textPrimary }}>
                 $1,245
               </span>
-              <span className="text-[10px] mt-1 block" style={{ color: designTokens.colors.dark.textSecondary }}>price up</span>
+              <span className="text-[10px] mt-1 block" style={{ color: designTokens.colors.surface.sakura.textSecondary }}>price up</span>
             </div>
           </div>
         </div>

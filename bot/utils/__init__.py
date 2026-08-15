@@ -25,4 +25,3 @@ __all__ = [
     "handle_swap_error",
     "get_error_message",
 ]
-

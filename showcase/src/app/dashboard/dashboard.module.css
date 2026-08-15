@@ -1,0 +1,1309 @@
+/* ================================================================
+   Enterprise Dashboard — scoped styles
+   Relies on the summer-page token layer in globals.css for all
+   --summer-* custom properties.
+   ================================================================ */
+
+/* ── Shell ── */
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* ── Top header bar ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  margin-bottom: 28px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(33, 88, 110, 0.08);
+}
+
+.orgName {
+  margin: 0;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.22rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tierBadge {
+  flex: 0 0 auto;
+  border: 1px solid rgba(229, 141, 43, 0.5);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: linear-gradient(180deg, rgba(246, 169, 60, 0.18), rgba(229, 141, 43, 0.12));
+  color: #b96a12;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.headerSep {
+  flex: 1;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userName {
+  color: var(--summer-ink, #17324a);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.roleBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.roleBadge--owner {
+  background: rgba(229, 141, 43, 0.14);
+  border: 1px solid rgba(229, 141, 43, 0.4);
+  color: #b96a12;
+}
+
+.roleBadge--admin {
+  background: rgba(14, 149, 189, 0.12);
+  border: 1px solid rgba(14, 149, 189, 0.36);
+  color: #0b789a;
+}
+
+.roleBadge--member {
+  background: rgba(33, 88, 110, 0.08);
+  border: 1px solid rgba(33, 88, 110, 0.2);
+  color: #345069;
+}
+
+.roleBadge--viewer {
+  background: rgba(142, 182, 197, 0.12);
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  color: #5a7184;
+}
+
+.signOutBtn {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.signOutBtn:hover {
+  border-color: rgba(33, 88, 110, 0.4);
+  background: rgba(237, 248, 251, 0.9);
+}
+
+/* ── KPI card row — 6 tiles ── */
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.kpiCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.07);
+  transition: box-shadow 0.2s ease;
+}
+
+.kpiCard:hover {
+  box-shadow: 0 16px 32px rgba(33, 88, 110, 0.12);
+}
+
+/* Status indicator dot — top-right corner */
+.kpiDot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.kpiLabel {
+  margin: 0;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.kpiValue {
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ── Section card (chart, tables, billing) ── */
+.card {
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 28px rgba(33, 88, 110, 0.07);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--summer-ink, #17324a);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* ── Team / API keys table ── */
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid rgba(207, 227, 234, 0.8);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.table th {
+  padding: 10px 14px;
+  background: rgba(237, 248, 251, 0.6);
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.76);
+}
+
+.table td {
+  padding: 12px 14px;
+  color: var(--summer-ink, #17324a);
+  font-size: 0.88rem;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.6);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tr:hover td {
+  background: rgba(237, 248, 251, 0.45);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: #0b789a;
+}
+
+/* ── Scope pills ── */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pill {
+  border: 1px solid rgba(14, 149, 189, 0.28);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+/* ── Action buttons in table cells ── */
+.actionBtn {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--summer-muted, #345069);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.actionBtn:hover {
+  border-color: rgba(212, 72, 63, 0.4);
+  color: #c0392b;
+}
+
+.actionBtn--create {
+  color: #0b789a;
+}
+
+.actionBtn--create:hover {
+  border-color: rgba(14, 149, 189, 0.5);
+  color: #0b789a;
+}
+
+/* ── Billing section ── */
+.billingPlanRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.billingPlan {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid rgba(229, 141, 43, 0.36);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(246, 169, 60, 0.1), rgba(229, 141, 43, 0.06));
+}
+
+.billingPlanName {
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.96rem;
+}
+
+.billingMeta {
+  color: var(--summer-muted, #345069);
+  font-size: 0.86rem;
+}
+
+/* Active / inactive status pill */
+.billingStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.09);
+  color: #1e8449;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.billingStatusPill[data-status='past_due'],
+.billingStatusPill[data-status='unpaid'] {
+  border-color: rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.09);
+  color: #c0392b;
+}
+
+.billingStatusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.billingLink {
+  margin-left: auto;
+}
+
+/* Billing metrics block */
+.billingMetrics {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.billingMetric {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.billingMetricLabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+}
+
+/* Horizontal progress meters */
+.meterTrack {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(207, 227, 234, 0.6);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #27bdf0, #0b8bc7);
+  transition: width 0.4s ease;
+}
+
+.billingWarn {
+  margin: 4px 0 0;
+  color: #b96a12;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+/* ── Section kicker label ── */
+.kicker {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ── Proportion bar (top endpoints table) ── */
+.propBarTrack {
+  height: 6px;
+  width: 100%;
+  min-width: 80px;
+  border-radius: 999px;
+  background: rgba(207, 227, 234, 0.5);
+  overflow: hidden;
+}
+
+.propBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #27bdf0, #0b8bc7);
+  transition: width 0.3s ease;
+}
+
+/* ── Latency placeholder ── */
+.latencyPlaceholder {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px dashed rgba(207, 227, 234, 0.8);
+  border-radius: 10px;
+  background: rgba(237, 248, 251, 0.4);
+}
+
+.latencyPlaceholderIcon {
+  font-size: 1.4rem;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.latencyPlaceholderTitle {
+  margin: 0 0 4px;
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.latencyPlaceholderSub {
+  margin: 0;
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+/* ── API key status badge ── */
+.keyStatusBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.keyStatus--active {
+  background: rgba(39, 174, 96, 0.1);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+  color: #1e8449;
+}
+
+.keyStatus--expiring {
+  background: rgba(229, 176, 43, 0.12);
+  border: 1px solid rgba(229, 176, 43, 0.4);
+  color: #9a6b00;
+}
+
+.keyStatus--expired {
+  background: rgba(192, 57, 43, 0.1);
+  border: 1px solid rgba(192, 57, 43, 0.3);
+  color: #c0392b;
+}
+
+.keyStatus--revoked {
+  background: rgba(142, 182, 197, 0.12);
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  color: #5a7184;
+}
+
+/* ── Modal overlay ── */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(23, 50, 74, 0.36);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  width: min(480px, 100%);
+  padding: 28px 28px 24px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 48px rgba(33, 88, 110, 0.18);
+}
+
+.modalTitle {
+  margin: 0 0 20px;
+  color: var(--summer-ink, #17324a);
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.fieldLabelText {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fieldInput {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.fieldInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.scopeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.scopeCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(207, 227, 234, 0.8);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.scopeCheck:has(input:checked) {
+  border-color: rgba(14, 149, 189, 0.5);
+  background: rgba(14, 149, 189, 0.07);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* ── Login / auth gate page ── */
+.loginPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.loginCard {
+  width: min(440px, 100%);
+  padding: 40px 36px 32px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 48px rgba(33, 88, 110, 0.12);
+  text-align: center;
+}
+
+.loginLogo {
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 20px;
+}
+
+.loginTitle {
+  margin: 0 0 6px;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.loginLead {
+  margin: 0 0 28px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.loginDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--summer-muted, #345069);
+  font-size: 0.8rem;
+}
+
+.loginDivider::before,
+.loginDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(207, 227, 234, 0.8);
+}
+
+.tokenInput {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.tokenInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.tokenSubmit {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(237, 248, 251, 0.8);
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tokenSubmit:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.loginError {
+  margin-top: 10px;
+  color: #c0392b;
+  font-size: 0.82rem;
+}
+
+/* ── Loading / error states ── */
+.stateBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  gap: 12px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.94rem;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(14, 149, 189, 0.2);
+  border-top-color: #27bdf0;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Chart wrapper ── */
+.chartWrap {
+  margin-top: 4px;
+  padding: 12px 4px 4px;
+  border: 1px solid rgba(207, 227, 234, 0.76);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(224, 247, 249, 0.76) 58%, rgba(255, 247, 231, 0.6));
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .kpiRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .kpiRow {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .kpiValue {
+    font-size: 1.45rem;
+  }
+
+  .scopeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .billingPlanRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .billingLink {
+    margin-left: 0;
+  }
+}
+
+/* ── Billing panel (components/BillingPanel.tsx) ───────────────────────────── */
+
+.billingBlock {
+  padding: 18px 0;
+  border-top: 1px solid rgba(207, 227, 234, 0.7);
+}
+
+.billingBlock:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.billingBlockTitle {
+  margin: 0 0 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(33, 88, 110, 0.72);
+}
+
+.billingNotice,
+.billingError {
+  margin: 0 0 14px;
+  padding: 10px 13px;
+  border-radius: 9px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.billingNotice {
+  border: 1px solid rgba(126, 178, 196, 0.55);
+  background: rgba(207, 233, 241, 0.42);
+  color: #1d5a70;
+}
+
+.billingError {
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+}
+
+/* Pack / plan cards */
+
+.packGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.packCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 15px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.7);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.packCard:hover {
+  border-color: rgba(142, 182, 197, 0.95);
+  box-shadow: 0 10px 22px rgba(33, 88, 110, 0.08);
+  transform: translateY(-1px);
+}
+
+.packCard[data-current] {
+  border-color: rgba(126, 178, 196, 0.95);
+  background: rgba(226, 241, 246, 0.6);
+}
+
+.packHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.packName {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1d4f63;
+}
+
+.packPrice {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.88rem;
+  color: rgba(33, 88, 110, 0.85);
+}
+
+.packBlurb {
+  margin: 0;
+  flex: 1;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgba(33, 88, 110, 0.68);
+}
+
+/* Credit balance summary */
+
+.creditSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 11px;
+  background: rgba(240, 249, 252, 0.7);
+}
+
+.creditBalance {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.creditBalanceLabel {
+  font-size: 0.74rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(33, 88, 110, 0.62);
+}
+
+.creditBalanceValue {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 1.85rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #17475a;
+}
+
+.creditBalanceUsd {
+  font-size: 0.8rem;
+  color: rgba(33, 88, 110, 0.66);
+}
+
+.creditStats {
+  display: flex;
+  gap: 26px;
+}
+
+.creditStats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.invoiceLink {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #1d6d88;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(29, 109, 136, 0.35);
+}
+
+.invoiceLink:hover {
+  border-bottom-color: rgba(29, 109, 136, 0.85);
+}
+
+@media (max-width: 640px) {
+  .creditSummary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ── Tab navigation ─────────────────────────────────────────────────────────
+   Replaces a seven-card vertical scroll. Underline-style rather than pill
+   buttons so the nav reads as navigation, not as seven more actions
+   competing with the page's real CTAs. */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.9);
+}
+
+.tab {
+  position: relative;
+  padding: 10px 16px;
+  border: 0;
+  background: transparent;
+  color: rgba(33, 88, 110, 0.66);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.tab:hover {
+  color: #1d5a70;
+}
+
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  transition: background 140ms ease;
+}
+
+.tab[data-active] {
+  color: #17475a;
+}
+
+.tab[data-active]::after {
+  background: linear-gradient(90deg, #7eb2c4, #0b789a);
+}
+
+.tab:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.6);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* Plan limits — sit under the plan cards they describe. */
+.planLimits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.planLimit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+@media (max-width: 640px) {
+  .tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex: 0 0 auto;
+  }
+}
+
+/* Token entry is a fallback, so it reads as a quiet disclosure rather than a
+   second primary action. */
+.loginAdvancedToggle {
+  margin-top: 16px;
+  border: 0;
+  background: none;
+  color: rgba(33, 88, 110, 0.7);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.loginAdvancedToggle:hover {
+  color: #0b789a;
+}
+
+/* ── KPI hierarchy ──────────────────────────────────────────────────────────
+   Two tiers instead of six equal tiles. The primary pair carries the numbers
+   that change behaviour; the compact row is supporting context and is
+   deliberately quieter — smaller type, no card chrome, no shadow. */
+
+.kpiPrimary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.kpiHero {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 24px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 249, 252, 0.72));
+  box-shadow: 0 14px 30px rgba(33, 88, 110, 0.08);
+}
+
+.kpiHeroValue {
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 2.45rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.kpiHeroMeta {
+  color: rgba(33, 88, 110, 0.62);
+  font-size: 0.82rem;
+}
+
+/* Inline status dot — used ONLY on metrics that carry a live signal. */
+.kpiDotInline {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.kpiSecondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.kpiCompact {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 15px;
+  border: 1px solid rgba(207, 227, 234, 0.75);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kpiCompactLabel {
+  color: rgba(33, 88, 110, 0.62);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.kpiCompactValue {
+  color: var(--summer-ink, #17324a);
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.kpiUnit {
+  color: rgba(33, 88, 110, 0.55);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .kpiPrimary {
+    grid-template-columns: 1fr;
+  }
+  .kpiHeroValue {
+    font-size: 2.1rem;
+  }
+}
+
+/* ── Loading skeleton ───────────────────────────────────────────────────────
+   Replaces a centred spinner. The shapes mirror the real layout (two hero
+   figures + a panel), so content does not visibly reflow when data lands and
+   the wait communicates what is coming rather than merely that something is
+   happening. */
+
+/* No .srOnly here — globals.css already defines .sr-only. */
+
+.skel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skelLine {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(207, 227, 234, 0.45) 25%,
+    rgba(232, 244, 248, 0.85) 37%,
+    rgba(207, 227, 234, 0.45) 63%
+  );
+  background-size: 400% 100%;
+  animation: skelShimmer 1.4s ease-in-out infinite;
+}
+
+.skelTabs {
+  display: flex;
+  gap: 22px;
+  margin-bottom: 22px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.9);
+}
+
+.skelTabs > span {
+  height: 12px;
+  width: 84px;
+  border-radius: 6px;
+  background: rgba(207, 227, 234, 0.5);
+}
+
+@keyframes skelShimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Respect users who have asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .skelLine {
+    animation: none;
+    background: rgba(207, 227, 234, 0.55);
+  }
+}
+
+/* ── Numerals ───────────────────────────────────────────────────────────────
+   Every figure on this page is data. Proportional digits have variable
+   widths, so a value ticking 1,199 -> 1,200 shifts horizontally and columns
+   of numbers fail to align down the page. Tabular figures fix both. */
+
+.kpiHeroValue,
+.kpiCompactValue,
+.kpiValue,
+.creditBalanceValue,
+.mono,
+.packPrice,
+.table td {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Right-align numeric table cells so magnitudes line up on the decimal. */
+.table td.mono {
+  text-align: right;
+}
+
+/* ── Pressed + focus states ─────────────────────────────────────────────────
+   The page had hover styling but NO :active anywhere, so clicks felt inert —
+   nothing acknowledged the press until the network replied. And only one
+   element had a visible focus ring, leaving keyboard users unable to see
+   where they were. */
+
+.actionBtn:active,
+.signOutBtn:active,
+.tokenSubmit:active,
+.loginAdvancedToggle:active {
+  transform: translateY(1px);
+}
+
+.actionBtn,
+.signOutBtn,
+.tokenSubmit {
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.actionBtn:disabled,
+.signOutBtn:disabled,
+.tokenSubmit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* One consistent focus treatment for every interactive element. */
+.actionBtn:focus-visible,
+.signOutBtn:focus-visible,
+.tokenSubmit:focus-visible,
+.tokenInput:focus-visible,
+.loginAdvancedToggle:focus-visible,
+.invoiceLink:focus-visible,
+.packCard button:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actionBtn,
+  .signOutBtn,
+  .tokenSubmit,
+  .packCard {
+    transition: none;
+  }
+  .actionBtn:active,
+  .signOutBtn:active,
+  .tokenSubmit:active,
+  .loginAdvancedToggle:active {
+    transform: none;
+  }
+}
+
+/* The two secondary links previously sat adjacent with no separation and read
+   as a single run-on string ("Open the Suwappu botUse an access token
+   instead"). Space them and give them a shared baseline. */
+.loginFooterLinks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 20px;
+  margin-top: 18px;
+}
+
+/* Recommended top-up pack.
+   Three identical cards make the reader compute which is best. Emphasis does
+   that work for them — via colour and a label, not extra height, so the row
+   keeps a single baseline. */
+.packCard[data-recommended] {
+  border-color: rgba(14, 149, 189, 0.55);
+  background: rgba(240, 249, 252, 0.9);
+  box-shadow: 0 12px 26px rgba(14, 149, 189, 0.12);
+}
+
+.packFlag {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(14, 149, 189, 0.12);
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}

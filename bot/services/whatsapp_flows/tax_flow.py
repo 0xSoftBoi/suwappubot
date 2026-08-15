@@ -1,7 +1,7 @@
 """Tax export flow for WhatsApp."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
 from bot.services.whatsapp_conversation import ConversationState
@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class TaxFlow(BaseWhatsAppFlow):
     """Generate and export tax CSV reports."""
+
     flow_name = "tax"
     trigger_commands = ["tax"]
     steps = {
@@ -19,7 +20,7 @@ class TaxFlow(BaseWhatsAppFlow):
     }
 
     async def start(self, user_id: str, user_db_id: int, text: str = "") -> FlowResponse:
-        current_year = datetime.utcnow().year
+        current_year = datetime.now(timezone.utc).year
         years = [str(current_year - i) for i in range(4)]  # Last 4 years
 
         await self._set_state(user_id, "choose_year", {"user_db_id": user_db_id})
@@ -36,11 +37,13 @@ class TaxFlow(BaseWhatsAppFlow):
             list_sections=[{"title": "Years", "rows": rows}],
         )
 
-    async def _step_choose_year(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_choose_year(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         year_str = text.replace("year_", "")
         try:
             year = int(year_str)
-            if year < 2020 or year > datetime.utcnow().year:
+            if year < 2020 or year > datetime.now(timezone.utc).year:
                 raise ValueError
         except ValueError:
             return FlowResponse("Please select a valid year from the list.")
@@ -58,7 +61,9 @@ class TaxFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_confirm(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text in ("tax_cancel", "cancel"):
             await self._clear(user_id)
             return FlowResponse("Tax export cancelled.")
@@ -74,7 +79,7 @@ class TaxFlow(BaseWhatsAppFlow):
 
         await self._clear(user_id)
         db_uid = state.data.get("user_db_id") or user_db_id
-        year = state.data.get("year", datetime.utcnow().year)
+        year = state.data.get("year", datetime.now(timezone.utc).year)
 
         try:
             csv_url = await self._generate_tax_csv(db_uid, year)
@@ -100,7 +105,7 @@ class TaxFlow(BaseWhatsAppFlow):
         """Generate CSV and return a URL to download it."""
         import csv
         import io
-        from datetime import datetime
+        from datetime import datetime, timezone
         from database.db import get_session
         from bot.models.swap import SwapTransaction
 
@@ -125,26 +130,40 @@ class TaxFlow(BaseWhatsAppFlow):
 
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow([
-                "Date", "Time", "Type", "From Chain", "From Token", "From Amount",
-                "To Chain", "To Token", "To Amount", "Fee USD", "TX Hash", "Status"
-            ])
+            writer.writerow(
+                [
+                    "Date",
+                    "Time",
+                    "Type",
+                    "From Chain",
+                    "From Token",
+                    "From Amount",
+                    "To Chain",
+                    "To Token",
+                    "To Amount",
+                    "Fee USD",
+                    "TX Hash",
+                    "Status",
+                ]
+            )
 
             for s in swaps:
-                writer.writerow([
-                    s.created_at.strftime("%Y-%m-%d"),
-                    s.created_at.strftime("%H:%M:%S"),
-                    "Swap",
-                    s.from_chain,
-                    s.from_token,
-                    s.from_amount,
-                    s.to_chain,
-                    s.to_token,
-                    s.to_amount,
-                    f"{s.fee_usd:.4f}" if s.fee_usd else "0",
-                    s.tx_hash or "",
-                    s.status,
-                ])
+                writer.writerow(
+                    [
+                        s.created_at.strftime("%Y-%m-%d"),
+                        s.created_at.strftime("%H:%M:%S"),
+                        "Swap",
+                        s.from_chain,
+                        s.from_token,
+                        s.from_amount,
+                        s.to_chain,
+                        s.to_token,
+                        s.to_amount,
+                        f"{s.fee_usd:.4f}" if s.fee_usd else "0",
+                        s.tx_hash or "",
+                        s.status,
+                    ]
+                )
 
             csv_content = output.getvalue()
 
@@ -156,9 +175,12 @@ class TaxFlow(BaseWhatsAppFlow):
             # Placeholder: In real implementation, upload csv_content to S3
             # and return the signed URL
             import base64
+
             # Note: WhatsApp document API requires a real URL, not a data URI
             # This is a placeholder that would need S3 integration
-            logger.info(f"Generated tax CSV with {len(swaps)} transactions for user {user_db_id}, year {year}")
+            logger.info(
+                f"Generated tax CSV with {len(swaps)} transactions for user {user_db_id}, year {year}"
+            )
 
             # Return None to indicate we need cloud storage integration
             # In production, this would return an S3 signed URL

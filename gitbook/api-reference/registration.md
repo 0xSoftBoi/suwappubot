@@ -1,139 +1,84 @@
-# Register Agent
+# Registration
 
-`POST /register` | Auth: None
+Register a new agent and receive an API key. This is the only endpoint you can call without authentication, and the returned key is shown exactly once.
 
-Register a new agent with the Suwappu platform. Returns an API key that must be used to authenticate all subsequent requests.
+## POST /v1/agent/register
 
-## Request
+Public — no `Authorization` header. Rate-limited to 5 requests per minute per IP.
 
-### Body
+### Request body
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Unique agent name. 3-50 characters. Must match `^[a-zA-Z0-9_-]+$` (alphanumeric, hyphens, underscores only). |
-| `description` | string | No | Human-readable description of the agent. Max 500 characters. |
-| `callback_url` | string (URI) | No | Webhook URL for receiving async notifications. Must be a valid URI. |
-| `metadata` | object | No | Arbitrary key-value pairs for custom agent data. |
-
-### Example
-
-```json
-{
-  "name": "my-trading-bot",
-  "description": "Automated portfolio rebalancer for DeFi positions",
-  "callback_url": "https://example.com/webhooks/suwappu",
-  "metadata": {
-    "version": "1.0.0",
-    "environment": "production"
-  }
-}
-```
-
-## Response
-
-**Status: 201 Created**
-
-### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Always `true`. |
-| `agent.id` | string (UUID) | Unique agent identifier. |
-| `agent.name` | string | The registered agent name. |
-| `agent.api_key` | string | API key for authentication. Prefixed with `suwappu_sk_`. Store this securely -- it is only returned once. |
-| `agent.created_at` | string (ISO 8601) | Timestamp of registration. |
-
-### Example
-
-```json
-{
-  "success": true,
-  "agent": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "my-trading-bot",
-    "api_key": "suwappu_sk_live_7f3a9b2c1d4e5f6a8b0c9d2e3f4a5b6c",
-    "created_at": "2026-03-07T12:00:00Z"
-  }
-}
-```
-
-> **Important:** The `api_key` is only returned in this response. Store it securely. If lost, you must register a new agent.
-
-## Errors
-
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | `"Agent name 'my-bot' is already taken"` | Another agent already uses this name. Choose a different one. |
-| 400 | `"Validation failed"` | One or more fields failed validation. Check the `fields` object for details. |
-
-### Validation Error Example
-
-```json
-{
-  "success": false,
-  "error": "Validation failed",
-  "fields": {
-    "name": "Must be 3-50 characters and contain only letters, numbers, hyphens, and underscores",
-    "callback_url": "Must be a valid URI"
-  }
-}
-```
-
-### Name Conflict Example
-
-```json
-{
-  "success": false,
-  "error": "Agent name 'my-trading-bot' is already taken"
-}
-```
-
-## Code Examples
-
-### curl
+| `name` | string | Yes | Unique agent name. 3–50 chars, alphanumeric plus `_` and `-` only |
+| `description` | string | No | Free-text description, up to 500 chars |
+| `callback_url` | string | No | HTTPS URL for webhook deliveries. Must be a public host (private/metadata IPs are rejected) |
+| `metadata` | object | No | Arbitrary key/value metadata |
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "my-trading-bot",
-    "description": "Automated portfolio rebalancer",
-    "callback_url": "https://example.com/webhooks/suwappu"
+    "name": "my-agent",
+    "description": "Autonomous DCA bot",
+    "callback_url": "https://my-bot.example.com/webhooks"
   }'
 ```
-
-### Python
-
-```python
-import requests
-
-response = requests.post(
-    "https://api.suwappu.bot/v1/agent/register",
-    json={
-        "name": "my-trading-bot",
-        "description": "Automated portfolio rebalancer",
-        "callback_url": "https://example.com/webhooks/suwappu",
-    },
-)
-
-data = response.json()
-api_key = data["agent"]["api_key"]
-print(f"API Key: {api_key}")  # Store this securely
-```
-
-### TypeScript
-
 ```typescript
-const response = await fetch("https://api.suwappu.bot/v1/agent/register", {
+const res = await fetch("https://api.suwappu.bot/v1/agent/register", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    name: "my-trading-bot",
-    description: "Automated portfolio rebalancer",
-    callback_url: "https://example.com/webhooks/suwappu",
+    name: "my-agent",
+    description: "Autonomous DCA bot",
+    callback_url: "https://my-bot.example.com/webhooks",
   }),
 });
-
-const data = await response.json();
-const apiKey = data.agent.api_key; // Store this securely
+const agent = await res.json();
 ```
+```python
+import requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/register",
+    json={
+        "name": "my-agent",
+        "description": "Autonomous DCA bot",
+        "callback_url": "https://my-bot.example.com/webhooks",
+    },
+)
+agent = res.json()
+```
+
+### Response (`201`)
+
+```json
+{
+  "success": true,
+  "message": "Welcome to Suwappu!",
+  "agent": {
+    "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "name": "my-agent",
+    "api_key": "suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx",
+    "created_at": "2026-06-18T12:00:00.000Z"
+  },
+  "important": "SAVE YOUR API KEY! It cannot be retrieved later.",
+  "next_steps": {
+    "step_1": "Save your api_key securely",
+    "step_2": "Use Authorization: Bearer YOUR_API_KEY for all requests",
+    "step_3": "Try POST /v1/agent/quote with {\"from_token\": \"ETH\", \"to_token\": \"USDC\", \"amount\": \"0.1\", \"chain\": \"base\"}"
+  },
+  "docs": "https://api.suwappu.bot/docs"
+}
+```
+
+Store `agent.api_key` immediately — Suwappu keeps only a hash and cannot return it again.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | Invalid JSON body, validation error (e.g. name too short / wrong charset), or the name is already taken |
+| `429` | More than 5 registrations per minute from your IP |
+
+See [Authentication](../authentication/README.md) for how to use the key, and [Agent Profile](agent-profile.md) to update or delete the agent later.

@@ -1,62 +1,64 @@
 {
   "expo": {
-    "name": "Suwappu",
+    "name": "Gecko",
     "slug": "suwappu",
-    "version": "1.0.0",
+    "version": "0.1.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
     "scheme": "suwappu",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#000000"
-    },
+    "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true,
-      "buildNumber": "1",
-      "bundleIdentifier": "xyz.suwappu.app",
-      "associatedDomains": [
-        "applinks:app.suwappu.xyz",
-        "webcredentials:app.suwappu.xyz"
-      ],
-      "infoPlist": {
-        "NSFaceIDUsageDescription": "Suwappu uses Face ID for secure wallet authentication"
+      "supportsTablet": false,
+      "bundleIdentifier": "bot.suwappu.app",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "privacyManifests": {
+        "NSPrivacyTracking": false
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
-      },
-      "package": "xyz.suwappu.app",
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "package": "bot.suwappu.app"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
       [
-        "expo-notifications",
+        "expo-secure-store",
         {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#000000"
+          "faceIDPermission": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
+          "backgroundColor": "#FFFDF9",
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "privacyManifestAggregationEnabled": true
+          },
+          "android": { "enableProguardInReleaseBuilds": true, "enableShrinkResourcesInReleaseBuilds": true }
         }
       ]
     ],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "fallbackToCacheTimeout": 0
+    },
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "reactCompiler": true
     },
     "extra": {
-      "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      }
+      "apiUrl": "https://api.suwappu.bot"
     }
   }
 }

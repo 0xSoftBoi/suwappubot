@@ -1,131 +1,79 @@
-# Get Prices
+# Prices
 
-`GET /prices` | Auth: Required
+Fetch current USD prices and 24-hour change for token symbols. Prices are cached for 60 seconds and sourced from CoinGecko.
 
-Get current USD prices and 24-hour change for one or more token symbols.
+This is a **reference price feed**, not a chain-specific executable-liquidity feed. There is no `chain` query parameter. If you need to compare what a fixed size can actually swap for on Base versus Arbitrum (for example), request same-size [`POST /v1/agent/quote`](quote.md) routes on those chains. See [Build a Quote-Qualified Arbitrage Monitor](../guides/arbitrage-monitor.md) for the safe screening pattern.
 
-## Request
+## GET /v1/agent/prices
 
-### Parameters
+Requires authentication.
 
-Query string parameters:
+### Query parameters
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `symbols` | string | Yes | Comma-separated list of token symbols. Max 20 symbols per request. Case-insensitive. Example: `"ETH,SOL,USDC"`. |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbols` | string | Yes | 1–20 comma-separated token symbols (e.g. `ETH,SOL,USDC`) |
 
-### Supported Symbols
-
-`ETH`, `SOL`, `BNB`, `USDC`, `USDT`, `BTC`, `DAI`, `WBTC`, `ARB`, `OP`, `AVAX`, `MATIC`, `WETH`, `BONK`, `JUP`, `RAY`
-
-### Example
-
+```bash
+curl "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,USDC" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-GET /prices?symbols=ETH,SOL,USDC
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,USDC", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const prices = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/prices",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"symbols": "ETH,SOL,USDC"},
+)
+prices = res.json()
 ```
 
-## Response
+**Response:**
 
-**Status: 200 OK**
+```json
+{
+  "success": true,
+  "prices": {
+    "ETH": { "usd": 3241.18, "change_24h": 1.92 },
+    "SOL": { "usd": 168.40, "change_24h": -0.74 },
+    "USDC": { "usd": 1.0, "change_24h": 0.01 }
+  }
+}
+```
+
+If any requested symbol isn't recognized, the response includes an `unknown_symbols` array:
+
+```json
+{
+  "success": true,
+  "prices": { "ETH": { "usd": 3241.18, "change_24h": 1.92 } },
+  "unknown_symbols": ["FOO"]
+}
+```
 
 ### Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `success` | boolean | Always `true`. |
-| `prices` | object | Map of symbol to price data. |
-| `prices.<SYMBOL>.usd` | number | Current price in USD. |
-| `prices.<SYMBOL>.change_24h` | number | Percentage change over the last 24 hours. Positive or negative. |
-| `unknown_symbols` | array | Symbols from the request that were not recognized. Empty array if all symbols matched. |
+| `prices` | object | Map of uppercased symbol to a price object |
+| `prices[SYM].usd` | number | Current USD price |
+| `prices[SYM].change_24h` | number \| null | 24-hour percentage change, or `null` if unavailable |
+| `unknown_symbols` | string[] | Requested symbols with no known price mapping (omitted when empty) |
 
-### Example
+### Supported symbols
 
-```json
-{
-  "success": true,
-  "prices": {
-    "ETH": {
-      "usd": 3500.42,
-      "change_24h": 2.5
-    },
-    "SOL": {
-      "usd": 145.80,
-      "change_24h": -1.3
-    },
-    "USDC": {
-      "usd": 1.0,
-      "change_24h": 0.01
-    }
-  },
-  "unknown_symbols": []
-}
-```
+Common majors are mapped, including `ETH`, `SOL`, `BNB`, `USDC`, `USDT`, `BTC`, `DAI`, `WBTC`, `ARB`, `OP`, `AVAX`, `MATIC`, `WETH`, `BONK`, `JUP`, and `RAY`. Calling the endpoint without `symbols` returns the full supported list in the error response.
 
-### Example with Unknown Symbols
+### Errors
 
-```json
-{
-  "success": true,
-  "prices": {
-    "ETH": {
-      "usd": 3500.42,
-      "change_24h": 2.5
-    }
-  },
-  "unknown_symbols": ["FAKECOIN"]
-}
-```
-
-## Errors
-
-| Status | Error | Description |
-|--------|-------|-------------|
-| 400 | `"symbols parameter is required"` | The `symbols` query parameter is missing. |
-| 400 | `"Too many symbols. Maximum 20 per request."` | More than 20 symbols were provided. |
-| 401 | `"Invalid or missing API key"` | The API key is missing, malformed, or revoked. |
-
-## Code Examples
-
-### curl
-
-```bash
-curl "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,USDC" \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
-
-### Python
-
-```python
-import requests
-
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/prices",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-    params={"symbols": "ETH,SOL,USDC"},
-)
-
-data = response.json()
-for symbol, price_data in data["prices"].items():
-    print(f"{symbol}: ${price_data['usd']:.2f} ({price_data['change_24h']:+.1f}%)")
-```
-
-### TypeScript
-
-```typescript
-const response = await fetch(
-  "https://api.suwappu.bot/v1/agent/prices?symbols=ETH,SOL,USDC",
-  {
-    headers: { Authorization: "Bearer suwappu_sk_your_api_key" },
-  }
-);
-
-const { prices, unknown_symbols } = await response.json();
-
-for (const [symbol, data] of Object.entries(prices)) {
-  console.log(`${symbol}: $${data.usd} (${data.change_24h}%)`);
-}
-
-if (unknown_symbols.length > 0) {
-  console.warn("Unknown symbols:", unknown_symbols);
-}
-```
+| Status | Cause |
+|--------|-------|
+| `400` | `symbols` missing, empty, or more than 20 symbols provided |
+| `401` | Missing or invalid API key |

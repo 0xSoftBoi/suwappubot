@@ -4,8 +4,10 @@ node_modules/
 # Build output
 dist/
 
-# Drizzle
-drizzle/
+# Drizzle migrations ARE committed (drizzle/ was previously ignored, which meant
+# GitHub-source Railway builds shipped no migration files → drizzle-kit migrate had
+# nothing to apply and the dangerous push --force fallback ran. Migrations are the
+# reviewed source of truth and must be in the repo. Do NOT re-ignore drizzle/.
 
 # Environment
 .env
@@ -26,5 +28,4 @@ Thumbs.db
 *.log
 logs/
 
-# Bun
-bun.lock
+# Bun lockfile is committed for reproducible builds

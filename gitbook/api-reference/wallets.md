@@ -1,174 +1,164 @@
 # Wallets
 
-Managed wallets are custodial -- Suwappu holds the private key on your behalf so the server can sign and submit swap transactions without requiring you to manage keys or sign externally.
+Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you — the private key lives in a Turnkey secure enclave and is never exposed.
 
----
+## POST /v1/agent/wallets
 
-## List Wallets
+Create a managed EVM wallet for your agent. The wallet's address is bound to your agent and becomes the only address you can swap from and read balances for.
 
-`GET /wallets` | Auth: Required
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallets", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const wallet = await res.json();
+```
+```python
+import os, requests
 
-Retrieve all managed wallets associated with your agent.
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallets",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+wallet = res.json()
+```
 
-### Request
+### Response (`201`)
 
-No parameters required.
+```json
+{
+  "success": true,
+  "wallet": {
+    "address": "0xAbC...123",
+    "chain_type": "evm",
+    "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]
+  },
+  "message": "Wallet created. Fund it to start swapping."
+}
+```
+
+Fund the address before swapping. The same EVM address works across all supported EVM chains.
+
+## GET /v1/agent/wallets
+
+List your agent's wallet(s).
+
+```bash
+curl https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallets", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const wallets = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/wallets",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+wallets = res.json()
+```
 
 ### Response
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the request succeeded |
-| `wallets` | array | List of wallet objects |
-
-#### Wallet Object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `address` | string | The wallet address |
-| `chain_type` | string | `"evm"` or `"solana"` |
-| `supported_chains` | array | List of chain names the wallet supports (e.g., `["ethereum", "base", "arbitrum"]`) |
-
-### Example Response
 
 ```json
 {
   "success": true,
   "wallets": [
     {
-      "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+      "address": "0xAbC...123",
       "chain_type": "evm",
-      "supported_chains": ["ethereum", "base", "arbitrum", "optimism"]
-    },
-    {
-      "address": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
-      "chain_type": "solana",
-      "supported_chains": ["solana"]
+      "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc", "avalanche"]
     }
   ]
 }
 ```
 
----
+If no wallet exists yet, `wallets` is an empty array with a hint to create one.
 
-## Create Wallet
+## Wallet policies
 
-`POST /wallets` | Auth: Required
+Attach Turnkey policies to constrain what your managed wallet can do — spending limits and address whitelists — using these endpoints:
 
-Create a new managed wallet. No request body is needed. The server generates a new keypair and securely stores the private key for server-side swap execution.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/agent/wallet/policy` | POST | Create a `spending_limit` or `whitelist` policy |
+| `/v1/agent/wallet/policies` | GET | List policies on your wallet |
+| `/v1/agent/wallet/policy/:policyId` | DELETE | Delete an agent-created policy |
 
-### Request
-
-No body required.
-
-### Response (201 Created)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the request succeeded |
-| `wallet` | object | The newly created wallet |
-
-#### Wallet Object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `address` | string | The wallet address |
-| `chain_type` | string | `"evm"` or `"solana"` |
-| `supported_chains` | array | List of chain names the wallet supports |
-
-### Example Response
-
-```json
-{
-  "success": true,
-  "wallet": {
-    "address": "0x9f8E163C2b4a1FA28cE3851F2B3D5C53bE6a4E71",
-    "chain_type": "evm",
-    "supported_chains": ["ethereum", "base", "arbitrum", "optimism"]
-  }
-}
-```
-
-> **Note:** Managed wallets are custodial. Suwappu holds the private key so the server can sign transactions on your behalf via `POST /swap/execute`. You do not need to manage keys or submit raw transactions yourself.
-
----
-
-## Errors
-
-| Status | Error | Cause |
-|--------|-------|-------|
-| 401 | `"Unauthorized"` | Missing or invalid API key |
-| 500 | `"Wallet creation failed"` | Internal error during key generation |
-
----
-
-## Code Examples
-
-### curl
+**Create a spending limit:**
 
 ```bash
-# List wallets
-curl https://api.suwappu.bot/v1/agent/wallets \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-
-# Create a wallet
-curl -X POST https://api.suwappu.bot/v1/agent/wallets \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
+curl -X POST https://api.suwappu.bot/v1/agent/wallet/policy \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000", "timeWindowSeconds": 86400}}'
 ```
-
-### Python
-
-```python
-import requests
-
-headers = {"Authorization": "Bearer suwappu_sk_your_api_key"}
-
-# List wallets
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/wallets",
-    headers=headers,
-)
-data = response.json()
-if data["success"]:
-    for wallet in data["wallets"]:
-        print(f"{wallet['chain_type']}: {wallet['address']}")
-
-# Create a wallet
-response = requests.post(
-    "https://api.suwappu.bot/v1/agent/wallets",
-    headers=headers,
-)
-data = response.json()
-if data["success"]:
-    print(f"Created: {data['wallet']['address']}")
-```
-
-### TypeScript
-
 ```typescript
-const headers = {
-  Authorization: "Bearer suwappu_sk_your_api_key",
-};
-
-// List wallets
-const listResponse = await fetch(
-  "https://api.suwappu.bot/v1/agent/wallets",
-  { headers }
-);
-const listData = await listResponse.json();
-if (listData.success) {
-  for (const wallet of listData.wallets) {
-    console.log(`${wallet.chain_type}: ${wallet.address}`);
-  }
-}
-
-// Create a wallet
-const createResponse = await fetch(
-  "https://api.suwappu.bot/v1/agent/wallets",
-  { method: "POST", headers }
-);
-const createData = await createResponse.json();
-if (createData.success) {
-  console.log(`Created: ${createData.wallet.address}`);
-}
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallet/policy", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ type: "spending_limit", params: { maxAmountWei: "1000000000000000000", timeWindowSeconds: 86400 } }),
+});
+const policy = await res.json();
 ```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallet/policy",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"type": "spending_limit", "params": {"maxAmountWei": "1000000000000000000", "timeWindowSeconds": 86400}},
+)
+policy = res.json()
+```
+
+**Create an address whitelist:**
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallet/policy \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "whitelist", "params": {"allowedAddresses": ["0x1111...", "0x2222..."]}}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallet/policy", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ type: "whitelist", params: { allowedAddresses: ["0x1111...", "0x2222..."] } }),
+});
+const policy = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallet/policy",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={"type": "whitelist", "params": {"allowedAddresses": ["0x1111...", "0x2222..."]}},
+)
+policy = res.json()
+```
+
+You can only delete policies your agent created; admin/guardrail policies are protected.
+
+### Errors
+
+| Status | Cause |
+|--------|-------|
+| `400` | No managed wallet found, or invalid policy body |
+| `401` | Missing or invalid API key |

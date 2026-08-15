@@ -8,13 +8,12 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import {
 	type CopyFollow,
-	type NewCopyFollow,
 	type CopyTrade,
-	type NewCopyTrade,
 	copyFollows,
 	copyTrades,
 	type DrizzleService,
 	requireDb,
+	requireRow,
 	type TraderStats,
 	type NewTraderStats,
 	traderStats,
@@ -41,7 +40,6 @@ export interface TraderLeaderboardEntry {
 	lastTradeAt: Date | null
 }
 
-// Dev-compatible types
 export interface TopTraderEntry extends TraderLeaderboardEntry {}
 
 export interface TraderProfileDetail {
@@ -60,71 +58,34 @@ export interface TraderProfileDetail {
 	}
 }
 
-export interface FollowingEntry {
-	traderId: number
-	displayName: string | null
-	isActive: boolean
-	totalCopiedTrades: number
-	totalPnl: number
-}
-
-export interface CopyTradeEntry {
-	id: number
-	traderId: number
-	fromToken: string
-	toToken: string
-	fromAmount: string
-	status: string
-	createdAt: Date | null
-}
-
 export interface FollowSettings {
 	copyMode?: string
 	copyAmountUsd?: number
 	maxTradeUsd?: number
 	dailyLimitUsd?: number
 	autoSellEnabled?: boolean
-	chainsFilter?: string[] | null
+	chainsFilter?: string | null
 }
 
-export interface CopySettings {
-	traderId: number
-	walletId: number
-	isActive: boolean
-	maxAmountPerTrade: number | null
-	totalBudget: number | null
-	usedBudget: number
-	stopLossPercent: number | null
-	takeProfitPercent: number | null
-	minTradeSize: number | null
-	copyBuysOnly: boolean
-	copySellsOnly: boolean
-	totalCopiedTrades: number
-	totalPnl: number
+export interface UpdateCopySettingsParams {
+	isActive?: boolean
+	copyMode?: string
+	copyAmountUsd?: number
+	maxTradeUsd?: number
+	dailyLimitUsd?: number
+	autoSellEnabled?: boolean
+	chainsFilter?: string | null
 }
 
 export interface FollowTraderParams {
 	followerId: number
 	traderId: number
-	walletId: number
-	maxAmountPerTrade?: number
-	totalBudget?: number
-	stopLossPercent?: number
-	takeProfitPercent?: number
-	minTradeSize?: number
-	copyBuysOnly?: boolean
-	copySellsOnly?: boolean
-}
-
-export interface UpdateCopySettingsParams {
-	isActive?: boolean
-	maxAmountPerTrade?: number | null
-	totalBudget?: number | null
-	stopLossPercent?: number | null
-	takeProfitPercent?: number | null
-	minTradeSize?: number | null
-	copyBuysOnly?: boolean
-	copySellsOnly?: boolean
+	copyMode?: string
+	copyAmountUsd?: number
+	maxTradeUsd?: number
+	dailyLimitUsd?: number
+	autoSellEnabled?: boolean
+	chainsFilter?: string | null
 }
 
 // ============================================================================
@@ -132,15 +93,18 @@ export interface UpdateCopySettingsParams {
 // ============================================================================
 
 export interface CopyTradingServiceInterface {
-	// Leaderboard
 	readonly getTraderLeaderboard: (
 		options?: { limit?: number; minTrades?: number; sortBy?: 'pnl7d' | 'pnl30d' | 'winRate' | 'followers' }
 	) => Effect.Effect<TraderLeaderboardEntry[], DatabaseError, DrizzleService>
 
-	// Dev-compatible alias
 	readonly getTopTraders: (
 		limit?: number,
-		filters?: { minTrades?: number; minWinRate?: number; chain?: string; sortBy?: string },
+		filters?: {
+			minTrades?: number | undefined
+			minWinRate?: number | undefined
+			chain?: string | undefined
+			sortBy?: string | undefined
+		},
 	) => Effect.Effect<TopTraderEntry[], DatabaseError, DrizzleService>
 
 	readonly getTraderStats: (
@@ -151,7 +115,6 @@ export interface CopyTradingServiceInterface {
 		userId: number,
 	) => Effect.Effect<TraderProfileDetail, DatabaseError | NotFoundError, DrizzleService>
 
-	// Following
 	readonly followTrader: (
 		params: FollowTraderParams
 	) => Effect.Effect<CopyFollow, ValidationError | DatabaseError, DrizzleService>
@@ -172,7 +135,7 @@ export interface CopyTradingServiceInterface {
 	readonly getCopySettings: (
 		followerId: number,
 		traderId: number
-	) => Effect.Effect<Option.Option<CopySettings>, DatabaseError, DrizzleService>
+	) => Effect.Effect<Option.Option<CopyFollow>, DatabaseError, DrizzleService>
 
 	readonly updateCopySettings: (
 		followerId: number,
@@ -180,7 +143,6 @@ export interface CopyTradingServiceInterface {
 		settings: UpdateCopySettingsParams
 	) => Effect.Effect<CopyFollow, NotFoundError | DatabaseError, DrizzleService>
 
-	// Stats management
 	readonly updateTraderStats: (
 		userId: number,
 		stats: Partial<NewTraderStats>
@@ -192,27 +154,24 @@ export interface CopyTradingServiceInterface {
 		displayName?: string
 	) => Effect.Effect<TraderStats, DatabaseError, DrizzleService>
 
-	// Copy execution
 	readonly recordCopyTrade: (
 		params: {
-			copyFollowId: number
-			followerId: number
+			followId: number
+			copierId: number
 			traderId: number
-			originalSwapId?: number
+			originalSwapId: number
 			fromToken: string
 			toToken: string
-			fromAmount: string
-			toAmount?: string
-			status: string
-			txHash?: string
-			traderPrice?: number
-			copierPrice?: number
-			slippage?: number
+			fromChain: string
+			toChain: string
+			traderAmountUsd: number
+			copyAmountUsd: number
+			status?: string
 		}
 	) => Effect.Effect<CopyTrade, DatabaseError, DrizzleService>
 
 	readonly getCopyTrades: (
-		followerId: number,
+		copierId: number,
 		options?: { traderId?: number; limit?: number }
 	) => Effect.Effect<CopyTrade[], DatabaseError, DrizzleService>
 }
@@ -225,6 +184,40 @@ export class CopyTradingService extends Context.Tag('CopyTradingService')<
 	CopyTradingService,
 	CopyTradingServiceInterface
 >() {}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function coalesceLeaderboardRow(row: {
+	userId: number
+	displayName: string | null
+	username: string | null
+	totalTrades: number | null
+	winRate: number | null
+	pnl7d: number | null
+	pnl7dPercent: number | null
+	pnl30d: number | null
+	pnl30dPercent: number | null
+	followerCount: number | null
+	copierCount: number | null
+	lastTradeAt: Date | null
+}): TraderLeaderboardEntry {
+	return {
+		userId: row.userId,
+		displayName: row.displayName,
+		username: row.username,
+		totalTrades: row.totalTrades ?? 0,
+		winRate: row.winRate ?? 0,
+		pnl7d: row.pnl7d ?? 0,
+		pnl7dPercent: row.pnl7dPercent ?? 0,
+		pnl30d: row.pnl30d ?? 0,
+		pnl30dPercent: row.pnl30dPercent ?? 0,
+		followerCount: row.followerCount ?? 0,
+		copierCount: row.copierCount ?? 0,
+		lastTradeAt: row.lastTradeAt,
+	}
+}
 
 // ============================================================================
 // Service Implementation
@@ -275,10 +268,9 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to get leaderboard: ${e}` }),
 				})
 
-				return traders
+				return traders.map(coalesceLeaderboardRow)
 			}),
 
-		// Dev-compatible alias
 		getTopTraders: (limit = 10, filters) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb
@@ -327,7 +319,7 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to get top traders: ${e}` }),
 				})
 
-				return traders
+				return traders.map(coalesceLeaderboardRow)
 			}),
 
 		getTraderStats: (userId: number) =>
@@ -388,12 +380,10 @@ export const CopyTradingServiceLive = Layer.succeed(
 			Effect.gen(function* () {
 				const db = yield* requireDb
 
-				// Can't follow yourself
 				if (params.followerId === params.traderId) {
-					throw new ValidationError({ message: 'Cannot follow yourself' })
+					return yield* Effect.fail(new ValidationError({ message: 'Cannot follow yourself' }))
 				}
 
-				// Check if already following
 				const existing = yield* Effect.tryPromise({
 					try: () =>
 						db
@@ -409,44 +399,41 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to check existing follow: ${e}` }),
 				})
 
-				if (existing.length > 0) {
-					// Reactivate if inactive
-					if (!existing[0].isActive) {
-						const [updated] = yield* Effect.tryPromise({
+				const current = existing[0]
+				if (current) {
+					if (!current.isActive) {
+						const updatedRows = yield* Effect.tryPromise({
 							try: () =>
 								db
 									.update(copyFollows)
 									.set({ isActive: true, updatedAt: new Date() })
-									.where(eq(copyFollows.id, existing[0].id))
+									.where(eq(copyFollows.id, current.id))
 									.returning(),
 							catch: (e) => new DatabaseError({ message: `Failed to reactivate follow: ${e}` }),
 						})
-						return updated
+						return yield* requireRow(updatedRows, 'Failed to reactivate follow: no row returned')
 					}
-					throw new ValidationError({ message: 'Already following this trader' })
+					return yield* Effect.fail(new ValidationError({ message: 'Already following this trader' }))
 				}
 
-				const [follow] = yield* Effect.tryPromise({
+				const followRows = yield* Effect.tryPromise({
 					try: () =>
 						db
 							.insert(copyFollows)
 							.values({
 								followerId: params.followerId,
 								traderId: params.traderId,
-								walletId: params.walletId,
-								maxAmountPerTrade: params.maxAmountPerTrade,
-								totalBudget: params.totalBudget,
-								stopLossPercent: params.stopLossPercent,
-								takeProfitPercent: params.takeProfitPercent,
-								minTradeSize: params.minTradeSize,
-								copyBuysOnly: params.copyBuysOnly ?? false,
-								copySellsOnly: params.copySellsOnly ?? false,
+								copyMode: params.copyMode,
+								copyAmountUsd: params.copyAmountUsd,
+								maxTradeUsd: params.maxTradeUsd,
+								dailyLimitUsd: params.dailyLimitUsd,
+								autoSellEnabled: params.autoSellEnabled,
+								chainsFilter: params.chainsFilter ?? undefined,
 							})
 							.returning(),
 					catch: (e) => new DatabaseError({ message: `Failed to follow trader: ${e}` }),
 				})
 
-				// Update follower count
 				yield* Effect.tryPromise({
 					try: () =>
 						db
@@ -459,6 +446,7 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: () => new DatabaseError({ message: 'Failed to update follower count' }),
 				})
 
+				const follow = yield* requireRow(followRows, 'Failed to follow trader: no row returned')
 				return follow
 			}),
 
@@ -482,7 +470,6 @@ export const CopyTradingServiceLive = Layer.succeed(
 				})
 
 				if (result.length > 0) {
-					// Update follower count
 					yield* Effect.tryPromise({
 						try: () =>
 							db
@@ -558,22 +545,7 @@ export const CopyTradingServiceLive = Layer.succeed(
 				})
 
 				if (!follow) return Option.none()
-
-				return Option.some({
-					traderId: follow.traderId,
-					walletId: follow.walletId,
-					isActive: follow.isActive ?? true,
-					maxAmountPerTrade: follow.maxAmountPerTrade,
-					totalBudget: follow.totalBudget,
-					usedBudget: follow.usedBudget ?? 0,
-					stopLossPercent: follow.stopLossPercent,
-					takeProfitPercent: follow.takeProfitPercent,
-					minTradeSize: follow.minTradeSize,
-					copyBuysOnly: follow.copyBuysOnly ?? false,
-					copySellsOnly: follow.copySellsOnly ?? false,
-					totalCopiedTrades: follow.totalCopiedTrades ?? 0,
-					totalPnl: follow.totalPnl ?? 0,
-				})
+				return Option.some(follow)
 			}),
 
 		updateCopySettings: (followerId: number, traderId: number, settings: UpdateCopySettingsParams) =>
@@ -596,7 +568,7 @@ export const CopyTradingServiceLive = Layer.succeed(
 				})
 
 				if (!updated) {
-					throw new NotFoundError({ message: 'Copy follow not found' })
+					return yield* Effect.fail(new NotFoundError({ message: 'Copy follow not found' }))
 				}
 
 				return updated
@@ -606,7 +578,6 @@ export const CopyTradingServiceLive = Layer.succeed(
 			Effect.gen(function* () {
 				const db = yield* requireDb
 
-				// Upsert trader stats
 				const [result] = yield* Effect.tryPromise({
 					try: () =>
 						db
@@ -620,6 +591,11 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to update trader stats: ${e}` }),
 				})
 
+				if (!result) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Failed to update trader stats: no row returned' }),
+					)
+				}
 				return result
 			}),
 
@@ -640,6 +616,11 @@ export const CopyTradingServiceLive = Layer.succeed(
 					catch: (e) => new DatabaseError({ message: `Failed to set visibility: ${e}` }),
 				})
 
+				if (!result) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Failed to set visibility: no row returned' }),
+					)
+				}
 				return result
 			}),
 
@@ -652,27 +633,23 @@ export const CopyTradingServiceLive = Layer.succeed(
 						db
 							.insert(copyTrades)
 							.values({
-								copyFollowId: params.copyFollowId,
-								followerId: params.followerId,
+								followId: params.followId,
+								copierId: params.copierId,
 								traderId: params.traderId,
 								originalSwapId: params.originalSwapId,
 								fromToken: params.fromToken,
 								toToken: params.toToken,
-								fromAmount: params.fromAmount,
-								toAmount: params.toAmount,
-								status: params.status,
-								txHash: params.txHash,
-								traderPrice: params.traderPrice,
-								copierPrice: params.copierPrice,
-								slippage: params.slippage,
-								executedAt: params.status === 'executed' ? new Date() : undefined,
+								fromChain: params.fromChain,
+								toChain: params.toChain,
+								traderAmountUsd: params.traderAmountUsd,
+								copyAmountUsd: params.copyAmountUsd,
+								status: params.status ?? 'pending',
 							})
 							.returning(),
 					catch: (e) => new DatabaseError({ message: `Failed to record copy trade: ${e}` }),
 				})
 
-				// Update follow stats
-				if (params.status === 'executed') {
+				if (params.status === 'executed' || params.status === 'completed') {
 					yield* Effect.tryPromise({
 						try: () =>
 							db
@@ -681,20 +658,25 @@ export const CopyTradingServiceLive = Layer.succeed(
 									totalCopiedTrades: sql`${copyFollows.totalCopiedTrades} + 1`,
 									updatedAt: new Date(),
 								})
-								.where(eq(copyFollows.id, params.copyFollowId)),
+								.where(eq(copyFollows.id, params.followId)),
 						catch: () => new DatabaseError({ message: 'Failed to update follow stats' }),
 					})
 				}
 
+				if (!trade) {
+					return yield* Effect.fail(
+						new DatabaseError({ message: 'Failed to record copy trade: no row returned' }),
+					)
+				}
 				return trade
 			}),
 
-		getCopyTrades: (followerId: number, options = {}) =>
+		getCopyTrades: (copierId: number, options = {}) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb
 				const { traderId, limit = 50 } = options
 
-				const conditions = [eq(copyTrades.followerId, followerId)]
+				const conditions = [eq(copyTrades.copierId, copierId)]
 				if (traderId) {
 					conditions.push(eq(copyTrades.traderId, traderId))
 				}

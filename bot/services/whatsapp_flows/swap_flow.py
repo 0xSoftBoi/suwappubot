@@ -6,6 +6,7 @@ from typing import Optional
 
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
+from bot.services.whatsapp_flows.flow_errors import user_safe_error
 from bot.services.whatsapp_conversation import ConversationState
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ _ALL_CHAINS = _POPULAR_EVM + ["solana"]
 
 def _chain_display(name: str) -> str:
     from bot.config.chains import CHAINS
+
     cfg = CHAINS.get(name)
     if cfg:
         return f"{cfg.logo_emoji} {cfg.display_name}"
@@ -26,20 +28,25 @@ def _chain_display(name: str) -> str:
 def _build_chain_sections() -> list:
     """Build List Message sections for chain selection."""
     from bot.config.chains import CHAINS
+
     evm_rows = []
     for cn in _POPULAR_EVM:
         cfg = CHAINS.get(cn)
         if cfg:
-            evm_rows.append({
-                "id": f"chain_{cn}",
-                "title": f"{cfg.logo_emoji} {cfg.display_name}",
-                "description": cfg.name.capitalize(),
-            })
-    sol_rows = [{
-        "id": "chain_solana",
-        "title": "🟢 SOL",
-        "description": "Solana",
-    }]
+            evm_rows.append(
+                {
+                    "id": f"chain_{cn}",
+                    "title": f"{cfg.logo_emoji} {cfg.display_name}",
+                    "description": cfg.name.capitalize(),
+                }
+            )
+    sol_rows = [
+        {
+            "id": "chain_solana",
+            "title": "🟢 SOL",
+            "description": "Solana",
+        }
+    ]
     return [
         {"title": "EVM Chains", "rows": evm_rows},
         {"title": "Non-EVM", "rows": sol_rows},
@@ -49,6 +56,7 @@ def _build_chain_sections() -> list:
 def _build_token_sections(chain_name: str) -> list:
     """Build List Message sections for tokens available on a chain."""
     from bot.config.tokens import get_tokens_for_chain
+
     token_configs = get_tokens_for_chain(chain_name)
     if not token_configs:
         # Fallback common tokens
@@ -57,11 +65,13 @@ def _build_token_sections(chain_name: str) -> list:
         return [{"title": "Tokens", "rows": rows}]
     rows = []
     for tc in token_configs[:10]:
-        rows.append({
-            "id": f"token_{tc.symbol}",
-            "title": f"{tc.logo_emoji} {tc.symbol}"[:24],
-            "description": tc.name[:72],
-        })
+        rows.append(
+            {
+                "id": f"token_{tc.symbol}",
+                "title": f"{tc.logo_emoji} {tc.symbol}"[:24],
+                "description": tc.name[:72],
+            }
+        )
     return [{"title": "Tokens", "rows": rows}]
 
 
@@ -99,7 +109,9 @@ class SwapFlow(BaseWhatsAppFlow):
             to_token = parts[3].upper()
             float(amount)  # validate
         except (IndexError, ValueError):
-            return FlowResponse("Invalid quick swap format. Use: *s <amount> <from_token> <to_token>*")
+            return FlowResponse(
+                "Invalid quick swap format. Use: *s <amount> <from_token> <to_token>*"
+            )
 
         # Default to same-chain ethereum swap
         data = {
@@ -115,16 +127,21 @@ class SwapFlow(BaseWhatsAppFlow):
 
     # -- Step handlers ---------------------------------------------------
 
-    async def _step_from_chain(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_from_chain(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         chain = text.replace("chain_", "").lower()
         from bot.config.chains import CHAINS
+
         if chain not in CHAINS:
             return FlowResponse(
                 text="Please select a valid chain from the list.",
                 list_button_text="Choose Chain",
                 list_sections=_build_chain_sections(),
             )
-        await self._update(user_id, "select_from_token", {"from_chain": chain, "user_db_id": user_db_id})
+        await self._update(
+            user_id, "select_from_token", {"from_chain": chain, "user_db_id": user_db_id}
+        )
         return FlowResponse(
             text=f"Chain: *{_chain_display(chain)}*\n\nNow pick the token you want to swap *from*:",
             header="🔄 From Token",
@@ -132,7 +149,9 @@ class SwapFlow(BaseWhatsAppFlow):
             list_sections=_build_token_sections(chain),
         )
 
-    async def _step_from_token(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_from_token(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         token = text.replace("token_", "").upper()
         await self._update(user_id, "select_to_chain", {"from_token": token})
         return FlowResponse(
@@ -142,9 +161,12 @@ class SwapFlow(BaseWhatsAppFlow):
             list_sections=_build_chain_sections(),
         )
 
-    async def _step_to_chain(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_to_chain(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         chain = text.replace("chain_", "").lower()
         from bot.config.chains import CHAINS
+
         if chain not in CHAINS:
             return FlowResponse(
                 text="Please select a valid chain from the list.",
@@ -159,7 +181,9 @@ class SwapFlow(BaseWhatsAppFlow):
             list_sections=_build_token_sections(chain),
         )
 
-    async def _step_to_token(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_to_token(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         token = text.replace("token_", "").upper()
         await self._update(user_id, "enter_amount", {"to_token": token})
         from_token = state.data.get("from_token", "?")
@@ -175,7 +199,9 @@ class SwapFlow(BaseWhatsAppFlow):
             ],
         )
 
-    async def _step_amount(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_amount(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         # Handle percentage buttons
         if text in ("amt_25", "amt_50", "amt_max"):
             pct = {"amt_25": 0.25, "amt_50": 0.50, "amt_max": 1.0}[text]
@@ -186,7 +212,9 @@ class SwapFlow(BaseWhatsAppFlow):
                 pct,
             )
             if amount is None:
-                return FlowResponse("Could not determine your balance. Please enter amount manually:")
+                return FlowResponse(
+                    "Could not determine your balance. Please enter amount manually:"
+                )
             text = str(amount)
 
         # Validate numeric
@@ -203,7 +231,9 @@ class SwapFlow(BaseWhatsAppFlow):
         data["amount"] = clean
         return await self._build_confirm_prompt(user_id, user_db_id, data)
 
-    async def _step_confirm(self, user_id: str, user_db_id: int, text: str, state: ConversationState) -> FlowResponse:
+    async def _step_confirm(
+        self, user_id: str, user_db_id: int, text: str, state: ConversationState
+    ) -> FlowResponse:
         if text.lower() in ("confirm", "yes", "confirm_swap"):
             return await self._execute_swap(user_id, user_db_id, state.data)
         if text.lower() in ("no", "decline", "cancel_swap"):
@@ -219,12 +249,19 @@ class SwapFlow(BaseWhatsAppFlow):
 
     # -- Helpers ---------------------------------------------------------
 
-    async def _build_confirm_prompt(self, user_id: str, user_db_id: int, data: dict) -> FlowResponse:
+    async def _build_confirm_prompt(
+        self, user_id: str, user_db_id: int, data: dict
+    ) -> FlowResponse:
+        from bot.services.whatsapp_service import whatsapp_service as _wa
+
         from_chain = data.get("from_chain", "ethereum")
         to_chain = data.get("to_chain", "ethereum")
         from_token = data.get("from_token", "?")
         to_token = data.get("to_token", "?")
         amount = data.get("amount", "0")
+
+        # Send interim feedback before the potentially slow quote fetch
+        await _wa.send_text_message(user_id, "⏳ Getting your quote...")
 
         # Try to get a quote
         quote_text = ""
@@ -236,7 +273,12 @@ class SwapFlow(BaseWhatsAppFlow):
             ws = WalletService()
             with get_session() as session:
                 from bot.models.user import User
-                user = session.query(User).filter(User.id == (data.get("user_db_id") or user_db_id)).first()
+
+                user = (
+                    session.query(User)
+                    .filter(User.id == (data.get("user_db_id") or user_db_id))
+                    .first()
+                )
                 wallet = next((w for w in user.wallets if w.is_active), None) if user else None
 
             if wallet:
@@ -281,6 +323,9 @@ class SwapFlow(BaseWhatsAppFlow):
 
     async def _execute_swap(self, user_id: str, user_db_id: int, data: dict) -> FlowResponse:
         """Actually execute the swap via SwapEngine."""
+        from bot.services.whatsapp_service import whatsapp_service as _wa
+
+        await _wa.send_text_message(user_id, "⏳ Submitting your swap...")
         await self._clear(user_id)
 
         from_chain = data.get("from_chain", "ethereum")
@@ -319,6 +364,7 @@ class SwapFlow(BaseWhatsAppFlow):
                 return FlowResponse("Could not get a swap quote. Try again or adjust parameters.")
 
             import uuid
+
             idempotency_key = f"wa:{user_id}:{uuid.uuid4().hex[:8]}"
 
             swap_tx = await se.execute_swap(
@@ -330,6 +376,7 @@ class SwapFlow(BaseWhatsAppFlow):
 
             if swap_tx and swap_tx.tx_hash:
                 from bot.utils.formatters import format_tx_link
+
                 tx_link = format_tx_link(swap_tx.tx_hash, from_chain)
                 return FlowResponse(
                     f"✅ *Swap Submitted!*\n\n"
@@ -345,13 +392,16 @@ class SwapFlow(BaseWhatsAppFlow):
                     f"Check back with *history*."
                 )
             else:
-                return FlowResponse("Swap submission returned no result. Check *history* for updates.")
+                return FlowResponse(
+                    "Swap submission returned no result. Check *history* for updates."
+                )
 
         except Exception as e:
-            logger.error(f"Swap execution failed: {e}")
-            return FlowResponse(f"Swap failed: {str(e)[:200]}\n\nPlease try again.")
+            return FlowResponse(user_safe_error(e, "swap"))
 
-    async def _get_balance_amount(self, user_db_id: int, chain: str, token: str, pct: float) -> Optional[float]:
+    async def _get_balance_amount(
+        self, user_db_id: int, chain: str, token: str, pct: float
+    ) -> Optional[float]:
         """Get user's balance for a token and return pct of it."""
         try:
             from bot.services.wallet import WalletService
@@ -373,6 +423,7 @@ class SwapFlow(BaseWhatsAppFlow):
 
     async def _get_state_data(self, user_id: str) -> Optional[dict]:
         from bot.services.whatsapp_conversation import conversation_manager
+
         state = await conversation_manager.get_state(user_id)
         return state.data if state else None
 

@@ -1,484 +1,323 @@
-# Building a Trading Bot
+# Building a Standalone Trading Bot
 
-This guide walks through building an automated trading bot from scratch. By the end, you will have a runnable script that registers an agent, creates a managed wallet, monitors token prices, and executes swaps when conditions are met.
+Build and monetize a standalone price-triggered product without confusing a market signal, an executable route, permission to trade, and a completed outcome.
 
-## What the Bot Does
+The public [`suwappu-trading-bot`](https://github.com/0xSoftBoi/suwappu-trading-bot) v2 is the concrete implementation. It is **preview-only by default** and intentionally narrow: USDC in, one target-price trigger, one managed-swap action. It demonstrates a production-shaped Suwappu authority/recovery boundary; it does not claim that the toy strategy is profitable.
 
-1. Registers with the Suwappu API and saves the API key
-2. Creates a managed wallet for server-side swap execution
-3. Polls token prices in a loop
-4. Executes a swap when a price target is hit
-5. Tracks the swap status until completion
-6. Handles errors and rate limits gracefully
+For strategy research—backtests, paper/live parity, exits, drawdown, and net P&L—start with [Strategy Lifecycle](strategy-lifecycle.md). This guide focuses on the action boundary you can reuse in a real product.
 
-## Python Version
+## What “standalone” means here
 
-```python
-#!/usr/bin/env python3
-"""
-Suwappu Trading Bot — Python
-Monitors ETH/USDC price on Base and buys when price drops below target.
-"""
+Version 2 closes the single-node operating gaps that matter when the reference can move money:
 
-import os
-import sys
-import time
-import requests
+| Boundary | v2 behavior |
+|---|---|
+| Safe start | package/container start performs one preview evaluation; continuous monitoring is explicit |
+| Local concurrency | managed execution and reconciliation require one exclusive state-directory owner |
+| Durable intent | atomic/fsynced journal, `0700` directory, `0600` journal/lock, corrupt state fails closed |
+| Retention | resolved records can age out; unresolved idempotency state never does |
+| Network ambiguity | bounded operations; timeout/network/HTTP 408/5xx/malformed execute success become outcome-unknown |
+| Telemetry | optional metadata-only operation/outcome/duration events, with no keys, wallet/market terms, IDs, bodies, or error text |
+| Release safety | frozen dependency graph, TypeScript/Python tests, build, dependency audit, container build, and CodeQL |
 
-BASE_URL = "https://api.suwappu.bot/v1/agent"
+It is still a **single-node** reference. Multi-tenant roles, distributed serialization, durable background reconciliation, billing, strategy research, exits, and portfolio risk belong in the product you build around this boundary.
 
-# Configuration
-CHAIN = "base"
-FROM_TOKEN = "USDC"
-TO_TOKEN = "ETH"
-BUY_AMOUNT = "100"          # Buy 100 USDC worth of ETH
-PRICE_TARGET = 2000.0       # Buy when ETH drops below $2000
-POLL_INTERVAL = 30          # Check price every 30 seconds
-MAX_RETRIES = 3             # Retry failed requests up to 3 times
+## The four states builders must keep separate
 
+| State | Evidence | What it authorizes |
+|-------|----------|--------------------|
+| Reference signal | `GET /prices` | Decide whether a route is worth checking |
+| Qualified route | wallet-aware `POST /quote` | A candidate transaction at a specific size/chain |
+| Execution permission | `POST /swap/simulate` with `would_execute: true` + your policies | Permission to submit that specific economic action |
+| Reconciled outcome | `GET /swap/status/:id` / webhook | Accounting, reporting, and the next economic decision |
 
-def register_agent():
-    """Register a new agent and return the API key."""
-    response = requests.post(
-        f"{BASE_URL}/register",
-        json={"name": f"trading-bot-{int(time.time())}"},
-    )
-    response.raise_for_status()
-    data = response.json()
-    api_key = data["agent"]["api_key"]
-    print(f"Registered agent: {data['agent']['name']}")
-    print(f"API key: {api_key[:20]}...")
-    return api_key
+Skipping one of those boundaries is where a tiny example becomes misleading or unsafe.
 
+## 1. Use reference prices only as a trigger
 
-def create_wallet(headers):
-    """Create a managed wallet for swap execution."""
-    response = requests.post(f"{BASE_URL}/wallets", headers=headers)
-    response.raise_for_status()
-    wallet = response.json()["wallet"]
-    print(f"Wallet created: {wallet['address']}")
-    print(f"Chain type: {wallet['chain_type']}")
-    print(f"Fund this wallet with {FROM_TOKEN} on {CHAIN} to start trading.")
-    return wallet["address"]
+`GET /v1/agent/prices` is a chain-neutral CoinGecko-backed reference feed. It has no `chain` parameter and does not prove that 100 USDC can buy ETH at that price on Base, Arbitrum, or any other route.
 
+Use it to avoid unnecessary quote requests:
 
-def get_price(headers, token, chain):
-    """Fetch the current USD price for a token."""
-    response = requests.get(
-        f"{BASE_URL}/prices",
-        headers=headers,
-        params={"token": token, "chain": chain},
-    )
-    response.raise_for_status()
-    return float(response.json()["price_usd"])
+```ts
+const response = await fetch(
+  'https://api.suwappu.bot/v1/agent/prices?symbols=ETH',
+  { headers: { Authorization: `Bearer ${process.env.SUWAPPU_API_KEY}` } },
+)
+const data = await response.json()
+const referencePrice = Number(data.prices.ETH.usd)
 
-
-def execute_swap(headers, from_token, to_token, amount, chain):
-    """Get a quote and execute a swap. Returns the swap ID."""
-    # Step 1: Get a quote
-    quote_response = requests.post(
-        f"{BASE_URL}/quote",
-        headers=headers,
-        json={
-            "from_token": from_token,
-            "to_token": to_token,
-            "amount": amount,
-            "chain": chain,
-        },
-    )
-    quote_response.raise_for_status()
-    quote = quote_response.json()
-    print(f"Quote: {amount} {from_token} -> {quote['expected_output']} {to_token}")
-
-    # Step 2: Execute
-    swap_response = requests.post(
-        f"{BASE_URL}/swap/execute",
-        headers=headers,
-        json={"quote_id": quote["quote_id"]},
-    )
-    swap_response.raise_for_status()
-    swap = swap_response.json()
-    print(f"Swap submitted: ID {swap['swap_id']}, tx: {swap.get('tx_hash', 'pending')}")
-    return swap["swap_id"]
-
-
-def wait_for_completion(headers, swap_id):
-    """Poll swap status until it completes or fails."""
-    while True:
-        response = requests.get(
-            f"{BASE_URL}/swap/status/{swap_id}",
-            headers=headers,
-        )
-        response.raise_for_status()
-        status = response.json()
-        print(f"  Swap {swap_id}: {status['status']}")
-
-        if status["status"] == "completed":
-            print(f"  Completed! TX: {status['tx_hash']}")
-            return True
-        elif status["status"] == "failed":
-            print(f"  Failed.")
-            return False
-
-        time.sleep(5)
-
-
-def main():
-    # Use existing API key or register a new agent
-    api_key = os.environ.get("SUWAPPU_API_KEY")
-    if not api_key:
-        print("No SUWAPPU_API_KEY found. Registering new agent...")
-        api_key = register_agent()
-        print(f"\nSet this for future runs:")
-        print(f"  export SUWAPPU_API_KEY={api_key}\n")
-
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    # Check for existing wallets or create one
-    wallets = requests.get(f"{BASE_URL}/wallets", headers=headers).json()
-    if not wallets.get("wallets"):
-        print("No wallets found. Creating one...")
-        address = create_wallet(headers)
-        print(f"\nFund {address} with {FROM_TOKEN} on {CHAIN}, then restart.\n")
-        sys.exit(0)
-    else:
-        address = wallets["wallets"][0]["address"]
-        print(f"Using wallet: {address}")
-
-    # Price monitoring loop
-    print(f"\nMonitoring {TO_TOKEN} price on {CHAIN}...")
-    print(f"Will buy {BUY_AMOUNT} {FROM_TOKEN} worth of {TO_TOKEN} when price < ${PRICE_TARGET}")
-    print(f"Checking every {POLL_INTERVAL}s. Press Ctrl+C to stop.\n")
-
-    retries = 0
-    while True:
-        try:
-            price = get_price(headers, TO_TOKEN, CHAIN)
-            print(f"{TO_TOKEN}: ${price:.2f}", end="")
-
-            if price < PRICE_TARGET:
-                print(f" < ${PRICE_TARGET} -- BUYING!")
-                swap_id = execute_swap(
-                    headers, FROM_TOKEN, TO_TOKEN, BUY_AMOUNT, CHAIN
-                )
-                success = wait_for_completion(headers, swap_id)
-                if success:
-                    print("Trade executed successfully.")
-                else:
-                    print("Trade failed. Will retry on next signal.")
-            else:
-                print(f" (target: < ${PRICE_TARGET})")
-
-            retries = 0  # Reset retries on success
-
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                retries += 1
-                wait = min(60, POLL_INTERVAL * retries)
-                print(f"Rate limited. Waiting {wait}s... (retry {retries}/{MAX_RETRIES})")
-                time.sleep(wait)
-                if retries >= MAX_RETRIES:
-                    print("Max retries reached. Exiting.")
-                    sys.exit(1)
-                continue
-            else:
-                print(f"HTTP error: {e}")
-                retries += 1
-                if retries >= MAX_RETRIES:
-                    print("Max retries reached. Exiting.")
-                    sys.exit(1)
-
-        except KeyboardInterrupt:
-            print("\nStopped.")
-            sys.exit(0)
-
-        except Exception as e:
-            print(f"Error: {e}")
-            retries += 1
-            if retries >= MAX_RETRIES:
-                print("Max retries reached. Exiting.")
-                sys.exit(1)
-
-        time.sleep(POLL_INTERVAL)
-
-
-if __name__ == "__main__":
-    main()
+if (!Number.isFinite(referencePrice) || referencePrice <= 0) {
+  throw new Error('Invalid reference price')
+}
+if (referencePrice >= targetUsd) return { action: 'wait' }
 ```
 
-### Running the Python Bot
+The reference repo fixes the source asset to USDC so `--amount`, the target, and the client-side ceiling have explicit USD accounting. If your product supports arbitrary source assets, convert and account for them explicitly instead of calling a token quantity “USD.”
+
+## 2. Let the executable route decide
+
+When the reference signal passes, request a fresh quote for the actual size and chain. In managed mode, bind it to the intended wallet:
+
+```ts
+const quote = await request('/quote', {
+  method: 'POST',
+  body: JSON.stringify({
+    from_token: 'USDC',
+    to_token: 'ETH',
+    amount: '100',
+    chain: 'base',
+    wallet_address: process.env.SUWAPPU_WALLET_ADDRESS,
+  }),
+})
+```
+
+Fail closed if the quote is malformed, `success !== true`, the returned token pair or input amount does not match what you requested, `amount_out_min > amount_out`, estimated gas is missing, or the quote has too little time left to use safely.
+
+For this fixed-USDC example, the conservative acquisition price is:
+
+```text
+(input USDC + estimated_gas_usd) / amount_out_min
+```
+
+Only promote a candidate when that price is below the configured target. Use `amount_out_min`, not optimistic `amount_out`.
+
+`bridge_fee_usd` is useful route-cost attribution, but routed output already reflects the routed platform/route fee. Do not subtract the same route fee from output a second time. Gas is separate, which is why the example adds the gas estimate to its fixed-USDC acquisition cost.
+
+The reference repo also defaults `SUWAPPU_MAX_TRADE_USDC=1000`. A client cap is defense in depth; keep restrictive [managed-wallet policies](managed-wallets.md) on the server as the independent control.
+
+## 3. Treat `would_execute` as the permission bit
+
+Before managed submission, simulate the wallet-bound quote:
+
+```ts
+const simulation = await request('/swap/simulate', {
+  method: 'POST',
+  body: JSON.stringify({
+    quote_id: quote.quote_id,
+    wallet_address: process.env.SUWAPPU_WALLET_ADDRESS,
+  }),
+})
+
+if (simulation.would_execute !== true) {
+  return {
+    action: 'blocked',
+    warnings: simulation.warnings ?? [],
+    checks: simulation.checks ?? [],
+  }
+}
+```
+
+This distinction matters: an HTTP-successful simulation can still return `would_execute: false` because a balance, gas, policy, or other safety check failed. The v2 reference also requires `success: true` and the exact requested `quote_id`; only then can `would_execute: true` authorize submission. Never use `response.ok` or a top-level `success: true` by itself as the trade-permission bit.
+
+The public bot additionally requires both:
+
+```text
+--execute
+SUWAPPU_ALLOW_MANAGED_EXECUTION=1
+```
+
+Absence of either means preview-only. Credentials being present must not silently turn preview code into a money-moving process.
+
+## 4. Persist intent before submission risk
+
+The managed execute endpoint accepts a caller-owned `Idempotency-Key` (1–64 characters using `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, or `-`). The key belongs to the **economic action**, not to one HTTP attempt.
+
+Before the first `POST /swap/execute`:
+
+1. create an intent with exact economic terms (`chain`, assets, source amount);
+2. persist its idempotency key durably;
+3. mark the intent as `submitting` durably;
+4. send that same key with the execute request;
+5. reuse it after restart or an ambiguous failure.
+
+```ts
+await persist({
+  id: intentId,
+  phase: 'submitting',
+  terms: { chain: 'base', from: 'USDC', to: 'ETH', amount: '100' },
+})
+
+const result = await fetch(`${BASE}/swap/execute`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${API_KEY}`,
+    'Content-Type': 'application/json',
+    'Idempotency-Key': intentId,
+  },
+  body: JSON.stringify({ quote_id: quote.quote_id }),
+})
+```
+
+Do not generate a fresh key from the retry timestamp. That turns one user/business intent into multiple economic actions.
+
+The standalone v2 process holds an exclusive `execution.lock` while managed mode is active. `executions --reconcile` takes the same lock before it writes state. Journal replacement uses an atomic rename after file `fsync`, and malformed state stops new economic actions. A soft retention target defaults to 5,000 entries, but unresolved records are never pruned to satisfy it.
+
+That lock is intentionally local. Before running replicas or multiple hosts, move intents to transactional storage, enforce uniqueness on the economic-action/idempotency key, and serialize conflicting actions. A shared JSON file is not a distributed execution service.
+
+## 5. A timeout can mean “it happened”
+
+Network failure, timeout, HTTP 408/5xx, or a malformed successful execute response can leave the outcome unknown. Do not record that state as a proven failure and fire a fresh trade.
+
+The reference bot persists `outcome_unknown`. Recovery follows two rules:
+
+- if a swap ID is known, poll that swap; do not resubmit;
+- if no swap ID is known, keep the original economic terms and idempotency key. A fresh quote can be used for a same-key retry only if the action still satisfies its original guard and simulation.
+
+Why re-check the target? If the first request never reached Suwappu, a same-key retry may become the first real submission. You should not execute a newly bad route merely because the retry is idempotent.
+
+Suwappu's caller-owned managed-execution key is bound to the **economic terms**, not the short-lived quote ID. That is why a fresh same-terms quote can represent the same retry. Changing the economic terms is a different action and must not be disguised as recovery.
+
+## 6. Submission is not success
+
+`POST /swap/execute` starts or reports a workflow. Use `GET /v1/agent/swap/status/:id` or [webhooks](webhook-setup.md) to reconcile it.
+
+Store at least:
+
+- intent/idempotency key and exact economic terms;
+- quote ID, expected output, minimum output, gas estimate, and simulation evidence;
+- swap ID and transaction hash when known;
+- terminal status;
+- final input/output amounts;
+- errors and operator resolution.
+
+The public bot's `--max-trades` counts terminal-success swaps, not request submissions. Quoted output and final output stay separate so a product can report what actually happened. Its status adapter also requires `success: true` and the returned swap ID to match the ID requested before it updates the journal.
+
+Operators can inspect its durable journal without submitting anything:
 
 ```bash
-# Install dependencies
-pip install requests
-
-# First run: registers agent and creates wallet
-python trading_bot.py
-
-# Set the API key for future runs
-export SUWAPPU_API_KEY=suwappu_sk_your_api_key
-
-# Fund the wallet address printed above, then run again
-python trading_bot.py
+bun src/cli.ts executions
+bun src/cli.ts executions --reconcile
 ```
 
----
+`--reconcile` polls known swap IDs only. It cannot create a quote or submit a new economic action.
 
-## TypeScript Version
+If `execution.lock` remains after an unclean stop, do not auto-delete it. Stop supervisors, inspect its PID/timestamp, prove the owner is gone, preserve the journal/lock as incident evidence, remove only the proven-stale lock, and reconcile before managed mode. Uncertainty is not a retry signal.
 
-```typescript
-#!/usr/bin/env npx tsx
-/**
- * Suwappu Trading Bot — TypeScript
- * Monitors ETH/USDC price on Base and buys when price drops below target.
- */
-
-const BASE_URL = "https://api.suwappu.bot/v1/agent";
-
-// Configuration
-const CHAIN = "base";
-const FROM_TOKEN = "USDC";
-const TO_TOKEN = "ETH";
-const BUY_AMOUNT = "100";
-const PRICE_TARGET = 2000.0;
-const POLL_INTERVAL = 30_000; // 30 seconds
-const MAX_RETRIES = 3;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function api(
-  path: string,
-  options: RequestInit & { params?: Record<string, string> } = {},
-  apiKey?: string
-) {
-  const { params, ...fetchOptions } = options;
-  let url = `${BASE_URL}${path}`;
-  if (params) url += `?${new URLSearchParams(params)}`;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-
-  const response = await fetch(url, { ...fetchOptions, headers });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-
-  if (response.status === 204) return {};
-  return response.json();
-}
-
-async function registerAgent(): Promise<string> {
-  const data = await api("/register", {
-    method: "POST",
-    body: JSON.stringify({ name: `trading-bot-${Date.now()}` }),
-  });
-  const apiKey = data.agent.api_key;
-  console.log(`Registered agent: ${data.agent.name}`);
-  console.log(`API key: ${apiKey.slice(0, 20)}...`);
-  return apiKey;
-}
-
-async function createWallet(apiKey: string): Promise<string> {
-  const data = await api("/wallets", { method: "POST" }, apiKey);
-  const wallet = data.wallet;
-  console.log(`Wallet created: ${wallet.address}`);
-  console.log(`Chain type: ${wallet.chain_type}`);
-  console.log(`Fund this wallet with ${FROM_TOKEN} on ${CHAIN} to start trading.`);
-  return wallet.address;
-}
-
-async function getPrice(apiKey: string, token: string, chain: string): Promise<number> {
-  const data = await api("/prices", { params: { token, chain } }, apiKey);
-  return parseFloat(data.price_usd);
-}
-
-async function executeSwap(
-  apiKey: string,
-  fromToken: string,
-  toToken: string,
-  amount: string,
-  chain: string
-): Promise<number> {
-  // Get a quote
-  const quote = await api(
-    "/quote",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        from_token: fromToken,
-        to_token: toToken,
-        amount,
-        chain,
-      }),
-    },
-    apiKey
-  );
-  console.log(`Quote: ${amount} ${fromToken} -> ${quote.expected_output} ${toToken}`);
-
-  // Execute
-  const swap = await api(
-    "/swap/execute",
-    {
-      method: "POST",
-      body: JSON.stringify({ quote_id: quote.quote_id }),
-    },
-    apiKey
-  );
-  console.log(`Swap submitted: ID ${swap.swap_id}, tx: ${swap.tx_hash ?? "pending"}`);
-  return swap.swap_id;
-}
-
-async function waitForCompletion(apiKey: string, swapId: number): Promise<boolean> {
-  while (true) {
-    const status = await api(`/swap/status/${swapId}`, {}, apiKey);
-    console.log(`  Swap ${swapId}: ${status.status}`);
-
-    if (status.status === "completed") {
-      console.log(`  Completed! TX: ${status.tx_hash}`);
-      return true;
-    }
-    if (status.status === "failed") {
-      console.log(`  Failed.`);
-      return false;
-    }
-
-    await sleep(5000);
-  }
-}
-
-async function main() {
-  // Use existing API key or register a new agent
-  let apiKey = process.env.SUWAPPU_API_KEY;
-  if (!apiKey) {
-    console.log("No SUWAPPU_API_KEY found. Registering new agent...");
-    apiKey = await registerAgent();
-    console.log(`\nSet this for future runs:`);
-    console.log(`  export SUWAPPU_API_KEY=${apiKey}\n`);
-  }
-
-  // Check for existing wallets or create one
-  const walletData = await api("/wallets", {}, apiKey);
-  if (!walletData.wallets?.length) {
-    console.log("No wallets found. Creating one...");
-    const address = await createWallet(apiKey);
-    console.log(`\nFund ${address} with ${FROM_TOKEN} on ${CHAIN}, then restart.\n`);
-    process.exit(0);
-  }
-
-  const address = walletData.wallets[0].address;
-  console.log(`Using wallet: ${address}`);
-
-  // Price monitoring loop
-  console.log(`\nMonitoring ${TO_TOKEN} price on ${CHAIN}...`);
-  console.log(
-    `Will buy ${BUY_AMOUNT} ${FROM_TOKEN} worth of ${TO_TOKEN} when price < $${PRICE_TARGET}`
-  );
-  console.log(`Checking every ${POLL_INTERVAL / 1000}s. Press Ctrl+C to stop.\n`);
-
-  let retries = 0;
-
-  while (true) {
-    try {
-      const price = await getPrice(apiKey, TO_TOKEN, CHAIN);
-      process.stdout.write(`${TO_TOKEN}: $${price.toFixed(2)}`);
-
-      if (price < PRICE_TARGET) {
-        console.log(` < $${PRICE_TARGET} -- BUYING!`);
-        const swapId = await executeSwap(apiKey, FROM_TOKEN, TO_TOKEN, BUY_AMOUNT, CHAIN);
-        const success = await waitForCompletion(apiKey, swapId);
-        console.log(success ? "Trade executed successfully." : "Trade failed. Will retry.");
-      } else {
-        console.log(` (target: < $${PRICE_TARGET})`);
-      }
-
-      retries = 0;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (message.includes("429")) {
-        retries++;
-        const wait = Math.min(60_000, POLL_INTERVAL * retries);
-        console.log(`Rate limited. Waiting ${wait / 1000}s... (retry ${retries}/${MAX_RETRIES})`);
-        await sleep(wait);
-        if (retries >= MAX_RETRIES) {
-          console.log("Max retries reached. Exiting.");
-          process.exit(1);
-        }
-        continue;
-      }
-
-      console.error(`Error: ${message}`);
-      retries++;
-      if (retries >= MAX_RETRIES) {
-        console.log("Max retries reached. Exiting.");
-        process.exit(1);
-      }
-    }
-
-    await sleep(POLL_INTERVAL);
-  }
-}
-
-main().catch(console.error);
-```
-
-### Running the TypeScript Bot
+## Run the reference safely
 
 ```bash
-# Install tsx for running TypeScript directly
-npm install -g tsx
+git clone https://github.com/0xSoftBoi/suwappu-trading-bot.git
+cd suwappu-trading-bot
+bun install --frozen-lockfile
 
-# First run: registers agent and creates wallet
-npx tsx trading_bot.ts
+export SUWAPPU_API_KEY=suwappu_sk_...
 
-# Set the API key for future runs
-export SUWAPPU_API_KEY=suwappu_sk_your_api_key
-
-# Fund the wallet address printed above, then run again
-npx tsx trading_bot.ts
+# One preview evaluation: price + route only, never submission.
+bun src/cli.ts --once --chain base --from USDC --to ETH --amount 25 --target 2000
 ```
 
----
+`bun run start` is also one-shot preview. Use `bun run watch` when you intentionally want a continuous monitor; that can spend API credits indefinitely, so make polling cadence part of the product budget.
 
-## Customizing the Bot
+For intentionally capped managed execution:
 
-### Different Trading Strategies
+```bash
+export SUWAPPU_WALLET_ADDRESS=0x...
+export SUWAPPU_ALLOW_MANAGED_EXECUTION=1
+export SUWAPPU_MAX_TRADE_USDC=100
 
-The bot above uses a simple "buy below target price" strategy. Here are ideas for modifications:
-
-**Dollar-cost averaging (DCA):** Remove the price check and buy a fixed amount at regular intervals.
-
-```python
-# Replace the price check with a simple timer
-while True:
-    swap_id = execute_swap(headers, FROM_TOKEN, TO_TOKEN, BUY_AMOUNT, CHAIN)
-    wait_for_completion(headers, swap_id)
-    time.sleep(3600)  # Buy every hour
+bun src/cli.ts \
+  --chain base \
+  --from USDC \
+  --to ETH \
+  --amount 25 \
+  --target 2000 \
+  --execute \
+  --max-trades 1
 ```
 
-**Sell above target:** Reverse the token pair and condition.
+Its Python companion is intentionally preview-only (`python bot.py --once ...`). There is one authoritative live state machine instead of two implementations that can drift on idempotency/recovery semantics.
 
-```python
-FROM_TOKEN = "ETH"
-TO_TOKEN = "USDC"
-BUY_AMOUNT = "0.05"
-PRICE_TARGET = 2500.0  # Sell when ETH is above $2500
+Docker runs non-root, mounts durable `/data`, and defaults to one JSON preview evaluation. Compose uses `restart: "no"`; continuous preview and money-moving commands must be selected explicitly rather than hidden behind a restart policy.
 
-# In the loop:
-if price > PRICE_TARGET:
-    execute_swap(...)
+### Bound and observe API work
+
+Every TypeScript Suwappu operation defaults to a 25-second deadline and can be configured from 100–30,000ms with `SUWAPPU_OPERATION_TIMEOUT_MS`. Invalid deadline configuration fails at startup rather than being mislabeled as a transport failure.
+
+Set `SUWAPPU_API_EVENTS=1` for metadata-only stderr events such as:
+
+```text
+suwappu_api_event {"operation":"quote","outcome":"response_ok","duration_ms":184.2,"status":200}
 ```
 
-**Multi-chain monitoring:** Check prices across different chains and swap where the best rate is.
+These events omit credentials, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received a parseable response at that layer—not that a managed trade reached terminal success. Reconciled state remains authoritative.
 
-### Error Handling Tips
+## Choose REST, SDK, or MCP deliberately
 
-- **Rate limits**: The bot handles 429 responses with exponential backoff. The standard tier allows 60 requests per minute.
-- **Quote expiration**: Quotes expire after a few minutes. The bot gets a fresh quote before each swap.
-- **Network errors**: Transient failures (timeouts, 500s) are retried up to `MAX_RETRIES` times before exiting.
-- **Insufficient balance**: If your wallet does not have enough tokens, the swap execution will fail. Check your wallet balance before trading.
+Suwappu exposes the same product surface through several developer interfaces, but their **authority is not interchangeable**:
+
+| Interface | Best fit here | Money-moving boundary |
+|---|---|---|
+| REST | Exact v2 reference contract and lowest dependency surface | `POST /v1/agent/swap/execute` is managed signing/broadcast; `POST /v1/agent/swap` is unsigned self-custody preparation |
+| TypeScript/Python SDK | Typed app integration | TypeScript `executeManagedSwap()` / Python `execute_managed_swap()` map to managed `/swap/execute`; `prepareSwap()` / `prepare_swap()` stay unsigned |
+| Hosted MCP | Agents, discovery, quote/simulation/research workflows | Historical MCP `execute_swap` **prepares an unsigned self-custody transaction; it does not managed-broadcast** |
+
+At this guide's v2 sync (2026-08-07), the TypeScript SDK source in this repository is `0.6.0`, while the public npm registry resolves `@suwappu/sdk` to `0.4.0`. Re-check with `npm view @suwappu/sdk version` when you build. Treat the installed package's exports as authoritative for your build; use the REST contract when you need an API added in source but not yet published. Do not paste a source-only SDK example into a registry-installed app without checking its installed version.
+
+SDK convenience methods also do not replace your product's durable intent/idempotency/reconciliation state machine. Keep that application state even when the HTTP call is wrapped for you.
+
+For hosted MCP, connect at `/mcp` and call `tools/list` instead of hard-coding the tool count. Useful tools for a trading product include `get_quote`, `simulate_swap`, `get_swap_status`, and `get_swap_history`. If you need Suwappu-managed execution after MCP research/approval, cross that boundary explicitly through REST/SDK managed execution and keep the durable economic intent/idempotency key in your application.
+
+## Turn the integration into something people pay for
+
+A threshold bot by itself is a weak product. A useful progression is:
+
+| Product stage | Customer value | Example paid fence | Capital moves? |
+|---------------|----------------|-------------------|----------------|
+| Route-qualified monitor | “Tell me when my actual size can reach this threshold” | saved targets/history + alert destinations | No |
+| Approval workspace | Explain route/cost/policy context and make review faster | team seats, approvals, audit retention | No until explicit approval |
+| Bounded automation | Repeated execution within customer-defined limits, with an audit trail | intentionally enabled automations + reconciliation/support tier | Yes, explicitly |
+
+Measure the funnel before adding strategy complexity:
+
+- target created -> first route-qualified preview;
+- candidate -> qualified route rate;
+- simulation block rate and reasons;
+- approval / managed-execution conversion;
+- terminal success/failure/unknown-outcome rate;
+- time to terminal outcome;
+- weekly retained users or intentionally enabled policies.
+
+At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model. Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs—not from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
+
+Keep the two scoreboards separate:
+
+```text
+builder contribution margin by plan/customer cohort
+= customer subscription / usage revenue
+- Suwappu + infrastructure + model/notification + support/payment costs
+
+customer strategy result
+= realized strategy proceeds/value
+- acquisition cost
+- execution and strategy costs
+```
+
+This toy entry rule has no exit/P&L lifecycle, so it cannot honestly display a trading ROI. See [Build a Business on Suwappu](build-a-business.md) for monetization boundaries and [Strategy Lifecycle](strategy-lifecycle.md) for the customer-performance ledger.
+
+The activation metric should also be a **product action**, not a vanity number: target created → route-qualified preview → decision/approval → reconciled outcome, depending on the tier. Track retention and contribution margin after activation; “API calls made” and “signals fired” are costs/activity, not proof of value.
+
+## Know when to use a larger framework
+
+The Suwappu example should stay small and copyable.
+
+- [Freqtrade backtesting](https://www.freqtrade.io/en/stable/backtesting/) is a better benchmark when you need reproducible strategy research. Its docs explicitly say backtesting does not replace dry-run, and it provides dedicated [lookahead analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/) and [protections](https://www.freqtrade.io/en/stable/plugins/).
+- [Hummingbot Strategy V2](https://hummingbot.org/strategies/v2-strategies/) is a useful architecture benchmark when you need controllers plus [Executors](https://hummingbot.org/strategies/v2-strategies/executors/) that own finite order lifecycles.
+
+Use Suwappu for the financial action plane and keep the research/orchestration framework as sophisticated as your product actually needs.
+
+## Enterprise graduation checklist
+
+Before turning this single-node product into a multi-user managed service, require evidence for each boundary:
+
+- tenant-scoped roles/approvals, aggregate budgets, server wallet policy, and a kill switch;
+- transactional intent storage with unique economic-action keys and distributed serialization;
+- durable reconciliation workers and an owned incident queue for stale `submitting` / `outcome_unknown`;
+- central tenant-safe metrics/logs/traces with retention rules;
+- measured per-plan usage, billing, support cost, and contribution margin;
+- reproducible strategy eval/backtest/dry-run evidence before making performance claims;
+- signed/SBOM/provenance controls if required by your deployment/customer policy.
+
+For the maintained single-node boundary, the source repository's [operator runbook](https://github.com/0xSoftBoi/suwappu-trading-bot/blob/main/docs/OPERATIONS.md) is the operational contract. Its release gate requires the frozen dependency graph, tests, build, dependency audit, container contract, and CodeQL before a money-path change is merged.
+
+> Educational example, not financial advice. Live automated trading can lose funds.

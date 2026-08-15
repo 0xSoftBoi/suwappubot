@@ -1,0 +1,93 @@
+/**
+ * @suwappu/sdk — TypeScript client for the Suwappu cross-chain DEX API.
+ *
+ * @example
+ * ```ts
+ * import { Suwappu } from "@suwappu/sdk";
+ *
+ * const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
+ * const quote = await client.getQuote({ from: "USDC", to: "ETH", chain: "base", amount: "1000" });
+ * console.log(quote.toAmount);
+ * // Managed execution is an explicit opt-in:
+ * // const execution = await client.executeManagedSwap(quote);
+ * ```
+ */
+
+export {
+  Suwappu,
+  SuwappuError,
+  SuwappuApiError,
+  createClient,
+  DEFAULT_BASE_URL,
+  ApprovalsNamespace,
+  AuditNamespace,
+  KillSwitchNamespace,
+} from "./client.js";
+
+export type {
+  SuwappuConfig,
+  Quote,
+  SwapResult,
+  SwapStatus,
+  TokenBalance,
+  TokenPrice,
+  Chain,
+  Token,
+  PerpMarket,
+  PerpQuote,
+  PerpPosition,
+  PredictionMarketToken,
+  PredictionMarket,
+  PredictionMarketDetail,
+  PredictionOrderbook,
+  PredictionOutcomeBook,
+  PredictionOrderbookLevel,
+  PredictionPrices,
+  PredictionPriceLevel,
+  PredictionTrades,
+  PredictionTrade,
+  PredictionOrderRequest,
+  PredictionOrderResult,
+  PredictionPosition,
+  PredictionOrder,
+  LendingMarketWarning,
+  LendingMarket,
+  LendingMarketDetail,
+  GetQuoteArgs,
+  PerpQuoteArgs,
+  PredictListArgs,
+  AgentProfile,
+  RegisterAgentArgs,
+  RegisterAgentResult,
+  RegisterResult,
+  UpdateAgentArgs,
+  RotateKeysResult,
+  CreatePolicyArgs,
+  WalletPolicy,
+  WebhookEvent,
+  WebhookEventsResult,
+  WebhookTestResult,
+  BillingCheckoutResult,
+  BillingCryptoArgs,
+  BillingStatus,
+  AgentTopupArgs,
+  BillingInfo,
+  BillingCredits,
+  BillingSubscribe,
+  BillingTopup,
+  SwapSimulation,
+  SwapSimulationCheck,
+  SwapHistoryItem,
+  SwapHistoryResult,
+  AgentWallet,
+  LinkCodeResult,
+  Approval,
+  ApprovalStatus,
+  StepUpChallenge,
+  AuditEvent,
+  AuditListArgs,
+  AuditVerifyResult,
+  KillSwitch,
+  KillSwitchScope,
+  SetKillSwitchArgs,
+} from "./types.js";

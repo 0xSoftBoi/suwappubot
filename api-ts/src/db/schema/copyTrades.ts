@@ -191,3 +191,15 @@ export const traderTrades = pgTable(
 )
 
 export type TraderTrade = typeof traderTrades.$inferSelect
+
+export const copyNotifications = pgTable('copy_notifications', {
+	id: serial('id').primaryKey(),
+	copyTradeId: integer('copy_trade_id').notNull(),
+	telegramMessageId: integer('telegram_message_id'),
+	sentAt: timestamp('sent_at').defaultNow(),
+	actionTaken: varchar('action_taken', { length: 20 }),
+	actionAt: timestamp('action_at'),
+})
+
+export type CopyNotification = typeof copyNotifications.$inferSelect
+export type NewCopyNotification = typeof copyNotifications.$inferInsert

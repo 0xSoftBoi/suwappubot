@@ -1,142 +1,83 @@
 ---
-description: "Deploy Suwappu services to EC2/ECS. Usage: /deploy [prod|dev] [bot|webapp|api-ts|all]"
+description: "Deploy Suwappu services on Railway. Usage: /deploy [prod|dev] [python-api|python-worker|terminal|api-ts|showcase|all]"
 ---
 
-# Suwappu Deployment Skill
+# Suwappu Deployment Skill (Railway)
 
-When invoked, execute the deployment immediately. Parse arguments:
-- **First arg**: `prod` (default) or `dev`
-- **Second arg**: `bot` (default), `webapp`, `api-ts`, or `all`
+**Suwappu runs entirely on Railway — there is NO AWS/ECS/EC2 anymore.** The old
+AWS-ECS Telegram Mini App was abandoned on 2026-06-08 (commit `e262711`); `app.suwappu.bot`
+now mirrors the **terminal** service. Ignore any older AWS/SSM/ECS instructions.
 
-## Step 1: Pre-deploy checks
+## How deploys actually happen: auto on push to main
 
-Run these before deploying:
+Railway is wired to GitHub via the `deploy-railway.yml` Action + per-service
+`watchPatterns`. **Merging to `main` auto-deploys any service whose watched paths changed.**
+You usually do NOT need to run anything — merge the PR and Railway rebuilds.
 
-```bash
-# Verify SSH key exists
-test -f ~/.ssh/suwappu-bot-key && echo "SSH key: OK" || echo "SSH key: MISSING"
+| Service | `railway.*.json` | Dockerfile | watchPatterns (auto-deploy trigger) |
+|---|---|---|---|
+| `python-api` (bot + FastAPI) | `railway.python-api.json` | `api/Dockerfile.railway` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
+| `python-worker` (background tasks) | `railway.python-worker.json` | `api/Dockerfile.railway` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
+| `terminal` (live Telegram Mini App — `app.suwappu.bot` + `terminal.suwappu.bot`) | `railway.terminal.json` | `terminal/Dockerfile` | `terminal/**`, `packages/design-tokens/**` |
+| `api-ts` | `api-ts/railway.json` | `api-ts/Dockerfile` | (root) |
+| `showcase` (`www.suwappu.bot`) | `showcase/railway.json` | `showcase/Dockerfile` | (root) |
 
-# Verify Docker is running (for webapp/api-ts)
-docker info > /dev/null 2>&1 && echo "Docker: OK" || echo "Docker: NOT RUNNING"
+Other services in the project: `suwappu-bridge`, `suwappu-relayer`, `Postgres`, `Redis`.
+**`webapp/` is DEAD** — no Railway config, deployed nowhere. The live Mini App is `terminal/`.
 
-# Check current branch
-git branch --show-current
-```
+Project: `suwappu` (id `428680a3-dd24-4f7c-8349-e66d791b5104`), workspace "Eric Manganaro's Projects",
+env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
 
-For bot deploys: warn if current branch is not `main` (prod) or `dev` (dev) and confirm with user.
+## Manual deploy (emergency override / when you can't merge)
 
-## Step 2: Deploy
-
-### Bot (EC2 SSH)
-
-Run the deploy script directly:
-
-```bash
-./scripts/deploy.sh <prod|dev>
-```
-
-This SSHs into EC2, pulls the branch, installs deps, refreshes secrets from AWS Secrets Manager, restarts the systemd service, and runs health checks.
-
-**Success**: output contains `Deploy OK!`
-**Failure**: output contains `FAILED` with journalctl logs
-
-### Webapp (ECS Fargate)
-
-Run from the `webapp/` directory:
+This machine has the `railway` CLI (no `aws`, no `docker` needed for source-upload deploys).
+Deploy from a **clean `origin/main` worktree** so you never upload other sessions' uncommitted changes:
 
 ```bash
-# 1. ECR login
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin 452574030926.dkr.ecr.us-east-1.amazonaws.com
-
-# 2. Build and push
-cd webapp
-docker build -t 452574030926.dkr.ecr.us-east-1.amazonaws.com/suwappu-webapp:prod .
-docker push 452574030926.dkr.ecr.us-east-1.amazonaws.com/suwappu-webapp:prod
-
-# 3. Force redeploy
-aws ecs update-service --cluster suwappu-production --service suwappu-webapp --force-new-deployment --region us-east-1
+cd /home/mongolraider/suwappu
+git fetch origin main
+WT=/home/mongolraider/suwappu-wt-deploy
+git worktree remove "$WT" --force 2>/dev/null || true
+git worktree add --detach "$WT" origin/main
+cd "$WT"
+# Link this fresh worktree to the project/service (non-interactive):
+railway link -p 428680a3-dd24-4f7c-8349-e66d791b5104 -e production -s <SERVICE>
+railway up --service <SERVICE> --detach     # uploads source, builds server-side
 ```
+`<SERVICE>` = `python-api` | `python-worker` | `terminal` | `api-ts` | `showcase`.
 
-> **Note:** There is only one ECS webapp service (no separate dev). Both prod and dev use the same service with the `prod` image tag.
-
-### API-TS (ECS Fargate)
-
-Run from the `api-ts/` directory:
+## Verify
 
 ```bash
-# 1. ECR login (same as above)
-# 2. Build and push
-cd api-ts
-docker build -t 452574030926.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:latest .
-docker push 452574030926.dkr.ecr.us-east-1.amazonaws.com/suwappu-api-ts:latest
+# python-api (bot + API): health + clean boot + migrations
+curl -s -o /dev/null -w "health=%{http_code}\n" https://api.suwappu.bot/health   # expect 200
+timeout 35 railway logs --service python-api 2>&1 | tail -120 | \
+  grep -iE "schema migrations complete|Application startup complete|ImportError|ModuleNotFound|cannot import|Traceback" | tail -6
+# A NEW endpoint should return its real status (e.g. 401 for auth-gated), NOT 404 — proves the new build is live:
+curl -s -o /dev/null -w "%{http_code}\n" https://api.suwappu.bot/<new-endpoint>
 
-# 3. Force redeploy
-aws ecs update-service --cluster suwappu-production --service suwappu-api --force-new-deployment --region us-east-1
+# terminal (Mini App): both hostnames serve the terminal build
+curl -s https://app.suwappu.bot/ | grep -oiE "<title>[^<]*</title>"       # expect "Suwappu Terminal"
+curl -s -o /dev/null -w "%{http_code}\n" https://terminal.suwappu.bot/
+
+# api-ts / showcase
+curl -s -o /dev/null -w "%{http_code}\n" https://api-ts-production.up.railway.app/health
+curl -s -o /dev/null -w "%{http_code}\n" https://www.suwappu.bot/
 ```
 
-> **Note:** There is only one ECS api service (no separate dev). Uses the `latest` image tag.
+## Health / endpoints reference
 
-## Step 3: Verify
+| Service | URL |
+|---|---|
+| python-api | https://api.suwappu.bot/health · https://python-api-production-8526.up.railway.app |
+| terminal (Mini App) | https://app.suwappu.bot · https://terminal.suwappu.bot |
+| api-ts | https://api-ts-production.up.railway.app/health |
+| showcase | https://www.suwappu.bot |
+| suwappu-bridge | https://suwappu-bridge-production.up.railway.app |
 
-### Bot health
-If the deploy script didn't already confirm, check manually:
-```bash
-ssh -T -i ~/.ssh/suwappu-bot-key -o StrictHostKeyChecking=no ubuntu@23.21.184.77 \
-  "curl -s http://localhost:10000/health | python3 -m json.tool"
-```
+## Notes / gotchas
 
-### ECS health
-```bash
-aws ecs describe-services \
-  --cluster suwappu-production \
-  --services suwappu-webapp suwappu-api \
-  --region us-east-1 \
-  --query 'services[].{Service:serviceName,Running:runningCount,Desired:desiredCount}'
-```
-
-### Endpoint checks
-```bash
-curl -s -o /dev/null -w "%{http_code}" https://app.suwappu.bot/
-```
-
-## Troubleshooting
-
-```bash
-# Bot logs
-ssh -T -i ~/.ssh/suwappu-bot-key -o StrictHostKeyChecking=no ubuntu@23.21.184.77 \
-  "sudo journalctl -u suwappubot --no-pager -n 100"
-
-# Restart bot without full deploy
-ssh -T -i ~/.ssh/suwappu-bot-key -o StrictHostKeyChecking=no ubuntu@23.21.184.77 \
-  "sudo systemctl restart suwappubot && sleep 8 && curl -s http://localhost:10000/health"
-
-# Re-pull secrets only
-ssh -T -i ~/.ssh/suwappu-bot-key -o StrictHostKeyChecking=no ubuntu@23.21.184.77 \
-  "cd /home/ubuntu/suwappubot && sudo bash scripts/pull-secrets.sh && sudo systemctl restart suwappubot"
-
-# ECS service events
-aws ecs describe-services --cluster suwappu-production --services <service> --region us-east-1 \
-  --query 'services[0].events[:5]'
-```
-
-## Reference
-
-| Service | Method | Image Tag | ECS Service | Endpoint |
-|---------|--------|-----------|-------------|----------|
-| Bot (prod) | EC2 SSH | n/a | n/a | http://23.21.184.77:10000 |
-| Bot (dev) | EC2 SSH | n/a | n/a | http://54.224.128.32:10000 |
-| Webapp | ECS Fargate | `prod` | `suwappu-webapp` | https://app.suwappu.bot |
-| API-TS | ECS Fargate | `latest` | `suwappu-api` | (internal) |
-
-- **AWS Account:** 905418423235 (EC2/Secrets), 452574030926 (ECS/ECR)
-- **EC2 Prod:** 23.21.184.77 (Elastic IP)
-- **EC2 Dev:** 54.224.128.32 (Elastic IP)
-- **ECS Cluster:** suwappu-production (account 452574030926)
-- **ECR Repos:** suwappu-webapp, suwappu-api-ts
-- **Region:** us-east-1
-- **Systemd Service:** suwappubot
-- **Prod Secrets:** `suwappu/app-secrets`, `suwappu/db-credentials`
-- **Dev Secrets:** `suwappu/dev-secrets`
-
-> **Note:** GitHub Actions CI/CD (`deploy-ec2.yml`) exists but is currently non-functional due to billing. Use this skill for direct deploys until CI/CD is restored.
+- **CI green ≠ bot boots.** After a python-api deploy, always confirm `schema migrations complete` + `Application startup complete` and zero `ImportError` in logs (see the standing rule in CLAUDE.md).
+- Multiple Claude sessions share this working tree — deploy from a **detached `origin/main` worktree**, never `railway up` from the shared tree (it would upload other sessions' uncommitted changes).
+- `railway status` / `railway logs` / `railway up` need the worktree linked first (`railway link -p … -e production -s …`).
+- `numReplicas: 1` on python-api → single instance; the bot polls Telegram, so do not scale replicas without switching to webhook mode (see CLAUDE.md "Polling vs Webhook").

@@ -37,6 +37,7 @@ LZ_ENDPOINT_IDS = {
     "mantle": 30181,
     "scroll": 30214,
     "gnosis": 30145,
+    "tempo": 0,  # TODO: Update when LayerZero deploys on Tempo mainnet
 }
 
 # Stargate V2 pool addresses per chain (USDC, USDT, ETH)
@@ -79,6 +80,11 @@ STARGATE_V2_POOLS = {
         "USDC": "0xAc290Ad4e0c891FDc295ca4F0a6214cf6dC6acDC",
         "USDT": "0xB715B85682B731dB9D5063187C450095c91C57FC",
         "ETH": "0x4c1d3Fc3fC3c177c3b633427c2F769276c547463",
+    },
+    "tempo": {
+        # TODO: Add Stargate V2 pool addresses when deployed on Tempo
+        # "USDC": "0x...",
+        # "USDT": "0x...",
     },
 }
 
@@ -182,23 +188,30 @@ ERC20_APPROVE_ABI = [
 @dataclass
 class LayerZeroQuote:
     """Quote for LayerZero/Stargate cross-chain transfer."""
+
     src_chain: str
     dst_chain: str
     token_symbol: str
     amount_in: str
     amount_out: str
     amount_out_min: str
-    native_fee: str       # LZ messaging fee in native token (wei)
+    native_fee: str  # LZ messaging fee in native token (wei)
     native_fee_usd: float
-    estimated_time: int   # seconds
-    pool_address: str     # Stargate pool contract
-    dst_eid: int          # LayerZero destination endpoint ID
+    estimated_time: int  # seconds
+    pool_address: str  # Stargate pool contract
+    dst_eid: int  # LayerZero destination endpoint ID
     raw_data: dict
+    # True only when native_fee came from a real quoteSend() call AND
+    # native_fee_usd was priced via a live price_service lookup (not the
+    # hardcoded native_prices fallback table or the 0.001 ETH RPC-failure
+    # estimate). See get_quote().
+    fee_trusted: bool = False
 
 
 @dataclass
 class LayerZeroStatus:
     """Status of a LayerZero transaction."""
+
     src_tx_hash: str
     dst_tx_hash: Optional[str]
     status: str  # INFLIGHT, DELIVERED, FAILED
@@ -209,6 +222,7 @@ class LayerZeroStatus:
 
 class LayerZeroError(Exception):
     """Exception for LayerZero API errors."""
+
     def __init__(self, message: str, data: dict = None):
         super().__init__(message)
         self.data = data or {}
@@ -278,25 +292,9 @@ class LayerZeroAPI:
         dst_eid = self.get_dst_eid(dst_chain)
         chain = get_chain_by_name(src_chain)
 
-        # Try all RPCs with fallback to handle rate limits
-        rpc_attr = f"{src_chain.lower().replace('-', '_')}_rpc_url"
-        rpc_str = getattr(settings, rpc_attr, "") or ""
-        rpc_urls = [u.strip() for u in rpc_str.split(",") if u.strip()]
-        _rand.shuffle(rpc_urls)
-        if not rpc_urls:
-            raise LayerZeroError(f"No RPC URLs for {src_chain}")
+        from bot.services.rpc_manager import rpc_manager
 
-        web3 = None
-        for url in rpc_urls:
-            try:
-                w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 10}))
-                w3.eth.block_number  # quick connectivity test
-                web3 = w3
-                break
-            except Exception:
-                continue
-        if web3 is None:
-            raise LayerZeroError(f"All RPCs failed for {src_chain}")
+        web3 = rpc_manager.get_web3(src_chain)
 
         pool = web3.eth.contract(
             address=Web3.to_checksum_address(pool_address),
@@ -308,36 +306,68 @@ class LayerZeroAPI:
         min_amount = int(amount_int * slippage_factor)
 
         # Pad address to bytes32 for LayerZero
-        to_bytes32 = Web3.to_bytes(hexstr=from_address).rjust(32, b'\x00')
+        to_bytes32 = Web3.to_bytes(hexstr=from_address).rjust(32, b"\x00")
 
         send_param = (
             dst_eid,
             to_bytes32,
             amount_int,
             min_amount,
-            b"",   # extraOptions (empty = default gas)
-            b"",   # composeMsg
-            b"",   # oftCmd (empty = taxi mode)
+            b"",  # extraOptions (empty = default gas)
+            b"",  # composeMsg
+            b"",  # oftCmd (empty = taxi mode)
         )
 
+        fee_is_real = True
         try:
             fee = pool.functions.quoteSend(send_param, False).call()
             native_fee = fee[0]  # nativeFee in wei
         except Exception as e:
             logger.warning(f"quoteSend failed for {token_symbol} {src_chain}->{dst_chain}: {e}")
-            # Fallback estimate
+            # Fallback estimate — NOT a real on-chain figure.
             native_fee = web3.to_wei(0.001, "ether")
+            fee_is_real = False
 
-        # Estimate USD cost
-        native_prices = {
-            "ethereum": 2000, "polygon": 0.8, "bsc": 300,
-            "arbitrum": 2000, "optimism": 2000, "base": 2000,
-            "avalanche": 35, "fantom": 0.5, "linea": 2000,
-            "mantle": 0.5, "scroll": 2000, "gnosis": 1,
-        }
-        native_price = native_prices.get(src_chain.lower(), 2000)
+        # USD cost: prefer a real, live native-token price (price_service,
+        # cached ~30s); the hardcoded `native_prices` table below is a
+        # fallback only and several entries are visibly stale (e.g.
+        # "polygon": 0.8, "fantom": 0.5) — never trustworthy for ranking.
+        native_price = None
+        price_is_real = False
+        try:
+            from bot.services.price_service import price_service
+
+            if chain and chain.native_token:
+                native_price = await price_service.get_price(chain.native_token)
+                if native_price:
+                    price_is_real = True
+        except Exception as e:
+            logger.debug(f"LayerZero live native price unavailable, using fallback: {e}")
+
+        if not native_price:
+            native_prices = {
+                "ethereum": 2000,
+                "polygon": 0.8,
+                "bsc": 300,
+                "arbitrum": 2000,
+                "optimism": 2000,
+                "base": 2000,
+                "avalanche": 35,
+                "fantom": 0.5,
+                "linea": 2000,
+                "mantle": 0.5,
+                "scroll": 2000,
+                "gnosis": 1,
+                "tempo": 1,  # Gas is in USD stablecoins, so 1 USD = 1 USD
+            }
+            native_price = native_prices.get(src_chain.lower(), 2000)
+
         native_fee_eth = float(web3.from_wei(native_fee, "ether"))
         native_fee_usd = native_fee_eth * native_price
+        # Trusted ONLY when both the fee amount (on-chain quoteSend) and the
+        # USD price (live price_service) are real — never when either fell
+        # back to a hardcoded/estimated value.
+        fee_trusted = fee_is_real and price_is_real
 
         return LayerZeroQuote(
             src_chain=src_chain,
@@ -348,6 +378,7 @@ class LayerZeroAPI:
             amount_out_min=str(min_amount),
             native_fee=str(native_fee),
             native_fee_usd=native_fee_usd,
+            fee_trusted=fee_trusted,
             estimated_time=120,
             pool_address=pool_address,
             dst_eid=dst_eid,
@@ -376,13 +407,12 @@ class LayerZeroAPI:
         from web3 import Web3
 
         chain = get_chain_by_name(quote.src_chain)
-        rpc_url = settings.get_rpc_url(quote.src_chain)
-        web3 = Web3(Web3.HTTPProvider(rpc_url))
+        web3 = rpc_manager.get_web3(quote.src_chain)
 
         pool_address = Web3.to_checksum_address(quote.pool_address)
         pool = web3.eth.contract(address=pool_address, abi=STARGATE_SEND_ABI)
 
-        to_bytes32 = Web3.to_bytes(hexstr=sender_address).rjust(32, b'\x00')
+        to_bytes32 = Web3.to_bytes(hexstr=sender_address).rjust(32, b"\x00")
 
         send_param = (
             quote.dst_eid,
@@ -413,6 +443,7 @@ class LayerZeroAPI:
         # For non-ETH tokens, need ERC20 approval to the pool
         if quote.token_symbol.upper() != "ETH":
             from bot.config.tokens import get_token_address
+
             token_address = get_token_address(quote.token_symbol, quote.src_chain)
             if token_address:
                 token_contract = web3.eth.contract(

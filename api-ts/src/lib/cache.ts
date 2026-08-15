@@ -111,7 +111,7 @@ export class SlidingWindowRateLimiter {
 		entry.timestamps = entry.timestamps.filter((t) => t > cutoff)
 
 		if (entry.timestamps.length >= limit) {
-			const oldestInWindow = entry.timestamps[0]
+			const oldestInWindow = entry.timestamps[0] ?? now
 			const retryAfterMs = oldestInWindow + this.windowMs - now
 			return {
 				allowed: false,

@@ -1,0 +1,180 @@
+/* ReserveCard: the generative name card.
+   Layer order (bottom -> top): cardBase -> canvas (shader) -> fallback
+   (CSS gradient, shown only if WebGL failed) -> foil -> surface (gloss) ->
+   content. */
+
+.wrap {
+  --mx: 50%;
+  --my: 50%;
+  --rx: 0deg;
+  --ry: 0deg;
+  width: min(420px, 88vw);
+  aspect-ratio: 1.6 / 1;
+  perspective: 1200px;
+  margin: 0 auto;
+}
+
+.wrapSuccess {
+  width: min(360px, 82vw);
+}
+
+.card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  overflow: hidden;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transform-style: preserve-3d;
+  transition: transform 0.35s var(--sw-ease, ease);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 18px 40px -14px rgba(23, 50, 74, 0.45),
+    0 40px 90px -30px rgba(23, 50, 74, 0.35);
+}
+
+.cardBase {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(155deg, #17324a 0%, #0b1220 100%);
+}
+
+.canvas,
+.fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.fallback {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.fallback[data-active='true'] {
+  opacity: 1;
+}
+
+.foil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.16) 45%,
+    rgba(255, 255, 255, 0.02) 55%,
+    transparent 70%
+  );
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/* Gloss: a soft highlight that follows the pointer via --mx/--my. */
+.surface {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    480px circle at var(--mx) var(--my),
+    rgba(255, 255, 255, 0.28),
+    transparent 55%
+  );
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(16px, 4%, 26px);
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+
+.mark img {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(1);
+}
+
+.editionText {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  opacity: 0.75;
+}
+
+.handle {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 6vw, 2.1rem);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.bottomline {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bottomline .field:last-child {
+  text-align: right;
+  align-items: flex-end;
+}
+
+.fieldLabel {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.fieldValue {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+}

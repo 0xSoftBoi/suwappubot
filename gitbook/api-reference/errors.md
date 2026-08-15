@@ -1,128 +1,82 @@
-# Errors
+# Error Codes
 
-All error responses follow a consistent envelope format. When a request fails, the response body contains `success: false` along with an error message and optional field-level details.
+Suwappu returns conventional HTTP status codes and a JSON body describing what went wrong. Successful responses include `"success": true`; error responses include an `"error"` field and usually a human-readable `"message"`.
 
-## Error Response Format
+## Error response shape
 
 ```json
 {
-  "success": false,
-  "error": "Human-readable error message",
-  "fields": {
-    "quote_id": "Required field missing"
-  }
+  "error": "Validation Error",
+  "message": "amount must be a positive number",
+  "fields": { "amount": "amount must be a positive number" }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `success` | boolean | Always `false` for errors |
-| `error` | string | Human-readable description of what went wrong |
-| `fields` | object \| undefined | Optional. Per-field validation error details. Only present on 400 responses with validation failures. |
+| `error` | string | Short error category |
+| `message` | string | Human-readable explanation (when available) |
+| `fields` | object | Per-field validation messages (on validation errors) |
+| `resource` | string | The missing resource (on some 404s) |
+| `service` | string | The upstream service (on some 502s) |
 
----
+Some endpoints also return `success: false` alongside `error`, plus a `hint` suggesting the fix.
 
-## HTTP Status Codes
+## Status codes
 
-| Status | Meaning | When It Occurs |
-|--------|---------|----------------|
-| 400 | Bad Request | Validation failure -- missing fields, invalid values, malformed body |
-| 401 | Unauthorized | Missing `Authorization` header, invalid API key, or expired key |
-| 404 | Not Found | Resource does not exist (e.g., unknown swap ID, quote ID, or endpoint) |
-| 429 | Too Many Requests | Rate limit exceeded. Back off and retry after the indicated interval. |
-| 500 | Internal Server Error | Unexpected server-side failure. Retry with exponential backoff. |
+| Status | `error` | Meaning |
+|--------|---------|---------|
+| `400` | Validation Error | Invalid JSON, a failed field validation, unknown chain/token, expired or missing quote, or an invalid amount |
+| `401` | Unauthorized | Missing or invalid API key, or invalid webhook signature |
+| `403` | Forbidden | `wallet_address` is not your agent's managed wallet, or you tried to act on another agent's resource |
+| `404` | Not Found | The requested resource does not exist |
+| `429` | — | Rate limit exceeded. See `Retry-After` and the `X-RateLimit-*` headers |
+| `500` | Internal Error / Database Error | An unexpected server-side failure |
+| `502` | External Service Error | An upstream provider (e.g. a swap aggregator or RPC) failed |
 
----
+## Validation errors
 
-## Common Error Scenarios
-
-| Status | Error Message | Fix |
-|--------|--------------|-----|
-| 400 | `"command is required"` | Include a `command` field in the `POST /execute` body |
-| 400 | `"Command exceeds 500 character limit"` | Shorten the `command` string to 500 characters or fewer |
-| 400 | `"quote_id is required"` | Include a `quote_id` field in the `POST /swap/execute` body |
-| 400 | `"Quote expired"` | Request a new quote via `POST /quote` and execute promptly |
-| 400 | `"Invalid status filter"` | Use one of: `"submitted"`, `"pending"`, `"completed"`, `"failed"` |
-| 400 | `"limit must be between 1 and 100"` | Set `limit` to a value between 1 and 100 |
-| 400 | `"No callback_url configured"` | Set a `callback_url` in your agent profile via `PATCH /me` before testing webhooks |
-| 400 | `"Unable to parse command"` | Rephrase the natural language command in a supported format |
-| 401 | `"Unauthorized"` | Check that the `Authorization: Bearer <key>` header is present and the key is valid |
-| 404 | `"Swap not found"` | Verify the swap ID exists and belongs to your agent |
-| 404 | `"Quote not found"` | Verify the quote ID; it may have expired or been consumed |
-| 404 | `"No managed wallet found"` | Create a managed wallet via `POST /wallets` before executing swaps |
-| 429 | `"Rate limit exceeded"` | Wait and retry. Check the `Retry-After` header for the recommended delay. |
-| 500 | `"Internal server error"` | Retry with exponential backoff. Contact support if it persists. |
-
----
-
-## JSON-RPC Errors (MCP / A2A)
-
-For agents connecting via MCP or A2A protocols, errors follow the JSON-RPC 2.0 error format:
+Validation failures (`400`) return a `fields` map keyed by the offending field, so you can surface precise feedback:
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "error": {
-    "code": -32601,
-    "message": "Method not found"
+  "error": "Validation Error",
+  "message": "Validation error",
+  "fields": {
+    "from_token": "from_token is required",
+    "amount": "amount must be a positive number"
   }
 }
 ```
 
-### Standard JSON-RPC Error Codes
+## Quote errors
 
-| Code | Name | Description |
-|------|------|-------------|
-| -32700 | Parse Error | Invalid JSON received by the server |
-| -32600 | Invalid Request | The JSON payload is not a valid JSON-RPC request |
-| -32601 | Method Not Found | The requested method does not exist or is not available |
-| -32602 | Invalid Params | Invalid method parameters (wrong type, missing required fields) |
-
-### Application-Specific Error Codes
-
-| Code | Name | Description |
-|------|------|-------------|
-| -32001 | Task Not Found | The referenced task ID does not exist |
-| -32002 | Unsupported Operation | The requested operation is not supported by this agent |
-
-### Example JSON-RPC Error Responses
-
-**Parse Error:**
+A swap or execute call with an expired, missing, or cross-agent `quote_id` returns:
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": null,
-  "error": {
-    "code": -32700,
-    "message": "Parse error: invalid JSON"
-  }
+  "success": false,
+  "error": "Quote expired or not found",
+  "hint": "Request a new quote using POST /v1/agent/quote"
 }
 ```
 
-**Invalid Params:**
+Quotes are valid for 60 seconds — request a fresh one and retry.
+
+## Rate-limit errors
+
+A `429` includes timing headers and a descriptive message:
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 3,
-  "error": {
-    "code": -32602,
-    "message": "Invalid params: 'from_token' is required"
-  }
+  "message": "Rate limit exceeded. 30 requests per minute for free tier. Retry after 12s."
 }
 ```
 
-**Task Not Found:**
+Honor the `Retry-After` header before retrying. See [Rate Limits](../authentication/rate-limits.md).
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 5,
-  "error": {
-    "code": -32001,
-    "message": "Task not found: task_abc123"
-  }
-}
-```
+## Handling errors
+
+- Always check the HTTP status before parsing the body as success.
+- Retry `429`, `502`, and transient `500`s with exponential backoff; do not retry `400`/`401`/`403` without fixing the request.
+- Read `fields` to map validation errors back to user input.

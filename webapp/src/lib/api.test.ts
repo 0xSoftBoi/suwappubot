@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test'
-import { WebappApiClient } from './api'
+import { ApiClient } from './api'
 
 // Mock the telegram and auth modules
 import * as telegram from './telegram'
@@ -23,11 +23,11 @@ const mockFetch = mock(() => Promise.resolve({ ok: true, json: () => Promise.res
 // @ts-ignore
 globalThis.fetch = mockFetch
 
-describe('WebappApiClient', () => {
-  let api: WebappApiClient
+describe('ApiClient', () => {
+  let api: ApiClient
 
   beforeEach(() => {
-    api = new WebappApiClient('https://api.test.com')
+    api = new ApiClient('https://api.test.com')
     mockFetch.mockReset()
     mockFetch.mockImplementation(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }))
   })
@@ -47,6 +47,48 @@ describe('WebappApiClient', () => {
 
       const result = await api.getHealth()
       expect(result).toEqual(mockResponse)
+    })
+  })
+
+  describe('external wallet auth', () => {
+    it('uses SIWE endpoints for EVM wallets', async () => {
+      mockFetch
+        .mockImplementationOnce(() => Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ challenge: 'message', nonce: 'nonce-1', expiresAt: 'later' }),
+        }))
+        .mockImplementationOnce(() => Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, token: 'jwt', expiresAt: 'later' }),
+        }))
+
+      await api.requestExternalWalletChallenge('0x1111111111111111111111111111111111111111', 'evm')
+      await api.verifyExternalWallet('0x1111111111111111111111111111111111111111', '0xsig', 'nonce-1', 'evm')
+
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.test.com/auth/turnkey/challenge')
+      expect(mockFetch.mock.calls[1][0]).toBe('https://api.test.com/auth/turnkey/verify')
+    })
+
+    it('uses SIWS endpoints for Phantom', async () => {
+      mockFetch.mockImplementation(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }))
+
+      await api.requestExternalWalletChallenge('solana-address', 'solana')
+      await api.verifyExternalWallet('solana-address', 'base58-signature', 'nonce-2', 'solana')
+
+      expect(mockFetch.mock.calls[0][0]).toBe('https://api.test.com/auth/solana/challenge')
+      expect(mockFetch.mock.calls[1][0]).toBe('https://api.test.com/auth/solana/verify')
+    })
+
+    it('scopes the wallet proof token to Jelly claim requests', async () => {
+      mockFetch.mockImplementationOnce(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ challengeId: 'claim-1', phrase: 'proof', expiresAt: 'later' }),
+      }))
+
+      await api.createJellyClaimChallenge('wallet-proof-jwt')
+
+      const headers = (mockFetch.mock.calls[0][1] as RequestInit).headers as Record<string, string>
+      expect(headers.Authorization).toBe('Bearer wallet-proof-jwt')
     })
   })
 
@@ -231,7 +273,7 @@ describe('WebappApiClient', () => {
       expect(url).toContain('toChain=polygon')
       expect(url).toContain('fromToken=0xabc')
       expect(url).toContain('toToken=0xdef')
-      expect(url).toContain('fromAmount=1.5')
+      expect(url).toContain('fromAmount=1500000000000000000')
     })
   })
 

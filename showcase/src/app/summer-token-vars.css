@@ -1,0 +1,45 @@
+/* Generated from packages/design-tokens/src/tokens.ts. Keep in sync with generateSummerBreezeCssVars(). */
+:root {
+  --suwappu-summer-ink: #17324A;
+  --suwappu-summer-muted: #4F6F7F;
+  --suwappu-summer-line: #B9DFE9;
+  --suwappu-summer-line-strong: #42B8D7;
+  --suwappu-summer-canvas: #FFFEFB;
+  --suwappu-summer-canvas-warm: #FFF8ED;
+  --suwappu-summer-canvas-cool: #EDF8FB;
+  --suwappu-summer-sky: #77BFD0;
+  --suwappu-summer-sky-deep: #0B8BC7;
+  --suwappu-summer-green: #2F8F5B;
+  --suwappu-summer-persimmon: #E58D2B;
+  --suwappu-summer-butter: #F4C963;
+  --suwappu-summer-accent: #0EA5E9;
+  --suwappu-summer-accent-light: #38BDF8;
+  --suwappu-summer-accent-deep: #0284C7;
+  --suwappu-summer-flower-soft: #F7D5DF;
+  --suwappu-summer-flower-sun: #F3D3CF;
+  --suwappu-summer-flower-mist: #EDDDE9;
+  --suwappu-summer-petal-blush: #E9BFD0;
+  --suwappu-summer-bull: #22C55E;
+  --suwappu-summer-bear: #EF4444;
+  --suwappu-summer-panel: rgba(255, 255, 255, 0.78);
+  --suwappu-summer-panel-strong: rgba(255, 255, 255, 0.92);
+  --suwappu-summer-shell-background: radial-gradient(circle at 7% 9%, rgba(94,234,212,0.2), transparent 18%), radial-gradient(circle at 90% 14%, rgba(56,189,248,0.22), transparent 20%), radial-gradient(circle at 76% 86%, rgba(190,242,255,0.34), transparent 24%), linear-gradient(180deg, #f7fdff 0%, #e9faff 50%, #dff7fb 100%);
+  --suwappu-summer-panel-background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(241,252,255,0.98) 42%, rgba(224,247,252,0.95) 100%);
+  --suwappu-summer-inset-background: linear-gradient(180deg, rgba(247,253,255,0.98) 0%, rgba(229,249,253,0.96) 100%);
+  --suwappu-summer-card-background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239,251,255,0.96) 58%, rgba(225,248,252,0.94) 100%);
+  --suwappu-summer-control-background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239,251,255,0.97) 100%);
+  --suwappu-summer-control-background-hover: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(228,249,253,0.98) 100%);
+  --suwappu-summer-control-background-active: linear-gradient(180deg, rgba(250,254,255,1) 0%, rgba(214,244,251,0.98) 100%);
+  --suwappu-summer-button-background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 52%, #0284c7 100%);
+  --suwappu-summer-button-background-hover: linear-gradient(180deg, #67cffb 0%, #22b4ed 52%, #0369a1 100%);
+  --suwappu-summer-panel-orb: radial-gradient(circle at 0% 0%, rgba(255,255,255,0.78), transparent 34%), radial-gradient(circle at 100% 0%, rgba(56,189,248,0.18), transparent 30%), radial-gradient(circle at 82% 100%, rgba(94,234,212,0.16), transparent 28%);
+  --suwappu-summer-inset-orb: radial-gradient(circle at 100% 0%, rgba(255,255,255,0.6), transparent 26%), radial-gradient(circle at 0% 100%, rgba(94,234,212,0.16), transparent 24%);
+  --suwappu-summer-card-orb: radial-gradient(circle at 100% 0%, rgba(255,255,255,0.66), transparent 28%), radial-gradient(circle at 0% 100%, rgba(56,189,248,0.14), transparent 24%);
+  --suwappu-summer-control-orb: linear-gradient(180deg, rgba(255,255,255,0.5) 0%, transparent 42%);
+  --suwappu-summer-radius-panel: 12px;
+  --suwappu-summer-radius-inset: 8px;
+  --suwappu-summer-radius-card: 6px;
+  --suwappu-summer-radius-control: 8px;
+  /* Brand color for WhatsApp CTAs (not part of the generated token set). */
+  --suwappu-whatsapp-green: #25D366;
+}

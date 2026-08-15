@@ -36,6 +36,7 @@ export function ConnectionStatus({
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
     refetchInterval: 30000, // Check every 30 seconds
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retry: 2,
     staleTime: 10000, // Consider data fresh for 10 seconds
@@ -124,6 +125,7 @@ export function useConnectionStatus() {
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
     refetchInterval: 30000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retry: 2,
     staleTime: 10000,

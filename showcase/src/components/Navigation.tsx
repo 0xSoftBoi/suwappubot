@@ -1,138 +1,273 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import gsap from 'gsap';
-import { ScrollToPlugin } from 'gsap/ScrollToPlugin';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
+import { MENU_PANELS } from './NavMenuData';
+import ProductMenu from './ProductMenu';
+import LanguageSwitcher from './LanguageSwitcher';
 
-gsap.registerPlugin(ScrollToPlugin, ScrollTrigger);
+/** Homepage section anchors the nav scroll-spies. Document order is resolved at runtime. */
+const SECTION_IDS = ['engine', 'agents', 'api', 'hyperliquid', 'tempo', 'mobile-app', 'bot'];
 
-const NAV_LINKS = [
-  { label: 'How It Works', panel: 1 },
-  { label: 'Features', panel: 2 },
-  { label: 'Demos', panel: 3 },
-];
+/** Read current locale from cookie (set by LanguageSwitcher) or localStorage fallback. */
+function getCurrentLocale(): string {
+  try {
+    // localStorage mirror is the fastest read: no cookie parse needed.
+    const ls = localStorage.getItem('NEXT_LOCALE');
+    if (ls) return ls;
+  } catch {}
+  // Parse document.cookie as fallback.
+  const match = document.cookie.match(/(?:^|;\s*)NEXT_LOCALE=([^;]+)/);
+  return match?.[1] ?? 'en';
+}
 
 export default function Navigation() {
-  const [scrolled, setScrolled] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const t = useTranslations('nav');
+  const tm = useTranslations('nav.menu');
 
+  // Whether this browser already has a dashboard session. The nav previously
+  // had NO sign-in entry at all — /dashboard was reachable only by typing the
+  // URL, so an existing paying customer had no route back to their usage,
+  // API keys or billing from the site they landed on.
+  //
+  // Read in an effect rather than during render: localStorage does not exist
+  // on the server, and branching on it during render would desync hydration.
+  const [hasSession, setHasSession] = useState(false);
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 40);
-    window.addEventListener('scroll', fn, { passive: true });
-    return () => window.removeEventListener('scroll', fn);
-  }, []);
-
-  // Track scroll progress for the progress bar
-  useEffect(() => {
-    const updateProgress = () => {
-      const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (scrollHeight > 0) {
-        setProgress(window.scrollY / scrollHeight);
-      }
-    };
-    window.addEventListener('scroll', updateProgress, { passive: true });
-    return () => window.removeEventListener('scroll', updateProgress);
-  }, []);
-
-  const scrollToPanel = useCallback((panelIndex: number) => {
-    const panels = document.querySelectorAll('.gsap-panel');
-    if (panels[panelIndex]) {
-      // Calculate where to scroll based on horizontal scroll setup
-      const container = panels[0]?.parentElement?.parentElement;
-      if (!container) return;
-
-      const st = ScrollTrigger.getAll().find(t => t.vars.trigger === container);
-      if (st) {
-        // Horizontal scroll mode: calculate scroll position
-        const totalPanels = panels.length;
-        const scrollRange = st.end - st.start;
-        const targetScroll = st.start + (panelIndex / (totalPanels - 1)) * scrollRange;
-        gsap.to(window, { scrollTo: targetScroll, duration: 1, ease: 'power2.inOut' });
-      } else {
-        // Mobile / vertical fallback: scroll to element
-        panels[panelIndex].scrollIntoView({ behavior: 'smooth' });
-      }
+    try {
+      setHasSession(Boolean(localStorage.getItem('suwappu_dashboard_token')));
+    } catch {
+      // Private mode / storage disabled — fall back to the signed-out label.
     }
-    setMobileOpen(false);
   }, []);
+  const pathname = usePathname();
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  /** Which accordion section is open in the mobile drawer. */
+  const [openDrawerPanel, setOpenDrawerPanel] = useState<string | null>(null);
+  const [locale, setLocale] = useState<string>(() =>
+    typeof window === 'undefined' ? 'en' : getCurrentLocale()
+  );
+
+  useEffect(() => {
+    // 8px is enough to commit to the hairline: any more reads as lag.
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Scroll-spy the homepage section anchors so the nav reflects where you are.
+  const visibleSections = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (pathname !== '/') {
+      setActiveSection(null);
+      return;
+    }
+    const nodes = SECTION_IDS.map((id) => document.getElementById(id))
+      .filter((n): n is HTMLElement => n !== null)
+      .sort((a, b) => a.offsetTop - b.offsetTop);
+    if (nodes.length === 0) return;
+
+    const order = nodes.map((n) => n.id);
+    const seen = visibleSections.current;
+    seen.clear();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) seen.add(entry.target.id);
+          else seen.delete(entry.target.id);
+        }
+        setActiveSection(order.find((id) => seen.has(id)) ?? null);
+      },
+      // Middle band of the viewport: exactly one section owns the nav at a time.
+      { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
+    );
+    nodes.forEach((n) => observer.observe(n));
+    return () => {
+      observer.disconnect();
+      seen.clear();
+    };
+  }, [pathname]);
+
+  // Lock body scroll when the mobile drawer is open
+  useEffect(() => {
+    document.body.style.overflow = menuOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [menuOpen]);
+
+  // Escape closes whichever layer is open.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
+  // Any route change closes every menu layer.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  /** Route matches get aria-current="page"; scroll-spied sections get "location". */
+  const linkState = (href: string): { active: boolean; current?: 'page' | 'location' } => {
+    if (href.startsWith('/#')) {
+      const active = pathname === '/' && activeSection === href.slice(2);
+      return active ? { active, current: 'location' } : { active };
+    }
+    if (href.startsWith('http')) return { active: false };
+    const active = pathname === href || pathname.startsWith(`${href}/`);
+    return active ? { active, current: 'page' } : { active };
+  };
+
+  const navLink = (href: string, label: string, external = false) => {
+    const { active, current } = linkState(href);
+    return (
+      <a
+        key={href}
+        href={href}
+        className={`nav__link${active ? ' nav__link--active' : ''}`}
+        aria-current={current}
+        {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      >
+        {label}
+      </a>
+    );
+  };
+
+  const drawerLink = (href: string, label: string, external = false) => {
+    const { active, current } = linkState(href);
+    return (
+      <a
+        key={href}
+        href={href}
+        className={`nav__drawer-link${active ? ' nav__drawer-link--active' : ''}`}
+        aria-current={current}
+        onClick={closeMenu}
+        {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      >
+        {label}
+      </a>
+    );
+  };
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled ? 'glass shadow-md py-3' : 'py-5 bg-transparent'
-      }`}
+      className={`nav ${scrolled ? 'nav--scrolled' : ''}`}
+      role="navigation"
       aria-label="Main navigation"
     >
-      {/* Progress bar */}
-      <div className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-suwappu-magenta to-suwappu-purple transition-all duration-150" style={{ width: `${progress * 100}%` }} />
+      <a href="/" className="nav__logo">suwappu</a>
 
-      <div className="max-w-6xl mx-auto px-6 flex items-center justify-between">
-        <button
-          onClick={() => scrollToPanel(0)}
-          className="font-heading font-bold text-xl gradient-text"
-        >
-          Suwappu
-        </button>
+      {/* Desktop links */}
+      <div className="nav__links">
+        <ProductMenu triggerClassName="nav__link" isActive={(href) => linkState(href).active} />
 
-        <div className="hidden md:flex items-center gap-8">
-          {NAV_LINKS.map((l) => (
-            <button
-              key={l.label}
-              onClick={() => scrollToPanel(l.panel)}
-              className="nav-link font-heading text-sm font-medium text-suwappu-dark-text-secondary hover:text-suwappu-magenta transition-colors"
-            >
-              {l.label}
-            </button>
-          ))}
-          <a
-            href="https://t.me/suwappu_bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-suwappu bg-suwappu-gradient text-white font-heading font-medium text-sm px-5 py-2 rounded-suwappu-pill shadow-suwappu-button hover:shadow-suwappu-button-hover"
-          >
-            Open in Telegram
+        {navLink('/pricing', t('pricing'))}
+        <LanguageSwitcher current={locale} />
+        {/* Account entry. Deliberately a nav link rather than a third CTA:
+            "Open Bot" is an acquisition action, and an existing customer
+            looking for their billing should not have to parse two buttons
+            that both look like signup. */}
+        <a href="/dashboard" className="nav__link nav__link--account">
+          {hasSession ? t('dashboard') : t('signIn')}
+        </a>
+        {/* Two CTAs only: ghost sales + persimmon primary. */}
+        <a href={ENTERPRISE_CONTACT_PATH} className="nav__cta nav__cta--ghost">
+          {t('talkToSales')}
+        </a>
+        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__cta">
+          {t('openBot')}
+        </a>
+        {WHATSAPP_ENABLED && (
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__cta nav__cta--whatsapp">
+            {t('whatsapp')}
           </a>
-        </div>
-
-        <button
-          onClick={() => setMobileOpen((v) => !v)}
-          className="md:hidden p-2 -mr-2"
-          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-          aria-expanded={mobileOpen}
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d={mobileOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'} />
-          </svg>
-        </button>
+        )}
       </div>
 
-      {/* Mobile menu — CSS transition instead of AnimatePresence */}
-      <div
-        className={`md:hidden overflow-hidden transition-all duration-300 ${
-          mobileOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
-        }`}
+      {/* Mobile hamburger */}
+      <button
+        className="nav__hamburger"
+        onClick={() => setMenuOpen(!menuOpen)}
+        aria-expanded={menuOpen}
+        aria-controls="mobile-menu"
+        aria-label={menuOpen ? 'Close menu' : 'Open menu'}
       >
-        <div className="glass mx-4 mt-2 rounded-2xl p-6 space-y-3">
-          {NAV_LINKS.map((l) => (
-            <button
-              key={l.label}
-              onClick={() => scrollToPanel(l.panel)}
-              className="block w-full text-left font-heading text-base font-medium py-2 text-suwappu-dark-text hover:text-suwappu-magenta transition-colors"
-            >
-              {l.label}
-            </button>
-          ))}
-          <a
-            href="https://t.me/suwappu_bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block text-center btn-suwappu bg-suwappu-gradient text-white font-heading font-medium px-5 py-3 rounded-suwappu-pill mt-4"
-          >
-            Open in Telegram
-          </a>
+        <span className={`nav__hamburger-line ${menuOpen ? 'nav__hamburger-line--open' : ''}`} />
+        <span className={`nav__hamburger-line ${menuOpen ? 'nav__hamburger-line--open' : ''}`} />
+        <span className={`nav__hamburger-line ${menuOpen ? 'nav__hamburger-line--open' : ''}`} />
+      </button>
+
+      {/* Mobile drawer */}
+      {menuOpen && <div className="nav__backdrop" onClick={closeMenu} aria-hidden="true" />}
+      <div
+        id="mobile-menu"
+        className={`nav__drawer ${menuOpen ? 'nav__drawer--open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+      >
+        <div className="nav__drawer-lang">
+          <LanguageSwitcher current={locale} />
         </div>
+
+        {/* Same directory as desktop, collapsed into accordions. */}
+        {MENU_PANELS.map((panel) => {
+          const open = openDrawerPanel === panel.id;
+          return (
+            <div key={panel.id} className="nav__drawer-section">
+              <button
+                type="button"
+                className={`nav__drawer-toggle${open ? ' nav__drawer-toggle--open' : ''}`}
+                aria-expanded={open}
+                aria-controls={`drawer-panel-${panel.id}`}
+                onClick={() => setOpenDrawerPanel(open ? null : panel.id)}
+              >
+                {tm(panel.key)}
+                <svg width="10" height="6" viewBox="0 0 10 6" fill="none" aria-hidden="true">
+                  <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5"
+                    strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <div id={`drawer-panel-${panel.id}`} hidden={!open}>
+                {panel.groups.flatMap((group) =>
+                  group.items.map((item) =>
+                    drawerLink(item.href, tm(`${item.key}Title`), item.external)
+                  )
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {drawerLink('/pricing', t('pricing'))}
+        {drawerLink('/docs', t('docs'))}
+        {drawerLink('/status', t('status'))}
+        {drawerLink('https://github.com/0xSoftBoi/suwappubot', 'GitHub', true)}
+        <a href="/dashboard" className="nav__drawer-cta nav__drawer-cta--ghost" onClick={closeMenu}>
+          {hasSession ? t('dashboard') : t('signIn')}
+        </a>
+        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta" onClick={closeMenu}>
+          {t('openBot')}
+        </a>
+        <a href={ENTERPRISE_CONTACT_PATH} className="nav__drawer-cta nav__drawer-cta--ghost" onClick={closeMenu}>
+          {t('talkToSales')}
+        </a>
+        {WHATSAPP_ENABLED && (
+          <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="nav__drawer-cta nav__drawer-cta--whatsapp" onClick={closeMenu}>
+            {t('whatsapp')}
+          </a>
+        )}
       </div>
     </nav>
   );

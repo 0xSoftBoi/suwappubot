@@ -1,0 +1,12 @@
+/* TEAM */
+  Suwappu — cross-chain settlement infrastructure for humans and agents.
+  site:     https://suwappu.bot
+  security: https://suwappu.bot/.well-known/security.txt
+  status:   https://status.suwappu.bot
+
+/* PHILOSOPHY */
+  don't trust, verify. built to be discoverable and usable by AI agents.
+
+/* STACK */
+  standards: RFC 9116 security.txt, llms.txt, OpenAPI 3.1, A2A agent card
+  api: https://api.suwappu.bot   ·   docs: https://suwappu.bot/docs

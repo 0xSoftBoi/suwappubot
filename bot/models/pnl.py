@@ -10,6 +10,7 @@ class TokenPosition(Base):
 
     One row per user+chain+token_address combination. Updated on every swap.
     """
+
     __tablename__ = "token_positions"
     __table_args__ = (
         UniqueConstraint("user_id", "chain", "token_address", name="uq_token_position"),

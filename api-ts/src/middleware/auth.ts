@@ -1,11 +1,63 @@
+import crypto from 'crypto'
 import { Effect, Either, Option } from 'effect'
 import type { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { runEffectEither } from '../runtime'
+import { inArray } from 'drizzle-orm'
+import { requireDb } from '../db/DrizzleService'
+import { agents } from '../db/schema'
+import { runEffect, runEffectEither } from '../runtime'
 import { AgentService } from '../services'
+import { writeAuditLog } from '../services/audit'
+
+// Batch agent activity updates: collect IDs and flush every 60s
+const pendingActivityUpdates = new Set<number>()
+
+setInterval(async () => {
+	if (pendingActivityUpdates.size === 0) return
+	const ids = [...pendingActivityUpdates]
+	pendingActivityUpdates.clear()
+	try {
+		await runEffect(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(agents)
+							.set({ lastActiveAt: new Date(), updatedAt: new Date() })
+							.where(inArray(agents.id, ids)),
+					catch: () => new Error('batch activity update failed'),
+				})
+			}).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+		)
+	} catch {
+		// silently ignore - activity tracking is non-critical
+	}
+}, 60_000)
+
+function safeCompare(a: string, b: string): boolean {
+	if (a.length !== b.length) return false
+	return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))
+}
+
+// Per-IP failure tracking for admin key brute-force protection.
+// Sliding-window: up to MAX_FAILURES attempts per WINDOW_MS before lockout.
+const ADMIN_FAILURE_WINDOW_MS = 60_000 // 1 minute
+const ADMIN_MAX_FAILURES = 10
+const adminFailures = new Map<string, number[]>()
+
+setInterval(() => {
+	const cutoff = Date.now() - ADMIN_FAILURE_WINDOW_MS
+	for (const [ip, timestamps] of adminFailures) {
+		const recent = timestamps.filter((t) => t > cutoff)
+		if (recent.length === 0) adminFailures.delete(ip)
+		else adminFailures.set(ip, recent)
+	}
+}, ADMIN_FAILURE_WINDOW_MS)
 
 /**
- * Middleware to validate X-Admin-Key header
+ * Middleware to validate X-Admin-Key header with per-IP brute-force protection.
+ * Rejects after MAX_FAILURES failed attempts per IP within a sliding window.
  */
 export function adminKeyAuth(validKey: string | undefined) {
 	return async (c: Context, next: Next) => {
@@ -13,16 +65,42 @@ export function adminKeyAuth(validKey: string | undefined) {
 			throw new HTTPException(500, { message: 'Admin API key not configured' })
 		}
 
+		// Use rightmost x-forwarded-for hop (less spoofable) with socket fallback.
+		const forwarded = c.req.header('x-forwarded-for')
+		const hops = forwarded?.split(',').map((s) => s.trim()).filter(Boolean) ?? []
+		const ip = hops[hops.length - 1] ?? 'unknown'
+
+		const now = Date.now()
+		const cutoff = now - ADMIN_FAILURE_WINDOW_MS
+		const recent = (adminFailures.get(ip) ?? []).filter((t) => t > cutoff)
+
+		if (recent.length >= ADMIN_MAX_FAILURES) {
+			throw new HTTPException(429, { message: 'Too many failed admin key attempts' })
+		}
+
 		const apiKey = c.req.header('X-Admin-Key')
 
 		if (!apiKey) {
+			recent.push(now)
+			adminFailures.set(ip, recent)
 			throw new HTTPException(401, { message: 'Missing X-Admin-Key header' })
 		}
 
-		if (apiKey !== validKey) {
+		if (!safeCompare(apiKey, validKey)) {
+			recent.push(now)
+			adminFailures.set(ip, recent)
 			throw new HTTPException(401, { message: 'Invalid admin key' })
 		}
 
+		// Success — clear the failure record for this IP.
+		adminFailures.delete(ip)
+		// Audit admin access (system event — no user id; key isn't user-scoped).
+		writeAuditLog({
+			userId: 0,
+			eventType: 'admin.auth',
+			details: { method: c.req.method, path: c.req.path },
+			ipAddress: ip,
+		})
 		await next()
 	}
 }
@@ -76,10 +154,8 @@ export function agentBearerAuth() {
 
 				const agent = agentOption.value
 
-				// Update last active timestamp (fire and forget)
-				yield* agentService
-					.updateAgentActivity(agent.id)
-					.pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+				// Batch activity update instead of per-request DB write
+				pendingActivityUpdates.add(agent.id)
 
 				return agent
 			}),
@@ -94,10 +170,41 @@ export function agentBearerAuth() {
 			throw new HTTPException(401, { message: 'Invalid or inactive API key' })
 		}
 
+		// Apply the crypto-native subscription overlay: while the window is active,
+		// the agent's effective tier is its purchased subscriptionTier. Resolved
+		// here (no extra query — the window is denormalized onto the agent row) so
+		// downstream metering/rate-limit logic only reads rateLimitTier.
+		applyEffectiveTier(agent)
+
 		// Store agent in context for route handlers
 		c.set('agent', agent)
 
+		// NB: agent trust (services/AgentTrustService.ts, wired write path via the
+		// scanner seams) is intentionally NOT read here. It is record-only and
+		// nothing gates on it yet, so a per-request read would add a DB round-trip
+		// — and a stall/pool-exhaustion vector on a degraded DB (the client's
+		// statement_timeout is 30s) — to the auth hot path for data no consumer
+		// uses. When enforcement is designed (post-telemetry-review), the consumer
+		// reads getTrust() at the point of use with an appropriately bounded query.
+
 		await next()
+	}
+}
+
+/**
+ * Mutates `agent.rateLimitTier` to its effective value given any active
+ * crypto-native subscription. If subscriptionExpiresAt is in the future, the
+ * purchased subscriptionTier wins; otherwise the baseline rateLimitTier stands.
+ * Safe no-op when the columns are unset.
+ */
+export function applyEffectiveTier(agent: {
+	rateLimitTier?: string
+	subscriptionTier?: string | null
+	subscriptionExpiresAt?: Date | null
+}): void {
+	const exp = agent.subscriptionExpiresAt
+	if (agent.subscriptionTier && exp && new Date(exp).getTime() > Date.now()) {
+		agent.rateLimitTier = agent.subscriptionTier
 	}
 }
 

@@ -113,6 +113,90 @@ export const CHAINS: Record<string, ChainInfo> = {
 		nativeToken: 'AVAX',
 		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
 	},
+	tempo: {
+		id: 4217,
+		key: 'tempo',
+		name: 'Tempo',
+		nativeToken: 'USD',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	tp: {
+		id: 4217,
+		key: 'tempo',
+		name: 'Tempo',
+		nativeToken: 'USD',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	robinhood: {
+		id: 4663,
+		key: 'robinhood',
+		name: 'Robinhood Chain',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	hood: {
+		id: 4663,
+		key: 'robinhood',
+		name: 'Robinhood Chain',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	plasma: {
+		id: 9745,
+		key: 'plasma',
+		name: 'Plasma',
+		nativeToken: 'XPL',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	fantom: {
+		id: 250,
+		key: 'fantom',
+		name: 'Fantom',
+		nativeToken: 'FTM',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	ftm: {
+		id: 250,
+		key: 'fantom',
+		name: 'Fantom',
+		nativeToken: 'FTM',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	linea: {
+		id: 59144,
+		key: 'linea',
+		name: 'Linea',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	mantle: {
+		id: 5000,
+		key: 'mantle',
+		name: 'Mantle',
+		nativeToken: 'MNT',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	mnt: {
+		id: 5000,
+		key: 'mantle',
+		name: 'Mantle',
+		nativeToken: 'MNT',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	gnosis: {
+		id: 100,
+		key: 'gnosis',
+		name: 'Gnosis',
+		nativeToken: 'xDAI',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
+	scroll: {
+		id: 534352,
+		key: 'scroll',
+		name: 'Scroll',
+		nativeToken: 'ETH',
+		nativeTokenAddress: '0x0000000000000000000000000000000000000000',
+	},
 }
 
 // Common token addresses by chain
@@ -123,7 +207,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
 		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
 		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-		DAI: '0x6B175474E89094C44Da98b954EesadfdD3710d3Cb',
+		DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
 		WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
 	},
 	// Optimism
@@ -176,6 +260,73 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		'USDC.e': '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664',
 		USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
 	},
+	// Tempo
+	4217: {
+		pathUSD: '0x20c0000000000000000000000000000000000000',
+		AlphaUSD: '0x20c0000000000000000000000000000000000001',
+		BetaUSD: '0x20c0000000000000000000000000000000000002',
+		ThetaUSD: '0x20c0000000000000000000000000000000000003',
+	},
+	// Robinhood Chain — anchor stablecoin is Paxos USDG, there is NO USDC here.
+	// The two on-chain contracts both report symbol "USDG"; 0x5fc5... is the real
+	// one (338.7M supply vs 1.1k) — verified via totalSupply() on 2026-08-04.
+	4663: {
+		ETH: '0x0000000000000000000000000000000000000000',
+		WETH: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73',
+		USDG: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
+		USDe: '0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34',
+	},
+	// Plasma (zero-fee stablecoin L1)
+	9745: {
+		XPL: '0x0000000000000000000000000000000000000000',
+		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+	},
+}
+
+// Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
+// into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.
+// Authoritative source: bot/config/tokens.py TOKENS["PATHUSD"|"ALPHAUSD"|"BETAUSD"|"THETAUSD"]
+// all declare decimals=18 (get_token_decimals() has no Tempo-specific override, unlike the
+// GOAT/Citrea per-chain pins), and bot/services/swap_engine.py's _get_tempo_dex_quote() scales
+// raw amounts using that same 18. There is no on-chain "6dp USDC-style" override for Tempo.
+export const TEMPO_TOKEN_DECIMALS: Record<string, number> = {
+	pathUSD: 18,
+	AlphaUSD: 18,
+	BetaUSD: 18,
+	ThetaUSD: 18,
+}
+
+// Decimals for Robinhood Chain (4663) tokens. USDG is 6dp like USDC; the ~100
+// tokenized equities (AAPL/TSLA/NVDA/...) are all 18dp. Mirrors
+// bot/config/tokens.py ROBINHOOD_EQUITIES. Verified on-chain via decimals().
+export const ROBINHOOD_TOKEN_DECIMALS: Record<string, number> = {
+	USDG: 6,
+	USDe: 18,
+	WETH: 18,
+	ETH: 18,
+}
+
+// In-memory cache for Li.Fi token resolution results
+const tokenResolutionCache = new Map<string, { result: TokenInfo | null; expiry: number }>()
+const TOKEN_RESOLUTION_TTL = 10 * 60 * 1000 // 10 minutes
+
+// Li.Fi (chainlist's token list) is an untrusted upstream — a DNS hijack / MITM / Li.Fi
+// compromise could map a legitimate symbol to a malicious contract that the swap builder
+// would then trust. Validate the resolved token before caching/returning it (H8).
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+function isValidLifiToken(
+	token: TokenInfo | undefined,
+	chainId: number,
+	symbol: string,
+): token is TokenInfo {
+	if (!token || !EVM_ADDRESS_RE.test(token.address)) return false
+	// Li.Fi must report the token on the chain we asked for.
+	if (token.chainId !== chainId) return false
+	// If we have a canonical address for this exact (chain, symbol), it must match.
+	const trusted = COMMON_TOKENS[chainId]?.[symbol]
+	if (trusted && trusted.toLowerCase() !== token.address.toLowerCase()) return false
+	return true
 }
 
 export interface TokenServiceInterface {
@@ -226,14 +377,26 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
+			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo, USDG on Robinhood Chain).
+			// USDG MUST stay here: it is 6dp on-chain, and defaulting it to 18 would
+			// misprice every Robinhood Chain quote by 1e12.
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG'])
+
 			if (chainTokens && chainTokens[normalized]) {
 				return {
 					address: chainTokens[normalized],
 					symbol: normalized,
-					decimals: normalized === 'USDC' || normalized === 'USDT' ? 6 : 18,
+					decimals: DECIMALS_6.has(normalized) ? 6 : 18,
 					name: normalized,
 					chainId,
 				}
+			}
+
+			// Check in-memory cache before hitting Li.Fi
+			const cacheKey = `${chainId}:${normalized}`
+			const cached = tokenResolutionCache.get(cacheKey)
+			if (cached && cached.expiry > Date.now()) {
+				return cached.result
 			}
 
 			// If not found locally, fetch from Li.Fi
@@ -260,6 +423,13 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			const tokens = response.tokens[String(chainId)] || []
 			const found = tokens.find((t) => t.symbol.toUpperCase() === normalized)
 
-			return found || null
+			// Discard a malformed / cross-chain / canonical-mismatch Li.Fi response (H8);
+			// the null path is already handled by callers.
+			const result = isValidLifiToken(found, chainId, normalized) ? found : null
+
+			// Cache the result (even null to avoid repeated lookups for unknown tokens)
+			tokenResolutionCache.set(cacheKey, { result, expiry: Date.now() + TOKEN_RESOLUTION_TTL })
+
+			return result
 		}),
 })

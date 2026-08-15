@@ -1,31 +1,45 @@
 import { sql } from 'drizzle-orm'
 import { Effect, Option } from 'effect'
 import { Hono } from 'hono'
+import { logger } from '../lib/logger'
 import packageJson from '../../package.json'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
+import { sourceFingerprint } from '../lib/sourceFingerprint'
+
 const healthRoutes = new Hono()
 
-healthRoutes.get('/health', async (c) => {
-	const result = await runEffectEither(
-		Effect.gen(function* () {
-			const dbOption = yield* DrizzleService
-			if (Option.isNone(dbOption)) {
-				return { db: 'not_configured' as const }
-			}
-			const pingResult = yield* Effect.tryPromise({
-				try: () => dbOption.value.execute(sql`SELECT 1`),
-				catch: () => 'unreachable' as const,
-			}).pipe(
-				Effect.map(() => 'connected' as const),
-				Effect.catchAll((err) => Effect.succeed(err)),
-			)
-			return { db: pingResult }
-		}),
-	)
+let cachedDbStatus: { status: string; checkedAt: number } | null = null
+const DB_HEALTH_TTL = 30_000
 
-	const dbStatus = result._tag === 'Right' ? result.right : { db: 'error' as const }
+healthRoutes.get('/health', async (c) => {
+	let dbStatus: { db: string }
+
+	if (cachedDbStatus && Date.now() - cachedDbStatus.checkedAt < DB_HEALTH_TTL) {
+		dbStatus = { db: cachedDbStatus.status }
+	} else {
+		const result = await runEffectEither(
+			Effect.gen(function* () {
+				const dbOption = yield* DrizzleService
+				if (Option.isNone(dbOption)) {
+					return { db: 'not_configured' as const }
+				}
+				const pingResult = yield* Effect.tryPromise({
+					try: () => dbOption.value.execute(sql`SELECT 1`),
+					catch: () => 'unreachable' as const,
+				}).pipe(
+					Effect.map(() => 'connected' as const),
+					Effect.catchAll((err) => Effect.succeed(err)),
+				)
+				return { db: pingResult }
+			}),
+		)
+
+		dbStatus = result._tag === 'Right' ? result.right : { db: 'error' as const }
+		cachedDbStatus = { status: dbStatus.db, checkedAt: Date.now() }
+	}
+
 	const isHealthy = dbStatus.db !== 'unreachable' && dbStatus.db !== 'error'
 
 	return c.json(
@@ -33,6 +47,11 @@ healthRoutes.get('/health', async (c) => {
 			status: isHealthy ? 'ok' : 'degraded',
 			service: 'suwappu-api-ts',
 			version: packageJson.version,
+			// Which build is answering. A green Railway deploy is NOT proof the
+			// new code is live — verified painfully during the cookie-auth work,
+			// where a 401 could equally mean "wrong code" or "not deployed".
+			// Compare against scripts/verify_deploy.sh.
+			source_fingerprint: sourceFingerprint(),
 			timestamp: new Date().toISOString(),
 			...dbStatus,
 		},
@@ -69,9 +88,17 @@ const VERIFIED_TOKENS: Record<string, string[]> = {
 }
 
 // PUBLIC endpoint - no auth required
+const tokenListCache = new Map<string, { data: unknown; expiry: number }>()
+const TOKEN_CACHE_TTL = 5 * 60 * 1000
+
 healthRoutes.get('/tokens', async (c) => {
 	const chainId = c.req.query('chainId') || '1'
-	const verifiedSymbols = VERIFIED_TOKENS[chainId] || VERIFIED_TOKENS['1']
+	const verifiedSymbols = VERIFIED_TOKENS[chainId] || VERIFIED_TOKENS['1'] || []
+
+	const cached = tokenListCache.get(chainId)
+	if (cached && Date.now() < cached.expiry) {
+		return c.json(cached.data)
+	}
 
 	try {
 		const response = await fetch(`https://li.quest/v1/tokens?chains=${chainId}`, {
@@ -107,7 +134,7 @@ healthRoutes.get('/tokens', async (c) => {
 			(t) => verifiedSymbols.includes(t.symbol.toUpperCase()) || verifiedSymbols.includes(t.symbol),
 		)
 
-		return c.json({
+		const responseData = {
 			chainId: parseInt(chainId, 10),
 			tokens: tokens.map((t) => ({
 				address: t.address,
@@ -117,10 +144,15 @@ healthRoutes.get('/tokens', async (c) => {
 				logoURI: t.logoURI,
 				priceUSD: t.priceUSD,
 			})),
-		})
+		}
+
+		tokenListCache.set(chainId, { data: responseData, expiry: Date.now() + TOKEN_CACHE_TTL })
+
+		return c.json(responseData)
 	} catch (error) {
-		console.error('[Tokens] Failed to fetch:', error)
-		return c.json({ error: 'Failed to fetch tokens' }, 500)
+		logger.error({ err: error }, '[Tokens] Failed to fetch')
+		return c.json({
+ error: 'Failed to fetch tokens' }, 500)
 	}
 })
 

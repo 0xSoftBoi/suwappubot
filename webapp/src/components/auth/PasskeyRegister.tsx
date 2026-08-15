@@ -19,7 +19,6 @@ export function PasskeyRegister({
 }: PasskeyRegisterProps) {
   const {
     isPasskeySupported,
-    isPlatformAuthAvailable,
     isLoading,
     error,
     createPasskeyWallet,
@@ -52,7 +51,7 @@ export function PasskeyRegister({
       <button
         onClick={handleRegister}
         disabled={isLoading}
-        className={`flex items-center justify-center gap-2 w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-lg font-medium transition-opacity disabled:opacity-50 ${className}`}
+        className={`flex items-center justify-center gap-2 w-full px-4 py-3 bg-linear-to-r from-purple-500 to-blue-500 text-white rounded-lg font-medium transition-opacity disabled:opacity-50 ${className}`}
       >
         {isLoading ? (
           <>

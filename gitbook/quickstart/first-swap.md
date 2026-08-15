@@ -1,47 +1,141 @@
 # Your First Swap
 
-This guide walks you through the complete swap flow in four steps using `curl`. By the end, you will have registered an agent, requested a quote, executed a token swap, and confirmed the transaction.
+A complete walkthrough that takes you from zero to a settled cross-chain swap using the real Suwappu agent endpoints. Every request below targets `https://api.suwappu.bot`.
 
-## Step 1: Register
+## 1. Register your agent
 
-Create an agent and receive your API key. This endpoint is public — no authentication required.
+Registration is public — no auth required. Pick a unique `name` (3–50 characters, alphanumeric plus `_` and `-`).
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
   -H "Content-Type: application/json" \
-  -d '{"name":"my-trading-bot","description":"Automated trading agent"}'
+  -d '{"name": "my-first-agent"}'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/register", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "my-first-agent" }),
+});
+const agent = await res.json();
+```
+```python
+import requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/register",
+    json={"name": "my-first-agent"},
+)
+agent = res.json()
 ```
 
-**Response:**
+**Response (`201`):**
 
 ```json
 {
   "success": true,
+  "message": "Welcome to Suwappu!",
   "agent": {
-    "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
-    "name": "my-trading-bot",
-    "api_key": "suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-    "created_at": "2025-01-15T10:30:00Z"
-  }
+    "id": "a1b2c3d4-...",
+    "name": "my-first-agent",
+    "api_key": "suwappu_sk_xxxxxxxxxxxxxxxxxxxxxxxx",
+    "created_at": "2026-06-18T12:00:00.000Z"
+  },
+  "important": "SAVE YOUR API KEY! It cannot be retrieved later."
 }
 ```
 
-Save your `api_key` — you will need it for all authenticated requests. The key format is `suwappu_sk_` followed by at least 32 alphanumeric characters.
+Save `api_key` somewhere safe — it is shown only once and cannot be recovered. If you lose it, [rotate the key](../api-reference/keys.md).
 
-## Step 2: Get a Quote
+## 2. Create a managed wallet (optional)
 
-Request a swap quote by specifying the tokens, amount, and chain. Quotes are time-limited.
+To let Suwappu sign and broadcast for you, create a managed (Turnkey) EVM wallet. Its address is stored against your agent and is the only address you can swap from.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/wallets \
+  -H "Authorization: Bearer suwappu_sk_..."
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/wallets", {
+  method: "POST",
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const wallet = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/wallets",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+wallet = res.json()
+```
+
+**Response (`201`):**
+
+```json
+{
+  "success": true,
+  "wallet": {
+    "address": "0xAbC...123",
+    "chain_type": "evm",
+    "supported_chains": ["ethereum", "polygon", "arbitrum", "optimism", "base", "bsc"]
+  },
+  "message": "Wallet created. Fund it to start swapping."
+}
+```
+
+Fund the address before swapping. If you prefer to sign transactions yourself, skip this step and use the [`POST /v1/agent/swap`](../api-reference/swap.md) flow instead.
+
+## 3. Get a quote
+
+Quotes are valid for 60 seconds. For a same-chain swap, pass `chain`; for a cross-chain swap, pass `from_chain` and `to_chain`.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
+  -H "Authorization: Bearer suwappu_sk_..." \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" \
   -d '{
-    "from_token": "USDC",
-    "to_token": "ETH",
-    "amount": "500.00",
-    "chain": "ethereum"
+    "from_token": "ETH",
+    "to_token": "USDC",
+    "amount": "0.1",
+    "chain": "base",
+    "wallet_address": "0xAbC...123"
   }'
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/quote", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    from_token: "ETH",
+    to_token: "USDC",
+    amount: "0.1",
+    chain: "base",
+    wallet_address: "0xAbC...123",
+  }),
+});
+const quote = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/quote",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    json={
+        "from_token": "ETH",
+        "to_token": "USDC",
+        "amount": "0.1",
+        "chain": "base",
+        "wallet_address": "0xAbC...123",
+    },
+)
+quote = res.json()
 ```
 
 **Response:**
@@ -49,62 +143,124 @@ curl -X POST https://api.suwappu.bot/v1/agent/quote \
 ```json
 {
   "success": true,
-  "quote": {
-    "quote_id": "q_8f3a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c",
-    "from_token": "USDC",
-    "to_token": "ETH",
-    "amount_in": "500.00",
-    "amount_out": "0.2134",
-    "exchange_rate": "0.0004268",
-    "price_impact": "0.02%",
-    "fee": "0.50",
-    "expires_in_seconds": 30
-  }
+  "quote_id": "0x9f3c...",
+  "from_chain": "Base",
+  "from_chain_id": 8453,
+  "to_chain": "Base",
+  "to_chain_id": 8453,
+  "chain_type": "evm",
+  "from_token": { "symbol": "ETH", "address": "0xEee...", "decimals": 18 },
+  "to_token": { "symbol": "USDC", "address": "0x833...", "decimals": 6 },
+  "amount_in": "0.1",
+  "amount_out": "324.118200",
+  "amount_out_min": "320.876000",
+  "exchange_rate": "3241.18",
+  "price_impact": "0.02%",
+  "estimated_gas_usd": "$0.04",
+  "route": "Li.Fi",
+  "slippage": "3.0%",
+  "expires_in_seconds": 60,
+  "dex": "Li.Fi"
 }
 ```
 
-The `quote_id` is valid for the number of seconds shown in `expires_in_seconds`. Execute the swap before it expires.
+If you passed `wallet_address`, the response also includes a `transaction` object with the unsigned calldata.
 
-## Step 3: Execute the Swap
+## 4. Simulate before execution
 
-Submit the quote for on-chain execution.
+Simulation performs a zero-funds preflight against the cached quote and intended wallet. It never signs, broadcasts, or creates a managed swap record.
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id":"0x9f3c...","wallet_address":"0xAbC...123"}'
+```
+
+Inspect `would_execute`, `fees`, `checks`, `warnings`, and `min_output_after_slippage`. If `would_execute` is false, stop and resolve the failing/unverified check. Re-quote if the quote is near expiry.
+
+## 5. Execute the swap
+
+### Managed wallet (Suwappu signs)
+
+If you created a managed wallet in step 2, hand the `quote_id` to `/swap/execute` and Suwappu signs and broadcasts.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
+  -H "Authorization: Bearer suwappu_sk_..." \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" \
-  -d '{
-    "quote_id": "q_8f3a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c"
-  }'
+  -H "Idempotency-Key: first-swap-intent-001" \
+  -d '{"quote_id": "0x9f3c..."}'
 ```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/execute", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}`,
+    "Content-Type": "application/json",
+    "Idempotency-Key": "first-swap-intent-001",
+  },
+  body: JSON.stringify({ quote_id: "0x9f3c..." }),
+});
+const swap = await res.json();
+```
+```python
+import os, requests
+
+res = requests.post(
+    "https://api.suwappu.bot/v1/agent/swap/execute",
+    headers={
+        "Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}",
+        "Idempotency-Key": "first-swap-intent-001",
+    },
+    json={"quote_id": "0x9f3c..."},
+)
+swap = res.json()
+```
+
+Persist that idempotency key with the intended trade. If the request times out or returns a network/5xx error, first check managed swap status/history; reuse the same key if a retry is actually needed. The [managed swap execution reference](../api-reference/swap-execute.md) documents the exact header format, fallback behavior, and reconciliation rule.
 
 **Response:**
 
 ```json
 {
   "success": true,
-  "swap": {
-    "swap_id": "sw_1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
-    "status": "pending",
-    "tx_hash": "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b",
-    "from_token": "USDC",
-    "to_token": "ETH",
-    "amount_in": "500.00",
-    "amount_out": "0.2134",
-    "created_at": "2025-01-15T10:30:05Z"
+  "swap_id": 4812,
+  "status": "pending",
+  "tx_hash": null,
+  "tracking": {
+    "poll_url": "/v1/agent/swap/status/4812",
+    "webhook_note": "Set callback_url via PATCH /v1/agent/me to receive webhook notifications"
   }
 }
 ```
 
-The swap is now submitted. Use the `swap_id` to track its progress.
+### Self-custody (you sign)
 
-## Step 4: Check Status
+Alternatively, call [`POST /v1/agent/swap`](../api-reference/swap.md) with `quote_id` and your `wallet_address` to receive an unsigned transaction you sign and broadcast yourself.
 
-Poll the swap status until it completes.
+## 6. Check the status
+
+Poll with the `swap_id` returned above.
 
 ```bash
-curl -X GET https://api.suwappu.bot/v1/agent/swap/status/sw_1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d \
-  -H "Authorization: Bearer suwappu_sk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+curl https://api.suwappu.bot/v1/agent/swap/status/4812 \
+  -H "Authorization: Bearer suwappu_sk_..."
+```
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swap/status/4812", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const status = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/swap/status/4812",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+)
+status = res.json()
 ```
 
 **Response:**
@@ -112,33 +268,19 @@ curl -X GET https://api.suwappu.bot/v1/agent/swap/status/sw_1a2b3c4d-5e6f-7a8b-9
 ```json
 {
   "success": true,
-  "swap": {
-    "swap_id": "sw_1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
-    "status": "completed",
-    "tx_hash": "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b",
-    "from_token": "USDC",
-    "to_token": "ETH",
-    "amount_in": "500.00",
-    "amount_out": "0.2134",
-    "chain": "ethereum",
-    "created_at": "2025-01-15T10:30:05Z",
-    "completed_at": "2025-01-15T10:30:18Z"
-  }
+  "swap_id": 4812,
+  "status": "completed",
+  "tx_hash": "0xabc...def",
+  "from_chain": "base",
+  "to_chain": "base",
+  "from_token": "ETH",
+  "to_token": "USDC",
+  "from_amount": "0.1",
+  "to_amount": "324.12",
+  "error_message": null,
+  "created_at": "2026-06-18T12:00:10.000Z",
+  "completed_at": "2026-06-18T12:00:28.000Z"
 }
 ```
 
-Possible `status` values:
-
-| Status | Meaning |
-|--------|---------|
-| `pending` | Swap submitted, waiting for on-chain execution |
-| `processing` | Transaction is being processed on-chain |
-| `completed` | Swap finished successfully |
-| `failed` | Swap failed — check error details in the response |
-| `expired` | Quote expired before execution |
-
-## Next Steps
-
-- See [SDK Examples](sdk-examples.md) for complete runnable scripts in Python, TypeScript, and Bash.
-- Read [Authentication](../authentication/README.md) for details on key management and rotation.
-- Review [Rate Limits](../authentication/rate-limits.md) to understand request quotas for your tier.
+That's it — your agent just executed a cross-chain swap. To set up push notifications instead of polling, see [Webhooks](../api-reference/webhooks.md).

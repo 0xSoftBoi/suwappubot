@@ -21,7 +21,7 @@ function ColorSwatch({ name, color }: ColorSwatchProps) {
   return (
     <div className="flex items-center gap-4 mb-3">
       <div
-        className="w-16 h-16 rounded-suwappu-lg shadow-suwappu-2 flex-shrink-0"
+        className="w-16 h-16 rounded-suwappu-lg shadow-suwappu-2 shrink-0"
         style={{ backgroundColor: color }}
       />
       <div>
@@ -57,7 +57,15 @@ export const PrimaryColors: Story = {
       <p className="font-body text-suwappu-text-secondary mb-8">
         Kawaii-inspired design system with sakura theme
       </p>
-      <ColorGroup title="Primary Palette" colors={designTokens.colors.primary} />
+      <ColorGroup title="Brand Palette" colors={{
+        sakuraPinkLight: designTokens.colors.brand.sakuraPinkLight,
+        sakuraPinkMid: designTokens.colors.brand.sakuraPinkMid,
+        magentaCore: designTokens.colors.brand.magentaCore,
+        roseGradientStart: designTokens.colors.brand.roseGradientStart,
+        magentaGradientMid: designTokens.colors.brand.magentaGradientMid,
+        deepPurpleGradientEnd: designTokens.colors.brand.deepPurpleGradientEnd,
+        royalPurpleDeep: designTokens.colors.brand.royalPurpleDeep,
+      }} />
     </div>
   ),
 }
@@ -89,7 +97,7 @@ export const NeutralColors: Story = {
 export const DarkModeColors: Story = {
   render: () => (
     <div className="p-8 bg-suwappu-bg min-h-screen">
-      <ColorGroup title="Dark Mode Colors" colors={designTokens.colors.dark} />
+      <ColorGroup title="Dark Surface Colors" colors={designTokens.colors.surface.sakura} />
     </div>
   ),
 }
@@ -101,11 +109,19 @@ export const AllColors: Story = {
       <p className="font-body text-suwappu-text-secondary mb-8">
         Complete color palette for the Suwappu UI design system
       </p>
-      <ColorGroup title="Primary Palette" colors={designTokens.colors.primary} />
+      <ColorGroup title="Brand Palette" colors={{
+        sakuraPinkLight: designTokens.colors.brand.sakuraPinkLight,
+        sakuraPinkMid: designTokens.colors.brand.sakuraPinkMid,
+        magentaCore: designTokens.colors.brand.magentaCore,
+        roseGradientStart: designTokens.colors.brand.roseGradientStart,
+        magentaGradientMid: designTokens.colors.brand.magentaGradientMid,
+        deepPurpleGradientEnd: designTokens.colors.brand.deepPurpleGradientEnd,
+        royalPurpleDeep: designTokens.colors.brand.royalPurpleDeep,
+      }} />
       <ColorGroup title="Secondary Palette" colors={designTokens.colors.secondary} />
       <ColorGroup title="Semantic Colors" colors={designTokens.colors.semantic} />
       <ColorGroup title="Neutral Colors" colors={designTokens.colors.neutral} />
-      <ColorGroup title="Dark Mode" colors={designTokens.colors.dark} />
+      <ColorGroup title="Dark Surface" colors={designTokens.colors.surface.sakura} />
     </div>
   ),
 }

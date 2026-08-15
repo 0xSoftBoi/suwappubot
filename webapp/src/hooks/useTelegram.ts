@@ -6,6 +6,7 @@ import {
   type TelegramWebApp,
   type TelegramUser
 } from '../lib/telegram'
+import a11yToast from '../lib/a11yToast'
 
 interface UseTelegramReturn {
   webApp: TelegramWebApp | null
@@ -23,6 +24,9 @@ interface UseTelegramReturn {
   showAlert: (message: string) => Promise<void>
   showConfirm: (message: string) => Promise<boolean>
   close: () => void
+  requestFullscreen: () => void
+  exitFullscreen: () => void
+  addToHomeScreen: () => void
 }
 
 export function useTelegram(): UseTelegramReturn {
@@ -94,7 +98,7 @@ export function useTelegram(): UseTelegramReturn {
       if (webApp?.showAlert) {
         webApp.showAlert(message, resolve)
       } else {
-        alert(message)
+        a11yToast.info(message)
         resolve()
       }
     })
@@ -146,5 +150,8 @@ export function useTelegram(): UseTelegramReturn {
     showAlert,
     showConfirm,
     close,
+    requestFullscreen,
+    exitFullscreen,
+    addToHomeScreen,
   }
 }

@@ -1,0 +1,157 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  width: 100%;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem;
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--sw-muted);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  padding: 0.72rem 0.9rem;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--sw-ink);
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--sw-hairline-strong);
+  border-radius: var(--sw-r-sm);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 110px;
+  line-height: 1.5;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--sw-muted);
+  opacity: 0.7;
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--sw-accent);
+  background: #fff;
+}
+
+.input:focus-visible,
+.textarea:focus-visible {
+  box-shadow: var(--sw-focus);
+}
+
+select.input {
+  appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%234F6F7F' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  padding-right: 2.2rem;
+}
+
+.honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Guidance, not alarm: a quiet left rule and body-ink text rather than a
+   shouting red block — the failure is recoverable, so the tone stays calm. */
+.error {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--sw-ink);
+  background: var(--sw-canvas);
+  border: 1px solid var(--sw-hairline);
+  border-left: 2px solid #b3392c;
+  border-radius: var(--sw-r-sm);
+}
+
+.fineprint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--sw-muted);
+}
+
+.success {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.9rem;
+  text-align: left;
+}
+
+.success h2 {
+  margin: 0;
+}
+
+.success p {
+  margin: 0;
+  color: var(--sw-muted);
+  line-height: 1.6;
+}
+
+.successMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  background: var(--sw-accent);
+  border-radius: var(--sw-r-pill);
+}
+
+/* Animated check draw: the stroke is fully hidden, then traces in once. Under
+   reduced motion (no rule below fires) the path just renders fully drawn. */
+.successMarkPath {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .successMarkPath {
+    stroke-dashoffset: 24;
+    animation: sw-check-draw 480ms var(--sw-ease) 120ms forwards;
+  }
+}
+
+@keyframes sw-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}

@@ -1,0 +1,656 @@
+{
+  "generatedAt": "2026-04-04T03:35:29.101Z",
+  "primaryConceptId": 1,
+  "concepts": [
+    {
+      "id": 1,
+      "number": "01",
+      "slug": "concept-01-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "ember",
+      "files": {
+        "mark": "./concepts/concept-01-orchard-mark.svg",
+        "favicon": "./concepts/concept-01-orchard-favicon.svg",
+        "social": "./concepts/concept-01-orchard-social.svg"
+      }
+    },
+    {
+      "id": 2,
+      "number": "02",
+      "slug": "concept-02-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "sunrise",
+      "files": {
+        "mark": "./concepts/concept-02-orchard-mark.svg",
+        "favicon": "./concepts/concept-02-orchard-favicon.svg",
+        "social": "./concepts/concept-02-orchard-social.svg"
+      }
+    },
+    {
+      "id": 3,
+      "number": "03",
+      "slug": "concept-03-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "mandarin",
+      "files": {
+        "mark": "./concepts/concept-03-orchard-mark.svg",
+        "favicon": "./concepts/concept-03-orchard-favicon.svg",
+        "social": "./concepts/concept-03-orchard-social.svg"
+      }
+    },
+    {
+      "id": 4,
+      "number": "04",
+      "slug": "concept-04-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "bronze",
+      "files": {
+        "mark": "./concepts/concept-04-orchard-mark.svg",
+        "favicon": "./concepts/concept-04-orchard-favicon.svg",
+        "social": "./concepts/concept-04-orchard-social.svg"
+      }
+    },
+    {
+      "id": 5,
+      "number": "05",
+      "slug": "concept-05-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "neon",
+      "files": {
+        "mark": "./concepts/concept-05-orchard-mark.svg",
+        "favicon": "./concepts/concept-05-orchard-favicon.svg",
+        "social": "./concepts/concept-05-orchard-social.svg"
+      }
+    },
+    {
+      "id": 6,
+      "number": "06",
+      "slug": "concept-06-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "copper",
+      "files": {
+        "mark": "./concepts/concept-06-orchard-mark.svg",
+        "favicon": "./concepts/concept-06-orchard-favicon.svg",
+        "social": "./concepts/concept-06-orchard-social.svg"
+      }
+    },
+    {
+      "id": 7,
+      "number": "07",
+      "slug": "concept-07-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "vermillion",
+      "files": {
+        "mark": "./concepts/concept-07-orchard-mark.svg",
+        "favicon": "./concepts/concept-07-orchard-favicon.svg",
+        "social": "./concepts/concept-07-orchard-social.svg"
+      }
+    },
+    {
+      "id": 8,
+      "number": "08",
+      "slug": "concept-08-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "orchard",
+      "files": {
+        "mark": "./concepts/concept-08-orchard-mark.svg",
+        "favicon": "./concepts/concept-08-orchard-favicon.svg",
+        "social": "./concepts/concept-08-orchard-social.svg"
+      }
+    },
+    {
+      "id": 9,
+      "number": "09",
+      "slug": "concept-09-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "amber",
+      "files": {
+        "mark": "./concepts/concept-09-orchard-mark.svg",
+        "favicon": "./concepts/concept-09-orchard-favicon.svg",
+        "social": "./concepts/concept-09-orchard-social.svg"
+      }
+    },
+    {
+      "id": 10,
+      "number": "10",
+      "slug": "concept-10-orchard",
+      "family": "Orchard",
+      "description": "Whole-fruit silhouettes with a strong calyx and soft volume.",
+      "palette": "clay",
+      "files": {
+        "mark": "./concepts/concept-10-orchard-mark.svg",
+        "favicon": "./concepts/concept-10-orchard-favicon.svg",
+        "social": "./concepts/concept-10-orchard-social.svg"
+      }
+    },
+    {
+      "id": 11,
+      "number": "11",
+      "slug": "concept-11-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "ember",
+      "files": {
+        "mark": "./concepts/concept-11-slice-mark.svg",
+        "favicon": "./concepts/concept-11-slice-favicon.svg",
+        "social": "./concepts/concept-11-slice-social.svg"
+      }
+    },
+    {
+      "id": 12,
+      "number": "12",
+      "slug": "concept-12-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "sunrise",
+      "files": {
+        "mark": "./concepts/concept-12-slice-mark.svg",
+        "favicon": "./concepts/concept-12-slice-favicon.svg",
+        "social": "./concepts/concept-12-slice-social.svg"
+      }
+    },
+    {
+      "id": 13,
+      "number": "13",
+      "slug": "concept-13-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "mandarin",
+      "files": {
+        "mark": "./concepts/concept-13-slice-mark.svg",
+        "favicon": "./concepts/concept-13-slice-favicon.svg",
+        "social": "./concepts/concept-13-slice-social.svg"
+      }
+    },
+    {
+      "id": 14,
+      "number": "14",
+      "slug": "concept-14-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "bronze",
+      "files": {
+        "mark": "./concepts/concept-14-slice-mark.svg",
+        "favicon": "./concepts/concept-14-slice-favicon.svg",
+        "social": "./concepts/concept-14-slice-social.svg"
+      }
+    },
+    {
+      "id": 15,
+      "number": "15",
+      "slug": "concept-15-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "neon",
+      "files": {
+        "mark": "./concepts/concept-15-slice-mark.svg",
+        "favicon": "./concepts/concept-15-slice-favicon.svg",
+        "social": "./concepts/concept-15-slice-social.svg"
+      }
+    },
+    {
+      "id": 16,
+      "number": "16",
+      "slug": "concept-16-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "copper",
+      "files": {
+        "mark": "./concepts/concept-16-slice-mark.svg",
+        "favicon": "./concepts/concept-16-slice-favicon.svg",
+        "social": "./concepts/concept-16-slice-social.svg"
+      }
+    },
+    {
+      "id": 17,
+      "number": "17",
+      "slug": "concept-17-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "vermillion",
+      "files": {
+        "mark": "./concepts/concept-17-slice-mark.svg",
+        "favicon": "./concepts/concept-17-slice-favicon.svg",
+        "social": "./concepts/concept-17-slice-social.svg"
+      }
+    },
+    {
+      "id": 18,
+      "number": "18",
+      "slug": "concept-18-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "orchard",
+      "files": {
+        "mark": "./concepts/concept-18-slice-mark.svg",
+        "favicon": "./concepts/concept-18-slice-favicon.svg",
+        "social": "./concepts/concept-18-slice-social.svg"
+      }
+    },
+    {
+      "id": 19,
+      "number": "19",
+      "slug": "concept-19-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "amber",
+      "files": {
+        "mark": "./concepts/concept-19-slice-mark.svg",
+        "favicon": "./concepts/concept-19-slice-favicon.svg",
+        "social": "./concepts/concept-19-slice-social.svg"
+      }
+    },
+    {
+      "id": 20,
+      "number": "20",
+      "slug": "concept-20-slice",
+      "family": "Slice",
+      "description": "Whole fruit paired with a cut section to make the persimmon read instantly.",
+      "palette": "clay",
+      "files": {
+        "mark": "./concepts/concept-20-slice-mark.svg",
+        "favicon": "./concepts/concept-20-slice-favicon.svg",
+        "social": "./concepts/concept-20-slice-social.svg"
+      }
+    },
+    {
+      "id": 21,
+      "number": "21",
+      "slug": "concept-21-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "ember",
+      "files": {
+        "mark": "./concepts/concept-21-seal-mark.svg",
+        "favicon": "./concepts/concept-21-seal-favicon.svg",
+        "social": "./concepts/concept-21-seal-social.svg"
+      }
+    },
+    {
+      "id": 22,
+      "number": "22",
+      "slug": "concept-22-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "sunrise",
+      "files": {
+        "mark": "./concepts/concept-22-seal-mark.svg",
+        "favicon": "./concepts/concept-22-seal-favicon.svg",
+        "social": "./concepts/concept-22-seal-social.svg"
+      }
+    },
+    {
+      "id": 23,
+      "number": "23",
+      "slug": "concept-23-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "mandarin",
+      "files": {
+        "mark": "./concepts/concept-23-seal-mark.svg",
+        "favicon": "./concepts/concept-23-seal-favicon.svg",
+        "social": "./concepts/concept-23-seal-social.svg"
+      }
+    },
+    {
+      "id": 24,
+      "number": "24",
+      "slug": "concept-24-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "bronze",
+      "files": {
+        "mark": "./concepts/concept-24-seal-mark.svg",
+        "favicon": "./concepts/concept-24-seal-favicon.svg",
+        "social": "./concepts/concept-24-seal-social.svg"
+      }
+    },
+    {
+      "id": 25,
+      "number": "25",
+      "slug": "concept-25-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "neon",
+      "files": {
+        "mark": "./concepts/concept-25-seal-mark.svg",
+        "favicon": "./concepts/concept-25-seal-favicon.svg",
+        "social": "./concepts/concept-25-seal-social.svg"
+      }
+    },
+    {
+      "id": 26,
+      "number": "26",
+      "slug": "concept-26-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "copper",
+      "files": {
+        "mark": "./concepts/concept-26-seal-mark.svg",
+        "favicon": "./concepts/concept-26-seal-favicon.svg",
+        "social": "./concepts/concept-26-seal-social.svg"
+      }
+    },
+    {
+      "id": 27,
+      "number": "27",
+      "slug": "concept-27-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "vermillion",
+      "files": {
+        "mark": "./concepts/concept-27-seal-mark.svg",
+        "favicon": "./concepts/concept-27-seal-favicon.svg",
+        "social": "./concepts/concept-27-seal-social.svg"
+      }
+    },
+    {
+      "id": 28,
+      "number": "28",
+      "slug": "concept-28-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "orchard",
+      "files": {
+        "mark": "./concepts/concept-28-seal-mark.svg",
+        "favicon": "./concepts/concept-28-seal-favicon.svg",
+        "social": "./concepts/concept-28-seal-social.svg"
+      }
+    },
+    {
+      "id": 29,
+      "number": "29",
+      "slug": "concept-29-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "amber",
+      "files": {
+        "mark": "./concepts/concept-29-seal-mark.svg",
+        "favicon": "./concepts/concept-29-seal-favicon.svg",
+        "social": "./concepts/concept-29-seal-social.svg"
+      }
+    },
+    {
+      "id": 30,
+      "number": "30",
+      "slug": "concept-30-seal",
+      "family": "Seal",
+      "description": "Badge-driven marks built for app icons, favicons, and avatars.",
+      "palette": "clay",
+      "files": {
+        "mark": "./concepts/concept-30-seal-mark.svg",
+        "favicon": "./concepts/concept-30-seal-favicon.svg",
+        "social": "./concepts/concept-30-seal-social.svg"
+      }
+    },
+    {
+      "id": 31,
+      "number": "31",
+      "slug": "concept-31-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "ember",
+      "files": {
+        "mark": "./concepts/concept-31-ribbon-mark.svg",
+        "favicon": "./concepts/concept-31-ribbon-favicon.svg",
+        "social": "./concepts/concept-31-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 32,
+      "number": "32",
+      "slug": "concept-32-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "sunrise",
+      "files": {
+        "mark": "./concepts/concept-32-ribbon-mark.svg",
+        "favicon": "./concepts/concept-32-ribbon-favicon.svg",
+        "social": "./concepts/concept-32-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 33,
+      "number": "33",
+      "slug": "concept-33-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "mandarin",
+      "files": {
+        "mark": "./concepts/concept-33-ribbon-mark.svg",
+        "favicon": "./concepts/concept-33-ribbon-favicon.svg",
+        "social": "./concepts/concept-33-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 34,
+      "number": "34",
+      "slug": "concept-34-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "bronze",
+      "files": {
+        "mark": "./concepts/concept-34-ribbon-mark.svg",
+        "favicon": "./concepts/concept-34-ribbon-favicon.svg",
+        "social": "./concepts/concept-34-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 35,
+      "number": "35",
+      "slug": "concept-35-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "neon",
+      "files": {
+        "mark": "./concepts/concept-35-ribbon-mark.svg",
+        "favicon": "./concepts/concept-35-ribbon-favicon.svg",
+        "social": "./concepts/concept-35-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 36,
+      "number": "36",
+      "slug": "concept-36-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "copper",
+      "files": {
+        "mark": "./concepts/concept-36-ribbon-mark.svg",
+        "favicon": "./concepts/concept-36-ribbon-favicon.svg",
+        "social": "./concepts/concept-36-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 37,
+      "number": "37",
+      "slug": "concept-37-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "vermillion",
+      "files": {
+        "mark": "./concepts/concept-37-ribbon-mark.svg",
+        "favicon": "./concepts/concept-37-ribbon-favicon.svg",
+        "social": "./concepts/concept-37-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 38,
+      "number": "38",
+      "slug": "concept-38-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "orchard",
+      "files": {
+        "mark": "./concepts/concept-38-ribbon-mark.svg",
+        "favicon": "./concepts/concept-38-ribbon-favicon.svg",
+        "social": "./concepts/concept-38-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 39,
+      "number": "39",
+      "slug": "concept-39-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "amber",
+      "files": {
+        "mark": "./concepts/concept-39-ribbon-mark.svg",
+        "favicon": "./concepts/concept-39-ribbon-favicon.svg",
+        "social": "./concepts/concept-39-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 40,
+      "number": "40",
+      "slug": "concept-40-ribbon",
+      "family": "Ribbon",
+      "description": "Tech-forward bands and negative-space motion inside the fruit body.",
+      "palette": "clay",
+      "files": {
+        "mark": "./concepts/concept-40-ribbon-mark.svg",
+        "favicon": "./concepts/concept-40-ribbon-favicon.svg",
+        "social": "./concepts/concept-40-ribbon-social.svg"
+      }
+    },
+    {
+      "id": 41,
+      "number": "41",
+      "slug": "concept-41-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "ember",
+      "files": {
+        "mark": "./concepts/concept-41-orbit-mark.svg",
+        "favicon": "./concepts/concept-41-orbit-favicon.svg",
+        "social": "./concepts/concept-41-orbit-social.svg"
+      }
+    },
+    {
+      "id": 42,
+      "number": "42",
+      "slug": "concept-42-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "sunrise",
+      "files": {
+        "mark": "./concepts/concept-42-orbit-mark.svg",
+        "favicon": "./concepts/concept-42-orbit-favicon.svg",
+        "social": "./concepts/concept-42-orbit-social.svg"
+      }
+    },
+    {
+      "id": 43,
+      "number": "43",
+      "slug": "concept-43-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "mandarin",
+      "files": {
+        "mark": "./concepts/concept-43-orbit-mark.svg",
+        "favicon": "./concepts/concept-43-orbit-favicon.svg",
+        "social": "./concepts/concept-43-orbit-social.svg"
+      }
+    },
+    {
+      "id": 44,
+      "number": "44",
+      "slug": "concept-44-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "bronze",
+      "files": {
+        "mark": "./concepts/concept-44-orbit-mark.svg",
+        "favicon": "./concepts/concept-44-orbit-favicon.svg",
+        "social": "./concepts/concept-44-orbit-social.svg"
+      }
+    },
+    {
+      "id": 45,
+      "number": "45",
+      "slug": "concept-45-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "neon",
+      "files": {
+        "mark": "./concepts/concept-45-orbit-mark.svg",
+        "favicon": "./concepts/concept-45-orbit-favicon.svg",
+        "social": "./concepts/concept-45-orbit-social.svg"
+      }
+    },
+    {
+      "id": 46,
+      "number": "46",
+      "slug": "concept-46-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "copper",
+      "files": {
+        "mark": "./concepts/concept-46-orbit-mark.svg",
+        "favicon": "./concepts/concept-46-orbit-favicon.svg",
+        "social": "./concepts/concept-46-orbit-social.svg"
+      }
+    },
+    {
+      "id": 47,
+      "number": "47",
+      "slug": "concept-47-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "vermillion",
+      "files": {
+        "mark": "./concepts/concept-47-orbit-mark.svg",
+        "favicon": "./concepts/concept-47-orbit-favicon.svg",
+        "social": "./concepts/concept-47-orbit-social.svg"
+      }
+    },
+    {
+      "id": 48,
+      "number": "48",
+      "slug": "concept-48-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "orchard",
+      "files": {
+        "mark": "./concepts/concept-48-orbit-mark.svg",
+        "favicon": "./concepts/concept-48-orbit-favicon.svg",
+        "social": "./concepts/concept-48-orbit-social.svg"
+      }
+    },
+    {
+      "id": 49,
+      "number": "49",
+      "slug": "concept-49-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "amber",
+      "files": {
+        "mark": "./concepts/concept-49-orbit-mark.svg",
+        "favicon": "./concepts/concept-49-orbit-favicon.svg",
+        "social": "./concepts/concept-49-orbit-social.svg"
+      }
+    },
+    {
+      "id": 50,
+      "number": "50",
+      "slug": "concept-50-orbit",
+      "family": "Orbit",
+      "description": "Dynamic rings and sparks around the fruit for a sharper systems feel.",
+      "palette": "clay",
+      "files": {
+        "mark": "./concepts/concept-50-orbit-mark.svg",
+        "favicon": "./concepts/concept-50-orbit-favicon.svg",
+        "social": "./concepts/concept-50-orbit-social.svg"
+      }
+    }
+  ]
+}

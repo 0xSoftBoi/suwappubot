@@ -1,0 +1,60 @@
+{
+  "name": "suwappu-terminal",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "storybook": "storybook dev -p 6006 --host 0.0.0.0",
+    "build-storybook": "storybook build",
+    "qa:browserbase:swap": "node scripts/browserbase-swap-functional.mjs",
+    "qa:browserbase:copilot": "node scripts/browserbase-copilot-functional.mjs",
+    "qa:browserbase:limit": "node scripts/browserbase-limit-order-functional.mjs",
+    "qa:browserbase:features": "node scripts/browserbase-terminal-feature-sweep.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "bun test src/lib",
+    "icons": "node scripts/generate-icons.mjs"
+  },
+  "dependencies": {
+    "@ledgerhq/connect-kit-loader": "^1.1.8",
+    "@rainbow-me/rainbowkit": "^2.2.3",
+    "@solana/web3.js": "^1.98.4",
+    "@suwappu/design-tokens": "file:../packages/design-tokens",
+    "@tanstack/react-query": "^5.59.0",
+    "allotment": "^1.0.9",
+    "bs58": "^6.0.0",
+    "gsap": "^3.14.2",
+    "lightweight-charts": "^4.2.2",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.6.0",
+    "react-router-dom": "6.30.4",
+    "viem": "2.55.10",
+    "wagmi": "^2.14.11"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@storybook/addon-a11y": "8.6.18",
+    "@storybook/addon-essentials": "8.6.18",
+    "@storybook/react-vite": "8.6.18",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "mermaid": "^11.14.0",
+    "postcss": "^8.4.47",
+    "sharp": "^0.35.3",
+    "storybook": "8.6.18",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^5.6.3",
+    "vite": "^6.3.5"
+  },
+  "overrides": {
+    "axios": "^1.18.0",
+    "nanoid": "^3.3.17",
+    "viem": "2.55.10"
+  }
+}

@@ -1,4 +1,5 @@
 import {
+	bigint,
 	boolean,
 	integer,
 	pgTable,
@@ -6,12 +7,16 @@ import {
 	serial,
 	text,
 	timestamp,
+	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
 
 export const users = pgTable('users', {
 	id: serial('id').primaryKey(),
-	telegramId: integer('telegram_id').unique(),
+	// Telegram user IDs exceed 2^31 as of 2024-2026; must be BIGINT to match
+	// the Postgres schema. 'number' mode is safe because Telegram IDs fit
+	// well within Number.MAX_SAFE_INTEGER (2^53 - 1).
+	telegramId: bigint('telegram_id', { mode: 'number' }).unique(),
 	whatsappId: varchar('whatsapp_id', { length: 255 }).unique(),
 	username: varchar('username', { length: 255 }),
 	firstName: varchar('first_name', { length: 255 }),
@@ -21,6 +26,7 @@ export const users = pgTable('users', {
 	defaultSlippage: integer('default_slippage').default(50),
 	notificationsEnabled: boolean('notifications_enabled').default(true),
 	gasMode: varchar('gas_mode', { length: 10 }).default('auto'),
+	languagePreference: text('language_preference').default('en'),
 
 	// Terms of Service
 	tosAccepted: boolean('tos_accepted').default(false),
@@ -35,6 +41,16 @@ export const users = pgTable('users', {
 	twoFaEnabled: boolean('two_fa_enabled').default(false),
 	totpSecret: varchar('totp_secret', { length: 64 }),
 	twoFaThreshold: integer('two_fa_threshold').default(1000),
+
+	// Enterprise org membership
+	organizationId: uuid('organization_id'),
+
+	// Account recovery (passkey recovery flow). unique() so two accounts can
+	// never claim the same recovery email — without it, an attacker who sets
+	// their own recovery_email to a victim's address could receive the
+	// victim's recovery token once email delivery is wired.
+	recoveryEmail: text('recovery_email').unique(),
+	recoveryEmailSetAt: timestamp('recovery_email_set_at'),
 
 	// Timestamps
 	createdAt: timestamp('created_at').defaultNow(),

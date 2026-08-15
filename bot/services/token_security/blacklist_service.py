@@ -16,7 +16,7 @@ import asyncio
 import re
 from typing import Optional, Dict, Any, List, Set
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class BlacklistType(Enum):
     """Types of blacklist entries."""
+
     TOKEN = "token"
     CREATOR = "creator"
     NAME_PATTERN = "name_pattern"
@@ -34,6 +35,7 @@ class BlacklistType(Enum):
 
 class BlacklistReason(Enum):
     """Reasons for blacklisting."""
+
     RUG_PULL = "rug_pull"
     HONEYPOT = "honeypot"
     SCAM = "scam"
@@ -45,10 +47,11 @@ class BlacklistReason(Enum):
 @dataclass
 class BlacklistEntry:
     """Entry in the blacklist."""
+
     entry_type: BlacklistType
     value: str
     reason: BlacklistReason
-    added_at: datetime = field(default_factory=datetime.utcnow)
+    added_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     added_by: Optional[str] = None
     description: Optional[str] = None
     severity: int = 1  # 1-3, higher = worse
@@ -67,6 +70,7 @@ class BlacklistEntry:
 @dataclass
 class BlacklistCheckResult:
     """Result of blacklist check."""
+
     is_blacklisted: bool
     entries: List[BlacklistEntry] = field(default_factory=list)
     reasons: List[str] = field(default_factory=list)
@@ -118,13 +122,15 @@ class BlacklistService:
         ]
 
         for pattern in suspicious_names:
-            self._name_patterns.append(BlacklistEntry(
-                entry_type=BlacklistType.NAME_PATTERN,
-                value=pattern,
-                reason=BlacklistReason.SCAM,
-                description="Suspicious name pattern",
-                severity=1,
-            ))
+            self._name_patterns.append(
+                BlacklistEntry(
+                    entry_type=BlacklistType.NAME_PATTERN,
+                    value=pattern,
+                    reason=BlacklistReason.SCAM,
+                    description="Suspicious name pattern",
+                    severity=1,
+                )
+            )
 
         # Known scam symbol patterns
         suspicious_symbols = [
@@ -134,13 +140,15 @@ class BlacklistService:
         ]
 
         for pattern in suspicious_symbols:
-            self._symbol_patterns.append(BlacklistEntry(
-                entry_type=BlacklistType.SYMBOL_PATTERN,
-                value=pattern,
-                reason=BlacklistReason.SCAM,
-                description="Suspicious symbol pattern",
-                severity=1,
-            ))
+            self._symbol_patterns.append(
+                BlacklistEntry(
+                    entry_type=BlacklistType.SYMBOL_PATTERN,
+                    value=pattern,
+                    reason=BlacklistReason.SCAM,
+                    description="Suspicious symbol pattern",
+                    severity=1,
+                )
+            )
 
     async def is_blacklisted(
         self,
@@ -247,7 +255,9 @@ class BlacklistService:
                 result.is_blacklisted = True
                 result.entries.extend(creator_result.entries)
                 result.reasons.append(f"Creator is blacklisted: {creator_result.reasons}")
-                result.highest_severity = max(result.highest_severity, creator_result.highest_severity)
+                result.highest_severity = max(
+                    result.highest_severity, creator_result.highest_severity
+                )
 
         # Check name patterns
         if name:
@@ -265,7 +275,9 @@ class BlacklistService:
                 result.is_blacklisted = True
                 result.entries.extend(symbol_result.entries)
                 result.reasons.extend(symbol_result.reasons)
-                result.highest_severity = max(result.highest_severity, symbol_result.highest_severity)
+                result.highest_severity = max(
+                    result.highest_severity, symbol_result.highest_severity
+                )
 
         return result
 
@@ -294,7 +306,11 @@ class BlacklistService:
         """
         entry = BlacklistEntry(
             entry_type=entry_type,
-            value=value.lower() if entry_type in (BlacklistType.TOKEN, BlacklistType.CREATOR) else value,
+            value=(
+                value.lower()
+                if entry_type in (BlacklistType.TOKEN, BlacklistType.CREATOR)
+                else value
+            ),
             reason=reason,
             description=description,
             severity=min(3, max(1, severity)),

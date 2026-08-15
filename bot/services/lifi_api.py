@@ -8,13 +8,13 @@ from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 from bot.utils.performance import track_time, MetricNames
 
-
 LIFI_BASE_URL = "https://li.quest/v1"
 
 
 @dataclass
 class LiFiQuote:
     """Quote response from Li.Fi API."""
+
     id: str
     from_chain_id: int
     to_chain_id: int
@@ -34,18 +34,41 @@ class LiFiQuote:
 @dataclass
 class LiFiStatus:
     """Transaction status from Li.Fi API."""
+
     status: str  # PENDING, DONE, FAILED
     substatus: Optional[str]
     receiving_chain_id: Optional[int]
     receiving_tx_hash: Optional[str]
     sending_tx_hash: Optional[str]
     tool: Optional[str]
+    # What the user ACTUALLY received, as reported by Li.Fi once the
+    # destination leg settles. This is the only realized-output figure we get
+    # without parsing destination-chain logs ourselves, and it is what makes
+    # fill-vs-quote measurable at all — every other amount on a swap record is
+    # the quote's estimate. Smallest-unit string, mirroring `to_amount`.
+    receiving_amount: Optional[str]
+    receiving_amount_usd: Optional[float]
     raw_response: dict
+
+
+def _opt_str(value) -> Optional[str]:
+    """Smallest-unit amounts arrive as str or int depending on the bridge."""
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
+def _opt_float(value) -> Optional[float]:
+    """A malformed amountUSD must not sink a status poll."""
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
 class LiFiAPI:
     """Client for Li.Fi cross-chain swap API."""
-    
+
     def __init__(self):
         self.base_url = LIFI_BASE_URL
         self.headers = {
@@ -54,7 +77,7 @@ class LiFiAPI:
         }
         if settings.lifi_api_key:
             self.headers["x-lifi-api-key"] = settings.lifi_api_key
-    
+
     @track_time(MetricNames.API_LIFI)
     async def _request(
         self,
@@ -66,9 +89,9 @@ class LiFiAPI:
         """Make an API request to Li.Fi."""
         # Apply rate limiting
         await api_limiter.wait_and_acquire("lifi")
-        
+
         url = f"{self.base_url}{endpoint}"
-        
+
         # Use shared session with connection pooling
         session = await get_session()
         async with session.request(
@@ -79,27 +102,27 @@ class LiFiAPI:
             headers=self.headers,
         ) as response:
             data = await response.json()
-            
+
             if response.status != 200:
                 error_msg = data.get("message", "Unknown error")
                 raise LiFiError(f"Li.Fi API error: {error_msg}", data)
-            
+
             return data
-    
+
     async def get_chains(self) -> list[dict]:
         """Get list of supported chains."""
         data = await self._request("GET", "/chains")
         return data.get("chains", [])
-    
+
     async def get_tokens(self, chain_id: Optional[int] = None) -> list[dict]:
         """Get list of supported tokens, optionally filtered by chain."""
         params = {}
         if chain_id:
             params["chains"] = str(chain_id)
-        
+
         data = await self._request("GET", "/tokens", params=params)
         return data.get("tokens", {})
-    
+
     async def get_quote(
         self,
         from_chain: str,
@@ -112,10 +135,14 @@ class LiFiAPI:
         slippage: float = 0.5,
         integrator: Optional[str] = None,
         fee: float = 0.008,  # 0.8% integrator fee (80 bips)
+        from_amount_for_gas: Optional[str] = None,
+        max_price_impact: Optional[float] = None,
+        prefer_bridges: Optional[list[str]] = None,
+        prefer_exchanges: Optional[list[str]] = None,
     ) -> LiFiQuote:
         """
         Get a quote for a cross-chain swap.
-        
+
         Args:
             from_chain: Source chain name
             to_chain: Destination chain name
@@ -126,16 +153,16 @@ class LiFiAPI:
             to_address: Receiver wallet address (defaults to from_address)
             slippage: Slippage tolerance as percentage (0.5 = 0.5%)
             integrator: Integrator identifier
-            
+
         Returns:
             LiFiQuote with swap details
         """
         from_chain_config = get_chain_by_name(from_chain)
         to_chain_config = get_chain_by_name(to_chain)
-        
+
         if not from_chain_config or not to_chain_config:
             raise LiFiError("Invalid chain name")
-        
+
         params = {
             "fromChain": str(from_chain_config.lifi_chain_id),
             "toChain": str(to_chain_config.lifi_chain_id),
@@ -148,20 +175,32 @@ class LiFiAPI:
             "integrator": integrator or settings.lifi_integrator_id,
             "fee": fee,  # Integrator fee collected by LiFi FeeCollection contract
         }
-        
+
+        # LI.Fuel: receive native gas tokens on destination chain
+        if from_amount_for_gas:
+            params["fromAmountForGas"] = str(from_amount_for_gas)
+
+        # Route quality controls
+        if max_price_impact is not None:
+            params["maxPriceImpact"] = max_price_impact
+        if prefer_bridges:
+            params["preferBridges"] = ",".join(prefer_bridges)
+        if prefer_exchanges:
+            params["preferExchanges"] = ",".join(prefer_exchanges)
+
         data = await self._request("GET", "/quote", params=params)
-        
+
         # Extract relevant data
         estimate = data.get("estimate", {})
         action = data.get("action", {})
-        
+
         # Calculate costs
         gas_costs = estimate.get("gasCosts", [])
         gas_cost_usd = sum(float(g.get("amountUSD", 0)) for g in gas_costs)
-        
+
         fee_costs = estimate.get("feeCosts", [])
         fee_cost_usd = sum(float(f.get("amountUSD", 0)) for f in fee_costs)
-        
+
         return LiFiQuote(
             id=data.get("id", ""),
             from_chain_id=int(action.get("fromChainId", 0)),
@@ -178,7 +217,7 @@ class LiFiAPI:
             transaction_request=data.get("transactionRequest", {}),
             raw_response=data,
         )
-    
+
     async def get_status(
         self,
         tx_hash: str,
@@ -187,39 +226,42 @@ class LiFiAPI:
     ) -> LiFiStatus:
         """
         Get the status of a cross-chain transaction.
-        
+
         Args:
             tx_hash: Source chain transaction hash
             from_chain: Source chain name
             to_chain: Destination chain name
-            
+
         Returns:
             LiFiStatus with transaction status
         """
         from_chain_config = get_chain_by_name(from_chain)
         to_chain_config = get_chain_by_name(to_chain)
-        
+
         if not from_chain_config or not to_chain_config:
             raise LiFiError("Invalid chain name")
-        
+
         params = {
             "txHash": tx_hash,
             "fromChain": str(from_chain_config.lifi_chain_id),
             "toChain": str(to_chain_config.lifi_chain_id),
         }
-        
+
         data = await self._request("GET", "/status", params=params)
-        
+
+        receiving = data.get("receiving") or {}
         return LiFiStatus(
             status=data.get("status", "PENDING"),
             substatus=data.get("substatus"),
-            receiving_chain_id=data.get("receiving", {}).get("chainId"),
-            receiving_tx_hash=data.get("receiving", {}).get("txHash"),
+            receiving_chain_id=receiving.get("chainId"),
+            receiving_tx_hash=receiving.get("txHash"),
             sending_tx_hash=data.get("sending", {}).get("txHash"),
             tool=data.get("tool"),
+            receiving_amount=_opt_str(receiving.get("amount")),
+            receiving_amount_usd=_opt_float(receiving.get("amountUSD")),
             raw_response=data,
         )
-    
+
     async def get_routes(
         self,
         from_chain: str,
@@ -233,16 +275,16 @@ class LiFiAPI:
     ) -> list[dict]:
         """
         Get multiple route options for a swap.
-        
+
         Returns:
             List of route options sorted by output amount
         """
         from_chain_config = get_chain_by_name(from_chain)
         to_chain_config = get_chain_by_name(to_chain)
-        
+
         if not from_chain_config or not to_chain_config:
             raise LiFiError("Invalid chain name")
-        
+
         request_data = {
             "fromChainId": from_chain_config.lifi_chain_id,
             "toChainId": to_chain_config.lifi_chain_id,
@@ -254,33 +296,36 @@ class LiFiAPI:
             "options": {
                 "slippage": slippage / 100,
                 "order": "RECOMMENDED",
-            }
+            },
         }
-        
+
         data = await self._request("POST", "/advanced/routes", json_data=request_data)
         return data.get("routes", [])
-    
+
     async def build_transaction(self, route: dict) -> dict:
         """
         Build a transaction from a route.
-        
+
         Args:
             route: Route object from get_routes
-            
+
         Returns:
             Transaction request object
         """
-        data = await self._request("POST", "/advanced/stepTransaction", json_data={
-            "route": route,
-        })
+        data = await self._request(
+            "POST",
+            "/advanced/stepTransaction",
+            json_data={
+                "route": route,
+            },
+        )
         return data.get("transactionRequest", {})
 
 
 class LiFiError(Exception):
     """Exception raised for Li.Fi API errors."""
-    
+
     def __init__(self, message: str, response: Optional[dict] = None):
         self.message = message
         self.response = response
         super().__init__(self.message)
-

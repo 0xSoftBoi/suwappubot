@@ -2,8 +2,8 @@
   "$schema": "https://specs.a2aprotocol.ai/agent-card.json",
   "id": "suwappu-dex",
   "name": "Suwappu",
-  "description": "Cross-chain DEX for AI agents. Swap tokens across 7 chains via natural language.",
-  "version": "0.4.0",
+  "description": "Natural-language quote, price, and discovery agent for Suwappu. A2A swap/quote requests return quotes; A2A does not execute swaps.",
+  "version": "0.6.0",
   "url": "https://api.suwappu.bot",
   "logo": "https://suwappu.bot/logo.png",
   "openApiUrl": "https://api.suwappu.bot/v1/agent/openapi",
@@ -26,7 +26,7 @@
   },
   "capabilities": {
     "streaming": false,
-    "pushNotifications": true,
+    "pushNotifications": false,
     "stateTransitionHistory": false
   },
   "authentication": {
@@ -43,59 +43,18 @@
   ],
   "skills": [
     {
-      "id": "swap",
-      "name": "Token Swap",
-      "description": "Swap tokens across 7 chains (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Solana)",
-      "tags": [
-        "defi",
-        "swap",
-        "trading",
-        "cross-chain"
-      ],
-      "examples": [
-        "swap 0.5 ETH to USDC on Base",
-        "swap 100 USDC to SOL on Solana",
-        "bridge 500 USDC from Ethereum to Arbitrum"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
-      ]
-    },
-    {
       "id": "quote",
-      "name": "Get Quote",
-      "description": "Get a swap quote without executing",
+      "name": "Natural-language Swap Quote",
+      "description": "Get a same-chain EVM or Solana swap quote. The aliases swap, quote, convert, and exchange all quote only; A2A never signs, broadcasts, or submits managed execution.",
       "tags": [
         "defi",
         "quote",
-        "price"
+        "swap",
+        "read-only"
       ],
       "examples": [
-        "quote 1 ETH to USDC",
-        "price of 100 USDC in ETH"
-      ],
-      "inputModes": [
-        "text"
-      ],
-      "outputModes": [
-        "text"
-      ]
-    },
-    {
-      "id": "portfolio",
-      "name": "Portfolio Check",
-      "description": "Check token balances across all chains",
-      "tags": [
-        "balance",
-        "portfolio",
-        "wallet"
-      ],
-      "examples": [
-        "check balance",
-        "show portfolio"
+        "swap 0.5 ETH to USDC on Base",
+        "quote 100 USDC to SOL on Solana"
       ],
       "inputModes": [
         "text"
@@ -107,15 +66,35 @@
     {
       "id": "prices",
       "name": "Token Prices",
-      "description": "Get real-time token prices with 24h change",
+      "description": "Get current token prices and 24h change for up to 20 symbols.",
       "tags": [
-        "defi",
         "price",
-        "market-data"
+        "market-data",
+        "read-only"
       ],
       "examples": [
-        "get ETH price",
-        "check SOL and USDC prices"
+        "price ETH SOL BTC",
+        "prices of ETH, USDC"
+      ],
+      "inputModes": [
+        "text"
+      ],
+      "outputModes": [
+        "text"
+      ]
+    },
+    {
+      "id": "chains",
+      "name": "Chain Discovery",
+      "description": "List the chain set currently exposed by the A2A quote service.",
+      "tags": [
+        "chains",
+        "discovery",
+        "read-only"
+      ],
+      "examples": [
+        "chains",
+        "list supported networks"
       ],
       "inputModes": [
         "text"
@@ -127,15 +106,15 @@
     {
       "id": "tokens",
       "name": "Token Discovery",
-      "description": "List available tokens per chain for quoting and swapping",
+      "description": "List built-in Solana tokens or return guidance to the full MCP/REST token catalog for other chains.",
       "tags": [
-        "defi",
         "tokens",
-        "discovery"
+        "discovery",
+        "read-only"
       ],
       "examples": [
-        "list tokens on Base",
-        "search for USD tokens"
+        "tokens on solana",
+        "tokens on base"
       ],
       "inputModes": [
         "text"
@@ -145,15 +124,16 @@
       ]
     },
     {
-      "id": "key-management",
-      "name": "API Key Management",
-      "description": "Rotate API keys for security",
+      "id": "portfolio-hint",
+      "name": "Portfolio Integration Hint",
+      "description": "Given a wallet address, return the MCP/REST endpoints to use for an actual portfolio read. A2A itself does not fetch balances.",
       "tags": [
-        "security",
-        "keys"
+        "portfolio",
+        "integration",
+        "read-only"
       ],
       "examples": [
-        "rotate my API key"
+        "balance 0x0000000000000000000000000000000000000000"
       ],
       "inputModes": [
         "text"
@@ -163,16 +143,16 @@
       ]
     },
     {
-      "id": "webhook-management",
-      "name": "Webhook Management",
-      "description": "List webhook delivery events and test webhook endpoints",
+      "id": "help",
+      "name": "Suwappu A2A Help",
+      "description": "Describe the natural-language commands implemented by the hosted A2A route and point builders to MCP/REST for structured access.",
       "tags": [
-        "webhooks",
-        "notifications"
+        "help",
+        "discovery",
+        "read-only"
       ],
       "examples": [
-        "list webhook events",
-        "test my webhook"
+        "help"
       ],
       "inputModes": [
         "text"
@@ -185,42 +165,5 @@
   "provider": {
     "organization": "Suwappu",
     "url": "https://suwappu.bot"
-  },
-  "supportedChains": [
-    {
-      "id": 1,
-      "name": "Ethereum",
-      "native": "ETH"
-    },
-    {
-      "id": 56,
-      "name": "BSC",
-      "native": "BNB"
-    },
-    {
-      "id": 137,
-      "name": "Polygon",
-      "native": "MATIC"
-    },
-    {
-      "id": 42161,
-      "name": "Arbitrum",
-      "native": "ETH"
-    },
-    {
-      "id": 10,
-      "name": "Optimism",
-      "native": "ETH"
-    },
-    {
-      "id": 8453,
-      "name": "Base",
-      "native": "ETH"
-    },
-    {
-      "id": "solana",
-      "name": "Solana",
-      "native": "SOL"
-    }
-  ]
+  }
 }

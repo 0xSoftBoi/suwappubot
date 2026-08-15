@@ -1,0 +1,14 @@
+/* StatusBoard — visual-only pass (the fetch/poll logic in StatusBoard.tsx
+   is untouched). "Pure data register": each service becomes a hairline row
+   instead of an individually bordered card; zero decoration beyond the
+   already-semantic green/red status dots. */
+.row:global(.status-row) {
+  border: none;
+  border-radius: 0;
+  border-top: 1px solid var(--sw-hairline);
+  background: transparent;
+  padding: 12px 2px;
+}
+.list :global(.status-row:first-child) {
+  border-top: none;
+}

@@ -1,0 +1,58 @@
+{
+  "name": "@suwappu/sdk",
+  "version": "0.6.0",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "description": "TypeScript client for the Suwappu cross-chain DEX API",
+  "homepage": "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xSoftBoi/suwappubot.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/0xSoftBoi/suwappubot/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "suwappu": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build",
+    "test": "bun test src/__tests__"
+  },
+  "keywords": [
+    "suwappu",
+    "dex",
+    "cross-chain",
+    "swap",
+    "defi",
+    "sdk"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cli-table3": "^0.6.5",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import aiohttp
 
 from bot.config.settings import settings
+from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OAuthUserInfo:
     """User information retrieved from OAuth provider."""
+
     provider: str
     provider_user_id: str
     email: Optional[str]
@@ -37,6 +39,7 @@ class OAuthUserInfo:
 @dataclass
 class OAuthTokens:
     """OAuth tokens from provider."""
+
     access_token: str
     refresh_token: Optional[str]
     expires_in: int  # seconds
@@ -69,19 +72,14 @@ class OAuthService:
         },
     }
 
-    def __init__(self):
-        self._http_session: Optional[aiohttp.ClientSession] = None
-
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session."""
-        if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
-        return self._http_session
+        """Get the shared, pooled HTTP session (see bot/utils/http_client.py)."""
+        return await get_http_session()
 
     async def close(self):
-        """Close HTTP session."""
-        if self._http_session and not self._http_session.closed:
-            await self._http_session.close()
+        """No-op: the underlying session is shared/global and closed centrally
+        on app shutdown (bot.utils.http_client.close_session), not per-instance."""
+        pass
 
     def _get_credentials(self, provider: str) -> Tuple[str, str]:
         """Get OAuth credentials for a provider."""
@@ -101,8 +99,10 @@ class OAuthService:
 
     def _get_redirect_uri(self, provider: str) -> str:
         """Get the OAuth redirect URI."""
-        base = settings.oauth_redirect_base.rstrip("/")
-        return f"{base}/auth/callback/{provider}"
+        # oauth_callback_base, NOT oauth_redirect_base: the latter may be a
+        # comma-separated allowlist, and interpolating it raw sends Google a
+        # malformed redirect_uri that fails with redirect_uri_mismatch.
+        return f"{settings.oauth_callback_base}/auth/callback/{provider}"
 
     @staticmethod
     def _generate_pkce() -> Tuple[str, str]:
@@ -226,9 +226,7 @@ class OAuthService:
 
         # Twitter requires basic auth for token exchange
         if provider == "twitter":
-            auth_string = base64.b64encode(
-                f"{client_id}:{client_secret}".encode()
-            ).decode()
+            auth_string = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             headers["Authorization"] = f"Basic {auth_string}"
             # Remove client_secret from body for Twitter
             del data["client_secret"]
@@ -351,9 +349,7 @@ class OAuthService:
 
         # Twitter requires basic auth
         if provider == "twitter":
-            auth_string = base64.b64encode(
-                f"{client_id}:{client_secret}".encode()
-            ).decode()
+            auth_string = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             headers["Authorization"] = f"Basic {auth_string}"
             del data["client_secret"]
 
@@ -381,6 +377,7 @@ class OAuthService:
 
 class OAuthError(Exception):
     """Raised when OAuth flow fails."""
+
     pass
 
 

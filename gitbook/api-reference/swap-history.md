@@ -1,75 +1,62 @@
 # Swap History
 
-`GET /swaps` | Auth: Required
+List your agent's past swaps with pagination and optional status filtering. Returns swaps newest-first.
 
-Retrieve a paginated list of your past swaps. Optionally filter by status.
+## GET /v1/agent/swaps
 
-## Request
+Requires authentication. Returns only swaps belonging to your own agent.
 
-### Query Parameters
+### Query parameters
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `status` | string | No | -- | Filter by swap status: `"submitted"`, `"pending"`, `"completed"`, or `"failed"` |
-| `limit` | integer | No | 20 | Number of results per page (max 100) |
-| `offset` | integer | No | 0 | Number of results to skip for pagination |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | string | No | Filter by status (e.g. `completed`, `pending`, `failed`) |
+| `limit` | number | No | Page size, 1–100. Defaults to 20 |
+| `offset` | number | No | Number of records to skip. Defaults to 0 |
 
-### Example Request
-
+```bash
+curl "https://api.suwappu.bot/v1/agent/swaps?status=completed&limit=10" \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
-GET /swaps?status=completed&limit=10&offset=0
+```typescript
+const res = await fetch("https://api.suwappu.bot/v1/agent/swaps?status=completed&limit=10", {
+  headers: { "Authorization": `Bearer ${process.env.SUWAPPU_API_KEY}` },
+});
+const history = await res.json();
+```
+```python
+import os, requests
+
+res = requests.get(
+    "https://api.suwappu.bot/v1/agent/swaps",
+    headers={"Authorization": f"Bearer {os.environ['SUWAPPU_API_KEY']}"},
+    params={"status": "completed", "limit": 10},
+)
+history = res.json()
 ```
 
-## Response
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | Whether the request succeeded |
-| `swaps` | array | List of swap objects |
-| `pagination` | object | Pagination metadata |
-
-### Swap Object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `swap_id` | integer | Unique swap identifier |
-| `status` | string | `"submitted"`, `"pending"`, `"completed"`, or `"failed"` |
-| `tx_hash` | string \| null | Transaction hash |
-| `from_token` | string | Source token symbol |
-| `to_token` | string | Destination token symbol |
-
-### Pagination Object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `total` | integer | Total number of matching swaps |
-| `limit` | integer | Current page size |
-| `offset` | integer | Current offset |
-| `has_more` | boolean | Whether more results exist beyond this page |
-
-### Example Response
+**Response:**
 
 ```json
 {
   "success": true,
   "swaps": [
     {
-      "swap_id": 4821,
+      "swap_id": 4812,
       "status": "completed",
-      "tx_hash": "0x8a3c...f29e",
+      "tx_hash": "0xabc...def",
+      "from_chain": "base",
+      "to_chain": "base",
       "from_token": "ETH",
-      "to_token": "USDC"
-    },
-    {
-      "swap_id": 4755,
-      "status": "failed",
-      "tx_hash": "0x91b7...a3c2",
-      "from_token": "USDC",
-      "to_token": "DAI"
+      "to_token": "USDC",
+      "from_amount": "0.1",
+      "to_amount": "324.12",
+      "created_at": "2026-06-18T12:00:10.000Z",
+      "completed_at": "2026-06-18T12:00:28.000Z"
     }
   ],
   "pagination": {
-    "total": 42,
+    "total": 17,
     "limit": 10,
     "offset": 0,
     "has_more": true
@@ -77,69 +64,21 @@ GET /swaps?status=completed&limit=10&offset=0
 }
 ```
 
-## Errors
+### Pagination
 
-| Status | Error | Cause |
-|--------|-------|-------|
-| 400 | `"Invalid status filter"` | The `status` value is not one of the accepted statuses |
-| 400 | `"limit must be between 1 and 100"` | The `limit` parameter is out of range |
-| 401 | `"Unauthorized"` | Missing or invalid API key |
+| Field | Type | Description |
+|-------|------|-------------|
+| `total` | number | Total swaps matching the filter |
+| `limit` | number | Page size used |
+| `offset` | number | Offset used |
+| `has_more` | boolean | Whether more records exist beyond this page |
 
-## Code Examples
+Increase `offset` by `limit` to walk through pages.
 
-### curl
+### Errors
 
-```bash
-curl "https://api.suwappu.bot/v1/agent/swaps?status=completed&limit=10&offset=0" \
-  -H "Authorization: Bearer suwappu_sk_your_api_key"
-```
+| Status | Cause |
+|--------|-------|
+| `401` | Missing or invalid API key |
 
-### Python
-
-```python
-import requests
-
-response = requests.get(
-    "https://api.suwappu.bot/v1/agent/swaps",
-    headers={"Authorization": "Bearer suwappu_sk_your_api_key"},
-    params={"status": "completed", "limit": 10, "offset": 0},
-)
-
-data = response.json()
-if data["success"]:
-    for swap in data["swaps"]:
-        print(f"Swap {swap['swap_id']}: {swap['from_token']} → {swap['to_token']} ({swap['status']})")
-    if data["pagination"]["has_more"]:
-        print(f"More results available (total: {data['pagination']['total']})")
-```
-
-### TypeScript
-
-```typescript
-const params = new URLSearchParams({
-  status: "completed",
-  limit: "10",
-  offset: "0",
-});
-
-const response = await fetch(
-  `https://api.suwappu.bot/v1/agent/swaps?${params}`,
-  {
-    headers: {
-      Authorization: "Bearer suwappu_sk_your_api_key",
-    },
-  }
-);
-
-const data = await response.json();
-if (data.success) {
-  for (const swap of data.swaps) {
-    console.log(
-      `Swap ${swap.swap_id}: ${swap.from_token} → ${swap.to_token} (${swap.status})`
-    );
-  }
-  if (data.pagination.has_more) {
-    console.log(`More results available (total: ${data.pagination.total})`);
-  }
-}
-```
+For a single swap, see [Swap Status](swap-status.md).

@@ -1,131 +1,75 @@
 /**
- * Root layout — wraps the entire app with providers.
+ * Root layout — the app's boot sequence.
+ *
+ * Order matters here:
+ *  1. Hold the native splash screen (`preventAutoHideAsync` at module scope,
+ *     before React mounts) so the user never sees an empty white frame between
+ *     the splash and first paint.
+ *  2. Restore auth from the Keychain and rehydrate non-sensitive cached state.
+ *  3. Only then hide the splash into either the signed-out state or the live
+ *     account loading state. Financial queries are intentionally memory-only.
  */
-import { useEffect } from 'react'
-import { Platform } from 'react-native'
-import FontAwesome from '@expo/vector-icons/FontAwesome'
-import { DarkTheme, ThemeProvider } from '@react-navigation/native'
-import { useFonts } from 'expo-font'
+import { useEffect, useState } from 'react'
+import { StyleSheet } from 'react-native'
 import { Stack } from 'expo-router'
-import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
-import { AuthProvider } from '../contexts/AuthContext'
-import { AppErrorBoundary } from '../components/ui/AppErrorBoundary'
-import 'react-native-reanimated'
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
+import * as SplashScreen from 'expo-splash-screen'
+import { queryClient, persistOptions, installAppStateBridges } from '../src/lib/queryClient'
+import { loadAuth } from '../src/lib/auth'
+import { reportTimeToInteractive } from '../src/lib/perf'
+import { palette } from '../src/theme'
 
-export function ErrorBoundary(props: { error: Error; retry: () => void }) {
-  return <AppErrorBoundary {...props} />
-}
-
-export const unstable_settings = {
-  initialRouteName: '(tabs)',
-}
-
-SplashScreen.preventAutoHideAsync()
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60 * 1000,
-      retry: 2,
-    },
-  },
-})
-
-// Force dark theme for Suwappu
-const suwappuTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: '#000',
-    card: '#111',
-    primary: '#FF85A1',
-  },
-}
-
-/**
- * Map push notification category to deep link route.
- */
-const NOTIFICATION_ROUTES: Record<string, string> = {
-  alert_triggered: '/(features)/alerts',
-  order_filled: '/(features)/orders',
-  swap_completed: '/(tabs)/portfolio',
-  copy_trade: '/(features)/copy-trading',
-  dca_executed: '/(features)/dca',
-}
+// Must run before the first render, not inside an effect.
+void SplashScreen.preventAutoHideAsync()
 
 export default function RootLayout() {
-  const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-    ...FontAwesome.font,
-  })
-  // Push notification deep link listener
+  const [ready, setReady] = useState(false)
+
   useEffect(() => {
-    if (Platform.OS === 'web') return
-
-    let sub: { remove: () => void } | undefined
-
-    ;(async () => {
-      try {
-        const Notifications = await import('expo-notifications')
-        const { router: expoRouter } = await import('expo-router')
-
-        // Handle taps on notifications when app is running
-        sub = Notifications.addNotificationResponseReceivedListener((response) => {
-          const category = response.notification.request.content.categoryIdentifier
-          const data = response.notification.request.content.data as Record<string, any> | undefined
-
-          let route = category ? NOTIFICATION_ROUTES[category] : undefined
-
-          // Special case: copy_trade with "Copy Now" action -> trader profile
-          if (category === 'copy_trade' && response.actionIdentifier === 'copy_now' && data?.traderId) {
-            route = `/(features)/copy-trading/trader/${data.traderId}`
-          }
-
-          if (route) {
-            expoRouter.push(route as any)
-          }
-        })
-      } catch {
-        // expo-notifications not available (web)
-      }
-    })()
-
-    return () => sub?.remove()
+    const teardown = installAppStateBridges()
+    loadAuth()
+      .catch(() => {
+        // A Keychain read failure means "signed out", not "crash on launch".
+      })
+      .finally(() => setReady(true))
+    return teardown
   }, [])
 
-  useEffect(() => {
-    if (error) throw error
-  }, [error])
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync()
-    }
-  }, [loaded])
-
-  if (!loaded) {
-    return null
-  }
+  if (!ready) return null
 
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ThemeProvider value={suwappuTheme}>
-            <StatusBar style="light" />
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="index" />
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="(features)" options={{ presentation: 'card' }} />
-            </Stack>
-          </ThemeProvider>
-        </AuthProvider>
-      </QueryClientProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={local.root}>
+      <SafeAreaProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={persistOptions}
+          onSuccess={() => {
+            // Non-sensitive cache is rehydrated — safe to reveal the app state.
+            void SplashScreen.hideAsync()
+            reportTimeToInteractive()
+          }}
+        >
+          <StatusBar style="dark" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: palette.bg },
+              // Native stack animations run on the UI thread; the JS thread
+              // stays free to render the destination screen mid-transition.
+              animation: 'slide_from_right',
+            }}
+          >
+            <Stack.Screen name="(tabs)" />
+          </Stack>
+        </PersistQueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }
+
+const local = StyleSheet.create({
+  root: { flex: 1, backgroundColor: palette.bg },
+})

@@ -20,10 +20,11 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.token_security.honeypot_detector import honeypot_detector
 from bot.services.token_security.authority_checker import authority_checker
 from bot.services.token_security.blacklist_service import blacklist_service, BlacklistType
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 class RiskLevel(Enum):
     """Risk level for a token."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -43,6 +45,7 @@ class RiskLevel(Enum):
 
 class RiskCategory(Enum):
     """Categories of risk."""
+
     HONEYPOT = "honeypot"
     MINT_AUTHORITY = "mint_authority"
     FREEZE_AUTHORITY = "freeze_authority"
@@ -58,6 +61,7 @@ class RiskCategory(Enum):
 @dataclass
 class RiskFactor:
     """Individual risk factor."""
+
     category: RiskCategory
     severity: RiskLevel
     description: str
@@ -68,9 +72,10 @@ class RiskFactor:
 @dataclass
 class TokenSafetyReport:
     """Comprehensive token safety report."""
+
     token_mint: str
     chain: str = "solana"
-    analyzed_at: datetime = field(default_factory=datetime.utcnow)
+    analyzed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Overall assessment
     safety_score: int = 0  # 0-100
@@ -93,8 +98,8 @@ class TokenSafetyReport:
     sell_tax: Optional[float] = None
     buy_tax: Optional[float] = None
 
-    # Liquidity
-    liquidity_sol: float = 0
+    # Liquidity (None = not measured/unknown, not zero)
+    liquidity_sol: Optional[float] = None
     liquidity_locked: bool = False
     liquidity_lock_until: Optional[datetime] = None
 
@@ -116,10 +121,7 @@ class TokenSafetyReport:
     @property
     def critical_warnings(self) -> List[str]:
         """Get only critical warnings."""
-        return [
-            f.description for f in self.risk_factors
-            if f.severity == RiskLevel.CRITICAL
-        ]
+        return [f.description for f in self.risk_factors if f.severity == RiskLevel.CRITICAL]
 
     @property
     def is_tradeable(self) -> bool:
@@ -146,6 +148,7 @@ class TokenSafetyReport:
 
 class TokenAnalyzerError(Exception):
     """Exception for token analyzer errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -190,7 +193,7 @@ class TokenAnalyzer:
         # Check cache
         if use_cache and token_mint in self._cache:
             report, cached_at = self._cache[token_mint]
-            if (datetime.utcnow() - cached_at).total_seconds() < self._cache_ttl:
+            if (datetime.now(timezone.utc) - cached_at).total_seconds() < self._cache_ttl:
                 return report
 
         report = TokenSafetyReport(token_mint=token_mint, chain=chain)
@@ -215,7 +218,7 @@ class TokenAnalyzer:
             self._calculate_score(report)
 
             # Cache result
-            self._cache[token_mint] = (report, datetime.utcnow())
+            self._cache[token_mint] = (report, datetime.now(timezone.utc))
 
         except Exception as e:
             logger.error(f"Error analyzing token {token_mint}: {e}")
@@ -276,23 +279,27 @@ class TokenAnalyzer:
             report.freeze_authority_revoked = not result.has_freeze_authority
 
             if result.has_mint_authority:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.MINT_AUTHORITY,
-                    severity=RiskLevel.HIGH,
-                    description="Mint authority not revoked - tokens can be minted",
-                    score_impact=30,
-                    details={"authority": result.mint_authority},
-                ))
+                report.risk_factors.append(
+                    RiskFactor(
+                        category=RiskCategory.MINT_AUTHORITY,
+                        severity=RiskLevel.HIGH,
+                        description="Mint authority not revoked - tokens can be minted",
+                        score_impact=30,
+                        details={"authority": result.mint_authority},
+                    )
+                )
                 report.warnings.append("Mint authority active - risk of inflation")
 
             if result.has_freeze_authority:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.FREEZE_AUTHORITY,
-                    severity=RiskLevel.HIGH,
-                    description="Freeze authority not revoked - your tokens can be frozen",
-                    score_impact=25,
-                    details={"authority": result.freeze_authority},
-                ))
+                report.risk_factors.append(
+                    RiskFactor(
+                        category=RiskCategory.FREEZE_AUTHORITY,
+                        severity=RiskLevel.HIGH,
+                        description="Freeze authority not revoked - your tokens can be frozen",
+                        score_impact=25,
+                        details={"authority": result.freeze_authority},
+                    )
+                )
                 report.warnings.append("Freeze authority active - tokens can be frozen")
 
         except Exception as e:
@@ -310,26 +317,30 @@ class TokenAnalyzer:
             report.buy_tax = result.buy_tax
 
             if result.is_honeypot:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.HONEYPOT,
-                    severity=RiskLevel.CRITICAL,
-                    description="Honeypot detected - selling may not be possible",
-                    score_impact=100,
-                    details={
-                        "sell_tax": result.sell_tax,
-                        "buy_tax": result.buy_tax,
-                        "reason": result.reason,
-                    },
-                ))
+                report.risk_factors.append(
+                    RiskFactor(
+                        category=RiskCategory.HONEYPOT,
+                        severity=RiskLevel.CRITICAL,
+                        description="Honeypot detected - selling may not be possible",
+                        score_impact=100,
+                        details={
+                            "sell_tax": result.sell_tax,
+                            "buy_tax": result.buy_tax,
+                            "reason": result.reason,
+                        },
+                    )
+                )
                 report.warnings.append("HONEYPOT DETECTED - DO NOT BUY")
 
             elif result.sell_tax and result.sell_tax > 10:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.HONEYPOT,
-                    severity=RiskLevel.HIGH,
-                    description=f"High sell tax detected: {result.sell_tax}%",
-                    score_impact=20,
-                ))
+                report.risk_factors.append(
+                    RiskFactor(
+                        category=RiskCategory.HONEYPOT,
+                        severity=RiskLevel.HIGH,
+                        description=f"High sell tax detected: {result.sell_tax}%",
+                        score_impact=20,
+                    )
+                )
                 report.warnings.append(f"High sell tax: {result.sell_tax}%")
 
         except Exception as e:
@@ -342,12 +353,14 @@ class TokenAnalyzer:
             # Check token blacklist
             if await blacklist_service.is_blacklisted(token_mint, BlacklistType.TOKEN):
                 report.token_blacklisted = True
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.BLACKLISTED_CREATOR,
-                    severity=RiskLevel.CRITICAL,
-                    description="Token is on the blacklist",
-                    score_impact=100,
-                ))
+                report.risk_factors.append(
+                    RiskFactor(
+                        category=RiskCategory.BLACKLISTED_CREATOR,
+                        severity=RiskLevel.CRITICAL,
+                        description="Token is on the blacklist",
+                        score_impact=100,
+                    )
+                )
                 report.warnings.append("Token is blacklisted as a known scam")
 
             # Get token metadata to check creator
@@ -358,34 +371,26 @@ class TokenAnalyzer:
             logger.warning(f"Blacklist check failed: {e}")
 
     async def _check_liquidity(self, token_mint: str, report: TokenSafetyReport):
-        """Check liquidity levels."""
-        try:
-            await api_limiter.wait_and_acquire("solana")
-            session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+        """Check liquidity levels.
 
-            # This would query DEX pools for liquidity
-            # Simplified implementation
-            report.liquidity_sol = 0
-
-            if report.liquidity_sol < 1:
-                report.risk_factors.append(RiskFactor(
-                    category=RiskCategory.LOW_LIQUIDITY,
-                    severity=RiskLevel.MEDIUM,
-                    description="Very low liquidity - high slippage expected",
-                    score_impact=15,
-                    details={"liquidity_sol": report.liquidity_sol},
-                ))
-
-        except Exception as e:
-            logger.debug(f"Liquidity check failed: {e}")
+        On-chain DEX-pool liquidity querying is not yet implemented. The previous
+        code hardcoded ``liquidity_sol = 0`` and therefore flagged EVERY token
+        with a fabricated MEDIUM "very low liquidity" risk factor (score_impact
+        15) — desensitizing users and corrupting the safety score. Until a real
+        pool query exists, leave liquidity unknown (None) and surface an honest,
+        non-scoring warning rather than inventing a measurement.
+        """
+        report.liquidity_sol = None  # unknown — not measured
+        report.warnings.append(
+            "Liquidity not verified — confirm pool depth on a DEX explorer before trading"
+        )
 
     async def _check_holders(self, token_mint: str, report: TokenSafetyReport):
         """Check holder distribution."""
         try:
             await api_limiter.wait_and_acquire("solana")
             session = await get_session()
-            rpc_url = settings.get_rpc_url("solana")
+            rpc_url = rpc_manager.get_rpc_url("solana")
 
             # Get largest token accounts
             async with session.post(
@@ -394,8 +399,8 @@ class TokenAnalyzer:
                     "jsonrpc": "2.0",
                     "id": 1,
                     "method": "getTokenLargestAccounts",
-                    "params": [token_mint]
-                }
+                    "params": [token_mint],
+                },
             ) as response:
                 data = await response.json()
                 result = data.get("result", {}).get("value", [])
@@ -413,8 +418,8 @@ class TokenAnalyzer:
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "getTokenSupply",
-                        "params": [token_mint]
-                    }
+                        "params": [token_mint],
+                    },
                 ) as supply_response:
                     supply_data = await supply_response.json()
                     supply = int(supply_data.get("result", {}).get("value", {}).get("amount", 1))
@@ -423,20 +428,26 @@ class TokenAnalyzer:
                 report.top_10_percentage = (total_held / supply * 100) if supply > 0 else 100
 
                 if report.top_10_percentage > 80:
-                    report.risk_factors.append(RiskFactor(
-                        category=RiskCategory.HIGH_CONCENTRATION,
-                        severity=RiskLevel.HIGH,
-                        description=f"Top 10 wallets hold {report.top_10_percentage:.1f}% of supply",
-                        score_impact=25,
-                    ))
-                    report.warnings.append(f"High concentration: top 10 hold {report.top_10_percentage:.1f}%")
+                    report.risk_factors.append(
+                        RiskFactor(
+                            category=RiskCategory.HIGH_CONCENTRATION,
+                            severity=RiskLevel.HIGH,
+                            description=f"Top 10 wallets hold {report.top_10_percentage:.1f}% of supply",
+                            score_impact=25,
+                        )
+                    )
+                    report.warnings.append(
+                        f"High concentration: top 10 hold {report.top_10_percentage:.1f}%"
+                    )
                 elif report.top_10_percentage > 50:
-                    report.risk_factors.append(RiskFactor(
-                        category=RiskCategory.HIGH_CONCENTRATION,
-                        severity=RiskLevel.MEDIUM,
-                        description=f"Top 10 wallets hold {report.top_10_percentage:.1f}% of supply",
-                        score_impact=10,
-                    ))
+                    report.risk_factors.append(
+                        RiskFactor(
+                            category=RiskCategory.HIGH_CONCENTRATION,
+                            severity=RiskLevel.MEDIUM,
+                            description=f"Top 10 wallets hold {report.top_10_percentage:.1f}% of supply",
+                            score_impact=10,
+                        )
+                    )
 
         except Exception as e:
             logger.debug(f"Holder check failed: {e}")
@@ -444,8 +455,7 @@ class TokenAnalyzer:
     async def _check_metadata(self, token_mint: str, report: TokenSafetyReport):
         """Check token metadata for suspicious patterns."""
         try:
-            # This would fetch token metadata (name, symbol, etc.)
-            # For pump.fun tokens, we can use their API
+            # Fetch token metadata (name, symbol) from the pump.fun API.
             from bot.services.sniping.pump_fun_api import pump_fun_api
 
             token = await pump_fun_api.get_token(token_mint)
@@ -456,8 +466,14 @@ class TokenAnalyzer:
 
                 # Check for suspicious name patterns
                 suspicious_patterns = [
-                    "test", "fake", "scam", "rug", "honeypot",
-                    "free money", "guaranteed", "100x",
+                    "test",
+                    "fake",
+                    "scam",
+                    "rug",
+                    "honeypot",
+                    "free money",
+                    "guaranteed",
+                    "100x",
                 ]
 
                 name_lower = token.name.lower()
@@ -465,23 +481,27 @@ class TokenAnalyzer:
 
                 for pattern in suspicious_patterns:
                     if pattern in name_lower or pattern in symbol_lower:
-                        report.risk_factors.append(RiskFactor(
-                            category=RiskCategory.SUSPICIOUS_NAME,
-                            severity=RiskLevel.MEDIUM,
-                            description=f"Suspicious name/symbol pattern: {pattern}",
-                            score_impact=15,
-                        ))
+                        report.risk_factors.append(
+                            RiskFactor(
+                                category=RiskCategory.SUSPICIOUS_NAME,
+                                severity=RiskLevel.MEDIUM,
+                                description=f"Suspicious name/symbol pattern: {pattern}",
+                                score_impact=15,
+                            )
+                        )
                         report.warnings.append(f"Suspicious name pattern detected")
                         break
 
                 # Check socials
                 if not token.twitter and not token.telegram and not token.website:
-                    report.risk_factors.append(RiskFactor(
-                        category=RiskCategory.NO_SOCIALS,
-                        severity=RiskLevel.LOW,
-                        description="No social media links",
-                        score_impact=5,
-                    ))
+                    report.risk_factors.append(
+                        RiskFactor(
+                            category=RiskCategory.NO_SOCIALS,
+                            severity=RiskLevel.LOW,
+                            description="No social media links",
+                            score_impact=5,
+                        )
+                    )
 
         except Exception as e:
             logger.debug(f"Metadata check failed: {e}")
@@ -518,42 +538,48 @@ class TokenAnalyzer:
             self._cache.pop(token_mint, None)
         else:
             self._cache.clear()
+
     def get_shield_emoji(self, score: int) -> str:
         """Get safety shield emoji based on score."""
-        if score >= 80: return "🛡️"
-        if score >= 60: return "⚠️"
-        if score >= 40: return "🚨"
+        if score >= 80:
+            return "🛡️"
+        if score >= 60:
+            return "⚠️"
+        if score >= 40:
+            return "🚨"
         return "🚫"
 
     def get_safety_summary(self, report: TokenSafetyReport) -> str:
         """Generate a formatted safety summary string for Telegram."""
         shield = self.get_shield_emoji(report.safety_score)
-        
+
         summary = [
             f"{shield} *Security Score: {report.safety_score}/100*",
             f"Risk Level: {report.risk_level.value.upper()}",
-            ""
+            "",
         ]
-        
+
         if report.is_honeypot:
             summary.append("🚫 *HONEYPOT DETECTED*")
-        
+
         # Add key metrics
         summary.append(f"{'✅' if report.mint_authority_revoked else '❌'} Mint Authority Revoked")
-        summary.append(f"{'✅' if report.freeze_authority_revoked else '❌'} Freeze Authority Revoked")
-        
+        summary.append(
+            f"{'✅' if report.freeze_authority_revoked else '❌'} Freeze Authority Revoked"
+        )
+
         if report.sell_tax is not None:
             summary.append(f"💰 Sell Tax: {report.sell_tax:.1f}%")
-            
+
         if report.top_10_percentage > 0:
             summary.append(f"👥 Top 10 Holders: {report.top_10_percentage:.1f}%")
-            
+
         # Add high-level warnings
         if report.warnings:
             summary.append("\n*Warnings:*")
             for warning in report.warnings[:3]:  # Top 3 warnings
                 summary.append(f"• {warning}")
-                
+
         return "\n".join(summary)
 
 

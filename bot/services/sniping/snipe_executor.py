@@ -17,7 +17,7 @@ import asyncio
 import base64
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from solders.pubkey import Pubkey
@@ -28,6 +28,7 @@ from solders.system_program import transfer, TransferParams
 from solders.compute_budget import set_compute_unit_limit, set_compute_unit_price
 
 from bot.config.settings import settings
+from bot.services.rpc_manager import rpc_manager
 from bot.services.jito_api import jito_api, TipPriority, JitoError
 from bot.services.sniping.pump_fun_api import pump_fun_api, PumpFunQuote
 from bot.services.sniping.launch_detector import TokenLaunch, LaunchPlatform
@@ -38,8 +39,8 @@ from database.db import get_session as get_db_session
 logger = logging.getLogger(__name__)
 
 # Jupiter aggregator
-JUPITER_API = "https://quote-api.jup.ag/v6"
-JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
+JUPITER_API = "https://lite-api.jup.ag/swap/v1"
+JUPITER_SWAP_API = "https://lite-api.jup.ag/swap/v1/swap"
 
 # Compute budget settings for speed
 HIGH_PRIORITY_COMPUTE_UNITS = 200_000
@@ -51,6 +52,7 @@ WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 class SnipeMode(Enum):
     """Execution mode for snipes."""
+
     INSTANT = "instant"  # Execute immediately
     CONDITIONAL = "conditional"  # Wait for conditions
     FIRST_BLOCK = "first_block"  # Try to land in same block
@@ -58,6 +60,7 @@ class SnipeMode(Enum):
 
 class SnipeStatus(Enum):
     """Status of a snipe order."""
+
     PENDING = "pending"
     EXECUTING = "executing"
     SUBMITTED = "submitted"
@@ -69,6 +72,7 @@ class SnipeStatus(Enum):
 @dataclass
 class SnipeConfig:
     """Configuration for a snipe."""
+
     sol_amount: float  # Amount of SOL to spend
     slippage_bps: int = 1000  # 10% default slippage
     mode: SnipeMode = SnipeMode.INSTANT
@@ -85,6 +89,7 @@ class SnipeConfig:
 @dataclass
 class SnipeResult:
     """Result of a snipe execution."""
+
     success: bool
     status: SnipeStatus
     token_mint: str
@@ -101,6 +106,7 @@ class SnipeResult:
 
 class SnipeExecutorError(Exception):
     """Exception for snipe execution errors."""
+
     def __init__(self, message: str, data: Optional[Dict] = None):
         super().__init__(message)
         self.data = data or {}
@@ -139,7 +145,7 @@ class SnipeExecutor:
         Returns:
             SnipeResult with execution details
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Determine execution path based on platform
@@ -148,14 +154,12 @@ class SnipeExecutor:
                     launch, wallet_keypair, config, start_time
                 )
             elif launch.platform in (LaunchPlatform.RAYDIUM, LaunchPlatform.PUMP_FUN_MIGRATION):
-                return await self._execute_raydium_snipe(
-                    launch, wallet_keypair, config, start_time
-                )
+                return await self._execute_raydium_snipe(launch, wallet_keypair, config, start_time)
             else:
                 raise SnipeExecutorError(f"Unknown platform: {launch.platform}")
 
         except Exception as e:
-            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+            execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             logger.error(f"Snipe execution error: {e}")
             return SnipeResult(
                 success=False,
@@ -211,7 +215,7 @@ class SnipeExecutor:
                 max_retries=config.max_retries,
             )
 
-        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
         if result["success"]:
             return SnipeResult(
@@ -291,7 +295,7 @@ class SnipeExecutor:
                 is_versioned=True,
             )
 
-        execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
         out_amount = int(quote.get("outAmount", 0))
         in_amount = int(quote.get("inAmount", 0))
@@ -343,7 +347,7 @@ class SnipeExecutor:
 
         # Get recent blockhash
         session = await get_session()
-        rpc_url = settings.get_rpc_url("solana")
+        rpc_url = rpc_manager.get_rpc_url("solana")
 
         async with session.post(
             rpc_url,
@@ -351,8 +355,8 @@ class SnipeExecutor:
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getLatestBlockhash",
-                "params": [{"commitment": "confirmed"}]
-            }
+                "params": [{"commitment": "confirmed"}],
+            },
         ) as response:
             data = await response.json()
             blockhash = Hash.from_string(data["result"]["value"]["blockhash"])
@@ -400,9 +404,7 @@ class SnipeExecutor:
             }
 
             async with session.get(
-                f"{JUPITER_API}/quote",
-                params=params,
-                headers={"Accept": "application/json"}
+                f"{JUPITER_API}/quote", params=params, headers={"Accept": "application/json"}
             ) as response:
                 if response.status != 200:
                     return None
@@ -435,9 +437,7 @@ class SnipeExecutor:
             }
 
             async with session.post(
-                JUPITER_SWAP_API,
-                json=payload,
-                headers={"Content-Type": "application/json"}
+                JUPITER_SWAP_API, json=payload, headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:
                     return None
@@ -522,7 +522,7 @@ class SnipeExecutor:
 
         while retries <= max_retries:
             try:
-                rpc_url = settings.get_rpc_url("solana")
+                rpc_url = rpc_manager.get_rpc_url("solana")
 
                 # Encode transaction
                 if is_versioned:
@@ -544,9 +544,9 @@ class SnipeExecutor:
                                 "encoding": "base64",
                                 "skipPreflight": True,
                                 "maxRetries": 0,
-                            }
-                        ]
-                    }
+                            },
+                        ],
+                    },
                 ) as response:
                     data = await response.json()
 
@@ -615,7 +615,7 @@ class SnipeExecutor:
 
         while (asyncio.get_event_loop().time() - start) < timeout:
             try:
-                rpc_url = settings.get_rpc_url("solana")
+                rpc_url = rpc_manager.get_rpc_url("solana")
 
                 async with session.post(
                     rpc_url,
@@ -623,8 +623,8 @@ class SnipeExecutor:
                         "jsonrpc": "2.0",
                         "id": 1,
                         "method": "getSignatureStatuses",
-                        "params": [[signature]]
-                    }
+                        "params": [[signature]],
+                    },
                 ) as response:
                     data = await response.json()
                     result = data.get("result", {}).get("value", [])
