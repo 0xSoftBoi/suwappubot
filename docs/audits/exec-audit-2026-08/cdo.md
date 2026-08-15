@@ -35,3 +35,24 @@ Method: static read of bot/models/ (SQLAlchemy), api-ts/src/db/schema/ (Drizzle)
 
 ---
 
+## 2. Sensitive-Data Inventory
+
+| Data | Where stored | Encrypted? | Read access | Logged? |
+|---|---|---|---|---|
+| Wallet private keys (local, non-Turnkey) | `wallets.encrypted_private_key`, `hot_wallets.encrypted_private_key` (`bot/models/user.py:124`, `bot/models/custodial.py:132`) | Yes — envelope `kms_aesgcm_v2` (`encryption_scheme`, `kms_wrapped_dek`, `aesgcm_nonce`, `kms_key_id`) with legacy `legacy_fernet_v1` auto-migrate | Bot process (decrypt-on-sign), no direct read API found | No — `bot/services/wallet.py:107-109` logs only a SHA-256 fingerprint of ciphertext (`_key_fingerprint`), never plaintext or ciphertext itself. Clean. |
+| TOTP 2FA secret | `users.totp_secret` (`bot/models/user.py:65-67`) | Yes, Fernet (`bot/services/twofa.py`) | Bot process | No plaintext logging found in `bot/services/twofa.py` or `whatsapp_flows/twofa_flow.py`. Clean, but see Drizzle `varchar(64)` truncation risk above (Section 1). |
+| Telegram ID / WhatsApp ID / Discord ID | `users.telegram_id/whatsapp_id/discord_id` (`bot/models/user.py:24-27`) | No (plaintext, by necessity — routing identifier) | Widely read across bot/services and api-ts | Yes, routinely — e.g. `bot/services/digest_service.py:204`, `bot/config/xstocks.py:267`, `bot/services/token_intel/dev_watch.py:77`, `bot/services/morpho_monitor.py:152` log raw `telegram_id` in INFO/WARNING lines. Low severity individually (needed for support/debugging correlation) but there is **no log retention policy or PII-scrubbing pipeline** found anywhere in the repo — see Section 3. |
+| Wallet addresses (EVM/Solana/etc, public on-chain) | `wallets.address`, `hot_wallets.address`, `custodial_transactions.from_address/to_address` | N/A (public data) | Broad | Yes, extensively — `bot/services/wallet.py`, `hot_wallet.py:122,291`, `turnkey_client.py:1089,1189`, `turnkey_fallback.py:211-246`, `savings_service.py:272,285`, `position_cards_service.py` etc. Public data, so breach risk is low, but combined with `telegram_id` in the same log line (common pattern) these logs become a durable **Telegram-ID ↔ wallet-address linkage table** with no retention/expiry (see Section 3) — that linkage is the actual sensitive artifact, not the address alone. |
+| Recovery email | `users.recovery_email` (`bot/models/user.py:78`) | No (plaintext) | Bot + api-ts | Masked before display (`bot/handlers/settings.py:644`, `bot/handlers/recovery.py:94` — `local[:3]+"***"+domain`), not found masked in `wallet_recovery.py:216` (`"recovery_email": user.recovery_email` returned unmasked from `get_recovery_status`-style API — confirm callers mask before UI render). |
+| Turnkey sub-org/wallet/account IDs | `wallets.turnkey_sub_org_id/turnkey_wallet_id/turnkey_account_id` | N/A — these are Turnkey-side references, not key material itself (keys live in Turnkey's HSM, not our DB) | Bot | Yes, e.g. `bot/services/wallet.py:395,458` — reference IDs only, not secrets. Fine. |
+| Referral graph (`referred_by_user_id`, referral codes/payouts) | `bot/models/referral.py`, `users.referred_by_user_id` | No | Bot + api-ts | Not spot-checked for leakage; lower sensitivity (internal growth data). |
+| Trade/swap history | `swap_transactions` (`bot/models/swap.py:36`) | No (amounts/addresses in plaintext, expected — needed for support/audit) | Bot + api-ts | — |
+
+### Note on `recovery_email` unique constraint drift
+- **File**: `bot/models/user.py:78` — `recovery_email = Column(String(255), nullable=True)` — **no `unique=True`, no index**.
+- **File**: `api-ts/src/db/schema/users.ts:52` — `recoveryEmail: text('recovery_email').unique()` — Drizzle comment explicitly explains *why* uniqueness matters: "without it, an attacker who sets their own recovery_email to a victim's address could receive the victim's recovery token."
+- **Risk**: HIGH if the DB-level unique constraint doesn't actually exist (need to confirm live schema — Drizzle only *declares* intent, it doesn't apply DDL for Python-owned tables per Section 1's `db:push` doctrine, and Python's own model/`_ensure_schema` never adds a `UNIQUE` constraint on this column). If the constraint was never actually created in Postgres, the attack described in api-ts's own comment is live: an attacker can set their `recovery_email` to a victim's email and — depending on how `wallet_recovery.py:98,153`'s `filter(User.recovery_email == email).first()` resolves multiple matches (returns first row, order not guaranteed) — potentially intercept or race the victim's recovery flow.
+- **Fix**: `db-migrate` to add `CREATE UNIQUE INDEX IF NOT EXISTS ux_users_recovery_email ON users(recovery_email) WHERE recovery_email IS NOT NULL` via `_ensure_schema` (partial unique index so multiple NULLs are allowed), and add duplicate-detection/backfill-conflict handling before applying. Flag to `security-auditor` given social-recovery abuse potential.
+
+---
+
