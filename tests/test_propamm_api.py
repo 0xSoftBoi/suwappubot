@@ -251,3 +251,38 @@ def test_net_min_out_applies_fee_before_slippage_with_floor_division():
     # grossed-up requirement and revert every fee-charging swap:
     gross_based_min = gross * (10_000 - slippage_bps) // 10_000
     assert gross_based_min * 10_000 > (10_000 - fee_bps) * gross  # grossUp(min) > bestQuote
+
+
+def test_router_abi_has_no_venue_pinning_entrypoints():
+    """Regression guard: never route through a venue-taking entrypoint.
+
+    Titan's `pamm` identifiers (from titan_getPammQuote / the price-level
+    stream) are a DIFFERENT address space than the router's whitelist —
+    verified on-chain 2026-08-15: isWhitelistedVenue() is False for the pAMM
+    Titan reports for WETH->USDC. Passing it to swapViaVenueV1 reverts
+    UnknownVenue and burns the user's gas. Narrowing is only ever valid
+    against getWhitelistedVenues() addresses; keeping those entrypoints out
+    of the ABI makes the mistake unrepresentable.
+    """
+    from bot.services.swap_engine import PROPAMM_ROUTER_ABI
+
+    names = {fn["name"] for fn in PROPAMM_ROUTER_ABI}
+    assert names == {"swapV1", "swapWithFeeV1"}
+    for fn in PROPAMM_ROUTER_ABI:
+        inputs = {i["name"] for i in fn["inputs"]}
+        assert "venue" not in inputs and "venues" not in inputs
+
+
+def test_swap_gas_limit_covers_observed_all_venues_usage():
+    """The reserved limit must sit above the real swapV1 distribution.
+
+    swapV1 re-quotes every whitelisted pAMM in-tx; measured mainnet usage is
+    p50 441k / p90 619k / max 690k (Titan documents 400-800k), and the spread
+    is driven by which pAMM fills. The quoted gas figure is expected usage,
+    not the reservation, so it must be lower than the limit.
+    """
+    from bot.services.swap_engine import PROPAMM_SWAP_GAS_LIMIT, PROPAMM_EXPECTED_SWAP_GAS
+
+    assert PROPAMM_SWAP_GAS_LIMIT >= 800_000
+    assert 400_000 <= PROPAMM_EXPECTED_SWAP_GAS <= 800_000
+    assert PROPAMM_EXPECTED_SWAP_GAS < PROPAMM_SWAP_GAS_LIMIT

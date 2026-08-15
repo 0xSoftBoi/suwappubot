@@ -44,8 +44,41 @@ swapWithFeeV1(..., (uint16 bps, address recipient) fee)   // FrontendFee tuple
   `amountOutMin` is the **net** minimum after the fee. `fee.bps` must be in
   **[1, 100]** (max 1%) or the contract reverts `FeeBpsTooHigh`. Fee charged is
   emitted as `FrontendFeeCharged`; fills emit `Swapped`.
-- Pinned-venue variants exist (`swapViaVenueV1`, `swapViaSelectedVenuesV1`, and
-  `...WithFeeV1` forms) — the Uni V3 fallback still applies.
+- Narrowing variants exist (`swapViaVenueV1` for one venue,
+  `swapViaSelectedVenuesV1` for a subset, plus `...WithFeeV1` forms). **We do
+  not use them** — see "Venue narrowing" below for the address-space trap and
+  why completeness beats the gas saving here.
+
+### Venue narrowing — the address-space trap
+
+Titan's `pamm` identifiers (from `titan_getPammQuote` and the price-level
+stream) are **NOT the same address space** as the router's whitelist. Verified
+on-chain 2026-08-15:
+
+| Source | Addresses |
+|---|---|
+| `getWhitelistedVenues()` on the router | `0x5979…3320`, `0x71e7…0B3d`, `0xB09A…dD76`, `0x0000…2149`, `0x97CC…1223` |
+| `titan_getPammPriceLevels` (`pamm` field) | `0x217d…3d95a`, `0x5979…3320`, `0x71e7…0B3d`, `0xb09a…dD76`, `0xe715…DcDB` |
+
+Two stream addresses (`0x217d…`, `0xe715…`) are **not whitelisted venues**, and
+two whitelisted venues never appear in the stream. `isWhitelistedVenue(0xe715…)`
+returns **false** — yet that is exactly the `pamm` Titan reports for WETH→USDC.
+Passing it to `swapViaVenueV1` reverts `UnknownVenue` and burns the user's gas.
+
+**If you ever narrow, the venue list must come from `getWhitelistedVenues()`**,
+filtered using `IPropAMM.getPairs()` on those same venue addresses (an on-chain
+read, cacheable) and/or stream-freshness signals — never from a quote's `pamm`
+field.
+
+We deliberately do not narrow:
+- The full `swapV1` costs ~400–800k gas (≈7–14¢) and **guarantees no
+  whitelisted pAMM's quote is missed**. The spread is driven by which pAMM
+  fills, since their swap implementations vary widely.
+- A pinned venue that cannot fill drops to the **Uniswap V3 fallback**, not to
+  the next-best pAMM — so narrowing wrongly forfeits the entire pAMM price
+  advantage (~25 bps vs our default route) to save a few cents.
+- Our product is execution quality sold via subscriptions; fees only cover
+  infra. Trading bps of fill quality for cents of gas is backwards here.
 
 ### Gas — do NOT use node estimation
 
@@ -132,15 +165,18 @@ intermittently unquoted). Price impact within quoted sizes is near zero
 
 | entrypoint | n | p50 | p90 | max | our limit |
 |------------|--:|----:|----:|----:|----------:|
-| `swapViaVenueV1` (pinned) | 84 | 216k | 271k | 384k | 550k |
-| `swapViaVenueWithFeeV1` | 13 | 233k | 233k | 396k | 550k |
-| `swapV1` (all venues) | 23 | 441k | 619k | 690k | 900k |
+| `swapV1` (all venues) — **what we use** | 23 | 441k | 619k | 690k | 900k |
+| `swapViaVenueV1` (pinned, unused) | 84 | 216k | 271k | 384k | — |
+| `swapViaVenueWithFeeV1` (unused) | 13 | 233k | 233k | 396k | — |
 
-We pin the venue from our own fresh execution-time re-quote (`pamm` field)
-and use the `ViaVenue` entrypoints — half the gas of the all-venues requote,
-with the Uniswap V3 fallback (and therefore minOut protection) unchanged.
-The quote's USD gas figure uses expected usage (250k, ~p50 of the pinned
-path), matching the estimated-usage semantics of other venues' gasUsd.
+Consistent with the 400–800k (≈7–14¢) range Titan documents for `swapV1`. The
+variance comes mostly from *which* pAMM fills, since their swap
+implementations differ widely — not from mis-measurement. We use the
+all-venues path deliberately (see "Venue narrowing" above): completeness of
+the quote set is worth far more than the few cents a narrowed call saves, and
+the `pamm` identifier needed to narrow is not a valid router venue anyway.
+The quote's USD gas figure uses expected usage (450k, ~p50), matching the
+estimated-usage semantics of other venues' gasUsd; the tx reserves 900k.
 
 **Latency** (from US infra): `us.rpc.titanbuilder.xyz` ~0.26–0.34s round
 trip vs ~0.58–0.75s for the bare host and ~0.7–0.8s for `ap.` — the `us.`
