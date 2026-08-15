@@ -6,9 +6,10 @@ import pytest
 
 from bot.services.bridge.allbridge_api import AllbridgeBridge
 from bot.services.bridge.arbitrum_native import ArbitrumNativeBridge
-from bot.services.bridge.base import normalize_amount, validate_address_for_chain
+from bot.services.bridge.base import BridgeQuote, normalize_amount, validate_address_for_chain
+from bot.services.bridge.lattice_api import LatticeBridge
 from bot.services.bridge.near_intents import NearIntentsBridge
-from bot.services.bridge.registry import bridge_quote, get_bridge_quotes
+from bot.services.bridge.registry import BRIDGE_PROVIDERS, bridge_quote, get_bridge_quotes
 from bot.services.bridge.symbiosis_api import SymbiosisBridge
 from bot.services.bridge.usdt0_api import USDT0Bridge
 
@@ -697,6 +698,301 @@ async def test_usdt0_never_fabricates_better_than_1to1_output():
         )
     assert quote is not None
     assert int(quote.to_amount) <= int(quote.from_amount)
+
+
+# ---------------------------------------------------------------------------
+# Suwappu Lattice Bridge (post-quantum settlement, LTP gateway) — dark,
+# quote-only per docs/pq-settlement-profile.md.
+# ---------------------------------------------------------------------------
+
+
+class _FakeHttpxResponse:
+    def __init__(self, status_code=200, json_data=None, text_data="", raise_json=False):
+        self.status_code = status_code
+        self._json = json_data
+        self.text = text_data
+        self._raise_json = raise_json
+
+    def json(self):
+        if self._raise_json:
+            raise ValueError("not json")
+        return self._json
+
+
+class _FakeHttpxClient:
+    """Minimal async-context-manager stand-in for httpx.AsyncClient."""
+
+    def __init__(self, response=None, raise_exc=None):
+        self._response = response
+        self._raise_exc = raise_exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None):
+        if self._raise_exc:
+            raise self._raise_exc
+        return self._response
+
+    async def get(self, url):
+        if self._raise_exc:
+            raise self._raise_exc
+        return self._response
+
+
+def test_lattice_registered_but_disabled_by_default():
+    assert any(p.name == "lattice" for p in BRIDGE_PROVIDERS)
+    provider = LatticeBridge()
+    assert provider.enabled is False
+
+
+def test_lattice_is_supported_route_false_when_disabled():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = False
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        assert provider.is_supported_route("ethereum", "arbitrum", "USDC") is False
+
+
+def test_lattice_enabled_requires_both_flag_and_url():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = None
+        assert provider.enabled is False
+
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = False
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        assert provider.enabled is False
+
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        assert provider.enabled is True
+
+
+def test_lattice_is_supported_route_matches_configured_corridor_only():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        assert provider.is_supported_route("ethereum", "arbitrum", "USDC") is True
+        assert provider.is_supported_route("arbitrum", "ethereum", "USDC") is False
+        assert provider.is_supported_route("ethereum", "polygon", "USDC") is False
+        assert provider.is_supported_route("ethereum", "ethereum", "USDC") is False
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_quote_well_formed():
+    resp_data = {
+        "to_amount": "998000",
+        "to_amount_min": "993000",
+        "fee_usd": 0.5,
+        "gas_usd": 0.2,
+        "estimated_time_seconds": 90,
+        "transaction_request": {"to": "0xGateway", "data": "0xdeadbeef"},
+        "tracking_id": "ltp-abc123",
+        "settlement_security": "pq-mldsa65-attested",
+    }
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(_FakeHttpxResponse(200, resp_data)),
+        ):
+            quote = await provider.get_quote(
+                from_chain="ethereum",
+                to_chain="arbitrum",
+                from_token="USDC",
+                from_amount="1000000",
+                from_address=ADDR,
+                to_address=ADDR2,
+            )
+
+    assert quote is not None
+    assert isinstance(quote, BridgeQuote)
+    assert quote.provider == "lattice"
+    assert quote.to_amount == "998000"
+    assert quote.to_amount_min == "993000"
+    assert quote.settlement == "canonical"
+    assert quote.trust_model == "attested"
+    assert quote.settlement_security == "pq-mldsa65-attested"
+    assert quote.transaction_request["data"] == "0xdeadbeef"
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_quote_none_on_transport_error():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(raise_exc=OSError("connection refused")),
+        ):
+            quote = await provider.get_quote(
+                from_chain="ethereum",
+                to_chain="arbitrum",
+                from_token="USDC",
+                from_amount="1000000",
+                from_address=ADDR,
+                to_address=ADDR2,
+            )
+    assert quote is None
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_quote_none_on_non_200():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(_FakeHttpxResponse(500, text_data="boom")),
+        ):
+            quote = await provider.get_quote(
+                from_chain="ethereum",
+                to_chain="arbitrum",
+                from_token="USDC",
+                from_amount="1000000",
+                from_address=ADDR,
+                to_address=ADDR2,
+            )
+    assert quote is None
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_quote_none_on_malformed_json():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(_FakeHttpxResponse(200, raise_json=True)),
+        ):
+            quote = await provider.get_quote(
+                from_chain="ethereum",
+                to_chain="arbitrum",
+                from_token="USDC",
+                from_amount="1000000",
+                from_address=ADDR,
+                to_address=ADDR2,
+            )
+    assert quote is None
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_quote_none_on_missing_amount_fields():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_bridge_enabled = True
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        mock_settings.lattice_supported_routes = "ethereum:arbitrum"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(_FakeHttpxResponse(200, {"fee_usd": 0.1})),
+        ):
+            quote = await provider.get_quote(
+                from_chain="ethereum",
+                to_chain="arbitrum",
+                from_token="USDC",
+                from_amount="1000000",
+                from_address=ADDR,
+                to_address=ADDR2,
+            )
+    assert quote is None
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_status_maps_states():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(_FakeHttpxResponse(200, {"status": "COMPLETED"})),
+        ):
+            status = await provider.get_status("ltp-abc123")
+    assert status == {"status": "COMPLETED"}
+
+
+@pytest.mark.asyncio
+async def test_lattice_get_status_unknown_on_error():
+    provider = LatticeBridge()
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_gateway_url = "https://gateway.example"
+        with patch(
+            "bot.services.bridge.lattice_api.httpx.AsyncClient",
+            return_value=_FakeHttpxClient(raise_exc=OSError("timeout")),
+        ):
+            status = await provider.get_status("ltp-abc123")
+    assert status == {"status": "UNKNOWN"}
+
+    with patch("bot.services.bridge.lattice_api.settings") as mock_settings:
+        mock_settings.lattice_gateway_url = ""
+        status_no_url = await provider.get_status("ltp-abc123")
+    assert status_no_url == {"status": "UNKNOWN"}
+
+
+def test_bridge_quote_accepts_settlement_security_and_attested_trust_model():
+    quote = BridgeQuote(
+        provider="lattice",
+        from_chain="ethereum",
+        to_chain="arbitrum",
+        from_token="USDC",
+        to_token="USDC",
+        from_amount="1000000",
+        to_amount="999000",
+        to_amount_min="998000",
+        gas_cost_usd=0.1,
+        fee_cost_usd=0.1,
+        estimated_time=90,
+        settlement="canonical",
+        trust_model="attested",
+        settlement_security="pq-mldsa65-attested",
+    )
+    assert quote.trust_model == "attested"
+    assert quote.settlement_security == "pq-mldsa65-attested"
+
+
+def test_legacy_bridge_quote_settlement_security_defaults_none():
+    quote = BridgeQuote(
+        provider="allbridge",
+        from_chain="ethereum",
+        to_chain="polygon",
+        from_token="USDC",
+        to_token="USDC",
+        from_amount="1000000",
+        to_amount="999000",
+        to_amount_min="998000",
+        gas_cost_usd=0.1,
+        fee_cost_usd=0.1,
+        estimated_time=90,
+    )
+    assert quote.settlement_security is None
+
+
+def test_lattice_excluded_from_executable_providers():
+    """Regression guard for docs/pq-settlement-profile.md: Lattice is
+    quote-only until every activation gate passes, so it must never be
+    reachable from SwapEngine's execution path."""
+    from bot.services.swap_engine import EXECUTABLE_PROVIDERS
+
+    assert "lattice" not in EXECUTABLE_PROVIDERS
 
 
 # ---------------------------------------------------------------------------
