@@ -4,7 +4,6 @@ import {
   createWalletClient,
   createPublicClient,
   http,
-  parseEther,
   parseUnits,
   formatEther,
   formatUnits,
@@ -656,7 +655,13 @@ function SendView({
             chain,
             to: toAddr,
             value,
-            ...feeOverrides,
+            // Cast scoped to the fee bag ONLY. getFeeOverrides() returns legacy
+            // `gasPrice` OR the EIP-1559 pair — never both, see its body — but
+            // viem models those as a discriminated union and rejects a value
+            // that might hold either. Keeping the cast this narrow (rather than
+            // casting the whole literal) means `to`/`value`/`account` above stay
+            // type-checked, so a wrong-typed amount still fails the build.
+            ...(feeOverrides as {}),
           })
           serializedTransaction = await walletClient.signTransaction(request as any)
         } else {
@@ -672,7 +677,9 @@ function SendView({
             chain,
             to: tokenAddress,
             data,
-            ...feeOverrides,
+            // See the native-transfer branch above: cast scoped to the fee bag
+            // so `to`/`data`/`account` stay type-checked.
+            ...(feeOverrides as {}),
           })
           serializedTransaction = await walletClient.signTransaction(request as any)
         }

@@ -774,6 +774,17 @@ def _ensure_schema(db_engine) -> None:
     if "point_redemptions" in tables:
         _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
 
+    # --- Market data parity Phase 1: normalized OHLCV candles ---
+    _create_market_candles_table(db_engine, inspector, is_sqlite)
+
+    # --- API usage metering: per-caller/route/day request counts ---
+    _create_api_usage_daily_table(db_engine, inspector, is_sqlite)
+
+    # --- Market data parity Round 5: perps / predictions / lend time series ---
+    _create_perp_metrics_table(db_engine, inspector, is_sqlite)
+    _create_prediction_snapshots_table(db_engine, inspector, is_sqlite)
+    _create_lend_metrics_table(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -4110,3 +4121,338 @@ def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> Non
         logger.info("Created agent_link_codes table")
     except Exception as e:
         logger.warning(f"Failed to create agent_link_codes table: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Market data parity Phase 1 — normalized OHLCV candles
+# ---------------------------------------------------------------------------
+
+
+def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the market_candles table idempotently.
+
+    Backs the Historical API (GET /v1/data/history/ohlcv) per
+    docs/plans/market-data-parity.md. One row per (symbol, chain, timeframe, ts)
+    candle; populated by bot/services/market_data.py (Phase 2 — not yet
+    implemented as of this migration). open/high/low/close/volume use
+    NUMERIC(38,18) for exact decimal arithmetic across chains with wildly
+    different token decimals.
+
+    Mirrors api-ts's Drizzle schema (marketCandles.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "market_candles" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS market_candles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        token_address VARCHAR(255),
+                        timeframe VARCHAR(10) NOT NULL,
+                        ts DATETIME NOT NULL,
+                        open NUMERIC(38,18) NOT NULL,
+                        high NUMERIC(38,18) NOT NULL,
+                        low NUMERIC(38,18) NOT NULL,
+                        close NUMERIC(38,18) NOT NULL,
+                        volume NUMERIC(38,18),
+                        source VARCHAR(20) NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS market_candles (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        token_address VARCHAR(255),
+                        timeframe VARCHAR(10) NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        open NUMERIC(38,18) NOT NULL,
+                        high NUMERIC(38,18) NOT NULL,
+                        low NUMERIC(38,18) NOT NULL,
+                        close NUMERIC(38,18) NOT NULL,
+                        volume NUMERIC(38,18),
+                        source VARCHAR(20) NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created market_candles table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
+                "ON market_candles(symbol, chain, timeframe, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
+                "ON market_candles(symbol, chain, timeframe, ts DESC)"
+            )
+        )
+
+
+def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the api_usage_daily table idempotently.
+
+    Per-caller (`api_key_id`), per-route, per-day request counter backing
+    /v1/data/* metering (see `callerKeyOf()` in api-ts/src/routes/data.ts).
+    One row per (api_key_id, route, day); `count` increments per request and
+    `last_used_at` records the most recent hit.
+
+    Mirrors api-ts's Drizzle schema (apiUsageDaily.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "api_usage_daily" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS api_usage_daily (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        api_key_id TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        day DATE NOT NULL,
+                        count INTEGER NOT NULL DEFAULT 0,
+                        last_used_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS api_usage_daily (
+                        id BIGSERIAL PRIMARY KEY,
+                        api_key_id TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        day DATE NOT NULL,
+                        count BIGINT NOT NULL DEFAULT 0,
+                        last_used_at TIMESTAMPTZ
+                    )
+                """))
+            logger.info("Created api_usage_daily table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
+                "ON api_usage_daily(api_key_id, route, day)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
+                "ON api_usage_daily(api_key_id, day)"
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Market data parity Round 5 — perps / predictions / lend time series
+# ---------------------------------------------------------------------------
+
+
+def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the perp_metrics table idempotently.
+
+    Backs /v1/data/perps/* per docs/plans/market-data-parity.md (Round 5).
+    One row per (venue, symbol, ts) snapshot of a perp market — funding
+    rate, open interest, mark/index price, 24h volume — captured every 60s
+    from Hyperliquid REST metaAndAssetCtxs
+    (bot/services/hyperliquid_client.py).
+
+    Mirrors api-ts's Drizzle schema (perpMetrics.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "perp_metrics" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS perp_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        venue TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        ts DATETIME NOT NULL,
+                        funding_rate NUMERIC(38,18),
+                        open_interest NUMERIC(38,18),
+                        mark_price NUMERIC(38,18),
+                        index_price NUMERIC(38,18),
+                        volume_24h NUMERIC(38,18),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS perp_metrics (
+                        id BIGSERIAL PRIMARY KEY,
+                        venue TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        funding_rate NUMERIC(38,18),
+                        open_interest NUMERIC(38,18),
+                        mark_price NUMERIC(38,18),
+                        index_price NUMERIC(38,18),
+                        volume_24h NUMERIC(38,18),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created perp_metrics table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_perp_metrics_venue_symbol_ts "
+                "ON perp_metrics(venue, symbol, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_perp_metrics_venue_symbol_ts "
+                "ON perp_metrics(venue, symbol, ts DESC)"
+            )
+        )
+
+
+def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the prediction_snapshots table idempotently.
+
+    Backs /v1/data/predictions/* per docs/plans/market-data-parity.md
+    (Round 5). One row per (venue, market_id, outcome, ts) odds snapshot,
+    captured every 5 minutes for the top ~100 active markets by volume from
+    Polymarket Gamma (bot/services/polymarket_api.py).
+
+    Mirrors api-ts's Drizzle schema (predictionSnapshots.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "prediction_snapshots" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS prediction_snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        condition_id TEXT,
+                        question TEXT,
+                        outcome TEXT NOT NULL,
+                        ts DATETIME NOT NULL,
+                        price NUMERIC(38,18),
+                        volume NUMERIC(38,18),
+                        liquidity NUMERIC(38,18),
+                        end_date DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS prediction_snapshots (
+                        id BIGSERIAL PRIMARY KEY,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        condition_id TEXT,
+                        question TEXT,
+                        outcome TEXT NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        price NUMERIC(38,18),
+                        volume NUMERIC(38,18),
+                        liquidity NUMERIC(38,18),
+                        end_date TIMESTAMPTZ,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created prediction_snapshots table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "uq_prediction_snapshots_venue_market_id_outcome_ts "
+                "ON prediction_snapshots(venue, market_id, outcome, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_prediction_snapshots_venue_market_id_ts "
+                "ON prediction_snapshots(venue, market_id, ts DESC)"
+            )
+        )
+
+
+def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the lend_metrics table idempotently.
+
+    Backs /v1/data/lend/* per docs/plans/market-data-parity.md (Round 5).
+    One row per (venue, market_id, ts) snapshot of a lending market —
+    supply/borrow APY, TVL, utilization — captured every 10 minutes from
+    Morpho GraphQL (bot/services/morpho_api.py).
+
+    Mirrors api-ts's Drizzle schema (lendMetrics.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "lend_metrics" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lend_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        chain_id INTEGER,
+                        loan_symbol TEXT,
+                        collateral_symbol TEXT,
+                        ts DATETIME NOT NULL,
+                        supply_apy NUMERIC(38,18),
+                        borrow_apy NUMERIC(38,18),
+                        tvl NUMERIC(38,18),
+                        utilization NUMERIC(38,18),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lend_metrics (
+                        id BIGSERIAL PRIMARY KEY,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        chain_id INTEGER,
+                        loan_symbol TEXT,
+                        collateral_symbol TEXT,
+                        ts TIMESTAMPTZ NOT NULL,
+                        supply_apy NUMERIC(38,18),
+                        borrow_apy NUMERIC(38,18),
+                        tvl NUMERIC(38,18),
+                        utilization NUMERIC(38,18),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created lend_metrics table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_lend_metrics_venue_market_id_ts "
+                "ON lend_metrics(venue, market_id, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
+                "ON lend_metrics(venue, market_id, ts DESC)"
+            )
+        )

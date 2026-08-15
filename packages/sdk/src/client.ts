@@ -27,9 +27,31 @@ import type {
   BillingStatus,
   Chain,
   CreatePolicyArgs,
+  DataMetadata,
+  DataStatus,
+  DataUsage,
+  GetOhlcvArgs,
+  GetOhlcvMultiArgs,
+  GetPerpsHistoryArgs,
+  GetPredictionMarketsArgs,
+  GetPredictionHistoryArgs,
+  GetLendMarketsArgs,
+  GetLendHistoryArgs,
+  PerpsMarketsResult,
+  PerpsHistoryResult,
+  PredictionMarketsResult,
+  PredictionHistoryResult,
+  LendMarketsResult,
+  LendHistoryResult,
   GetQuoteArgs,
   LendingMarket,
   LendingMarketDetail,
+  LiveCandle,
+  LiveSubscription,
+  LiveTick,
+  OhlcvCandle,
+  OhlcvMultiResult,
+  OhlcvResult,
   PerpMarket,
   PerpPosition,
   PerpQuote,
@@ -44,13 +66,19 @@ import type {
   PredictionPrices,
   PredictionTrades,
   Quote,
+  ReferenceChain,
+  ReferenceToken,
+  ReferenceTokensResult,
   RegisterAgentArgs,
   RegisterAgentResult,
   RegisterResult,
+  ResolvedSymbol,
   RotateKeysResult,
+  SubscribeLiveArgs,
   SuwappuConfig,
   SwapResult,
   SwapStatus,
+  Timeframe,
   Token,
   TokenBalance,
   TokenPrice,
@@ -179,6 +207,37 @@ export class Suwappu {
     }
 
     return (await res.json()) as T;
+  }
+
+  /** @internal Like `_request`, but returns the raw response text (used for `format=csv`). */
+  private async _requestText(method: string, path: string, options: RequestOptions = {}): Promise<string> {
+    let url = `${this.baseUrl}${path}`;
+    if (options.params) {
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(options.params)) {
+        if (value !== undefined) search.set(key, value);
+      }
+      const qs = search.toString();
+      if (qs) url += `?${qs}`;
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    Object.assign(headers, options.headers);
+
+    const res = await fetch(url, { method, headers });
+    const text = await res.text();
+    if (!res.ok) {
+      let code: string | undefined;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed.error_code === "string") code = parsed.error_code;
+      } catch {
+        // body wasn't JSON — leave code undefined
+      }
+      throw new SuwappuError(res.status, text, code);
+    }
+    return text;
   }
 
   // --- Swap ---
@@ -481,6 +540,523 @@ export class Suwappu {
     });
     if (Array.isArray(data)) return data;
     return data.tokens ?? [];
+  }
+
+  // --- Market data (/v1/data/*) ---
+
+  /**
+   * GET /v1/data/history/ohlcv?symbol=&chain=&timeframe=&start=&end=&limit=&cursor=
+   *
+   * Served from persisted candles when available; falls back to a
+   * DexScreener-derived synthetic series otherwise (see `source` on the
+   * result). Pass `cursor` (from a previous result's `nextCursor`) to page
+   * forward. `format: "csv"` is passed through to the API — see
+   * `getOhlcvCsv()` for a helper that returns the raw CSV text.
+   */
+  async getOhlcv(args: GetOhlcvArgs): Promise<OhlcvResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/history/ohlcv", {
+      params: {
+        symbol: args.symbol,
+        chain: args.chain,
+        timeframe: args.timeframe,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    return {
+      symbol: String(data.symbol ?? args.symbol),
+      chain: String(data.chain ?? args.chain),
+      timeframe: (data.timeframe ?? args.timeframe ?? "1h") as Timeframe,
+      source: String(data.source ?? ""),
+      candles: Array.isArray(data.candles) ? (data.candles as OhlcvCandle[]) : [],
+      note: data.note,
+      nextCursor: data.next_cursor,
+    };
+  }
+
+  /**
+   * GET /v1/data/history/ohlcv?symbols=A,B&chain=&timeframe=&cursor= — the
+   * multi-symbol variant, grouped by symbol in the response.
+   */
+  async getOhlcvMulti(args: GetOhlcvMultiArgs): Promise<OhlcvMultiResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/history/ohlcv", {
+      params: {
+        symbols: args.symbols.join(","),
+        chain: args.chain,
+        timeframe: args.timeframe,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    const symbols: Record<string, { source: string; candles: OhlcvCandle[] }> = {};
+    for (const [symbol, entry] of Object.entries<Record<string, any>>(data.symbols ?? {})) {
+      symbols[symbol] = {
+        source: String(entry.source ?? ""),
+        candles: Array.isArray(entry.candles) ? (entry.candles as OhlcvCandle[]) : [],
+      };
+    }
+    return {
+      chain: String(data.chain ?? args.chain),
+      timeframe: (data.timeframe ?? args.timeframe ?? "1h") as Timeframe,
+      symbols,
+      nextCursor: data.next_cursor,
+    };
+  }
+
+  /**
+   * GET /v1/data/history/ohlcv?...&format=csv — returns the raw CSV text
+   * (header: symbol,chain,timeframe,ts,open,high,low,close,volume,source).
+   * Accepts the same args as `getOhlcv`/`getOhlcvMulti` (pass `symbols` for
+   * the multi-symbol grouped CSV).
+   */
+  async getOhlcvCsv(args: GetOhlcvArgs & { symbols?: string[] }): Promise<string> {
+    return this._requestText("GET", "/v1/data/history/ohlcv", {
+      params: {
+        symbol: args.symbols ? undefined : args.symbol,
+        symbols: args.symbols?.join(","),
+        chain: args.chain,
+        timeframe: args.timeframe,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+        format: "csv",
+      },
+    });
+  }
+
+  /**
+   * GET /v1/data/reference/tokens?chain=... — omit `chain` to get every
+   * chain's registry back at once.
+   */
+  async getReferenceTokens(chain?: string): Promise<ReferenceTokensResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/tokens", {
+      params: { chain },
+    });
+    if (Array.isArray(data.chains)) {
+      return {
+        chains: data.chains.map((c: Record<string, any>) => ({
+          chainId: c.chain_id,
+          tokens: (c.tokens ?? []) as ReferenceToken[],
+        })),
+      };
+    }
+    return {
+      chain: String(data.chain ?? chain ?? ""),
+      chainId: data.chain_id,
+      tokens: (data.tokens ?? []) as ReferenceToken[],
+    };
+  }
+
+  /** GET /v1/data/reference/chains */
+  async getReferenceChains(): Promise<ReferenceChain[]> {
+    const data = await this._request<{ chains?: Record<string, any>[] }>(
+      "GET",
+      "/v1/data/reference/chains",
+    );
+    return (data.chains ?? []).map((c) => ({
+      slug: String(c.slug ?? ""),
+      chainId: c.chain_id,
+      name: String(c.name ?? ""),
+      nativeToken: String(c.native_token ?? ""),
+      type: String(c.type ?? ""),
+    }));
+  }
+
+  /**
+   * GET /v1/data/reference/resolve?symbol=&chain=
+   *
+   * With `chain`, resolves that one pair (unchanged shape). Without `chain`,
+   * the API now returns entries across every known chain — use
+   * `resolveSymbols([symbol])` for that grouped shape; this method still
+   * returns the single-pair shape for backward compatibility (empty address
+   * when `chain` is omitted and the API responds with a `chains` array
+   * instead).
+   */
+  async resolveSymbol(symbol: string, chain?: string): Promise<ResolvedSymbol> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
+      params: { symbol, chain },
+    });
+    return {
+      symbol: String(data.symbol ?? symbol),
+      chain: String(data.chain ?? chain ?? ""),
+      chainId: data.chain_id,
+      address: String(data.address ?? ""),
+      decimals: Number(data.decimals ?? 0),
+      coingeckoId: data.coingecko_id ?? null,
+    };
+  }
+
+  /**
+   * GET /v1/data/reference/resolve?symbols=A,B[&chain=] — batch resolve,
+   * grouped by symbol. Without `chain`, each symbol's array covers every
+   * known chain; with `chain`, each array has 0 or 1 entries.
+   */
+  async resolveSymbols(symbols: string[], chain?: string): Promise<Record<string, ResolvedSymbol[]>> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
+      params: { symbols: symbols.join(","), chain },
+    });
+    const results: Record<string, ResolvedSymbol[]> = {};
+    for (const [symbol, entries] of Object.entries<any[]>(data.results ?? {})) {
+      results[symbol] = (entries ?? []).map((e: Record<string, any>) => ({
+        symbol: String(e.symbol ?? symbol),
+        chain: String(e.chain ?? ""),
+        chainId: e.chain_id,
+        address: String(e.address ?? ""),
+        decimals: Number(e.decimals ?? 0),
+        coingeckoId: e.coingecko_id ?? null,
+      }));
+    }
+    return results;
+  }
+
+  /** GET /v1/data/reference/resolve?address=0x...&chain= — reverse lookup: address -> symbol/decimals. */
+  async resolveAddress(address: string, chain: string): Promise<ResolvedSymbol> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/reference/resolve", {
+      params: { address, chain },
+    });
+    return {
+      symbol: String(data.symbol ?? ""),
+      chain: String(data.chain ?? chain),
+      chainId: data.chain_id,
+      address: String(data.address ?? address),
+      decimals: Number(data.decimals ?? 0),
+      coingeckoId: data.coingecko_id ?? null,
+    };
+  }
+
+  /** GET /v1/data/usage — this caller's /v1/data/* request counts. */
+  async getDataUsage(): Promise<DataUsage> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/usage");
+    return {
+      totalRequests: Number(data.total_requests ?? 0),
+      firstSeenAt: data.first_seen_at ?? null,
+      lastSeenAt: data.last_seen_at ?? null,
+      byEndpoint: data.by_endpoint ?? {},
+    };
+  }
+
+  /**
+   * GET /v1/data/metadata?symbol=&chain= — dataset coverage from
+   * `market_candles`, grouped by (symbol, chain, timeframe). Omit both
+   * params to list every tracked dataset (capped at 500 — see `truncated`).
+   */
+  async getDataMetadata(args?: { symbol?: string; chain?: string }): Promise<DataMetadata> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/metadata", {
+      params: { symbol: args?.symbol, chain: args?.chain },
+    });
+    return {
+      datasets: Array.isArray(data.datasets) ? data.datasets : [],
+      totalCandles: Number(data.total_candles ?? 0),
+      truncated: data.truncated,
+      note: data.note,
+    };
+  }
+
+  /**
+   * GET /v1/data/status — capture freshness per timeframe (newest candle +
+   * age in seconds) plus per-source candle counts. `healthy` is true when 1m
+   * data is fresher than 5 minutes.
+   */
+  async getDataStatus(): Promise<DataStatus> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/status");
+    const timeframes: DataStatus["timeframes"] = {};
+    for (const [tf, entry] of Object.entries<Record<string, any>>(data.timeframes ?? {})) {
+      timeframes[tf] = {
+        latestTs: entry.latest_ts ?? null,
+        ageSeconds: entry.age_seconds ?? null,
+      };
+    }
+    return {
+      timeframes,
+      sources: data.sources ?? {},
+      healthy: Boolean(data.healthy),
+    };
+  }
+
+  // --- Round 5: perps / predictions / lend (docs/plans/market-data-parity.md) ---
+
+  /** GET /v1/data/perps/markets?venue= — latest perp_metrics row per (venue, symbol). */
+  async getPerpsMarkets(venue?: string): Promise<PerpsMarketsResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/perps/markets", {
+      params: { venue },
+    });
+    return {
+      venues: Array.isArray(data.venues) ? data.venues : [],
+      markets: Array.isArray(data.markets)
+        ? data.markets.map((m: Record<string, any>) => ({
+            venue: String(m.venue ?? ""),
+            symbol: String(m.symbol ?? ""),
+            ts: String(m.ts ?? ""),
+            fundingRate: m.funding_rate ?? null,
+            openInterest: m.open_interest ?? null,
+            markPrice: m.mark_price ?? null,
+            indexPrice: m.index_price ?? null,
+            volume24h: m.volume_24h ?? null,
+          }))
+        : [],
+    };
+  }
+
+  /** GET /v1/data/perps/history?symbol=&venue=&start=&end=&limit=&cursor= */
+  async getPerpsHistory(args: GetPerpsHistoryArgs): Promise<PerpsHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/perps/history", {
+      params: {
+        symbol: args.symbol,
+        venue: args.venue,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    return {
+      symbol: String(data.symbol ?? args.symbol),
+      venue: String(data.venue ?? args.venue ?? "hyperliquid"),
+      metrics: Array.isArray(data.metrics)
+        ? data.metrics.map((m: Record<string, any>) => ({
+            ts: String(m.ts ?? ""),
+            fundingRate: m.funding_rate ?? null,
+            openInterest: m.open_interest ?? null,
+            markPrice: m.mark_price ?? null,
+            indexPrice: m.index_price ?? null,
+            volume24h: m.volume_24h ?? null,
+          }))
+        : [],
+      nextCursor: data.next_cursor,
+    };
+  }
+
+  /** GET /v1/data/predictions/markets?q=&limit= — latest prediction_snapshots row per (market_id, outcome), sorted by volume desc. */
+  async getPredictionMarkets(args?: GetPredictionMarketsArgs): Promise<PredictionMarketsResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/predictions/markets", {
+      params: { q: args?.q, limit: args?.limit?.toString() },
+    });
+    return {
+      markets: Array.isArray(data.markets)
+        ? data.markets.map((m: Record<string, any>) => ({
+            venue: String(m.venue ?? ""),
+            marketId: String(m.market_id ?? ""),
+            conditionId: m.condition_id ?? null,
+            question: m.question ?? null,
+            outcome: String(m.outcome ?? ""),
+            ts: String(m.ts ?? ""),
+            price: m.price ?? null,
+            volume: m.volume ?? null,
+            liquidity: m.liquidity ?? null,
+            endDate: m.end_date ?? null,
+          }))
+        : [],
+    };
+  }
+
+  /**
+   * GET /v1/data/predictions/history?market_id=&outcome=&start=&end=&limit=&cursor=
+   * Pass `outcome` for a single-outcome time series; omit it to get every
+   * outcome grouped under `outcomes`.
+   */
+  async getPredictionHistory(args: GetPredictionHistoryArgs): Promise<PredictionHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/predictions/history", {
+      params: {
+        market_id: args.marketId,
+        outcome: args.outcome,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    const toPoint = (p: Record<string, any>) => ({
+      ts: String(p.ts ?? ""),
+      price: p.price ?? null,
+      volume: p.volume ?? null,
+      liquidity: p.liquidity ?? null,
+    });
+    const result: PredictionHistoryResult = {
+      marketId: String(data.market_id ?? args.marketId),
+      nextCursor: data.next_cursor,
+    };
+    if (Array.isArray(data.history)) {
+      result.outcome = String(data.outcome ?? args.outcome ?? "");
+      result.history = data.history.map(toPoint);
+    } else if (data.outcomes && typeof data.outcomes === "object") {
+      const outcomes: Record<string, ReturnType<typeof toPoint>[]> = {};
+      for (const [outcome, points] of Object.entries<any[]>(data.outcomes)) {
+        outcomes[outcome] = (points ?? []).map(toPoint);
+      }
+      result.outcomes = outcomes;
+    }
+    return result;
+  }
+
+  /** GET /v1/data/lend/markets?chain_id= — latest lend_metrics row per market_id. */
+  async getLendMarkets(args?: GetLendMarketsArgs): Promise<LendMarketsResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/lend/markets", {
+      params: { chain_id: args?.chainId?.toString() },
+    });
+    return {
+      markets: Array.isArray(data.markets)
+        ? data.markets.map((m: Record<string, any>) => ({
+            venue: String(m.venue ?? ""),
+            marketId: String(m.market_id ?? ""),
+            chainId: m.chain_id ?? null,
+            loanSymbol: m.loan_symbol ?? null,
+            collateralSymbol: m.collateral_symbol ?? null,
+            ts: String(m.ts ?? ""),
+            supplyApy: m.supply_apy ?? null,
+            borrowApy: m.borrow_apy ?? null,
+            tvl: m.tvl ?? null,
+            utilization: m.utilization ?? null,
+          }))
+        : [],
+    };
+  }
+
+  /** GET /v1/data/lend/history?market_id=&start=&end=&limit=&cursor= */
+  async getLendHistory(args: GetLendHistoryArgs): Promise<LendHistoryResult> {
+    const data = await this._request<Record<string, any>>("GET", "/v1/data/lend/history", {
+      params: {
+        market_id: args.marketId,
+        start: args.start?.toString(),
+        end: args.end?.toString(),
+        limit: args.limit?.toString(),
+        cursor: args.cursor,
+      },
+    });
+    return {
+      marketId: String(data.market_id ?? args.marketId),
+      metrics: Array.isArray(data.metrics)
+        ? data.metrics.map((m: Record<string, any>) => ({
+            ts: String(m.ts ?? ""),
+            supplyApy: m.supply_apy ?? null,
+            borrowApy: m.borrow_apy ?? null,
+            tvl: m.tvl ?? null,
+            utilization: m.utilization ?? null,
+          }))
+        : [],
+      nextCursor: data.next_cursor,
+    };
+  }
+
+  /** @internal Derive the ws(s):// base for /v1/data/live from baseUrl. */
+  private _wsBaseUrl(): string {
+    return this.baseUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+  }
+
+  /**
+   * WS /v1/data/live — subscribe to live price ticks, pushed on change (plus
+   * a ~30s keepalive when unchanged). Uses the standard WebSocket API
+   * (available in browsers and Bun).
+   *
+   * Pass `candleSymbols` to also subscribe to the 1m OHLCV candle channel —
+   * `onCandle` fires with the in-progress candle on each price change and
+   * once more (`final: true`) when the minute closes.
+   *
+   * Auth note: the API authenticates `/v1/data/live` the same way as every
+   * other `/v1/data/*` route — `Authorization: Bearer <apiKey>` on the
+   * upgrade request (see `agentFlexAuth` in api-ts/src/routes/data.ts).
+   * Browsers cannot attach custom headers to a WebSocket handshake, so under
+   * Bun (which extends the WebSocket constructor with a `headers` option)
+   * the API key is sent; in browser environments it is not — point browser
+   * callers at a same-origin proxy that injects the header if auth is
+   * required there.
+   *
+   * ```ts
+   * const live = client.subscribeLive({
+   *   symbols: ["ETH", "SOL"],
+   *   onTick: (tick) => console.log(tick.symbol, tick.priceUsd),
+   *   candleSymbols: ["ETH"],
+   *   onCandle: (c) => console.log(c.symbol, c.close, c.final),
+   * });
+   * // later: live.subscribe(["BTC"]); live.close();
+   * ```
+   */
+  subscribeLive(args: SubscribeLiveArgs): LiveSubscription {
+    const url = `${this._wsBaseUrl()}/v1/data/live`;
+    const isBun = typeof (globalThis as any).Bun !== "undefined";
+    const ws: WebSocket =
+      isBun && this.apiKey
+        ? (new WebSocket(url, {
+            headers: { Authorization: `Bearer ${this.apiKey}` },
+          } as any) as WebSocket)
+        : new WebSocket(url);
+
+    const send = (action: "subscribe" | "unsubscribe", symbols: string[]) => {
+      if (symbols.length === 0) return;
+      ws.send(JSON.stringify({ action, symbols: symbols.map((s) => s.toUpperCase()) }));
+    };
+
+    const sendCandle = (action: "subscribe" | "unsubscribe", symbols: string[]) => {
+      if (symbols.length === 0) return;
+      ws.send(
+        JSON.stringify({
+          action,
+          channel: "ohlcv",
+          timeframe: "1m",
+          symbols: symbols.map((s) => s.toUpperCase()),
+        }),
+      );
+    };
+
+    ws.addEventListener("open", () => {
+      send("subscribe", args.symbols);
+      if (args.candleSymbols?.length) sendCandle("subscribe", args.candleSymbols);
+      args.onOpen?.();
+    });
+
+    ws.addEventListener("message", (evt: any) => {
+      let msg: Record<string, any>;
+      try {
+        msg = JSON.parse(String(evt.data));
+      } catch (err) {
+        args.onError?.(err);
+        return;
+      }
+      if (msg.type === "tick") {
+        const tick: LiveTick = {
+          type: "tick",
+          symbol: String(msg.symbol ?? ""),
+          priceUsd: Number(msg.price_usd ?? 0),
+          ts: String(msg.ts ?? ""),
+        };
+        args.onTick(tick);
+      } else if (msg.type === "candle") {
+        const candle: LiveCandle = {
+          type: "candle",
+          channel: "ohlcv",
+          timeframe: "1m",
+          symbol: String(msg.symbol ?? ""),
+          final: Boolean(msg.final),
+          ts: String(msg.ts ?? ""),
+          open: Number(msg.open ?? 0),
+          high: Number(msg.high ?? 0),
+          low: Number(msg.low ?? 0),
+          close: Number(msg.close ?? 0),
+        };
+        args.onCandle?.(candle);
+      } else if (msg.type === "error") {
+        args.onError?.(new Error(String(msg.message ?? "live stream error")));
+      }
+    });
+
+    ws.addEventListener("close", (evt: any) => {
+      args.onClose?.({ code: evt.code, reason: evt.reason });
+    });
+    ws.addEventListener("error", (evt: unknown) => {
+      args.onError?.(evt);
+    });
+
+    return {
+      subscribe: (symbols: string[]) => send("subscribe", symbols),
+      unsubscribe: (symbols: string[]) => send("unsubscribe", symbols),
+      subscribeCandles: (symbols: string[]) => sendCandle("subscribe", symbols),
+      unsubscribeCandles: (symbols: string[]) => sendCandle("unsubscribe", symbols),
+      close: () => ws.close(),
+    };
   }
 
   // --- Billing ---

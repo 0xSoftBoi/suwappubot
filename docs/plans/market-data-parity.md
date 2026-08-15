@@ -1,0 +1,103 @@
+# Market Data Platform — Databento-Style Feature Parity
+
+Goal: give Suwappu the same service shape Databento's architecture diagram shows —
+**capture → normalize → store → distribute**, exposed as **Historical**, **Live**, and
+**Reference** APIs with **Python + TypeScript client SDKs** and per-key usage metering.
+Translated to our domain: venues = chains/DEX aggregators (CoinGecko, DexScreener,
+GeckoTerminal, Li.Fi); colocation/extranet analog = our per-chain RPC + aggregator
+connections.
+
+Audit baseline (Aug 2026): REST-only pass-through pricing, no persisted OHLCV, no
+WebSocket streams (roadmap Phase 4 gap), token metadata scattered
+(bot/config/tokens.py, agent.ts COMMON_TOKENS/SOLANA_TOKENS, Li.Fi on demand).
+
+## Architecture
+
+```
+capture (Python bot/services/market_data.py, async task in api/main.py lifespan)
+   └─ polls CoinGecko/DexScreener per tracked token → normalizes → writes candles
+storage (shared Postgres)
+   └─ market_candles table — SQLAlchemy model + Drizzle schema + _ensure_schema()
+distribution (api-ts, /v1/data/*)
+   ├─ Reference: GET /v1/data/reference/tokens, /chains, /resolve?symbol=
+   ├─ Historical: GET /v1/data/history/ohlcv?symbol&chain&timeframe&start&end
+   │     └─ serves from DB; falls back to GeckoTerminal/DexScreener when DB is sparse
+   └─ Live: WS /v1/data/live — subscribe {symbols[]} → price ticks (Bun WebSocket)
+clients (packages/sdk, packages/sdk-python)
+   └─ get_ohlcv(), get_reference(), resolve_symbol(), live subscribe (WS)
+metering: per-API-key request counters on /v1/data/* (existing key middleware)
+```
+
+## Normalized schema — `market_candles`
+
+| column | type | note |
+|--------|------|------|
+| id | bigserial PK | |
+| symbol | text | uppercase, e.g. ETH |
+| chain | text | chain slug from bot/config/chains.py |
+| token_address | text nullable | canonical address on that chain |
+| timeframe | text | `1m`,`5m`,`1h`,`1d` |
+| ts | timestamptz | candle open time, UTC |
+| open/high/low/close | numeric(38,18) | USD |
+| volume | numeric(38,18) nullable | |
+| source | text | `coingecko`/`dexscreener`/`geckoterminal` |
+
+Unique: `(symbol, chain, timeframe, ts)`. Index: `(symbol, chain, timeframe, ts DESC)`.
+Additive + idempotent per docs/development/migrations.md.
+
+## Phases
+
+1. **Schema** (db-migrate): model in `bot/models/market_data.py`, Drizzle
+   `api-ts/src/db/schema/marketCandles.ts`, `_ensure_schema()` DDL.
+2. **Capture** (bot-dev): `bot/services/market_data.py` — poll tracked tokens
+   (union of bot/config/tokens.py + active alert tokens) every 60s, aggregate into
+   1m candles, roll up 5m/1h/1d; register in api/main.py lifespan next to
+   alert_service; backfill 30d of 1h candles on first run from GeckoTerminal.
+3. **Distribution** (api-ts-dev): reference + historical routes; WS live stream
+   backed by 5s in-process poll of the shared price cache; reference registry
+   consolidates COMMON_TOKENS/SOLANA_TOKENS + bot token list (exported JSON).
+4. **SDKs** (sdk-dev): TS + Python methods incl. WS subscribe helper.
+5. **Tests** (test-engineer): candle rollup unit tests, route tests, SDK smoke.
+6. **Verify**: parse gates, `bun run check`, pytest, scripts/verify.sh.
+
+Non-goals (explicit scope cuts — surfaced, not silent): no colocation/raw feed
+capture (we have no venue extranet analog beyond RPCs), no C++/Rust SDKs, no
+tick-level trade capture, no paid billing integration (metering counters only).
+
+## Round 5 — the Databento of web3: perps, predictions, lending datasets
+
+Strategic direction (owner, Aug 2026): Suwappu's edge is its live venue
+connections (HL, Polymarket, Morpho, 15+ chains). The paying use cases are
+prediction markets and perpetuals. Capture the time series nobody else
+persists, serve them through the same /v1/data surface.
+
+| dataset | table | venue/source | cadence | key fields |
+|---|---|---|---|---|
+| Perp metrics | perp_metrics | Hyperliquid REST metaAndAssetCtxs (bot/services/hyperliquid_client.py) | 60s | funding_rate, open_interest, mark_price, index_price (oraclePx), volume_24h |
+| Prediction odds | prediction_snapshots | Polymarket Gamma (bot/services/polymarket_api.py) | 5 min, top ~100 active markets by volume | market_id, condition_id, question, outcome, price (probability), volume, liquidity, end_date |
+| Lend rates | lend_metrics | Morpho GraphQL (bot/services/morpho_api.py) | 10 min | market_id, chain_id, loan/collateral symbols, supply_apy, borrow_apy, tvl, utilization |
+
+Uniques: perp (venue,symbol,ts) · prediction (venue,market_id,outcome,ts) ·
+lend (venue,market_id,ts). All venue fields sourced from clients already in
+production; capture loops live in the Python bot beside market_data.py, each
+behind its own settings flag, registered in the api/main.py lifespan.
+
+Distribution (api-ts /v1/data): `perps/markets` (latest), `perps/history`
+(funding/OI/mark time series per symbol), `predictions/markets` (latest odds),
+`predictions/history` (odds time series per market), `lend/markets`,
+`lend/history`. Metadata/status extended to cover the new datasets. SDKs,
+docs, OpenAPI updated. E2E against live venues before done.
+
+## Round 2 — closing the parity gaps
+
+1. **Live**: push-on-change ticks (no fixed 5s rebroadcast of stale prices) +
+   streaming 1m candle subscriptions (`{"action":"subscribe","channel":"ohlcv-1m"}`).
+2. **Metering**: DB-backed `api_usage_daily` (api_key_id, route, day, count) in
+   both ORMs; in-memory counter becomes a write-behind buffer flushed to DB.
+3. **Historical**: `format=csv` output, cursor pagination (`next_cursor` on ts),
+   multi-symbol (`symbols=ETH,SOL`), tiered backfill 1y/1d + 30d/1h + 24h/1m.
+4. **Symbology**: batch resolve (`symbols=`), reverse resolve (`address=`),
+   all-chains listing for a symbol.
+5. **Docs**: `docs/api/market-data.md` — full endpoint reference w/ examples.
+6. **E2E gate**: local postgres 16 cluster, real capture cycle against live
+   sources, candles read back through the booted api-ts route + WS.
