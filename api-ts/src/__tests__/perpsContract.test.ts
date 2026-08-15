@@ -66,6 +66,8 @@ describe('perps live market-data contract', () => {
 					venueMaxLeverage: 25,
 					markPrice: 3200,
 					fundingRate: 0.000125,
+					dex: '',
+					assetClass: 'crypto',
 				})
 			},
 		)

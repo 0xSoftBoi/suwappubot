@@ -32,12 +32,21 @@ function perpsPositionsAuth() {
 	}
 }
 
-// GET /v1/agent/perps/markets — list available perp markets (public)
+// GET /v1/agent/perps/markets — list available perp markets (public).
+// Default response is unchanged (curated crypto majors on Hyperliquid's default
+// venue). Pass ?dex=<name> for a single HIP-3 builder dex ('' for the default
+// venue's full universe), or ?includeBuilderDexs=true to aggregate the default
+// dex plus every registered builder dex.
 perpsRoutes.get('/markets', async (c) => {
+	const dexParam = c.req.query('dex')
+	const includeBuilderDexs = c.req.query('includeBuilderDexs') === 'true'
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const hl = yield* HyperliquidService
-			return yield* hl.getMarkets()
+			return yield* hl.getMarkets(
+				dexParam !== undefined ? { dex: dexParam } : { includeBuilderDexs },
+			)
 		}),
 	)
 
@@ -47,6 +56,24 @@ perpsRoutes.get('/markets', async (c) => {
 	}
 
 	return c.json({ markets: result.right })
+})
+
+// GET /v1/agent/perps/dexs — list Hyperliquid perp dexs (default venue + HIP-3
+// builder dexs) so callers can render category tabs before fetching markets.
+perpsRoutes.get('/dexs', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const hl = yield* HyperliquidService
+			return yield* hl.getPerpDexs()
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json({ dexs: result.right })
 })
 
 // POST /v1/agent/perps/quote — get perp position quote
