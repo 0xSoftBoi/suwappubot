@@ -19,6 +19,7 @@ from bot.services.swap_engine import (
     SwapEngine,
     SwapQuote,
     _apply_speed_tiebreak,
+    _compute_price_improvement_usd,
     _derive_input_usd_value,
     _derive_median_output_price,
     _extract_input_usd_value,
@@ -27,6 +28,7 @@ from bot.services.swap_engine import (
     _quote_net_score,
     _rank_quotes,
     _rank_quotes_with_price,
+    _select_runner_up,
 )
 
 
@@ -398,6 +400,37 @@ class TestRankQuotes:
         best, out_price = _rank_quotes_with_price([quote_a, quote_b], input_price_usd=100.0)
         assert out_price is None  # absurd-gas guard tripped -> gross fallback
         assert best.provider == "lifi"  # gross: 100 > 90
+
+    def test_propamm_titan_wins_on_gross_output_no_usd_fields(self):
+        """PropAMM (Titan) never exposes a USD price field in raw_quote (no
+        provider-reported figure — see _get_propamm_quote), and its gas is
+        never trusted (no gas data comes back from titan_getPammQuote). With
+        no USD price derivable anywhere in the race, ranking falls back to
+        gross output — the higher PropAMM figure should win."""
+        propamm_q = _quote(
+            "propamm_titan",
+            to_amount_human=101.0,
+            gas_cost_usd=0.0,
+            gas_cost_trusted=False,
+        )
+        lifi_q = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=1.0,
+            gas_cost_trusted=False,
+        )
+
+        best = _rank_quotes([propamm_q, lifi_q])
+        assert best.provider == "propamm_titan"
+
+    def test_propamm_titan_loses_on_gross_output(self):
+        propamm_q = _quote(
+            "propamm_titan", to_amount_human=95.0, gas_cost_usd=0.0, gas_cost_trusted=False
+        )
+        lifi_q = _quote("lifi", to_amount_human=100.0, gas_cost_usd=0.0, gas_cost_trusted=False)
+
+        best = _rank_quotes([propamm_q, lifi_q])
+        assert best.provider == "lifi"
 
     def test_wormhole_excluded_unless_sole_quote(self):
         wormhole_q = _quote("wormhole", to_amount_human=1000.0)  # optimistic 1:1, would "win" gross
@@ -996,3 +1029,92 @@ class TestApplySpeedTiebreak:
         )
         assert best is winner
         assert info is None
+
+
+class TestSelectRunnerUp:
+    """`_select_runner_up` — the second-ranked quote in the same race `best`
+    was chosen from (execution-savings receipt)."""
+
+    def test_single_quote_race_returns_none(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        assert _select_runner_up([winner], winner, out_price_used=None) is None
+
+    def test_gross_ranking_picks_second_by_to_amount_human(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        second = _quote("kyberswap", to_amount_human=95.0)
+        third = _quote("jupiter", to_amount_human=80.0)
+
+        runner_up = _select_runner_up([winner, second, third], winner, out_price_used=None)
+        assert runner_up is second
+
+    def test_net_ranking_picks_second_by_net_score_when_price_used(self):
+        # net: winner = 100 - 1/1 = 99 ; a = 98 - 0/1 = 98 ; b = 90 - 0/1 = 90
+        # gross would pick `a` too here, so this doesn't distinguish net vs
+        # gross — the point is it uses whichever basis `out_price_used` implies.
+        winner = _quote("lifi", to_amount_human=100.0, gas_cost_usd=1.0, gas_cost_trusted=True)
+        a = _quote("kyberswap", to_amount_human=98.0, gas_cost_usd=0.0, gas_cost_trusted=True)
+        b = _quote("jupiter", to_amount_human=90.0, gas_cost_usd=0.0, gas_cost_trusted=True)
+
+        runner_up = _select_runner_up([winner, a, b], winner, out_price_used=1.0)
+        assert runner_up is a
+
+    def test_wormhole_excluded_unless_only_quote(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        wormhole = _quote("wormhole", to_amount_human=999.0)
+        real_runner_up = _quote("kyberswap", to_amount_human=95.0)
+
+        runner_up = _select_runner_up(
+            [winner, wormhole, real_runner_up], winner, out_price_used=None
+        )
+        assert runner_up is real_runner_up
+
+
+class TestComputePriceImprovementUsd:
+    """`_compute_price_improvement_usd` — USD value of the winner's edge over
+    the runner-up, on the ranking's own net-score basis (execution-savings
+    receipt). Pure + synchronous — must never touch the network."""
+
+    def test_no_runner_up_returns_none(self):
+        # None (not 0.0): NULL in the DB means "not measured", 0.0 means a
+        # real tie — analytics depend on the distinction.
+        winner = _quote("lifi", to_amount_human=100.0)
+        assert _compute_price_improvement_usd(winner, None, 1.0) is None
+
+    def test_no_trusted_price_returns_none(self):
+        # Gross-ranked race (no USD price): a dollar claim would be a guess.
+        winner = _quote("lifi", to_amount_human=105.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        assert _compute_price_improvement_usd(winner, runner_up, None) is None
+
+    def test_values_net_of_gas_not_gross(self):
+        """A winner carrying higher gas must not book its gross edge as
+        savings — the receipt values exactly what ranking compared."""
+        winner = _quote("lifi", to_amount_human=100.0, gas_cost_usd=4.0)
+        runner_up = _quote("kyberswap", to_amount_human=97.0, gas_cost_usd=1.0)
+        # net(w) = 100 - 4/1 = 96; net(r) = 97 - 1/1 = 96 -> real edge $0
+        improvement = _compute_price_improvement_usd(winner, runner_up, 1.0)
+        assert improvement == 0.0
+
+    def test_positive_net_edge_valued_at_out_price(self):
+        winner = _quote("lifi", to_amount_human=0.06, gas_cost_usd=0.0)
+        runner_up = _quote("kyberswap", to_amount_human=0.05, gas_cost_usd=0.0)
+        # delta_net = 0.01 token * $2000 = $20
+        improvement = _compute_price_improvement_usd(winner, runner_up, 2000.0)
+        assert abs(improvement - 20.0) < 1e-9
+
+    def test_negative_net_delta_clamped_to_zero(self):
+        winner = _quote("lifi", to_amount_human=90.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        assert _compute_price_improvement_usd(winner, runner_up, 1.0) == 0.0
+
+    def test_equal_net_scores_return_zero(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        assert _compute_price_improvement_usd(winner, runner_up, 1.0) == 0.0
+
+    def test_is_pure_no_network(self):
+        """The function must be sync + network-free: it runs on the quote
+        critical path, where a price lookup would add user-visible latency."""
+        import inspect
+
+        assert not inspect.iscoroutinefunction(_compute_price_improvement_usd)

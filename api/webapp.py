@@ -508,6 +508,12 @@ class WebAppSwapQuoteResponse(BaseModel):
     minReceived: str
     slippage: float
     estimatedDuration: Optional[int] = None
+    # Execution-savings receipt: USD edge of the winning route over the
+    # race runner-up, estimated at quote time (see swap_engine's
+    # _compute_price_improvement_usd). Null when nothing honest to show:
+    # single-quote race, or ranking had no trusted USD price.
+    priceImprovementUsd: Optional[float] = None
+    runnerUpProvider: Optional[str] = None
 
 
 class WebAppSwapExecuteRequest(BaseModel):
@@ -4062,6 +4068,8 @@ async def create_terminal_swap_quote(
         estimatedGas=str(quote.gas_cost_usd),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
+        priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
+        runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
         minReceived=str(quote.to_amount_min),
         slippage=body.slippage or 0.5,
@@ -4237,6 +4245,8 @@ async def build_terminal_swap(
         priceImpact=float(quote.price_impact),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
+        priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
+        runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
     )
 

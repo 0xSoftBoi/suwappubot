@@ -1,10 +1,12 @@
 import type { SwapQuote } from "../../types/api";
+import { formatSavings, venueLabel } from "../../lib/venueLabels";
 
 interface Props {
   quote: SwapQuote;
 }
 
 export function QuoteComparison({ quote }: Props) {
+  const savings = formatSavings(quote.priceImprovementUsd, quote.runnerUpProvider);
   const impactColor =
     quote.priceImpact < 0.5
       ? "text-impact-negligible"
@@ -51,8 +53,19 @@ export function QuoteComparison({ quote }: Props) {
 
       <div className="flex justify-between">
         <span className="text-terminal-text-secondary">Route</span>
-        <span className="ml-2 truncate font-mono text-terminal-text">{quote.route}</span>
+        <span className="ml-2 truncate font-mono text-terminal-text">
+          {venueLabel(quote.route)}
+        </span>
       </div>
+
+      {savings && (
+        <div className="flex justify-between">
+          <span className="text-terminal-text-secondary">Best-route savings</span>
+          <span className="tnum ml-2 truncate font-mono text-impact-negligible">
+            {savings.amount} vs {savings.versus}
+          </span>
+        </div>
+      )}
 
       {quote.estimatedDuration && (
         <div className="flex justify-between">
