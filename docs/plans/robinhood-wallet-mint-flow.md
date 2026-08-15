@@ -2,19 +2,31 @@
 
 Grounded in Robinhood's own docs and what is already wired in this repo.
 
-## What the wallet actually is
+## What the wallet actually is (read from Robinhood's own docs)
 
 - **Robinhood Wallet is a separate self-custody app**, not the main brokerage app.
   It holds the user's own keys.
 - It **supports Robinhood Chain**, alongside Ethereum, Bitcoin, Solana, Dogecoin,
   Arbitrum, Polygon, Optimism and Base.
 - It **connects to dapps via WalletConnect, by scanning a QR code**.
+- **Robinhood Chain is built in.** The add-network page names Robinhood Wallet
+  and says only "download it, create a wallet" — the manual RPC/chain-ID dance is
+  documented for MetaMask, not for their own wallet. One less step than assumed.
 - Chain 4663, **native gas token is ETH**, public RPC
   `https://rpc.mainnet.chain.robinhood.com`, Alchemy for production
   (`https://robinhood-mainnet.g.alchemy.com/v2/{KEY}` — and we already hold an
   `ALCHEMY_API_KEY`).
-- The chain has **first-class ERC-4337**: gas sponsorship, batched transactions,
-  spending controls, via Alchemy's infrastructure.
+- **ERC-4337 is deployed in three versions** — EntryPoint v0.6
+  `0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`, v0.7
+  `0x0000000071727De22E5E9d8BAf0edAc6f37da032`, v0.8
+  `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108`. The bundler is Alchemy, at the
+  same URL our existing `ALCHEMY_API_KEY` already addresses. Sponsorship is an
+  Alchemy Gas Manager policy ID; ZeroDev is the documented alternative.
+- **EIP-7702 is supported**: "existing externally-owned accounts [can] delegate
+  to smart contract code", giving "batching, sponsorship, session keys without
+  migrating to a new address."
+- **Gas is ETH and only ETH.** The gas-and-fees page documents no protocol-level
+  fee abstraction and no way to pay gas in another token.
 
 So the connection is a solved problem in principle. The friction is in three
 specific places, and two of them will silently kill the flow.
@@ -121,11 +133,71 @@ Signatures: one. Apps installed: zero. ETH required: none.
 5. **Bind-by-transaction** and the two Telegram deep links.
 6. **Card page** so value lands in the browser without Telegram.
 
-## Open question I could not answer from the docs
+## The open question, now answered — and it hardens the recommendation
 
-Robinhood's documentation does not state whether the Robinhood Wallet exposes
-arbitrary `personal_sign`/EIP-712 signing to third-party dapps over WalletConnect,
-or whether it restricts what it will sign. The design above deliberately needs
-only a transaction and an EIP-3009 authorization, so it survives either answer —
-but it should be tested against the real wallet on testnet (46630) before the
-build order above is committed to.
+I flagged that the docs did not say whether Robinhood Wallet exposes arbitrary
+`personal_sign`/EIP-712 to dapps. Having read the wallet and chain docs properly,
+they still do not — but three other things they *do* say make that question
+almost irrelevant, and turn the USDG recommendation from a preference into the
+only path that works.
+
+**1. Gas is ETH-only with no fee abstraction at the protocol level.** So an
+address with zero ETH cannot send *any* transaction on chain 4663. Not a mint,
+not an approval, nothing.
+
+**2. Sponsorship requires a smart account — or a 7702-delegated EOA.** A plain
+EOA connected over WalletConnect cannot send a sponsored UserOp; the samples are
+`createSmartWalletClient` / `createKernelAccount`. EIP-7702 closes that gap, but
+only if **Robinhood Wallet will sign a 7702 authorization**, which is undocumented
+and is now the single highest-value thing to test on testnet 46630.
+
+**3. Robinhood's docs never explain how an empty address gets its first ETH.**
+The bridging page moves assets *from* Ethereum — which presupposes ETH on
+mainnet and an L1 gas payment. There is no documented bootstrap from zero.
+
+Put together: **for a Robinhood Wallet user holding stock tokens and no ETH, the
+only way they can participate at all is if somebody else submits the
+transaction.** That is precisely EIP-3009 `receiveWithAuthorization` — the user
+signs an authorization, our relayer pays the gas — and it is already written,
+reviewed and shipped in `SuwappuMembership`.
+
+So porting USDG payment into `SuwappuPositions` is not the nicer option. It is
+the only one that does not depend on an undocumented wallet capability or on the
+user having solved a bootstrapping problem Robinhood does not document.
+
+## Funding the first mile — we already own a route
+
+The bridging page names **LiFi and 0x aggregators** among the supported routes
+into Robinhood Chain, and `nft/position-cards/config.json` already carries
+`lifi_diamond: 0xB477751B76CF82d00a686A1232f5fCD772414Af3`. LiFi is already our
+aggregator across seven chains. So "fund your Robinhood Chain wallet" is not a
+new integration — it is the one we ship.
+
+Worth confirming LiFi actually routes *to* 4663 in their live token/chain list
+before promising it, since our own config has been ahead of reality before.
+
+## Two paths, and which user gets which
+
+| user | connection | pays with | gas |
+|---|---|---|---|
+| has Robinhood Wallet | WalletConnect deep link | USDG, EIP-3009 signature | our relayer |
+| no wallet at all | Turnkey passkey, one tap | USDG or sponsored | Alchemy Gas Manager, EntryPoint v0.8 |
+
+The second row is fully within reach today: we already ship Turnkey passkey
+wallets in webapp and terminal, those are smart accounts, and the bundler is the
+Alchemy endpoint we already hold a key for.
+
+## Test on testnet before committing the build order
+
+Chain 46630, RPC `https://rpc.testnet.chain.robinhood.com`, explorer
+`explorer.testnet.chain.robinhood.com`. Three things to establish with a real
+Robinhood Wallet, in priority order:
+
+1. Does it sign an **EIP-3009 authorization** (EIP-712 typed data)? If yes, the
+   whole flow works today with no wallet-specific dependency.
+2. Does it sign an **EIP-7702 authorization**? If yes, sponsored gas for the
+   Robinhood Wallet EOA too, and the relayer becomes optional.
+3. Does the **WalletConnect deep link** open it cleanly from mobile Safari and
+   Chrome, and does it return to the page after signing?
+
+Question 1 is the one the build depends on. Questions 2 and 3 make it better.
