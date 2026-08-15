@@ -359,6 +359,7 @@ class ReferralService:
         referee_id: int,
         swap_id: int,
         fee_amount_usd: float,
+        referrer_id_override: Optional[int] = None,
     ) -> Optional[ReferralReward]:
         """Record a referral reward when a referred user's swap reaches SUBMITTED status.
 
@@ -392,6 +393,17 @@ class ReferralService:
             referee_id: The user who made the swap
             swap_id: The swap transaction ID
             fee_amount_usd: Total Suwappu fee paid (USD), already net of any rebate
+            referrer_id_override: MONEY-PATH — for delayed orders (limit/DCA/
+                copy) that snapshotted a referrer at CREATION time (see
+                bot/services/fee_snapshot.py), pass it here so the reward is
+                credited to the referrer that was active when the order was
+                placed, not whatever is active now. When given, the active
+                Referral row must ALSO still point at this referrer or no
+                reward is recorded (conservative: never credits a referrer
+                the current relationship no longer names). When omitted
+                (default), behavior is unchanged — the referee's current
+                active Referral row is used, exactly as before this param
+                existed.
 
         Returns:
             ReferralReward if a reward was created (or already existed), else None.
@@ -408,12 +420,18 @@ class ReferralService:
                 # This prevents two concurrent swaps for the same referee from
                 # jointly computing a stale 30-day cap and both creating rewards
                 # that together exceed MAX_REWARD_PER_REFEREE_PER_30D_USD.
-                referral = (
-                    session.query(Referral)
-                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
-                    .with_for_update()
-                    .first()
+                referral_query = session.query(Referral).filter(
+                    Referral.referee_id == referee_id, Referral.is_active == True
                 )
+                if referrer_id_override is not None:
+                    # Only credit the snapshotted referrer — if the referee's
+                    # active referral relationship has since changed (or been
+                    # deactivated), skip the reward rather than credit the
+                    # wrong party.
+                    referral_query = referral_query.filter(
+                        Referral.referrer_id == referrer_id_override
+                    )
+                referral = referral_query.with_for_update().first()
 
                 if not referral:
                     return None

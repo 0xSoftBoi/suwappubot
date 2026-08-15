@@ -774,6 +774,21 @@ def _ensure_schema(db_engine) -> None:
     if "point_redemptions" in tables:
         _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
 
+    # --- Delayed-order fee-terms snapshot (fixes fee drift between order
+    # creation and delayed execution — limit/DCA/copy orders must honor the
+    # tier+fee+referrer resolved at creation time, not whatever is live when
+    # the order eventually fires). NULL means "no snapshot" (legacy open
+    # orders); execution code falls back to today's recompute-at-execution
+    # behavior for those rows. See bot/services/fee_snapshot.py.
+    #
+    # snipe_orders is deliberately excluded: the snipe path makes its own
+    # Jupiter calls instead of going through SwapEngine.get_quote(), so it
+    # cannot consume a snapshot. Adding the columns there would be schema that
+    # nothing writes and nothing reads.
+    for _order_table in ("limit_orders", "dca_orders", "copy_trades"):
+        if _order_table in tables:
+            _add_fee_snapshot_columns(db_engine, inspector, _order_table, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -2754,6 +2769,36 @@ def _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite: bool)
                 "ON recurring_subscriptions(status, next_charge_at)"
             )
         )
+
+
+def _add_fee_snapshot_columns(db_engine, inspector, table_name: str, is_sqlite: bool) -> None:
+    """Add fee_bps / fee_tier / referrer_id snapshot columns idempotently.
+
+    Applied to limit_orders, dca_orders, snipe_orders, copy_trades. All three
+    columns are nullable: NULL means "no snapshot was taken at creation"
+    (pre-existing open orders), and execution code must treat that as an
+    explicit fallback to the old recompute-at-execution-time behavior rather
+    than an accidental zero/None.
+    """
+    cols = {c["name"] for c in inspector.get_columns(table_name)}
+
+    new_columns = [
+        ("fee_bps", "INTEGER", "NULL"),
+        ("fee_tier", "VARCHAR(20)", "NULL"),
+        ("referrer_id", "INTEGER", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = (
+                    f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type} DEFAULT {default}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_copy_trade_paper_column(db_engine, inspector, is_sqlite: bool) -> None:

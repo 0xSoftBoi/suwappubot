@@ -48,6 +48,9 @@ class OrderService:
         trailing_percent: float,
         slippage: float = 0.5,
         expires_in_hours: int = None,
+        fee_bps: Optional[int] = None,
+        fee_tier: Optional[str] = None,
+        referrer_id: Optional[int] = None,
     ) -> LimitOrder:
         """Create a trailing stop loss order.
 
@@ -55,6 +58,12 @@ class OrderService:
         trigger is computed from highest_price_seen each poll cycle.
 
         # MONEY-PATH: trailing stop triggers sell execution
+
+        fee_bps/fee_tier/referrer_id: MONEY-PATH fee-terms snapshot resolved by
+        the caller via bot.services.fee_snapshot.snapshot_fee_terms() at
+        creation time. Left NULL when the caller doesn't provide them (legacy
+        behavior) — execution then falls back to resolving the live tier, same
+        as before this snapshot existed.
         """
         if not trailing_percent or trailing_percent <= 0:
             raise ValueError("trailing_percent must be positive")
@@ -73,6 +82,9 @@ class OrderService:
                 trailing_percent=trailing_percent,
                 highest_price_seen=None,
                 slippage=slippage,
+                fee_bps=fee_bps,
+                fee_tier=fee_tier,
+                referrer_id=referrer_id,
             )
             if expires_in_hours:
                 order.expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
@@ -96,8 +108,17 @@ class OrderService:
         trigger_price: float,
         slippage: float = 0.5,
         expires_in_hours: int = None,
+        fee_bps: Optional[int] = None,
+        fee_tier: Optional[str] = None,
+        referrer_id: Optional[int] = None,
     ) -> LimitOrder:
-        """Create a new limit order."""
+        """Create a new limit order.
+
+        fee_bps/fee_tier/referrer_id: MONEY-PATH fee-terms snapshot resolved by
+        the caller via bot.services.fee_snapshot.snapshot_fee_terms() at
+        creation time. Left NULL when not provided — execution then falls back
+        to resolving the live tier, matching pre-snapshot behavior.
+        """
         with get_session() as session:
             order = LimitOrder(
                 user_id=user_id,
@@ -110,6 +131,9 @@ class OrderService:
                 amount=amount,
                 trigger_price=trigger_price,
                 slippage=slippage,
+                fee_bps=fee_bps,
+                fee_tier=fee_tier,
+                referrer_id=referrer_id,
             )
 
             if expires_in_hours:
@@ -312,8 +336,19 @@ class OrderService:
         interval_hours: int,
         max_executions: int = None,
         ends_in_days: int = None,
+        fee_bps: Optional[int] = None,
+        fee_tier: Optional[str] = None,
+        referrer_id: Optional[int] = None,
     ) -> DCAOrder:
-        """Create a new DCA order."""
+        """Create a new DCA order.
+
+        fee_bps/fee_tier/referrer_id: MONEY-PATH fee-terms snapshot resolved by
+        the caller via bot.services.fee_snapshot.snapshot_fee_terms() at
+        creation time, honored at every scheduled execution instead of
+        re-pricing off the tier live at each fill. Left NULL when not
+        provided — execution then falls back to resolving the live tier,
+        matching pre-snapshot behavior.
+        """
         with get_session() as session:
             order = DCAOrder(
                 user_id=user_id,
@@ -326,6 +361,9 @@ class OrderService:
                 interval_hours=interval_hours,
                 next_execution_at=datetime.utcnow(),  # Execute first one immediately
                 max_executions=max_executions,
+                fee_bps=fee_bps,
+                fee_tier=fee_tier,
+                referrer_id=referrer_id,
             )
 
             if ends_in_days:
@@ -605,6 +643,10 @@ class OrderService:
                 from_address=wallet.address,
                 slippage=order.slippage,
                 user_id=order.user_id,
+                # MONEY-PATH: honor the fee quoted when the order was placed.
+                # None (legacy orders created before the snapshot existed) falls
+                # back to resolving the live tier, as before.
+                fee_bps_override=order.fee_bps,
             )
 
             # 3. Execute Swap
@@ -674,6 +716,10 @@ class OrderService:
                 amount=amount_human,
                 from_address=wallet.address,
                 user_id=order.user_id,
+                # MONEY-PATH: every leg of a DCA plan settles at the rate quoted
+                # when the plan was created. None = legacy plan, live-tier
+                # fallback.
+                fee_bps_override=order.fee_bps,
             )
 
             # 2. Execute Swap

@@ -1104,6 +1104,10 @@ class CopyService:
                 to_address=wallet.address,
                 slippage=slippage,
                 user_id=copy_trade.copier_id,
+                # MONEY-PATH: honor the fee terms snapshotted when this copy
+                # relationship was created. None = legacy row, live-tier
+                # fallback (pre-snapshot behavior).
+                fee_bps_override=copy_trade.fee_bps,
             )
 
             # Re-price the exact human input returned in the quote immediately

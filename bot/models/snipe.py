@@ -87,6 +87,18 @@ class SnipeOrder(Base):
     # Expiration
     expires_at = Column(DateTime, nullable=True)
 
+    # MONEY-PATH: fee-terms snapshot, taken at order creation and honored
+    # verbatim at execution (see bot/services/fee_snapshot.py). NULL on all
+    # three means "no snapshot was taken" — pre-existing/legacy orders — and
+    # execution code must explicitly fall back to the old recompute-at-
+    # execution-time (current tier/referrer) path rather than treating NULL
+    # NOTE: snipes deliberately carry NO fee-terms snapshot. The snipe path
+    # does not route through SwapEngine.get_quote() — it makes its own Jupiter
+    # calls — so it has no way to consume a snapshotted fee_bps. Adding the
+    # columns "for parity" would mean schema nothing writes and nothing reads.
+    # If a snipe platform-fee path is ever added, snapshot then (see
+    # bot/services/fee_snapshot.py and the limit/DCA/copy wiring).
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -222,6 +222,16 @@ class CopyTrade(Base):
     pnl_usd = Column(Float, nullable=True)
     paper_entry_price_usd = Column(Float, nullable=True)  # set when copy_mode == "paper"
 
+    # MONEY-PATH: fee-terms snapshot, taken when the copy trade row is created
+    # (i.e. when the leader's swap is detected, before the copier's swap is
+    # actually executed) and honored verbatim at execution (see
+    # bot/services/fee_snapshot.py). NULL on all three means "no snapshot" —
+    # pre-existing/legacy rows — and execution code must explicitly fall back
+    # to the old recompute-at-execution-time (current tier/referrer) path.
+    fee_bps = Column(Integer, nullable=True)
+    fee_tier = Column(String(20), nullable=True)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     copied_at = Column(DateTime, nullable=True)

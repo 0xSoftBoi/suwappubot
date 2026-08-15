@@ -249,6 +249,14 @@ async def dca_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     # amount matches what _execute_dca_order() decodes via get_token_decimals
     # (USDC = 6 on ethereum). Hardcoding 10**18 here caused a 10^12x mismatch.
     usdc_decimals = get_token_decimals("USDC", "ethereum")
+
+    # MONEY-PATH: freeze fee terms at creation — a DCA plan executes repeatedly
+    # over weeks, so re-resolving the tier per execution would silently reprice
+    # every leg of a plan the user agreed to once.
+    from bot.services.fee_snapshot import snapshot_fee_terms
+
+    fee_bps, fee_tier, referrer_id = await snapshot_fee_terms(user_id)
+
     order_service.create_dca_order(
         user_id=user_id,
         wallet_id=wallet.id,
@@ -258,6 +266,9 @@ async def dca_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         to_token=dca_token,
         amount_per_execution=str(int(dca_amount * 10**usdc_decimals)),
         interval_hours=dca_interval,
+        fee_bps=fee_bps,
+        fee_tier=fee_tier,
+        referrer_id=referrer_id,
     )
 
     await query.edit_message_text(
@@ -597,6 +608,14 @@ async def lo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     amount_raw = str(int(lo["amount_human"] * (10**decimals)))
 
     _order_type_map = {"buy": "limit_buy", "sell": "limit_sell", "stop": "stop_loss"}
+
+    # MONEY-PATH: freeze the fee terms the user is being quoted right now. The
+    # order may not fill for days; without this it would settle at whatever
+    # tier the user happens to hold at execution.
+    from bot.services.fee_snapshot import snapshot_fee_terms
+
+    fee_bps, fee_tier, referrer_id = await snapshot_fee_terms(user_id)
+
     order_service.create_limit_order(
         user_id=user_id,
         wallet_id=wallet.id,
@@ -607,6 +626,9 @@ async def lo_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         to_token=lo["to_token"],
         amount=amount_raw,
         trigger_price=lo["trigger_price"],
+        fee_bps=fee_bps,
+        fee_tier=fee_tier,
+        referrer_id=referrer_id,
     )
 
     await query.edit_message_text(

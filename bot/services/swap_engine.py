@@ -1235,6 +1235,7 @@ class SwapEngine:
         slippage: float = 0.5,
         platform_fee_bps: Optional[int] = None,
         user_id: Optional[int] = None,
+        fee_bps_override: Optional[int] = None,
     ) -> SwapQuote:
         """Get a quote, sharing an identical provider race already in flight.
 
@@ -1246,6 +1247,14 @@ class SwapEngine:
         A waiting caller is shielded from cancelling the shared task.  If the
         last waiter leaves, however, the provider race is cancelled and fully
         collected so a cancelled request cannot leave orphan network work.
+
+        Args:
+            fee_bps_override: MONEY-PATH — when set, honors a fee snapshotted
+                at delayed-order creation time (limit/DCA/copy) instead of
+                resolving the user's CURRENT tier via x402/fee_service.
+                Precedence: explicit platform_fee_bps (caller has already
+                fully decided the fee) > fee_bps_override > user_id tier
+                lookup > flat default. See bot/services/fee_snapshot.py.
         """
         key = (
             from_chain,
@@ -1258,6 +1267,7 @@ class SwapEngine:
             slippage,
             platform_fee_bps,
             user_id,
+            fee_bps_override,
         )
 
         # There is no await between lookup/create/increment, so this registry
@@ -1282,6 +1292,7 @@ class SwapEngine:
                         slippage=slippage,
                         platform_fee_bps=platform_fee_bps,
                         user_id=user_id,
+                        fee_bps_override=fee_bps_override,
                     )
                 )
             )
@@ -1313,6 +1324,7 @@ class SwapEngine:
         slippage: float = 0.5,
         platform_fee_bps: Optional[int] = None,
         user_id: Optional[int] = None,
+        fee_bps_override: Optional[int] = None,
     ) -> SwapQuote:
         """
         Get the best swap quote by racing all eligible providers in parallel.
@@ -1331,33 +1343,49 @@ class SwapEngine:
             user_id: When platform_fee_bps is not given, resolve the fee from this
                 user's subscription tier so paid tiers get their discount on
                 automated paths (copy, orders, etc.), not the flat default.
+            fee_bps_override: MONEY-PATH — when given (and platform_fee_bps is
+                not explicitly set), use this fee verbatim instead of resolving
+                the user's CURRENT tier. This is how delayed orders (limit/DCA/
+                copy) honor the fee snapshotted at creation time instead of
+                drifting to whatever tier is live when the order fires. See
+                bot/services/fee_snapshot.py.
 
         Returns:
             SwapQuote with best output amount from all providers
         """
         # Resolve the platform fee so EVERY swap path collects — not just the
-        # manual handler. Precedence: explicit platform_fee_bps > user's tier
-        # (via user_id) > flat default. The snipe path does NOT route through
-        # here (it has its own Jupiter calls), so it is not covered by this.
-        # On-chain collection is still gated per-provider on a configured
-        # collector, so this is a no-op until collectors are set.
+        # manual handler. Precedence: explicit platform_fee_bps > fee_bps_override
+        # (delayed-order snapshot) > user's CURRENT tier (via user_id) > flat
+        # default. The snipe path does NOT route through here (it has its own
+        # Jupiter calls), so it is not covered by this. On-chain collection is
+        # still gated per-provider on a configured collector, so this is a
+        # no-op until collectors are set.
         if platform_fee_bps is None:
-            from bot.services.fee_service import fee_service
+            if fee_bps_override is not None:
+                # Honor the snapshot: skip the live tier lookup entirely. This
+                # is the fix for fee drift between order creation and delayed
+                # execution — a NULL snapshot (legacy order) never reaches
+                # here because callers only pass fee_bps_override when they
+                # have a non-NULL value; NULL snapshots fall through to the
+                # tier-lookup branch below exactly as before.
+                platform_fee_bps = fee_bps_override
+            else:
+                from bot.services.fee_service import fee_service
 
-            tier = None
-            if user_id is not None:
-                try:
-                    from bot.services.x402_service import x402_service
+                tier = None
+                if user_id is not None:
+                    try:
+                        from bot.services.x402_service import x402_service
 
-                    tier = await x402_service.get_tier(user_id)
-                except Exception as e:
-                    # tier lookup failure → flat default, never block the quote
-                    logger.warning(
-                        f"x402 tier lookup failed for user_id={user_id}; "
-                        f"falling back to flat default fee: {e}"
-                    )
-                    tier = None
-            platform_fee_bps = fee_service.get_fee_bps(tier)
+                        tier = await x402_service.get_tier(user_id)
+                    except Exception as e:
+                        # tier lookup failure → flat default, never block the quote
+                        logger.warning(
+                            f"x402 tier lookup failed for user_id={user_id}; "
+                            f"falling back to flat default fee: {e}"
+                        )
+                        tier = None
+                platform_fee_bps = fee_service.get_fee_bps(tier)
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different
         # tiers (different fee) never collide.

@@ -124,6 +124,16 @@ class LimitOrder(Base):
     execution_price = Column(Float, nullable=True)
     tx_hash = Column(String(100), nullable=True)
 
+    # MONEY-PATH: fee-terms snapshot, taken at order creation and honored
+    # verbatim at execution (see bot/services/fee_snapshot.py). NULL on all
+    # three means "no snapshot was taken" — pre-existing open orders created
+    # before this migration — and execution code must explicitly fall back
+    # to the old recompute-at-execution-time (current tier/referrer) path
+    # rather than treating NULL as "zero fee" or "no referrer".
+    fee_bps = Column(Integer, nullable=True)  # fee in bps quoted at creation
+    fee_tier = Column(String(20), nullable=True)  # tier name at creation (audit only)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # referrer at creation
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -168,6 +178,15 @@ class DCAOrder(Base):
 
     # End conditions
     ends_at = Column(DateTime, nullable=True)
+
+    # MONEY-PATH: fee-terms snapshot, taken at order creation and honored
+    # verbatim at each scheduled execution (see bot/services/fee_snapshot.py).
+    # NULL on all three means "no snapshot" (pre-existing open orders) —
+    # execution falls back explicitly to the old recompute-at-execution-time
+    # behavior for those rows.
+    fee_bps = Column(Integer, nullable=True)
+    fee_tier = Column(String(20), nullable=True)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -235,6 +235,13 @@ class OrdersFlow(BaseWhatsAppFlow):
             if not wallet:
                 return FlowResponse("No active wallet. Use *wallets* to create one first.")
 
+            # MONEY-PATH: freeze the quoted fee terms at creation (see
+            # bot/services/fee_snapshot.py) so the order settles at the rate the
+            # user agreed to, not the tier they hold whenever it fills.
+            from bot.services.fee_snapshot import snapshot_fee_terms
+
+            fee_bps, fee_tier, referrer_id = await snapshot_fee_terms(db_uid)
+
             order = order_service.create_limit_order(
                 user_id=db_uid,
                 wallet_id=wallet.id,
@@ -245,6 +252,9 @@ class OrdersFlow(BaseWhatsAppFlow):
                 to_token=state.data.get("to_token"),
                 amount=state.data.get("amount"),
                 trigger_price=state.data.get("trigger_price"),
+                fee_bps=fee_bps,
+                fee_tier=fee_tier,
+                referrer_id=referrer_id,
             )
             type_label = {
                 "limit_buy": "Limit Buy",
@@ -467,6 +477,12 @@ class DCAFlow(BaseWhatsAppFlow):
             if not wallet:
                 return FlowResponse("No active wallet. Use *wallets* to create one first.")
 
+            # MONEY-PATH: freeze fee terms once, at plan creation — every future
+            # leg of this DCA plan settles against this snapshot.
+            from bot.services.fee_snapshot import snapshot_fee_terms
+
+            fee_bps, fee_tier, referrer_id = await snapshot_fee_terms(db_uid)
+
             dca = order_service.create_dca_order(
                 user_id=db_uid,
                 wallet_id=wallet.id,
@@ -476,6 +492,9 @@ class DCAFlow(BaseWhatsAppFlow):
                 to_token=state.data.get("to_token"),
                 amount_per_execution=state.data.get("amount"),
                 interval_hours=state.data.get("interval_hours"),
+                fee_bps=fee_bps,
+                fee_tier=fee_tier,
+                referrer_id=referrer_id,
             )
             return FlowResponse(
                 f"✅ *DCA Order Created!*\n\n"
