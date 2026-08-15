@@ -314,7 +314,7 @@ def test_no_dead_buttons():
     registered = ""
     for f in (root / "bot/main.py", *(root / "bot/handlers").glob("*.py")):
         registered += f.read_text()
-    patterns = set(re.findall(r'pattern="\^([a-z_]+)', registered))
+    patterns = set(re.findall(r'pattern=r?"\^([a-z_]+)', registered))
 
     # A callback is covered if an exact pattern exists OR a prefix pattern
     # (e.g. "pbuy_" covers "pbuy_custom") matches it.
