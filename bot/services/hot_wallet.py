@@ -355,6 +355,64 @@ class HotWalletService:
         with get_session() as session:
             return session.query(HotWallet).filter(HotWallet.id == wallet_id).first()
 
+    # Every wallet provisioned for internal use carries this prefix. It is a
+    # SAFETY boundary, not decoration: swap_engine (Tempo fee sponsor) and
+    # tempo_keychain / treasury_vault_service select operational wallets by
+    # EXACT NAME, so an internal wallet that happened to be called
+    # "tempo-sponsor" would be picked up and used to move real money. Reserving
+    # a prefix no operational lookup uses makes that collision impossible rather
+    # than unlikely.
+    INTERNAL_PREFIX = "internal/"
+
+    async def provision_internal_wallet(self, label: str, chain_type: str = "evm") -> HotWallet:
+        """Provision a wallet for internal use — testing, deploys, experiments.
+
+        Deliberately NOT create_hot_wallet's defaults. Both operational roles are
+        forced False, so nothing routes to this wallet: deposits go to the wallet
+        flagged is_deposit_wallet, gas to is_gas_payer, and this is neither. It
+        exists, Turnkey holds the key, and it does nothing until someone signs
+        with it on purpose.
+
+        The label is namespaced under INTERNAL_PREFIX and must be unique.
+        """
+        label = (label or "").strip().strip("/")
+        if not label:
+            raise ValueError("a label is required")
+        if "/" in label:
+            raise ValueError("label cannot contain '/' — it is reserved for the namespace")
+        if len(label) > 48:
+            raise ValueError("label too long (max 48)")
+        if chain_type not in ("evm", "solana"):
+            raise ValueError("chain_type must be 'evm' or 'solana'")
+
+        name = f"{self.INTERNAL_PREFIX}{label}"
+        with get_session() as session:
+            if session.query(HotWallet).filter(HotWallet.name == name).first():
+                raise ValueError(f"a wallet named '{name}' already exists")
+
+        return await self.create_hot_wallet(
+            name=name,
+            chain_type=chain_type,
+            is_deposit_wallet=False,
+            is_gas_payer=False,
+        )
+
+    def list_internal_wallets(self) -> list:
+        """Every internally-provisioned wallet, as plain dicts."""
+        with get_session() as session:
+            rows = (
+                session.query(HotWallet)
+                .filter(
+                    HotWallet.name.like(f"{self.INTERNAL_PREFIX}%"),
+                    HotWallet.is_active == True,  # noqa: E712
+                )
+                .all()
+            )
+            return [
+                {"name": w.name, "chain_type": w.chain_type, "address": w.address, "id": w.id}
+                for w in rows
+            ]
+
     def get_deposit_wallet(self, chain_type: str) -> Optional[HotWallet]:
         """Get the primary deposit wallet for a chain type."""
         with get_session() as session:

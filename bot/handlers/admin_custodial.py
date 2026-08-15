@@ -47,6 +47,31 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Admin access required.")
         return
 
+    # /hw new <label> [evm|solana] — provision an inert wallet for internal use.
+    args = context.args or []
+    if args and args[0].lower() == "new":
+        label = args[1] if len(args) > 1 else ""
+        chain = args[2].lower() if len(args) > 2 else "evm"
+        try:
+            wallet = await hot_wallet_service.provision_internal_wallet(label, chain)
+        except ValueError as e:
+            await update.message.reply_text(
+                f"❌ {e}\n\nUsage: `/hw new <label> [evm|solana]`", parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            logger.error(f"provision_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+        await update.message.reply_text(
+            f"✅ *Provisioned* `{wallet.name}`\n\n"
+            f"`{wallet.address}`\n\n"
+            "_Turnkey holds the key. No deposit or gas-payer role — nothing "
+            "routes here, so it is safe to fund._",
+            parse_mode="Markdown",
+        )
+        return
+
     with get_session() as session:
         wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
 
@@ -62,6 +87,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             for w in wallets
         ]
 
+    internal = hot_wallet_service.list_internal_wallets()
     lines = ["🔑 *Hot Wallet Management*\n"]
 
     if wallet_data:
@@ -79,6 +105,12 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
     else:
         lines.append("_No hot wallets configured._\n")
+
+    if internal:
+        lines.append("\n*Internal (no roles, nothing routes here)*")
+        for w in internal:
+            lines.append(f"`{w['name']}` ({w['chain_type']})\n`{w['address']}`")
+    lines.append("\n_Provision one:_ `/hw new <label> [evm|solana]`")
 
     keyboard = [
         [
