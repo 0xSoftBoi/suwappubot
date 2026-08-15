@@ -52,6 +52,20 @@ export function parseLimitParam(raw: string | undefined, def: number, max: numbe
 	return Math.min(parsed, max)
 }
 
+/**
+ * True when a history request is unanchored — no `cursor` to page from and no
+ * `start` bound — which is what a chart asking for "the last N points" sends.
+ *
+ * Those requests must return the NEWEST N rows. Reading `ORDER BY ts ASC LIMIT n`
+ * instead hands back the OLDEST n: with 53k one-minute candles stored, a
+ * limit=200 chart request rendered candles from a day and a half earlier while
+ * the newest was a minute old. Anchored requests (cursor / start) keep reading
+ * ascending so forward pagination is unchanged.
+ */
+function tailLatest(start: Date | null, cursorTs: Date | null): boolean {
+	return start === null && cursorTs === null
+}
+
 /** Opaque cursor codec — base64 of the last emitted row's ISO timestamp. */
 export function decodeCursor(raw: string | undefined): Date | null {
 	if (!raw) return null
@@ -191,6 +205,24 @@ async function fetchDbCandles(
 			if (start) conditions.push(gte(marketCandles.ts, start))
 			if (end) conditions.push(lte(marketCandles.ts, end))
 			if (cursorTs) conditions.push(gt(marketCandles.ts, cursorTs))
+
+			// "Give me N bars" must mean the LATEST N, not the oldest N. Paging
+			// forward (cursor) or an explicit `start` still reads ascending from
+			// that point; only the unanchored case flips to newest-first and is
+			// reversed back to chronological order for charting.
+			if (tailLatest(start, cursorTs)) {
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select()
+							.from(marketCandles)
+							.where(and(...conditions))
+							.orderBy(desc(marketCandles.ts))
+							.limit(limit),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				})
+				return rows.reverse()
+			}
 
 			return yield* Effect.tryPromise({
 				try: () =>
@@ -389,7 +421,8 @@ export async function getPerpHistory(
 						})
 						.from(perpMetrics)
 						.where(and(...conditions))
-						.orderBy(asc(perpMetrics.ts))
+						// Unanchored = newest N (see tailLatest); reversed below.
+						.orderBy(tailLatest(start, cursorTs) ? desc(perpMetrics.ts) : asc(perpMetrics.ts))
 						.limit(limit),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
@@ -398,7 +431,9 @@ export async function getPerpHistory(
 
 	if (Either.isLeft(result)) return Either.left(result.left)
 
-	const rows = result.right as PerpHistoryRow[]
+	const rows = (
+		tailLatest(start, cursorTs) ? [...(result.right as PerpHistoryRow[])].reverse() : result.right
+	) as PerpHistoryRow[]
 	const metrics = rows.map((row) => ({
 		ts: isoOf(row.ts),
 		funding_rate: row.fundingRate,
@@ -556,7 +591,13 @@ export async function getPredictionHistory(
 						})
 						.from(predictionSnapshots)
 						.where(and(...conditions))
-						.orderBy(asc(predictionSnapshots.outcome), asc(predictionSnapshots.ts))
+						// Unanchored = newest N (see tailLatest). Outcome stays the
+						// primary sort so the grouping below is unaffected; only the
+						// time direction flips, and rows are reversed after grouping.
+						.orderBy(
+							asc(predictionSnapshots.outcome),
+							tailLatest(start, cursorTs) ? desc(predictionSnapshots.ts) : asc(predictionSnapshots.ts),
+						)
 						.limit(limit),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
@@ -565,7 +606,12 @@ export async function getPredictionHistory(
 
 	if (Either.isLeft(result)) return Either.left(result.left)
 
-	const rows = result.right as PredictionHistoryRow[]
+	// Unanchored reads come back newest-first per outcome (see tailLatest);
+	// restore chronological order before grouping so each series charts left
+	// to right. The outcome grouping itself is order-independent.
+	const rows = (
+		tailLatest(start, cursorTs) ? [...(result.right as PredictionHistoryRow[])].reverse() : result.right
+	) as PredictionHistoryRow[]
 	const toPoint = (row: PredictionHistoryRow): PredictionHistoryPoint => ({
 		ts: isoOf(row.ts),
 		price: row.price,
@@ -710,7 +756,8 @@ export async function getLendHistory(
 						})
 						.from(lendMetrics)
 						.where(and(...conditions))
-						.orderBy(asc(lendMetrics.ts))
+						// Unanchored = newest N (see tailLatest); reversed below.
+						.orderBy(tailLatest(start, cursorTs) ? desc(lendMetrics.ts) : asc(lendMetrics.ts))
 						.limit(limit),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
@@ -719,7 +766,9 @@ export async function getLendHistory(
 
 	if (Either.isLeft(result)) return Either.left(result.left)
 
-	const rows = result.right as LendHistoryRow[]
+	const rows = (
+		tailLatest(start, cursorTs) ? [...(result.right as LendHistoryRow[])].reverse() : result.right
+	) as LendHistoryRow[]
 	const metrics = rows.map((row) => ({
 		ts: isoOf(row.ts),
 		supply_apy: row.supplyApy,

@@ -974,3 +974,63 @@ describe('GET /v1/data/metadata and /status — venue_datasets (Round 5)', () =>
 		expect(body.healthy).toBe(false)
 	})
 })
+
+// A chart asking for "the last N bars" sends no cursor and no start. That used
+// to read `ORDER BY ts ASC LIMIT n` — the OLDEST n — so with 53k one-minute
+// candles stored, a limit=200 request rendered candles a day and a half old
+// while the newest was a minute old. Unanchored reads now come back newest-first
+// from the DB and are reversed into chronological order for charting.
+describe('GET /v1/data/history/ohlcv — unanchored requests return the LATEST window', () => {
+	const rowAt = (iso: string) => ({
+		symbol: 'ETH',
+		chain: 'base',
+		timeframe: '1m',
+		ts: new Date(iso),
+		open: '100',
+		high: '110',
+		low: '90',
+		close: '105',
+		volume: null,
+		source: 'coingecko',
+	})
+
+	it('emits candles oldest→newest even though the DB returns them newest-first', async () => {
+		// What `ORDER BY ts DESC LIMIT n` hands back.
+		mockCandleRows = [
+			rowAt('2026-08-15T00:43:00Z'),
+			rowAt('2026-08-15T00:42:00Z'),
+			rowAt('2026-08-15T00:41:00Z'),
+		]
+
+		const res = await dataRoutes.request('/history/ohlcv?symbol=ETH&chain=base&timeframe=1m&limit=200', {
+			headers: AUTH_HEADERS,
+		})
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		const times = body.candles.map((c: any) => c.ts)
+		expect(times).toEqual([
+			'2026-08-15T00:41:00.000Z',
+			'2026-08-15T00:42:00.000Z',
+			'2026-08-15T00:43:00.000Z',
+		])
+		// Ascending, and the newest row survives the window rather than being cut.
+		expect(times[times.length - 1]).toBe('2026-08-15T00:43:00.000Z')
+	})
+
+	it('leaves an anchored request (cursor) reading forward in ascending order', async () => {
+		// Paging forward must NOT be reversed — it already reads ascending.
+		mockCandleRows = [rowAt('2026-08-15T00:41:00Z'), rowAt('2026-08-15T00:42:00Z')]
+		const cursor = Buffer.from('2026-08-15T00:40:00.000Z').toString('base64')
+
+		const res = await dataRoutes.request(
+			`/history/ohlcv?symbol=ETH&chain=base&timeframe=1m&limit=200&cursor=${encodeURIComponent(cursor)}`,
+			{ headers: AUTH_HEADERS },
+		)
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as any
+		expect(body.candles.map((c: any) => c.ts)).toEqual([
+			'2026-08-15T00:41:00.000Z',
+			'2026-08-15T00:42:00.000Z',
+		])
+	})
+})
