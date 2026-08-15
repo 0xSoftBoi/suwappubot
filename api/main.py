@@ -1252,6 +1252,30 @@ async def health_ready():
     )
 
 
+@app.get("/probe/wallet", tags=["Health"], summary="Wallet capability probe (static)")
+async def wallet_probe():
+    """Serve the Robinhood Wallet capability probe.
+
+    Answers the one question the USDG mint path depends on and that cannot be
+    settled by reasoning: will Robinhood Wallet sign an EIP-3009
+    ReceiveWithAuthorization? It must be opened on a PHONE, inside the wallet's
+    in-app browser, so it needs a real URL.
+
+    Lives in api/static/ deliberately: api/Dockerfile.railway copies only api/,
+    bot/ and database/, so the same file under nft/ would 404 in the container
+    while working perfectly on a laptop.
+
+    Static, read-only, no secrets, no state.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "wallet-probe.html")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            body = fh.read()
+    except OSError:
+        raise HTTPException(status_code=404, detail="probe not bundled in this image")
+    return Response(content=body, media_type="text/html; charset=utf-8")
+
+
 @app.get("/health", tags=["Health"], summary="Health check (legacy)")
 async def health_check():
     """Legacy alias for /health/ready — kept for backward compatibility."""
