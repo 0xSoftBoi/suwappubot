@@ -3161,9 +3161,35 @@ class SwapEngine:
         indexes pairs by WETH and returns "unknown pair" for the sentinel
         (verified live). Execution still uses the sentinel, per the docs.
         """
-        if not address or address == NATIVE_TOKEN_ADDRESS:
+        if not address or address.lower() == NATIVE_TOKEN_ADDRESS.lower():
             return PROPAMM_NATIVE_TOKEN
         return address
+
+    @staticmethod
+    def _propamm_effective_fee_bps(platform_fee_bps: Optional[int]) -> int:
+        """Effective on-chain FrontendFee bps for a PropAMM swap: 0 when no
+        fee is configured or no collector is set, otherwise the platform fee
+        clamped to the router's MAX_FEE_BPS (100 = 1%, reverts FeeBpsTooHigh
+        above). Clamping (rather than dropping the fee) keeps the quote race
+        and execution honest with each other: we race net of what we will
+        actually charge.
+        """
+        collector = settings.fee_collector_address
+        try:
+            if not platform_fee_bps or not collector or int(collector, 16) == 0:
+                return 0
+        except ValueError:
+            return 0
+        bps = int(platform_fee_bps)
+        if bps <= 0:
+            return 0
+        if bps > 100:
+            logger.warning(
+                f"PropAMM (Titan) platform fee {bps} bps exceeds the router's 100 bps "
+                "FrontendFee cap; clamping to 100"
+            )
+            return 100
+        return bps
 
     async def _get_propamm_quote(
         self,
@@ -3207,26 +3233,28 @@ class SwapEngine:
         if pamm_quote is None:
             raise SwapError(f"PropAMM (Titan) has no route for {from_token}→{to_token}")
 
-        to_amount_human = self._get_token_amount_human(pamm_quote.to_amount, to_token, to_chain)
+        # titan_getPammQuote knows nothing about our platform fee, so its
+        # amountOut is GROSS. Every other venue races net of the platform fee
+        # (KyberSwap chargeFeeBy, 0x swapFeeBps, 1inch fee) — net the quote
+        # here too, by the same effective bps execution will actually charge
+        # via swapWithFeeV1 (which skims the fee from the output token).
+        effective_fee_bps = self._propamm_effective_fee_bps(platform_fee_bps)
+        net_to_amount = int(pamm_quote.to_amount) * (10_000 - effective_fee_bps) // 10_000
+
+        to_amount_human = self._get_token_amount_human(str(net_to_amount), to_token, to_chain)
         exchange_rate = to_amount_human / amount if amount > 0 else 0
-        min_out = int(int(pamm_quote.to_amount) * (10_000 - slippage_bps) / 10_000)
+        # Integer floor division on purpose: float math at wei magnitudes can
+        # round the minimum UP, the unsafe direction for the user.
+        min_out = net_to_amount * (10_000 - slippage_bps) // 10_000
 
-        # No gas figure comes back from titan_getPammQuote. Best-effort
-        # estimate (Uniswap-V3-class swap gas units * live gas price *
-        # cached ETH price) mirrors the GOATSwap/JuiceSwap pattern — 0.0 =
-        # unknown (UI shows "varies"). gas_cost_trusted stays False either
-        # way, so this never dominates net-of-gas ranking.
-        gas_cost_usd = 0.0
-        try:
-            from bot.utils.cache import price_cache
-
-            eth_price = await price_cache.get("price_ETH") or await price_cache.get("price_WETH")
-            if eth_price:
-                web3 = rpc_manager.get_web3("ethereum")
-                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
-                gas_cost_usd = 220_000 * gas_price / 1e18 * float(eth_price)
-        except Exception as e:
-            logger.debug(f"PropAMM (Titan) gas cost estimate unavailable: {e}")
+        # No gas figure comes back from titan_getPammQuote, but the gas
+        # reservation is knowable: the tx is sent with the hardcoded
+        # PROPAMM_SWAP_GAS_LIMIT, so price exactly that. `trusted` is True
+        # only when gas price and native price were both live — otherwise
+        # (0.0, False) keeps this quote out of net-of-gas ranking.
+        gas_cost_usd, gas_trusted = await self._real_gas_cost_usd(
+            from_chain, PROPAMM_SWAP_GAS_LIMIT
+        )
 
         return SwapQuote(
             provider="propamm_titan",
@@ -3236,7 +3264,7 @@ class SwapEngine:
             to_token=to_token,
             from_amount=amount_raw,
             from_amount_human=amount,
-            to_amount=pamm_quote.to_amount,
+            to_amount=str(net_to_amount),
             to_amount_human=to_amount_human,
             to_amount_min=str(min_out),
             gas_cost_usd=gas_cost_usd,
@@ -3249,11 +3277,19 @@ class SwapEngine:
             raw_quote={
                 "propamm_quote": pamm_quote.raw_response,
                 "pamm": pamm_quote.pamm,
-                "router": pamm_quote.router,
+                # Compliance screening reads raw_quote["router"], and this is
+                # also the address funds are actually sent/approved to — pin
+                # it to our configured router, NOT the Titan-reported one
+                # (which is informational and caller-influenceable on the
+                # webapp execute path).
+                "router": settings.propamm_router_address,
+                "titan_router": pamm_quote.router,
                 "block_number": pamm_quote.block_number,
                 "slippage_bps": slippage_bps,
+                "gross_to_amount": pamm_quote.to_amount,
+                "effective_fee_bps": effective_fee_bps,
             },
-            gas_cost_trusted=False,
+            gas_cost_trusted=gas_trusted,
         )
 
     async def _get_usdt0_quote(
@@ -7393,6 +7429,13 @@ class SwapEngine:
         quote and broadcast), approve the router for token sells, then call
         swapV1/swapWithFeeV1.
         """
+        # Kill switch covers execution too: quote.provider is caller-supplied
+        # on the internal/webapp execute paths, and PropAMM needs no API key,
+        # so without this check flipping PROPAMM_ENABLED=false would stop
+        # quoting but not execution.
+        if not self.propamm_titan.is_configured:
+            raise SwapError("PropAMM (Titan) is disabled")
+
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
             raise SwapError("Wallet not found for signing")
@@ -7405,7 +7448,17 @@ class SwapEngine:
         if from_token_address is None or to_token_address is None:
             raise SwapError(f"Token not supported: {quote.from_token} or {quote.to_token}")
 
-        slippage_bps = int((quote.raw_quote or {}).get("slippage_bps", 50))
+        # raw_quote is caller-influenceable on the webapp execute path —
+        # validate and clamp rather than trusting it.
+        try:
+            slippage_bps = int((quote.raw_quote or {}).get("slippage_bps", 50))
+        except (TypeError, ValueError):
+            raise SwapError("PropAMM (Titan): invalid slippage_bps in quote")
+        slippage_bps = max(0, min(slippage_bps, 5_000))
+
+        effective_fee_bps = self._propamm_effective_fee_bps(quote.platform_fee_bps)
+        use_fee = effective_fee_bps > 0
+
         try:
             fresh_quote = await self.propamm_titan.get_quote(
                 token_in=self._to_propamm_token(from_token_address),
@@ -7418,7 +7471,13 @@ class SwapEngine:
         if fresh_quote is None:
             raise SwapError("PropAMM (Titan) has no route for this pair at execution time")
 
-        fresh_min_out = str(int(int(fresh_quote.to_amount) * (10_000 - slippage_bps) / 10_000))
+        # On-chain semantics: with swapWithFeeV1, amountOutMin is the NET
+        # minimum the recipient receives AFTER the fee (the contract grosses
+        # it back up internally), so the fee haircut must be applied before
+        # slippage. Integer floor division — float math at wei magnitudes can
+        # round the minimum up, the unsafe direction.
+        fresh_net = int(fresh_quote.to_amount) * (10_000 - effective_fee_bps) // 10_000
+        fresh_min_out = str(fresh_net * (10_000 - slippage_bps) // 10_000)
         self._assert_fresh_min_out_acceptable(quote, fresh_min_out, "PropAMM (Titan)")
 
         chain = get_chain_by_name(quote.from_chain)
@@ -7426,7 +7485,7 @@ class SwapEngine:
         sender = Web3.to_checksum_address(wallet_data["address"])
         router = Web3.to_checksum_address(settings.propamm_router_address)
 
-        is_native = from_token_address == NATIVE_TOKEN_ADDRESS
+        is_native = from_token_address.lower() == NATIVE_TOKEN_ADDRESS.lower()
         # The router accepts the standard native sentinel as tokenIn (payable,
         # msg.value == amountIn) per the docs. NOTE: this differs from the
         # quote RPC, which rejects the sentinel and only indexes pairs by
@@ -7437,7 +7496,11 @@ class SwapEngine:
             if is_native
             else Web3.to_checksum_address(from_token_address)
         )
-        swap_token_out = Web3.to_checksum_address(to_token_address)
+        # tokenOut needs the same native-sentinel mapping as tokenIn: the
+        # repo's native address (0x000…0) is not an ERC-20, and the router
+        # handles ETH_SENTINEL as tokenOut by unwrapping and delivering
+        # native ETH.
+        swap_token_out = Web3.to_checksum_address(self._to_propamm_token(to_token_address))
         amount_in = int(quote.from_amount)
 
         # ERC20 approval to the router for token sells (not native).
@@ -7525,19 +7588,10 @@ class SwapEngine:
 
         # Platform fee: swapWithFeeV1 when a fee is configured AND collectable
         # (mirrors the KyberSwap/0x fee gate — fee bps AND a real collector
-        # address must both be set), otherwise the plain swapV1. The contract
-        # caps FrontendFee.bps at 100 (1%) and reverts FeeBpsTooHigh above it,
-        # so an oversized platform fee falls back to feeless swapV1 rather than
-        # bricking every swap.
-        platform_fee_bps = quote.platform_fee_bps
-        collector = settings.fee_collector_address
-        use_fee = bool(platform_fee_bps and collector and 0 < int(platform_fee_bps) <= 100)
-        if platform_fee_bps and collector and int(platform_fee_bps) > 100:
-            logger.warning(
-                f"PropAMM (Titan) platform fee {platform_fee_bps} bps exceeds the router's "
-                "100 bps FrontendFee cap; executing via swapV1 without an on-chain fee"
-            )
-
+        # address must both be set), otherwise the plain swapV1. The
+        # effective bps (clamped to the router's 100 bps FrontendFee cap) was
+        # computed up front so the fresh minimum-out above already reflects
+        # the same fee the contract will charge.
         if use_fee:
             build_fn = router_contract.functions.swapWithFeeV1(
                 swap_token_in,
@@ -7546,7 +7600,7 @@ class SwapEngine:
                 amount_out_min,
                 sender,
                 deadline,
-                (int(platform_fee_bps), Web3.to_checksum_address(collector)),
+                (effective_fee_bps, Web3.to_checksum_address(settings.fee_collector_address)),
             )
         else:
             build_fn = router_contract.functions.swapV1(

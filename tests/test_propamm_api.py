@@ -194,3 +194,60 @@ async def test_get_quote_rejects_unparseable_amount_in():
     api = PropAMMAPI()
     with pytest.raises(PropAMMError):
         await api.get_quote(token_in=WETH, token_out=USDC, amount_in="not-a-number")
+
+
+# ---------------------------------------------------------------------------
+# Engine-side helpers guarding the money path (review findings regression).
+# ---------------------------------------------------------------------------
+
+
+def test_engine_maps_native_sentinel_case_insensitively():
+    from bot.services.swap_engine import NATIVE_TOKEN_ADDRESS, SwapEngine
+
+    assert SwapEngine._to_propamm_token(NATIVE_TOKEN_ADDRESS) == PROPAMM_NATIVE_TOKEN
+    assert SwapEngine._to_propamm_token(NATIVE_TOKEN_ADDRESS.upper().replace("0X", "0x")) == (
+        PROPAMM_NATIVE_TOKEN
+    )
+    assert SwapEngine._to_propamm_token(USDC) == USDC
+
+
+def test_effective_fee_bps_clamped_to_router_cap():
+    from bot.services.swap_engine import SwapEngine
+
+    collector = "0x00000000000000000000000000000000000000A1"
+    with patch("bot.services.swap_engine.settings") as mock_settings:
+        mock_settings.fee_collector_address = collector
+        # In-range fee passes through; above the router's 100 bps FrontendFee
+        # cap it clamps (still charged) instead of silently dropping the fee.
+        assert SwapEngine._propamm_effective_fee_bps(30) == 30
+        assert SwapEngine._propamm_effective_fee_bps(100) == 100
+        assert SwapEngine._propamm_effective_fee_bps(250) == 100
+        assert SwapEngine._propamm_effective_fee_bps(0) == 0
+        assert SwapEngine._propamm_effective_fee_bps(None) == 0
+
+        # Zero-address collector would revert ZeroAddress() on-chain — no fee.
+        mock_settings.fee_collector_address = "0x" + "0" * 40
+        assert SwapEngine._propamm_effective_fee_bps(100) == 0
+
+        mock_settings.fee_collector_address = None
+        assert SwapEngine._propamm_effective_fee_bps(100) == 0
+
+
+def test_net_min_out_applies_fee_before_slippage_with_floor_division():
+    # swapWithFeeV1 treats amountOutMin as NET after fee (the contract
+    # grosses it back up), so the engine must haircut fee first, then
+    # slippage, with integer floor division at every step.
+    gross = 1_880_775_773  # ~1880.78 USDC, the live-verified 1 WETH quote
+    fee_bps, slippage_bps = 100, 50
+    net = gross * (10_000 - fee_bps) // 10_000
+    min_out = net * (10_000 - slippage_bps) // 10_000
+    assert net == 1_861_968_015
+    assert min_out == 1_852_658_174
+    # min_out is strictly below net (slippage) and the contract's gross-up of
+    # min_out stays at-or-below the quoted gross, so an unmoved market fills.
+    assert min_out < net
+    assert -(-min_out * 10_000 // (10_000 - fee_bps)) <= gross  # ceilDiv grossUp
+    # The old (buggy) gross-based minimum would exceed the contract's
+    # grossed-up requirement and revert every fee-charging swap:
+    gross_based_min = gross * (10_000 - slippage_bps) // 10_000
+    assert gross_based_min * 10_000 > (10_000 - fee_bps) * gross  # grossUp(min) > bestQuote
