@@ -399,6 +399,37 @@ class TestRankQuotes:
         assert out_price is None  # absurd-gas guard tripped -> gross fallback
         assert best.provider == "lifi"  # gross: 100 > 90
 
+    def test_propamm_titan_wins_on_gross_output_no_usd_fields(self):
+        """PropAMM (Titan) never exposes a USD price field in raw_quote (no
+        provider-reported figure — see _get_propamm_quote), and its gas is
+        never trusted (no gas data comes back from titan_getPammQuote). With
+        no USD price derivable anywhere in the race, ranking falls back to
+        gross output — the higher PropAMM figure should win."""
+        propamm_q = _quote(
+            "propamm_titan",
+            to_amount_human=101.0,
+            gas_cost_usd=0.0,
+            gas_cost_trusted=False,
+        )
+        lifi_q = _quote(
+            "lifi",
+            to_amount_human=100.0,
+            gas_cost_usd=1.0,
+            gas_cost_trusted=False,
+        )
+
+        best = _rank_quotes([propamm_q, lifi_q])
+        assert best.provider == "propamm_titan"
+
+    def test_propamm_titan_loses_on_gross_output(self):
+        propamm_q = _quote(
+            "propamm_titan", to_amount_human=95.0, gas_cost_usd=0.0, gas_cost_trusted=False
+        )
+        lifi_q = _quote("lifi", to_amount_human=100.0, gas_cost_usd=0.0, gas_cost_trusted=False)
+
+        best = _rank_quotes([propamm_q, lifi_q])
+        assert best.provider == "lifi"
+
     def test_wormhole_excluded_unless_sole_quote(self):
         wormhole_q = _quote("wormhole", to_amount_human=1000.0)  # optimistic 1:1, would "win" gross
         real_q = _quote("lifi", to_amount_human=90.0)

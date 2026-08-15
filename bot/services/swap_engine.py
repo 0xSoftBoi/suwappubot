@@ -143,6 +143,12 @@ RESET_REQUIRED_TOKENS = {
     "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
 }
 
+# Hardcoded gas limit for PropAMMRouter swaps. The router re-quotes every
+# whitelisted venue plus the Uniswap V3 fallback inside the swap tx, so the
+# executed branch can be heavier than the estimated one; the official propamm
+# SDK uses ~800k for this path and skips estimation entirely.
+PROPAMM_SWAP_GAS_LIMIT = 900_000
+
 # Minimal inline ABI for the Titan Builder PropAMMRouter proxy (verified
 # on-chain — see bot/services/propamm_api.py module docstring). No calldata
 # comes back from the quote RPC, so execution builds it directly against
@@ -7519,10 +7525,18 @@ class SwapEngine:
 
         # Platform fee: swapWithFeeV1 when a fee is configured AND collectable
         # (mirrors the KyberSwap/0x fee gate — fee bps AND a real collector
-        # address must both be set), otherwise the plain swapV1.
+        # address must both be set), otherwise the plain swapV1. The contract
+        # caps FrontendFee.bps at 100 (1%) and reverts FeeBpsTooHigh above it,
+        # so an oversized platform fee falls back to feeless swapV1 rather than
+        # bricking every swap.
         platform_fee_bps = quote.platform_fee_bps
         collector = settings.fee_collector_address
-        use_fee = bool(platform_fee_bps and collector and int(platform_fee_bps) > 0)
+        use_fee = bool(platform_fee_bps and collector and 0 < int(platform_fee_bps) <= 100)
+        if platform_fee_bps and collector and int(platform_fee_bps) > 100:
+            logger.warning(
+                f"PropAMM (Titan) platform fee {platform_fee_bps} bps exceeds the router's "
+                "100 bps FrontendFee cap; executing via swapV1 without an on-chain fee"
+            )
 
         if use_fee:
             build_fn = router_contract.functions.swapWithFeeV1(
@@ -7551,14 +7565,24 @@ class SwapEngine:
             "value": value,
         }
 
-        gas_estimate = 300_000
+        # Do NOT trust node gas estimation for the gas limit: the router
+        # re-quotes every venue in-tx and can take a heavier branch at
+        # execution than at estimation time (e.g. dropping into the Uniswap V3
+        # fallback), so an estimate under-shoots and the swap runs out of gas.
+        # The official propamm SDK hardcodes per-function limits (~800k for the
+        # all-venues swapV1 path); we still run estimate_gas as a pre-flight
+        # revert check, but floor the limit at PROPAMM_SWAP_GAS_LIMIT.
+        gas_limit = PROPAMM_SWAP_GAS_LIMIT
         try:
             gas_estimate = await asyncio.to_thread(lambda: build_fn.estimate_gas(tx_params))
-            gas_estimate = int(gas_estimate * 1.3)
+            gas_limit = max(int(gas_estimate * 1.3), PROPAMM_SWAP_GAS_LIMIT)
         except Exception as e:
-            logger.warning(f"PropAMM (Titan) gas estimate failed, using default 300k: {e}")
+            logger.warning(
+                f"PropAMM (Titan) pre-flight gas estimate failed, "
+                f"using hardcoded {PROPAMM_SWAP_GAS_LIMIT}: {e}"
+            )
 
-        tx = build_fn.build_transaction({**tx_params, "gas": gas_estimate})
+        tx = build_fn.build_transaction({**tx_params, "gas": gas_limit})
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
         tx_hash = await asyncio.to_thread(
