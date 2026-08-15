@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -39,12 +41,36 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///      USD-cent mint price into wei at purchase time. Robinhood Chain publishes
 ///      ETH/USD at 0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9 (8 decimals,
 ///      verified live).
-interface AggregatorV3Interface {
-    function decimals() external view returns (uint8);
-    function latestRoundData()
-        external
-        view
-        returns (uint80, int256, uint256, uint256, uint80);
+/// @dev EIP-3009, which USDG ("Global Dollar") implements — the same rail
+///      SuwappuMembership already settles subscriptions on.
+///
+///      This collection is priced in USDG rather than ETH because of who mints
+///      it. A Robinhood Wallet user arrives holding tokenized equities and
+///      USDG; gas on chain 4663 is ETH and only ETH, the chain publishes no
+///      protocol-level fee abstraction, and Robinhood documents no way for an
+///      empty address to obtain its first ETH. Charging in ETH therefore
+///      required that user to solve a bootstrapping problem nobody documents,
+///      just to buy a card.
+///
+///      With `receiveWithAuthorization` they sign once and a relayer submits,
+///      so minting costs them no ETH at all. `receiveWithAuthorization`, NOT
+///      `transferWithAuthorization`: USDG requires `to == msg.sender`, which
+///      makes this contract the only address able to settle the authorization.
+///      With the transfer variant any observer could front-run settlement,
+///      burning the single-use nonce and moving the payer's USDG while no card
+///      was ever minted.
+interface IERC3009 {
+    function receiveWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
 }
 
 interface IPositionOracle {
@@ -58,6 +84,7 @@ interface IPositionOracle {
 }
 
 contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
+    using SafeERC20 for IERC20;
     uint256 public constant MAX_SUPPLY = 10_000;
     uint256 public constant TICKER_COUNT = 35;
     uint256 public constant MAX_PER_WALLET = 50;
@@ -112,35 +139,21 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     // the whole mint whenever ETH moves — a 20% ETH rally makes a "$20 card"
     // cost $24 without anyone touching the contract. The card is quoted in
     // dollars, so it should be charged in dollars.
-    AggregatorV3Interface public ethUsdFeed;
-    /// @dev `decimals()` cached at set time. Reading it inside `ethUsd()` put an
-    ///      external call in the SUCCESS BODY of the try, not in the tried call,
-    ///      so a feed whose `decimals()` reverted propagated straight out —
-    ///      bricking `mint()`, `quote()` and `mintState()`, which is exactly what
-    ///      the bounded fallback exists to prevent. Now a feed that cannot
-    ///      answer `decimals()` is rejected at `setEthUsdFeed` instead.
-    uint8 public ethUsdFeedDecimals;
-    /// @dev Sanity band on the feed. A compromised or misconfigured aggregator
-    ///      reporting $0.01 or $1e9 must not let the mint be bought for dust or
-    ///      become unbuyable — outside the band we fall back to a fixed wei price.
-    uint256 public constant MIN_ETH_USD_8DP = 100e8; // $100
-    uint256 public constant MAX_ETH_USD_8DP = 100_000e8; // $100k
-    uint256 public constant MAX_FEED_AGE = 3 hours;
-    /// @notice Used when the feed is stale or out of band. Bounded so a fallback
-    ///         can never be set to an extractive number.
-    uint256 public fallbackWeiPerUsdCent;
+    /// @notice USDG, the chain's anchor stable and what a Robinhood Wallet user
+    ///         actually holds. Set post-deploy so the constructor signature and
+    ///         deploy args stay unchanged.
+    IERC20 public usdg;
+    IERC3009 private _usdg3009;
+    /// @notice Where mint proceeds are swept. Read from storage at settlement,
+    ///         never signed over, so a rotation between signing and settlement
+    ///         routes to the new address instead of paying the old one.
+    address public treasury;
 
-    /// @notice Last ETH/USD (8dp) the feed reported in-band, and when. Written on
-    ///         every mint, so an outage prices against the last price the market
-    ///         actually printed rather than a constant the owner set months ago.
-    /// @dev    Packed into one slot. The flat `fallbackWeiPerUsdCent` is only
-    ///         correct at the ETH price it was configured for, yet it engaged
-    ///         precisely when ETH had MOVED: set for $3,000, an ETH drop to $99
-    ///         put the feed out of band and sold $20 cards for $0.66 — the
-    ///         remaining supply sweeping for 3% of intended. This cache bounds
-    ///         that to however far ETH moves inside MAX_LAST_GOOD_AGE.
-    uint192 public lastGoodEthUsd8dp;
-    uint64 public lastGoodAt;
+    /// @notice Per-payer counter binding an authorization to one specific mint.
+    ///         Without it a signed authorization could be replayed against a
+    ///         different phase, ticker or quantity than the payer agreed to.
+    mapping(address => uint256) public mintSeq;
+
     /// @notice How long a cached price may be used once the feed goes bad.
     uint256 public constant MAX_LAST_GOOD_AGE = 7 days;
     uint256 public constant MAX_FALLBACK_WEI_PER_CENT = 1e15; // $1 <= 0.1 ETH
@@ -213,7 +226,8 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     error EndAlreadyAnnounced();
     error InvalidEndTime();
     error FallbackOutOfBand();
-    error RefundFailed();
+    error IntentMismatch();
+    error PaymentNotConfigured();
     error BadFeed();
     error PriceZero();
     error UnpricedAtMint();
@@ -254,6 +268,43 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     ///
     /// @dev   A zero oracle price is stamped as 0 rather than reverting, so an
     ///        oracle outage cannot brick the mint.
+    struct Authorization {
+        address from;
+        uint256 value;
+        uint256 validAfter;
+        uint256 validBefore;
+        bytes32 nonce;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
+
+    /// @notice The nonce a payer must sign for one specific mint.
+    /// @dev    Binds the authorization to the phase, ticker and quantity agreed
+    ///         to, plus a per-payer sequence. A signature for "1 AAPL card in
+    ///         Public" cannot be settled as "5 NVDA cards", and it cannot be
+    ///         replayed once `mintSeq` advances.
+    function mintNonce(address payer, Phase phase, uint8 tickerIndex, uint256 quantity, uint256 seq)
+        public
+        view
+        returns (bytes32)
+    {
+        return keccak256(
+            abi.encode(
+                "SUWAPPU_POSITIONS_MINT_V1",
+                block.chainid,
+                address(this),
+                payer,
+                phase,
+                tickerIndex,
+                quantity,
+                seq
+            )
+        );
+    }
+
+    /// @notice Mint from a FREE phase. Reverts on any priced phase — paid mints
+    ///         go through `mintWithAuthorization` so the payer never needs ETH.
     function mint(
         Phase phase,
         uint8 tickerIndex,
@@ -261,7 +312,69 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         uint256 maxQty,
         bytes32[] calldata proof,
         bool allowUnpriced
-    ) external payable nonReentrant {
+    ) external nonReentrant {
+        if (phaseConfig[phase].price != 0) revert WrongPayment();
+        _mintChecked(msg.sender, phase, tickerIndex, quantity, maxQty, proof, allowUnpriced);
+    }
+
+    /// @notice Mint a priced phase by EIP-3009 authorization. The payer signs;
+    ///         anyone may submit. Costs the payer no ETH, which is the only way
+    ///         a wallet holding stock tokens and no ETH can mint at all.
+    function mintWithAuthorization(
+        Phase phase,
+        uint8 tickerIndex,
+        uint256 quantity,
+        uint256 maxQty,
+        bytes32[] calldata proof,
+        bool allowUnpriced,
+        Authorization calldata auth
+    ) external nonReentrant {
+        if (address(_usdg3009) == address(0) || treasury == address(0)) {
+            revert PaymentNotConfigured();
+        }
+        PhaseConfig memory cfg = phaseConfig[phase];
+        if (cfg.price == 0) revert WrongPayment();
+        if (auth.value != usdgCost(uint256(cfg.price), quantity)) revert WrongPayment();
+
+        uint256 seq = mintSeq[auth.from];
+        if (auth.nonce != mintNonce(auth.from, phase, tickerIndex, quantity, seq)) {
+            revert IntentMismatch();
+        }
+        // Effect before interaction: burn the seq so this authorization cannot be
+        // re-presented and the payer's next mint derives a fresh nonce.
+        unchecked {
+            mintSeq[auth.from] = seq + 1;
+        }
+
+        // `to` is address(this), which USDG enforces equals msg.sender — only
+        // this contract can settle, so payment and card are atomic.
+        _usdg3009.receiveWithAuthorization(
+            auth.from,
+            address(this),
+            auth.value,
+            auth.validAfter,
+            auth.validBefore,
+            auth.nonce,
+            auth.v,
+            auth.r,
+            auth.s
+        );
+        usdg.safeTransfer(treasury, auth.value);
+
+        // The PAYER is the minter, never msg.sender: the submitter is a relayer
+        // and must not be able to mint a card the payer bought to itself.
+        _mintChecked(auth.from, phase, tickerIndex, quantity, maxQty, proof, allowUnpriced);
+    }
+
+    function _mintChecked(
+        address minter,
+        Phase phase,
+        uint8 tickerIndex,
+        uint256 quantity,
+        uint256 maxQty,
+        bytes32[] calldata proof,
+        bool allowUnpriced
+    ) internal {
         if (phase == Phase.Closed) revert BadPhase();
         if (!registrySealed) revert RegistryNotSealed();
         if (quantity == 0) revert ZeroQuantity();
@@ -275,70 +388,33 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (cfg.startsAt == 0 || block.timestamp < cfg.startsAt) revert PhaseNotOpen();
         if (cfg.endsAt != 0 && block.timestamp > cfg.endsAt) revert PhaseNotOpen();
 
-        // USD-denominated: convert at purchase time and REFUND the remainder.
-        // Requiring an exact wei amount against a moving feed would make most
-        // transactions revert on a price tick between quoting and mining.
-        _cacheEthUsd();
-        uint256 cost = _weiForCents(uint256(cfg.price) * quantity);
-        if (msg.value < cost) revert WrongPayment();
-
         // A card whose entry price stamps as 0 is permanently defective: the
         // basis is written once, there is no restamp, and returnBps() reports
-        // (0,false) forever. `priceOf` returns 0 whenever the sequencer is
-        // down, the token's oracle is paused, or the round is older than
-        // maxAge — and maxAge is 3 days against a 24/5 equity feed, so a long
-        // weekend plus a market holiday is ~89h and clears it for all 35
-        // tickers at once.
-        //
-        // Not bricking the mint during an outage is the right goal, but selling
-        // a defective card at full price is the wrong way to reach it. A PAID
-        // mint now reverts unless the buyer explicitly opts in; a free phase is
-        // unaffected, and `allowUnpriced` keeps the escape hatch open for
-        // anyone who genuinely wants the token regardless.
-        // GAS: read the oracle ONCE and reuse it for both the guard and the
-        // stamp. These were two separate `_oraclePrice` calls — each an external
-        // staticcall into the oracle, which staticcalls the Chainlink aggregator
-        // in turn — for a value that cannot change between them. Nothing between
-        // here and the stamp writes state the oracle reads.
+        // (0,false) forever. A PAID mint reverts unless the buyer explicitly
+        // opts in; a free phase is unaffected.
         uint256 entry = _oraclePrice(tickerIndex);
-        if (cfg.price != 0 && !allowUnpriced && entry == 0) {
-            revert UnpricedAtMint();
-        }
+        if (cfg.price != 0 && !allowUnpriced && entry == 0) revert UnpricedAtMint();
 
         // Allowlisted phase: prove membership and respect the per-address grant.
         if (cfg.merkleRoot != bytes32(0)) {
-            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(msg.sender, maxQty))));
+            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(minter, maxQty))));
             if (!MerkleProof.verify(proof, cfg.merkleRoot, leaf)) revert NotAllowlisted();
-            if (mintedInPhase[phase][msg.sender] + quantity > maxQty) {
-                revert WalletLimitExceeded();
-            }
+            if (mintedInPhase[phase][minter] + quantity > maxQty) revert WalletLimitExceeded();
         }
 
-        if (cfg.walletCap != 0 && mintedInPhase[phase][msg.sender] + quantity > cfg.walletCap) {
+        if (cfg.walletCap != 0 && mintedInPhase[phase][minter] + quantity > cfg.walletCap) {
             revert WalletLimitExceeded();
         }
-        // Hard backstop across every phase. MAX_PER_WALLET was declared and then
-        // never read by mint(), so it documented a limit the contract did not
-        // have — and `walletCap == 0` means "no cap", so a misconfigured phase
-        // was unbounded per wallet. Now the constant is the floor under any
-        // configuration mistake.
-        if (minted[msg.sender] + quantity > MAX_PER_WALLET) revert WalletLimitExceeded();
+        if (minted[minter] + quantity > MAX_PER_WALLET) revert WalletLimitExceeded();
         if (cfg.allocation != 0 && phaseMinted[phase] + quantity > cfg.allocation) {
             revert PhaseAllocationExhausted();
         }
         if (totalSupply + quantity > MAX_SUPPLY) revert SoldOut();
         if (tickerMinted[tickerIndex] + quantity > tickerCap[tickerIndex]) revert TickerSoldOut();
 
-        mintedInPhase[phase][msg.sender] += quantity;
+        mintedInPhase[phase][minter] += quantity;
         phaseMinted[phase] += quantity;
-        _mintRun(msg.sender, tickerIndex, quantity, entry);
-
-        // Refund last, after all state is written (CEI).
-        uint256 refund = msg.value - cost;
-        if (refund > 0) {
-            (bool ok,) = msg.sender.call{ value: refund }("");
-            if (!ok) revert RefundFailed();
-        }
+        _mintRun(minter, tickerIndex, quantity, entry);
     }
 
     /// @notice Treasury / airdrop mint, bounded by RESERVE_MAX.
@@ -436,8 +512,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         bool live;
         bool requiresProof;
         uint96 priceUsdCents;
-        uint256 priceWei; // for `quantity` = 1
-        bool pricedByFeed; // false == bounded fallback in force
+        uint256 priceUsdg; // for `quantity` = 1, 6dp
         uint64 startsAt;
         uint64 endsAt;
         uint16 walletCap;
@@ -470,13 +545,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         st.allocation = cfg.allocation;
         st.phaseMintedSoFar = phaseMinted[phase];
 
-        (, uint8 priceSource) = effectiveEthUsd();
-        // `pricedByFeed` stays strictly "the live feed answered" so a UI can
-        // still flag degraded pricing; source 1 (cached last-good) is degraded.
-        st.pricedByFeed = priceSource == 0;
-        if (priceSource != 2 || fallbackWeiPerUsdCent != 0) {
-            st.priceWei = _weiForCents(uint256(cfg.price));
-        }
+        st.priceUsdg = usdgCost(uint256(cfg.price), 1);
 
         st.isPaused = paused;
         st.closedForever = mintingClosedForever;
@@ -508,71 +577,22 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     /// @notice Wei cost of `quantity` cards in `phase`, at the current ETH/USD.
     ///         Public so a UI shows the exact number the transaction will charge
     ///         instead of guessing.
+    /// @notice Cost of `quantity` cards in USDG (6dp).
     function quote(Phase phase, uint256 quantity) public view returns (uint256) {
-        return _weiForCents(uint256(phaseConfig[phase].price) * quantity);
+        return usdgCost(uint256(phaseConfig[phase].price), quantity);
     }
 
-    /// @notice Live ETH/USD used for pricing, 8dp, and whether it came from the
-    ///         feed (false == the bounded fallback is in force).
-    function ethUsd() public view returns (uint256 price8dp, bool fromFeed) {
-        AggregatorV3Interface feed = ethUsdFeed;
-        if (address(feed) == address(0)) return (0, false);
-        try feed.latestRoundData() returns (uint80, int256 answer, uint256, uint256 updatedAt, uint80) {
-            if (answer <= 0) return (0, false);
-            uint256 p = uint256(answer);
-            uint8 dec = ethUsdFeedDecimals;
-            if (dec < 8) p *= 10 ** (8 - dec);
-            if (dec > 8) p /= 10 ** (dec - 8);
-            if (p < MIN_ETH_USD_8DP || p > MAX_ETH_USD_8DP) return (0, false);
-            // A round that never happened, or one stamped in the future, is not
-            // fresh — it is broken. Skipping the staleness check whenever
-            // `updatedAt > block.timestamp` let such a feed read fresh forever.
-            if (updatedAt == 0 || updatedAt > block.timestamp) return (0, false);
-            if (block.timestamp - updatedAt > MAX_FEED_AGE) return (0, false);
-            return (p, true);
-        } catch {
-            return (0, false);
-        }
+    /// @notice USD cents -> USDG base units. USDG is 6dp, so one cent is 1e4.
+    /// @dev    No oracle, no feed, no staleness, no refund. The price is fixed
+    ///         in the unit it is quoted in, which is the whole reason to charge
+    ///         in a dollar stablecoin rather than in ETH.
+    function usdgCost(uint256 cents, uint256 quantity) public pure returns (uint256) {
+        return cents * quantity * 1e4;
     }
 
-    /// @notice The ETH/USD (8dp) pricing will actually use, and where it came
-    ///         from. `source`: 0 = live feed, 1 = cached last-good, 2 = none.
-    function effectiveEthUsd() public view returns (uint256 price8dp, uint8 source) {
-        (uint256 p, bool ok) = ethUsd();
-        if (ok) return (p, 0);
-        uint256 cached = lastGoodEthUsd8dp;
-        if (cached != 0 && block.timestamp - lastGoodAt <= MAX_LAST_GOOD_AGE) {
-            return (cached, 1);
-        }
-        return (0, 2);
-    }
 
-    function _weiForCents(uint256 cents) internal view returns (uint256) {
-        if (cents == 0) return 0;
-        // Ladder, most trustworthy first: live feed, then the last price the feed
-        // actually printed in-band, and only then the owner's flat constant.
-        (uint256 price8dp, uint8 source) = effectiveEthUsd();
-        if (source != 2) {
-            // cents -> wei: (cents / 100) USD * 1e18 / (price8dp / 1e8)
-            return (cents * 1e18 * 1e8) / (price8dp * 100);
-        }
-        uint256 fb = fallbackWeiPerUsdCent;
-        if (fb == 0) revert PriceNotConfigured();
-        return cents * fb;
-    }
 
-    /// @dev Called from the non-view mint paths. Cheap when the feed is healthy
-    ///      and the slot is already warm; the point is that an outage inherits a
-    ///      real market price instead of a stale constant.
-    function _cacheEthUsd() internal {
-        (uint256 p, bool ok) = ethUsd();
-        if (ok && p != lastGoodEthUsd8dp) {
-            lastGoodEthUsd8dp = uint192(p); // < MAX_ETH_USD_8DP, cannot truncate
-            lastGoodAt = uint64(block.timestamp);
-        } else if (ok) {
-            lastGoodAt = uint64(block.timestamp);
-        }
-    }
+
 
     /// @dev The multiplier in force for `tickerIndex` right now. 1e18 when the
     ///      oracle is unset or the token does not publish one, so every ratio
@@ -769,30 +789,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         emit RegistrySealed();
     }
 
-    /// @dev Rejects a feed that cannot answer `decimals()`, and caches the
-    ///      answer so `ethUsd()` never makes an untried external call.
-    function setEthUsdFeed(address feed) external onlyOwner {
-        if (feed != address(0)) {
-            try AggregatorV3Interface(feed).decimals() returns (uint8 dec) {
-                if (dec > 36) revert BadFeed();
-                ethUsdFeedDecimals = dec;
-            } catch {
-                revert BadFeed();
-            }
-        } else {
-            ethUsdFeedDecimals = 0;
-        }
-        ethUsdFeed = AggregatorV3Interface(feed);
-        emit EthUsdFeedSet(feed);
-    }
 
-    /// @notice Wei charged per USD cent when the feed is unusable. Bounded, so a
-    ///         fallback can never be set to an extractive number.
-    function setFallbackWeiPerUsdCent(uint256 weiPerCent) external onlyOwner {
-        if (weiPerCent > MAX_FALLBACK_WEI_PER_CENT) revert FallbackOutOfBand();
-        fallbackWeiPerUsdCent = weiPerCent;
-        emit FallbackPriceSet(weiPerCent);
-    }
 
     /// @notice Disabled. This contract custodies every wei of mint revenue
     ///         (`withdraw` is onlyOwner) and owns the only levers that can pause
@@ -829,6 +826,19 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     function setDefaultRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
         _setDefaultRoyalty(receiver, feeNumerator);
+    }
+
+    /// @notice Point the contract at USDG and the treasury. Post-deploy setters
+    ///         rather than constructor args so the deployed argument list and
+    ///         every existing deploy script stay unchanged.
+    function setUsdg(address token) external onlyOwner {
+        usdg = IERC20(token);
+        _usdg3009 = IERC3009(token);
+    }
+
+    function setTreasury(address t) external onlyOwner {
+        if (t == address(0)) revert PaymentNotConfigured();
+        treasury = t;
     }
 
     function setOracle(address o) external onlyOwner {

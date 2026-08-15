@@ -16,6 +16,8 @@ import os
 
 import pytest
 
+from positions_helpers import authorized_mint, signer_for, wire_payments
+
 web3 = pytest.importorskip("web3")
 pytest.importorskip("eth_tester")
 
@@ -32,15 +34,19 @@ CEILINGS = {
     "mintFree": 110_000,
     "subscribe_new": 184_000,
     "subscribe_renew": 70_000,
-    # Re-baselined when the equity oracle was actually WIRED. This case used to
-    # deploy no oracle at all, so `_oraclePrice` short-circuited on a zero
-    # address and the mint never paid for the Chainlink round-trip the
-    # production path pays on every mint. Measured cost of that read: +27,875,
-    # which took the real x1 mint to 285,732 — over the old 278,000 ceiling. The
-    # guard was green only because it was guarding a path nobody mints through.
-    # 285,732 / 66,867 measured.
-    "positions_mint_x1": 309_000,
-    "positions_mint_x10_per_card": 73_000,
+    # Re-baselined for EIP-3009. Paying in USDG by signed authorization costs
+    # +67,570 gas over the old ETH path (285,732 -> 353,302, +23.6%): ecrecover,
+    # USDG's own nonce write, our mintSeq write, the receiveWithAuthorization
+    # call and the sweep to treasury.
+    #
+    # That is a deliberate trade and it is worth stating plainly. The extra gas
+    # is paid by OUR RELAYER, not the minter. In exchange the minter needs no ETH
+    # at all — and a Robinhood Wallet user holding stock tokens and no ETH could
+    # not complete the ETH mint at ANY gas price, because they cannot send a
+    # transaction. A mint that costs us 24% more beats one they cannot make.
+    # 353,302 / measured below.
+    "positions_mint_x1": 382_000,
+    "positions_mint_x10_per_card": 90_000,
 }
 
 
@@ -103,7 +109,9 @@ def test_positions_mint_gas_within_ceilings(w3):
     oracle = _deploy(w3, art, "RobinhoodChainlinkOracle", owner)
     oracle.functions.setFeeds([stock.address], [equity_feed.address]).transact({"from": owner})
     pos.functions.sealRegistry().transact({"from": owner})
-    pos.functions.setEthUsdFeed(feed.address).transact({"from": owner})
+    usdg = wire_payments(
+        w3, art, pos, owner, owner, alice, lambda n, *a: _deploy(w3, art, n, *a, frm=owner)
+    )
     pos.functions.setOracle(oracle.address).transact({"from": owner})
     now = w3.eth.get_block("latest").timestamp
     # Public phase: no merkle root, $20 a card, generous caps. Priced, not free —
@@ -111,21 +119,13 @@ def test_positions_mint_gas_within_ceilings(w3):
     # miss the oracle read and the last-good-price cache the real path pays for.
     pos.functions.configurePhase(3, b"\x00" * 32, 2000, 50, 0, now - 1, 0).transact({"from": owner})
 
+    payer = signer_for(w3, alice)
+
     def _mint(qty):
-        cost = pos.functions.quote(3, qty).call()
-        rcpt = w3.eth.wait_for_transaction_receipt(
-            w3.eth.send_transaction(
-                {
-                    "from": alice,
-                    "to": pos.address,
-                    "value": cost,
-                    "gas": 2_000_000,
-                    "data": pos.encode_abi("mint", args=[3, 0, qty, 0, [], True]),
-                }
-            )
-        )
-        assert rcpt.status == 1
-        return rcpt.gasUsed
+        # Paid mint via EIP-3009: alice signs, owner relays and pays the gas.
+        # The gas measured is therefore what a RELAYER pays, which is the number
+        # that matters now — the minter pays none.
+        return authorized_mint(w3, pos, usdg, payer, 3, 0, qty, submitter=owner).gasUsed
 
     one = _mint(1)
     ten = _mint(10)
