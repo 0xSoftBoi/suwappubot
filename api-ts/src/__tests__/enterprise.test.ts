@@ -66,7 +66,15 @@ function makeAuthApp(options: {
 		}
 
 		const limit = row.rateLimitPerMin ?? row.orgRateLimit ?? 1000
-		c.set('apiKeyAuth', { orgId: row.organizationId, scopes: row.scopes ?? [], keyId: row.id, rateLimitPerMin: limit })
+		c.set('apiKeyAuth', {
+			orgId: row.organizationId,
+			scopes: row.scopes ?? [],
+			keyId: row.id,
+			rateLimitPerMin: limit,
+			// NULL limit = uncapped, matching a key that never opted into a spend cap.
+			spendLimitCredits: null,
+			spentCredits: 0,
+		})
 		await next()
 	})
 

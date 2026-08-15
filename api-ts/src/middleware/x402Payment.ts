@@ -4,7 +4,7 @@ import type { Context, Next } from 'hono'
 import { EnvService } from '../config/EnvService'
 import { resolveX402Networks } from '../config/x402Networks'
 import { requireDb } from '../db/DrizzleService'
-import { agentCredits } from '../db/schema'
+import { agentCredits, apiKeys } from '../db/schema'
 import { runEffectEither } from '../runtime'
 import {
 	facilitatorVerifyAndSettle,
@@ -209,16 +209,112 @@ function deductCredits(agentId: number, cost: number) {
 }
 
 /**
+ * Atomically reserve `cost` credits against a per-API-key lifetime spend cap
+ * (apiKeys.spendLimitCredits / spentCredits). Mirrors deductCredits's
+ * conditional-UPDATE pattern: the WHERE clause makes the check-and-increment
+ * atomic, so concurrent calls on the same key can't both slip past the cap.
+ *
+ * NULL spendLimitCredits = unlimited, so the UPDATE always matches for keys
+ * that never opted into a cap (existing keys are unaffected).
+ *
+ * Returns `{ ok: true, spent, limit }` on a successful reservation, or
+ * `{ ok: false, spent, limit }` if the reservation would exceed the cap. The
+ * `spent`/`limit` in the failure case come from a best-effort follow-up
+ * SELECT (purely for the error body) — only the UPDATE above is the
+ * authoritative, race-free gate.
+ */
+/**
+ * The WHERE clause that makes the reservation atomic. Exported so the SQL
+ * itself can be asserted in tests — the cap boundary lives in this predicate,
+ * not in JS, so a mirrored JS check would prove nothing about what runs.
+ *
+ * `<=` (not `<`) is deliberate: spending exactly up to the limit must succeed.
+ */
+export function keySpendReservationCondition(apiKeyId: string, cost: number) {
+	return sql`${apiKeys.id} = ${apiKeyId} AND (${apiKeys.spendLimitCredits} IS NULL OR ${apiKeys.spentCredits} + ${cost} <= ${apiKeys.spendLimitCredits})`
+}
+
+/** Release expression, floored at 0 so a double-release can't go negative. */
+export function keySpendReleaseExpression(cost: number) {
+	return sql`GREATEST(${apiKeys.spentCredits} - ${cost}, 0)`
+}
+
+function reserveKeySpend(apiKeyId: string, cost: number) {
+	return Effect.gen(function* () {
+		const db = yield* requireDb
+		const rows = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.update(apiKeys)
+					.set({ spentCredits: sql`${apiKeys.spentCredits} + ${cost}` })
+					.where(keySpendReservationCondition(apiKeyId, cost))
+					.returning({ spent: apiKeys.spentCredits, limit: apiKeys.spendLimitCredits }),
+			catch: (e) => new Error(`Database error during key spend reservation: ${e}`),
+		})
+		if (rows.length > 0) {
+			return { ok: true as const, spent: rows[0]!.spent, limit: rows[0]!.limit }
+		}
+		const current = yield* Effect.tryPromise({
+			try: () =>
+				db
+					.select({ spent: apiKeys.spentCredits, limit: apiKeys.spendLimitCredits })
+					.from(apiKeys)
+					.where(sql`${apiKeys.id} = ${apiKeyId}`)
+					.limit(1),
+			catch: (e) => new Error(`Database error reading key spend after reservation block: ${e}`),
+		})
+		return { ok: false as const, spent: current[0]?.spent ?? 0, limit: current[0]?.limit ?? 0 }
+	})
+}
+
+/**
+ * Release a previously-reserved `cost` credits from a key's spend cap
+ * (floored at 0, GREATEST mirrors creditBack). Called whenever a
+ * chargeAgentForCall reservation was made but the agent-credit charge it was
+ * reserving for did NOT end up consuming agent credits — insufficient
+ * balance, the DB fail-open path, or a later refund (creditBack). Never
+ * throws; callers fail open (log and continue) on a release failure, same
+ * posture as creditBack, so a release bug can never itself take the API
+ * down (worst case: the key's cap is short by `cost` until it's rotated).
+ */
+function releaseKeySpend(apiKeyId: string, cost: number) {
+	return Effect.gen(function* () {
+		const db = yield* requireDb
+		yield* Effect.tryPromise({
+			try: () =>
+				db
+					.update(apiKeys)
+					.set({ spentCredits: keySpendReleaseExpression(cost) })
+					.where(sql`${apiKeys.id} = ${apiKeyId}`),
+			catch: (e) => new Error(`Database error during key spend release: ${e}`),
+		})
+	})
+}
+
+/**
  * Result of attempting to charge an agent for a single metered call.
- *  - 'skip'         metering off, no agent, or bypass tier — proceed free.
- *  - 'ok'           credits deducted; `balance` is the new balance.
- *  - 'insufficient' no credits; `challenge` is the x402 402 body to return.
+ *  - 'skip'            metering off, no agent, or bypass tier — proceed free.
+ *  - 'ok'               credits deducted; `balance` is the new balance. If the
+ *                       call was authenticated with an API key carrying a
+ *                       spend cap, `keySpend` carries the post-charge
+ *                       spent/limit for that key.
+ *  - 'insufficient'     no credits; `challenge` is the x402 402 body to return.
+ *  - 'limit_exceeded'   the calling API key's lifetime spend cap would be
+ *                       exceeded by this call. Agent credits are untouched.
  */
 export type ChargeResult =
 	| { kind: 'skip'; reason: 'disabled' | 'no_agent' | 'bypass' | 'free'; tier?: string }
-	| { kind: 'ok'; balance: number; cost: number; tier: string }
+	| {
+			kind: 'ok'
+			balance: number
+			cost: number
+			tier: string
+			apiKeyId?: string
+			keySpend?: { spent: number; limit: number }
+	  }
 	| { kind: 'settled'; cost: number; txHash?: string; network?: string }
 	| { kind: 'insufficient'; cost: number; challenge: ReturnType<typeof buildX402Challenge> }
+	| { kind: 'limit_exceeded'; cost: number; spent: number; limit: number }
 
 /**
  * Reusable charge primitive shared by the REST middleware and the MCP handler.
@@ -232,8 +328,14 @@ export async function chargeAgentForCall(params: {
 	description: string
 	/** base64 X-PAYMENT header for direct on-chain settlement (facilitator path). */
 	paymentHeader?: string
+	/**
+	 * apiKeys.id of the credential that authenticated this call, if any (REST
+	 * agent surface via an org API key). When present, the call is also
+	 * gated by that key's lifetime spend cap — see reserveKeySpend.
+	 */
+	apiKeyId?: string
 }): Promise<ChargeResult> {
-	const { agent, cost, resource, description, paymentHeader } = params
+	const { agent, cost, resource, description, paymentHeader, apiKeyId } = params
 
 	const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
 	if (Either.isLeft(env)) return { kind: 'skip', reason: 'disabled' }
@@ -247,12 +349,51 @@ export async function chargeAgentForCall(params: {
 	// Free tools (cost 0) are always allowed even for metered tiers.
 	if (cost <= 0) return { kind: 'skip', reason: 'free', tier }
 
+	// --- Per-API-key spend cap: reserve FIRST, before touching agent credits ---
+	// This bounds a leaked/buggy key's blast radius against the agent's shared
+	// credit balance. Only applies once we know this call will actually attempt
+	// to spend credits (past the disabled/no_agent/bypass/free skips above) —
+	// bypass-tier and free calls never spend, so they never touch the cap.
+	let reservedKeySpend: { spent: number; limit: number } | undefined
+	if (apiKeyId) {
+		const reserveResult = await runEffectEither(reserveKeySpend(apiKeyId, cost))
+		if (Either.isLeft(reserveResult)) {
+			// Fail OPEN on a DB error reserving the cap. deductCredits below already
+			// fails open on a DB error, so during a DB outage a leaked key gets free
+			// calls regardless of what we do here — failing the cap closed would
+			// only cost availability without closing that hole. Deliberate tradeoff,
+			// not an oversight.
+		} else if (!reserveResult.right.ok) {
+			return {
+				kind: 'limit_exceeded',
+				cost,
+				spent: reserveResult.right.spent,
+				limit: reserveResult.right.limit,
+			}
+		} else {
+			const { spent, limit } = reserveResult.right
+			// Only surface cap telemetry for keys that actually carry a cap. A NULL
+			// limit means unlimited, where a "remaining" figure is meaningless (and
+			// emitting X-Spend-Remaining: null would read as "zero left").
+			reservedKeySpend = limit === null ? undefined : { spent, limit }
+		}
+	}
+
 	const deductResult = await runEffectEither(deductCredits(agent.id, cost))
 	// On a DB error, fail open rather than block a paying agent.
-	if (Either.isLeft(deductResult)) return { kind: 'skip', reason: 'disabled', tier }
+	if (Either.isLeft(deductResult)) {
+		if (apiKeyId) await runEffectEither(releaseKeySpend(apiKeyId, cost))
+		return { kind: 'skip', reason: 'disabled', tier }
+	}
 
 	const newBalance = deductResult.right
 	if (newBalance === null) {
+		// Agent credit deduction failed (insufficient balance) — the key
+		// reservation above must not stand for a call that was never actually
+		// charged against agent credits, whether it ends up settling on-chain
+		// below or falling through to the 402 challenge.
+		if (apiKeyId) await runEffectEither(releaseKeySpend(apiKeyId, cost))
+
 		const challenge = buildX402Challenge(env.right, { cost, resource, description })
 
 		// No prepaid credits — if the client supplied an X-PAYMENT header and the
@@ -274,7 +415,14 @@ export async function chargeAgentForCall(params: {
 		return { kind: 'insufficient', cost, challenge }
 	}
 
-	return { kind: 'ok', balance: newBalance, cost, tier }
+	return {
+		kind: 'ok',
+		balance: newBalance,
+		cost,
+		tier,
+		apiKeyId: reservedKeySpend ? apiKeyId : undefined,
+		keySpend: reservedKeySpend,
+	}
 }
 
 /**
@@ -316,17 +464,32 @@ export async function refundChargedCall(params: {
 	agentId: number
 	cost: number
 	reason: string
+	/**
+	 * apiKeyId that was reserved against by the original chargeAgentForCall
+	 * (ChargeResult.apiKeyId on the 'ok' variant). When present, the key's
+	 * spend-cap reservation is released in lockstep with the agent-credit
+	 * refund — a refunded call must not permanently consume the key's cap.
+	 */
+	apiKeyId?: string
 }): Promise<void> {
-	const { agentId, cost, reason } = params
+	const { agentId, cost, reason, apiKeyId } = params
 	if (cost <= 0) return
 	const result = await runEffectEither(creditBack(agentId, cost))
 	if (Either.isLeft(result)) {
 		// eslint-disable-next-line no-console
 		console.error(`[x402Payment] refund FAILED for agent ${agentId} (${cost} credits, reason: ${reason}):`, result.left)
-		return
+	} else {
+		// eslint-disable-next-line no-console
+		console.warn(`[x402Payment] refunded ${cost} credits to agent ${agentId} (reason: ${reason}); new balance=${result.right}`)
 	}
-	// eslint-disable-next-line no-console
-	console.warn(`[x402Payment] refunded ${cost} credits to agent ${agentId} (reason: ${reason}); new balance=${result.right}`)
+
+	if (apiKeyId) {
+		const keyResult = await runEffectEither(releaseKeySpend(apiKeyId, cost))
+		if (Either.isLeft(keyResult)) {
+			// eslint-disable-next-line no-console
+			console.error(`[x402Payment] key spend release FAILED for key ${apiKeyId} (${cost} credits, reason: ${reason}):`, keyResult.left)
+		}
+	}
 }
 
 /**
@@ -338,13 +501,33 @@ export function meteredPayment(endpoint: string) {
 
 	return async (c: Context, next: Next) => {
 		const agent = c.get('agent') as { id: number; rateLimitTier?: string } | undefined
+		const apiKeyCtx = c.get('apiKeyAuth') as { keyId: string } | undefined
 		const result = await chargeAgentForCall({
 			agent,
 			cost,
 			resource: c.req.path,
 			description: `Suwappu agent API call: ${endpoint} (${cost} credit${cost === 1 ? '' : 's'})`,
 			paymentHeader: c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE'),
+			apiKeyId: apiKeyCtx?.keyId,
 		})
+
+		if (result.kind === 'limit_exceeded') {
+			// 403, not 402 — this is a credential authorization limit (the key's own
+			// spend cap), not a missing-payment challenge. The agent behind the key
+			// may hold plenty of credits; the KEY is what's capped.
+			c.header('X-Spend-Limit', String(result.limit))
+			c.header('X-Spend-Remaining', '0')
+			return c.json(
+				{
+					error: `API key spend limit exceeded: ${result.spent}/${result.limit} credits used. Rotate the key to reset its cap.`,
+					error_code: 'SPEND_LIMIT_EXCEEDED',
+					cost_credits: result.cost,
+					spent_credits: result.spent,
+					spend_limit_credits: result.limit,
+				},
+				403,
+			)
+		}
 
 		if (result.kind === 'skip') {
 			if (result.reason === 'bypass' && result.tier) {
@@ -376,6 +559,10 @@ export function meteredPayment(endpoint: string) {
 
 		c.header('X-Metering-Cost', String(result.cost))
 		c.header('X-Metering-Balance', String(result.balance))
+		if (result.keySpend) {
+			c.header('X-Spend-Limit', String(result.keySpend.limit))
+			c.header('X-Spend-Remaining', String(Math.max(result.keySpend.limit - result.keySpend.spent, 0)))
+		}
 		c.set('meterCharge', result)
 		await next()
 	}

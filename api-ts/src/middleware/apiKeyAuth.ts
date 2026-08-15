@@ -53,6 +53,8 @@ export function apiKeyAuth() {
 								rateLimitPerMin: apiKeys.rateLimitPerMin,
 								revokedAt: apiKeys.revokedAt,
 								expiresAt: apiKeys.expiresAt,
+								spendLimitCredits: apiKeys.spendLimitCredits,
+								spentCredits: apiKeys.spentCredits,
 								orgRateLimit: organizations.apiRateLimitPerMin,
 								orgTier: organizations.tier,
 								orgOwnerId: organizations.ownerId,
@@ -135,12 +137,16 @@ export function apiKeyAuth() {
 		c.header('X-RateLimit-Limit', String(limit))
 		c.header('X-RateLimit-Remaining', String(limit - timestamps.length))
 
-		// Attach to context for downstream handlers
+		// Attach to context for downstream handlers. spendLimitCredits/spentCredits
+		// are informational here (e.g. for dashboards) — the actual cap enforcement
+		// happens atomically inside chargeAgentForCall's reserveKeySpend, not here.
 		c.set('apiKeyAuth', {
 			orgId: row.organizationId,
 			scopes: row.scopes ?? [],
 			keyId: row.id,
 			rateLimitPerMin: limit,
+			spendLimitCredits: row.spendLimitCredits,
+			spentCredits: row.spentCredits,
 		})
 
 		// Fire-and-forget lastUsedAt update
