@@ -110,13 +110,16 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 for c, v in result["funded_on"].items()
             )
             unreachable = ", ".join(result["unreachable"]) or "none"
+            first = next(iter(result["funded_on"]), "<chain>")
             await update.message.reply_text(
                 f"⚠️ *Not retired* — `{result['name']}` still holds funds.\n\n"
                 f"{held or '_(no balances, but some chains were unreachable)_'}\n\n"
-                f"Unreachable chains: {unreachable}\n\n"
+                f"Checked: {', '.join(result.get('checked', [])) or 'nothing'}\n"
+                f"Unreachable: {unreachable}\n\n"
                 f"`{result['address']}`\n\n"
-                "_Sweep it out first, or re-run with `--force` to retire anyway "
-                "and accept losing track of the balance._",
+                f"_Sweep it:_ `/hw sweep {result['name'].split('/')[-1]} {first} <to-address>`\n"
+                "_or re-run with `--force` to retire anyway and accept losing "
+                "track of the balance._",
                 parse_mode="Markdown",
             )
             return
@@ -127,6 +130,42 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"_{result['reason']}_\n\n"
             "_The Turnkey key is kept, not deleted — it is the only way to recover "
             "a balance that surfaces later. Nothing in the bot points here now._",
+            parse_mode="Markdown",
+        )
+        return
+
+    if sub == "sweep":
+        label = args[1] if len(args) > 1 else ""
+        chain = args[2].lower() if len(args) > 2 else ""
+        to_address = args[3] if len(args) > 3 else ""
+        if not (label and chain and to_address):
+            await update.message.reply_text(
+                "Usage: `/hw sweep <label> <chain> <to-address>`\n\n"
+                "_Moves the native balance out, leaving only gas. The "
+                "destination is never guessed._",
+                parse_mode="Markdown",
+            )
+            return
+        await update.message.reply_text(f"🧹 Sweeping `{label}` on {chain}…", parse_mode="Markdown")
+        try:
+            result = await hot_wallet_service.sweep_internal_wallet(label, chain, to_address)
+        except ValueError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+        except Exception as e:
+            logger.error(f"sweep_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+
+        if not result["swept"]:
+            await update.message.reply_text(
+                f"⚠️ *Nothing swept* — {result['reason']}", parse_mode="Markdown"
+            )
+            return
+        await update.message.reply_text(
+            f"✅ *Swept* {result['amount']} from `{result['name']}` on {result['chain']}\n\n"
+            f"→ `{result['to']}`\n`{result['tx_hash']}`\n\n"
+            f"_Now retirable:_ `/hw retire {label} <reason>`",
             parse_mode="Markdown",
         )
         return
@@ -148,7 +187,11 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             out.append("*⚠️ Expired but funded — sweep these*")
             for r in rep["needs_sweep"]:
                 held = ", ".join(f"{c} {v['native']}" for c, v in r["funded_on"].items())
-                out.append(f"`{r['label']}` — {held}\n`{r['address']}`")
+                chain = next(iter(r["funded_on"]), "<chain>")
+                out.append(
+                    f"`{r['label']}` — {held}\n`{r['address']}`\n"
+                    f"`/hw sweep {r['label']} {chain} <to>`"
+                )
             out.append("")
         if rep["retire_now"]:
             out.append("*✅ Expired and empty — free to retire*")
@@ -162,6 +205,9 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 out.append(f"`{r['label']}` — {held}")
         if not (rep["needs_sweep"] or rep["retire_now"] or rep["in_use"]):
             out.append("_None provisioned._")
+        # Coverage, always. "No funds found" is only as good as where we looked.
+        if rep.get("checked"):
+            out.append(f"\n_Chains checked: {', '.join(rep['checked'])}_")
 
         await update.message.reply_text("\n".join(out), parse_mode="Markdown")
         return
@@ -209,8 +255,8 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 + (f"\n_{w['purpose']}_" if w.get("purpose") else "")
             )
     lines.append(
-        "\n_Manage:_ `/hw new <label> [evm|solana]` · "
-        "`/hw retire <label> <reason>` · `/hw audit`"
+        "\n_Manage:_ `/hw new <label>` · `/hw audit` · "
+        "`/hw sweep <label> <chain> <to>` · `/hw retire <label> <reason>`"
     )
 
     keyboard = [

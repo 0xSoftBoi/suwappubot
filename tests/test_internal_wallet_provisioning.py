@@ -113,11 +113,11 @@ def test_unreachable_chain_is_not_treated_as_empty():
     wallet, which is precisely the failure the balance guard exists to stop.
     """
     src = inspect.getsource(HotWalletService.check_internal_wallet_funds)
-    assert '"error"' in src, "a failed balance call must be recorded as an error"
-    assert "continue" in src, "a failed chain must not fall through to the zero path"
+    assert "unreachable[chain] = err" in src, "a failed balance call must be recorded, not zeroed"
+    assert "elif held is not None" in src, "a failed chain must not fall through to the zero path"
 
     retire_src = inspect.getsource(HotWalletService.retire_internal_wallet)
-    assert 'errored = {k: v for k, v in funds.items() if "error" in v}' in retire_src
+    assert 'errored = funds["unreachable"]' in retire_src
     assert "funded or errored" in retire_src, "unreachable chains must block retirement too"
 
 
@@ -136,7 +136,8 @@ def test_retired_names_are_not_revived():
     someone deliberately decommissioned.
     """
     src = inspect.getsource(HotWalletService.provision_internal_wallet)
-    assert "retired" in src and "was retired on" in src
+    assert "retired" in src and "was retired" in src
+    assert "retired keys are not revived" in src
 
 
 def test_provisioning_is_capped():
@@ -163,3 +164,88 @@ def test_reprovisioning_returns_the_same_wallet_rather_than_a_duplicate():
 def test_retirement_requires_a_reason():
     src = inspect.getsource(HotWalletService.retire_internal_wallet)
     assert "a reason is required" in src
+
+
+# ── Coverage of the balance guard ───────────────────────────────────────────
+#
+# The guard is only worth what it actually checks. These lock in the specific
+# blind spots found by auditing the first cut of the lifecycle.
+
+
+def test_sweep_chains_include_robinhood():
+    """The wallet that motivated this feature is a Robinhood Chain deployer.
+
+    The first version of the sweep list omitted `robinhood` entirely, so the
+    balance guard would have reported "empty" for the one chain the wallet
+    exists to be funded on, and retired it with the funds still there.
+    """
+    assert "robinhood" in HotWalletService.INTERNAL_SWEEP_CHAINS
+
+
+def test_networks_outside_the_chain_registry_are_still_probed():
+    """ROBINHOOD_TESTNET is deliberately NOT in CHAINS (tooling only), so
+    rpc_manager cannot serve it and get_hot_wallet_balance is blind to it in
+    principle — not merely missing a list entry. It needs a direct probe.
+    """
+    probes = HotWalletService._internal_probe_networks()
+    assert "robinhood_testnet" in probes
+    assert probes["robinhood_testnet"]["chain_id"] == 46630
+    assert probes["robinhood_testnet"]["rpc_url"].startswith("https://")
+
+    src = inspect.getsource(HotWalletService.check_internal_wallet_funds)
+    assert "_internal_probe_networks" in src, "probe networks must be consulted"
+
+
+def test_funds_check_reports_where_it_looked():
+    """ "No funds found" is only as good as the coverage behind it. The result
+    must carry the chains consulted so a refusal can never be read as proof of
+    emptiness.
+    """
+    src = inspect.getsource(HotWalletService.check_internal_wallet_funds)
+    assert '"checked"' in src and '"unreachable"' in src and '"balances"' in src
+
+    retire_src = inspect.getsource(HotWalletService.retire_internal_wallet)
+    assert '"checked": checked' in retire_src, "retire must surface its coverage"
+
+
+def test_a_sweep_exists_so_force_is_not_the_only_exit():
+    """retire refuses while funded and tells the operator to sweep first. If no
+    sweep exists, the only usable exit is --force, which abandons the money — a
+    guard whose sole escape hatch is the lossy one is not a guard.
+    """
+    assert hasattr(HotWalletService, "sweep_internal_wallet")
+    src = inspect.getsource(HotWalletService.sweep_internal_wallet)
+    # Must leave gas behind, or the sweep reverts for funds and the wallet stays
+    # un-retirable anyway.
+    assert "reserve_wei" in src and "21000" in src
+    assert "send_wei <= 0" in src, "must refuse when the balance cannot cover gas"
+    # Must never invent a destination.
+    assert "a destination is required" in src
+
+
+def test_null_retired_at_does_not_crash_the_name_collision_message():
+    """A wallet deactivated by some other path has retired_at NULL. Formatting
+    None with a date spec raises TypeError, turning a helpful message into a 500.
+    """
+    src = inspect.getsource(HotWalletService.provision_internal_wallet)
+    assert "if retired.retired_at else" in src, "date format must be guarded against NULL"
+
+    with pytest.raises(TypeError):
+        # The bug this guards against, demonstrated.
+        f"{None:%Y-%m-%d}"
+
+
+def test_reuse_does_not_silently_clear_an_existing_expiry():
+    """Re-provisioning without a ttl_days must not strip the lease off a live
+    wallet — that would quietly make an expiring wallet immortal.
+    """
+    src = inspect.getsource(HotWalletService.provision_internal_wallet)
+    assert "if expires_at is not None:" in src
+
+
+def test_balance_checks_are_concurrent():
+    """An audit over a full roster is otherwise dozens of sequential RPC round
+    trips inside a chat handler.
+    """
+    src = inspect.getsource(HotWalletService.check_internal_wallet_funds)
+    assert "asyncio.gather" in src

@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
 from bot.utils.encryption import encrypt_private_key, decrypt_private_key
 from bot.utils.envelope_crypto import (
@@ -416,8 +416,11 @@ class HotWalletService:
             )
             if existing:
                 # Reuse. Renew the lease and refresh the metadata rather than
-                # minting a second wallet for the same job.
-                existing.expires_at = expires_at
+                # minting a second wallet for the same job. Only touch the expiry
+                # when a TTL was actually asked for — otherwise a caller that
+                # omits ttl_days would silently strip the lease off a live wallet.
+                if expires_at is not None:
+                    existing.expires_at = expires_at
                 if purpose:
                     existing.purpose = purpose
                 if owner:
@@ -431,9 +434,13 @@ class HotWalletService:
             # so require a distinct label instead.
             retired = session.query(HotWallet).filter(HotWallet.name == name).first()
             if retired is not None:
+                # retired_at may be NULL for a wallet deactivated by some other
+                # path; formatting None with a date spec raises TypeError, which
+                # would surface as a 500 instead of this message.
+                when = f"{retired.retired_at:%Y-%m-%d}" if retired.retired_at else "at some point"
                 raise ValueError(
-                    f"'{name}' was retired on "
-                    f"{retired.retired_at:%Y-%m-%d} ({retired.retired_reason or 'no reason given'}). "
+                    f"'{name}' was retired {when} "
+                    f"({retired.retired_reason or 'no reason given'}). "
                     "Pick a different label — retired keys are not revived."
                 )
 
@@ -517,40 +524,170 @@ class HotWalletService:
 
     # Chains an internal wallet is checked against before retirement. Retiring a
     # funded wallet is how float gets lost: Turnkey keeps the key, but nothing in
-    # our DB points at it any more, so the balance is only recoverable by someone
-    # who thinks to go looking. Keep this list in sync with wherever internal
-    # wallets actually get funded.
-    INTERNAL_SWEEP_CHAINS = ("ethereum", "base", "arbitrum", "optimism", "polygon")
+    # our DB points at the wallet any more, so the balance is only recoverable by
+    # someone who thinks to go looking.
+    INTERNAL_SWEEP_CHAINS = (
+        "ethereum",
+        "base",
+        "arbitrum",
+        "optimism",
+        "polygon",
+        "robinhood",
+    )
+
+    # Networks internal wallets get funded on that are deliberately NOT in CHAINS
+    # (not user-selectable, tooling only). rpc_manager will not serve these, so
+    # get_hot_wallet_balance cannot see them at all — they are probed directly.
+    # Omitting this is not a missing row in a list, it is a chain the guard is
+    # blind to in principle, which is worse.
+    @staticmethod
+    def _internal_probe_networks() -> dict:
+        from bot.config.chains import ROBINHOOD_TESTNET
+
+        return {"robinhood_testnet": ROBINHOOD_TESTNET}
+
+    async def _probe_native_balance(self, address: str, rpc_url: str) -> Decimal:
+        """Native balance from a bare RPC URL, for networks outside CHAINS."""
+
+        def _call() -> Decimal:
+            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10}))
+            wei = w3.eth.get_balance(Web3.to_checksum_address(address))
+            return Decimal(wei) / Decimal(10**18)
+
+        return await asyncio.to_thread(_call)
 
     async def check_internal_wallet_funds(
         self, wallet: HotWallet, chains: Optional[Tuple[str, ...]] = None
     ) -> dict:
-        """Balances held by an internal wallet, per chain. Never raises on a dead RPC.
+        """What an internal wallet holds, and — just as important — where we looked.
 
-        A chain that fails to answer is reported as an error rather than as zero,
-        because "we could not check" and "it is empty" must not look the same to
-        the retirement path.
+        Returns {"balances": {...}, "checked": [...], "unreachable": {...}}.
+
+        Coverage is part of the answer. A guard that reports "no funds" without
+        saying which chains it consulted invites the reader to hear "empty", and
+        the whole point of this check is to stop someone abandoning a funded
+        wallet. A chain that fails to answer is reported as unreachable rather
+        than as zero, because "we could not check" and "it is empty" must not
+        look the same to the code deciding whether to let go of a key.
         """
-        found: dict = {}
+        balances: dict = {}
+        unreachable: dict = {}
+        checked: list = []
+
         if wallet.chain_type == "solana":
+            checked.append("solana")
             try:
                 native, tokens = await self.get_hot_wallet_balance(wallet, "solana")
-                if native > 0 or any(v > 0 for v in tokens.values()):
-                    found["solana"] = {"native": native, "tokens": tokens}
+                held = {k: v for k, v in (tokens or {}).items() if v > 0}
+                if native > 0 or held:
+                    balances["solana"] = {"native": native, "tokens": held}
             except Exception as e:  # noqa: BLE001
-                found["solana"] = {"error": str(e)}
-            return found
+                unreachable["solana"] = str(e)
+            return {"balances": balances, "checked": checked, "unreachable": unreachable}
 
-        for chain in chains or self.INTERNAL_SWEEP_CHAINS:
+        targets = chains or self.INTERNAL_SWEEP_CHAINS
+
+        async def _one(chain: str):
             try:
                 native, tokens = await self.get_hot_wallet_balance(wallet, chain)
+                held = {k: v for k, v in (tokens or {}).items() if v > 0}
+                return (
+                    chain,
+                    ({"native": native, "tokens": held} if (native > 0 or held) else None),
+                    None,
+                )
             except Exception as e:  # noqa: BLE001
-                found[chain] = {"error": str(e)}
-                continue
-            held_tokens = {k: v for k, v in (tokens or {}).items() if v > 0}
-            if native > 0 or held_tokens:
-                found[chain] = {"native": native, "tokens": held_tokens}
-        return found
+                return chain, None, str(e)
+
+        async def _one_probe(name: str, cfg: dict):
+            try:
+                native = await self._probe_native_balance(wallet.address, cfg["rpc_url"])
+                return name, ({"native": native, "tokens": {}} if native > 0 else None), None
+            except Exception as e:  # noqa: BLE001
+                return name, None, str(e)
+
+        # Concurrent: an audit over the full roster is otherwise dozens of
+        # sequential RPC round trips inside a chat handler.
+        tasks = [_one(c) for c in targets]
+        if chains is None:
+            tasks += [_one_probe(n, c) for n, c in self._internal_probe_networks().items()]
+
+        for chain, held, err in await asyncio.gather(*tasks):
+            checked.append(chain)
+            if err is not None:
+                unreachable[chain] = err
+            elif held is not None:
+                balances[chain] = held
+
+        return {"balances": balances, "checked": checked, "unreachable": unreachable}
+
+    async def sweep_internal_wallet(
+        self,
+        label_or_name: str,
+        chain: str,
+        to_address: str,
+        gas_buffer: Decimal = Decimal("1.25"),
+    ) -> dict:
+        """Move an internal wallet's native balance out, leaving only gas behind.
+
+        This exists because retire refuses while funds remain, and telling someone
+        to "sweep it first" without giving them a sweep leaves exactly one usable
+        exit: force, which abandons the money. A guard whose only escape hatch is
+        the lossy one is not a guard.
+
+        Native only, deliberately. ERC-20s need a per-token approval-free transfer
+        and native gas to move at all; sweeping them blind is how you strand a
+        token balance by spending the gas that would have moved it. Tokens are
+        reported so a human can decide.
+        """
+        wallet = self.get_internal_wallet(label_or_name)
+        if wallet is None:
+            raise ValueError(f"no live internal wallet named '{label_or_name}'")
+        if not to_address:
+            raise ValueError("a destination is required — sweeps never pick their own")
+        if wallet.chain_type != "evm":
+            raise ValueError("sweep currently supports EVM wallets only")
+
+        web3 = self._get_web3(chain)
+        address = Web3.to_checksum_address(wallet.address)
+        balance_wei = await asyncio.to_thread(web3.eth.get_balance, address)
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+        gas_price = apply_min_gas_price(chain, gas_price)
+
+        # A plain value transfer is 21000. The buffer covers a gas-price tick
+        # between quoting and broadcast; without it the sweep reverts for funds
+        # and leaves the wallet un-retirable anyway.
+        reserve_wei = int(Decimal(gas_price * 21000) * gas_buffer)
+        send_wei = balance_wei - reserve_wei
+
+        if send_wei <= 0:
+            return {
+                "swept": False,
+                "reason": (
+                    f"balance {Decimal(balance_wei) / Decimal(10**18)} does not cover "
+                    f"gas reserve {Decimal(reserve_wei) / Decimal(10**18)}"
+                ),
+                "balance": Decimal(balance_wei) / Decimal(10**18),
+            }
+
+        amount = Decimal(send_wei) / Decimal(10**18)
+        tx_hash = await self.send_native_token(wallet, chain, to_address, amount)
+        logger.info(
+            "Swept %s from internal wallet %s on %s to %s (tx %s)",
+            amount,
+            wallet.name,
+            chain,
+            to_address,
+            tx_hash,
+        )
+        return {
+            "swept": True,
+            "name": wallet.name,
+            "chain": chain,
+            "to": to_address,
+            "amount": amount,
+            "tx_hash": tx_hash,
+        }
 
     async def retire_internal_wallet(
         self,
@@ -582,8 +719,9 @@ class HotWalletService:
             raise ValueError(f"no live internal wallet named '{label_or_name}'")
 
         funds = await self.check_internal_wallet_funds(wallet, chains)
-        funded = {k: v for k, v in funds.items() if "error" not in v}
-        errored = {k: v for k, v in funds.items() if "error" in v}
+        funded = funds["balances"]
+        errored = funds["unreachable"]
+        checked = funds["checked"]
 
         if (funded or errored) and not force:
             return {
@@ -592,6 +730,7 @@ class HotWalletService:
                 "address": wallet.address,
                 "funded_on": funded,
                 "unreachable": errored,
+                "checked": checked,
                 "message": (
                     "Not retired — sweep the balance out first, or pass force to "
                     "retire anyway and accept losing track of it."
@@ -624,6 +763,7 @@ class HotWalletService:
             "reason": note,
             "funded_on": funded,
             "unreachable": errored,
+            "checked": checked,
         }
 
     async def audit_internal_wallets(self, chains: Optional[Tuple[str, ...]] = None) -> dict:
@@ -641,6 +781,7 @@ class HotWalletService:
             "retire_now": [],
             "needs_sweep": [],
             "in_use": [],
+            "checked": [],
         }
 
         for entry in live:
@@ -648,7 +789,8 @@ class HotWalletService:
             if wallet is None:
                 continue
             funds = await self.check_internal_wallet_funds(wallet, chains)
-            held = {k: v for k, v in funds.items() if "error" not in v}
+            held = funds["balances"]
+            report["checked"] = funds["checked"]
             row = {
                 "label": entry["label"],
                 "address": entry["address"],
@@ -656,6 +798,7 @@ class HotWalletService:
                 "owner": entry["owner"],
                 "expired": entry["expired"],
                 "funded_on": held,
+                "unreachable": funds["unreachable"],
             }
             if held:
                 report["needs_sweep" if entry["expired"] else "in_use"].append(row)
