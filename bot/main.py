@@ -149,6 +149,7 @@ from bot.handlers.admin_custodial import (
     admin_wallets_callback,
     create_evm_wallet,
     create_sol_wallet,
+    create_deploy_wallet,
     gas_config,
     configure_gas_chain,
 )
@@ -670,6 +671,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(admin_wallets_callback, pattern="^admin_wallets$"))
     application.add_handler(CallbackQueryHandler(create_evm_wallet, pattern="^admin_create_evm$"))
     application.add_handler(CallbackQueryHandler(create_sol_wallet, pattern="^admin_create_sol$"))
+    application.add_handler(
+        CallbackQueryHandler(create_deploy_wallet, pattern="^admin_create_deploy$")
+    )
     application.add_handler(CallbackQueryHandler(gas_config, pattern="^admin_gas_config$"))
     application.add_handler(CallbackQueryHandler(configure_gas_chain, pattern="^admin_gas_"))
 
