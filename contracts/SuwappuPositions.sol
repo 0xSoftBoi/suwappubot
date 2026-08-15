@@ -295,7 +295,13 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // mint now reverts unless the buyer explicitly opts in; a free phase is
         // unaffected, and `allowUnpriced` keeps the escape hatch open for
         // anyone who genuinely wants the token regardless.
-        if (cfg.price != 0 && !allowUnpriced && _oraclePrice(tickerIndex) == 0) {
+        // GAS: read the oracle ONCE and reuse it for both the guard and the
+        // stamp. These were two separate `_oraclePrice` calls — each an external
+        // staticcall into the oracle, which staticcalls the Chainlink aggregator
+        // in turn — for a value that cannot change between them. Nothing between
+        // here and the stamp writes state the oracle reads.
+        uint256 entry = _oraclePrice(tickerIndex);
+        if (cfg.price != 0 && !allowUnpriced && entry == 0) {
             revert UnpricedAtMint();
         }
 
@@ -325,7 +331,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
         mintedInPhase[phase][msg.sender] += quantity;
         phaseMinted[phase] += quantity;
-        _mintRun(msg.sender, tickerIndex, quantity);
+        _mintRun(msg.sender, tickerIndex, quantity, entry);
 
         // Refund last, after all state is written (CEI).
         uint256 refund = msg.value - cost;
@@ -354,11 +360,12 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (totalSupply + quantity > MAX_SUPPLY) revert SoldOut();
         if (tickerMinted[tickerIndex] + quantity > tickerCap[tickerIndex]) revert TickerSoldOut();
         reserveMinted += quantity;
-        _mintRun(to, tickerIndex, quantity);
+        _mintRun(to, tickerIndex, quantity, _oraclePrice(tickerIndex));
     }
 
-    function _mintRun(address to, uint8 tickerIndex, uint256 quantity) internal {
-        uint256 entry = _oraclePrice(tickerIndex);
+    /// @param entry Oracle price already read by the caller — passed in rather
+    ///        than re-read so a mint pays for exactly one oracle round-trip.
+    function _mintRun(address to, uint8 tickerIndex, uint256 quantity, uint256 entry) internal {
         minted[to] += quantity;
         tickerMinted[tickerIndex] += uint16(quantity);
         // GAS: hold the counter in memory and write it once. Reading and writing
