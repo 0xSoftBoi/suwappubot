@@ -2046,7 +2046,9 @@ class SwapEngine:
                 best.runner_up_provider = runner_up.provider if runner_up else None
                 best.price_improvement_usd = await _compute_price_improvement_usd(best, runner_up)
             except Exception:
-                logger.debug("execution-savings computation failed, leaving fields None", exc_info=True)
+                logger.debug(
+                    "execution-savings computation failed, leaving fields None", exc_info=True
+                )
         finally:
             # A singleflight can cancel this race when its last waiter leaves.
             # Collect the real provider tasks as well as the comparison-only
@@ -4265,6 +4267,11 @@ class SwapEngine:
                         gas_fee=quote.gas_cost_usd,
                         bridge_fee=quote.fee_cost_usd,
                         idempotency_key=idempotency_key,
+                        # Execution-savings receipt, carried on the winning
+                        # SwapQuote from get_best_quote's race resolution —
+                        # see SwapQuote.price_improvement_usd docstring.
+                        price_improvement_usd=quote.price_improvement_usd,
+                        runner_up_provider=quote.runner_up_provider,
                     )
                     session.add(swap_tx)
                     session.flush()

@@ -1586,13 +1586,26 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                 f"(gas now {format_usd(net_gas_usd)})\n"
             )
 
+        # Execution-savings receipt: the quote race already found how much
+        # better the winning venue was than the runner-up — surface it so
+        # execution quality is visible value, not silently discarded.
+        savings_line = ""
+        price_improvement_usd = getattr(quote, "price_improvement_usd", None) or 0.0
+        runner_up_provider = getattr(quote, "runner_up_provider", None)
+        if num_success > 0 and price_improvement_usd >= 0.01 and runner_up_provider:
+            savings_line = (
+                f"💰 Best-route savings: ~{format_usd(price_improvement_usd)} "
+                f"vs next-best ({runner_up_provider})\n"
+            )
+
         text = (
             f"✅ *Multi-Swap Submitted!*\n\n"
             f"• Success: *{num_success}* wallets\n"
             f"• Failed: *{num_fail}* wallets\n\n"
             f"💰 *+{total_points} XP earned!*\n"
             f"Total platform fee: {format_usd(total_fee_usd)} ({swap_data.get('fee_percentage', 0.8)}%)\n"
-            f"{rebate_line}\n"
+            f"{rebate_line}"
+            f"{savings_line}\n"
             f"Check individual status in /hx."
         )
 

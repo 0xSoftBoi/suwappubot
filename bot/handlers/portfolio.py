@@ -2,13 +2,20 @@
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import func
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
 from bot.models.user import User, Wallet
 from bot.models.predict import PredictionPosition
+from bot.models.swap import SwapTransaction
+from bot.models.fees import FeeTransaction
+from bot.models.subscription import SubscriptionTier
 from bot.services.wallet import WalletService
 from bot.services.price_service import PriceService
+from bot.services.x402_service import x402_service
 from bot.utils.formatters import format_amount, format_usd, format_chain_name
 from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
@@ -18,6 +25,75 @@ logger = logging.getLogger(__name__)
 
 wallet_service = WalletService()
 price_service = PriceService()
+
+# PRO tier's swap fee (see business context: FREE 100bps / PRO 50bps).
+PRO_FEE_RATE = 0.005
+
+
+async def _build_savings_block(user_id: int) -> str:
+    """Last-30-days execution-savings receipt + FREE->PRO upsell delta.
+
+    Returns "" (never raises — this is a display add-on, not the money path)
+    when there's no savings data for the window at all, so the block is
+    skipped entirely rather than rendered empty.
+    """
+    try:
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+
+        with get_session() as session:
+            total_savings = (
+                session.query(func.sum(SwapTransaction.price_improvement_usd))
+                .filter(
+                    SwapTransaction.user_id == user_id,
+                    SwapTransaction.created_at >= since,
+                    SwapTransaction.price_improvement_usd.isnot(None),
+                )
+                .scalar()
+            ) or 0.0
+
+            fee_rows = (
+                session.query(FeeTransaction.fee_amount_usd, FeeTransaction.fee_percentage)
+                .filter(
+                    FeeTransaction.user_id == user_id,
+                    FeeTransaction.created_at >= since,
+                    FeeTransaction.fee_amount_usd.isnot(None),
+                    FeeTransaction.fee_percentage > 0,
+                )
+                .all()
+            )
+
+        if total_savings < 0.01 and not fee_rows:
+            return ""
+
+        lines = ["\n\U0001f4b0 *Execution Savings (30d)*"]
+        if total_savings >= 0.01:
+            lines.append(f"  Best-route savings: ~{format_usd(total_savings)}")
+
+        # FREE-tier upsell: what PRO's 50bps fee would have kept vs what was
+        # actually paid at the user's current (higher) fee rate.
+        tier = await x402_service.get_tier(user_id)
+        if tier == SubscriptionTier.FREE and fee_rows:
+            pro_delta = 0.0
+            for fee_amount_usd, fee_percentage in fee_rows:
+                fee_amount_usd = float(fee_amount_usd or 0)
+                fee_percentage = float(fee_percentage or 0)
+                if fee_percentage <= 0:
+                    continue
+                volume = fee_amount_usd / (fee_percentage / 100)
+                pro_fee = volume * PRO_FEE_RATE
+                pro_delta += fee_amount_usd - pro_fee
+            if pro_delta > 0.01:
+                lines.append(
+                    f"  PRO would have kept you ~{format_usd(pro_delta)} "
+                    f"this month → /subscribe"
+                )
+
+        if len(lines) <= 1:
+            return ""
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug(f"Could not build savings block for user {user_id}: {e}")
+        return ""
 
 
 async def _build_portfolio_text(wallet_infos, user_id=None):
@@ -145,6 +221,14 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
                 total_usd += hl["total_usd"]
         except Exception as e:
             logger.debug(f"Could not load HyperLiquid holdings: {e}")
+
+    # Execution-savings receipt: surfaces the quote-race edge that was
+    # previously computed and discarded — makes execution quality visible
+    # value, and upsells FREE users on the fee delta they'd save on PRO.
+    if user_id:
+        savings_block = await _build_savings_block(user_id)
+        if savings_block:
+            lines.append(savings_block)
 
     lines.append(f"\n\U0001f4b0 *Total Value:* {format_usd(total_usd)}")
 
