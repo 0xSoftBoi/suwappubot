@@ -143,18 +143,18 @@ RESET_REQUIRED_TOKENS = {
     "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
 }
 
-# Hardcoded gas limits for PropAMMRouter swaps — estimation is only a
+# Hardcoded gas limit for PropAMMRouter swaps — estimation is only a
 # pre-flight check because the executed branch can be heavier than the
-# estimated one (in-tx re-quote + possible Uniswap V3 fallback). Tiers are
-# set from measured mainnet usage of the router (150 recent txs, 2026-08-15):
-#   swapV1 (all venues):        p50 441k / p90 619k / max 690k -> 900k limit
-#   swapViaVenue(WithFee)V1:    p50 216k / p90 271k / max 396k -> 550k limit
+# estimated one. swapV1 re-quotes every whitelisted pAMM in-tx, and the final
+# cost is dominated by WHICH pAMM ends up filling (their swap implementations
+# vary widely), so the spread is inherent, not a mis-measurement.
+# Measured over 150 recent mainnet router txs (2026-08-15): p50 441k /
+# p90 619k / max 690k, consistent with the 400-800k range Titan documents.
 PROPAMM_SWAP_GAS_LIMIT = 900_000
-PROPAMM_PINNED_SWAP_GAS_LIMIT = 550_000
-# Expected (p50) usage of the pinned-venue path we execute by default — used
-# for the quote's USD gas figure so the race compares expected cost, matching
-# the semantics of KyberSwap/0x's gasUsd (estimated usage, not the limit).
-PROPAMM_EXPECTED_SWAP_GAS = 250_000
+# Expected usage for the quote's USD gas figure (~p50 of the real
+# distribution) so the race compares expected cost, matching the semantics of
+# KyberSwap/0x's gasUsd (estimated usage, not the reserved limit).
+PROPAMM_EXPECTED_SWAP_GAS = 450_000
 
 # Minimal inline ABI for the Titan Builder PropAMMRouter proxy (verified
 # on-chain — see bot/services/propamm_api.py module docstring). No calldata
@@ -200,47 +200,6 @@ PROPAMM_ROUTER_ABI = [
             {"name": "amountOut", "type": "uint256"},
             {"name": "executedVenue", "type": "address"},
         ],
-        "type": "function",
-        "stateMutability": "payable",
-    },
-    {
-        "inputs": [
-            {"name": "venue", "type": "address"},
-            {"name": "tokenIn", "type": "address"},
-            {"name": "tokenOut", "type": "address"},
-            {"name": "amountIn", "type": "uint256"},
-            {"name": "amountOutMin", "type": "uint256"},
-            {"name": "recipient", "type": "address"},
-            {"name": "deadline", "type": "uint256"},
-        ],
-        "name": "swapViaVenueV1",
-        "outputs": [
-            {"name": "amountOut", "type": "uint256"},
-            {"name": "executedVenue", "type": "address"},
-        ],
-        "type": "function",
-        "stateMutability": "payable",
-    },
-    {
-        "inputs": [
-            {"name": "venue", "type": "address"},
-            {"name": "tokenIn", "type": "address"},
-            {"name": "tokenOut", "type": "address"},
-            {"name": "amountIn", "type": "uint256"},
-            {"name": "amountOutMin", "type": "uint256"},
-            {"name": "recipient", "type": "address"},
-            {"name": "deadline", "type": "uint256"},
-            {
-                "name": "fee",
-                "type": "tuple",
-                "components": [
-                    {"name": "bps", "type": "uint16"},
-                    {"name": "recipient", "type": "address"},
-                ],
-            },
-        ],
-        "name": "swapViaVenueWithFeeV1",
-        "outputs": [{"name": "amountOut", "type": "uint256"}],
         "type": "function",
         "stateMutability": "payable",
     },
@@ -7743,22 +7702,22 @@ class SwapEngine:
         deadline = int(datetime.now(timezone.utc).timestamp()) + 300
         amount_out_min = int(fresh_min_out)
 
-        # Pin the venue from OUR OWN fresh re-quote when Titan reported one:
-        # the pinned entrypoints cost roughly half the gas of the all-venues
-        # requote (measured on mainnet: p50 216k vs 441k) and the Uniswap V3
-        # fallback still applies if the pinned venue can't fill, so minOut
-        # protection is unchanged. fresh_quote comes from our server-side
-        # Titan call above — never from caller-supplied raw_quote — and a
-        # stale/bogus venue can only revert UnknownVenue or fill via the
-        # fallback, both bounded by amountOutMin.
-        pinned_venue = None
-        if fresh_quote.pamm:
-            try:
-                pinned_venue = Web3.to_checksum_address(fresh_quote.pamm)
-            except (TypeError, ValueError):
-                pinned_venue = None
-
-        # Platform fee: the WithFee entrypoints when a fee is configured AND
+        # ALWAYS use the all-venues entrypoints. Do NOT pin a venue from the
+        # quote's `pamm` field: Titan's quote/price-level `pamm` identifiers
+        # live in a DIFFERENT address space than the router's whitelist —
+        # verified on-chain 2026-08-15, `isWhitelistedVenue()` is false for
+        # the pAMM that titan_getPammQuote reports for WETH->USDC — so
+        # passing it to swapViaVenueV1 reverts `UnknownVenue` and burns the
+        # user's gas. Narrowing at all is only correct against addresses from
+        # `getWhitelistedVenues()` (see docs/integrations/propamm-titan.md).
+        #
+        # Completeness is also worth more than the gas: the all-venues
+        # requote costs ~400-800k (7-14c) and guarantees we never miss a
+        # whitelisted pAMM's quote — and because a pinned venue that cannot
+        # fill drops to the Uniswap V3 fallback rather than to another pAMM,
+        # pinning risks the whole pAMM price advantage to save a few cents.
+        #
+        # Platform fee: the WithFee variant when a fee is configured AND
         # collectable (mirrors the KyberSwap/0x fee gate — fee bps AND a real
         # collector address must both be set). The effective bps (clamped to
         # the router's 100 bps FrontendFee cap) was computed up front so the
@@ -7769,28 +7728,7 @@ class SwapEngine:
             if use_fee
             else None
         )
-        if pinned_venue and use_fee:
-            build_fn = router_contract.functions.swapViaVenueWithFeeV1(
-                pinned_venue,
-                swap_token_in,
-                swap_token_out,
-                amount_in,
-                amount_out_min,
-                sender,
-                deadline,
-                fee_tuple,
-            )
-        elif pinned_venue:
-            build_fn = router_contract.functions.swapViaVenueV1(
-                pinned_venue,
-                swap_token_in,
-                swap_token_out,
-                amount_in,
-                amount_out_min,
-                sender,
-                deadline,
-            )
-        elif use_fee:
+        if use_fee:
             build_fn = router_contract.functions.swapWithFeeV1(
                 swap_token_in,
                 swap_token_out,
@@ -7818,20 +7756,21 @@ class SwapEngine:
         }
 
         # Do NOT trust node gas estimation for the gas limit: the router
-        # re-quotes venues in-tx and can take a heavier branch at execution
-        # than at estimation time (e.g. dropping into the Uniswap V3
-        # fallback), so an estimate under-shoots and the swap runs out of gas.
-        # The official propamm SDK hardcodes per-function limits; ours are
-        # tiered by entrypoint from measured mainnet usage (see constants).
+        # re-quotes every whitelisted venue in-tx and can take a heavier
+        # branch at execution than at estimation time (which pAMM actually
+        # fills dominates the final cost, and their swap implementations vary
+        # widely), so an estimate under-shoots and the swap runs out of gas.
+        # The official propamm SDK hardcodes per-function limits for the same
+        # reason; ours is set above the observed max (see the constant).
         # estimate_gas still runs as a pre-flight revert check.
-        floor = PROPAMM_PINNED_SWAP_GAS_LIMIT if pinned_venue else PROPAMM_SWAP_GAS_LIMIT
-        gas_limit = floor
+        gas_limit = PROPAMM_SWAP_GAS_LIMIT
         try:
             gas_estimate = await asyncio.to_thread(lambda: build_fn.estimate_gas(tx_params))
-            gas_limit = max(int(gas_estimate * 1.3), floor)
+            gas_limit = max(int(gas_estimate * 1.3), PROPAMM_SWAP_GAS_LIMIT)
         except Exception as e:
             logger.warning(
-                f"PropAMM (Titan) pre-flight gas estimate failed, using hardcoded {floor}: {e}"
+                f"PropAMM (Titan) pre-flight gas estimate failed, "
+                f"using hardcoded {PROPAMM_SWAP_GAS_LIMIT}: {e}"
             )
 
         tx = build_fn.build_transaction({**tx_params, "gas": gas_limit})
