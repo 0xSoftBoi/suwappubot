@@ -30,6 +30,31 @@ price_service = PriceService()
 PRO_FEE_RATE = 0.005
 
 
+def _compute_pro_delta_usd(fee_rows: list[tuple[float, float]]) -> float:
+    """What PRO's 50bps fee would have kept vs what was actually paid, summed
+    over `fee_rows` (fee_amount_usd, fee_percentage) pairs from FeeTransaction.
+
+    Per row: volume = fee_amount_usd / (fee_percentage / 100); pro_fee =
+    volume * PRO_FEE_RATE; delta = fee_amount_usd - pro_fee. Rows with a
+    non-positive fee_percentage are skipped (can't back out volume from a
+    zero/negative rate). Returns the SUM of deltas, which can be negative
+    (e.g. a row already at or below PRO's rate) — callers gate display on
+    the total being positive, not this helper.
+
+    Pure + synchronous — no DB, no `self` — unit-testable in isolation.
+    """
+    pro_delta = 0.0
+    for fee_amount_usd, fee_percentage in fee_rows:
+        fee_amount_usd = float(fee_amount_usd or 0)
+        fee_percentage = float(fee_percentage or 0)
+        if fee_percentage <= 0:
+            continue
+        volume = fee_amount_usd / (fee_percentage / 100)
+        pro_fee = volume * PRO_FEE_RATE
+        pro_delta += fee_amount_usd - pro_fee
+    return pro_delta
+
+
 async def _build_savings_block(user_id: int) -> str:
     """Last-30-days execution-savings receipt + FREE->PRO upsell delta.
 
@@ -73,15 +98,7 @@ async def _build_savings_block(user_id: int) -> str:
         # actually paid at the user's current (higher) fee rate.
         tier = await x402_service.get_tier(user_id)
         if tier == SubscriptionTier.FREE and fee_rows:
-            pro_delta = 0.0
-            for fee_amount_usd, fee_percentage in fee_rows:
-                fee_amount_usd = float(fee_amount_usd or 0)
-                fee_percentage = float(fee_percentage or 0)
-                if fee_percentage <= 0:
-                    continue
-                volume = fee_amount_usd / (fee_percentage / 100)
-                pro_fee = volume * PRO_FEE_RATE
-                pro_delta += fee_amount_usd - pro_fee
+            pro_delta = _compute_pro_delta_usd(fee_rows)
             if pro_delta > 0.01:
                 lines.append(
                     f"  PRO would have kept you ~{format_usd(pro_delta)} "

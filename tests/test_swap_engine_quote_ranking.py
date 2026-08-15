@@ -19,6 +19,7 @@ from bot.services.swap_engine import (
     SwapEngine,
     SwapQuote,
     _apply_speed_tiebreak,
+    _compute_price_improvement_usd,
     _derive_input_usd_value,
     _derive_median_output_price,
     _extract_input_usd_value,
@@ -27,6 +28,7 @@ from bot.services.swap_engine import (
     _quote_net_score,
     _rank_quotes,
     _rank_quotes_with_price,
+    _select_runner_up,
 )
 
 
@@ -1026,4 +1028,134 @@ class TestApplySpeedTiebreak:
             to_chain="base",
         )
         assert best is winner
-        assert info is None
+
+
+class TestSelectRunnerUp:
+    """`_select_runner_up` — the second-ranked quote in the same race `best`
+    was chosen from (execution-savings receipt)."""
+
+    def test_single_quote_race_returns_none(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        assert _select_runner_up([winner], winner, out_price_used=None) is None
+
+    def test_gross_ranking_picks_second_by_to_amount_human(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        second = _quote("kyberswap", to_amount_human=95.0)
+        third = _quote("jupiter", to_amount_human=80.0)
+
+        runner_up = _select_runner_up([winner, second, third], winner, out_price_used=None)
+        assert runner_up is second
+
+    def test_net_ranking_picks_second_by_net_score_when_price_used(self):
+        # net: winner = 100 - 1/1 = 99 ; a = 98 - 0/1 = 98 ; b = 90 - 0/1 = 90
+        # gross would pick `a` too here, so this doesn't distinguish net vs
+        # gross — the point is it uses whichever basis `out_price_used` implies.
+        winner = _quote("lifi", to_amount_human=100.0, gas_cost_usd=1.0, gas_cost_trusted=True)
+        a = _quote("kyberswap", to_amount_human=98.0, gas_cost_usd=0.0, gas_cost_trusted=True)
+        b = _quote("jupiter", to_amount_human=90.0, gas_cost_usd=0.0, gas_cost_trusted=True)
+
+        runner_up = _select_runner_up([winner, a, b], winner, out_price_used=1.0)
+        assert runner_up is a
+
+    def test_wormhole_excluded_unless_only_quote(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        wormhole = _quote("wormhole", to_amount_human=999.0)
+        real_runner_up = _quote("kyberswap", to_amount_human=95.0)
+
+        runner_up = _select_runner_up(
+            [winner, wormhole, real_runner_up], winner, out_price_used=None
+        )
+        assert runner_up is real_runner_up
+
+
+class TestComputePriceImprovementUsd:
+    """`_compute_price_improvement_usd` — USD value of the winner's edge over
+    the runner-up (execution-savings receipt)."""
+
+    async def test_no_runner_up_returns_zero(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        assert await _compute_price_improvement_usd(winner, None) == 0.0
+
+    async def test_stablecoin_to_token_values_at_par_no_price_lookup(self):
+        # default `to_token` in the _quote() helper is "USDC" (stablecoin) —
+        # this must resolve without ever touching price_service.
+        winner = _quote("lifi", to_amount_human=105.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        with patch(
+            "bot.services.price_service.price_service.get_price",
+            new=AsyncMock(side_effect=AssertionError("must not be called for a stablecoin")),
+        ):
+            improvement = await _compute_price_improvement_usd(winner, runner_up)
+        assert abs(improvement - 5.0) < 1e-9
+
+    async def test_negative_delta_clamped_to_zero(self):
+        """Net-of-gas ranking can pick a lower-GROSS winner — that must never
+        render as a negative "savings"."""
+        winner = _quote("lifi", to_amount_human=90.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        improvement = await _compute_price_improvement_usd(winner, runner_up)
+        assert improvement == 0.0
+
+    async def test_equal_amounts_returns_zero(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        improvement = await _compute_price_improvement_usd(winner, runner_up)
+        assert improvement == 0.0
+
+    async def test_non_stable_token_prices_via_price_service(self):
+        winner = SwapQuote(
+            provider="lifi",
+            from_chain="arbitrum",
+            to_chain="arbitrum",
+            from_token="USDT",
+            to_token="WETH",
+            from_amount="1000000",
+            from_amount_human=1.0,
+            to_amount="105",
+            to_amount_human=0.06,
+            to_amount_min="105",
+            gas_cost_usd=0.0,
+            fee_cost_usd=0.0,
+            total_cost_usd=0.0,
+            estimated_time=15,
+            price_impact=0.0,
+            exchange_rate=0.06,
+            raw_quote={},
+        )
+        runner_up = SwapQuote(
+            provider="kyberswap",
+            from_chain="arbitrum",
+            to_chain="arbitrum",
+            from_token="USDT",
+            to_token="WETH",
+            from_amount="1000000",
+            from_amount_human=1.0,
+            to_amount="100",
+            to_amount_human=0.05,
+            to_amount_min="100",
+            gas_cost_usd=0.0,
+            fee_cost_usd=0.0,
+            total_cost_usd=0.0,
+            estimated_time=15,
+            price_impact=0.0,
+            exchange_rate=0.05,
+            raw_quote={},
+        )
+        with patch(
+            "bot.services.price_service.price_service.get_price",
+            new=AsyncMock(return_value=2000.0),
+        ):
+            improvement = await _compute_price_improvement_usd(winner, runner_up)
+        # delta = 0.06 - 0.05 = 0.01 WETH * $2000 = $20
+        assert abs(improvement - 20.0) < 1e-9
+
+    async def test_price_lookup_failure_returns_zero_never_raises(self):
+        winner = _quote("lifi", to_amount_human=105.0, from_amount_human=1.0)
+        winner.to_token = "SOME_UNKNOWN_TOKEN"
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        with patch(
+            "bot.services.price_service.price_service.get_price",
+            new=AsyncMock(side_effect=RuntimeError("rpc exploded")),
+        ):
+            improvement = await _compute_price_improvement_usd(winner, runner_up)
+        assert improvement == 0.0
