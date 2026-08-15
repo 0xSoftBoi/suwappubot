@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Optional, Tuple
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from web3 import Web3
 from eth_account import Account
 import aiohttp
@@ -364,16 +364,34 @@ class HotWalletService:
     # than unlikely.
     INTERNAL_PREFIX = "internal/"
 
-    async def provision_internal_wallet(self, label: str, chain_type: str = "evm") -> HotWallet:
-        """Provision a wallet for internal use — testing, deploys, experiments.
+    # A hard ceiling on how many internal wallets may be live at once. This is a
+    # policy, not a resource limit: every live wallet is a key someone must
+    # remember exists, and a funded one nobody remembers is how testnet float
+    # turns into lost float. Hitting the cap is the signal to retire something,
+    # not to raise the cap.
+    INTERNAL_WALLET_CAP = 12
 
-        Deliberately NOT create_hot_wallet's defaults. Both operational roles are
-        forced False, so nothing routes to this wallet: deposits go to the wallet
-        flagged is_deposit_wallet, gas to is_gas_payer, and this is neither. It
-        exists, Turnkey holds the key, and it does nothing until someone signs
+    async def provision_internal_wallet(
+        self,
+        label: str,
+        chain_type: str = "evm",
+        purpose: Optional[str] = None,
+        owner: Optional[str] = None,
+        ttl_days: Optional[int] = 30,
+    ) -> Tuple[HotWallet, bool]:
+        """Get-or-create the internal wallet for ``label``. Returns (wallet, created).
+
+        Deliberately idempotent rather than erroring on a name clash. Asking for
+        "the robinhood-testnet-deployer" twice should hand back the same wallet
+        both times — a caller that has to catch "already exists" and then look the
+        wallet up separately is a caller that will eventually just append a "-2"
+        and mint a duplicate. Re-provisioning also renews the TTL, so the thing
+        you are actively using does not expire out from under you.
+
+        Both operational roles are forced False, so nothing routes here: deposits
+        go to the wallet flagged is_deposit_wallet, gas to is_gas_payer, and this
+        is neither. Turnkey holds the key; it does nothing until someone signs
         with it on purpose.
-
-        The label is namespaced under INTERNAL_PREFIX and must be unique.
         """
         label = (label or "").strip().strip("/")
         if not label:
@@ -386,32 +404,267 @@ class HotWalletService:
             raise ValueError("chain_type must be 'evm' or 'solana'")
 
         name = f"{self.INTERNAL_PREFIX}{label}"
-        with get_session() as session:
-            if session.query(HotWallet).filter(HotWallet.name == name).first():
-                raise ValueError(f"a wallet named '{name}' already exists")
+        expires_at = (
+            datetime.utcnow() + timedelta(days=ttl_days) if ttl_days and ttl_days > 0 else None
+        )
 
-        return await self.create_hot_wallet(
+        with get_session() as session:
+            existing = (
+                session.query(HotWallet)
+                .filter(HotWallet.name == name, HotWallet.is_active == True)  # noqa: E712
+                .first()
+            )
+            if existing:
+                # Reuse. Renew the lease and refresh the metadata rather than
+                # minting a second wallet for the same job.
+                existing.expires_at = expires_at
+                if purpose:
+                    existing.purpose = purpose
+                if owner:
+                    existing.owner = owner
+                session.flush()
+                wallet_id = existing.id
+                return self.get_hot_wallet_by_id(wallet_id), False
+
+            # A retired wallet keeps its name so the audit trail stays readable.
+            # Reviving it would resurrect a key someone deliberately decommissioned,
+            # so require a distinct label instead.
+            retired = session.query(HotWallet).filter(HotWallet.name == name).first()
+            if retired is not None:
+                raise ValueError(
+                    f"'{name}' was retired on "
+                    f"{retired.retired_at:%Y-%m-%d} ({retired.retired_reason or 'no reason given'}). "
+                    "Pick a different label — retired keys are not revived."
+                )
+
+            live = (
+                session.query(HotWallet)
+                .filter(
+                    HotWallet.name.like(f"{self.INTERNAL_PREFIX}%"),
+                    HotWallet.is_active == True,  # noqa: E712
+                )
+                .count()
+            )
+            if live >= self.INTERNAL_WALLET_CAP:
+                raise ValueError(
+                    f"{live} internal wallets are already live (cap {self.INTERNAL_WALLET_CAP}). "
+                    "Retire one before provisioning another — run an audit to see "
+                    "which are idle."
+                )
+
+        wallet = await self.create_hot_wallet(
             name=name,
             chain_type=chain_type,
             is_deposit_wallet=False,
             is_gas_payer=False,
         )
 
-    def list_internal_wallets(self) -> list:
-        """Every internally-provisioned wallet, as plain dicts."""
         with get_session() as session:
-            rows = (
+            row = session.query(HotWallet).filter(HotWallet.id == wallet.id).first()
+            row.purpose = purpose
+            row.owner = owner
+            row.expires_at = expires_at
+            session.flush()
+
+        logger.info(
+            "Provisioned internal wallet %s (%s) for %s, expires %s",
+            name,
+            wallet.address,
+            owner or "unattributed",
+            expires_at.isoformat() if expires_at else "never",
+        )
+        return self.get_hot_wallet_by_id(wallet.id), True
+
+    def get_internal_wallet(self, label_or_name: str) -> Optional[HotWallet]:
+        """Look up a live internal wallet by bare label or fully-qualified name."""
+        raw = (label_or_name or "").strip()
+        name = raw if raw.startswith(self.INTERNAL_PREFIX) else f"{self.INTERNAL_PREFIX}{raw}"
+        with get_session() as session:
+            return (
                 session.query(HotWallet)
-                .filter(
-                    HotWallet.name.like(f"{self.INTERNAL_PREFIX}%"),
-                    HotWallet.is_active == True,  # noqa: E712
-                )
-                .all()
+                .filter(HotWallet.name == name, HotWallet.is_active == True)  # noqa: E712
+                .first()
             )
+
+    def list_internal_wallets(self, include_retired: bool = False) -> list:
+        """Every internally-provisioned wallet, as plain dicts."""
+        now = datetime.utcnow()
+        with get_session() as session:
+            q = session.query(HotWallet).filter(
+                HotWallet.name.like(f"{self.INTERNAL_PREFIX}%"),
+            )
+            if not include_retired:
+                q = q.filter(HotWallet.is_active == True)  # noqa: E712
+            rows = q.order_by(HotWallet.created_at).all()
             return [
-                {"name": w.name, "chain_type": w.chain_type, "address": w.address, "id": w.id}
+                {
+                    "id": w.id,
+                    "name": w.name,
+                    "label": w.name[len(self.INTERNAL_PREFIX) :],
+                    "chain_type": w.chain_type,
+                    "address": w.address,
+                    "purpose": w.purpose,
+                    "owner": w.owner,
+                    "created_at": w.created_at,
+                    "expires_at": w.expires_at,
+                    "expired": bool(w.expires_at and w.expires_at < now and w.is_active),
+                    "retired_at": w.retired_at,
+                    "retired_reason": w.retired_reason,
+                    "is_active": w.is_active,
+                }
                 for w in rows
             ]
+
+    # Chains an internal wallet is checked against before retirement. Retiring a
+    # funded wallet is how float gets lost: Turnkey keeps the key, but nothing in
+    # our DB points at it any more, so the balance is only recoverable by someone
+    # who thinks to go looking. Keep this list in sync with wherever internal
+    # wallets actually get funded.
+    INTERNAL_SWEEP_CHAINS = ("ethereum", "base", "arbitrum", "optimism", "polygon")
+
+    async def check_internal_wallet_funds(
+        self, wallet: HotWallet, chains: Optional[Tuple[str, ...]] = None
+    ) -> dict:
+        """Balances held by an internal wallet, per chain. Never raises on a dead RPC.
+
+        A chain that fails to answer is reported as an error rather than as zero,
+        because "we could not check" and "it is empty" must not look the same to
+        the retirement path.
+        """
+        found: dict = {}
+        if wallet.chain_type == "solana":
+            try:
+                native, tokens = await self.get_hot_wallet_balance(wallet, "solana")
+                if native > 0 or any(v > 0 for v in tokens.values()):
+                    found["solana"] = {"native": native, "tokens": tokens}
+            except Exception as e:  # noqa: BLE001
+                found["solana"] = {"error": str(e)}
+            return found
+
+        for chain in chains or self.INTERNAL_SWEEP_CHAINS:
+            try:
+                native, tokens = await self.get_hot_wallet_balance(wallet, chain)
+            except Exception as e:  # noqa: BLE001
+                found[chain] = {"error": str(e)}
+                continue
+            held_tokens = {k: v for k, v in (tokens or {}).items() if v > 0}
+            if native > 0 or held_tokens:
+                found[chain] = {"native": native, "tokens": held_tokens}
+        return found
+
+    async def retire_internal_wallet(
+        self,
+        label_or_name: str,
+        reason: str,
+        retired_by: Optional[str] = None,
+        force: bool = False,
+        chains: Optional[Tuple[str, ...]] = None,
+    ) -> dict:
+        """Decommission an internal wallet. Refuses if it still holds anything.
+
+        Retirement is a DB-side operation: is_active goes False, so every
+        operational lookup stops seeing it. The Turnkey key is deliberately NOT
+        deleted — that is irreversible, and if a balance surfaces later on a chain
+        we did not check, the key is the only way to recover it. Turnkey wallets
+        cost nothing to leave in place.
+
+        ``force`` records the retirement anyway. It exists because a wallet
+        holding dust on a chain with a dead RPC should not be permanently
+        un-retirable, but it is never the default: the balances found are written
+        into the reason so the record says what was abandoned.
+        """
+        reason = (reason or "").strip()
+        if not reason:
+            raise ValueError("a reason is required — a retired wallet with no reason is a mystery")
+
+        wallet = self.get_internal_wallet(label_or_name)
+        if wallet is None:
+            raise ValueError(f"no live internal wallet named '{label_or_name}'")
+
+        funds = await self.check_internal_wallet_funds(wallet, chains)
+        funded = {k: v for k, v in funds.items() if "error" not in v}
+        errored = {k: v for k, v in funds.items() if "error" in v}
+
+        if (funded or errored) and not force:
+            return {
+                "retired": False,
+                "name": wallet.name,
+                "address": wallet.address,
+                "funded_on": funded,
+                "unreachable": errored,
+                "message": (
+                    "Not retired — sweep the balance out first, or pass force to "
+                    "retire anyway and accept losing track of it."
+                ),
+            }
+
+        note = reason
+        if funded:
+            residue = ", ".join(
+                f"{c}:{v['native']}" + (f"+{len(v['tokens'])} tokens" if v.get("tokens") else "")
+                for c, v in funded.items()
+            )
+            note = f"{reason} [FORCED, abandoned: {residue}]"[:200]
+        elif errored:
+            note = f"{reason} [FORCED, unverified: {','.join(errored)}]"[:200]
+
+        with get_session() as session:
+            row = session.query(HotWallet).filter(HotWallet.id == wallet.id).first()
+            row.is_active = False
+            row.retired_at = datetime.utcnow()
+            row.retired_reason = note
+            row.retired_by = retired_by
+            session.flush()
+
+        logger.info("Retired internal wallet %s (%s): %s", wallet.name, wallet.address, note)
+        return {
+            "retired": True,
+            "name": wallet.name,
+            "address": wallet.address,
+            "reason": note,
+            "funded_on": funded,
+            "unreachable": errored,
+        }
+
+    async def audit_internal_wallets(self, chains: Optional[Tuple[str, ...]] = None) -> dict:
+        """What is live, what has overrun its TTL, and what is still holding funds.
+
+        This is the report that keeps the roster small: anything expired and empty
+        is a free retirement, and anything expired and funded needs a sweep before
+        it becomes forgotten float.
+        """
+        live = [w for w in self.list_internal_wallets() if w["is_active"]]
+        report = {
+            "live": len(live),
+            "cap": self.INTERNAL_WALLET_CAP,
+            "headroom": max(0, self.INTERNAL_WALLET_CAP - len(live)),
+            "retire_now": [],
+            "needs_sweep": [],
+            "in_use": [],
+        }
+
+        for entry in live:
+            wallet = self.get_hot_wallet_by_id(entry["id"])
+            if wallet is None:
+                continue
+            funds = await self.check_internal_wallet_funds(wallet, chains)
+            held = {k: v for k, v in funds.items() if "error" not in v}
+            row = {
+                "label": entry["label"],
+                "address": entry["address"],
+                "purpose": entry["purpose"],
+                "owner": entry["owner"],
+                "expired": entry["expired"],
+                "funded_on": held,
+            }
+            if held:
+                report["needs_sweep" if entry["expired"] else "in_use"].append(row)
+            elif entry["expired"]:
+                report["retire_now"].append(row)
+            else:
+                report["in_use"].append(row)
+
+        return report
 
     def get_deposit_wallet(self, chain_type: str) -> Optional[HotWallet]:
         """Get the primary deposit wallet for a chain type."""

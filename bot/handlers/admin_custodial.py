@@ -47,13 +47,18 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Admin access required.")
         return
 
-    # /hw new <label> [evm|solana] — provision an inert wallet for internal use.
+    # Internal-wallet lifecycle. Subcommands rather than a conversation, so each
+    # is one message from a phone.
     args = context.args or []
-    if args and args[0].lower() == "new":
+    sub = args[0].lower() if args else ""
+
+    if sub == "new":
         label = args[1] if len(args) > 1 else ""
         chain = args[2].lower() if len(args) > 2 else "evm"
         try:
-            wallet = await hot_wallet_service.provision_internal_wallet(label, chain)
+            wallet, created = await hot_wallet_service.provision_internal_wallet(
+                label, chain, owner=str(user.id)
+            )
         except ValueError as e:
             await update.message.reply_text(
                 f"❌ {e}\n\nUsage: `/hw new <label> [evm|solana]`", parse_mode="Markdown"
@@ -63,13 +68,102 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             logger.error(f"provision_internal_wallet failed: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Error: {e}")
             return
+        verb = "Provisioned" if created else "Reusing"
+        expiry = f"Expires {wallet.expires_at:%Y-%m-%d}" if wallet.expires_at else "No expiry"
         await update.message.reply_text(
-            f"✅ *Provisioned* `{wallet.name}`\n\n"
+            f"✅ *{verb}* `{wallet.name}`\n\n"
             f"`{wallet.address}`\n\n"
-            "_Turnkey holds the key. No deposit or gas-payer role — nothing "
-            "routes here, so it is safe to fund._",
+            f"_{expiry}. Turnkey holds the key. No deposit or gas-payer role — "
+            "nothing routes here, so it is safe to fund._",
             parse_mode="Markdown",
         )
+        return
+
+    if sub == "retire":
+        label = args[1] if len(args) > 1 else ""
+        force = "--force" in args
+        reason_parts = [a for a in args[2:] if a != "--force"]
+        reason = " ".join(reason_parts).strip()
+        if not label or not reason:
+            await update.message.reply_text(
+                "Usage: `/hw retire <label> <reason>` (add `--force` to retire "
+                "a wallet that still holds funds)",
+                parse_mode="Markdown",
+            )
+            return
+        try:
+            result = await hot_wallet_service.retire_internal_wallet(
+                label, reason, retired_by=str(user.id), force=force
+            )
+        except ValueError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+        except Exception as e:
+            logger.error(f"retire_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+
+        if not result["retired"]:
+            held = "\n".join(
+                f"• {c}: {v['native']}"
+                + (f" + {len(v['tokens'])} token(s)" if v.get("tokens") else "")
+                for c, v in result["funded_on"].items()
+            )
+            unreachable = ", ".join(result["unreachable"]) or "none"
+            await update.message.reply_text(
+                f"⚠️ *Not retired* — `{result['name']}` still holds funds.\n\n"
+                f"{held or '_(no balances, but some chains were unreachable)_'}\n\n"
+                f"Unreachable chains: {unreachable}\n\n"
+                f"`{result['address']}`\n\n"
+                "_Sweep it out first, or re-run with `--force` to retire anyway "
+                "and accept losing track of the balance._",
+                parse_mode="Markdown",
+            )
+            return
+
+        await update.message.reply_text(
+            f"🗑 *Retired* `{result['name']}`\n\n"
+            f"`{result['address']}`\n\n"
+            f"_{result['reason']}_\n\n"
+            "_The Turnkey key is kept, not deleted — it is the only way to recover "
+            "a balance that surfaces later. Nothing in the bot points here now._",
+            parse_mode="Markdown",
+        )
+        return
+
+    if sub == "audit":
+        await update.message.reply_text("🔍 Checking balances across chains…")
+        try:
+            rep = await hot_wallet_service.audit_internal_wallets()
+        except Exception as e:
+            logger.error(f"audit_internal_wallets failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+
+        out = [
+            f"📋 *Internal wallets* — {rep['live']}/{rep['cap']} live "
+            f"({rep['headroom']} free)\n"
+        ]
+        if rep["needs_sweep"]:
+            out.append("*⚠️ Expired but funded — sweep these*")
+            for r in rep["needs_sweep"]:
+                held = ", ".join(f"{c} {v['native']}" for c, v in r["funded_on"].items())
+                out.append(f"`{r['label']}` — {held}\n`{r['address']}`")
+            out.append("")
+        if rep["retire_now"]:
+            out.append("*✅ Expired and empty — free to retire*")
+            for r in rep["retire_now"]:
+                out.append(f"`{r['label']}` — /hw retire {r['label']} <reason>")
+            out.append("")
+        if rep["in_use"]:
+            out.append("*In use*")
+            for r in rep["in_use"]:
+                held = ", ".join(f"{c} {v['native']}" for c, v in r["funded_on"].items()) or "empty"
+                out.append(f"`{r['label']}` — {held}")
+        if not (rep["needs_sweep"] or rep["retire_now"] or rep["in_use"]):
+            out.append("_None provisioned._")
+
+        await update.message.reply_text("\n".join(out), parse_mode="Markdown")
         return
 
     with get_session() as session:
@@ -109,8 +203,15 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if internal:
         lines.append("\n*Internal (no roles, nothing routes here)*")
         for w in internal:
-            lines.append(f"`{w['name']}` ({w['chain_type']})\n`{w['address']}`")
-    lines.append("\n_Provision one:_ `/hw new <label> [evm|solana]`")
+            tag = " ⏳ expired" if w["expired"] else ""
+            lines.append(
+                f"`{w['label']}` ({w['chain_type']}){tag}\n`{w['address']}`"
+                + (f"\n_{w['purpose']}_" if w.get("purpose") else "")
+            )
+    lines.append(
+        "\n_Manage:_ `/hw new <label> [evm|solana]` · "
+        "`/hw retire <label> <reason>` · `/hw audit`"
+    )
 
     keyboard = [
         [

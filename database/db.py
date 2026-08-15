@@ -435,6 +435,7 @@ def _ensure_schema(db_engine) -> None:
     if "hot_wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
+        _add_internal_wallet_lifecycle_columns(db_engine, inspector, is_sqlite)
 
     # --- oauth_states: login CSRF nonce column (additive + idempotent) ---
     if "oauth_states" in tables:
@@ -2396,6 +2397,42 @@ def _add_turnkey_columns(
                 ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_internal_wallet_lifecycle_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Lifecycle metadata for internally-provisioned wallets. Additive + idempotent.
+
+    All nullable and unset for the operational hot wallets that predate them, so
+    existing deposit/gas-payer rows are untouched by this migration.
+    """
+    cols = {c["name"] for c in inspector.get_columns("hot_wallets")}
+
+    new_columns = [
+        ("purpose", "VARCHAR(200)", "NULL"),
+        ("owner", "VARCHAR(100)", "NULL"),
+        ("expires_at", "TIMESTAMP", "NULL"),
+        ("retired_at", "TIMESTAMP", "NULL"),
+        ("retired_reason", "VARCHAR(200)", "NULL"),
+        ("retired_by", "VARCHAR(100)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE hot_wallets ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = (
+                    f"ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type} DEFAULT {default}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # The audit sweep scans by expiry.
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_hot_wallets_expires_at ON hot_wallets(expires_at)")
+        )
 
 
 def _add_swap_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:

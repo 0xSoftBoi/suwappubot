@@ -159,6 +159,18 @@ class HotWallet(Base):
     # Status
     is_active = Column(Boolean, default=True)
 
+    # --- Internal-wallet lifecycle -------------------------------------------
+    # Only ever set for wallets under HotWalletService.INTERNAL_PREFIX. Kept on
+    # this table rather than a side table so a retired wallet can never be read
+    # back as live by a query that forgot to join: is_active is the single gate
+    # every operational lookup already honors, and retirement flips it.
+    purpose = Column(String(200), nullable=True)  # why this wallet exists
+    owner = Column(String(100), nullable=True)  # who asked for it
+    expires_at = Column(DateTime, nullable=True)  # TTL — audit flags overruns
+    retired_at = Column(DateTime, nullable=True)
+    retired_reason = Column(String(200), nullable=True)
+    retired_by = Column(String(100), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

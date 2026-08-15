@@ -80,3 +80,86 @@ def test_the_admin_command_is_documented_where_it_is_used():
     assert "/hw new <label>" in handler
     # and the full address must be shown — a truncated one cannot be funded
     assert "{wallet.address}" in handler
+
+
+# ── Lifecycle ───────────────────────────────────────────────────────────────
+#
+# Spinning wallets UP safely was the first half. The second half is spinning
+# them DOWN: retiring a wallet that still holds a balance strands it, because
+# Turnkey keeps the key but nothing in our DB points at the wallet any more.
+
+
+def test_retire_refuses_a_funded_wallet_unless_forced():
+    """The core spin-down safety property, asserted against the source.
+
+    A retirement path that flips is_active without first checking balances is
+    how testnet float silently becomes lost float.
+    """
+    src = inspect.getsource(HotWalletService.retire_internal_wallet)
+    assert "check_internal_wallet_funds" in src, "retire must check balances first"
+    assert (
+        "if (funded or errored) and not force" in src
+    ), "retire must refuse when funds are found or a chain was unreachable"
+    # The refusal must return, not raise-and-continue into the is_active flip.
+    refusal = src.index("if (funded or errored) and not force")
+    flip = src.index("row.is_active = False")
+    assert refusal < flip, "the balance guard must sit before the retirement write"
+
+
+def test_unreachable_chain_is_not_treated_as_empty():
+    """'We could not check' and 'it is empty' must never look the same.
+
+    A dead RPC returning a silent zero would let retire() sail past a funded
+    wallet, which is precisely the failure the balance guard exists to stop.
+    """
+    src = inspect.getsource(HotWalletService.check_internal_wallet_funds)
+    assert '"error"' in src, "a failed balance call must be recorded as an error"
+    assert "continue" in src, "a failed chain must not fall through to the zero path"
+
+    retire_src = inspect.getsource(HotWalletService.retire_internal_wallet)
+    assert 'errored = {k: v for k, v in funds.items() if "error" in v}' in retire_src
+    assert "funded or errored" in retire_src, "unreachable chains must block retirement too"
+
+
+def test_retirement_does_not_delete_the_turnkey_key():
+    """Retirement is a DB operation. Deleting the upstream key is irreversible
+    and removes the only means of recovering a balance found later.
+    """
+    src = inspect.getsource(HotWalletService.retire_internal_wallet)
+    for forbidden in ("delete_wallet", "DELETE_WALLET", "delete_private_key"):
+        assert forbidden not in src, f"retire must not call {forbidden}"
+
+
+def test_retired_names_are_not_revived():
+    """A retired wallet keeps its name so the audit trail stays readable, and a
+    new wallet must not silently inherit it — that would resurrect an identity
+    someone deliberately decommissioned.
+    """
+    src = inspect.getsource(HotWalletService.provision_internal_wallet)
+    assert "retired" in src and "was retired on" in src
+
+
+def test_provisioning_is_capped():
+    """The cap is the mechanism that keeps the roster small. Without it,
+    get-or-create is just unlimited minting with extra steps.
+    """
+    assert isinstance(HotWalletService.INTERNAL_WALLET_CAP, int)
+    assert 0 < HotWalletService.INTERNAL_WALLET_CAP <= 25
+    src = inspect.getsource(HotWalletService.provision_internal_wallet)
+    assert "INTERNAL_WALLET_CAP" in src
+    # The cap must be counted over LIVE wallets only, or retiring would never
+    # free headroom.
+    assert "HotWallet.is_active == True" in src
+
+
+def test_reprovisioning_returns_the_same_wallet_rather_than_a_duplicate():
+    """Get-or-create, not create-or-explode. A caller forced to catch
+    'already exists' is a caller that will eventually append '-2'.
+    """
+    src = inspect.getsource(HotWalletService.provision_internal_wallet)
+    assert "return self.get_hot_wallet_by_id(wallet_id), False" in src
+
+
+def test_retirement_requires_a_reason():
+    src = inspect.getsource(HotWalletService.retire_internal_wallet)
+    assert "a reason is required" in src
