@@ -31,6 +31,42 @@ Grounded in Robinhood's own docs and what is already wired in this repo.
 So the connection is a solved problem in principle. The friction is in three
 specific places, and two of them will silently kill the flow.
 
+## The best path is one I initially missed: the wallet's own browser
+
+Robinhood Wallet's WalletConnect registry record
+(`8837dd9413b1d9b585ee937d27a816590248386d9dbf59f5cd3422dbbb65683e`) carries:
+
+```
+injected  [{"namespace": "eip155", "injected_id": "isRobinhoodMobileWallet"}]
+rdns      "com.robinhood.wallet"
+mobile    {"native": "robinhood-wallet://", "universal": null}
+sdks      ["sign_v1", "sign_v2"]
+chains    ["eip155:1","eip155:10","eip155:137","eip155:42161","eip155:80084","eip155:80085"]
+updatedAt "2022-12-19"
+```
+
+**The wallet has an in-app browser with an injected EIP-1193 provider**, flagged
+`window.ethereum.isRobinhoodMobileWallet`. If the mint page is opened *inside*
+that browser there is no WalletConnect at all — no QR, no deep link, no session
+negotiation, no namespace rejection. It is strictly the smoothest path and it
+dissolves the two traps below rather than working around them.
+
+`nft/position-cards/probe/wallet-probe.html` tests exactly this: open it in the
+wallet's browser, tap once, and it reports whether `eth_signTypedData_v4` is
+honoured for a real EIP-3009 payload. Self-contained, no build, no CDN.
+
+**Read the registry carefully, though.** `updatedAt` is **2022-12-19** — nearly
+four years stale, predating Robinhood Chain entirely. So the absent `eip155:4663`
+is evidence of a stale record, NOT evidence the wallet lacks the chain; Robinhood's
+own docs say the chain is built in. Do not conclude from this that 4663 is
+unsupported.
+
+But it does imply a concrete failure mode: **WalletConnect session proposals that
+put `eip155:4663` in REQUIRED namespaces can be rejected outright** by a wallet
+whose declared chain set is stale, and that failure looks like "the wallet is
+broken" rather than like a negotiation problem. Request 4663 as an **optional**
+namespace.
+
 ## Trap 1 — the QR code is useless to this user
 
 They are **on their phone**, arriving from a mobile app. A QR code on a mobile
@@ -38,10 +74,21 @@ web page cannot be scanned by the same phone. This is the single most common way
 a mobile WalletConnect flow fails, and it is exactly our audience.
 
 The mobile path must be a **WalletConnect deep link** that opens Robinhood Wallet
-directly, with QR reserved for desktop. RainbowKit — already the connect stack in
-`terminal/src/lib/wagmi.ts`, with a real `VITE_WC_PROJECT_ID` — handles this, but
-only if Robinhood Wallet is registered as a known wallet with its mobile deep
-link rather than left to the generic "WalletConnect" entry.
+directly, with QR reserved for desktop. The scheme is **`robinhood-wallet://`**.
+
+Two things checked rather than assumed:
+
+- **RainbowKit 2.2.11, which we already ship, has no Robinhood Wallet entry** —
+  grepped `terminal/node_modules`. So it cannot be offered as a named wallet
+  today; it needs registering as a custom connector.
+- **There is no universal link** — the registry has `universal: null`. That
+  matters: custom schemes are the fragile kind. iOS Safari can block or warn on
+  them, and when the app is not installed the user gets a dead link instead of a
+  store redirect. Ship a store fallback (`com.robinhood.gateway` on Android)
+  rather than assuming the tap lands.
+
+Both of these disappear entirely on the in-app-browser path above, which is the
+argument for making that path primary.
 
 ## Trap 2 — they have tokenized stocks and no ETH
 
