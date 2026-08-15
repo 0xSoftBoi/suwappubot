@@ -1,5 +1,16 @@
 # CEO Decision Memo — Exec Audit Synthesis (2026-08-15)
 
+> **REVISION (same day, post-verification): the this-week list below is superseded.**
+> The Opus money-path review (`money-path-review.md`) BLOCKED this memo as written, and the prod env pull (`verification-results.md`) resolved the unknowns. Corrected priorities:
+>
+> 1. **`/s` quickswap + all NL trades collect $0 platform fee** — `record_fee` is never called from quickswap; flagship command is entirely fee-free (REFUTED the "non-disclosure" framing; this is a HIGH revenue leak). Fix must ship fee + disclosure line in the same commit — it is a live price increase.
+> 2. **Set `COMPLIANCE_MODE` in prod** — confirmed unset → OFAC screening disabled on every swap/bridge today. cco picks mode; deploy-ops sets var.
+> 3. **`/rewards` import shadowing** (confirmed, worse than stated: handler never registered at all) — but `rewards_claim_callback` has never executed in prod and credits custodial balances; review it BEFORE the one-line fix makes it reachable.
+> 4. **Phantom-fee root cause**: add `SwapQuote.fee_bearing`, gate `record_fee` + sweeper on it — one fix covers USDT0 (latent), layerzero/cctp/ccip/across/wormhole (live), and the collector-unset class. Also set `FEE_COLLECTOR_SOLANA` (confirmed unset → Solana sweep permanently failing).
+> 5. **`totpSecret`/`db:push` gate** (unchanged from below) — still this-week.
+>
+> Downgraded: USDT0 alone (latent — feature flag off), points-store ENTERPRISE (redemption code verified sound; issuance-side risk accepted, cheap lever = deactivate the reward row). Cleared by scout: no dead mainnet chains; boot/parse audit clean.
+
 ## Framing
 Nine execs read the same codebase for money-path, custody, compliance, data-integrity, and ops risk. The single most consequential unknown across all nine reports is **whether Suwappu is actually collecting the fee it thinks it's collecting** — CFO, CCO, and CAIO each independently hit an unverified prod env var that gates real revenue or real risk controls. That's the deadline-forcing constraint: we cannot prioritize anything else credibly until those values are pulled from Railway.
 
