@@ -11,7 +11,20 @@
 
 Pump.fun's new investment arm, **Pump Fund**, put up **$3M across 12 teams — $250,000 each at a $10M valuation**, structured as **token-based deals, not equity**.
 
-- **Terms:** teams had to launch a token on Pump.fun, retain a meaningful share of supply (recommended 20–50%, minimum 10%), post daily public progress updates, and stream major milestones live.
+### Actual deal terms (from hackathon.pump.fun/apply, verbatim)
+
+> "$250,000 in initial funding at a $10 million valuation via a token deal"
+> "A one-year cliff followed by linear vesting for both the project and investors"
+> "Funding restricted to operational expenses only"
+> "Team members may not sell their own tokens at any time during the program"
+> "A token must be launched by February 25 at 23:59 EST"
+> "Team must own at least 10% of the token supply"
+
+Teams also may not "engage in insider trading, or act in bad faith toward token holders." Evaluation signals: market traction, community engagement, "consistency and quality of building in public," and "founder discipline, credibility, and execution ability."
+
+**This materially changes how the token drawdowns should be read.** Founders were contractually barred from selling during the program, and the $250k sits behind a one-year cliff that has not matured for any winner. The 65–95% declines therefore cannot be attributed to team dumping — they reflect secondary-market sentiment decay after the announcement pop.
+
+- **Other terms:** teams had to launch a token on Pump.fun, retain a meaningful share of supply (recommended 20–50%, minimum 10%), post daily public progress updates, and stream major milestones live.
 - **Selection:** by *market traction* — token performance, community engagement, public building — rather than a judging panel.
 - **Advisors:** Polymarket, Delphi Digital, Pantera Capital, Kraken, Jump Crypto, Manifold Ventures, Arca, Draper Investments, Helius, Privy, 6th Man Ventures. Notably, advisors engaged publicly and gave feedback but **did not score applications or select winners**.
 - **Timeline:** applications opened Jan 19 2026, closed Feb 18 2026; winners announced on a rolling basis through Jun 26 2026.
@@ -77,6 +90,35 @@ Sources: [crypto.news](https://crypto.news/pump-fun-polymarket-pantera-founder-h
 
 ---
 
+## Corrections from the primary-source pass
+
+A second pass read the projects' own docs, repos, and specs. It overturned several things in the summary above:
+
+| Claim above | Corrected by primary sources |
+|---|---|
+| ClawPump shares **80%** of fees with agent creators | **65%** — their docs state "35% platform share." Enforced off-chain; no ClawPump program ID is published. |
+| CodecFlow repos date to **Jan–Apr 2025** | Core repo `fabric` starts **Aug 2 2025**. The early dates belong to peripheral demo repos. (The "predates the hackathon" conclusion still holds.) |
+| Clude reports **81.3% retrieval quality** | That figure appears in **no primary source**. Their own benchmark page reports 67.7 recall / 83.9 overall; a third channel says 86%. |
+| AgenC: mainnet **June 11 2026, 99 instructions** | Marketing-only. Docs and GitHub say **July 22 2026, 101 instructions**; four surfaces give 96/98/99/101. |
+| Opal's token could not be identified | Opal has **no token** and has pivoted to "Scale Opal," a behavioral-data licensing business. |
+| Dexter authored an **IETF draft** | True but weak as a signal — an unreviewed **individual** draft, self-authored, expiring Dec 2026, with "no formal standing in the standards process." |
+| BloxAPI has "no docs" | Confirmed, and stronger: `/docs` and `/developers` are **SPA fallbacks serving the homepage**. The site has also rebranded away from the winning pitch. |
+| Daydreams is an "AI agent business suite" | Its core framework is **self-declared obsolete** by its maintainers; the team pivoted to task markets on Base. |
+
+### What the primary sources add
+
+- **Pumpcade's published API reference is the unreplaced Swagger "OpenAPI Plant Store" sample spec**, and its beta runs on **testnet USDC**. Its differentiating claim — dispute-free deterministic resolution — has no documented failure path, and the docs admit custom markets "require manual resolution by administrators." This is the winner that raised $6M from Jump Crypto and Foundation Capital.
+- **Zauth's x402 "verification" is endpoint-control proof, not a security audit** — "the act of deploying it proves you control the endpoint." The `/verification` page is a login wall. They do ship the batch's one genuinely live public API (`api.zauth.inc/api/directory`).
+- **AgenC has the most serious engineering** — a real Anchor program (`HJsZ53Zb27b8QMRbQpuDngE44AdwCGxvEZr61Zmxw1xK`), committed IDL, and a detailed escrow design (program-owned escrow, bonded disputes with a single resolver, fail-closed moderation, capped fee splits). Its worker runtime is closed source and its audit claims are self-reported.
+- **Daydreams' ERC-8195 drew real peer review** on Ethereum Magicians — substantive critiques from two reviewers across March–April 2026, incorporated across revisions. Status: Draft. ERC-8194 could not be read directly.
+- **Collector Group remains unverifiable after two independent passes.** No site, doc, repo, token, or announcement under that name.
+
+**The pattern across all twelve:** each project documents its *mechanics* competently and leaves its *differentiating claim* unspecified. The gap is consistently between what is built and what is sold.
+
+Full detail with verbatim quotes and the exact pages read: `primary-docs/`.
+
+---
+
 ## Detailed per-company profiles
 
 Full profiles — product detail, team, token/contract, traction, funding, links, and a skeptical read for each — are in the batch files alongside this document:
@@ -85,3 +127,10 @@ Full profiles — product detail, team, token/contract, traction, funding, links
 - Winners 4–6 (BloxAPI, ClawPump, CodecFlow): `batches/batch2.md`
 - Winners 7–9 (Dexter, Clude, SolScanner): `batches/batch3.md`
 - Winners 10–12 (Collector Group, Daydreams, AgenC): `batches/batch4.md`
+
+Primary-source reads (docs, repos, specs, with verbatim quotes):
+
+- Pumpcade, Zauth, Opal: `primary-docs/pumpcade-zauth-opal.md`
+- CodecFlow, ClawPump, BloxAPI: `primary-docs/codecflow-clawpump-bloxapi.md`
+- Dexter, Clude, SolScanner: `primary-docs/dexter-clude-solscanner.md`
+- AgenC, Daydreams, Collector Group: `primary-docs/agenc-daydreams-collector.md`
