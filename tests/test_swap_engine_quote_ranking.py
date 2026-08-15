@@ -1028,6 +1028,7 @@ class TestApplySpeedTiebreak:
             to_chain="base",
         )
         assert best is winner
+        assert info is None
 
 
 class TestSelectRunnerUp:
@@ -1070,92 +1071,50 @@ class TestSelectRunnerUp:
 
 class TestComputePriceImprovementUsd:
     """`_compute_price_improvement_usd` — USD value of the winner's edge over
-    the runner-up (execution-savings receipt)."""
+    the runner-up, on the ranking's own net-score basis (execution-savings
+    receipt). Pure + synchronous — must never touch the network."""
 
-    async def test_no_runner_up_returns_zero(self):
+    def test_no_runner_up_returns_none(self):
+        # None (not 0.0): NULL in the DB means "not measured", 0.0 means a
+        # real tie — analytics depend on the distinction.
         winner = _quote("lifi", to_amount_human=100.0)
-        assert await _compute_price_improvement_usd(winner, None) == 0.0
+        assert _compute_price_improvement_usd(winner, None, 1.0) is None
 
-    async def test_stablecoin_to_token_values_at_par_no_price_lookup(self):
-        # default `to_token` in the _quote() helper is "USDC" (stablecoin) —
-        # this must resolve without ever touching price_service.
+    def test_no_trusted_price_returns_none(self):
+        # Gross-ranked race (no USD price): a dollar claim would be a guess.
         winner = _quote("lifi", to_amount_human=105.0)
         runner_up = _quote("kyberswap", to_amount_human=100.0)
-        with patch(
-            "bot.services.price_service.price_service.get_price",
-            new=AsyncMock(side_effect=AssertionError("must not be called for a stablecoin")),
-        ):
-            improvement = await _compute_price_improvement_usd(winner, runner_up)
-        assert abs(improvement - 5.0) < 1e-9
+        assert _compute_price_improvement_usd(winner, runner_up, None) is None
 
-    async def test_negative_delta_clamped_to_zero(self):
-        """Net-of-gas ranking can pick a lower-GROSS winner — that must never
-        render as a negative "savings"."""
-        winner = _quote("lifi", to_amount_human=90.0)
-        runner_up = _quote("kyberswap", to_amount_human=100.0)
-        improvement = await _compute_price_improvement_usd(winner, runner_up)
+    def test_values_net_of_gas_not_gross(self):
+        """A winner carrying higher gas must not book its gross edge as
+        savings — the receipt values exactly what ranking compared."""
+        winner = _quote("lifi", to_amount_human=100.0, gas_cost_usd=4.0)
+        runner_up = _quote("kyberswap", to_amount_human=97.0, gas_cost_usd=1.0)
+        # net(w) = 100 - 4/1 = 96; net(r) = 97 - 1/1 = 96 -> real edge $0
+        improvement = _compute_price_improvement_usd(winner, runner_up, 1.0)
         assert improvement == 0.0
 
-    async def test_equal_amounts_returns_zero(self):
-        winner = _quote("lifi", to_amount_human=100.0)
-        runner_up = _quote("kyberswap", to_amount_human=100.0)
-        improvement = await _compute_price_improvement_usd(winner, runner_up)
-        assert improvement == 0.0
-
-    async def test_non_stable_token_prices_via_price_service(self):
-        winner = SwapQuote(
-            provider="lifi",
-            from_chain="arbitrum",
-            to_chain="arbitrum",
-            from_token="USDT",
-            to_token="WETH",
-            from_amount="1000000",
-            from_amount_human=1.0,
-            to_amount="105",
-            to_amount_human=0.06,
-            to_amount_min="105",
-            gas_cost_usd=0.0,
-            fee_cost_usd=0.0,
-            total_cost_usd=0.0,
-            estimated_time=15,
-            price_impact=0.0,
-            exchange_rate=0.06,
-            raw_quote={},
-        )
-        runner_up = SwapQuote(
-            provider="kyberswap",
-            from_chain="arbitrum",
-            to_chain="arbitrum",
-            from_token="USDT",
-            to_token="WETH",
-            from_amount="1000000",
-            from_amount_human=1.0,
-            to_amount="100",
-            to_amount_human=0.05,
-            to_amount_min="100",
-            gas_cost_usd=0.0,
-            fee_cost_usd=0.0,
-            total_cost_usd=0.0,
-            estimated_time=15,
-            price_impact=0.0,
-            exchange_rate=0.05,
-            raw_quote={},
-        )
-        with patch(
-            "bot.services.price_service.price_service.get_price",
-            new=AsyncMock(return_value=2000.0),
-        ):
-            improvement = await _compute_price_improvement_usd(winner, runner_up)
-        # delta = 0.06 - 0.05 = 0.01 WETH * $2000 = $20
+    def test_positive_net_edge_valued_at_out_price(self):
+        winner = _quote("lifi", to_amount_human=0.06, gas_cost_usd=0.0)
+        runner_up = _quote("kyberswap", to_amount_human=0.05, gas_cost_usd=0.0)
+        # delta_net = 0.01 token * $2000 = $20
+        improvement = _compute_price_improvement_usd(winner, runner_up, 2000.0)
         assert abs(improvement - 20.0) < 1e-9
 
-    async def test_price_lookup_failure_returns_zero_never_raises(self):
-        winner = _quote("lifi", to_amount_human=105.0, from_amount_human=1.0)
-        winner.to_token = "SOME_UNKNOWN_TOKEN"
+    def test_negative_net_delta_clamped_to_zero(self):
+        winner = _quote("lifi", to_amount_human=90.0)
         runner_up = _quote("kyberswap", to_amount_human=100.0)
-        with patch(
-            "bot.services.price_service.price_service.get_price",
-            new=AsyncMock(side_effect=RuntimeError("rpc exploded")),
-        ):
-            improvement = await _compute_price_improvement_usd(winner, runner_up)
-        assert improvement == 0.0
+        assert _compute_price_improvement_usd(winner, runner_up, 1.0) == 0.0
+
+    def test_equal_net_scores_return_zero(self):
+        winner = _quote("lifi", to_amount_human=100.0)
+        runner_up = _quote("kyberswap", to_amount_human=100.0)
+        assert _compute_price_improvement_usd(winner, runner_up, 1.0) == 0.0
+
+    def test_is_pure_no_network(self):
+        """The function must be sync + network-free: it runs on the quote
+        critical path, where a price lookup would add user-visible latency."""
+        import inspect
+
+        assert not inspect.iscoroutinefunction(_compute_price_improvement_usd)

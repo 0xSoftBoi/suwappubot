@@ -1594,7 +1594,7 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
         runner_up_provider = getattr(quote, "runner_up_provider", None)
         if num_success > 0 and price_improvement_usd >= 0.01 and runner_up_provider:
             savings_line = (
-                f"💰 Best-route savings: ~{format_usd(price_improvement_usd)} "
+                f"💰 Best-route savings (est. at quote): ~{format_usd(price_improvement_usd)} "
                 f"vs next-best ({runner_up_provider})\n"
             )
 

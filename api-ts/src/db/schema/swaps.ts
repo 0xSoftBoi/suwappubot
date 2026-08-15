@@ -47,6 +47,13 @@ export const swapTransactions = pgTable('swap_transactions', {
 	// Fees
 	gasFee: real('gas_fee'),
 	bridgeFee: real('bridge_fee'),
+
+	// Execution-savings receipt (written by the Python engine at swap-record
+	// time): USD edge of the winning route over the race's runner-up, and
+	// which provider that runner-up was. NULL = not measured. Declared here
+	// so `bun run db:push` never proposes dropping the live columns.
+	priceImprovementUsd: real('price_improvement_usd'),
+	runnerUpProvider: varchar('runner_up_provider', { length: 50 }),
 	slippage: integer('slippage').default(50),
 
 	// Timing

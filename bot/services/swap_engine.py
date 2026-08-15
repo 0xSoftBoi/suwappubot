@@ -737,46 +737,35 @@ def _select_runner_up(
     return max(others, key=lambda q: q.to_amount_human)
 
 
-async def _compute_price_improvement_usd(
-    winner: "SwapQuote", runner_up: Optional["SwapQuote"]
-) -> float:
-    """USD value of the winner's edge over the runner-up, for telemetry.
+def _compute_price_improvement_usd(
+    winner: "SwapQuote",
+    runner_up: Optional["SwapQuote"],
+    out_price_used: Optional[float],
+) -> Optional[float]:
+    """USD value of the winner's edge over the runner-up, for the savings
+    receipt shown to users.
 
-    Values (winner.to_amount_human - runner_up.to_amount_human) — both
-    quotes are for the same to_token, since they raced the same swap — using
-    a stablecoin's 1:1 par when to_token is one (exact, no price lookup) and
-    `price_service` otherwise, matching the pattern `_estimate_swap_usd` uses
-    elsewhere in this module.
+    Valued on the SAME basis the race was decided on — the net-of-gas score
+    (`_quote_net_score`) times the ranking's own output price — so the
+    receipt can never mix a net decision with a gross claim (a winner
+    carrying higher gas would otherwise systematically overstate savings).
+    Reuses `out_price_used` that ranking already fetched: pure math, zero
+    network, zero added latency on the quote path.
 
-    Returns 0.0 (never negative) when: there's no runner-up, the delta is
-    <=0 (net-of-gas ranking can legitimately pick a lower-GROSS winner — that
-    is not a savings and must never render as one), or no USD price for
-    to_token can be found. Never raises — this is telemetry, not the money
-    path, and a pricing hiccup here must not touch swap execution.
-    """
-    if runner_up is None:
+    Returns None (field stays unset — NULL in the DB, no receipt rendered)
+    when there is no runner-up or when ranking ran gross (no trusted USD
+    price — a dollar claim without a trusted price is a guess we won't put
+    in front of users). Returns 0.0 only for a real tie or when the winner's
+    net edge is <=0 (a speed/other tradeoff, not a savings)."""
+    if runner_up is None or not out_price_used:
+        return None
+
+    delta_net = _quote_net_score(winner, out_price_used) - _quote_net_score(
+        runner_up, out_price_used
+    )
+    if delta_net <= 0:
         return 0.0
-
-    delta_human = winner.to_amount_human - runner_up.to_amount_human
-    if delta_human <= 0:
-        return 0.0
-
-    try:
-        from bot.config.tokens import get_token_by_symbol
-
-        cfg = get_token_by_symbol(winner.to_token)
-        if cfg and getattr(cfg, "is_stablecoin", False):
-            return delta_human
-
-        from bot.services.price_service import price_service
-
-        price = await asyncio.wait_for(price_service.get_price(winner.to_token), timeout=5)
-    except Exception:
-        return 0.0
-
-    if not price:
-        return 0.0
-    return float(price) * delta_human
+    return delta_net * out_price_used
 
 
 def _parse_int(value, default: int = 0) -> int:
@@ -2031,24 +2020,31 @@ class SwapEngine:
                 quotes, best, out_price_used, from_chain, to_chain
             )
 
+            # Execution-savings receipt: how much better `best` was than the
+            # runner-up, valued on the ranking's own net-score basis (pure
+            # math — no network, no added quote latency). Computed BEFORE the
+            # decimals correction below (which rescales only the winner and
+            # would poison the delta) and skipped entirely when the speed
+            # tiebreak swapped the winner (the "runner-up" would then be a
+            # net-better quote — claiming savings against it would be false).
+            # Best-effort only — never allowed to affect route selection.
+            if tiebreak_info is None:
+                try:
+                    runner_up = _select_runner_up(quotes, best, out_price_used)
+                    improvement = _compute_price_improvement_usd(best, runner_up, out_price_used)
+                    if improvement is not None:
+                        best.runner_up_provider = runner_up.provider if runner_up else None
+                        best.price_improvement_usd = improvement
+                except Exception:
+                    logger.debug(
+                        "execution-savings computation failed, leaving fields None", exc_info=True
+                    )
+
             # Fix the displayed receive-amount when buying a token by raw address
             # (its real decimals aren't in the registry). Done after ranking — all
             # providers mis-scaled identically, so the winner is unchanged — and
             # before caching so every consumer sees the corrected figure.
             best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
-
-            # Execution-savings receipt: how much better `best` was than the
-            # runner-up in this race. Best-effort only — never allowed to
-            # affect route selection or fail the quote. See
-            # `_select_runner_up` / `_compute_price_improvement_usd`.
-            try:
-                runner_up = _select_runner_up(quotes, best, out_price_used)
-                best.runner_up_provider = runner_up.provider if runner_up else None
-                best.price_improvement_usd = await _compute_price_improvement_usd(best, runner_up)
-            except Exception:
-                logger.debug(
-                    "execution-savings computation failed, leaving fields None", exc_info=True
-                )
         finally:
             # A singleflight can cancel this race when its last waiter leaves.
             # Collect the real provider tasks as well as the comparison-only
@@ -4246,6 +4242,7 @@ class SwapEngine:
 
             # Create transaction record
             def _create_swap_record():
+                savings_already_recorded = getattr(quote, "_savings_recorded", False)
                 with get_session() as session:
                     swap_tx = SwapTransaction(
                         user_id=user_id,
@@ -4268,13 +4265,24 @@ class SwapEngine:
                         bridge_fee=quote.fee_cost_usd,
                         idempotency_key=idempotency_key,
                         # Execution-savings receipt, carried on the winning
-                        # SwapQuote from get_best_quote's race resolution —
-                        # see SwapQuote.price_improvement_usd docstring.
-                        price_improvement_usd=quote.price_improvement_usd,
-                        runner_up_provider=quote.runner_up_provider,
+                        # SwapQuote from get_best_quote's race resolution.
+                        # Consume-once: a SwapQuote object is reused across
+                        # every wallet of a multi-wallet batch AND replayed
+                        # by the 15s quote cache — recording the same race's
+                        # edge on N rows would multiply the user's "saved"
+                        # total N-fold. The display fields stay intact on the
+                        # quote (the success message still renders once); only
+                        # persistence is once-per-race.
+                        price_improvement_usd=(
+                            None if savings_already_recorded else quote.price_improvement_usd
+                        ),
+                        runner_up_provider=(
+                            None if savings_already_recorded else quote.runner_up_provider
+                        ),
                     )
                     session.add(swap_tx)
                     session.flush()
+                    quote._savings_recorded = True
                     return swap_tx.id
 
             swap_id = await run_in_db(_create_swap_record)
