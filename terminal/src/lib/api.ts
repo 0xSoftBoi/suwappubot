@@ -81,6 +81,15 @@ import type {
   DevWatchEntry,
   DevWatchHit,
 } from '../types/api'
+import type {
+  MarketDataStatus,
+  MarketDataOhlcvResponse,
+  MarketDataPerpsMarketsResponse,
+  MarketDataPerpsHistoryResponse,
+  MarketDataPredictionsMarketsResponse,
+  MarketDataPredictionsHistoryResponse,
+  MarketDataLendMarketsResponse,
+} from '../types/marketData'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -841,6 +850,43 @@ export const api = {
 
   getTweetFeed() {
     return request<TweetData[]>('/webapp/tweets/feed')
+  },
+
+  // Proprietary market-data store — coverage/status + candles + perp
+  // funding/OI + prediction odds + lending rates. Distinct from the
+  // HyperLiquid/Polymarket/Morpho-live routes above (getPerpsMarkets,
+  // getPredictionMarkets, getLendingMarkets) — this reads our own capture
+  // pipeline's warehouse, which can be empty pre-deploy.
+  getMarketDataStatus() {
+    return request<MarketDataStatus>('/webapp/data/status')
+  },
+
+  getMarketDataOhlcv(symbol: string, chain: string, timeframe: string, limit = 200) {
+    const params = new URLSearchParams({ symbol, chain, timeframe, limit: String(limit) })
+    return request<MarketDataOhlcvResponse>(`/webapp/data/ohlcv?${params}`)
+  },
+
+  getMarketDataPerpsMarkets(limit = 100) {
+    return request<MarketDataPerpsMarketsResponse>(`/webapp/data/perps/markets?limit=${limit}`)
+  },
+
+  getMarketDataPerpsHistory(symbol: string, venue: string, limit = 200) {
+    const params = new URLSearchParams({ symbol, venue, limit: String(limit) })
+    return request<MarketDataPerpsHistoryResponse>(`/webapp/data/perps/history?${params}`)
+  },
+
+  getMarketDataPredictionMarkets(q = '', limit = 50) {
+    const params = new URLSearchParams({ q, limit: String(limit) })
+    return request<MarketDataPredictionsMarketsResponse>(`/webapp/data/predictions/markets?${params}`)
+  },
+
+  getMarketDataPredictionHistory(marketId: string, outcome: string, limit = 200) {
+    const params = new URLSearchParams({ market_id: marketId, outcome, limit: String(limit) })
+    return request<MarketDataPredictionsHistoryResponse>(`/webapp/data/predictions/history?${params}`)
+  },
+
+  getMarketDataLendMarkets(limit = 50) {
+    return request<MarketDataLendMarketsResponse>(`/webapp/data/lend/markets?limit=${limit}`)
   },
 
   // Agent / Copilot

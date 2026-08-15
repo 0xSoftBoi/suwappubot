@@ -462,3 +462,189 @@ describe("auth header", () => {
     expect(seen).toHaveLength(1);
   });
 });
+
+describe("market data (/v1/data/*)", () => {
+  it("builds the OHLCV query string and preserves the DB/fallback source", async () => {
+    const c = client();
+    nextBody = {
+      symbol: "ETH",
+      chain: "base",
+      timeframe: "1h",
+      source: "db",
+      candles: [
+        {
+          ts: "2026-01-01T00:00:00.000Z",
+          open: "100",
+          high: "110",
+          low: "90",
+          close: "105",
+          volume: null,
+          source: "coingecko",
+        },
+      ],
+    };
+
+    const result = await c.getOhlcv({
+      symbol: "eth",
+      chain: "base",
+      timeframe: "1h",
+      start: 1735689600,
+      limit: 5000,
+    });
+
+    expect(seen[0]?.method).toBe("GET");
+    expect(seen[0]?.path).toBe(
+      "/v1/data/history/ohlcv?symbol=eth&chain=base&timeframe=1h&start=1735689600&limit=5000",
+    );
+    expect(result.source).toBe("db");
+    expect(result.candles).toHaveLength(1);
+    expect(result.candles[0]?.close).toBe("105");
+  });
+
+  it("omits the chain param when getting the full reference-tokens registry", async () => {
+    const c = client();
+    nextBody = {
+      chains: [{ chain_id: 8453, tokens: [{ symbol: "USDC", address: "0xUSDC", decimals: 6 }] }],
+    };
+
+    const result = await c.getReferenceTokens();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/data/reference/tokens", body: null });
+    expect("chains" in result && result.chains[0]?.tokens[0]?.symbol).toBe("USDC");
+  });
+
+  it("returns a single chain's token registry when chain is passed", async () => {
+    const c = client();
+    nextBody = {
+      chain: "base",
+      chain_id: 8453,
+      tokens: [{ symbol: "USDC", address: "0xUSDC", decimals: 6 }],
+    };
+
+    const result = await c.getReferenceTokens("base");
+
+    expect(seen[0]?.path).toBe("/v1/data/reference/tokens?chain=base");
+    expect("chain" in result && result.chain).toBe("base");
+    expect("tokens" in result && result.tokens[0]?.address).toBe("0xUSDC");
+  });
+
+  it("resolves a known symbol/chain to its canonical address and decimals", async () => {
+    const c = client();
+    nextBody = {
+      symbol: "USDC",
+      chain: "base",
+      chain_id: 8453,
+      address: "0xUSDCBase",
+      decimals: 6,
+      coingecko_id: "usd-coin",
+    };
+
+    const resolved = await c.resolveSymbol("usdc", "base");
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/data/reference/resolve?symbol=usdc&chain=base",
+      body: null,
+    });
+    expect(resolved).toEqual({
+      symbol: "USDC",
+      chain: "base",
+      chainId: 8453,
+      address: "0xUSDCBase",
+      decimals: 6,
+      coingeckoId: "usd-coin",
+    });
+  });
+
+  it("surfaces TOKEN_UNKNOWN as a SuwappuError for an unresolved symbol", async () => {
+    const c = client();
+    nextStatus = 404;
+    nextBody = { success: false, error_code: "TOKEN_UNKNOWN", message: "Token not found" };
+
+    try {
+      await c.resolveSymbol("NOTAREALTOKEN", "base");
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(SuwappuError);
+      expect((err as SuwappuError).status).toBe(404);
+      expect((err as SuwappuError).code).toBe("TOKEN_UNKNOWN");
+    }
+  });
+
+  it("maps snake_case usage fields to camelCase", async () => {
+    const c = client();
+    nextBody = {
+      total_requests: 42,
+      first_seen_at: "2026-01-01T00:00:00Z",
+      last_seen_at: "2026-01-02T00:00:00Z",
+      by_endpoint: { "/v1/data/history/ohlcv": 42 },
+    };
+
+    const usage = await c.getDataUsage();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/data/usage", body: null });
+    expect(usage).toEqual({
+      totalRequests: 42,
+      firstSeenAt: "2026-01-01T00:00:00Z",
+      lastSeenAt: "2026-01-02T00:00:00Z",
+      byEndpoint: { "/v1/data/history/ohlcv": 42 },
+    });
+  });
+
+  it("fetches grouped dataset metadata and passes through total_candles/truncated", async () => {
+    const c = client();
+    nextBody = {
+      success: true,
+      datasets: [
+        {
+          symbol: "ETH",
+          chain: "base",
+          timeframes: { "1h": { candles: 42, start: "2026-01-01T00:00:00Z", end: "2026-01-02T00:00:00Z" } },
+        },
+      ],
+      total_candles: 42,
+    };
+
+    const result = await c.getDataMetadata({ symbol: "eth", chain: "base" });
+
+    expect(seen[0]).toEqual({
+      method: "GET",
+      path: "/v1/data/metadata?symbol=eth&chain=base",
+      body: null,
+    });
+    expect(result.totalCandles).toBe(42);
+    expect(result.truncated).toBeUndefined();
+    expect(result.datasets[0]?.symbol).toBe("ETH");
+    expect(result.datasets[0]?.timeframes["1h"]?.candles).toBe(42);
+  });
+
+  it("fetches metadata with no filters", async () => {
+    const c = client();
+    nextBody = { success: true, datasets: [], total_candles: 0 };
+
+    await c.getDataMetadata();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/data/metadata", body: null });
+  });
+
+  it("maps snake_case status fields to camelCase and preserves healthy", async () => {
+    const c = client();
+    nextBody = {
+      success: true,
+      timeframes: {
+        "1m": { latest_ts: "2026-01-01T00:00:00Z", age_seconds: 12 },
+        "5m": { latest_ts: null, age_seconds: null },
+      },
+      sources: { coingecko: 100, geckoterminal: 20 },
+      healthy: true,
+    };
+
+    const status = await c.getDataStatus();
+
+    expect(seen[0]).toEqual({ method: "GET", path: "/v1/data/status", body: null });
+    expect(status.healthy).toBe(true);
+    expect(status.timeframes["1m"]).toEqual({ latestTs: "2026-01-01T00:00:00Z", ageSeconds: 12 });
+    expect(status.timeframes["5m"]).toEqual({ latestTs: null, ageSeconds: null });
+    expect(status.sources).toEqual({ coingecko: 100, geckoterminal: 20 });
+  });
+});
