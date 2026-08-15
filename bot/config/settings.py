@@ -923,6 +923,26 @@ class Settings(BaseSettings):
         description="KyberSwap x-client-id header (free identifier, avoids anon 429s)",
     )
 
+    # PropAMM liquidity via Titan Builder (Ethereum mainnet only, same-chain).
+    # https://docs.titanbuilder.xyz/propamms/takers — quoting is public (no key)
+    # via titan_getPammQuote; execution goes through the PropAMMRouter proxy,
+    # which re-quotes all whitelisted pAMM venues + Uniswap V3 in-tx and falls
+    # back to Uniswap V3 transparently. Gated behind an explicit enable flag
+    # (not a key) so it ships dark and has a no-redeploy kill switch — mirrors
+    # kyberswap_enabled.
+    propamm_enabled: bool = Field(
+        default=False,
+        description="Enable PropAMM (Titan Builder) in the best-price race (Ethereum mainnet only, no API key needed)",
+    )
+    titan_rpc_url: str = Field(
+        default="https://rpc.titanbuilder.xyz",
+        description="Titan Builder JSON-RPC base URL for titan_getPammQuote (regional: eu/ap/us.rpc.titanbuilder.xyz)",
+    )
+    propamm_router_address: str = Field(
+        default="0x4DdF368080CD7946db5b459aD591c350158175e1",
+        description="PropAMMRouter proxy address (Ethereum mainnet) — both the ERC20 spender to approve and the tx `to` target",
+    )
+
     # WhatsApp Business API (Optional)
     whatsapp_phone_number_id: Optional[str] = Field(
         default=None, description="WhatsApp Business Phone Number ID"
