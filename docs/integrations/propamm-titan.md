@@ -66,17 +66,64 @@ returns **false** — yet that is exactly the `pamm` Titan reports for WETH→US
 Passing it to `swapViaVenueV1` reverts `UnknownVenue` and burns the user's gas.
 
 **If you ever narrow, the venue list must come from `getWhitelistedVenues()`**,
-filtered using `IPropAMM.getPairs()` on those same venue addresses (an on-chain
-read, cacheable) and/or stream-freshness signals — never from a quote's `pamm`
-field.
+filtered with `IPropAMM` reads against *those same addresses* — never from a
+quote's `pamm` field and never from the price-level stream (see below).
 
-We deliberately do not narrow:
+#### `IPropAMM` lives on the venue, not the oracle (verified on-chain)
+
+```solidity
+function isActive(address tokenIn, address tokenOut) external view returns (bool);
+function getPairs() external view returns (TokenPair[] memory);  // struct { address token0; address token1; }
+```
+
+Call these on the **whitelisted venue address**. Measured 2026-08-15:
+
+| Address | `getPairs()` result |
+|---|---|
+| Fermi **venue** `0x5979…3320` (whitelisted) | 8 clean ERC-20 pairs — WETH/USDC, WETH/USDT, WBTC/USDT, WBTC/USDC, USDC/USDT, cbBTC/USDC, cbBTC/USDT, WBTC/cbBTC |
+| Fermi **oracle** `0x26e5…f312` (not whitelisted) | 8 entries, but laced with the `0x…0001` placeholder and containing duplicates — **unusable for routing** |
+
+The oracle **does not revert** — it answers with junk. "The call succeeded" is
+therefore not a validity check; the address has to come from
+`getWhitelistedVenues()`.
+
+Two more gotchas:
+- `TokenPair` is **canonical/unordered**. Match both directions — an earlier
+  directional check against the stream wrongly concluded Fermi does not trade
+  WETH→USDC when `getPairs()` shows it does.
+- `isActive(tokenIn, tokenOut)` is the cheaper per-swap check; `getPairs()` is
+  better for building a cached venue↔pair map.
+
+#### The price-level stream is NOT a valid narrowing signal
+
+`titan_getPammPriceLevels` reports 5 pAMMs and the whitelist holds 5 venues,
+but they are **not the same five**:
+
+| Whitelisted venue | In price-level stream? | Trades USDC/WETH? |
+|---|---|---|
+| `0x5979…3320` (Fermi) | yes | yes |
+| `0x71e7…0B3d` (Kipseli) | yes | yes |
+| `0xB09A…dD76` (bopAMM) | yes | yes |
+| `0x0000…2149` (Tempest) | **no** | **yes** (+ WETH/USDT, USDC/USDT) |
+| `0x97CC…1223` | **no** | **yes** (its only pair) |
+
+Both stream-absent venues trade USDC/WETH — the pair used in every benchmark
+above. Narrowing on stream membership would have silently dropped 2 of 5
+routable venues for that pair, while the stream also advertises two
+identifiers (`0x217d…3d95a`, `0xe715…DcDB`) that are not venues at all.
+
+#### Why we do not narrow
+
 - The full `swapV1` costs ~400–800k gas (≈7–14¢) and **guarantees no
   whitelisted pAMM's quote is missed**. The spread is driven by which pAMM
   fills, since their swap implementations vary widely.
 - A pinned venue that cannot fill drops to the **Uniswap V3 fallback**, not to
   the next-best pAMM — so narrowing wrongly forfeits the entire pAMM price
   advantage (~25 bps vs our default route) to save a few cents.
+- Every narrowing signal that is cheap to get (quote `pamm`, stream
+  membership) is provably wrong here; the one that is correct
+  (`getWhitelistedVenues()` + `IPropAMM`) needs on-chain reads, a cache, and
+  staleness handling — real infra to save ~7¢.
 - Our product is execution quality sold via subscriptions; fees only cover
   infra. Trading bps of fill quality for cents of gas is backwards here.
 
