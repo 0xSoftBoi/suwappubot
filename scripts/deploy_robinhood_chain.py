@@ -75,6 +75,15 @@ def main():
     ap.add_argument("--network", choices=["testnet", "mainnet"], default="testnet")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--owner", help="owner/treasury; defaults to the deployer")
+    ap.add_argument(
+        "--signer",
+        choices=["key", "turnkey"],
+        default="key",
+        help="key: DEPLOYER_PRIVATE_KEY. turnkey: sign in Turnkey's enclave, no raw key anywhere.",
+    )
+    ap.add_argument(
+        "--from", dest="from_address", help="signer address, required for --signer turnkey"
+    )
     a = ap.parse_args()
 
     net = NETWORKS[a.network]
@@ -87,15 +96,28 @@ def main():
     print(f"{net['name']} · chain {live} · {net['rpc_url']}")
 
     art = _artifacts()
-    key = os.environ.get("DEPLOYER_PRIVATE_KEY")
     deployer = None
-    if key:
-        from eth_account import Account
+    if a.signer == "turnkey":
+        # Turnkey holds the key in its enclave; nothing is exported and there is
+        # no private key on disk or in env. This is the path for a wallet made
+        # with `/hw new <label> evm`, which is why that command exists.
+        #
+        # It still needs TURNKEY_API_PRIVATE_KEY / _PUBLIC_KEY / ORGANIZATION_ID
+        # in the environment it runs in — the enclave authenticates the caller.
+        # Run it somewhere those already live rather than copying them around.
+        deployer = a.from_address
+        if not deployer:
+            sys.exit("--signer turnkey requires --from <address>")
+        print(f"deployer: {deployer} (Turnkey-held key, nothing exported)")
+    else:
+        key = os.environ.get("DEPLOYER_PRIVATE_KEY")
+        if key:
+            from eth_account import Account
 
-        deployer = Account.from_key(key).address
-        print(f"deployer: {deployer}")
-    elif not a.dry_run:
-        sys.exit("DEPLOYER_PRIVATE_KEY is required for a real deploy")
+            deployer = Account.from_key(key).address
+            print(f"deployer: {deployer}")
+        elif not a.dry_run:
+            sys.exit("DEPLOYER_PRIVATE_KEY is required, or use --signer turnkey --from <address>")
 
     owner = a.owner or deployer or "0x" + "11" * 20
     plan = [c for c in PLAN if not (c == "MockUSDG" and net["usdg"])]
@@ -131,7 +153,81 @@ def main():
         print("then configurePhase. sealRegistry is irreversible — check the ticker order first.")
         return 0
 
-    sys.exit("real deploys are not wired yet — fund the deployer and extend this script")
+    return _broadcast(w3, art, plan, a, net, deployer, owner, gas_price)
+
+
+async def _turnkey_sign(unsigned_hex: str, address: str) -> str:
+    from bot.services.turnkey_client import get_turnkey_client
+
+    return await get_turnkey_client().sign_transaction(
+        unsigned_transaction=unsigned_hex,
+        sign_with=address,
+        transaction_type="TRANSACTION_TYPE_ETHEREUM",
+        organization_id=None,  # main org, same as hot wallets
+    )
+
+
+def _broadcast(w3, art, plan, a, net, deployer, owner, gas_price):
+    """Deploy each contract in order, then print the wiring rather than doing it."""
+    import asyncio
+
+    from eth_account import Account
+    from eth_utils import to_hex
+
+    deployed = {}
+    nonce = w3.eth.get_transaction_count(deployer)
+
+    for name in plan:
+        c = w3.eth.contract(abi=art[name]["abi"], bytecode=art[name]["bytecode"])
+        tx = c.constructor(*_ctor_args(name, owner, net["usdg"])).build_transaction(
+            {
+                "from": deployer,
+                "chainId": net["chain_id"],
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "gas": 30_000_000,
+            }
+        )
+        tx["gas"] = int(w3.eth.estimate_gas({k: tx[k] for k in ("from", "data")}) * 1.2)
+
+        if a.signer == "turnkey":
+            from eth_account._utils.legacy_transactions import (
+                serializable_unsigned_transaction_from_dict,
+            )
+
+            unsigned = serializable_unsigned_transaction_from_dict(
+                {k: v for k, v in tx.items() if k != "from"}
+            )
+            signed_hex = asyncio.run(_turnkey_sign(to_hex(unsigned.encode()), deployer))
+            raw = signed_hex if signed_hex.startswith("0x") else "0x" + signed_hex
+            tx_hash = w3.eth.send_raw_transaction(raw)
+        else:
+            acct = Account.from_key(os.environ["DEPLOYER_PRIVATE_KEY"])
+            tx_hash = w3.eth.send_raw_transaction(acct.sign_transaction(tx).raw_transaction)
+
+        print(f"  {name:26} tx {tx_hash.hex()}")
+        rcpt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
+        if rcpt.status != 1:
+            sys.exit(f"{name} deployment REVERTED — stopping before anything else is deployed")
+        deployed[name] = rcpt.contractAddress
+        print(
+            f"  {name:26} -> {rcpt.contractAddress}  ({net['explorer']}/address/{rcpt.contractAddress})"
+        )
+        nonce += 1
+
+    print("\nDeployed:")
+    for k, v in deployed.items():
+        print(f"  {k:26} {v}")
+    usdg = net["usdg"] or deployed.get("MockUSDG")
+    pos = deployed.get("SuwappuPositions")
+    print("\nNOT DONE — wire it up yourself, in this order:")
+    print(f"  setUsdg({usdg})")
+    print(f"  setTreasury(<treasury>)")
+    print(f"  setOracle({deployed.get('RobinhoodChainlinkOracle')})")
+    print(f"  sealRegistry()          # IRREVERSIBLE — check the ticker order first")
+    print(f"  configurePhase(...)     # a 0 price is rejected; see UnpricedAtMint")
+    print(f"\n  collection: {pos}")
+    return 0
 
 
 if __name__ == "__main__":
