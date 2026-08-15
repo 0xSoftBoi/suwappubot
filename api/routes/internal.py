@@ -366,3 +366,58 @@ async def execute_agent_swap(
     except Exception as e:
         logger.error(f"Agent swap execution failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── Internal Wallet Provisioning ─────────────────────────────
+
+
+class ProvisionInternalWalletRequest(BaseModel):
+    label: str
+    chain_type: str = "evm"
+
+
+class ProvisionInternalWalletResponse(BaseModel):
+    name: str
+    address: str
+    chain_type: str
+
+
+@router.post("/provision-internal-wallet", response_model=ProvisionInternalWalletResponse)
+async def provision_internal_wallet(
+    request: ProvisionInternalWalletRequest,
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
+):
+    """Provision an internal (non-operational) wallet for testing and deployments.
+
+    Internal wallets are namespaced under 'internal/' and have both is_deposit_wallet
+    and is_gas_payer flags set to False, preventing them from participating in
+    operational flows (swap routing, gas payment, deposit cycles).
+    """
+    _verify_internal_key(x_internal_key)
+
+    try:
+        from bot.services.hot_wallet import HotWalletService
+
+        with get_session() as session:
+            service = HotWalletService(session)
+            wallet = await service.provision_internal_wallet(
+                label=request.label,
+                chain_type=request.chain_type,
+            )
+
+            logger.info(
+                f"Provisioned internal wallet: name={wallet.name}, "
+                f"address={wallet.address}, chain={wallet.chain_type}"
+            )
+
+            return ProvisionInternalWalletResponse(
+                name=wallet.name,
+                address=wallet.address,
+                chain_type=wallet.chain_type,
+            )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Internal wallet provision failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
