@@ -61,6 +61,7 @@ from bot.services.kyberswap_api import (
     KYBERSWAP_CHAIN_SLUGS,
     KYBERSWAP_NATIVE_TOKEN,
 )
+from bot.services.propamm_api import PropAMMAPI, PropAMMError, PROPAMM_NATIVE_TOKEN
 from bot.utils.http_client import get_session as get_http_session
 from bot.services.token_security.simulation import simulation_service
 from bot.services.x402_service import x402_service
@@ -110,6 +111,7 @@ EXECUTABLE_PROVIDERS = frozenset(
         "0x",
         "0x_crosschain",
         "kyberswap",
+        "propamm_titan",
         "avnu",
         "goatswap",
         "juiceswap",
@@ -140,6 +142,55 @@ MAX_UINT256 = 2**256 - 1
 RESET_REQUIRED_TOKENS = {
     "0xdac17f958d2ee523a2206206994597c13d831ec7",  # USDT (Ethereum mainnet)
 }
+
+# Minimal inline ABI for the Titan Builder PropAMMRouter proxy (verified
+# on-chain — see bot/services/propamm_api.py module docstring). No calldata
+# comes back from the quote RPC, so execution builds it directly against
+# this ABI rather than re-fetching a build/route call like KyberSwap does.
+PROPAMM_ROUTER_ABI = [
+    {
+        "inputs": [
+            {"name": "tokenIn", "type": "address"},
+            {"name": "tokenOut", "type": "address"},
+            {"name": "amountIn", "type": "uint256"},
+            {"name": "amountOutMin", "type": "uint256"},
+            {"name": "recipient", "type": "address"},
+            {"name": "deadline", "type": "uint256"},
+        ],
+        "name": "swapV1",
+        "outputs": [
+            {"name": "amountOut", "type": "uint256"},
+            {"name": "executedVenue", "type": "address"},
+        ],
+        "type": "function",
+        "stateMutability": "payable",
+    },
+    {
+        "inputs": [
+            {"name": "tokenIn", "type": "address"},
+            {"name": "tokenOut", "type": "address"},
+            {"name": "amountIn", "type": "uint256"},
+            {"name": "amountOutMin", "type": "uint256"},
+            {"name": "recipient", "type": "address"},
+            {"name": "deadline", "type": "uint256"},
+            {
+                "name": "fee",
+                "type": "tuple",
+                "components": [
+                    {"name": "bps", "type": "uint16"},
+                    {"name": "recipient", "type": "address"},
+                ],
+            },
+        ],
+        "name": "swapWithFeeV1",
+        "outputs": [
+            {"name": "amountOut", "type": "uint256"},
+            {"name": "executedVenue", "type": "address"},
+        ],
+        "type": "function",
+        "stateMutability": "payable",
+    },
+]
 
 
 @dataclass
@@ -653,6 +704,7 @@ class SwapEngine:
         self.oneinch = OneInchAPI()
         self.zerox = ZeroXAPI()
         self.kyberswap = KyberSwapAPI()
+        self.propamm_titan = PropAMMAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
@@ -683,12 +735,18 @@ class SwapEngine:
                 if getattr(self.kyberswap, "is_configured", False)
                 else "OFF (KYBERSWAP_ENABLED unset)"
             )
+            propamm_state = (
+                "ON"
+                if getattr(self.propamm_titan, "is_configured", False)
+                else "OFF (PROPAMM_ENABLED unset)"
+            )
             logger.info(
-                "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s; 0x=%s; KyberSwap=%s",
+                "Swap aggregators ready — LiFi/CoW/Jupiter active; OKX=%s; 1inch=%s; 0x=%s; KyberSwap=%s; PropAMM(Titan)=%s",
                 okx_state,
                 oneinch_state,
                 zerox_state,
                 kyber_state,
+                propamm_state,
             )
         except Exception as e:
             logger.warning(f"Failed to log aggregator readiness state: {e}")
@@ -1565,6 +1623,26 @@ class SwapEngine:
                     amount_raw,
                     from_address,
                     slippage,
+                    platform_fee_bps=platform_fee_bps,
+                )
+            )
+
+        # PropAMM via Titan Builder (Ethereum mainnet same-chain only) — add if
+        # enabled (no key, gated on flag, like KyberSwap above).
+        if (
+            self.propamm_titan.is_configured
+            and from_chain.lower() == "ethereum"
+            and to_chain.lower() == "ethereum"
+        ):
+            tasks.append(
+                self._get_propamm_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    slippage_bps,
                     platform_fee_bps=platform_fee_bps,
                 )
             )
@@ -3067,6 +3145,111 @@ class SwapEngine:
             gas_cost_trusted=True,  # real routeSummary.gasUsd from KyberSwap
         )
 
+    @staticmethod
+    def _to_propamm_token(address: str) -> str:
+        """Map this codebase's native sentinel (0x000…0) to the standard
+        native sentinel (0xEeee…EEeE) PropAMM/Titan execution expects.
+
+        NOTE: PropAMMAPI.get_quote() further remaps that sentinel to WETH
+        internally for the quote RPC only — Titan's titan_getPammQuote
+        indexes pairs by WETH and returns "unknown pair" for the sentinel
+        (verified live). Execution still uses the sentinel, per the docs.
+        """
+        if not address or address == NATIVE_TOKEN_ADDRESS:
+            return PROPAMM_NATIVE_TOKEN
+        return address
+
+    async def _get_propamm_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        slippage_bps: int,
+        platform_fee_bps: Optional[int] = None,
+    ) -> SwapQuote:
+        """Get a quote for PropAMM liquidity via the Titan Builder (Ethereum
+        mainnet, same-chain only).
+
+        Titan's PropAMMRouter re-quotes all whitelisted pAMM venues + Uniswap
+        V3 in-tx and routes to the best, falling back to Uniswap V3
+        transparently — so this is effectively "best pAMM OR UniV3" behind a
+        single execution path. No API key; gated on `propamm_titan.is_configured`.
+        """
+        if from_chain.lower() != "ethereum" or to_chain.lower() != "ethereum":
+            raise SwapError("PropAMM (Titan) only supports Ethereum mainnet same-chain swaps")
+
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+        if from_token_address is None or to_token_address is None:
+            raise SwapError(f"Token not supported: {from_token} or {to_token} on {from_chain}")
+
+        try:
+            pamm_quote = await self.propamm_titan.get_quote(
+                token_in=self._to_propamm_token(from_token_address),
+                token_out=self._to_propamm_token(to_token_address),
+                amount_in=amount_raw,
+            )
+        except PropAMMError as e:
+            # Venue-unavailable (RPC error / transport failure) — a skipped
+            # quote, never a user-facing crash. Surfaced as SwapError so the
+            # race just drops this provider like any other failed racer.
+            raise SwapError(f"PropAMM (Titan) quote failed: {e}")
+
+        if pamm_quote is None:
+            raise SwapError(f"PropAMM (Titan) has no route for {from_token}→{to_token}")
+
+        to_amount_human = self._get_token_amount_human(pamm_quote.to_amount, to_token, to_chain)
+        exchange_rate = to_amount_human / amount if amount > 0 else 0
+        min_out = int(int(pamm_quote.to_amount) * (10_000 - slippage_bps) / 10_000)
+
+        # No gas figure comes back from titan_getPammQuote. Best-effort
+        # estimate (Uniswap-V3-class swap gas units * live gas price *
+        # cached ETH price) mirrors the GOATSwap/JuiceSwap pattern — 0.0 =
+        # unknown (UI shows "varies"). gas_cost_trusted stays False either
+        # way, so this never dominates net-of-gas ranking.
+        gas_cost_usd = 0.0
+        try:
+            from bot.utils.cache import price_cache
+
+            eth_price = await price_cache.get("price_ETH") or await price_cache.get("price_WETH")
+            if eth_price:
+                web3 = rpc_manager.get_web3("ethereum")
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                gas_cost_usd = 220_000 * gas_price / 1e18 * float(eth_price)
+        except Exception as e:
+            logger.debug(f"PropAMM (Titan) gas cost estimate unavailable: {e}")
+
+        return SwapQuote(
+            provider="propamm_titan",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=amount_raw,
+            from_amount_human=amount,
+            to_amount=pamm_quote.to_amount,
+            to_amount_human=to_amount_human,
+            to_amount_min=str(min_out),
+            gas_cost_usd=gas_cost_usd,
+            fee_cost_usd=0,
+            total_cost_usd=gas_cost_usd,
+            estimated_time=15,
+            price_impact=0.0,
+            exchange_rate=exchange_rate,
+            platform_fee_bps=platform_fee_bps,
+            raw_quote={
+                "propamm_quote": pamm_quote.raw_response,
+                "pamm": pamm_quote.pamm,
+                "router": pamm_quote.router,
+                "block_number": pamm_quote.block_number,
+                "slippage_bps": slippage_bps,
+            },
+            gas_cost_trusted=False,
+        )
+
     async def _get_usdt0_quote(
         self,
         from_chain: str,
@@ -3657,6 +3840,24 @@ class SwapEngine:
                 )
             )
 
+        # PropAMM via Titan Builder (Ethereum mainnet same-chain only)
+        if (
+            self.propamm_titan.is_configured
+            and from_chain.lower() == "ethereum"
+            and to_chain.lower() == "ethereum"
+        ):
+            tasks.append(
+                self._get_propamm_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    slippage_bps,
+                )
+            )
+
         quotes = await self._gather_quotes([asyncio.wait_for(t, timeout=8.0) for t in tasks])
 
         quotes.sort(key=lambda q: q.to_amount_human, reverse=True)
@@ -3978,6 +4179,8 @@ class SwapEngine:
                     )
                 elif quote.provider == "kyberswap":
                     tx_hash = await self._execute_kyberswap_swap(quote, wallet)
+                elif quote.provider == "propamm_titan":
+                    tx_hash = await self._execute_propamm_swap(quote, wallet)
                 elif quote.provider == "avnu":
                     tx_hash = await self._execute_avnu_swap(quote, wallet)
                 elif quote.provider == "goatswap":
@@ -7169,6 +7372,200 @@ class SwapEngine:
         )
 
         logger.info(f"KyberSwap swap tx: {tx_hash.hex()}")
+        return tx_hash.hex()
+
+    async def _execute_propamm_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a swap against PropAMM liquidity via the Titan Builder
+        PropAMMRouter (Ethereum mainnet, same-chain only).
+
+        The router re-quotes all whitelisted pAMM venues + Uniswap V3 in-tx
+        and routes to the best, falling back to Uniswap V3 transparently —
+        so this is a single execution path for "best PropAMM OR UniV3". No
+        calldata comes back from titan_getPammQuote (unlike KyberSwap's
+        route/build), so the tx is built directly against PROPAMM_ROUTER_ABI.
+        We re-quote fresh at execution time (Titan's quote can move between
+        quote and broadcast), approve the router for token sells, then call
+        swapV1/swapWithFeeV1.
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        if quote.from_chain.lower() != "ethereum" or quote.to_chain.lower() != "ethereum":
+            raise SwapError("PropAMM (Titan) only supports Ethereum mainnet same-chain swaps")
+
+        from_token_address = get_token_address(quote.from_token, quote.from_chain)
+        to_token_address = get_token_address(quote.to_token, quote.to_chain)
+        if from_token_address is None or to_token_address is None:
+            raise SwapError(f"Token not supported: {quote.from_token} or {quote.to_token}")
+
+        slippage_bps = int((quote.raw_quote or {}).get("slippage_bps", 50))
+        try:
+            fresh_quote = await self.propamm_titan.get_quote(
+                token_in=self._to_propamm_token(from_token_address),
+                token_out=self._to_propamm_token(to_token_address),
+                amount_in=quote.from_amount,
+            )
+        except PropAMMError as e:
+            raise SwapError(f"PropAMM (Titan) re-quote failed: {e}")
+
+        if fresh_quote is None:
+            raise SwapError("PropAMM (Titan) has no route for this pair at execution time")
+
+        fresh_min_out = str(int(int(fresh_quote.to_amount) * (10_000 - slippage_bps) / 10_000))
+        self._assert_fresh_min_out_acceptable(quote, fresh_min_out, "PropAMM (Titan)")
+
+        chain = get_chain_by_name(quote.from_chain)
+        web3 = self.wallet_service._get_web3(quote.from_chain)
+        sender = Web3.to_checksum_address(wallet_data["address"])
+        router = Web3.to_checksum_address(settings.propamm_router_address)
+
+        is_native = from_token_address == NATIVE_TOKEN_ADDRESS
+        # The router accepts the standard native sentinel as tokenIn (payable,
+        # msg.value == amountIn) per the docs. NOTE: this differs from the
+        # quote RPC, which rejects the sentinel and only indexes pairs by
+        # WETH (verified live) — PropAMMAPI.get_quote() handles that remap
+        # internally; execution uses the sentinel directly.
+        swap_token_in = (
+            Web3.to_checksum_address(PROPAMM_NATIVE_TOKEN)
+            if is_native
+            else Web3.to_checksum_address(from_token_address)
+        )
+        swap_token_out = Web3.to_checksum_address(to_token_address)
+        amount_in = int(quote.from_amount)
+
+        # ERC20 approval to the router for token sells (not native).
+        if not is_native:
+            token_addr = Web3.to_checksum_address(from_token_address)
+            erc20_abi = [
+                {
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"},
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function",
+                    "stateMutability": "view",
+                },
+                {
+                    "inputs": [
+                        {"name": "spender", "type": "address"},
+                        {"name": "amount", "type": "uint256"},
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                },
+            ]
+            token_contract = web3.eth.contract(address=token_addr, abi=erc20_abi)
+            current_allowance = await asyncio.to_thread(
+                lambda: token_contract.functions.allowance(sender, router).call()
+            )
+
+            if current_allowance < amount_in:
+                nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+                # 'exact' mode on a reset-required token (USDT mainnet): zero
+                # the allowance first, since approve() reverts non-zero ->
+                # non-zero. The PropAMM router is both spender and tx target.
+                nonce = await self._send_reset_approval_if_needed(
+                    web3=web3,
+                    token_contract=token_contract,
+                    token_addr=token_addr,
+                    spender=router,
+                    current_allowance=current_allowance,
+                    sender=sender,
+                    chain_id=chain.chain_id,
+                    gas_price=gas_price,
+                    nonce=nonce,
+                    wallet=wallet,
+                )
+                max_approval = self._approval_amount(amount_in)
+                approve_data = token_contract.functions.approve(
+                    router, max_approval
+                ).build_transaction(
+                    {
+                        "from": sender,
+                        "nonce": nonce,
+                        "chainId": chain.chain_id,
+                        "gasPrice": gas_price,
+                    }
+                )
+                approve_tx = {
+                    "to": token_addr,
+                    "data": approve_data["data"],
+                    "value": 0,
+                    "gas": approve_data.get("gas", 60000),
+                    "gasPrice": approve_data["gasPrice"],
+                    "nonce": nonce,
+                    "chainId": chain.chain_id,
+                }
+                signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
+                approve_hash = await asyncio.to_thread(
+                    lambda: web3.eth.send_raw_transaction(
+                        bytes.fromhex(signed_approve.replace("0x", ""))
+                    )
+                )
+                logger.info(f"PropAMM (Titan) approval tx (router={router}): {approve_hash.hex()}")
+                await asyncio.to_thread(
+                    lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
+                )
+
+        router_contract = web3.eth.contract(address=router, abi=PROPAMM_ROUTER_ABI)
+        deadline = int(datetime.now(timezone.utc).timestamp()) + 300
+        amount_out_min = int(fresh_min_out)
+
+        # Platform fee: swapWithFeeV1 when a fee is configured AND collectable
+        # (mirrors the KyberSwap/0x fee gate — fee bps AND a real collector
+        # address must both be set), otherwise the plain swapV1.
+        platform_fee_bps = quote.platform_fee_bps
+        collector = settings.fee_collector_address
+        use_fee = bool(platform_fee_bps and collector and int(platform_fee_bps) > 0)
+
+        if use_fee:
+            build_fn = router_contract.functions.swapWithFeeV1(
+                swap_token_in,
+                swap_token_out,
+                amount_in,
+                amount_out_min,
+                sender,
+                deadline,
+                (int(platform_fee_bps), Web3.to_checksum_address(collector)),
+            )
+        else:
+            build_fn = router_contract.functions.swapV1(
+                swap_token_in, swap_token_out, amount_in, amount_out_min, sender, deadline
+            )
+
+        nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
+        value = amount_in if is_native else 0
+
+        tx_params = {
+            "from": sender,
+            "nonce": nonce,
+            "chainId": chain.chain_id,
+            "gasPrice": gas_price,
+            "value": value,
+        }
+
+        gas_estimate = 300_000
+        try:
+            gas_estimate = await asyncio.to_thread(lambda: build_fn.estimate_gas(tx_params))
+            gas_estimate = int(gas_estimate * 1.3)
+        except Exception as e:
+            logger.warning(f"PropAMM (Titan) gas estimate failed, using default 300k: {e}")
+
+        tx = build_fn.build_transaction({**tx_params, "gas": gas_estimate})
+
+        signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+        tx_hash = await asyncio.to_thread(
+            lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
+        )
+
+        logger.info(f"PropAMM (Titan) swap tx: {tx_hash.hex()}")
         return tx_hash.hex()
 
     async def _estimate_swap_usd(self, quote: SwapQuote) -> float:
