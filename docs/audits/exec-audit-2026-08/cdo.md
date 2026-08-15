@@ -56,3 +56,43 @@ Method: static read of bot/models/ (SQLAlchemy), api-ts/src/db/schema/ (Drizzle)
 
 ---
 
+## 3. Lifecycle & Retention
+
+**No retention, archival, or purge job exists anywhere in the codebase.** Searched `bot/services/*.py` and `api-ts/src/services/*.ts` for `retention|purge|archive|reap|TTL|cron.*delete`: zero scheduled-deletion jobs found. The only `DELETE`/`.delete()` calls found are transactional (e.g. `bot/services/positions_service.py:106` clearing a user's own stale positions on recompute, `bot/services/approval_notifier.py:241-245` clearing expired step-up challenges inline) — not a background reaper.
+
+Tables that grow unbounded, with no code path that ever removes old rows:
+
+| Table | File | Rows added | Retention today |
+|---|---|---|---|
+| `swap_transactions` | `bot/models/swap.py:36`, mirrored `api-ts/src/db/schema/swaps.ts` | Every swap attempt (including failed/cancelled) | None — kept forever |
+| `point_transactions` | `bot/models/points.py:163` | Every point-earning/spending event | None |
+| `bridge_transfers` | `bot/models/bridge.py:27` | Every bridge attempt (created at BUILD time, before signing — see Section 5) | None |
+| `cctp_deposits` / `cctp_generic_deposits` | `bot/models/cctp.py:17,58` | Every CCTP relay attempt | None |
+| `custodial_transactions` | `bot/models/custodial.py:74` | Every custodial deposit/withdraw/swap/fee/refund | None |
+| `advanced_price_alerts` / `price_alerts` | `bot/models/advanced.py:54`, `bot/models/favorites.py:44` | Every alert a user creates, including fired/expired ones | None |
+| `api_usage_daily` | `api-ts/src/db/schema/apiUsageDaily.ts` | One row per `(apiKeyId, route, day)` — bounded growth rate but no expiry | None — daily granularity means this grows ~O(callers × routes × days) forever |
+| `audit_logs` | referenced `database/db.py:1593` | Security/audit events | None |
+| Structured logs (Railway) | N/A — see Section 2 | telegram_id + wallet_address pairs, routinely | Not in this repo's control (Railway log retention is a platform setting, not verified here) |
+
+**Cost framing at 10x scale**: `swap_transactions`, `custodial_transactions`, and `point_transactions` are the highest-cardinality (one row per user action) and are read almost exclusively for "this user's recent activity" (bounded lookback) — the historical tail (>1 year old, inactive wallets) is pure storage cost with near-zero read rate. `api_usage_daily` at 10x agent-caller volume becomes the single fastest-growing table with no compaction (could roll up to weekly/monthly after 90 days).
+
+**Recommendation** (design, not implementation — route to `db-migrate`):
+1. Add `retention_days` policy per table, enforced by a new lightweight background service (pattern-matching `bot/services/fee_sweeper.py`'s existing periodic-task shape) that archives (not hard-deletes, for audit/compliance reasons — coordinate with `cco`) rows older than N days for `swap_transactions`, `point_transactions`, `custodial_transactions`, fired/expired `price_alerts`.
+2. `api_usage_daily`: roll up to monthly aggregates after 90 days; this table's whole purpose is metering, not forensics, so raw daily rows past a billing-dispute window are pure cost.
+3. `bridge_transfers`/`cctp_*`: do NOT archive `pending`/`stalled`/`failed` states (needed for fund recovery — see Section 5); only archive `complete` rows past a window (recommend 180 days, matches typical dispute windows).
+
+---
+
+## 4. Migration Hygiene — `_ensure_schema()` in `database/db.py`
+
+Reviewed the full `ALTER TABLE`/`CREATE TABLE` surface (`database/db.py:338-4493`). The dominant pattern — check `inspector.get_columns()`/`has_table()` membership first, `ALTER ... ADD COLUMN` only if missing, wrapped per-call in `db_engine.begin()` — is genuinely additive and idempotent on repeat runs. Spot-checked the two riskiest-looking cases:
+
+- `database/db.py:629-632` (`ALTER TABLE registered_agents RENAME TO agents`) — properly guarded by `if "registered_agents" in tables and "agents" not in tables` (`:629`), so it only ever fires once. Safe on fresh DBs (neither table exists, guard is false, no-op) and on repeat runs (guard false after first rename). **Not a bug.**
+- `database/db.py:1861` (`ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT`) — guarded by an `information_schema` type check first (`:1854-1860`), and wrapped in `try/except` that only warns. Idempotent, fresh-DB-safe (new DBs create the column as BIGINT directly per the model, so this becomes a no-op check). **Not a bug.**
+- `database/db.py:1734-1751` (`_widen_totp_secret`) — same pattern, guarded by column-existence, wrapped in try/except. Safe.
+- `database/db.py:1705-1731` (money-column widening to `DOUBLE PRECISION`) — deliberately all-or-nothing per the comment (`:1705-1709`), fails closed (logs `MONEY_COLUMN_WIDEN_FAILED` as ERROR rather than crashing boot), lock-timeout-bounded (`SET LOCAL lock_timeout = '3s'`). Well-designed.
+
+**No fresh-DB-failing or non-idempotent migration found** in the portion reviewed. The one real hygiene problem in this domain is not inside `_ensure_schema()` itself — it's the **asymmetry with `drizzle-kit push`** documented in Section 1: `_ensure_schema()` is disciplined (additive-only, idempotent, well-commented with incident history), but nothing stops api-ts's `db:push` from undoing that discipline against the same physical database, and it already has once (`:1875-1877`).
+
+---
+
