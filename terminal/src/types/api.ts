@@ -60,6 +60,10 @@ export interface SwapQuote {
   minReceived: string
   slippage: number
   estimatedDuration?: number
+  /** USD edge of this route over the runner-up, estimated at quote time. */
+  priceImprovementUsd?: number | null
+  /** Provider id of the runner-up this edge is measured against. */
+  runnerUpProvider?: string | null
 }
 
 export interface SwapExecuteRequest {
