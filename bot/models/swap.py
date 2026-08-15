@@ -89,6 +89,15 @@ class SwapTransaction(Base):
     route_provider = Column(String(50), nullable=True)  # "lifi" or "jupiter"
     route_data = Column(Text, nullable=True)  # JSON route data
 
+    # Execution-savings receipt: how much better the winning quote was than
+    # the runner-up in the race (see swap_engine._select_runner_up /
+    # SwapEngine._compute_price_improvement_usd). NULL means "not measured"
+    # (e.g. single-quote race), never "zero savings" — price_improvement_usd
+    # is clamped to >=0 before being written, so a populated 0.0 means the
+    # winner and runner-up were priced equal.
+    price_improvement_usd = Column(Float, nullable=True)
+    runner_up_provider = Column(String(50), nullable=True)
+
     # Fees
     gas_fee = Column(Float, nullable=True)
     bridge_fee = Column(Float, nullable=True)

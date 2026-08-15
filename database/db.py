@@ -774,6 +774,10 @@ def _ensure_schema(db_engine) -> None:
     if "point_redemptions" in tables:
         _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
 
+    # --- swap_transactions: execution-savings receipts (best-vs-runner-up) ---
+    if "swap_transactions" in tables:
+        _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -2172,6 +2176,37 @@ def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> No
             )
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add execution-savings receipt columns to swap_transactions.
+
+    Persists what the quote race already computed and discarded: how much
+    better the winning venue was than the runner-up. `price_improvement_usd`
+    is the USD value of that edge (clamped to >=0 by the engine before
+    writing); `runner_up_provider` is who the winner beat (NULL when only one
+    quote raced). Additive and idempotent, per
+    docs/development/migrations.md — existing rows keep NULL, read as
+    "not measured" rather than "zero savings".
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("price_improvement_usd", "FLOAT"),
+        ("runner_up_provider", "VARCHAR(50)"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = (
+                    f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:

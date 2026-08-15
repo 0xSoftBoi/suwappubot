@@ -295,6 +295,15 @@ class SwapQuote:
     # between quotes when BOTH sides are time_trusted — otherwise a
     # hardcoded number could win or lose a tiebreak on pure coincidence.
     time_trusted: bool = False
+    # Execution-savings receipt (see `_select_runner_up` / `_compute_price_improvement_usd`).
+    # Populated once, at race resolution, on the WINNING quote only.
+    # `runner_up_provider` is the provider of the second-ranked quote in the
+    # same race (None when only one quote raced). `price_improvement_usd` is
+    # the USD value of (winner.to_amount_human - runner_up.to_amount_human)
+    # for the same to_token, clamped to >=0 — a net-of-gas ranking can pick a
+    # lower-gross winner, and that's never shown as a negative "savings".
+    runner_up_provider: Optional[str] = None
+    price_improvement_usd: Optional[float] = None
 
 
 @dataclass
@@ -697,6 +706,77 @@ def _apply_speed_tiebreak(
         "delta_bps": round(delta_bps, 2),
     }
     return fastest, tiebreak_info
+
+
+def _select_runner_up(
+    quotes: List["SwapQuote"],
+    best: "SwapQuote",
+    out_price_used: Optional[float],
+) -> Optional["SwapQuote"]:
+    """Pick the second-ranked quote from the same race `best` was chosen from.
+
+    Mirrors `_rank_quotes_with_price`'s own selection basis rather than
+    re-deriving it: net-of-gas score (`_quote_net_score`) when ranking used
+    one (`out_price_used` is not None), gross `to_amount_human` otherwise —
+    so "runner-up" always means "second by the exact criterion that decided
+    the race", never a different metric.
+
+    Returns None when there's nothing to compare against: an empty/singleton
+    race, or every other quote sharing the winner's provider name (can't
+    happen in a real race, but keeps this total rather than raising).
+
+    Pure + synchronous — no network, no `self` — unit-testable in isolation,
+    same as `_apply_speed_tiebreak`.
+    """
+    ranked = [q for q in quotes if q.provider != "wormhole"] or quotes
+    others = [q for q in ranked if q.provider != best.provider]
+    if not others:
+        return None
+    if out_price_used is not None:
+        return max(others, key=lambda q: _quote_net_score(q, out_price_used))
+    return max(others, key=lambda q: q.to_amount_human)
+
+
+async def _compute_price_improvement_usd(
+    winner: "SwapQuote", runner_up: Optional["SwapQuote"]
+) -> float:
+    """USD value of the winner's edge over the runner-up, for telemetry.
+
+    Values (winner.to_amount_human - runner_up.to_amount_human) — both
+    quotes are for the same to_token, since they raced the same swap — using
+    a stablecoin's 1:1 par when to_token is one (exact, no price lookup) and
+    `price_service` otherwise, matching the pattern `_estimate_swap_usd` uses
+    elsewhere in this module.
+
+    Returns 0.0 (never negative) when: there's no runner-up, the delta is
+    <=0 (net-of-gas ranking can legitimately pick a lower-GROSS winner — that
+    is not a savings and must never render as one), or no USD price for
+    to_token can be found. Never raises — this is telemetry, not the money
+    path, and a pricing hiccup here must not touch swap execution.
+    """
+    if runner_up is None:
+        return 0.0
+
+    delta_human = winner.to_amount_human - runner_up.to_amount_human
+    if delta_human <= 0:
+        return 0.0
+
+    try:
+        from bot.config.tokens import get_token_by_symbol
+
+        cfg = get_token_by_symbol(winner.to_token)
+        if cfg and getattr(cfg, "is_stablecoin", False):
+            return delta_human
+
+        from bot.services.price_service import price_service
+
+        price = await asyncio.wait_for(price_service.get_price(winner.to_token), timeout=5)
+    except Exception:
+        return 0.0
+
+    if not price:
+        return 0.0
+    return float(price) * delta_human
 
 
 def _parse_int(value, default: int = 0) -> int:
@@ -1956,6 +2036,17 @@ class SwapEngine:
             # providers mis-scaled identically, so the winner is unchanged — and
             # before caching so every consumer sees the corrected figure.
             best = await self._correct_destination_decimals(best, to_token, to_chain, amount)
+
+            # Execution-savings receipt: how much better `best` was than the
+            # runner-up in this race. Best-effort only — never allowed to
+            # affect route selection or fail the quote. See
+            # `_select_runner_up` / `_compute_price_improvement_usd`.
+            try:
+                runner_up = _select_runner_up(quotes, best, out_price_used)
+                best.runner_up_provider = runner_up.provider if runner_up else None
+                best.price_improvement_usd = await _compute_price_improvement_usd(best, runner_up)
+            except Exception:
+                logger.debug("execution-savings computation failed, leaving fields None", exc_info=True)
         finally:
             # A singleflight can cancel this race when its last waiter leaves.
             # Collect the real provider tasks as well as the comparison-only
