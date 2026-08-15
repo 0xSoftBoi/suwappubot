@@ -3,10 +3,10 @@ set -e
 MODE=${1:-all}
 
 case "$MODE" in
-  all|python|api|agent|env|health|onchain) ;;
+  all|python|api|agent|env|health|onchain|deployed) ;;
   *)
     echo "✗ Unknown verify lane: '$MODE'" >&2
-    echo "  Valid lanes: all python api agent env health onchain" >&2
+    echo "  Valid lanes: all python api agent env health onchain deployed" >&2
     exit 2
     ;;
 esac
@@ -71,6 +71,15 @@ if [[ "$MODE" == "onchain" ]]; then
   echo "=== On-chain constants ==="
   python3.12 scripts/verify_onchain_constants.py
   echo "✓ On-chain constants verified"
+fi
+
+# Opt-in, not part of "all": this one probes PRODUCTION, so it fails on a
+# perfectly good branch whose code simply is not deployed yet. Run it after a
+# deploy to answer "is my code actually live?" — which a green Railway deploy
+# does not answer (see docs/deployment/railway.md).
+if [[ "$MODE" == "deployed" ]]; then
+  echo "=== Deployed code matches main ==="
+  python3 scripts/check_deploy_freshness.py --ref origin/main
 fi
 
 echo "All checks passed ✓"

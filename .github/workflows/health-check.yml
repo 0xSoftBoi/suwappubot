@@ -32,7 +32,11 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      # Needs full history + origin/main, not the default shallow single commit:
+      # the freshness check hashes every .py blob under api/bot/database at a ref.
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Probe health endpoints
         env:
@@ -43,3 +47,39 @@ jobs:
           PROBE_SOURCE: github-actions
         # stdlib only — no pip install, no dependency on the repo's requirements.
         run: python3 scripts/uptime_probe.py --env prod
+
+      # A service can be perfectly healthy and still be running last month's
+      # code. On 2026-08-15 python-worker served three-week-old code for hours:
+      # Railway said SUCCESS, /health said ready, and the only way it was found
+      # was SSH-ing into the container. `ready: true` is not `deployed: true`.
+      #
+      # Runs even when the probe above fails, so a degraded service does not
+      # mask a stale one — they are different faults with different fixes.
+      - name: Deployed code matches main
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+        run: |
+          if ! python3 scripts/check_deploy_freshness.py --ref origin/main; then
+            python3 - <<'PY'
+          import os, urllib.parse, urllib.request
+          tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_ALERT_CHAT_ID")
+          if tok and chat:
+              msg = ("Suwappu: production is NOT running main.\n"
+                     "A green deploy is not proof the new code is live — see "
+                     "scripts/check_deploy_freshness.py for the redeploy recipe.")
+              data = urllib.parse.urlencode({"chat_id": chat, "text": msg}).encode()
+              try:
+                  urllib.request.urlopen(
+                      urllib.request.Request(
+                          f"https://api.telegram.org/bot{tok}/sendMessage", data=data
+                      ),
+                      timeout=15,
+                  )
+              except Exception as e:
+                  # Status only: the token is in the URL and urllib echoes it back.
+                  print(f"stale-deploy alert failed: {type(e).__name__}")
+          PY
+            exit 1
+          fi

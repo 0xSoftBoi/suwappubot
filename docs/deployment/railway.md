@@ -218,11 +218,52 @@ Fixes applied this run (committed):
   build. python-api/terminal keep theirs (their build root *is* repo root).
 
 Deploy mechanics learned (for future CLI deploys):
+
+> **NEVER run `railway up` from a git worktree.** It archives the repository's
+> **main checkout**, not the worktree you are standing in. On 2026-08-15 that
+> shipped a three-week-old WIP branch to python-worker: the deploy reported
+> SUCCESS, `/health` reported `ready: true`, and the stale build was only found
+> by SSH-ing into the container and comparing file sizes. Verified byte-exact —
+> the container's `api/main.py` was 103,977 bytes, identical to the main
+> checkout's stale copy, against 113,527 on `main`.
+>
+> Deploy from a clean export outside any git repo instead:
+>
+> ```bash
+> D=$(mktemp -d)
+> git archive origin/main | tar -x -C "$D"
+> cd "$D" && railway up --ci --service <svc> \
+>   --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT_ID"
+> ```
+>
+> Then **verify the code is actually live** — a green deploy is not proof:
+> `python3 scripts/check_deploy_freshness.py`.
+
 - `railway up` (no path) for repo-root services (python-api, terminal) + a
   `RAILWAY_DOCKERFILE_PATH` service var (`api/Dockerfile.railway`, `terminal/Dockerfile`),
   since `railway up` only auto-reads a file literally named `railway.json` at the archive
   root. Do **not** pass `.` as the path arg — it errors `prefix not found`.
 - `railway up ./<dir> --path-as-root --service <svc>` for subdir services (api-ts, showcase).
+
+### Why only python-worker was ever stale
+
+`RAILWAY_CONFIG_FILE` is set **only** on python-worker, so it is the only service
+that actually applies the `watchPatterns` in its `railway.*.json`. python-api has
+no such variable — it silently ignores `railway.python-api.json` and therefore
+rebuilds on **every** push, which is why it was never stale.
+
+That made the two services look identically configured in the repo while
+behaving completely differently, and it is why copying python-api's watch
+patterns onto the worker (commit `ca327b6b`) did not help: those patterns had
+never been exercised on python-api in the first place. The merge that shipped
+`bot/services/rpc_manager.py` matched `/bot/**` on paper and still did not
+trigger a worker deploy.
+
+`watchPatterns` have been **removed** from `railway.python-worker.json` so the
+worker rebuilds on every push, matching python-api. Both build the same
+Dockerfile, so this costs a rebuild and buys the elimination of a class of
+silent staleness on a service that runs `tx_poller` and `withdraw_reconciler` —
+money paths where running old code is far more expensive than a spare build.
 
 Open follow-ups:
 - **Secrets** (still required to boot): python-api → `TELEGRAM_BOT_TOKEN`, `ENCRYPTION_KEY`
