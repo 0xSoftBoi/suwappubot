@@ -341,15 +341,25 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
         hero = _mix(accent, IVORY, 0.32)
     elif priced and ret_bps < -200:
         hero = "#c4767c"
-    # 15% anodising, not 6 — at 6% all ten fields converged on the same black
-    # and the families stopped sorting on a wall. 15% still reads as a dark
-    # card (Semis lands near #1c242c), but the tint is visible in a grid.
-    field = _mix(CHARCOAL, sector_col, 0.15)
+    # Anodising is luminance-normalised, not a flat mix. A constant 15% let the
+    # warm high-luminance families (Crypto gold, Media rose) lift visibly off
+    # black while the cool ones stayed flat — a 28% spread in field luminance.
+    # Scaling by the sector's own luminance keeps all ten fields at roughly the
+    # same darkness while the HUE still sorts the wall. (At the original flat
+    # 6% every field converged on the same black and families didn't sort.)
+    t = min(0.18, max(0.10, 0.15 * (0.34 / max(_lum(sector_col), 0.05)) ** 0.5))
+    field = _mix(CHARCOAL, sector_col, t)
+    rim = _mix(sector_col, GRAPHITE, 0.55)
+    if priced and ret_bps >= 200:
+        # A winner's engraving takes the grade's metal. Warm sector ornament
+        # (Media rose) otherwise read as a loss from across the wall, however
+        # green the numeral — the ornament is the biggest colour field there is.
+        rim = _mix(rim, accent, 0.35)
     return {
         "field": field,
         "field2": _mix(field, "#000000", 0.35),
         "edge": _mix(field, sector_col, 0.22),
-        "rim": _mix(sector_col, GRAPHITE, 0.55),
+        "rim": rim,
         "body": b["bg"],
         "quiet": _mix(GRAPHITE, IVORY, 0.30),
         "hero": hero,
