@@ -153,59 +153,149 @@ COMPOSITIONS = ("medallion", "field", "band", "twin")
 INKS = ("line", "double", "stipple")
 
 
+def _rng(seed: int):
+    """Deterministic LCG in [0,1). random.random() would break the
+    byte-identical-across-renders guarantee marketplaces cache against."""
+    s = (seed & 0x7FFFFFFF) or 1
+
+    def nxt():
+        nonlocal s
+        s = (1103515245 * s + 12345) & 0x7FFFFFFF
+        return s / 0x7FFFFFFF
+
+    return nxt
+
+
+# Weighted field states (authored rarity, not uniform RNG — the Fidenza
+# lesson). Each changes the CHARACTER of the cut: jitter amplitude of the
+# graver, density multiplier, and dropout (skipped passes) for the rare
+# fractured plates. (name, weight ceiling %, jitter px, density, dropout)
+FIELD_STATES = (
+    ("calm", 70, 0.8, 1.00, 0.00),
+    ("turbulent", 90, 7.0, 1.35, 0.02),
+    ("fractured", 98, 14.0, 0.75, 0.28),
+    ("still", 100, 0.0, 0.55, 0.00),
+)
+
+
+def _field_state(seed: int):
+    roll = (seed >> 52) % 100
+    for name, ceil, jit, dens, drop in FIELD_STATES:
+        if roll < ceil:
+            return name, jit, dens, drop
+    return FIELD_STATES[0][0], FIELD_STATES[0][2], FIELD_STATES[0][3], FIELD_STATES[0][4]
+
+
 def _eng_rosette(cx, cy, r, seed, petals, inner):
-    """Rose-engine rosette: an epitrochoid, repeated by rotation."""
-    arms = 5 + (seed >> 16) % 4
-    defs = f'<path id="e1" d="{_guilloche(cx, cy, r, petals, inner)}"/>'
-    body = "".join(
-        f'<use href="#e1" transform="rotate({(seed % 360) + i * (360.0 / (arms * 3)):.2f} '
-        f'{cx} {cy})" opacity="0.34"/>'
-        for i in range(arms * 3)
-    )
-    return defs, body
+    """Rose-engine rosette, cut in harmonic layers. One epitrochoid per layer
+    at golden-ratio radii (r, 0.618r, 0.382r) with coprime arm counts, so the
+    layers never phase-lock into flat repetition — the difference between a
+    Breguet dial and a spirograph is exactly this multi-cam layering."""
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
+    specs = [
+        (1.00, 0, 8, 0.26),
+        (0.72, 3, 13, 0.28),
+        (0.44, -2, 5, 0.30),
+    ]
+    if _field_state(seed)[0] == "still":
+        specs = specs[:2]
+    defs, body = [], []
+    for li, (rr, pd, arms, op) in enumerate(specs):
+        pid = f"e{li + 1}"
+        defs.append(
+            f'<path id="{pid}" d="{_guilloche(cx, cy, r * rr, max(3, petals + pd), min(0.32, inner * (0.8 + 0.4 * rnd())), 200)}"/>'
+        )
+        n = int((arms + int(rnd() * 3)) * dens)
+        phase = rnd() * 360
+        for i in range(max(4, n)):
+            if rnd() < drop:
+                continue
+            a = phase + i * (360.0 / max(4, n)) + (rnd() - 0.5) * jit * 1.2
+            body.append(
+                f'<use href="#{pid}" transform="rotate({a:.2f} {cx} {cy})" opacity="{op}"/>'
+            )
+    return "".join(defs), "".join(body)
 
 
 def _eng_moire(cx, cy, r, seed, petals, inner):
-    """Two ring stacks struck from offset centres — the interference IS the
-    pattern, which is why moire was used on scrip that had to resist copying."""
+    """Ring stacks struck from offset centres at NEAR-MISS counts (n and n+3),
+    radii on a power curve so density builds toward the rim the way repeated
+    rose-engine passes do. The interference beat is the pattern."""
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
     off = 14 + (seed % 22)
-    rings = 16 + (seed >> 4) % 10
+    rings = int((18 + (seed >> 4) % 10) * dens)
     out = []
-    for i in range(rings):
-        rr = r * (0.24 + 0.76 * (i + 1) / rings)
-        out.append(f'<circle cx="{cx - off}" cy="{cy}" r="{rr:.1f}"/>')
-        out.append(f'<circle cx="{cx + off}" cy="{cy}" r="{rr:.1f}"/>')
+    for stack, (dx, n) in enumerate(((-off, rings), (off, rings + 3))):
+        for i in range(n):
+            if rnd() < drop:
+                continue
+            rr = r * (0.20 + 0.80 * ((i + 1) / n) ** 0.6)
+            jx = (rnd() - 0.5) * jit
+            jy = (rnd() - 0.5) * jit
+            out.append(f'<circle cx="{cx + dx + jx:.1f}" cy="{cy + jy:.1f}" r="{rr:.1f}"/>')
+    # golden-radius accent ring pair, heavier cut
+    out.append(
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r * 0.618:.1f}" stroke-width="2.6"/>'
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r * 0.624:.1f}" stroke-width="1.5"/>'
+    )
     return "", "".join(out)
 
 
 def _eng_sunburst(cx, cy, r, seed, petals, inner):
-    """Straight radial rays of modulated length — a rayon flamme burst."""
+    """Rayon flammé in two interfering spoke layers. Counts differ by a
+    coprime delta (n vs n+7) so the layers beat against each other instead of
+    stacking; every endpoint carries seeded graver jitter so no two rays are
+    bit-identical. Rays start at 0.34r — the numeral's breathing room is a
+    computed constraint, not an overlay."""
     import math
 
-    n = 72 + (seed % 5) * 24
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
+    n1 = int((56 + (seed % 4) * 8) * dens)
     out = []
-    for i in range(n):
-        a = 2 * math.pi * i / n
-        rr = r * (0.62 + 0.38 * abs(math.cos(petals * a / 2)))
-        out.append(
-            f'<line x1="{cx + math.cos(a) * r * 0.2:.1f}" y1="{cy + math.sin(a) * r * 0.2:.1f}" '
-            f'x2="{cx + math.cos(a) * rr:.1f}" y2="{cy + math.sin(a) * rr:.1f}"/>'
-        )
+    for layer, (n, r0, r1_lo, r1_hi, ph) in enumerate(
+        ((n1, 0.34, 0.66, 1.0, 0.0), (n1 + 7, 0.42, 0.55, 0.82, 0.5))
+    ):
+        thin = ' stroke-width="1.5"' if layer else ""
+        for i in range(n):
+            if rnd() < drop:
+                continue
+            a = 2 * math.pi * i / n + ph
+            rr = r * (r1_lo + (r1_hi - r1_lo) * abs(math.cos(petals * a / 2)))
+            j1 = (rnd() - 0.5) * jit
+            j2 = (rnd() - 0.5) * jit
+            out.append(
+                f'<line x1="{cx + math.cos(a) * r * r0 + j1:.1f}" '
+                f'y1="{cy + math.sin(a) * r * r0 + j1:.1f}" '
+                f'x2="{cx + math.cos(a) * rr + j2:.1f}" y2="{cy + math.sin(a) * rr + j2:.1f}"'
+                f"{thin}/>"
+            )
     return "", "".join(out)
 
 
 def _eng_waves(cx, cy, r, seed, petals, inner):
-    """Rose-engine waves: parallel bands whose phase walks, so the field reads
-    as a woven ripple rather than as stripes."""
+    """Rose-engine waves with a turbulence zone: amplitude peaks at the card's
+    waist and calms toward the edges, row spacing tightens on a power curve,
+    and the phase walks with seeded jitter — a woven ripple with a centre of
+    energy, not stripes."""
     import math
 
-    rows = 26
-    amp = 10 + (seed % 16)
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
+    rows = int(26 * dens)
+    amp0 = 10 + (seed % 16)
     freq = 0.010 + ((seed >> 3) % 9) * 0.0016
     out = []
-    for row in range(rows):
-        y0 = cy - r + (2 * r) * row / (rows - 1)
-        ph = row * 0.55
+    for row in range(max(8, rows)):
+        if rnd() < drop:
+            continue
+        t = row / max(1, rows - 1)
+        y0 = cy - r + (2 * r) * (t**0.85)
+        envelope = 0.35 + 0.65 * math.exp(-(((y0 - cy) / (r * 0.55)) ** 2))
+        amp = amp0 * envelope
+        ph = row * 0.55 + (rnd() - 0.5) * jit * 0.3
         pts = [
             f"{cx - r * 1.35 + (2.7 * r) * i / 40:.0f} "
             f"{y0 + amp * math.sin(freq * (2.7 * r) * i / 40 * 6.28 + ph):.1f}"
@@ -216,33 +306,58 @@ def _eng_waves(cx, cy, r, seed, petals, inner):
 
 
 def _eng_barleycorn(cx, cy, r, seed, petals, inner):
-    """Grain d'orge: interlaced diagonal lattice off the straight-line engine.
-    Tiled as a <pattern>, so a full-bleed field costs a few hundred bytes."""
-    step = 22 + (seed % 12)
-    defs = (
-        f'<pattern id="ebar" width="{step}" height="{step}" patternUnits="userSpaceOnUse" '
-        f'patternTransform="rotate({30 + seed % 30})">'
-        f'<path d="M0 0 L{step} {step} M{step} 0 L0 {step}" fill="none" '
-        f'stroke="currentColor" stroke-width="1.6"/>'
-        f'<circle cx="{step / 2}" cy="{step / 2}" r="{step / 5:.1f}" fill="none" '
-        f'stroke="currentColor" stroke-width="1.2"/></pattern>'
-    )
-    return defs, "__PATTERN__ebar"
+    """Grain d'orge cut twice: the same lattice at a 6% scale near-miss and a
+    2.5° rotation, so the two passes moiré against each other the way a second
+    pass on the straight-line engine reads. Tiled, so it costs bytes, not KB."""
+    # The field state lives in the metal, not just the metadata: density
+    # scales the pitch, turbulence skews the second pass, and a fractured
+    # plate takes a broken dashed third cut. Strokes sized for the 5x grid.
+    _, jit, dens, drop = _field_state(seed)
+    step = (18 + seed % 14) / dens
+    rot = 30 + seed % 30
+    defs = []
+    passes = [("ebar", 1.0, 0.0, False), ("ebar2", 1.06, 2.5 + jit, False)]
+    if drop > 0:
+        passes.append(("ebar3", 1.13, 5.0 + jit, True))
+    for pid, sc, dr, dashed in passes:
+        s = step * sc
+        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
+        defs.append(
+            f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
+            f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
+            f'<path d="M0 0 L{s:.1f} {s:.1f} M{s:.1f} 0 L0 {s:.1f}" fill="none" '
+            f'stroke="currentColor" stroke-width="2.6"{dash}/>'
+            f'<circle cx="{s / 2:.1f}" cy="{s / 2:.1f}" r="{s / 5:.1f}" fill="none" '
+            f'stroke="currentColor" stroke-width="2.0"/></pattern>'
+        )
+    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
 
 
 def _eng_hobnail(cx, cy, r, seed, petals, inner):
-    """Clous de Paris: the pyramid grid. Straight-line engine, tiled."""
-    step = 18 + (seed % 14)
-    h = step / 2
-    defs = (
-        f'<pattern id="ehob" width="{step}" height="{step}" patternUnits="userSpaceOnUse" '
-        f'patternTransform="rotate({seed % 45})">'
-        f'<path d="M{h} 0 L{step} {h} L{h} {step} L0 {h} Z" fill="none" '
-        f'stroke="currentColor" stroke-width="1.5"/>'
-        f'<path d="M{h} {h * 0.45} L{step * 0.78} {h} L{h} {step - h * 0.45} L{step * 0.22} {h} Z" '
-        f'fill="none" stroke="currentColor" stroke-width="1"/></pattern>'
-    )
-    return defs, "__PATTERN__ehob"
+    """Clous de Paris cut twice at a near-miss scale — the pyramid grid plus
+    its own interference pass."""
+    # Field state as in barleycorn: pitch, skew, fractured dashed third cut.
+    _, jit, dens, drop = _field_state(seed)
+    step = (16 + seed % 12) / dens
+    rot = seed % 45
+    defs = []
+    passes = [("ehob", 1.0, 0.0, False), ("ehob2", 1.07, 3.0 + jit, False)]
+    if drop > 0:
+        passes.append(("ehob3", 1.15, 6.0 + jit, True))
+    for pid, sc, dr, dashed in passes:
+        s = step * sc
+        h = s / 2
+        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
+        defs.append(
+            f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
+            f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
+            f'<path d="M{h:.1f} 0 L{s:.1f} {h:.1f} L{h:.1f} {s:.1f} L0 {h:.1f} Z" fill="none" '
+            f'stroke="currentColor" stroke-width="2.4"{dash}/>'
+            f'<path d="M{h:.1f} {h * 0.45:.1f} L{s * 0.78:.1f} {h:.1f} L{h:.1f} {s - h * 0.45:.1f} '
+            f'L{s * 0.22:.1f} {h:.1f} Z" fill="none" stroke="currentColor" '
+            f'stroke-width="1.6"/></pattern>'
+        )
+    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
 
 
 _ENGRAVERS = {
@@ -396,6 +511,7 @@ def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
         "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
         "ink": INKS[(seed >> 32) % len(INKS)],
         "composition": allowed[(seed >> 36) % len(allowed)],
+        "field_state": _field_state(seed)[0],
         "proof": proof,
         "sector": sector,
         "grade": grade["name"],
@@ -529,7 +645,9 @@ def render_card(
             f'<circle cx="{W_ / 2 + rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
         )
     else:  # medallion
-        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
+        # The rosette is cut a quarter larger than its clip, so the outer
+        # layer crops into the rim instead of presenting a complete doily.
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 1.25
         clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
     # Tiled-pattern families (barleycorn, hobnail) paint their whole clip, so a
     # rect clip rendered as a hard-edged drawn panel — the exact furniture the
@@ -537,7 +655,19 @@ def render_card(
     if engraving in ("barleycorn", "hobnail"):
         eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
         clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
+    # Asymmetry injection: the ornament is struck a seeded touch off the true
+    # centre while the clip and numeral stay put — perfect concentricity reads
+    # as decoration, a slight miss reads as a hand on the machine. Vertical
+    # jitter is capped at 4px so the engraving can never climb the masthead.
+    eng_cx += (seed >> 12) % 37 - 18
+    eng_cy += (seed >> 18) % 9 - 4
     eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
+    # Resolve the tiled families' ink to a literal hex. currentColor renders
+    # fine in a browser but cairosvg/resvg/librsvg — what most indexers
+    # rasterize on-chain SVGs with — drop it to black, which on this plate is
+    # invisible. Literal hex measures strictly better on every rasterizer.
+    eng_ink = _mix(rim, "#ffffff", 0.35)
+    eng_defs = eng_defs.replace('stroke="currentColor"', f'stroke="{eng_ink}"')
 
     # ── the card is an OBJECT ───────────────────────────────────────────────
     # A luxury card is a machined thing, not a themed rectangle. Four material
@@ -581,7 +711,7 @@ def render_card(
         # of ending in a hard clipped edge
         f'<radialGradient id="fadeg" gradientUnits="userSpaceOnUse" cx="{eng_cx}" '
         f'cy="{eng_cy}" r="{eng_r}">'
-        f'<stop offset="0.55" stop-color="#ffffff"/>'
+        f'<stop offset="0.88" stop-color="#ffffff"/>'
         f'<stop offset="1" stop-color="#000000"/></radialGradient>',
         f'<mask id="fade"><circle cx="{eng_cx}" cy="{eng_cy}" r="{eng_r}" '
         f'fill="url(#fadeg)"/></mask>',
@@ -600,8 +730,8 @@ def render_card(
         f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.05 if proof else 0.06}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.90"/>'
-        f'<stop offset="0.6" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.74"/>'
+        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.62"/>'
+        f'<stop offset="0.42" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.40"/>'
         f'<stop offset="1" stop-color="{b["bg"] if proof else field2}" '
         f'stop-opacity="0"/></radialGradient>',
         f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
@@ -628,12 +758,14 @@ def render_card(
     if eng_body.startswith("__PATTERN__"):
         # Positive polarity like the line families — the lattice is struck in
         # lightened rim ink and fades at the medallion rim, not a dark panel.
-        pid = eng_body[len("__PATTERN__") :]
-        p.append(
-            f'<g clip-path="url(#cut)" mask="url(#fade)" '
-            f'color="{_mix(rim, body_col, 0.30)}" opacity="0.42">'
-            f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
-        )
+        # Two near-miss passes layer into a real moiré (see the engravers).
+        pids = eng_body[len("__PATTERN__") :].split("|")
+        for k, pid in enumerate(pids):
+            p.append(
+                f'<g clip-path="url(#cut)" mask="url(#fade)" '
+                f'opacity="{(1.0, 0.7, 0.5)[min(k, 2)]}">'
+                f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
+            )
     else:
         dash = ' stroke-dasharray="5 6"' if ink == "stipple" else ""
         p.append(
