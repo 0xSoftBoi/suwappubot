@@ -289,8 +289,10 @@ def contrast(a: str, b: str) -> float:
 # across the room the way a heavy card reads across a table.
 CHARCOAL = "#0d0d10"  # the matte ground; sector tint is anodised into it
 IVORY = "#f2ede3"  # ink on the dark plate / ground of the rare Gilt proof
-GOLD = "#c9a55c"
-PLATINUM = "#c4c9cf"
+# Three clearly STEPPED luminances, brightest at the top tier — the first cut
+# had gold measurably dimmer than platinum, so the top tier read as second.
+GOLD = "#e0bd76"
+PLATINUM = "#aab1b9"
 GRAPHITE = "#8b8e94"
 
 
@@ -300,7 +302,7 @@ def metal_for(badge: str | None, sector_col: str) -> str:
         return GOLD
     if badge == "Early":
         return PLATINUM
-    return _mix(GRAPHITE, sector_col, 0.18)
+    return _mix("#6e7176", sector_col, 0.18)
 
 
 def palette(cfg, sector_col, accent, ret_bps, priced, proof):
@@ -329,8 +331,8 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
             "hero": hero,
             "mark": b["accent"],
         }
-    # The default plate. Sector colour is anodised into the ground at 6% — ten
-    # families still sort by eye in a grid, but each reads as a tinted metal,
+    # The default plate. Sector colour is anodised into the ground — ten
+    # families sort by eye in a grid, but each reads as a tinted metal,
     # not a pastel. Gains keep the accent ramp (jade climbing to champagne),
     # lifted toward ivory so the numeral clears the contrast floor; losses take
     # a muted oxblood — expensive, not alarming.
@@ -339,11 +341,14 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
         hero = _mix(accent, IVORY, 0.32)
     elif priced and ret_bps < -200:
         hero = "#c4767c"
-    field = _mix(CHARCOAL, sector_col, 0.06)
+    # 15% anodising, not 6 — at 6% all ten fields converged on the same black
+    # and the families stopped sorting on a wall. 15% still reads as a dark
+    # card (Semis lands near #1c242c), but the tint is visible in a grid.
+    field = _mix(CHARCOAL, sector_col, 0.15)
     return {
         "field": field,
         "field2": _mix(field, "#000000", 0.35),
-        "edge": _mix(field, sector_col, 0.12),
+        "edge": _mix(field, sector_col, 0.22),
         "rim": _mix(sector_col, GRAPHITE, 0.55),
         "body": b["bg"],
         "quiet": _mix(GRAPHITE, IVORY, 0.30),
@@ -555,14 +560,14 @@ def render_card(
     if eng_body.startswith("__PATTERN__"):
         pid = eng_body[len("__PATTERN__") :]
         p.append(
-            f'<g clip-path="url(#cut)" color="{rim}" opacity="0.55">'
+            f'<g clip-path="url(#cut)" color="{rim}" opacity="0.60">'
             f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
         )
     else:
         dash = ' stroke-dasharray="5 6"' if ink == "stipple" else ""
         p.append(
             f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.2" '
-            f'opacity="0.52"{dash}>{eng_body}</g>'
+            f'opacity="0.58"{dash}>{eng_body}</g>'
         )
         if ink == "double":
             # The same cut struck again off-register, the way a second pass on
@@ -573,9 +578,12 @@ def render_card(
             )
 
     # ── ruled border, struck in the tier metal ──────────────────────────────
+    # Weight steps with the tier as well as hue — at 190px a hue shift alone
+    # does not separate platinum from graphite, but a heavier rule does.
+    frame_w = {"Founder": 4.5, "Early": 3.5}.get(badge, 2.5)
     p.append(
         f'<rect x="{PL}" y="{PT}" width="{PR - PL}" height="{PB - PT}" fill="none" '
-        f'stroke="{metal}" stroke-opacity="0.85" stroke-width="3.5"/>'
+        f'stroke="{metal}" stroke-opacity="0.85" stroke-width="{frame_w}"/>'
         f'<rect x="{PL + 11}" y="{PT + 11}" width="{PR - PL - 22}" height="{PB - PT - 22}" '
         f'fill="none" stroke="{metal}" stroke-opacity="0.30" stroke-width="1.2"/>'
     )
@@ -687,7 +695,9 @@ def render_card(
             )
         e_x = IL if price >= entry else IR
         n_x = IR if price >= entry else IL
-        flip = ' transform="rotate(180 500 0)"' if n_x < e_x else ""
+        # Pivot on the rect's own centre — rotating about y=0 threw the whole
+        # band off-canvas, so every losing card lost its gradient bar.
+        flip = f' transform="rotate(180 500 {sy})"' if n_x < e_x else ""
         p.append(
             f'<rect x="{min(e_x, n_x)}" y="{sy - 17}" width="{abs(n_x - e_x)}" height="34" '
             f'fill="url(#span)"{flip}/>'
@@ -732,10 +742,9 @@ def render_card(
 
     # ── one footing band, not four ──────────────────────────────────────────
     struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
-    p.append(
-        f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="{body_col}">'
-        f"\u2212{disc_pct}% off every swap</text>"
-    )
+    # Small caps, no minus sign: set as "\u221240%" under the P&L numeral this line
+    # scanned as a second, negative return at thumbnail size.
+    p.append(_small_caps(f"{disc_pct}% off every swap", IL, 1070, 20, body_col, 4.5, "bold"))
     p.append(
         _small_caps(
             f"struck {struck} \u00b7 rank {rank} of {cfg['collection']['supply']:,}",

@@ -140,7 +140,7 @@
   {
    "name": "Flat",
    "min_return_bps": -200,
-   "accent": "#9aa0a6"
+   "accent": "#a09c93"
   },
   {
    "name": "In Profit",
@@ -155,7 +155,7 @@
   {
    "name": "Multiple",
    "min_return_bps": 10000,
-   "accent": "#b8c4d4"
+   "accent": "#c3bf95"
   },
   {
    "name": "Moonshot",

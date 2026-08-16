@@ -9,7 +9,7 @@ The plate is a luxury card in the **Amex Centurion / Robinhood Gold** lineage â€
 Soho House meets web3, built for adults:
 
 - **Matte near-black ground.** The sector colour is anodised into the charcoal at
-  6%, so a wall of 10,000 still sorts into ten families by eye, but each family
+  15%, so a wall of 10,000 still sorts into ten families by eye, but each family
   reads as a tinted metal, never as candy.
 - **Status is struck metal, earned by mint rank.** Founder cards (first 500) are
   furnished in **gold** â€” border, serial, seal ring; Early (first 2,000) in
