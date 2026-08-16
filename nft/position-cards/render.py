@@ -172,9 +172,9 @@ def _rng(seed: int):
 # fractured plates. (name, weight ceiling %, jitter px, density, dropout)
 FIELD_STATES = (
     ("calm", 70, 0.8, 1.00, 0.00),
-    ("turbulent", 90, 2.6, 1.15, 0.03),
-    ("fractured", 98, 4.5, 0.90, 0.16),
-    ("still", 100, 0.0, 0.70, 0.00),
+    ("turbulent", 90, 7.0, 1.35, 0.02),
+    ("fractured", 98, 14.0, 0.75, 0.28),
+    ("still", 100, 0.0, 0.55, 0.00),
 )
 
 
@@ -195,8 +195,8 @@ def _eng_rosette(cx, cy, r, seed, petals, inner):
     _, jit, dens, drop = _field_state(seed)
     specs = [
         (1.00, 0, 8, 0.26),
-        (0.618, 3, 13, 0.24),
-        (0.382, -2, 5, 0.34),
+        (0.72, 3, 13, 0.28),
+        (0.44, -2, 5, 0.30),
     ]
     if _field_state(seed)[0] == "still":
         specs = specs[:2]
@@ -204,7 +204,7 @@ def _eng_rosette(cx, cy, r, seed, petals, inner):
     for li, (rr, pd, arms, op) in enumerate(specs):
         pid = f"e{li + 1}"
         defs.append(
-            f'<path id="{pid}" d="{_guilloche(cx, cy, r * rr, max(3, petals + pd), min(0.5, inner * (0.8 + 0.4 * rnd())), 200)}"/>'
+            f'<path id="{pid}" d="{_guilloche(cx, cy, r * rr, max(3, petals + pd), min(0.32, inner * (0.8 + 0.4 * rnd())), 200)}"/>'
         )
         n = int((arms + int(rnd() * 3)) * dens)
         phase = rnd() * 360
@@ -309,41 +309,55 @@ def _eng_barleycorn(cx, cy, r, seed, petals, inner):
     """Grain d'orge cut twice: the same lattice at a 6% scale near-miss and a
     2.5° rotation, so the two passes moiré against each other the way a second
     pass on the straight-line engine reads. Tiled, so it costs bytes, not KB."""
-    step = 22 + (seed % 12)
+    # The field state lives in the metal, not just the metadata: density
+    # scales the pitch, turbulence skews the second pass, and a fractured
+    # plate takes a broken dashed third cut. Strokes sized for the 5x grid.
+    _, jit, dens, drop = _field_state(seed)
+    step = (18 + seed % 14) / dens
     rot = 30 + seed % 30
     defs = []
-    for pid, sc, dr in (("ebar", 1.0, 0), ("ebar2", 1.06, 2.5)):
+    passes = [("ebar", 1.0, 0.0, False), ("ebar2", 1.06, 2.5 + jit, False)]
+    if drop > 0:
+        passes.append(("ebar3", 1.13, 5.0 + jit, True))
+    for pid, sc, dr, dashed in passes:
         s = step * sc
+        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
         defs.append(
             f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
             f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
             f'<path d="M0 0 L{s:.1f} {s:.1f} M{s:.1f} 0 L0 {s:.1f}" fill="none" '
-            f'stroke="currentColor" stroke-width="1.6"/>'
+            f'stroke="currentColor" stroke-width="2.6"{dash}/>'
             f'<circle cx="{s / 2:.1f}" cy="{s / 2:.1f}" r="{s / 5:.1f}" fill="none" '
-            f'stroke="currentColor" stroke-width="1.2"/></pattern>'
+            f'stroke="currentColor" stroke-width="2.0"/></pattern>'
         )
-    return "".join(defs), "__PATTERN__ebar|ebar2"
+    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
 
 
 def _eng_hobnail(cx, cy, r, seed, petals, inner):
     """Clous de Paris cut twice at a near-miss scale — the pyramid grid plus
     its own interference pass."""
-    step = 18 + (seed % 14)
+    # Field state as in barleycorn: pitch, skew, fractured dashed third cut.
+    _, jit, dens, drop = _field_state(seed)
+    step = (16 + seed % 12) / dens
     rot = seed % 45
     defs = []
-    for pid, sc, dr in (("ehob", 1.0, 0), ("ehob2", 1.07, 3.0)):
+    passes = [("ehob", 1.0, 0.0, False), ("ehob2", 1.07, 3.0 + jit, False)]
+    if drop > 0:
+        passes.append(("ehob3", 1.15, 6.0 + jit, True))
+    for pid, sc, dr, dashed in passes:
         s = step * sc
         h = s / 2
+        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
         defs.append(
             f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
             f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
             f'<path d="M{h:.1f} 0 L{s:.1f} {h:.1f} L{h:.1f} {s:.1f} L0 {h:.1f} Z" fill="none" '
-            f'stroke="currentColor" stroke-width="1.5"/>'
+            f'stroke="currentColor" stroke-width="2.4"{dash}/>'
             f'<path d="M{h:.1f} {h * 0.45:.1f} L{s * 0.78:.1f} {h:.1f} L{h:.1f} {s - h * 0.45:.1f} '
             f'L{s * 0.22:.1f} {h:.1f} Z" fill="none" stroke="currentColor" '
-            f'stroke-width="1"/></pattern>'
+            f'stroke-width="1.6"/></pattern>'
         )
-    return "".join(defs), "__PATTERN__ehob|ehob2"
+    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
 
 
 _ENGRAVERS = {
@@ -631,7 +645,9 @@ def render_card(
             f'<circle cx="{W_ / 2 + rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
         )
     else:  # medallion
-        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
+        # The rosette is cut a quarter larger than its clip, so the outer
+        # layer crops into the rim instead of presenting a complete doily.
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 1.25
         clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
     # Tiled-pattern families (barleycorn, hobnail) paint their whole clip, so a
     # rect clip rendered as a hard-edged drawn panel — the exact furniture the
@@ -646,6 +662,12 @@ def render_card(
     eng_cx += (seed >> 12) % 37 - 18
     eng_cy += (seed >> 18) % 9 - 4
     eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
+    # Resolve the tiled families' ink to a literal hex. currentColor renders
+    # fine in a browser but cairosvg/resvg/librsvg — what most indexers
+    # rasterize on-chain SVGs with — drop it to black, which on this plate is
+    # invisible. Literal hex measures strictly better on every rasterizer.
+    eng_ink = _mix(rim, "#ffffff", 0.35)
+    eng_defs = eng_defs.replace('stroke="currentColor"', f'stroke="{eng_ink}"')
 
     # ── the card is an OBJECT ───────────────────────────────────────────────
     # A luxury card is a machined thing, not a themed rectangle. Four material
@@ -689,7 +711,7 @@ def render_card(
         # of ending in a hard clipped edge
         f'<radialGradient id="fadeg" gradientUnits="userSpaceOnUse" cx="{eng_cx}" '
         f'cy="{eng_cy}" r="{eng_r}">'
-        f'<stop offset="0.55" stop-color="#ffffff"/>'
+        f'<stop offset="0.88" stop-color="#ffffff"/>'
         f'<stop offset="1" stop-color="#000000"/></radialGradient>',
         f'<mask id="fade"><circle cx="{eng_cx}" cy="{eng_cy}" r="{eng_r}" '
         f'fill="url(#fadeg)"/></mask>',
@@ -708,8 +730,8 @@ def render_card(
         f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.05 if proof else 0.06}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.90"/>'
-        f'<stop offset="0.6" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.74"/>'
+        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.62"/>'
+        f'<stop offset="0.42" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.40"/>'
         f'<stop offset="1" stop-color="{b["bg"] if proof else field2}" '
         f'stop-opacity="0"/></radialGradient>',
         f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
@@ -741,7 +763,7 @@ def render_card(
         for k, pid in enumerate(pids):
             p.append(
                 f'<g clip-path="url(#cut)" mask="url(#fade)" '
-                f'color="{_mix(rim, body_col, 0.30)}" opacity="{0.42 if k == 0 else 0.24}">'
+                f'opacity="{(1.0, 0.7, 0.5)[min(k, 2)]}">'
                 f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
             )
     else:
