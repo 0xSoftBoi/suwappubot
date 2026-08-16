@@ -340,7 +340,10 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     if priced and ret_bps >= 2500:
         hero = _mix(accent, IVORY, 0.32)
     elif priced and ret_bps < -200:
-        hero = "#c4767c"
+        # Warm ash, not pink — a saturated loss numeral was the most chromatic
+        # thing on the wall and clashed with the wordmark. The loss already
+        # reads through the minus sign and the grade caption.
+        hero = "#bfa9a2"
     # Anodising is luminance-normalised, not a flat mix. A constant 15% let the
     # warm high-luminance families (Crypto gold, Media rose) lift visibly off
     # black while the cool ones stayed flat — a 28% spread in field luminance.
@@ -528,6 +531,12 @@ def render_card(
     else:  # medallion
         eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
         clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
+    # Tiled-pattern families (barleycorn, hobnail) paint their whole clip, so a
+    # rect clip rendered as a hard-edged drawn panel — the exact furniture the
+    # luxury pass banned. They are always struck as a soft-rimmed medallion.
+    if engraving in ("barleycorn", "hobnail"):
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
+        clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
     eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
 
     # ── the card is an OBJECT ───────────────────────────────────────────────
@@ -568,6 +577,14 @@ def render_card(
         f'numOctaves="2" seed="7" stitchTiles="stitch"/>'
         f'<feColorMatrix type="matrix" values="0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 '
         f'0 0 0 0.04 0"/></filter>',
+        # soft rim for the tiled-pattern medallion — fades to nothing instead
+        # of ending in a hard clipped edge
+        f'<radialGradient id="fadeg" gradientUnits="userSpaceOnUse" cx="{eng_cx}" '
+        f'cy="{eng_cy}" r="{eng_r}">'
+        f'<stop offset="0.55" stop-color="#ffffff"/>'
+        f'<stop offset="1" stop-color="#000000"/></radialGradient>',
+        f'<mask id="fade"><circle cx="{eng_cx}" cy="{eng_cy}" r="{eng_r}" '
+        f'fill="url(#fadeg)"/></mask>',
         # a physical object darkens toward its corners under one lamp
         f'<radialGradient id="vig" cx="0.5" cy="0.42" r="0.75">'
         f'<stop offset="0.55" stop-color="#000000" stop-opacity="0"/>'
@@ -609,9 +626,12 @@ def render_card(
     # Stroke weights are set for the THUMBNAIL. At 0.7px on a 1000px plate an
     # engraving resolves to 0.13px in a 190px grid cell and simply vanishes.
     if eng_body.startswith("__PATTERN__"):
+        # Positive polarity like the line families — the lattice is struck in
+        # lightened rim ink and fades at the medallion rim, not a dark panel.
         pid = eng_body[len("__PATTERN__") :]
         p.append(
-            f'<g clip-path="url(#cut)" color="{rim}" opacity="0.60">'
+            f'<g clip-path="url(#cut)" mask="url(#fade)" '
+            f'color="{_mix(rim, body_col, 0.30)}" opacity="0.42">'
             f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
         )
     else:
@@ -639,8 +659,9 @@ def render_card(
         f'<text x="{IR}" y="122" font-family="{SERIF}" font-size="19" fill="url(#mgrad)" '
         f'text-anchor="end" letter-spacing="1.6">{esc(f"No. {rank:04d}")}</text>'
     )
-    if badge:
-        p.append(_small_caps(badge, IR, 152, 13, metal, 5.5, "bold", anchor="end"))
+    # The tier line always prints — at 190px an absent label reads as a broken
+    # card, not a base one. 13px vanished in a grid cell; 17px survives.
+    p.append(_small_caps(badge or "Member", IR, 154, 17, metal, 3.2, "bold", anchor="end"))
 
     # ── ticker: at 190px this and one number ARE the card ───────────────────
     # Embossed, not printed: a shadow struck below-right and a highlight
@@ -715,8 +736,8 @@ def render_card(
     else:
         p.append(
             f'<text x="{W_ / 2}" y="{cy + 26}" font-family="{SERIF}" font-size="82" '
-            f'fill="#a09889" text-anchor="middle" font-style="italic" '
-            f'letter-spacing="2">Unpriced</text>'
+            f'font-weight="bold" fill="#a09889" text-anchor="middle" '
+            f'letter-spacing="-1">Unpriced</text>'
         )
         p.append(
             _small_caps("no basis stamped", W_ / 2, cy + 70, 12, "#7a7367", 5.0, anchor="middle")
