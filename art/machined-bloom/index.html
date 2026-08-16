@@ -252,7 +252,7 @@
         <!-- Control Sidebar -->
         <div class="sidebar">
             <h1>Machined Bloom</h1>
-            <div class="subtitle">A rose engine allowed to dream — rings cut true at the centre, blooming into weather at the rim. One ring never drifts.</div>
+            <div class="subtitle">A rose engine allowed to dream — rings cut true at the centre bloom into a directional gale; threads duck through the weave, fray in the storm, and one ring never drifts.</div>
 
             <!-- Seed Section -->
             <div class="control-section">
@@ -298,6 +298,14 @@
                     <div class="slider-container">
                         <input type="range" id="weather" min="0.3" max="3" step="0.05" value="1.15" oninput="updateParam('weather', this.value)">
                         <span class="value-display" id="weather-value">1.15</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Gale — how directional the storm is</label>
+                    <div class="slider-container">
+                        <input type="range" id="gale" min="0" max="3" step="0.05" value="1.3" oninput="updateParam('gale', this.value)">
+                        <span class="value-display" id="gale-value">1.3</span>
                     </div>
                 </div>
 
@@ -377,6 +385,7 @@
             bloom: 0.62,
             weave: 0.85,
             weather: 1.15,
+            gale: 1.3,
             glow: 1.0,
             colorPalette: ['#d3ab68', '#7fb3a3', '#0a0a0c']
         };
@@ -426,92 +435,155 @@
 
             const plate = color(params.colorPalette[2]);
             background(plate);
-            // the plate is not flat: one breath of light off-centre
+
+            // ── the gale: this plate has weather WITH A DIRECTION ───────────
+            // A von-Mises gain concentrates the storm in one angular sector,
+            // so the piece has an axis: a machined calm shore and a torn one.
+            const galeTh = random(TWO_PI);
+            const kappa = 0.5 + params.gale * 1.15;
+            const galeGain = (th) => 0.38 + 1.60 * exp(kappa * (cos(th - galeTh) - 1));
+
+            // one breath of light on the plate, rising from the calm side
             noStroke();
+            const lx = width / 2 - cos(galeTh) * width * 0.22;
+            const ly = height / 2 - sin(galeTh) * height * 0.22;
             for (let i = 26; i > 0; i--) {
-                fill(red(plate) + i * 0.55, green(plate) + i * 0.55, blue(plate) + i * 0.5, 255);
-                ellipse(width * 0.42, height * 0.40, (i / 26) * width * 1.9, (i / 26) * height * 1.9);
+                fill(red(plate) + i * 0.5, green(plate) + i * 0.5, blue(plate) + i * 0.45, 255);
+                ellipse(lx, ly, (i / 26) * width * 1.9, (i / 26) * height * 1.9);
             }
 
-            // the lathe's own asymmetries, chosen per seed
-            const cx = width / 2 + random(-width * 0.05, width * 0.05);
-            const cy = height / 2 + random(-height * 0.045, height * 0.055);
-            const r0 = min(width, height) * random(0.035, 0.06);
-            const r1 = min(width, height) * 0.475;
+            // the work sits slightly away from the storm
+            const cx = width / 2 - cos(galeTh) * width * 0.04 + random(-width * 0.02, width * 0.02);
+            const cy = height / 2 - sin(galeTh) * height * 0.04 + random(-height * 0.02, height * 0.02);
+            const r0 = min(width, height) * random(0.045, 0.065);
+            const r1 = min(width, height) * 0.435;
             const N = params.rings;
 
-            // one full silent turn or two: quiet annuli, reserved up front
+            // rosette lobes: the silhouette is a petal form, not a circle —
+            // the lobing emerges with radius, as a rose engine's cam engages
+            const L = random([5, 6, 7, 8]);
+            const lobPhase = random(TWO_PI);
+            const lob = random(0.05, 0.10);
+
             let rests = [];
             const nRests = random() < 0.55 ? 3 : 4;
-            for (let i = 0; i < nRests; i++) rests.push(random(0.22, 0.9));
+            for (let i = 0; i < nRests; i++) rests.push(random(0.2, 0.9));
 
-            // the fixed point: exactly one ring that never drifts
-            const trueRing = floor(random(N * 0.25, N * 0.8));
+            const trueRing = floor(random(N * 0.3, N * 0.75));
 
-            // per-plate cam settings
             const kMain = HARMONICS[floor(random(HARMONICS.length))];
             const kCounter = HARMONICS[floor(random(HARMONICS.length))];
             const camPhase = random(TWO_PI);
-            const spiral = random([-1, 1]) * random(0.12, 0.35); // slow phase advance per ring
+            const spiral = random([-1, 1]) * random(0.12, 0.35);
 
-            noFill();
-            for (let i = 0; i < N; i++) {
+            const shine = [];      // bright segments, re-struck additively at the end
+            let frays = 0;         // frayed filaments are rationed
+            const FRAY_MAX = 850;
+
+            const cutRing = (i, ghost) => {
                 const t = i / (N - 1);
-                // radius schedule eases outward — rings crowd slightly at the rim
-                let rBase = lerp(r0, r1, pow(t, 0.88));
+                let rBase = lerp(r0, r1, pow(t, 0.88)) * (ghost ? 1.36 : 1);
+                const gx = ghost ? cx + cos(galeTh) * width * 0.05 : cx;
+                const gy = ghost ? cy + sin(galeTh) * height * 0.05 : cy;
 
-                // rests: skip rings that fall inside a quiet annulus
-                let inRest = false;
-                for (const rp of rests) {
-                    if (abs(t - rp) < 0.032) inRest = true;
-                }
-                if (i === trueRing) continue;  // cut last, on top of everything
-                if (inRest) continue;
-
-                // oxidised pass: rare, weighted, never adjacent to the true ring
                 const oxidised = random() < 0.055 && abs(i - trueRing) > 3;
                 const base = oxidised ? params.colorPalette[1] : params.colorPalette[0];
 
-                // the machine's vote: strict harmonic wave, woven phase
                 const k = (i % 7 === 0) ? kCounter : kMain;
                 const phase = camPhase + (i % 2) * PI / k * params.weave + i * spiral / k;
                 const waveAmp = (2.2 + 3.2 * sin(PI * t)) * (r1 - r0) / 190;
 
-                // the dream's vote: grows with radius; the true ring gets none
-                const gate = constrain((t - 0.16) / 0.42, 0, 1);
-                const bloomAmp = (i === trueRing) ? 0
-                    : params.bloom * gate * gate * (3 - 2 * gate) * pow(t, 1.4) * rBase * 0.32;
+                const gate = constrain((t - 0.14) / 0.42, 0, 1);
+                const bloom0 = params.bloom * gate * gate * (3 - 2 * gate) * pow(t, 1.35) * rBase * 0.26;
 
                 const layerZ = i * 0.61;
-                const jSeed = random(1000);  // per-ring micro-grain
+                const jSeed = random(1000);
+                const parity = (i % 2) ? 1 : -1;
 
-                // cut the ring in short strokes so each carries its own light
                 let px = null, py = null, pd = 0;
                 for (let s = 0; s <= SEGS; s++) {
                     const th = TWO_PI * s / SEGS;
+                    const g = galeGain(th);
                     const drift = ringNoise(th, layerZ, params.weather) * 2;
-                    const rr = rBase
+                    const bloomAmp = (i === trueRing) ? 0 : bloom0 * g;
+                    let rr = rBase
                         + waveAmp * sin(k * th + phase)
                         + bloomAmp * drift
-                        + (noise(jSeed + th * 3.1) - 0.5) * 1.1; // graver grain
-                    const x = cx + rr * cos(th);
-                    const y = cy + rr * sin(th);
+                        + (noise(jSeed + th * 3.1) - 0.5) * 1.1;
+                    // the petal cam engages with radius
+                    rr *= 1 + lob * pow(t, 1.5) * cos(L * th + lobPhase);
+                    const x = gx + rr * cos(th);
+                    const y = gy + rr * sin(th);
                     if (px !== null) {
-                        // disturbance = how hard the field is working this thread
-                        const d = constrain(abs(drift - pd) * 11 * params.glow
-                            + abs(bloomAmp) / (rBase * 0.3 + 1) * 0.9 * params.glow, 0, 1);
-                        const c = metal(base, d);
-                        strokeWeight(0.55 + 1.25 * d + 0.3 * sin(PI * t));
-                        const a = 30 + 180 * pow(d, 1.45) + 62 * pow(1 - t, 1.6);
-                        stroke(red(c), green(c), blue(c), constrain(a, 26, 225));
-                        line(px, py, x, y);
+                        // over-under: the thread ducks beneath the lattice at
+                        // the deepest counter-phase — the weave becomes real
+                        const under = t > 0.24 && sin(k * th + phase) * parity < -0.92;
+                        const d = constrain(
+                            abs(drift - pd) * 11 * params.glow * (0.55 + 0.5 * g)
+                            + abs(bloomAmp) / (rBase * 0.3 + 1) * 0.85 * params.glow, 0, 1);
+                        if (!under) {
+                            const c = metal(base, d);
+                            const w = 0.55 + 1.25 * d + 0.3 * sin(PI * t);
+                            let a = 36 + 176 * pow(d, 1.45) + 60 * pow(1 - t, 1.6);
+                            if (ghost) a *= 0.10;
+                            strokeWeight(w);
+                            stroke(red(c), green(c), blue(c), constrain(a, ghost ? 5 : 26, 225));
+                            line(px, py, x, y);
+                            if (!ghost && d > 0.74) {
+                                shine.push([px, py, x, y, w, red(c), green(c), blue(c)]);
+                            }
+                            // fray: in the storm the lathe loses the thread
+                            if (!ghost && frays < FRAY_MAX && d > 0.8 && t > 0.45
+                                && g > 1.0 && random() < 0.06) {
+                                frays++;
+                                let fx = x, fy = y;
+                                let vx = (x - px), vy = (y - py);
+                                const vn = sqrt(vx * vx + vy * vy) + 0.001;
+                                vx /= vn; vy /= vn;
+                                const steps = 3 + floor(random(4));
+                                for (let q = 0; q < steps; q++) {
+                                    const curl = (noise(jSeed + 40 + q * 0.3, th * 2) - 0.5) * 1.7;
+                                    const nxv = vx * cos(curl) - vy * sin(curl);
+                                    const nyv = vx * sin(curl) + vy * cos(curl);
+                                    const len = random(4, 11);
+                                    const tx = fx + nxv * len + cos(th) * len * 0.55;
+                                    const ty = fy + nyv * len + sin(th) * len * 0.55;
+                                    const fa = (150 * (1 - q / steps)) * (0.5 + 0.5 * d);
+                                    strokeWeight(0.6);
+                                    stroke(red(color(base)), green(color(base)), blue(color(base)), fa);
+                                    line(fx, fy, tx, ty);
+                                    fx = tx; fy = ty; vx = nxv; vy = nyv;
+                                }
+                            }
+                        }
                     }
                     px = x; py = y; pd = drift;
                 }
+            };
+
+            noFill();
+            // ghost of the plate: the same form, larger, behind, barely there
+            for (let i = floor(N * 0.45); i < N; i += 3) cutRing(i, true);
+
+            // the work itself
+            for (let i = 0; i < N; i++) {
+                const t = i / (N - 1);
+                let inRest = false;
+                for (const rp of rests) if (abs(t - rp) < 0.032) inRest = true;
+                if (inRest || i === trueRing) continue;
+                cutRing(i, false);
             }
 
-            // the one honest circle — cut once, never revisited, on top of
-            // every wandering thread. A faint echo just outside gives it air.
+            // light is a substance: bright threads re-struck additively
+            blendMode(ADD);
+            for (const s of shine) {
+                strokeWeight(s[4] * 3.2);
+                stroke(s[5], s[6], s[7], 14);
+                line(s[0], s[1], s[2], s[3]);
+            }
+            blendMode(BLEND);
+
+            // the one honest circle — no lobes, no drift, cut once, on top
             {
                 const tt = trueRing / (N - 1);
                 const rT = lerp(r0, r1, pow(tt, 0.88));
@@ -588,7 +660,7 @@
 
         function resetParameters() {
             params = JSON.parse(JSON.stringify(defaultParams));
-            for (const name of ['rings', 'bloom', 'weave', 'weather', 'glow']) {
+            for (const name of ['rings', 'bloom', 'weave', 'weather', 'gale', 'glow']) {
                 document.getElementById(name).value = params[name];
                 document.getElementById(name + '-value').textContent = params[name];
             }

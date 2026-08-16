@@ -46,6 +46,15 @@ plates without repeating a gesture. Nothing may be smudged to hide a weak
 line; there are no vignettes to rescue a dead composition. Full-opacity
 confidence or deliberate silence — a master's cut permits nothing between.
 
+The weather, finally, has a direction. A plate is not sanded evenly by its
+years; it takes its storm on one shore. A von-Mises gale concentrates the
+noise field's authority into a single angular sector — threads compress,
+brighten, duck under the lattice and fray into free filaments where the wind
+lands, while the far shore stays machined and patient. Light there is struck
+twice, additively, because on real metal brightness is a substance, not a
+tint. Behind the work, a ghost of the same form turns a third larger and
+almost invisible: the pass the lathe made yesterday.
+
 The viewer should stand at arm's length and see a dark plate of woven gold,
 serene as an instrument dial; then lean in and find that no two threads agree,
 that the weave is an argument between a machine and the weather, settled
