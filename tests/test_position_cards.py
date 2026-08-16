@@ -1245,32 +1245,44 @@ def test_the_plate_uses_the_real_brand_tokens_and_cannot_drift():
         assert cfg["brand"].get(k) == value, f"brand token {k} drifted from the package"
 
 
-def test_the_default_plate_is_light_and_the_dark_one_is_rare():
-    """Suwappu's surface is warm off-white with near-black ink. The first build
-    had this exactly inverted — a black Victorian plate as the default and cream
-    as the rarity — which is a different company's collection."""
+def test_the_default_plate_is_dark_and_the_gilt_proof_is_rare():
+    """The collection is a luxury card in the Amex Centurion / Robinhood Gold
+    lineage: the default plate is matte near-black with the sector anodised in,
+    and the RARE state is the ivory Gilt proof struck in dark ink. (This is the
+    second deliberate inversion of this axis — the light-default build read as
+    stationery, not as a card you'd hand across a table.)"""
     cfg, reg = render.load_config(), render.load_registry()
     light = dark = 0
     for tid in range(1, 400):
         t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 130.0, tid)
         pal = render.palette(
-            cfg, cfg["sector_colors"]["Semiconductors"], "#3ddc97", 3000, True, t["proof"]
+            cfg, cfg["sector_colors"]["Semiconductors"], "#5da97f", 3000, True, t["proof"]
         )
         if render._lum(pal["field"]) > 0.5:
             light += 1
         else:
             dark += 1
-    assert light > dark * 8, f"{dark} dark of {light + dark} — the dark plate is not rare"
-    assert dark > 0, "the Night proof never appears"
+    assert dark > light * 8, f"{light} light of {light + dark} — the dark plate is not the default"
+    assert light > 0, "the Gilt proof never appears"
 
 
-def test_gains_take_the_brand_green_and_the_mark_takes_the_brand_pink():
+def test_the_metal_is_earned_by_rank_and_the_mark_stays_brand_pink():
+    """Status is carried by struck metal — gold for Founder, platinum for
+    Early, graphite otherwise — and the one saturated element on the plate is
+    the small pink Suwappu mark."""
     cfg, reg = render.load_config(), render.load_registry()
     up = render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 1)
     assert cfg["brand"]["accent"] in up, "the Suwappu mark is not in brand pink"
-    pal = render.palette(cfg, "#7dd3fc", "#5eead4", 30000, True, False)
-    # green-dominant: the gain ink must sit nearer the brand green than the raw
-    # grade accent, which was tuned for a black plate
+    sector = cfg["sector_colors"]["Semiconductors"]
+    assert render.metal_for("Founder", sector) == render.GOLD
+    assert render.metal_for("Early", sector) == render.PLATINUM
+    base = render.metal_for(None, sector)
+    assert base not in (render.GOLD, render.PLATINUM)
+    # the founder card is literally furnished in gold; a public one is not
+    assert render.GOLD in render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 1)
+    assert render.GOLD not in render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 9000)
+    # and the gain numeral still clears the floor on the dark ground
+    pal = render.palette(cfg, sector, "#59c19a", 30000, True, False)
     assert render.contrast(pal["hero"], pal["field"]) >= 4.0
 
 

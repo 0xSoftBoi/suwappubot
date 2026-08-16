@@ -81,17 +81,18 @@
    "USO"
   ]
  },
+ "_sector_colors_comment": "Muted jewel tones, not pastels. Each is anodised into the matte charcoal ground at 6% and lightened for type, so it must read as a tinted metal — steel, bronze, gunmetal — never as candy. Retuned for the luxury plate (Centurion / Robinhood Gold lineage).",
  "sector_colors": {
-  "Semiconductors": "#7dd3fc",
-  "AI Infrastructure": "#c4b5fd",
-  "Software": "#5eead4",
-  "Internet & Media": "#fca5a5",
-  "Crypto & Fintech": "#fcd34d",
-  "Space & Defense": "#93c5fd",
-  "Quantum": "#f0abfc",
-  "Energy & Materials": "#fdba74",
-  "Consumer": "#86efac",
-  "Index & Commodity": "#d4d4d8"
+  "Semiconductors": "#6ea8c9",
+  "AI Infrastructure": "#9a8fc7",
+  "Software": "#5fb3a1",
+  "Internet & Media": "#c98a86",
+  "Crypto & Fintech": "#d4b46a",
+  "Space & Defense": "#7d9cc9",
+  "Quantum": "#b78ec2",
+  "Energy & Materials": "#c99a6b",
+  "Consumer": "#86b894",
+  "Index & Commodity": "#a8a8ad"
  },
  "ticker_caps": {
   "AAPL": 510,
@@ -134,32 +135,32 @@
   {
    "name": "Underwater",
    "min_return_bps": -1000000,
-   "accent": "#ff6b6b"
+   "accent": "#b0666c"
   },
   {
    "name": "Flat",
    "min_return_bps": -200,
-   "accent": "#94a3b8"
+   "accent": "#a09c93"
   },
   {
    "name": "In Profit",
    "min_return_bps": 200,
-   "accent": "#3ddc97"
+   "accent": "#5da97f"
   },
   {
    "name": "Runner",
    "min_return_bps": 2500,
-   "accent": "#5eead4"
+   "accent": "#59c19a"
   },
   {
    "name": "Multiple",
    "min_return_bps": 10000,
-   "accent": "#7dd3fc"
+   "accent": "#c3bf95"
   },
   {
    "name": "Moonshot",
    "min_return_bps": 50000,
-   "accent": "#fcd34d"
+   "accent": "#d4af6e"
   }
  ],
  "mint": {
