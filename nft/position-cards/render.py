@@ -477,7 +477,6 @@ def render_card(
     cy = max(672 - int(lift * 52), 372 + rad)
     petals = 7 + (seed % 12)
     inner = 0.12 + 0.26 * mag
-    spin = (seed >> 8) % 360
 
     # ── luxury, not loud ────────────────────────────────────────────────────
     # The default plate is a matte near-black card in the Amex Centurion /
@@ -531,17 +530,57 @@ def render_card(
         clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
     eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
 
+    # ── the card is an OBJECT ───────────────────────────────────────────────
+    # A luxury card is a machined thing, not a themed rectangle. Four material
+    # layers do that work: a rounded silhouette floating on obsidian with a
+    # soft shadow; brushed-metal grain; one diagonal light sheen, as on
+    # anodised aluminium under a lamp; and furniture filled with three-stop
+    # metal gradients so gold TURNS instead of sitting flat.
+    metal_hi = _mix(metal, "#ffffff", 0.38)
+    metal_lo = _mix(metal, "#000000", 0.45)
+    sheen_ink = "#000000" if proof else "#ffffff"
+    CR_X, CR_Y, CR_W, CR_H, CR_R = 34, 34, W_ - 68, H_ - 68, 42
+
     p = [
         "<defs>",
         f'<clipPath id="cut">{clip_shape}</clipPath>',
+        f'<clipPath id="card"><rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" '
+        f'rx="{CR_R}"/></clipPath>',
+        f'<linearGradient id="mgrad" x1="0" y1="0" x2="0.9" y2="1">'
+        f'<stop offset="0" stop-color="{metal_hi}"/>'
+        f'<stop offset="0.45" stop-color="{metal}"/>'
+        f'<stop offset="1" stop-color="{metal_lo}"/></linearGradient>',
+        f'<linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0.22" stop-color="{sheen_ink}" stop-opacity="0"/>'
+        f'<stop offset="0.46" stop-color="{sheen_ink}" stop-opacity="0.065"/>'
+        f'<stop offset="0.58" stop-color="{sheen_ink}" stop-opacity="0.015"/>'
+        f'<stop offset="0.80" stop-color="{sheen_ink}" stop-opacity="0"/></linearGradient>',
+        f'<pattern id="brush" width="{W_}" height="4" patternUnits="userSpaceOnUse">'
+        f'<line x1="0" y1="0.5" x2="{W_}" y2="0.5" stroke="{sheen_ink}" '
+        f'stroke-opacity="0.028" stroke-width="1"/>'
+        f'<line x1="0" y1="2.5" x2="{W_}" y2="2.5" stroke="{"#ffffff" if proof else "#000000"}" '
+        f'stroke-opacity="0.020" stroke-width="1"/></pattern>',
+        f'<filter id="drop" x="-6%" y="-6%" width="112%" height="112%">'
+        f'<feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000000" '
+        f'flood-opacity="0.55"/></filter>',
+        # brushed-metal grain: one fixed-seed turbulence pass, barely there
+        f'<filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" '
+        f'numOctaves="2" seed="7" stitchTiles="stitch"/>'
+        f'<feColorMatrix type="matrix" values="0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 '
+        f'0 0 0 0.04 0"/></filter>',
+        # a physical object darkens toward its corners under one lamp
+        f'<radialGradient id="vig" cx="0.5" cy="0.42" r="0.75">'
+        f'<stop offset="0.55" stop-color="#000000" stop-opacity="0"/>'
+        f'<stop offset="1" stop-color="#000000" stop-opacity="{0.10 if proof else 0.34}"/>'
+        f"</radialGradient>",
         eng_defs,
         f'<linearGradient id="plate" x1="0.1" y1="0" x2="0.85" y2="1">'
         f'<stop offset="0" stop-color="{field}"/>'
         f'<stop offset="0.62" stop-color="{field2}"/>'
         f'<stop offset="1" stop-color="{edge_col}"/></linearGradient>',
         f'<radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.16 if proof else 0.20}"/>'
-        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.08 if proof else 0.09}"/>'
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.10 if proof else 0.12}"/>'
+        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.05 if proof else 0.06}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
         f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.90"/>'
@@ -552,14 +591,16 @@ def render_card(
         f'patternTransform="rotate(35)">'
         f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#000000" if proof else "#ffffff"}" '
         f'stroke-opacity="0.030" stroke-width="1"/></pattern>',
-        f'<linearGradient id="span" x1="0" y1="0" x2="1" y2="0">'
-        f'<stop offset="0" stop-color="{hero_col}" stop-opacity="0.10"/>'
-        f'<stop offset="1" stop-color="{hero_col}" stop-opacity="0.55"/></linearGradient>',
-        f'<path id="gs" d="{_guilloche(W_ - 200, 1082, 52, petals + 2, inner * 0.8, 140)}"/>',
-        f'<path id="sealArc" d="M{W_ - 258} 1082 A58 58 0 0 1 {W_ - 142} 1082" fill="none"/>',
         "</defs>",
-        f'<rect width="{W_}" height="{H_}" fill="url(#plate)"/>',
+        # the obsidian slab the card floats on
+        f'<rect width="{W_}" height="{H_}" fill="{"#dcd5c7" if proof else "#0a0b0d"}"/>',
+        f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
+        f'fill="url(#plate)" filter="url(#drop)"/>',
+        # everything on the plate is cut to the card silhouette
+        f'<g clip-path="url(#card)">',
         f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
+        f'<rect width="{W_}" height="{H_}" fill="url(#brush)"/>',
+        f'<rect width="{W_}" height="{H_}" filter="url(#grain)"/>',
         f'<ellipse cx="{eng_cx}" cy="{eng_cy}" rx="{eng_r + 150}" ry="{eng_r + 140}" '
         f'fill="url(#bloom)"/>',
     ]
@@ -576,8 +617,8 @@ def render_card(
     else:
         dash = ' stroke-dasharray="5 6"' if ink == "stipple" else ""
         p.append(
-            f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.2" '
-            f'opacity="0.58"{dash}>{eng_body}</g>'
+            f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.3" '
+            f'opacity="0.66"{dash}>{eng_body}</g>'
         )
         if ink == "double":
             # The same cut struck again off-register, the way a second pass on
@@ -587,69 +628,53 @@ def render_card(
                 f'stroke-width="1.1" opacity="0.40" transform="translate(3 3)">{eng_body}</g>'
             )
 
-    # ── ruled border, struck in the tier metal ──────────────────────────────
-    # Weight steps with the tier as well as hue — at 190px a hue shift alone
-    # does not separate platinum from graphite, but a heavier rule does.
-    frame_w = {"Founder": 4.5, "Early": 3.5}.get(badge, 2.5)
+    # ── no drawn borders: the card edge IS the frame ────────────────────────
+    # Every luxury card sourced (Apple, N26, Robinhood Gold, Centurion) draws
+    # zero borders, bolts or rules on the face. The tiered frame weight moved
+    # onto the silhouette rim itself.
+    #
+    # ── head: wordmark top-left, serial + tier top-right. Nothing else. ─────
+    p.append(_small_caps("Suwappu", IL, 122, 17, mark_col, 7.0, "bold"))
     p.append(
-        f'<rect x="{PL}" y="{PT}" width="{PR - PL}" height="{PB - PT}" fill="none" '
-        f'stroke="{metal}" stroke-opacity="0.85" stroke-width="{frame_w}"/>'
-        f'<rect x="{PL + 11}" y="{PT + 11}" width="{PR - PL - 22}" height="{PB - PT - 22}" '
-        f'fill="none" stroke="{metal}" stroke-opacity="0.30" stroke-width="1.2"/>'
+        f'<text x="{IR}" y="122" font-family="{SERIF}" font-size="19" fill="url(#mgrad)" '
+        f'text-anchor="end" letter-spacing="1.6">{esc(f"No. {rank:04d}")}</text>'
     )
-    for cx_, cy_ in (
-        (PL + 11, PT + 11),
-        (PR - 11, PT + 11),
-        (PL + 11, PB - 11),
-        (PR - 11, PB - 11),
-    ):
-        p.append(
-            f'<circle cx="{cx_}" cy="{cy_}" r="17" fill="none" stroke="{metal}" '
-            f'stroke-opacity="0.5" stroke-width="1.6"/>'
-            f'<circle cx="{cx_}" cy="{cy_}" r="7" fill="{metal}" fill-opacity="0.55"/>'
-        )
-
-    # ── head ────────────────────────────────────────────────────────────────
-    p.append(_small_caps("Suwappu", IL, 118, 16, mark_col, 7.0, "bold"))
-    p.append(
-        _small_caps(
-            "Certificate of Position",
-            W_ / 2,
-            118,
-            11.5,
-            _mix(rim, body_col, 0.30),
-            4.0,
-            anchor="middle",
-        )
-    )
-    p.append(
-        f'<text x="{IR}" y="118" font-family="{SERIF}" font-size="18" fill="{metal}" '
-        f'text-anchor="end" letter-spacing="1.4">{esc(f"No. {rank:04d}")}</text>'
-    )
-    p.append(
-        f'<line x1="{IL}" y1="140" x2="{IR}" y2="140" stroke="{metal}" '
-        f'stroke-opacity="0.45" stroke-width="1.2"/>'
-    )
+    if badge:
+        p.append(_small_caps(badge, IR, 152, 13, metal, 5.5, "bold", anchor="end"))
 
     # ── ticker: at 190px this and one number ARE the card ───────────────────
-    tsize = 150 if len(ticker) <= 4 else (124 if len(ticker) == 5 else 104)
+    # Embossed, not printed: a shadow struck below-right and a highlight
+    # above-left, the way type is pressed into metal.
+    # (moved to the low third, where a metal card carries the cardholder's
+    # name — the upper half belongs to negative space)
+    tsize = 116 if len(ticker) <= 4 else (96 if len(ticker) == 5 else 82)
+    hi_ink, hi_op = ("#ffffff", 0.65) if proof else ("#ffffff", 0.16)
+    sh_op = 0.28 if proof else 0.55
+    ty = 1024
+    tick_attrs = f'font-family="{SERIF}" font-size="{tsize}" font-weight="bold" letter-spacing="-2"'
     p.append(
-        f'<text x="{IL}" y="290" font-family="{SERIF}" font-size="{tsize}" font-weight="bold" '
-        f'fill="{body_col}" letter-spacing="-3">{esc(ticker)}</text>'
+        f'<text x="{IL + 2.5}" y="{ty + 3}" {tick_attrs} fill="#000000" '
+        f'fill-opacity="{sh_op}">{esc(ticker)}</text>'
     )
+    p.append(
+        f'<text x="{IL - 2}" y="{ty - 2.5}" {tick_attrs} fill="{hi_ink}" '
+        f'fill-opacity="{hi_op}">{esc(ticker)}</text>'
+    )
+    p.append(f'<text x="{IL}" y="{ty}" {tick_attrs} fill="{body_col}">{esc(ticker)}</text>')
     if len(company) <= 40:
         name = company
     else:
         cut = company[:40].rsplit(" ", 1)[0]
         name = (cut if len(cut) > 18 else company[:39]) + "\u2026"
-    p.append(_small_caps(name, IL, 330, 14.5, _mix(sector_col, body_col, 0.45), 3.2))
-    p.append(_small_caps(sector, IL, 360, 12, _mix(sector_col, body_col, 0.20), 3.4))
-    if badge:
-        # The tier, set in its own metal — gold reads as gold even at 190px.
-        p.append(_small_caps(badge, IR, 282, 21, metal, 5.5, "bold", anchor="end"))
+    p.append(_small_caps(name, IL, ty + 40, 13.5, _mix(sector_col, body_col, 0.45), 3.2))
+    # basis -> now, one quiet data block on the right of the name line. The
+    # ruled ruler, ticks and gradient bar of the certificate era are gone.
+    if priced:
+        p.append(_small_caps(f"entry ${fmt_px(entry)}", IR, ty - 44, 13, quiet, 3.0, anchor="end"))
         p.append(
-            f'<line x1="{IR - 150}" y1="298" x2="{IR}" y2="298" stroke="{metal}" '
-            f'stroke-opacity="0.6" stroke-width="1.6"/>'
+            _small_caps(
+                f"now ${fmt_px(price)}", IR, ty - 12, 16, hero_col, 3.0, "bold", anchor="end"
+            )
         )
 
     # ── the two real numbers ────────────────────────────────────────────────
@@ -665,14 +690,20 @@ def render_card(
         sign = "+" if ret_bps >= 0 else "\u2212"
         hero = f"{sign}{abs(ret_bps) / 100:,.1f}%"
         hsize = 138 if len(hero) <= 6 else (120 if len(hero) <= 7 else 104)
+        hero_attrs = (
+            f'font-family="{SERIF}" font-size="{hsize}" font-weight="bold" '
+            f'text-anchor="middle" letter-spacing="-3"'
+        )
         p.append(
-            f'<text x="{W_ / 2}" y="{cy + 44}" font-family="{SERIF}" font-size="{hsize}" '
-            f'font-weight="bold" fill="{hero_col}" text-anchor="middle" '
-            f'letter-spacing="-3">{esc(hero)}</text>'
+            f'<text x="{W_ / 2 + 2.5}" y="{cy + 47}" {hero_attrs} fill="#000000" '
+            f'fill-opacity="{0.25 if proof else 0.5}">{esc(hero)}</text>'
+        )
+        p.append(
+            f'<text x="{W_ / 2}" y="{cy + 44}" {hero_attrs} fill="{hero_col}">{esc(hero)}</text>'
         )
         p.append(
             _small_caps(
-                "since entry",
+                f"since entry · {grade['name']}",
                 W_ / 2,
                 cy + 84,
                 12,
@@ -691,78 +722,19 @@ def render_card(
             _small_caps("no basis stamped", W_ / 2, cy + 70, 12, "#7a7367", 5.0, anchor="middle")
         )
 
-    # ── basis -> now, engraved. One band, not four. ─────────────────────────
-    sy = 952
-    rule = _mix(rim, body_col, 0.28)
-    p.append(f'<line x1="{IL}" y1="{sy}" x2="{IR}" y2="{sy}" stroke="{rule}" stroke-width="1.4"/>')
-    if priced:
-        for k in range(1, 20):
-            tx = IL + (IR - IL) * k / 20.0
-            tall = 10 if k % 5 == 0 else 5
-            p.append(
-                f'<line x1="{tx:.1f}" y1="{sy - tall}" x2="{tx:.1f}" y2="{sy + tall}" '
-                f'stroke="{rule}" stroke-opacity="0.7" stroke-width="1.1"/>'
-            )
-        e_x = IL if price >= entry else IR
-        n_x = IR if price >= entry else IL
-        # Pivot on the rect's own centre — rotating about y=0 threw the whole
-        # band off-canvas, so every losing card lost its gradient bar.
-        flip = f' transform="rotate(180 500 {sy})"' if n_x < e_x else ""
-        p.append(
-            f'<rect x="{min(e_x, n_x)}" y="{sy - 17}" width="{abs(n_x - e_x)}" height="34" '
-            f'fill="url(#span)"{flip}/>'
-        )
-        for xx, lab, val, col in (
-            (e_x, "basis", fmt_px(entry), quiet),
-            (n_x, "now", fmt_px(price), hero_col),
-        ):
-            anc = "start" if xx < W_ / 2 else "end"
-            p.append(
-                f'<line x1="{xx}" y1="{sy - 26}" x2="{xx}" y2="{sy + 26}" stroke="{col}" '
-                f'stroke-width="3"/>'
-            )
-            p.append(_small_caps(lab, xx, sy - 38, 11, quiet, 4.0, anchor=anc))
-            p.append(
-                f'<text x="{xx}" y="{sy + 60}" font-family="{SERIF}" font-size="34" '
-                f'fill="{col}" text-anchor="{anc}">${esc(val)}</text>'
-            )
-
-    # ── seal — outer ring in the tier metal, grade in its accent ────────────
-    scx, scy, sr = W_ - 200, 1082, 72
-    p.append(
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="{edge_col}" fill-opacity="0.75"/>'
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="none" stroke="{metal}" '
-        f'stroke-opacity="0.85" stroke-width="2.6"/>'
-        f'<circle cx="{scx}" cy="{scy}" r="{sr - 10}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.35" stroke-width="1"/>'
-    )
-    p.append(f'<g stroke="{accent}" fill="none" stroke-width="1" opacity="0.32">')
-    for i in range(5):
-        p.append(f'<use href="#gs" transform="rotate({spin + i * 72:.1f} {scx} {scy})"/>')
-    p.append("</g>")
-    p.append(
-        f'<text font-family="{MONO}" font-size="11" fill="{accent}" fill-opacity="0.9" '
-        f'letter-spacing="3.4"><textPath href="#sealArc" startOffset="50%" '
-        f'text-anchor="middle">{esc(grade["name"].upper())}</textPath></text>'
-    )
-    p.append(
-        f'<text x="{scx}" y="{scy + 12}" font-family="{SERIF}" font-size="30" '
-        f'font-weight="bold" fill="{body_col}" text-anchor="middle">{esc(ticker[:4])}</text>'
-    )
-
-    # ── one footing band, not four ──────────────────────────────────────────
+    # ── foot: one quiet line. The seal, gauge band and rosette stamp are
+    # gone — a real card carries no instrument cluster. ─────────────────────
     struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
-    # Small caps, no minus sign: set as "\u221240%" under the P&L numeral this line
-    # scanned as a second, negative return at thumbnail size.
-    p.append(_small_caps(f"{disc_pct}% off every swap", IL, 1070, 20, body_col, 4.5, "bold"))
+    p.append(_small_caps(f"{disc_pct}% off every swap", IL, 1112, 14, body_col, 4.5, "bold"))
     p.append(
         _small_caps(
             f"struck {struck} \u00b7 rank {rank} of {cfg['collection']['supply']:,}",
-            IL,
-            1104,
-            11.5,
+            IR,
+            1112,
+            11,
             quiet,
             3.0,
+            anchor="end",
         )
     )
     p.append(
@@ -778,6 +750,14 @@ def render_card(
     )
     p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, faint, 2.2, anchor="end"))
 
+    # the light sheen sweeps the finished plate, then the silhouette is rimmed
+    # in the tier metal — the last two strokes of the machining
+    p.append(f'<rect width="{W_}" height="{H_}" fill="url(#sheen)"/>')
+    p.append("</g>")
+    p.append(
+        f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
+        f'fill="none" stroke="url(#mgrad)" stroke-width="2.5"/>'
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
         f'viewBox="0 0 {W_} {H_}" role="img" aria-label="{esc(ticker)} position card">'
