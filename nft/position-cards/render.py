@@ -281,6 +281,28 @@ def contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+# ── the luxury metal system ──────────────────────────────────────────────────
+# The plate is a card in the Centurion / Robinhood Gold lineage: a matte
+# near-black ground, tone-on-tone engraving, and a small amount of struck
+# metal. Which metal is a TIER, not a mood — Founder cards are furnished in
+# gold, Early in platinum, the base plate in graphite — so status reads from
+# across the room the way a heavy card reads across a table.
+CHARCOAL = "#0d0d10"  # the matte ground; sector tint is anodised into it
+IVORY = "#f2ede3"  # ink on the dark plate / ground of the rare Gilt proof
+GOLD = "#c9a55c"
+PLATINUM = "#c4c9cf"
+GRAPHITE = "#8b8e94"
+
+
+def metal_for(badge: str | None, sector_col: str) -> str:
+    """The furniture metal for a plate. Earned by mint rank, never rolled."""
+    if badge == "Founder":
+        return GOLD
+    if badge == "Early":
+        return PLATINUM
+    return _mix(GRAPHITE, sector_col, 0.18)
+
+
 def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     """Every colour a plate uses, in one place.
 
@@ -290,34 +312,41 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     turning up in this repo. One function, both callers.
     """
     b = cfg["brand"]
-    if proof:  # Night proof — rare, and the only plate that leaves the light
-        field = _mix("#0b0a0c", sector_col, 0.14)
+    if proof:  # Gilt proof — the rare plate that leaves the dark: ivory, dark ink
+        field = _mix(b["bg"], sector_col, 0.07)
+        hero = _mix(accent, b["text"], 0.55)
+        if priced and ret_bps >= 2500:
+            hero = _mix(b["green"], accent, 0.25)
+        elif priced and ret_bps < -200:
+            hero = "#8f3a44"
         return {
             "field": field,
-            "field2": _mix(field, "#000000", 0.40),
-            "edge": _mix("#08070a", accent, 0.10),
-            "rim": _mix(sector_col, accent, 0.45),
-            "body": b["bg"],
-            "quiet": b["text-3"],
-            "hero": _mix(accent, "#ffffff", 0.10),
+            "field2": _mix(field, "#eae3d5", 0.55),
+            "edge": _mix(field, "#d8d0c0", 0.60),
+            "rim": _mix("#9c8b62", sector_col, 0.25),
+            "body": b["text"],
+            "quiet": b["text-2"],
+            "hero": hero,
             "mark": b["accent"],
         }
-    # Gains take the brand green, losses a warm red. Grade accents tuned for a
-    # black plate wash out on cream, so they are darkened against it.
-    # The neutral (Flat) accent is a pale slate that measured 3.92:1 on cream,
-    # under the floor, so the base mix runs darker and gains/losses override it.
-    hero = _mix(accent, b["text"], 0.52)
+    # The default plate. Sector colour is anodised into the ground at 6% — ten
+    # families still sort by eye in a grid, but each reads as a tinted metal,
+    # not a pastel. Gains keep the accent ramp (jade climbing to champagne),
+    # lifted toward ivory so the numeral clears the contrast floor; losses take
+    # a muted oxblood — expensive, not alarming.
+    hero = _mix(accent, IVORY, 0.45)
     if priced and ret_bps >= 2500:
-        hero = _mix(b["green"], accent, 0.25)
+        hero = _mix(accent, IVORY, 0.32)
     elif priced and ret_bps < -200:
-        hero = "#a4243b"
+        hero = "#c4767c"
+    field = _mix(CHARCOAL, sector_col, 0.06)
     return {
-        "field": _mix(b["bg"], sector_col, 0.10),
-        "field2": _mix(b["surface-2"], sector_col, 0.06),
-        "edge": _mix(b["surface-2"], sector_col, 0.16),
-        "rim": _mix(sector_col, b["text-2"], 0.42),
-        "body": b["text"],
-        "quiet": b["text-2"],
+        "field": field,
+        "field2": _mix(field, "#000000", 0.35),
+        "edge": _mix(field, sector_col, 0.12),
+        "rim": _mix(sector_col, GRAPHITE, 0.55),
+        "body": b["bg"],
+        "quiet": _mix(GRAPHITE, IVORY, 0.30),
         "hero": hero,
         "mark": b["accent"],
     }
@@ -435,12 +464,14 @@ def render_card(
     inner = 0.12 + 0.26 * mag
     spin = (seed >> 8) % 360
 
-    # ── the brand, not a mood ───────────────────────────────────────────────
-    # The default plate is Suwappu's own surface: warm off-white, near-black
-    # ink, pink mark. The dark plate is now the RARE one ("Night proof"). This
-    # inverts how it was first built, and the first build was simply wrong —
-    # the collection is the most public artefact this project ships, and it
-    # cannot be the one surface that ignores the brand.
+    # ── luxury, not loud ────────────────────────────────────────────────────
+    # The default plate is a matte near-black card in the Amex Centurion /
+    # Robinhood Gold lineage: charcoal ground with the sector anodised in,
+    # tone-on-tone engraving, ivory ink, and the only saturated thing on the
+    # plate is the small pink Suwappu mark. Status is carried by struck METAL —
+    # gold for Founder, platinum for Early, graphite for the base plate. The
+    # rare inversion is the "Gilt proof": an ivory plate in dark ink, the way a
+    # black-tie house prints its daytime stationery.
     b = cfg["brand"]
     pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
     field, field2, edge_col = pal["field"], pal["field2"], pal["edge"]
@@ -451,6 +482,12 @@ def render_card(
         pal["hero"],
         pal["mark"],
     )
+    # Furniture metal. On the ivory Gilt proof the raw metals are too close to
+    # the ground, so they are struck darker there.
+    metal = metal_for(badge, sector_col)
+    if proof:
+        metal = _mix(metal, b["text"], 0.40)
+    faint = _mix(quiet, field, 0.35)  # small print: legible, deliberately quiet
 
     W_, H_ = W, H
     PL, PR, PT, PB = 54, W_ - 54, 54, H_ - 54
@@ -488,17 +525,17 @@ def render_card(
         f'<stop offset="0.62" stop-color="{field2}"/>'
         f'<stop offset="1" stop-color="{edge_col}"/></linearGradient>',
         f'<radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.16 if proof else 0.34}"/>'
-        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.08 if proof else 0.15}"/>'
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.16 if proof else 0.20}"/>'
+        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.08 if proof else 0.09}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{field2 if proof else b["bg"]}" stop-opacity="0.90"/>'
-        f'<stop offset="0.6" stop-color="{field2 if proof else b["bg"]}" stop-opacity="0.74"/>'
-        f'<stop offset="1" stop-color="{field2 if proof else b["bg"]}" '
+        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.90"/>'
+        f'<stop offset="0.6" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.74"/>'
+        f'<stop offset="1" stop-color="{b["bg"] if proof else field2}" '
         f'stop-opacity="0"/></radialGradient>',
         f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
         f'patternTransform="rotate(35)">'
-        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#ffffff" if proof else "#000000"}" '
+        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#000000" if proof else "#ffffff"}" '
         f'stroke-opacity="0.030" stroke-width="1"/></pattern>',
         f'<linearGradient id="span" x1="0" y1="0" x2="1" y2="0">'
         f'<stop offset="0" stop-color="{hero_col}" stop-opacity="0.10"/>'
@@ -535,12 +572,12 @@ def render_card(
                 f'stroke-width="1.1" opacity="0.40" transform="translate(3 3)">{eng_body}</g>'
             )
 
-    # ── ruled border ────────────────────────────────────────────────────────
+    # ── ruled border, struck in the tier metal ──────────────────────────────
     p.append(
         f'<rect x="{PL}" y="{PT}" width="{PR - PL}" height="{PB - PT}" fill="none" '
-        f'stroke="{rim}" stroke-opacity="0.75" stroke-width="3.5"/>'
+        f'stroke="{metal}" stroke-opacity="0.85" stroke-width="3.5"/>'
         f'<rect x="{PL + 11}" y="{PT + 11}" width="{PR - PL - 22}" height="{PB - PT - 22}" '
-        f'fill="none" stroke="{rim}" stroke-opacity="0.32" stroke-width="1.2"/>'
+        f'fill="none" stroke="{metal}" stroke-opacity="0.30" stroke-width="1.2"/>'
     )
     for cx_, cy_ in (
         (PL + 11, PT + 11),
@@ -549,9 +586,9 @@ def render_card(
         (PR - 11, PB - 11),
     ):
         p.append(
-            f'<circle cx="{cx_}" cy="{cy_}" r="17" fill="none" stroke="{rim}" '
+            f'<circle cx="{cx_}" cy="{cy_}" r="17" fill="none" stroke="{metal}" '
             f'stroke-opacity="0.5" stroke-width="1.6"/>'
-            f'<circle cx="{cx_}" cy="{cy_}" r="7" fill="{rim}" fill-opacity="0.55"/>'
+            f'<circle cx="{cx_}" cy="{cy_}" r="7" fill="{metal}" fill-opacity="0.55"/>'
         )
 
     # ── head ────────────────────────────────────────────────────────────────
@@ -562,17 +599,17 @@ def render_card(
             W_ / 2,
             118,
             11.5,
-            _mix(rim, "#ffffff", 0.25),
+            _mix(rim, body_col, 0.30),
             4.0,
             anchor="middle",
         )
     )
     p.append(
-        f'<text x="{IR}" y="118" font-family="{SERIF}" font-size="18" fill="{rim}" '
+        f'<text x="{IR}" y="118" font-family="{SERIF}" font-size="18" fill="{metal}" '
         f'text-anchor="end" letter-spacing="1.4">{esc(f"No. {rank:04d}")}</text>'
     )
     p.append(
-        f'<line x1="{IL}" y1="140" x2="{IR}" y2="140" stroke="{rim}" '
+        f'<line x1="{IL}" y1="140" x2="{IR}" y2="140" stroke="{metal}" '
         f'stroke-opacity="0.45" stroke-width="1.2"/>'
     )
 
@@ -587,12 +624,14 @@ def render_card(
     else:
         cut = company[:40].rsplit(" ", 1)[0]
         name = (cut if len(cut) > 18 else company[:39]) + "\u2026"
-    p.append(_small_caps(name, IL, 330, 14.5, _mix(sector_col, "#ffffff", 0.35), 3.2))
-    p.append(_small_caps(sector, IL, 360, 12, sector_col, 3.4))
+    p.append(_small_caps(name, IL, 330, 14.5, _mix(sector_col, body_col, 0.45), 3.2))
+    p.append(_small_caps(sector, IL, 360, 12, _mix(sector_col, body_col, 0.20), 3.4))
     if badge:
+        # The tier, set in its own metal — gold reads as gold even at 190px.
+        p.append(_small_caps(badge, IR, 282, 21, metal, 5.5, "bold", anchor="end"))
         p.append(
-            f'<text x="{IR}" y="290" font-family="{SERIF}" font-size="30" fill="{accent}" '
-            f'text-anchor="end" font-style="italic">{esc(badge)}</text>'
+            f'<line x1="{IR - 150}" y1="298" x2="{IR}" y2="298" stroke="{metal}" '
+            f'stroke-opacity="0.6" stroke-width="1.6"/>'
         )
 
     # ── the two real numbers ────────────────────────────────────────────────
@@ -636,17 +675,15 @@ def render_card(
 
     # ── basis -> now, engraved. One band, not four. ─────────────────────────
     sy = 952
-    p.append(
-        f'<line x1="{IL}" y1="{sy}" x2="{IR}" y2="{sy}" stroke="{_mix(rim, "#000000", 0.45)}" '
-        f'stroke-width="1.4"/>'
-    )
+    rule = _mix(rim, body_col, 0.28)
+    p.append(f'<line x1="{IL}" y1="{sy}" x2="{IR}" y2="{sy}" stroke="{rule}" stroke-width="1.4"/>')
     if priced:
         for k in range(1, 20):
             tx = IL + (IR - IL) * k / 20.0
             tall = 10 if k % 5 == 0 else 5
             p.append(
                 f'<line x1="{tx:.1f}" y1="{sy - tall}" x2="{tx:.1f}" y2="{sy + tall}" '
-                f'stroke="{_mix(rim, "#000000", 0.4)}" stroke-width="1.1"/>'
+                f'stroke="{rule}" stroke-opacity="0.7" stroke-width="1.1"/>'
             )
         e_x = IL if price >= entry else IR
         n_x = IR if price >= entry else IL
@@ -670,14 +707,14 @@ def render_card(
                 f'fill="{col}" text-anchor="{anc}">${esc(val)}</text>'
             )
 
-    # ── seal ────────────────────────────────────────────────────────────────
+    # ── seal — outer ring in the tier metal, grade in its accent ────────────
     scx, scy, sr = W_ - 200, 1082, 72
     p.append(
         f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="{edge_col}" fill-opacity="0.75"/>'
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.7" stroke-width="2.6"/>'
+        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="none" stroke="{metal}" '
+        f'stroke-opacity="0.85" stroke-width="2.6"/>'
         f'<circle cx="{scx}" cy="{scy}" r="{sr - 10}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.3" stroke-width="1"/>'
+        f'stroke-opacity="0.35" stroke-width="1"/>'
     )
     p.append(f'<g stroke="{accent}" fill="none" stroke-width="1" opacity="0.32">')
     for i in range(5):
@@ -716,11 +753,11 @@ def render_card(
             IL,
             PB - 26,
             9.5,
-            "#5f5a51",
+            faint,
             2.2,
         )
     )
-    p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, "#5f5a51", 2.2, anchor="end"))
+    p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, faint, 2.2, anchor="end"))
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
