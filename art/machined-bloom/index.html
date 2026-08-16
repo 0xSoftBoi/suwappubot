@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Machined Bloom</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* Anthropic Brand Colors */
+        :root {
+            --anthropic-dark: #141413;
+            --anthropic-light: #faf9f5;
+            --anthropic-mid-gray: #b0aea5;
+            --anthropic-light-gray: #e8e6dc;
+            --anthropic-orange: #d97757;
+            --anthropic-blue: #6a9bcc;
+            --anthropic-green: #788c5d;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, var(--anthropic-light) 0%, #f5f3ee 100%);
+            min-height: 100vh;
+            color: var(--anthropic-dark);
+        }
+
+        .container { display: flex; min-height: 100vh; padding: 20px; gap: 20px; }
+
+        .sidebar {
+            width: 320px;
+            flex-shrink: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(20, 20, 19, 0.1);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .sidebar h1 {
+            font-family: 'Lora', serif;
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--anthropic-dark);
+            margin-bottom: 8px;
+        }
+
+        .sidebar .subtitle {
+            color: var(--anthropic-mid-gray);
+            font-size: 14px;
+            margin-bottom: 32px;
+            line-height: 1.4;
+        }
+
+        .control-section { margin-bottom: 32px; }
+
+        .control-section h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--anthropic-dark);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-section h3::before {
+            content: '•';
+            color: var(--anthropic-orange);
+            font-weight: bold;
+        }
+
+        .seed-input {
+            width: 100%;
+            background: var(--anthropic-light);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin-bottom: 12px;
+            border: 1px solid var(--anthropic-light-gray);
+            text-align: center;
+        }
+
+        .seed-input:focus {
+            outline: none;
+            border-color: var(--anthropic-orange);
+            box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.1);
+            background: white;
+        }
+
+        .seed-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .regen-button { margin-bottom: 0; }
+
+        .control-group { margin-bottom: 20px; }
+
+        .control-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--anthropic-dark);
+            margin-bottom: 8px;
+        }
+
+        .slider-container { display: flex; align-items: center; gap: 12px; }
+
+        .slider-container input[type="range"] {
+            flex: 1;
+            height: 4px;
+            background: var(--anthropic-light-gray);
+            border-radius: 2px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--anthropic-orange);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .slider-container input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: #c86641;
+        }
+
+        .slider-container input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: var(--anthropic-orange);
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .value-display {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--anthropic-mid-gray);
+            min-width: 60px;
+            text-align: right;
+        }
+
+        .color-group { margin-bottom: 16px; }
+
+        .color-group label {
+            display: block;
+            font-size: 12px;
+            color: var(--anthropic-mid-gray);
+            margin-bottom: 4px;
+        }
+
+        .color-picker-container { display: flex; align-items: center; gap: 8px; }
+
+        .color-picker-container input[type="color"] {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: none;
+            padding: 0;
+        }
+
+        .color-value {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--anthropic-mid-gray);
+        }
+
+        .button {
+            background: var(--anthropic-orange);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .button:hover { background: #c86641; transform: translateY(-1px); }
+        .button:active { transform: translateY(0); }
+        .button.secondary { background: var(--anthropic-blue); }
+        .button.secondary:hover { background: #5a8bb8; }
+        .button.tertiary { background: var(--anthropic-green); }
+        .button.tertiary:hover { background: #6b7b52; }
+
+        .button-row { display: flex; gap: 8px; }
+        .button-row .button { flex: 1; }
+
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+        }
+
+        #canvas-container {
+            width: 100%;
+            max-width: 1000px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(20, 20, 19, 0.1);
+            background: white;
+        }
+
+        #canvas-container canvas {
+            display: block;
+            width: 100% !important;
+            height: auto !important;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: var(--anthropic-mid-gray);
+            min-height: 200px;
+        }
+
+        @media (max-width: 600px) {
+            .container { flex-direction: column; }
+            .sidebar { width: 100%; }
+            .canvas-area { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Control Sidebar -->
+        <div class="sidebar">
+            <h1>Machined Bloom</h1>
+            <div class="subtitle">A rose engine allowed to dream — rings cut true at the centre, blooming into weather at the rim. One ring never drifts.</div>
+
+            <!-- Seed Section -->
+            <div class="control-section">
+                <h3>Seed</h3>
+                <input type="number" id="seed-input" class="seed-input" value="4663" onchange="updateSeed()">
+                <div class="seed-controls">
+                    <button class="button secondary" onclick="previousSeed()">← Prev</button>
+                    <button class="button secondary" onclick="nextSeed()">Next →</button>
+                </div>
+                <button class="button tertiary regen-button" onclick="randomSeedAndUpdate()">↻ Random</button>
+            </div>
+
+            <!-- Parameters Section -->
+            <div class="control-section">
+                <h3>Parameters</h3>
+
+                <div class="control-group">
+                    <label>Rings</label>
+                    <div class="slider-container">
+                        <input type="range" id="rings" min="60" max="220" step="4" value="148" oninput="updateParam('rings', this.value)">
+                        <span class="value-display" id="rings-value">148</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Bloom — how far the machine dreams</label>
+                    <div class="slider-container">
+                        <input type="range" id="bloom" min="0" max="1" step="0.02" value="0.62" oninput="updateParam('bloom', this.value)">
+                        <span class="value-display" id="bloom-value">0.62</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Weave — phase discipline of the cut</label>
+                    <div class="slider-container">
+                        <input type="range" id="weave" min="0" max="1" step="0.02" value="0.85" oninput="updateParam('weave', this.value)">
+                        <span class="value-display" id="weave-value">0.85</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Weather — turbulence of the noise field</label>
+                    <div class="slider-container">
+                        <input type="range" id="weather" min="0.3" max="3" step="0.05" value="1.15" oninput="updateParam('weather', this.value)">
+                        <span class="value-display" id="weather-value">1.15</span>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Glow — light earned by disturbance</label>
+                    <div class="slider-container">
+                        <input type="range" id="glow" min="0.4" max="2" step="0.05" value="1.0" oninput="updateParam('glow', this.value)">
+                        <span class="value-display" id="glow-value">1.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Colors Section -->
+            <div class="control-section">
+                <h3>Colors</h3>
+                <div class="color-group">
+                    <label>Thread Metal</label>
+                    <div class="color-picker-container">
+                        <input type="color" id="color1" value="#d3ab68" onchange="updateColor(0, this.value)">
+                        <span class="color-value" id="color1-value">#d3ab68</span>
+                    </div>
+                </div>
+                <div class="color-group">
+                    <label>Oxidised Pass (rare rings)</label>
+                    <div class="color-picker-container">
+                        <input type="color" id="color2" value="#7fb3a3" onchange="updateColor(1, this.value)">
+                        <span class="color-value" id="color2-value">#7fb3a3</span>
+                    </div>
+                </div>
+                <div class="color-group">
+                    <label>Plate</label>
+                    <div class="color-picker-container">
+                        <input type="color" id="color3" value="#0a0a0c" onchange="updateColor(2, this.value)">
+                        <span class="color-value" id="color3-value">#0a0a0c</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions Section -->
+            <div class="control-section">
+                <h3>Actions</h3>
+                <div class="button-row">
+                    <button class="button" onclick="initializeSystem()">Regenerate</button>
+                    <button class="button" onclick="resetParameters()">Reset</button>
+                </div>
+                <div style="height:8px"></div>
+                <button class="button tertiary" onclick="saveCanvas('machined-bloom-' + params.seed, 'png')">Download PNG</button>
+            </div>
+        </div>
+
+        <!-- Main Canvas Area -->
+        <div class="canvas-area">
+            <div id="canvas-container">
+                <div class="loading">Turning the lathe…</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════════
+        // MACHINED BLOOM — a rose engine allowed to dream
+        //
+        // Concentric rings are cut on a virtual lathe. Inner rings obey:
+        // strict harmonic waves in alternating half-wavelength phase (the
+        // weave). With every ring outward a layered noise field gains a
+        // larger vote (the bloom), until the cut is coastline, not sine.
+        // Light is earned by disturbance: threads brighten where the field
+        // works them. A few rings, by weighted chance, are struck in an
+        // oxidised metal. Quiet annuli are reserved as rests. Exactly one
+        // ring never drifts — the fixed point that makes the wandering
+        // legible. Same seed, same plate, to the pixel, forever.
+        // ═══════════════════════════════════════════════════════════════════
+
+        let params = {
+            seed: 4663,
+            rings: 148,
+            bloom: 0.62,
+            weave: 0.85,
+            weather: 1.15,
+            glow: 1.0,
+            colorPalette: ['#d3ab68', '#7fb3a3', '#0a0a0c']
+        };
+
+        let defaultParams = JSON.parse(JSON.stringify(params));
+
+        const SEGS = 480;            // vertices per ring
+        const HARMONICS = [5, 8, 13, 21];   // the cam wheels the lathe owns
+
+        function setup() {
+            let canvas = createCanvas(1200, 1200);
+            canvas.parent('canvas-container');
+            pixelDensity(1);
+            noLoop();
+            initializeSystem();
+            const l = document.querySelector('.loading');
+            if (l) l.style.display = 'none';
+        }
+
+        function draw() { /* the plate is cut once, in initializeSystem */ }
+
+        // fbm on the unit circle so every ring closes perfectly
+        function ringNoise(theta, layer, turb) {
+            const nx = 1.7 + Math.cos(theta) * turb;
+            const ny = 1.7 + Math.sin(theta) * turb;
+            let v = 0, amp = 1, freq = 1, norm = 0;
+            for (let o = 0; o < 3; o++) {
+                v += amp * noise(nx * freq, ny * freq, layer);
+                norm += amp;
+                amp *= 0.5;
+                freq *= 2.1;
+            }
+            return v / norm - 0.5;   // centred
+        }
+
+        function metal(base, t) {
+            // dim bronze -> thread metal -> worked ivory, by disturbance t in [0,1]
+            const bronze = lerpColor(color(base), color(10, 10, 12), 0.55);
+            const ivory = lerpColor(color(base), color(248, 243, 230), 0.75);
+            if (t < 0.5) return lerpColor(bronze, color(base), t * 2);
+            return lerpColor(color(base), ivory, (t - 0.5) * 2);
+        }
+
+        function initializeSystem() {
+            randomSeed(params.seed);
+            noiseSeed(params.seed);
+
+            const plate = color(params.colorPalette[2]);
+            background(plate);
+            // the plate is not flat: one breath of light off-centre
+            noStroke();
+            for (let i = 26; i > 0; i--) {
+                fill(red(plate) + i * 0.55, green(plate) + i * 0.55, blue(plate) + i * 0.5, 255);
+                ellipse(width * 0.42, height * 0.40, (i / 26) * width * 1.9, (i / 26) * height * 1.9);
+            }
+
+            // the lathe's own asymmetries, chosen per seed
+            const cx = width / 2 + random(-width * 0.05, width * 0.05);
+            const cy = height / 2 + random(-height * 0.045, height * 0.055);
+            const r0 = min(width, height) * random(0.035, 0.06);
+            const r1 = min(width, height) * 0.475;
+            const N = params.rings;
+
+            // one full silent turn or two: quiet annuli, reserved up front
+            let rests = [];
+            const nRests = random() < 0.55 ? 3 : 4;
+            for (let i = 0; i < nRests; i++) rests.push(random(0.22, 0.9));
+
+            // the fixed point: exactly one ring that never drifts
+            const trueRing = floor(random(N * 0.25, N * 0.8));
+
+            // per-plate cam settings
+            const kMain = HARMONICS[floor(random(HARMONICS.length))];
+            const kCounter = HARMONICS[floor(random(HARMONICS.length))];
+            const camPhase = random(TWO_PI);
+            const spiral = random([-1, 1]) * random(0.12, 0.35); // slow phase advance per ring
+
+            noFill();
+            for (let i = 0; i < N; i++) {
+                const t = i / (N - 1);
+                // radius schedule eases outward — rings crowd slightly at the rim
+                let rBase = lerp(r0, r1, pow(t, 0.88));
+
+                // rests: skip rings that fall inside a quiet annulus
+                let inRest = false;
+                for (const rp of rests) {
+                    if (abs(t - rp) < 0.032) inRest = true;
+                }
+                if (i === trueRing) continue;  // cut last, on top of everything
+                if (inRest) continue;
+
+                // oxidised pass: rare, weighted, never adjacent to the true ring
+                const oxidised = random() < 0.055 && abs(i - trueRing) > 3;
+                const base = oxidised ? params.colorPalette[1] : params.colorPalette[0];
+
+                // the machine's vote: strict harmonic wave, woven phase
+                const k = (i % 7 === 0) ? kCounter : kMain;
+                const phase = camPhase + (i % 2) * PI / k * params.weave + i * spiral / k;
+                const waveAmp = (2.2 + 3.2 * sin(PI * t)) * (r1 - r0) / 190;
+
+                // the dream's vote: grows with radius; the true ring gets none
+                const gate = constrain((t - 0.16) / 0.42, 0, 1);
+                const bloomAmp = (i === trueRing) ? 0
+                    : params.bloom * gate * gate * (3 - 2 * gate) * pow(t, 1.4) * rBase * 0.32;
+
+                const layerZ = i * 0.61;
+                const jSeed = random(1000);  // per-ring micro-grain
+
+                // cut the ring in short strokes so each carries its own light
+                let px = null, py = null, pd = 0;
+                for (let s = 0; s <= SEGS; s++) {
+                    const th = TWO_PI * s / SEGS;
+                    const drift = ringNoise(th, layerZ, params.weather) * 2;
+                    const rr = rBase
+                        + waveAmp * sin(k * th + phase)
+                        + bloomAmp * drift
+                        + (noise(jSeed + th * 3.1) - 0.5) * 1.1; // graver grain
+                    const x = cx + rr * cos(th);
+                    const y = cy + rr * sin(th);
+                    if (px !== null) {
+                        // disturbance = how hard the field is working this thread
+                        const d = constrain(abs(drift - pd) * 11 * params.glow
+                            + abs(bloomAmp) / (rBase * 0.3 + 1) * 0.9 * params.glow, 0, 1);
+                        const c = metal(base, d);
+                        strokeWeight(0.55 + 1.25 * d + 0.3 * sin(PI * t));
+                        const a = 30 + 180 * pow(d, 1.45) + 62 * pow(1 - t, 1.6);
+                        stroke(red(c), green(c), blue(c), constrain(a, 26, 225));
+                        line(px, py, x, y);
+                    }
+                    px = x; py = y; pd = drift;
+                }
+            }
+
+            // the one honest circle — cut once, never revisited, on top of
+            // every wandering thread. A faint echo just outside gives it air.
+            {
+                const tt = trueRing / (N - 1);
+                const rT = lerp(r0, r1, pow(tt, 0.88));
+                const cTrue = metal(params.colorPalette[0], 0.88);
+                noFill();
+                stroke(red(cTrue), green(cTrue), blue(cTrue), 60);
+                strokeWeight(4.5);
+                circle(cx, cy, rT * 2);
+                stroke(red(cTrue), green(cTrue), blue(cTrue), 245);
+                strokeWeight(1.6);
+                circle(cx, cy, rT * 2);
+            }
+
+            // the maker's mark: a single point where the lathe was zeroed
+            const mth = random(TWO_PI);
+            const mr = r1 * 1.005;
+            stroke(params.colorPalette[0]);
+            strokeWeight(2.2);
+            point(cx + mr * cos(mth), cy + mr * sin(mth));
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // UI CONTROL HANDLERS
+        // ═══════════════════════════════════════════════════════════════════
+
+        function updateParam(name, value) {
+            params[name] = parseFloat(value);
+            document.getElementById(name + '-value').textContent = value;
+            initializeSystem();
+        }
+
+        function updateColor(idx, value) {
+            params.colorPalette[idx] = value;
+            document.getElementById('color' + (idx + 1) + '-value').textContent = value;
+            initializeSystem();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // SEED CONTROL FUNCTIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        function updateSeedDisplay() {
+            document.getElementById('seed-input').value = params.seed;
+        }
+
+        function updateSeed() {
+            let input = document.getElementById('seed-input');
+            let newSeed = parseInt(input.value);
+            if (newSeed && newSeed > 0) {
+                params.seed = newSeed;
+                initializeSystem();
+            } else {
+                updateSeedDisplay();
+            }
+        }
+
+        function previousSeed() {
+            params.seed = Math.max(1, params.seed - 1);
+            updateSeedDisplay();
+            initializeSystem();
+        }
+
+        function nextSeed() {
+            params.seed = params.seed + 1;
+            updateSeedDisplay();
+            initializeSystem();
+        }
+
+        function randomSeedAndUpdate() {
+            params.seed = Math.floor(Math.random() * 999999) + 1;
+            updateSeedDisplay();
+            initializeSystem();
+        }
+
+        function resetParameters() {
+            params = JSON.parse(JSON.stringify(defaultParams));
+            for (const name of ['rings', 'bloom', 'weave', 'weather', 'glow']) {
+                document.getElementById(name).value = params[name];
+                document.getElementById(name + '-value').textContent = params[name];
+            }
+            for (let i = 0; i < 3; i++) {
+                document.getElementById('color' + (i + 1)).value = params.colorPalette[i];
+                document.getElementById('color' + (i + 1) + '-value').textContent = params.colorPalette[i];
+            }
+            updateSeedDisplay();
+            initializeSystem();
+        }
+
+        window.addEventListener('load', updateSeedDisplay);
+    </script>
+</body>
+</html>
