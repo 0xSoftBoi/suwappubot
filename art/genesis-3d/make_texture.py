@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Equirectangular guilloché maps, front-pole parameterized.
+
+Earlier attempts drove the bump/emission straight off raw Blender Math
+nodes evaluating sin(lat*FREQ) per shading sample. That has no mip
+filtering, so at oblique angles and at 1100px output the high-frequency
+rings alias into a shimmering blur — the classic "distant venetian blinds"
+problem. The fix is the standard graphics one: bake the exact same
+function into a supersampled, box-filtered image, and let Blender's image
+sampler (which DOES mipmap) do the anti-aliasing. Content is identical;
+only the filtering changes.
+
+Layout: column = longitude (az, -pi..pi, wraps), row = latitude from the
+FRONT POLE (0 = point facing camera, pi = back). Concentric rings in this
+space are exactly "vary with row" — precisely what the guilloché needs.
+"""
+import numpy as np
+from PIL import Image
+import os, math
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+W, H = 2048, 1024
+SS = 3                      # supersample factor, box-downsampled -> AA
+FREQ, K, CURL = 52.0, 22.0, 6.0
+LAT_ENTRY = 0.55            # the stamped ring, radians of latitude
+STAMP_SIGMA = 0.0065        # narrow: an instrument line, not a wide band
+
+Ws, Hs = W * SS, H * SS
+row = np.linspace(0, math.pi, Hs)[:, None]         # latitude, 0..pi
+col = np.linspace(-math.pi, math.pi, Ws)[None, :]  # longitude, wraps
+
+sinring = np.sin(row * FREQ)
+weave2 = 0.6 + 0.4 * np.sin(col * K + row * CURL)
+weave = sinring * weave2
+weave = weave * (0.4 + 0.6 * np.minimum(row, 1.0))
+height = 0.5 + 0.5 * weave
+
+crest = np.clip(weave, 0, None) ** 1.5
+
+dlat = row - LAT_ENTRY
+band = np.exp(-(dlat * dlat) / (2 * STAMP_SIGMA ** 2))
+# fine radial ticks on the stamp band, an instrument reading
+tick_mask = (np.abs(((col / (2 * math.pi) * 72) % 1) - 0.5) < 0.10)
+tick_ring = np.exp(-(dlat * dlat) / (2 * (STAMP_SIGMA * 2.6) ** 2)) * tick_mask * 0.5
+stamp = np.clip(band + tick_ring, 0, 1)
+
+def downsample(a):
+    return a.reshape(H, SS, W, SS).mean(axis=(1, 3))
+
+def save(a, name):
+    a = downsample(np.clip(a, 0, 1))
+    Image.fromarray((a * 255).astype(np.uint8), "L").save(os.path.join(HERE, name))
+
+save(height, "height.png")
+save(crest, "crest.png")
+save(stamp, "stamp.png")
+print("equirect textures ->", HERE, f"({W}x{H}, {SS}x supersampled)")
