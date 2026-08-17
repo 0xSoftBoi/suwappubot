@@ -240,3 +240,30 @@ host is the default (`TITAN_RPC_URL` overrides per region).
   `1 <= platform fee bps <= 100` and a collector is configured).
 - Live verification: `curl` `titan_getPammQuote` for WETH→USDC returned
   ~1880.78 USDC/ETH matching spot, with `router` equal to the verified proxy.
+
+## Execution verified on-chain (2026-08-15, `eth_call` simulation)
+
+Execution was proven against **live mainnet state** via `eth_call` with
+state overrides — no funds moved, no broadcast. The router's real `swapV1` /
+`swapWithFeeV1` calldata (built from the same `PROPAMM_ROUTER_ABI` the engine
+uses) was simulated with the caller's ETH/USDC balance and router allowance
+overridden. All four cases behaved exactly as intended:
+
+| Case | Result |
+|---|---|
+| Native ETH → USDC (`swapV1`, `value=amountIn`) | **fills, 1909 USDC**, venue `0x0000…2149` (Tempest — a real whitelisted pAMM, not the fallback) |
+| USDC → ETH (`swapV1`, `tokenOut`=sentinel) | **fills, 1.0475 ETH** — proves the tokenOut native-sentinel mapping; delivers real native ETH |
+| USDC → ETH fee swap (`swapWithFeeV1`, 100 bps, **our net minOut**) | **fills, 1.0371 ETH** |
+| Control: same fee swap with the **pre-fix gross minOut** | **reverts `InsufficientOutput(1.05304, 1.04754)`** — the contract grosses the min back up past available output |
+
+The control case is the money-path reviewer's finding #1 reproduced on-chain:
+the pre-fix gross-based minimum would have reverted every fee-charging swap,
+and our net-based minimum is exactly what makes it pass. Finding #2 (tokenOut
+sentinel) is proven by the USDC→ETH cases delivering native ETH rather than
+reverting.
+
+**Not covered by simulation:** the sign → broadcast → nonce → gas-payment
+path. That path is generic web3 and shared byte-for-byte with the KyberSwap /
+1inch / 0x / Li.Fi executors already live in production — nothing in it is
+PropAMM-specific. The router-specific logic (venue acceptance, native
+handling, minOut math, fee grossing) is what simulation proves, and it holds.
