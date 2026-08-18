@@ -275,7 +275,7 @@ def area(name, loc, energy, color, size, rot):
     return L
 
 area("Key",  (-3.4, -3.6, 3.4), 190, AMBER, 2.1, (math.radians(50), 0, math.radians(-44)))
-area("Rim",  ( 3.9, -1.4, 1.9), 150, LIME,   2.4, (math.radians(72), 0, math.radians(62)))
+area("Rim",  ( 3.9, -1.4, 1.9), 320, LIME,   1.6, (math.radians(72), 0, math.radians(62)))
 area("Fill", ( 2.6, -3.2,-0.4), 80, DEEP,   4.5, (math.radians(96), 0, math.radians(40)))
 area("Top",  ( -0.6, -1.2, 4.6), 150, CREAM, 2.8, (math.radians(8), 0, 0))
 # Raking cross-light: small, close to the camera axis but offset laterally,
