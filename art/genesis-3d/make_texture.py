@@ -29,8 +29,17 @@ Ws, Hs = W * SS, H * SS
 row = np.linspace(0, math.pi, Hs)[:, None]         # latitude, 0..pi
 col = np.linspace(-math.pi, math.pi, Ws)[None, :]  # longitude, wraps
 
-sinring = np.sin(row * FREQ)
-weave2 = 0.6 + 0.4 * np.sin(col * K + row * CURL)
+# A pure sin() has smooth, rounded extrema everywhere by construction — no
+# render setting can make that read as sharp engraving, because there is
+# no sharp feature IN the source function. Real engine-turning is cut with
+# a V-groove: flat-ish between cuts, a sharp transition at each groove.
+# Reshape both sinusoids toward that (sign-preserving power curve) so the
+# height field actually HAS crisp features for shading to catch.
+def sharpen(s, k=0.42):
+    return np.sign(s) * np.abs(s) ** k
+
+sinring = sharpen(np.sin(row * FREQ))
+weave2 = 0.6 + 0.4 * sharpen(np.sin(col * K + row * CURL))
 weave = sinring * weave2
 # Floor raised from 0.4->0.65: LAT_ENTRY=0.86rad sits inside the
 # density ramp (which caps at row=1.0rad), so a low floor left even the
