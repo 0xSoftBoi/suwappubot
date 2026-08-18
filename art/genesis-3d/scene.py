@@ -31,8 +31,8 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.render.engine = 'CYCLES'
 scene.cycles.device = 'CPU'
-scene.cycles.samples = 320
-scene.cycles.blur_glossy = 0.65
+scene.cycles.samples = 420
+scene.cycles.blur_glossy = 0.35
 scene.cycles.use_denoising = True
 try: scene.cycles.denoiser = 'OPENIMAGEDENOISE'
 except Exception: pass
