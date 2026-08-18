@@ -157,7 +157,7 @@ hfade = M('MULTIPLY', M('SUBTRACT', height.outputs['Color'], 0.5), face)
 hfinal = M('ADD', hfade, 0.5)
 
 bump = nt.nodes.new("ShaderNodeBump")
-bump.inputs['Strength'].default_value = 0.85
+bump.inputs['Strength'].default_value = 1.05
 bump.inputs['Distance'].default_value = 0.02
 nt.links.new(hfinal.outputs[0], bump.inputs['Height'])
 nt.links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
@@ -175,7 +175,7 @@ except KeyError: pass
 
 crestf = M('MULTIPLY', crest.outputs['Color'], face)
 em_amber = nt.nodes.new("ShaderNodeEmission"); em_amber.inputs['Color'].default_value = BRIGHT
-em_amber.inputs['Strength'].default_value = 1.0
+em_amber.inputs['Strength'].default_value = 1.3
 em_stamp = nt.nodes.new("ShaderNodeEmission"); em_stamp.inputs['Color'].default_value = CREAM
 em_stamp.inputs['Strength'].default_value = 3.4
 mix_c = nt.nodes.new("ShaderNodeMixShader")
@@ -243,7 +243,7 @@ def area(name, loc, energy, color, size, rot):
     L.rotation_euler = rot
     return L
 
-area("Key",  (-3.4, -3.6, 3.4), 260, AMBER, 3.0, (math.radians(50), 0, math.radians(-44)))
+area("Key",  (-3.4, -3.6, 3.4), 220, AMBER, 2.1, (math.radians(50), 0, math.radians(-44)))
 area("Rim",  ( 3.9, -1.4, 1.9), 150, LIME,   2.4, (math.radians(72), 0, math.radians(62)))
 area("Fill", ( 2.6, -3.2,-0.4), 80, DEEP,   4.5, (math.radians(96), 0, math.radians(40)))
 area("Top",  ( -0.6, -1.2, 4.6), 150, CREAM, 2.8, (math.radians(8), 0, 0))
