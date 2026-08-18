@@ -35,11 +35,11 @@ col = np.linspace(-math.pi, math.pi, Ws)[None, :]  # longitude, wraps
 # a V-groove: flat-ish between cuts, a sharp transition at each groove.
 # Reshape both sinusoids toward that (sign-preserving power curve) so the
 # height field actually HAS crisp features for shading to catch.
-def sharpen(s, k=0.42):
+def sharpen(s, k=0.6):
     return np.sign(s) * np.abs(s) ** k
 
 sinring = sharpen(np.sin(row * FREQ))
-weave2 = 0.6 + 0.4 * sharpen(np.sin(col * K + row * CURL))
+weave2 = 0.68 + 0.32 * sharpen(np.sin(col * K + row * CURL))
 weave = sinring * weave2
 # Floor raised from 0.4->0.65: LAT_ENTRY=0.86rad sits inside the
 # density ramp (which caps at row=1.0rad), so a low floor left even the
