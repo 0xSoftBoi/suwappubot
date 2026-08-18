@@ -21,8 +21,8 @@ import os, math
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 2048, 1024
 SS = 3                      # supersample factor, box-downsampled -> AA
-FREQ, K, CURL = 52.0, 22.0, 6.0
-LAT_ENTRY = 0.55            # the stamped ring, radians of latitude
+FREQ, K, CURL = 40.0, 17.0, 5.0
+LAT_ENTRY = 0.86            # the stamped ring, radians of latitude
 STAMP_SIGMA = 0.0065        # narrow: an instrument line, not a wide band
 
 Ws, Hs = W * SS, H * SS

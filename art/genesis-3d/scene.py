@@ -31,7 +31,8 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.render.engine = 'CYCLES'
 scene.cycles.device = 'CPU'
-scene.cycles.samples = 240
+scene.cycles.samples = 320
+scene.cycles.blur_glossy = 0.65
 scene.cycles.use_denoising = True
 try: scene.cycles.denoiser = 'OPENIMAGEDENOISE'
 except Exception: pass
@@ -93,23 +94,43 @@ def M(op, a=None, b=None, c=None):
         else: n.inputs[i].default_value = float(v)
     return n
 
-LAT_ENTRY = 0.55
+LAT_ENTRY = 0.86
 
-# ── lon/lat from the FRONT POLE (-Y, toward camera) ─────────────────────────
-# This part stays as math nodes: it is smooth and low-frequency (one sphere's
-# worth of angle, not 50+ rings), so it does not alias. Only the actual
-# high-frequency ring pattern moves to a filtered image texture below.
+# ── lon/lat from the FRONT POLE, defined by the ACTUAL camera direction ────
+# A fixed axis (pure object -Y) was the earlier bug: this camera is elevated
+# and tilted down at the fruit, so the point that actually faces it is well
+# off the -Y axis. Verified empirically (rendering v alone as grayscale
+# showed the "pole" sitting near the BOTTOM of frame, not centre, with a
+# fixed -Y axis). The correct pole is the camera's own direction, decomposed
+# into an orthonormal basis with mathutils and fed in as three constant
+# vectors — proper spherical coordinates around the camera axis, not the
+# object's arbitrary local Y.
+from mathutils import Vector as _V
+_cam_loc = _V((0, -7.0, 2.05))          # kept in sync with the camera below
+_P = _cam_loc.normalized()               # pole: object centre -> camera
+_R = _P.cross(_V((0, 0, 1))).normalized()
+_U = _R.cross(_P).normalized()
+
 tc = nt.nodes.new("ShaderNodeTexCoord")
-sep = nt.nodes.new("ShaderNodeSeparateXYZ")
-nt.links.new(tc.outputs['Object'], sep.inputs['Vector'])
-ox, oy, oz = sep.outputs['X'], sep.outputs['Y'], sep.outputs['Z']
-ln = M('SQRT', M('ADD', M('ADD', M('MULTIPLY', ox, ox), M('MULTIPLY', oy, oy)), M('MULTIPLY', oz, oz)))
-cosLat = M('MULTIPLY', M('DIVIDE', oy, ln), -1.0)
-lat = M('ARCCOSINE', cosLat)
-az = M('ARCTAN2', oz, ox)
+vnorm = nt.nodes.new("ShaderNodeVectorMath"); vnorm.operation = 'NORMALIZE'
+nt.links.new(tc.outputs['Object'], vnorm.inputs[0])
+
+def dotc(vec3):
+    n = nt.nodes.new("ShaderNodeVectorMath"); n.operation = 'DOT_PRODUCT'
+    nt.links.new(vnorm.outputs['Vector'], n.inputs[0])
+    n.inputs[1].default_value = tuple(vec3)
+    return n
+
+cosLat = dotc(_P)
+lat = M('ARCCOSINE', cosLat.outputs['Value'])
+az = M('ARCTAN2', dotc(_U).outputs['Value'], dotc(_R).outputs['Value'])
 
 u = M('MULTIPLY', M('ADD', az, math.pi), 1.0 / (2 * math.pi))
-v = M('MULTIPLY', lat, 1.0 / math.pi)
+# Blender's Image Texture V=0 is the BOTTOM row of the source file (OpenGL/UV
+# convention), opposite of the top-to-bottom row order make_texture.py wrote
+# the pole into. Flip here rather than in the generator, so the .py stays
+# readable as "row 0 = pole" on disk.
+v = M('SUBTRACT', 1.0, M('MULTIPLY', lat, 1.0 / math.pi))
 comb = nt.nodes.new("ShaderNodeCombineXYZ")
 nt.links.new(u.outputs[0], comb.inputs['X'])
 nt.links.new(v.outputs[0], comb.inputs['Y'])
@@ -142,8 +163,8 @@ nt.links.new(hfinal.outputs[0], bump.inputs['Height'])
 nt.links.new(bump.outputs['Normal'], bsdf.inputs['Normal'])
 
 bsdf.inputs['Base Color'].default_value = AMBER
-bsdf.inputs['Roughness'].default_value = 0.42
-bsdf.inputs['Metallic'].default_value = 0.42
+bsdf.inputs['Roughness'].default_value = 0.50
+bsdf.inputs['Metallic'].default_value = 0.36
 try: bsdf.inputs['Coat Weight'].default_value = 0.12
 except KeyError: pass
 try:
@@ -156,7 +177,7 @@ crestf = M('MULTIPLY', crest.outputs['Color'], face)
 em_amber = nt.nodes.new("ShaderNodeEmission"); em_amber.inputs['Color'].default_value = BRIGHT
 em_amber.inputs['Strength'].default_value = 1.0
 em_stamp = nt.nodes.new("ShaderNodeEmission"); em_stamp.inputs['Color'].default_value = CREAM
-em_stamp.inputs['Strength'].default_value = 1.35
+em_stamp.inputs['Strength'].default_value = 3.4
 mix_c = nt.nodes.new("ShaderNodeMixShader")
 mix_s = nt.nodes.new("ShaderNodeMixShader")
 nt.links.new(crestf.outputs[0], mix_c.inputs['Fac'])
@@ -222,7 +243,7 @@ def area(name, loc, energy, color, size, rot):
     L.rotation_euler = rot
     return L
 
-area("Key",  (-3.4, -3.6, 3.4), 320, AMBER, 4.6, (math.radians(50), 0, math.radians(-44)))
+area("Key",  (-3.4, -3.6, 3.4), 260, AMBER, 3.0, (math.radians(50), 0, math.radians(-44)))
 area("Rim",  ( 3.9, -1.4, 1.9), 150, LIME,   2.4, (math.radians(72), 0, math.radians(62)))
 area("Fill", ( 2.6, -3.2,-0.4), 80, DEEP,   4.5, (math.radians(96), 0, math.radians(40)))
 area("Top",  ( -0.6, -1.2, 4.6), 150, CREAM, 2.8, (math.radians(8), 0, 0))
