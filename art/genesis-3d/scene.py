@@ -320,7 +320,7 @@ ground.data.materials.append(gm)
 bpy.ops.object.camera_add(location=(0, -7.0, 2.05))
 cam = bpy.context.active_object
 cam.rotation_euler = (math.radians(76), 0, 0)
-cam.data.lens = 100
+cam.data.lens = 88
 scene.camera = cam
 
 scene.render.filepath = os.path.join(HERE, "render.png")
