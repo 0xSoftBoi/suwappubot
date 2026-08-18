@@ -1,13 +1,13 @@
-"""Raw Solana transaction storage for market-data ingestion.
+"""Bounded Solana market-data storage.
 
-This table is intentionally denormalized. The first objective is to preserve the
-ledger data exactly as returned by RPC while extracting a small set of fields
-that make later wallet/token analysis cheap.
+Hot tier keeps full decoded RPC payloads briefly. Warm tier keeps compact facts
+for long-lived analysis. Cold tier stores gzip-compressed raw payloads for a
+bounded recovery window, avoiding indefinite Postgres growth.
 """
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 
 from database.db import Base
 
@@ -18,6 +18,7 @@ class SolanaProgramTransaction(Base):
         UniqueConstraint("signature", name="uq_solana_program_transactions_signature"),
         Index("ix_solana_program_transactions_program_slot", "source_program", "slot"),
         Index("ix_solana_program_transactions_fee_payer_slot", "fee_payer", "slot"),
+        Index("ix_solana_program_transactions_compaction", "raw_archived_at", "ingested_at"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -31,6 +32,10 @@ class SolanaProgramTransaction(Base):
     fee_lamports = Column(BigInteger, nullable=True)
     compute_units_consumed = Column(BigInteger, nullable=True)
 
+    # Warm tier: compact facts retained for analysis.
+    compact_json = Column(Text, nullable=True)
+
+    # Hot tier: verbose decoded data, removed after PUMP_INGEST_HOT_HOURS.
     account_keys_json = Column(Text, nullable=True)
     instructions_json = Column(Text, nullable=True)
     inner_instructions_json = Column(Text, nullable=True)
@@ -40,6 +45,10 @@ class SolanaProgramTransaction(Base):
     post_token_balances_json = Column(Text, nullable=True)
     log_messages_json = Column(Text, nullable=True)
     error_json = Column(Text, nullable=True)
-    raw_transaction_json = Column(Text, nullable=False)
+    raw_transaction_json = Column(Text, nullable=True)
+
+    # Cold tier: compressed raw transaction retained for a bounded window.
+    raw_gzip = Column(LargeBinary, nullable=True)
+    raw_archived_at = Column(DateTime, nullable=True, index=True)
 
     ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
