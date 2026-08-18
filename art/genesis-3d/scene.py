@@ -250,13 +250,36 @@ for i in range(4):
     sol = leaf.modifiers.new("t", 'SOLIDIFY'); sol.thickness = 0.010
     leaf.data.materials.append(leaf_mat)
 
-# stem
+# stem — flat brown was a placeholder next to the now-detailed skin/leaves;
+# give it fine vertical woodgrain ridges (bump) and mottled colour (noise).
 bpy.ops.mesh.primitive_cylinder_add(vertices=20, radius=0.055, depth=0.13)
 stem = bpy.context.active_object
 stem.location = (0, 0, top + 0.10)
 sm2 = bpy.data.materials.new("Stem"); sm2.use_nodes = True
-sm2.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = sRGB("#5a3f22")
-sm2.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.8
+snt = sm2.node_tree; snt.nodes.clear()
+sout = snt.nodes.new("ShaderNodeOutputMaterial")
+sb = snt.nodes.new("ShaderNodeBsdfPrincipled")
+stc = snt.nodes.new("ShaderNodeTexCoord")
+swave = snt.nodes.new("ShaderNodeTexWave")
+swave.wave_type = 'RINGS'
+swave.inputs['Scale'].default_value = 55.0
+swave.inputs['Distortion'].default_value = 1.4
+snt.links.new(stc.outputs['Generated'], swave.inputs['Vector'])
+snoise = snt.nodes.new("ShaderNodeTexNoise")
+snoise.inputs['Scale'].default_value = 18.0
+snt.links.new(stc.outputs['Generated'], snoise.inputs['Vector'])
+sramp = snt.nodes.new("ShaderNodeValToRGB")
+sramp.color_ramp.elements[0].color = sRGB("#3d2a15")
+sramp.color_ramp.elements[1].color = sRGB("#6b4a26")
+snt.links.new(snoise.outputs['Fac'], sramp.inputs['Fac'])
+snt.links.new(sramp.outputs['Color'], sb.inputs['Base Color'])
+sbump = snt.nodes.new("ShaderNodeBump")
+sbump.inputs['Strength'].default_value = 0.35
+sbump.inputs['Distance'].default_value = 0.01
+snt.links.new(swave.outputs['Fac'], sbump.inputs['Height'])
+snt.links.new(sbump.outputs['Normal'], sb.inputs['Normal'])
+sb.inputs['Roughness'].default_value = 0.75
+snt.links.new(sb.outputs['BSDF'], sout.inputs['Surface'])
 stem.data.materials.append(sm2)
 
 # ── world: Robinhood warm near-black ────────────────────────────────────────
