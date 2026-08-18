@@ -192,12 +192,41 @@ nt.links.new(mix_s.outputs['Shader'], out.inputs['Surface'])
 fruit.data.materials.append(mat)
 
 # ── the calyx: four leaves + stem ───────────────────────────────────────────
+# A flat average colour read as graphic/flat next to the now-sophisticated
+# fruit skin. Real sepals have a gradient (paler, warmer near the base
+# where they join the fruit; darker, cooler toward the pointed tip) and a
+# visible central vein. Both driven by the leaf's own local Y (base->tip).
 leaf_mat = bpy.data.materials.new("Leaf"); leaf_mat.use_nodes = True
-lb = leaf_mat.node_tree.nodes['Principled BSDF']
-lb.inputs['Base Color'].default_value = [ (LEAFLO[j]+LEAFHI[j])/2 for j in range(4) ]
-lb.inputs['Roughness'].default_value = 0.42
+lnt = leaf_mat.node_tree; lnt.nodes.clear()
+lout = lnt.nodes.new("ShaderNodeOutputMaterial")
+lb = lnt.nodes.new("ShaderNodeBsdfPrincipled")
+ltc = lnt.nodes.new("ShaderNodeTexCoord")
+lsep = lnt.nodes.new("ShaderNodeSeparateXYZ")
+lnt.links.new(ltc.outputs['Object'], lsep.inputs['Vector'])
+lramp = lnt.nodes.new("ShaderNodeValToRGB")
+lramp.color_ramp.elements[0].color = LEAFHI
+lramp.color_ramp.elements[1].color = LEAFLO
+lgrad = lnt.nodes.new("ShaderNodeMapRange")
+lgrad.inputs['From Min'].default_value = -0.5
+lgrad.inputs['From Max'].default_value = 0.5
+lnt.links.new(lsep.outputs['Y'], lgrad.inputs['Value'])
+lnt.links.new(lgrad.outputs['Result'], lramp.inputs['Fac'])
+lnt.links.new(lramp.outputs['Color'], lb.inputs['Base Color'])
+# a thin darker centre vein, via the leaf's local X (distance from midline)
+lvein = lnt.nodes.new("ShaderNodeMath"); lvein.operation = 'ABSOLUTE'
+lnt.links.new(lsep.outputs['X'], lvein.inputs[0])
+lveinband = lnt.nodes.new("ShaderNodeMath"); lveinband.operation = 'LESS_THAN'
+lveinband.inputs[1].default_value = 0.035
+lnt.links.new(lvein.outputs[0], lveinband.inputs[0])
+lveinmix = lnt.nodes.new("ShaderNodeMixRGB")
+lveinmix.inputs['Color2'].default_value = tuple(c * 0.55 for c in LEAFLO[:3]) + (1.0,)
+lnt.links.new(lramp.outputs['Color'], lveinmix.inputs['Color1'])
+lnt.links.new(lveinband.outputs[0], lveinmix.inputs['Fac'])
+lnt.links.new(lveinmix.outputs['Color'], lb.inputs['Base Color'])
+lb.inputs['Roughness'].default_value = 0.38
 try: lb.inputs['Subsurface Weight'].default_value = 0.3; lb.inputs['Subsurface Radius'].default_value = (0.3,0.6,0.2)
 except KeyError: pass
+lnt.links.new(lb.outputs['BSDF'], lout.inputs['Surface'])
 
 top = 0.86 * 1.10 - 0.10
 for i in range(4):
