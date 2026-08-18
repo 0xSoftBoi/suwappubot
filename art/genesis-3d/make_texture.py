@@ -32,7 +32,11 @@ col = np.linspace(-math.pi, math.pi, Ws)[None, :]  # longitude, wraps
 sinring = np.sin(row * FREQ)
 weave2 = 0.6 + 0.4 * np.sin(col * K + row * CURL)
 weave = sinring * weave2
-weave = weave * (0.4 + 0.6 * np.minimum(row, 1.0))
+# Floor raised from 0.4->0.65: LAT_ENTRY=0.86rad sits inside the
+# density ramp (which caps at row=1.0rad), so a low floor left even the
+# stamped area looking flat. Still deepens toward the skin, just less
+# drastically — the pole is no longer a bald patch.
+weave = weave * (0.65 + 0.35 * np.minimum(row, 1.0))
 height = 0.5 + 0.5 * weave
 
 crest = np.clip(weave, 0, None) ** 1.5
