@@ -229,8 +229,13 @@ except KeyError: pass
 lnt.links.new(lb.outputs['BSDF'], lout.inputs['Surface'])
 
 top = 0.86 * 1.10 - 0.10
+# four identical leaves read as a stamped X, not a grown calyx; a small
+# fixed per-leaf variation in angle, length and droop breaks the
+# mechanical symmetry without losing the fourfold structure.
+_LEAF_VAR = [(0.0, 1.00, 1.00), (2.5, 0.92, 1.06), (-1.5, 1.05, 0.97), (1.0, 0.96, 1.03)]
 for i in range(4):
     ang = i * (math.pi / 2) + math.pi / 4
+    dang, dlen, ddroop = _LEAF_VAR[i]
     bpy.ops.mesh.primitive_grid_add(x_subdivisions=6, y_subdivisions=10, size=1.0)
     leaf = bpy.context.active_object
     leaf.name = f"Leaf{i}"
@@ -240,11 +245,11 @@ for i in range(4):
         u = (v.co.y + 0.5)              # 0 at base .. 1 at tip
         taper = 1 - 0.85 * max(0.0, u - 0.15) ** 1.3
         v.co.x *= 0.34 * taper
-        v.co.y = (u - 0.5) * 0.86
+        v.co.y = (u - 0.5) * 0.86 * dlen
         # droop: the sepal curls down over the shoulder
-        v.co.z -= 0.30 * (max(0.0, u) ** 1.8)
+        v.co.z -= 0.30 * ddroop * (max(0.0, u) ** 1.8)
     leaf.location = (math.cos(ang) * 0.16, math.sin(ang) * 0.16, top + 0.10)
-    leaf.rotation_euler = (math.radians(18), 0, ang - math.pi/2)
+    leaf.rotation_euler = (math.radians(18), 0, ang - math.pi/2 + math.radians(dang))
     for p in lm.polygons: p.use_smooth = True
     sm = leaf.modifiers.new("s", 'SUBSURF'); sm.levels = 2
     sol = leaf.modifiers.new("t", 'SOLIDIFY'); sol.thickness = 0.022
