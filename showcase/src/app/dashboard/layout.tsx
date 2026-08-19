@@ -10,6 +10,15 @@ import styles from './dashboard.module.css';
 
 const TOKEN_KEY = 'suwappu_dashboard_token';
 
+function currentDashboardDestination(): string {
+  if (typeof window === 'undefined') return 'https://suwappu.bot/dashboard';
+  const url = new URL(window.location.href);
+  // OAuth result flags are transport metadata, not part of the destination.
+  url.searchParams.delete('auth');
+  url.searchParams.delete('provider');
+  return url.toString();
+}
+
 function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
   const [draft, setDraft] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -32,18 +41,18 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
       .catch(() => onToken(t));
   }
 
+  const destination = currentDashboardDestination();
+
   return (
     <div className={`summer-page ${styles.loginPage}`}>
       <div className={styles.loginCard}>
         <Image src="/logo.svg" alt="Suwappu" width={52} height={52} className={styles.loginLogo} />
-        <h1 className={styles.loginTitle}>Sign in</h1>
-        <p className={styles.loginLead}>Sign in once to use your Suwappu account, Signal Intelligence, API management, and billing.</p>
+        <h1 className={styles.loginTitle}>Sign in to Suwappu</h1>
+        <p className={styles.loginLead}>Continue to the product you opened. Your account also gives you Signal Intelligence, API management, and billing in one workspace.</p>
         <a
           className="summer-button summer-button--primary"
           style={{ display: 'inline-flex', width: '100%', justifyContent: 'center' }}
-          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(
-            typeof window !== 'undefined' ? `${window.location.origin}/dashboard` : 'https://suwappu.bot/dashboard',
-          )}`}
+          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(destination)}`}
         >
           Continue with Google
         </a>
@@ -74,9 +83,9 @@ function WorkspaceNav({ onSignOut }: { onSignOut: () => void }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: '1px solid #202631', borderRadius: 12, background: '#0d1117', overflowX: 'auto' }}>
         <Link href="/" style={{ ...linkStyle, fontWeight: 800, color: '#fff' }}>suwappu</Link>
         <span style={{ color: '#48505c' }}>/</span>
-        <Link href="/dashboard" style={linkStyle}>Account</Link>
+        <Link href="/dashboard" style={linkStyle}>Home</Link>
         <Link href="/dashboard/signals" style={{ ...linkStyle, color: '#fff', background: '#171d26', borderColor: '#2a3340', fontWeight: 700 }}>Signal Intelligence <span aria-hidden="true">●</span></Link>
-        <Link href="/products" style={linkStyle}>Explore all products</Link>
+        <Link href="/products" style={linkStyle}>All products</Link>
         <Link href="/research" style={linkStyle}>Research</Link>
         <Link href="/docs" style={linkStyle}>Docs</Link>
         <span style={{ flex: 1 }} />
