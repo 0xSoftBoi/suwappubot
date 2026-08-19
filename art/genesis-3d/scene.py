@@ -247,7 +247,7 @@ for i in range(4):
     leaf.rotation_euler = (math.radians(18), 0, ang - math.pi/2)
     for p in lm.polygons: p.use_smooth = True
     sm = leaf.modifiers.new("s", 'SUBSURF'); sm.levels = 2
-    sol = leaf.modifiers.new("t", 'SOLIDIFY'); sol.thickness = 0.010
+    sol = leaf.modifiers.new("t", 'SOLIDIFY'); sol.thickness = 0.022
     leaf.data.materials.append(leaf_mat)
 
 # stem — flat brown was a placeholder next to the now-detailed skin/leaves;
