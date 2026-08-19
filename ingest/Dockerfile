@@ -4,7 +4,8 @@ WORKDIR /app
 COPY ingest/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY ingest/pump_ingest.py /app/pump_ingest.py
+COPY ingest/pump_ingest_live.py /app/pump_ingest_live.py
 COPY ingest/signal_lab.py /app/signal_lab.py
 RUN useradd -r -u 10001 collector && chown -R collector:collector /app
 USER collector
-CMD ["python","/app/pump_ingest.py"]
+CMD ["python","/app/pump_ingest_live.py"]
