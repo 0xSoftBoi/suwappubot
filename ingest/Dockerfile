@@ -7,6 +7,7 @@ COPY ingest/pump_ingest.py /app/pump_ingest.py
 COPY ingest/pump_ingest_live.py /app/pump_ingest_live.py
 COPY ingest/pump_research_pipeline.py /app/pump_research_pipeline.py
 COPY ingest/pump_research_pipeline_v2.py /app/pump_research_pipeline_v2.py
+COPY ingest/pump_research_pipeline_signers.py /app/pump_research_pipeline_signers.py
 COPY ingest/signal_lab.py /app/signal_lab.py
 RUN useradd -r -u 10001 collector && chown -R collector:collector /app
 USER collector
