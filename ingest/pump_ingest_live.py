@@ -1,10 +1,9 @@
 """Live-first Pump/PumpSwap collector.
 
-The original collector correctly refused to skip a gap, but on a high-volume
-program that can turn an old cursor into an endless RPC loop. This entrypoint
-keeps all canonical storage/decoding logic and changes only cursor recovery:
-try a bounded catch-up, then explicitly re-anchor to the live head instead of
-repeating the same historical scan forever.
+Keeps canonical storage/decoding from pump_ingest.py, but makes liveness the
+priority for the signal product. A stale cursor gets only a small bounded scan
+before we explicitly re-anchor to the live head. Historical backfill must never
+block current telemetry or burn the free RPC budget.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import sys
 from typing import Any, Dict, List, Optional
 
 from pump_ingest import Collector as BaseCollector
@@ -21,8 +21,14 @@ LOG = logging.getLogger("pump_ingest")
 
 
 class Collector(BaseCollector):
+    def __init__(self) -> None:
+        super().__init__()
+        # Production used to allow 500 pages, which meant up to 125k signatures
+        # were re-read every failed cycle. Live telemetry should spend at most a
+        # few pages determining whether a cursor is still nearby.
+        self.live_catchup_pages = min(self.max_catchup_pages, 4)
+
     async def signatures_since(self, target: Target, cursor: Optional[str]) -> List[Dict[str, Any]]:
-        # First boot: deliberately ingest only the bounded recent window.
         if cursor is None:
             result = await self.rpc(
                 "getSignaturesForAddress",
@@ -37,7 +43,7 @@ class Collector(BaseCollector):
         before: Optional[str] = None
         found = False
 
-        for _ in range(self.max_catchup_pages):
+        for _ in range(self.live_catchup_pages):
             opts: Dict[str, Any] = {
                 "limit": self.page_limit,
                 "commitment": "confirmed",
@@ -63,17 +69,12 @@ class Collector(BaseCollector):
         if found or not collected:
             return collected
 
-        # Stale cursor recovery. A live signal system cannot spend every cycle
-        # replaying an unbounded historical gap. Re-anchor to a recent bounded
-        # window, ingest it, and let ingest_target advance the canonical cursor
-        # to the newest observed signature. Historical backfill can be a
-        # separate low-priority worker later without blocking live telemetry.
         live_limit = min(self.page_limit, self.bootstrap_limit)
         LOG.warning(
-            "stale cursor program=%s scanned=%s signatures without reaching cursor; "
-            "re-anchoring to live head window=%s",
+            "stale cursor program=%s scanned=%s signatures across=%s pages; re-anchoring live window=%s",
             target.label,
             len(collected),
+            self.live_catchup_pages,
             live_limit,
         )
         live = await self.rpc(
@@ -101,6 +102,7 @@ def main() -> None:
     logging.basicConfig(
         level="INFO",
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stdout,
     )
     asyncio.run(run_collector())
 
