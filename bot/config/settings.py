@@ -1163,8 +1163,9 @@ class Settings(BaseSettings):
         default=False,
         description=(
             "Allow LLM providers whose forced-tool-call support is unverified "
-            "(gemini/xai/qwen/kimi). Off by default: an unsupported tool_choice "
-            "makes every parse silently degrade. Enable only after a live smoke test."
+            "(gemini/xai/qwen/kimi/openrouter). Off by default: an unsupported "
+            "tool_choice makes every parse silently degrade. Enable only after "
+            "a live smoke test."
         ),
     )
     XAI_API_KEY: str = Field(default="", description="xAI (Grok) API key for LLM calls")
@@ -1173,6 +1174,7 @@ class Settings(BaseSettings):
         default="", description="Alibaba DashScope (Qwen) API key for LLM calls"
     )
     KIMI_API_KEY: str = Field(default="", description="Moonshot (Kimi) API key for LLM calls")
+    OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key for LLM calls")
 
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")

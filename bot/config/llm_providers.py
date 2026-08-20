@@ -1,11 +1,14 @@
-"""Multi-provider LLM registry for direct (non-router) LLM calls.
+"""Multi-provider LLM registry for direct LLM-provider calls.
 
 Each entry describes how to reach one provider: which env-backed setting
 holds the API key, the base_url (None means the SDK's own default), and the
 "call style" used to invoke it — either the native Anthropic Messages API
 (tool-use) or an OpenAI-compatible chat.completions API (function-calling).
 Every non-Anthropic provider here exposes an OpenAI-compatible endpoint, so
-`openai.AsyncOpenAI(base_url=...)` works for all of them.
+`openai.AsyncOpenAI(base_url=...)` works for all of them. One entry
+("openrouter") IS an aggregator/router that itself proxies to many upstream
+providers — see its ProviderConfig comment for the capability-gating caveat
+that implies.
 
 This module is intentionally free of any network/session code — it is pure
 configuration, consumed by bot/config/llm_models.py (model catalog +
@@ -117,6 +120,19 @@ PROVIDERS: dict = {
         env_key_attr="DEEPSEEK_API_KEY",
         forced_tool_choice_verified=True,
         nonstandard_usage_fields=True,
+    ),
+    "openrouter": ProviderConfig(
+        name="openrouter",
+        call_style=OPENAI_COMPATIBLE,
+        base_url="https://openrouter.ai/api/v1",
+        env_key_attr="OPENROUTER_API_KEY",
+        # OpenRouter proxies `tool_choice` through to whichever upstream model
+        # serves the request, so forced-tool support is model-dependent, not
+        # a single fixed answer for "the provider" the way it is for a direct
+        # API. Not verified against a live call here — treat as unconfirmed
+        # for every model routed through it until smoke-tested, same as any
+        # other unverified provider in this registry.
+        forced_tool_choice_verified=False,
     ),
 }
 
