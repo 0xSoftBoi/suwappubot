@@ -25,14 +25,40 @@ export type AgentErrorCode =
 	| 'NOT_FOUND'
 	| 'INTERNAL'
 
+const DOCS_BASE = 'https://suwappu.bot/docs'
+
+/**
+ * Stable remediation entry point for each public agent error category.
+ *
+ * Keep these links broad and durable rather than guessing an endpoint-specific
+ * slug. A future generated reference layer can narrow them to exact operation
+ * docs without changing the error-code contract.
+ */
+export function documentationUrlForAgentError(code: AgentErrorCode): string {
+	switch (code) {
+		case 'UNAUTHORIZED':
+		case 'INVALID_API_KEY':
+		case 'INSUFFICIENT_SCOPE':
+		case 'RATE_LIMITED':
+			return `${DOCS_BASE}/authentication/overview`
+		case 'PAYMENT_REQUIRED':
+		case 'INSUFFICIENT_CREDITS':
+			return `${DOCS_BASE}/billing/agentic-payments`
+		case 'POLICY_VIOLATION':
+			return `${DOCS_BASE}/protocols/overview`
+		default:
+			return `${DOCS_BASE}/api-reference/overview`
+	}
+}
+
 /**
  * Build a JSON error response for agent-facing HTTP endpoints (REST + MCP HTTP
  * transport). Strictly additive: keeps the existing `success` / `error` shape,
- * appends a stable `error_code`, and SPREADS any endpoint-specific extra fields
- * (e.g. `hint`, `example`, `details`) at the top level so pre-existing response
- * shapes are byte-for-byte preserved for older SDK/agent consumers. Never nest
- * these under a new wrapper key — that would silently break clients that read
- * `resp.hint` / `resp.details` directly.
+ * appends a stable `error_code` and remediation URL, and SPREADS any
+ * endpoint-specific extra fields (e.g. `hint`, `example`, `details`) at the top
+ * level so pre-existing response shapes are preserved for older SDK/agent
+ * consumers. Never nest these under a new wrapper key — that would silently
+ * break clients that read `resp.hint` / `resp.details` directly.
  */
 export function agentError(
 	c: Context,
@@ -46,6 +72,7 @@ export function agentError(
 			success: false as const,
 			error: message,
 			error_code: code,
+			documentation_url: documentationUrlForAgentError(code),
 			...(extra ?? {}),
 		},
 		status,
