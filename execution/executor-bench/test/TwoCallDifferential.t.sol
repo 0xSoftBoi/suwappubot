@@ -29,7 +29,7 @@ contract TwoCallDifferentialTest {
     DifferentialVenue internal venueA;
     DifferentialVenue internal venueB;
 
-    event GasComparison(uint256 baselineGas, uint256 specializedGas, int256 delta);
+    event GasComparison(uint256 baselineGas, uint256 specializedGas, uint256 savedGas);
 
     function setUp() public {
         baseline = new BaselineExecutor();
@@ -102,23 +102,49 @@ contract TwoCallDifferentialTest {
         require(!baselineOk && !specializedOk, "both must enforce final economics");
     }
 
-    function testGasComparisonTwoCallShape() public {
+    /// @dev Measures only the encoded external-call execution path. Both payloads are built
+    ///      before gas measurement so ABI construction in the harness cannot bias admission.
+    function testGasAdmissionTwoCallShape() public {
         bytes memory data0 = abi.encodeCall(DifferentialVenue.noop, (hex"01020304"));
         bytes memory data1 = abi.encodeCall(DifferentialVenue.noop, (hex"05060708090a"));
+        uint256 minimum = 1_000_000e6;
+
+        BaselineExecutor.Call[] memory calls = new BaselineExecutor.Call[](2);
+        calls[0] = BaselineExecutor.Call({target: address(venueA), value: 0, data: data0});
+        calls[1] = BaselineExecutor.Call({target: address(venueB), value: 0, data: data1});
+        bytes memory baselinePayload = abi.encodeCall(
+            BaselineExecutor.execute,
+            (calls, BaselineExecutor.BalanceCheck({token: address(token), minimum: minimum}))
+        );
+        bytes memory specializedPayload = abi.encodeCall(
+            TwoCallExecutor.executeTwo,
+            (
+                address(venueA),
+                0,
+                data0,
+                address(venueB),
+                0,
+                data1,
+                address(token),
+                minimum
+            )
+        );
 
         uint256 beforeBaseline = gasleft();
-        _runBaseline(data0, data1, 1_000_000e6);
+        (bool baselineOk,) = address(baseline).call(baselinePayload);
         uint256 baselineGas = beforeBaseline - gasleft();
+        require(baselineOk, "baseline benchmark failed");
 
         uint256 beforeSpecialized = gasleft();
-        specialized.executeTwo(
-            address(venueA), 0, data0, address(venueB), 0, data1, address(token), 1_000_000e6
-        );
+        (bool specializedOk,) = address(specialized).call(specializedPayload);
         uint256 specializedGas = beforeSpecialized - gasleft();
+        require(specializedOk, "specialized benchmark failed");
 
-        emit GasComparison(
-            baselineGas, specializedGas, int256(baselineGas) - int256(specializedGas)
-        );
+        require(specializedGas < baselineGas, "specialization has no gas advantage");
+        uint256 savedGas = baselineGas - specializedGas;
+        // A production specialization must save materially more than measurement noise.
+        require(savedGas >= 500, "specialization gas win too small");
+        emit GasComparison(baselineGas, specializedGas, savedGas);
     }
 
     function runBaselineExternal(bytes calldata data0, bytes calldata data1, uint256 minimum)
