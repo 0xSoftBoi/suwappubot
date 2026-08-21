@@ -35,7 +35,7 @@ contract TwoCallExecutor {
         }
     }
 
-    function _balanceOf(address token) private view returns (uint256 balance) {
+    function _balanceOf(address token) private view returns (uint256 observedBalance) {
         assembly ("memory-safe") {
             let ptr := mload(0x40)
             // IERC20.balanceOf(address(this)) selector = 0x70a08231.
@@ -47,7 +47,7 @@ contract TwoCallExecutor {
             if lt(returndatasize(), 32) {
                 revert(0, 0)
             }
-            balance := mload(ptr)
+            observedBalance := mload(ptr)
         }
     }
 
