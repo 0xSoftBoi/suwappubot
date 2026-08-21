@@ -26,6 +26,11 @@ def load(name: str, relative_path: str):
 sync = load("execution_sync_standalone", "bot/services/execution_sync.py")
 receipt = load("execution_sync_receipt_standalone", "bot/services/execution_sync_receipt.py")
 calibration = load("execution_sync_calibration_standalone", "bot/services/execution_sync_calibration.py")
+# Replay imports these by their production package names. Alias the already
+# dependency-light modules so validation does not import the full bot package.
+sys.modules["bot.services.execution_sync"] = sync
+sys.modules["bot.services.execution_sync_calibration"] = calibration
+replay = load("execution_sync_replay_standalone", "bot/services/execution_sync_replay.py")
 
 
 def candidate(**overrides):
@@ -52,6 +57,52 @@ def candidate(**overrides):
     )
     values.update(overrides)
     return sync.ExecutionCandidate(**values)
+
+
+def _history(provider: str, count: int, *, fill_ratio: float, failures: int = 0, latency: int = 12):
+    rows = []
+    base = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+    for i in range(count):
+        failed = i < failures
+        created = base + timedelta(minutes=i)
+        rows.append(
+            SimpleNamespace(
+                route_provider=provider,
+                status="failed" if failed else "completed",
+                to_amount_usd=1000.0,
+                realized_to_amount_usd=None if failed else 1000.0 * fill_ratio,
+                created_at=created,
+                completed_at=None if failed else created + timedelta(seconds=latency),
+            )
+        )
+    return rows
+
+
+def _route(
+    quote_id: str,
+    provider: str,
+    quoted_usd: float,
+    *,
+    selected: bool,
+    gas: float = 0.0,
+    fee: float = 0.0,
+    duration: int = 20,
+):
+    return SimpleNamespace(
+        quote_id=quote_id,
+        swap_id=77 if selected else None,
+        provider=provider,
+        from_chain="ethereum",
+        to_chain="base",
+        from_token="USDC",
+        to_token="USDC",
+        quoted_to_amount_usd=quoted_usd,
+        quoted_gas_usd=gas,
+        quoted_fee_usd=fee,
+        quoted_duration_s=duration,
+        was_selected=selected,
+        created_at=datetime(2026, 8, 20, 14, 0, tzinfo=timezone.utc),
+    )
 
 
 def main() -> None:
@@ -130,6 +181,48 @@ def main() -> None:
     modeled = calibration.model_candidate(rejected, cal)
     assert modeled.is_counterfactual is True
     assert modeled.modeled_realized_output_usd is not None
+
+    # Historical replay: enough observed evidence admits both providers, and
+    # the replay is evaluated at quote time so archived quotes are not stale.
+    replay_history = [
+        *_history("lifi", 24, fill_ratio=0.998, failures=1, latency=35),
+        *_history("across", 24, fill_ratio=0.9998, failures=0, latency=10),
+    ]
+    calibrations = replay.build_calibrations(replay_history)
+    race_rows = [
+        _route("q-1", "lifi", 1000.0, selected=True, gas=2.0, fee=0.5, duration=40),
+        _route("q-1", "across", 999.5, selected=False, gas=0.2, fee=0.0, duration=12),
+    ]
+    replayed = replay.replay_race(race_rows, calibrations, min_provider_evidence=20)
+    assert replayed.modeled is True
+    assert replayed.eligible_candidate_count == 2
+    assert replayed.shadow_provider == "across"
+    assert replayed.modeled_delta_usd is not None
+
+    # Evidence gate: a provider with only a handful of observations must not
+    # become a seemingly precise historical counterfactual.
+    thin_history = [
+        *_history("lifi", 24, fill_ratio=0.998),
+        *_history("thin", 3, fill_ratio=1.01),
+    ]
+    thin_cals = replay.build_calibrations(thin_history)
+    thin_race = replay.replay_race(
+        [
+            _route("q-2", "lifi", 1000.0, selected=True),
+            _route("q-2", "thin", 1200.0, selected=False),
+        ],
+        thin_cals,
+        min_provider_evidence=20,
+    )
+    assert "thin" in thin_race.insufficient_evidence_providers
+    assert thin_race.eligible_candidate_count == 1
+    assert thin_race.shadow_provider == "lifi"
+
+    summary = replay.summarize_replay([replayed, thin_race], calibrations)
+    payload = summary.to_dict()
+    assert payload["modeled"] is True
+    assert "counterfactual" in payload["caveat"]
+    assert summary.races == 2
 
     print("execution-sync validation: PASS")
 
