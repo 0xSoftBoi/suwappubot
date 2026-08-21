@@ -9,10 +9,9 @@ import NavDrawer from './NavDrawer';
 /**
  * SummerNav: the homepage header.
  *
- * Keeps the `.summer-nav` shell (sticky, in-flow, sits above the dark hero)
- * that the homepage layout is built around, but swaps the old flat row of eight
- * anchor links for the same grouped product directory the rest of the site
- * uses. See ProductMenu for why the two shells stay separate.
+ * Product discovery is intentionally explicit here. Important product surfaces
+ * must be reachable from the first screen of suwappu.bot rather than living as
+ * hidden routes inside account or research pages.
  */
 export default function SummerNav() {
   const nav = useTranslations('nav');
@@ -27,6 +26,9 @@ export default function SummerNav() {
 
       <nav aria-label="Primary navigation" className="summer-nav__menu">
         <ProductMenu triggerClassName="summer-nav__trigger" />
+        <a href="/products"><strong>Explore</strong></a>
+        <a href="/dashboard/signals">Signals <span aria-hidden="true">↗</span></a>
+        <a href="/research">Research</a>
         <a href="/pricing">{nav('pricing')}</a>
         <a href="/docs">{nav('docs')}</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">{hero('telegramNav')}</a>
@@ -42,16 +44,19 @@ export default function SummerNav() {
         </a>
         <a
           className="summer-nav__cta summer-nav__cta--ghost"
-          href="/docs/api-reference/overview"
-          onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'api_docs' })}
+          href="/products"
+          onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'products' })}
         >
-          {hero('ctaApi')}
+          Explore all
         </a>
 
         {/* Below 980px the link row is hidden; this is the only way in. */}
         <NavDrawer
           className="summer-nav__burger"
           extraLinks={[
+            { href: '/products', label: 'Explore all products' },
+            { href: '/dashboard/signals', label: 'Signal Intelligence' },
+            { href: '/research', label: 'Research' },
             { href: '/pricing', label: nav('pricing') },
             { href: '/docs', label: nav('docs') },
             { href: TELEGRAM_URL, label: hero('telegramNav'), external: true },
@@ -65,10 +70,10 @@ export default function SummerNav() {
                 {hero('ctaTerminal')}
               </a>
               <a
-                href="/docs/api-reference/overview"
+                href="/products"
                 className="nav__drawer-cta nav__drawer-cta--ghost"
               >
-                {hero('ctaApi')}
+                Explore all
               </a>
             </>
           }

@@ -53,6 +53,8 @@ from bot.services.wallet import WalletService
 from bot.config.settings import settings
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
+from bot.services.market_data import market_data_service
+from bot.services.venue_data import venue_data_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
@@ -366,6 +368,14 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # Market data capture (candles for the Historical API). No-op unless
+        # market_data_capture_enabled (default True).
+        await market_data_service.start()
+        await asyncio.sleep(2)
+        # Venue data capture (perps/predictions/lend time series). No-op unless
+        # venue_data_capture_enabled (default True).
+        await venue_data_service.start()
+        await asyncio.sleep(2)
         await order_service.start(
             bot=bot_app.bot if bot_initialized else None, swap_engine=SwapEngine()
         )
@@ -519,6 +529,8 @@ async def lifespan(app: FastAPI):
         await fee_sweeper.stop()
         await digest_service.stop()
         await alert_service.stop()
+        await market_data_service.stop()
+        await venue_data_service.stop()
         await order_service.stop()
         await tx_poller.stop()
         await withdraw_reconciler.stop()
@@ -1258,14 +1270,15 @@ async def wallet_probe():
 
     Answers the one question the USDG mint path depends on and that cannot be
     settled by reasoning: will Robinhood Wallet sign an EIP-3009
-    ReceiveWithAuthorization? It must be opened on a PHONE, inside the wallet's
-    in-app browser, so it needs a real URL.
+    ReceiveWithAuthorization? It has to be opened on a PHONE, inside the wallet's
+    in-app browser, so it needs a real URL — hence a route rather than a file
+    somebody has to host.
 
-    Lives in api/static/ deliberately: api/Dockerfile.railway copies only api/,
+    Lives in api/static/ deliberately. api/Dockerfile.railway copies only api/,
     bot/ and database/, so the same file under nft/ would 404 in the container
     while working perfectly on a laptop.
 
-    Static, read-only, no secrets, no state.
+    Static, read-only, no secrets, no state. Safe to leave exposed.
     """
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "wallet-probe.html")
     try:

@@ -696,7 +696,7 @@ billingRoutes.post('/crypto', ipRateLimit(10), telegramAuth(), async (c) => {
 		tier: r.tier,
 		expires_at: r.expiresAt,
 		auto_renew: false,
-		fee_rate_percent: FEE_RATES[r.tier ?? 'free'] ?? 1.0,
+		fee_rate_percent: FEE_RATES[(r.tier ?? 'free').toLowerCase()] ?? 1.0,
 		message: r.alreadyProcessed
 			? 'This payment was already processed (idempotent).'
 			: `Prepaid ${r.tier} access window active (no auto-renew — pay again to extend).`,
@@ -726,7 +726,9 @@ billingRoutes.get('/status', flexAuth(), async (c) => {
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 
-			const tier = sub?.tier ?? 'free'
+			// Shared table with the Python bot, which stores uppercase enum names;
+			// normalize so FEE_RATES lookups and webapp display stay consistent.
+			const tier = (sub?.tier ?? 'free').toLowerCase()
 
 			return {
 				tier,

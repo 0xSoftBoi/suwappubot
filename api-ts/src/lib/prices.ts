@@ -5,8 +5,10 @@
 
 import { TTLCache } from './cache'
 
-// CoinGecko ID mapping
-const COINGECKO_IDS: Record<string, string> = {
+// CoinGecko ID mapping. Exported (not just used internally) so routes/data.ts's
+// /v1/data/reference/resolve can surface the coingecko id for a symbol without
+// a second copy of this map.
+export const COINGECKO_IDS: Record<string, string> = {
 	eth: 'ethereum', sol: 'solana', bnb: 'binancecoin', usdc: 'usd-coin',
 	usdt: 'tether', btc: 'bitcoin', dai: 'dai', wbtc: 'wrapped-bitcoin',
 	arb: 'arbitrum', op: 'optimism', avax: 'avalanche-2', matic: 'matic-network',
@@ -40,7 +42,9 @@ export async function fetchTokenPrices(symbols: string[]): Promise<Record<string
 		const ids = toFetch.map((s) => COINGECKO_IDS[s]).join(',')
 		try {
 			const res = await fetch(
-				`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`
+				// COINGECKO_BASE_URL lets tests/self-hosted deployments point at a
+				// mock or pro endpoint without a code change.
+				`${process.env.COINGECKO_BASE_URL ?? 'https://api.coingecko.com'}/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`
 			)
 			if (res.ok) {
 				const data = await res.json() as Record<string, { usd?: number; usd_24h_change?: number }>

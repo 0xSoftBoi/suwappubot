@@ -3,6 +3,27 @@
 **Pick a ticker. Your entry price is stamped on-chain forever. The card shows your
 live P&L.**
 
+## The design language: a card, not a poster
+
+The plate is a luxury card in the **Amex Centurion / Robinhood Gold** lineage —
+Soho House meets web3, built for adults:
+
+- **Matte near-black ground.** The sector colour is anodised into the charcoal at
+  15%, so a wall of 10,000 still sorts into ten families by eye, but each family
+  reads as a tinted metal, never as candy.
+- **Status is struck metal, earned by mint rank.** Founder cards (first 500) are
+  furnished in **gold** — border, serial, seal ring; Early (first 2,000) in
+  **platinum**; everyone else in graphite. Like the card that matters in a wallet,
+  the tier is visible across a table without reading a word.
+- **Tone-on-tone engraving.** The engine-turned ground stays (it is the anti-copy
+  ornament of real scrip), cut quiet the way the Centurion's engraving is.
+- **A restrained accent ramp.** Gains climb jade → champagne with the grade;
+  losses take a muted oxblood — expensive, not alarming. The one saturated
+  element on the plate is the small pink Suwappu mark.
+- **The rare state is the "Gilt proof"** (~1 in 40): an ivory plate struck in dark
+  ink, the way a black-tie house prints its daytime stationery. Legible as rare
+  from across a grid, no trait table needed.
+
 ## Why the previous design didn't work
 
 This replaces "Suwappu Fills", which nobody would have minted:

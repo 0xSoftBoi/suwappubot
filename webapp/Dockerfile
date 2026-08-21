@@ -1,23 +1,21 @@
 # Build stage
-FROM node:26-alpine AS builder
+# Node 22 is the verified LTS for this lockfile and avoids build drift from
+# floating install/runtime behavior on newer builders.
+FROM node:22-alpine AS builder
 
-WORKDIR /app
+# Mirror the monorepo layout so package.json's file:../packages/design-tokens
+# and package-lock.json's relative resolution remain identical. This lets us
+# use npm ci without rewriting package metadata inside the image.
+WORKDIR /app/webapp
 
-# Copy design-tokens dependency first (referenced as file:../packages/design-tokens)
-COPY packages/design-tokens/ /packages/design-tokens/
+# Copy design-tokens dependency at the relative path the lockfile expects.
+COPY packages/design-tokens/ /app/packages/design-tokens/
 
 # Copy package files (context is monorepo root, so prefix with webapp/)
 COPY webapp/package.json webapp/bun.lock* webapp/package-lock.json* ./
-RUN sed -i 's|file:../packages/design-tokens|file:/packages/design-tokens|' package.json
 
-# NOTE: intentionally `npm install`, not `npm ci`. The sed above rewrites the
-# `file:` dep path in package.json, but package-lock.json's matching
-# "resolved" entry still points at the original relative path — `npm ci`
-# requires exact package.json/lockfile sync and fails with EUSAGE on that
-# mismatch (verified locally). `npm install` tolerates the drift and
-# re-resolves the local dep correctly. Terminal (bun) doesn't hit this
-# because bun's lockfile resolution isn't as strict about `file:` deps.
-RUN npm install
+# Deterministic install straight from the committed lockfile.
+RUN npm ci
 
 # Copy source files
 COPY webapp/ .
@@ -49,7 +47,7 @@ COPY webapp/nginx.conf /etc/nginx/templates/default.conf.template
 ENV PORT=8080
 
 # Copy built files from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/webapp/dist /usr/share/nginx/html
 RUN chmod -R 755 /usr/share/nginx/html
 
 EXPOSE 8080

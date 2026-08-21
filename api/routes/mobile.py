@@ -1875,6 +1875,95 @@ async def get_snipe_config(request: Request):
 # ═══════════════════════════════════════════════════════════════════
 
 
+# Mobile-facing timeframe -> (market_candles timeframe, lookback window).
+# market_candles only stores '1m'/'5m'/'1h'/'1d' buckets (bot/services/market_data.py),
+# so each mobile timeframe maps to the closest granularity that still gives a
+# sane number of points over that window.
+_MARKET_CANDLES_TIMEFRAME_MAP: Dict[str, Tuple[str, timedelta]] = {
+    "1h": ("1m", timedelta(hours=1)),
+    "1d": ("1h", timedelta(days=1)),
+    "1w": ("1h", timedelta(days=7)),
+    "1m": ("1d", timedelta(days=30)),
+    "1y": ("1d", timedelta(days=365)),
+}
+_MARKET_CANDLES_MIN_ROWS = 10
+
+
+def _market_candles_price(chain: str, address: str, timeframe: str) -> Optional[dict]:
+    """Try to build the token-price response shape from local market_candles.
+
+    Returns None (never raises) whenever the DB doesn't have enough rows for
+    the requested window, or the (chain, address) pair can't be resolved to a
+    tracked symbol — callers fall back to the existing DexScreener path.
+    """
+    if not DATABASE_AVAILABLE:
+        return None
+
+    mapping = _MARKET_CANDLES_TIMEFRAME_MAP.get(timeframe)
+    if not mapping:
+        return None
+    candle_timeframe, window = mapping
+
+    try:
+        from bot.config.tokens import TOKENS
+        from bot.models.market_data import MarketCandle
+
+        chain_slug = (chain or "").strip().lower()
+        address_lower = (address or "").strip().lower()
+
+        symbol = None
+        token_name = None
+        for sym, cfg in TOKENS.items():
+            addr = cfg.addresses.get(chain_slug)
+            if addr and addr.strip().lower() == address_lower:
+                symbol = sym
+                token_name = cfg.name
+                break
+        if not symbol:
+            return None
+
+        cutoff = datetime.now(timezone.utc) - window
+        with get_session() as session:
+            rows = (
+                session.query(MarketCandle)
+                .filter(
+                    MarketCandle.symbol == symbol,
+                    MarketCandle.chain == chain_slug,
+                    MarketCandle.timeframe == candle_timeframe,
+                    MarketCandle.ts >= cutoff,
+                )
+                .order_by(MarketCandle.ts.asc())
+                .all()
+            )
+            if len(rows) < _MARKET_CANDLES_MIN_ROWS:
+                return None
+
+            prices = [{"timestamp": int(r.ts.timestamp()), "value": float(r.close)} for r in rows]
+            volumes = [float(r.volume) for r in rows if r.volume is not None]
+
+        first_price = float(rows[0].open)
+        last_price = float(rows[-1].close)
+        change = last_price - first_price
+        change_pct = (change / first_price * 100) if first_price else 0.0
+
+        return {
+            "price": last_price,
+            "change24h": change,
+            "changePercent24h": change_pct,
+            "marketCap": None,
+            "volume24h": (sum(volumes) if volumes else None),
+            "liquidity": None,
+            "holders": None,
+            "symbol": symbol,
+            "name": token_name or symbol,
+            "logoUrl": None,
+            "prices": prices,
+        }
+    except Exception as e:
+        logger.warning(f"market_candles price lookup failed for {chain}/{address}: {e}")
+        return None
+
+
 @router.get("/token/{chain}/{address}/price")
 async def get_token_price(
     request: Request,
@@ -1886,6 +1975,12 @@ async def get_token_price(
     _jwt_user(request)
     import httpx
     import time
+
+    # DB-first: serve from market_candles when we have enough local history
+    # for the requested window, avoiding a DexScreener round-trip entirely.
+    db_result = _market_candles_price(chain, address, timeframe)
+    if db_result is not None:
+        return db_result
 
     # Map timeframe to seconds for mock data generation
     tf_seconds = {

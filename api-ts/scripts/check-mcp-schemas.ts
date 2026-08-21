@@ -23,7 +23,22 @@
 import { z } from 'zod'
 import { TOOLS } from '../src/routes/mcpTools'
 import { toJsonSchema, type Json } from '../src/lib/zodJsonSchema'
-import { PerpsQuoteSchema, QuoteRequestSchema, SimulateSwapSchema } from '../src/routes/validators'
+import {
+	McpGetPortfolioSchema,
+	McpGetPricesSchema,
+	McpGetSwapHistorySchema,
+	McpGetSwapStatusSchema,
+	McpLendMarketSchema,
+	McpLendMarketsSchema,
+	McpListWalletPoliciesSchema,
+	McpPerpsPositionsSchema,
+	McpPredictMarketIdSchema,
+	McpPredictMarketsSchema,
+	McpPredictTradesSchema,
+	PerpsQuoteSchema,
+	QuoteRequestSchema,
+	SimulateSwapSchema,
+} from '../src/routes/validators'
 
 /**
  * tool name -> the Zod schema whose constraints the tool's arguments must obey.
@@ -38,6 +53,19 @@ const TOOL_VALIDATORS: Record<string, z.ZodTypeAny> = {
 	get_quote: QuoteRequestSchema,
 	simulate_swap: SimulateSwapSchema,
 	perps_quote: PerpsQuoteSchema,
+	get_portfolio: McpGetPortfolioSchema,
+	get_prices: McpGetPricesSchema,
+	perps_positions: McpPerpsPositionsSchema,
+	lend_markets: McpLendMarketsSchema,
+	lend_market: McpLendMarketSchema,
+	predict_markets: McpPredictMarketsSchema,
+	predict_market: McpPredictMarketIdSchema,
+	predict_book: McpPredictMarketIdSchema,
+	predict_price: McpPredictMarketIdSchema,
+	predict_trades: McpPredictTradesSchema,
+	get_swap_status: McpGetSwapStatusSchema,
+	get_swap_history: McpGetSwapHistorySchema,
+	list_wallet_policies: McpListWalletPoliciesSchema,
 }
 
 /** Strip prose so we compare contract, not wording. */

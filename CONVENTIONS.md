@@ -13,7 +13,8 @@ fork the convention.
   tests/`). CI blocks on it. flake8 runs advisory-only, by choice.
 - api-ts lints with Biome (`api-ts/biome.json`).
 - GitHub operations use `gh` locally; sessions without `gh` use the GitHub MCP tools.
-- Component-specific rules live in `.claude/rules/` (api-ts, webapp, bot, showcase).
+- Component-specific rules live in per-directory instruction files: `bot/CLAUDE.md`,
+  `api-ts/CLAUDE.md`, `webapp/CLAUDE.md`.
 
 ## Git
 
@@ -23,6 +24,10 @@ fork the convention.
 - One coherent change per commit: the code, its tests, its migration, and any generated
   artifacts (`.env.schema`, `openapi-agent.json`) travel together. Don't mix unrelated
   formatting or dependency bumps into a functional commit.
+- **Docs travel with the change.** A rename, removal, or behavior change updates the
+  canonical docs (`docs/README.md` tree, ADRs, per-directory instruction files) in the
+  same PR — the `docs` lane of `scripts/verify.sh` catches stranded path references,
+  but only you can catch stranded *meaning*.
 - Imperative, conventional-style summaries (`feat(bot): …`, `fix(api-ts): …`).
 - Before any push/merge, run the pre-flight checklist in `CLAUDE.md` (build artifacts,
   locks, worktree, divergence, uncommitted work).
@@ -36,7 +41,7 @@ fork the convention.
   change.
 - **Effect-TS discipline** (api-ts): don't mix raw Promises into Effect pipelines — wrap
   with `Effect.tryPromise()`. Services follow `Context.Tag` + `Layer` + `ManagedRuntime`.
-- **Shared types** (`packages/shared/`) affect api-ts, webapp, and mobile at once —
+- **Shared types** (`packages/sdk/src/types.ts` (`@suwappu/sdk`)) affect api-ts, webapp, and mobile at once —
   check all three consumers.
 - New env vars must be added to the settings schema (`bot/config/settings.py` or
   `api-ts/src/config/EnvService.ts`), then regenerate the contract:

@@ -153,59 +153,149 @@ COMPOSITIONS = ("medallion", "field", "band", "twin")
 INKS = ("line", "double", "stipple")
 
 
+def _rng(seed: int):
+    """Deterministic LCG in [0,1). random.random() would break the
+    byte-identical-across-renders guarantee marketplaces cache against."""
+    s = (seed & 0x7FFFFFFF) or 1
+
+    def nxt():
+        nonlocal s
+        s = (1103515245 * s + 12345) & 0x7FFFFFFF
+        return s / 0x7FFFFFFF
+
+    return nxt
+
+
+# Weighted field states (authored rarity, not uniform RNG — the Fidenza
+# lesson). Each changes the CHARACTER of the cut: jitter amplitude of the
+# graver, density multiplier, and dropout (skipped passes) for the rare
+# fractured plates. (name, weight ceiling %, jitter px, density, dropout)
+FIELD_STATES = (
+    ("calm", 70, 0.8, 1.00, 0.00),
+    ("turbulent", 90, 7.0, 1.35, 0.02),
+    ("fractured", 98, 14.0, 0.75, 0.28),
+    ("still", 100, 0.0, 0.55, 0.00),
+)
+
+
+def _field_state(seed: int):
+    roll = (seed >> 52) % 100
+    for name, ceil, jit, dens, drop in FIELD_STATES:
+        if roll < ceil:
+            return name, jit, dens, drop
+    return FIELD_STATES[0][0], FIELD_STATES[0][2], FIELD_STATES[0][3], FIELD_STATES[0][4]
+
+
 def _eng_rosette(cx, cy, r, seed, petals, inner):
-    """Rose-engine rosette: an epitrochoid, repeated by rotation."""
-    arms = 5 + (seed >> 16) % 4
-    defs = f'<path id="e1" d="{_guilloche(cx, cy, r, petals, inner)}"/>'
-    body = "".join(
-        f'<use href="#e1" transform="rotate({(seed % 360) + i * (360.0 / (arms * 3)):.2f} '
-        f'{cx} {cy})" opacity="0.34"/>'
-        for i in range(arms * 3)
-    )
-    return defs, body
+    """Rose-engine rosette, cut in harmonic layers. One epitrochoid per layer
+    at golden-ratio radii (r, 0.618r, 0.382r) with coprime arm counts, so the
+    layers never phase-lock into flat repetition — the difference between a
+    Breguet dial and a spirograph is exactly this multi-cam layering."""
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
+    specs = [
+        (1.00, 0, 8, 0.26),
+        (0.72, 3, 13, 0.28),
+        (0.44, -2, 5, 0.30),
+    ]
+    if _field_state(seed)[0] == "still":
+        specs = specs[:2]
+    defs, body = [], []
+    for li, (rr, pd, arms, op) in enumerate(specs):
+        pid = f"e{li + 1}"
+        defs.append(
+            f'<path id="{pid}" d="{_guilloche(cx, cy, r * rr, max(3, petals + pd), min(0.32, inner * (0.8 + 0.4 * rnd())), 200)}"/>'
+        )
+        n = int((arms + int(rnd() * 3)) * dens)
+        phase = rnd() * 360
+        for i in range(max(4, n)):
+            if rnd() < drop:
+                continue
+            a = phase + i * (360.0 / max(4, n)) + (rnd() - 0.5) * jit * 1.2
+            body.append(
+                f'<use href="#{pid}" transform="rotate({a:.2f} {cx} {cy})" opacity="{op}"/>'
+            )
+    return "".join(defs), "".join(body)
 
 
 def _eng_moire(cx, cy, r, seed, petals, inner):
-    """Two ring stacks struck from offset centres — the interference IS the
-    pattern, which is why moire was used on scrip that had to resist copying."""
+    """Ring stacks struck from offset centres at NEAR-MISS counts (n and n+3),
+    radii on a power curve so density builds toward the rim the way repeated
+    rose-engine passes do. The interference beat is the pattern."""
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
     off = 14 + (seed % 22)
-    rings = 16 + (seed >> 4) % 10
+    rings = int((18 + (seed >> 4) % 10) * dens)
     out = []
-    for i in range(rings):
-        rr = r * (0.24 + 0.76 * (i + 1) / rings)
-        out.append(f'<circle cx="{cx - off}" cy="{cy}" r="{rr:.1f}"/>')
-        out.append(f'<circle cx="{cx + off}" cy="{cy}" r="{rr:.1f}"/>')
+    for stack, (dx, n) in enumerate(((-off, rings), (off, rings + 3))):
+        for i in range(n):
+            if rnd() < drop:
+                continue
+            rr = r * (0.20 + 0.80 * ((i + 1) / n) ** 0.6)
+            jx = (rnd() - 0.5) * jit
+            jy = (rnd() - 0.5) * jit
+            out.append(f'<circle cx="{cx + dx + jx:.1f}" cy="{cy + jy:.1f}" r="{rr:.1f}"/>')
+    # golden-radius accent ring pair, heavier cut
+    out.append(
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r * 0.618:.1f}" stroke-width="2.6"/>'
+        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r * 0.624:.1f}" stroke-width="1.5"/>'
+    )
     return "", "".join(out)
 
 
 def _eng_sunburst(cx, cy, r, seed, petals, inner):
-    """Straight radial rays of modulated length — a rayon flamme burst."""
+    """Rayon flammé in two interfering spoke layers. Counts differ by a
+    coprime delta (n vs n+7) so the layers beat against each other instead of
+    stacking; every endpoint carries seeded graver jitter so no two rays are
+    bit-identical. Rays start at 0.34r — the numeral's breathing room is a
+    computed constraint, not an overlay."""
     import math
 
-    n = 72 + (seed % 5) * 24
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
+    n1 = int((56 + (seed % 4) * 8) * dens)
     out = []
-    for i in range(n):
-        a = 2 * math.pi * i / n
-        rr = r * (0.62 + 0.38 * abs(math.cos(petals * a / 2)))
-        out.append(
-            f'<line x1="{cx + math.cos(a) * r * 0.2:.1f}" y1="{cy + math.sin(a) * r * 0.2:.1f}" '
-            f'x2="{cx + math.cos(a) * rr:.1f}" y2="{cy + math.sin(a) * rr:.1f}"/>'
-        )
+    for layer, (n, r0, r1_lo, r1_hi, ph) in enumerate(
+        ((n1, 0.34, 0.66, 1.0, 0.0), (n1 + 7, 0.42, 0.55, 0.82, 0.5))
+    ):
+        thin = ' stroke-width="1.5"' if layer else ""
+        for i in range(n):
+            if rnd() < drop:
+                continue
+            a = 2 * math.pi * i / n + ph
+            rr = r * (r1_lo + (r1_hi - r1_lo) * abs(math.cos(petals * a / 2)))
+            j1 = (rnd() - 0.5) * jit
+            j2 = (rnd() - 0.5) * jit
+            out.append(
+                f'<line x1="{cx + math.cos(a) * r * r0 + j1:.1f}" '
+                f'y1="{cy + math.sin(a) * r * r0 + j1:.1f}" '
+                f'x2="{cx + math.cos(a) * rr + j2:.1f}" y2="{cy + math.sin(a) * rr + j2:.1f}"'
+                f"{thin}/>"
+            )
     return "", "".join(out)
 
 
 def _eng_waves(cx, cy, r, seed, petals, inner):
-    """Rose-engine waves: parallel bands whose phase walks, so the field reads
-    as a woven ripple rather than as stripes."""
+    """Rose-engine waves with a turbulence zone: amplitude peaks at the card's
+    waist and calms toward the edges, row spacing tightens on a power curve,
+    and the phase walks with seeded jitter — a woven ripple with a centre of
+    energy, not stripes."""
     import math
 
-    rows = 26
-    amp = 10 + (seed % 16)
+    rnd = _rng(seed)
+    _, jit, dens, drop = _field_state(seed)
+    rows = int(26 * dens)
+    amp0 = 10 + (seed % 16)
     freq = 0.010 + ((seed >> 3) % 9) * 0.0016
     out = []
-    for row in range(rows):
-        y0 = cy - r + (2 * r) * row / (rows - 1)
-        ph = row * 0.55
+    for row in range(max(8, rows)):
+        if rnd() < drop:
+            continue
+        t = row / max(1, rows - 1)
+        y0 = cy - r + (2 * r) * (t**0.85)
+        envelope = 0.35 + 0.65 * math.exp(-(((y0 - cy) / (r * 0.55)) ** 2))
+        amp = amp0 * envelope
+        ph = row * 0.55 + (rnd() - 0.5) * jit * 0.3
         pts = [
             f"{cx - r * 1.35 + (2.7 * r) * i / 40:.0f} "
             f"{y0 + amp * math.sin(freq * (2.7 * r) * i / 40 * 6.28 + ph):.1f}"
@@ -216,33 +306,58 @@ def _eng_waves(cx, cy, r, seed, petals, inner):
 
 
 def _eng_barleycorn(cx, cy, r, seed, petals, inner):
-    """Grain d'orge: interlaced diagonal lattice off the straight-line engine.
-    Tiled as a <pattern>, so a full-bleed field costs a few hundred bytes."""
-    step = 22 + (seed % 12)
-    defs = (
-        f'<pattern id="ebar" width="{step}" height="{step}" patternUnits="userSpaceOnUse" '
-        f'patternTransform="rotate({30 + seed % 30})">'
-        f'<path d="M0 0 L{step} {step} M{step} 0 L0 {step}" fill="none" '
-        f'stroke="currentColor" stroke-width="1.6"/>'
-        f'<circle cx="{step / 2}" cy="{step / 2}" r="{step / 5:.1f}" fill="none" '
-        f'stroke="currentColor" stroke-width="1.2"/></pattern>'
-    )
-    return defs, "__PATTERN__ebar"
+    """Grain d'orge cut twice: the same lattice at a 6% scale near-miss and a
+    2.5° rotation, so the two passes moiré against each other the way a second
+    pass on the straight-line engine reads. Tiled, so it costs bytes, not KB."""
+    # The field state lives in the metal, not just the metadata: density
+    # scales the pitch, turbulence skews the second pass, and a fractured
+    # plate takes a broken dashed third cut. Strokes sized for the 5x grid.
+    _, jit, dens, drop = _field_state(seed)
+    step = (18 + seed % 14) / dens
+    rot = 30 + seed % 30
+    defs = []
+    passes = [("ebar", 1.0, 0.0, False), ("ebar2", 1.06, 2.5 + jit, False)]
+    if drop > 0:
+        passes.append(("ebar3", 1.13, 5.0 + jit, True))
+    for pid, sc, dr, dashed in passes:
+        s = step * sc
+        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
+        defs.append(
+            f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
+            f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
+            f'<path d="M0 0 L{s:.1f} {s:.1f} M{s:.1f} 0 L0 {s:.1f}" fill="none" '
+            f'stroke="currentColor" stroke-width="2.6"{dash}/>'
+            f'<circle cx="{s / 2:.1f}" cy="{s / 2:.1f}" r="{s / 5:.1f}" fill="none" '
+            f'stroke="currentColor" stroke-width="2.0"/></pattern>'
+        )
+    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
 
 
 def _eng_hobnail(cx, cy, r, seed, petals, inner):
-    """Clous de Paris: the pyramid grid. Straight-line engine, tiled."""
-    step = 18 + (seed % 14)
-    h = step / 2
-    defs = (
-        f'<pattern id="ehob" width="{step}" height="{step}" patternUnits="userSpaceOnUse" '
-        f'patternTransform="rotate({seed % 45})">'
-        f'<path d="M{h} 0 L{step} {h} L{h} {step} L0 {h} Z" fill="none" '
-        f'stroke="currentColor" stroke-width="1.5"/>'
-        f'<path d="M{h} {h * 0.45} L{step * 0.78} {h} L{h} {step - h * 0.45} L{step * 0.22} {h} Z" '
-        f'fill="none" stroke="currentColor" stroke-width="1"/></pattern>'
-    )
-    return defs, "__PATTERN__ehob"
+    """Clous de Paris cut twice at a near-miss scale — the pyramid grid plus
+    its own interference pass."""
+    # Field state as in barleycorn: pitch, skew, fractured dashed third cut.
+    _, jit, dens, drop = _field_state(seed)
+    step = (16 + seed % 12) / dens
+    rot = seed % 45
+    defs = []
+    passes = [("ehob", 1.0, 0.0, False), ("ehob2", 1.07, 3.0 + jit, False)]
+    if drop > 0:
+        passes.append(("ehob3", 1.15, 6.0 + jit, True))
+    for pid, sc, dr, dashed in passes:
+        s = step * sc
+        h = s / 2
+        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
+        defs.append(
+            f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
+            f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
+            f'<path d="M{h:.1f} 0 L{s:.1f} {h:.1f} L{h:.1f} {s:.1f} L0 {h:.1f} Z" fill="none" '
+            f'stroke="currentColor" stroke-width="2.4"{dash}/>'
+            f'<path d="M{h:.1f} {h * 0.45:.1f} L{s * 0.78:.1f} {h:.1f} L{h:.1f} {s - h * 0.45:.1f} '
+            f'L{s * 0.22:.1f} {h:.1f} Z" fill="none" stroke="currentColor" '
+            f'stroke-width="1.6"/></pattern>'
+        )
+    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
 
 
 _ENGRAVERS = {
@@ -281,6 +396,30 @@ def contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
+# ── the luxury metal system ──────────────────────────────────────────────────
+# The plate is a card in the Centurion / Robinhood Gold lineage: a matte
+# near-black ground, tone-on-tone engraving, and a small amount of struck
+# metal. Which metal is a TIER, not a mood — Founder cards are furnished in
+# gold, Early in platinum, the base plate in graphite — so status reads from
+# across the room the way a heavy card reads across a table.
+CHARCOAL = "#0d0d10"  # the matte ground; sector tint is anodised into it
+IVORY = "#f2ede3"  # ink on the dark plate / ground of the rare Gilt proof
+# Three clearly STEPPED luminances, brightest at the top tier — the first cut
+# had gold measurably dimmer than platinum, so the top tier read as second.
+GOLD = "#e0bd76"
+PLATINUM = "#aab1b9"
+GRAPHITE = "#8b8e94"
+
+
+def metal_for(badge: str | None, sector_col: str) -> str:
+    """The furniture metal for a plate. Earned by mint rank, never rolled."""
+    if badge == "Founder":
+        return GOLD
+    if badge == "Early":
+        return PLATINUM
+    return _mix("#6e7176", sector_col, 0.18)
+
+
 def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     """Every colour a plate uses, in one place.
 
@@ -290,34 +429,57 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     turning up in this repo. One function, both callers.
     """
     b = cfg["brand"]
-    if proof:  # Night proof — rare, and the only plate that leaves the light
-        field = _mix("#0b0a0c", sector_col, 0.14)
+    if proof:  # Gilt proof — the rare plate that leaves the dark: ivory, dark ink
+        field = _mix(b["bg"], sector_col, 0.07)
+        hero = _mix(accent, b["text"], 0.55)
+        if priced and ret_bps >= 2500:
+            hero = _mix(b["green"], accent, 0.25)
+        elif priced and ret_bps < -200:
+            hero = "#8f3a44"
         return {
             "field": field,
-            "field2": _mix(field, "#000000", 0.40),
-            "edge": _mix("#08070a", accent, 0.10),
-            "rim": _mix(sector_col, accent, 0.45),
-            "body": b["bg"],
-            "quiet": b["text-3"],
-            "hero": _mix(accent, "#ffffff", 0.10),
+            "field2": _mix(field, "#eae3d5", 0.55),
+            "edge": _mix(field, "#d8d0c0", 0.60),
+            "rim": _mix("#9c8b62", sector_col, 0.25),
+            "body": b["text"],
+            "quiet": b["text-2"],
+            "hero": hero,
             "mark": b["accent"],
         }
-    # Gains take the brand green, losses a warm red. Grade accents tuned for a
-    # black plate wash out on cream, so they are darkened against it.
-    # The neutral (Flat) accent is a pale slate that measured 3.92:1 on cream,
-    # under the floor, so the base mix runs darker and gains/losses override it.
-    hero = _mix(accent, b["text"], 0.52)
+    # The default plate. Sector colour is anodised into the ground — ten
+    # families sort by eye in a grid, but each reads as a tinted metal,
+    # not a pastel. Gains keep the accent ramp (jade climbing to champagne),
+    # lifted toward ivory so the numeral clears the contrast floor; losses take
+    # a muted oxblood — expensive, not alarming.
+    hero = _mix(accent, IVORY, 0.45)
     if priced and ret_bps >= 2500:
-        hero = _mix(b["green"], accent, 0.25)
+        hero = _mix(accent, IVORY, 0.32)
     elif priced and ret_bps < -200:
-        hero = "#a4243b"
+        # Warm ash, not pink — a saturated loss numeral was the most chromatic
+        # thing on the wall and clashed with the wordmark. The loss already
+        # reads through the minus sign and the grade caption.
+        hero = "#bfa9a2"
+    # Anodising is luminance-normalised, not a flat mix. A constant 15% let the
+    # warm high-luminance families (Crypto gold, Media rose) lift visibly off
+    # black while the cool ones stayed flat — a 28% spread in field luminance.
+    # Scaling by the sector's own luminance keeps all ten fields at roughly the
+    # same darkness while the HUE still sorts the wall. (At the original flat
+    # 6% every field converged on the same black and families didn't sort.)
+    t = min(0.18, max(0.10, 0.15 * (0.34 / max(_lum(sector_col), 0.05)) ** 0.5))
+    field = _mix(CHARCOAL, sector_col, t)
+    rim = _mix(sector_col, GRAPHITE, 0.55)
+    if priced and ret_bps >= 200:
+        # A winner's engraving takes the grade's metal. Warm sector ornament
+        # (Media rose) otherwise read as a loss from across the wall, however
+        # green the numeral — the ornament is the biggest colour field there is.
+        rim = _mix(rim, accent, 0.35)
     return {
-        "field": _mix(b["bg"], sector_col, 0.10),
-        "field2": _mix(b["surface-2"], sector_col, 0.06),
-        "edge": _mix(b["surface-2"], sector_col, 0.16),
-        "rim": _mix(sector_col, b["text-2"], 0.42),
-        "body": b["text"],
-        "quiet": b["text-2"],
+        "field": field,
+        "field2": _mix(field, "#000000", 0.35),
+        "edge": _mix(field, sector_col, 0.22),
+        "rim": rim,
+        "body": b["bg"],
+        "quiet": _mix(GRAPHITE, IVORY, 0.30),
         "hero": hero,
         "mark": b["accent"],
     }
@@ -349,6 +511,7 @@ def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
         "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
         "ink": INKS[(seed >> 32) % len(INKS)],
         "composition": allowed[(seed >> 36) % len(allowed)],
+        "field_state": _field_state(seed)[0],
         "proof": proof,
         "sector": sector,
         "grade": grade["name"],
@@ -433,14 +596,15 @@ def render_card(
     cy = max(672 - int(lift * 52), 372 + rad)
     petals = 7 + (seed % 12)
     inner = 0.12 + 0.26 * mag
-    spin = (seed >> 8) % 360
 
-    # ── the brand, not a mood ───────────────────────────────────────────────
-    # The default plate is Suwappu's own surface: warm off-white, near-black
-    # ink, pink mark. The dark plate is now the RARE one ("Night proof"). This
-    # inverts how it was first built, and the first build was simply wrong —
-    # the collection is the most public artefact this project ships, and it
-    # cannot be the one surface that ignores the brand.
+    # ── luxury, not loud ────────────────────────────────────────────────────
+    # The default plate is a matte near-black card in the Amex Centurion /
+    # Robinhood Gold lineage: charcoal ground with the sector anodised in,
+    # tone-on-tone engraving, ivory ink, and the only saturated thing on the
+    # plate is the small pink Suwappu mark. Status is carried by struck METAL —
+    # gold for Founder, platinum for Early, graphite for the base plate. The
+    # rare inversion is the "Gilt proof": an ivory plate in dark ink, the way a
+    # black-tie house prints its daytime stationery.
     b = cfg["brand"]
     pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
     field, field2, edge_col = pal["field"], pal["field2"], pal["edge"]
@@ -451,6 +615,12 @@ def render_card(
         pal["hero"],
         pal["mark"],
     )
+    # Furniture metal. On the ivory Gilt proof the raw metals are too close to
+    # the ground, so they are struck darker there.
+    metal = metal_for(badge, sector_col)
+    if proof:
+        metal = _mix(metal, b["text"], 0.40)
+    faint = _mix(quiet, field, 0.35)  # small print: legible, deliberately quiet
 
     W_, H_ = W, H
     PL, PR, PT, PB = 54, W_ - 54, 54, H_ - 54
@@ -475,39 +645,109 @@ def render_card(
             f'<circle cx="{W_ / 2 + rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
         )
     else:  # medallion
+        # The rosette is cut a quarter larger than its clip, so the outer
+        # layer crops into the rim instead of presenting a complete doily.
+        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 1.25
+        clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
+    # Tiled-pattern families (barleycorn, hobnail) paint their whole clip, so a
+    # rect clip rendered as a hard-edged drawn panel — the exact furniture the
+    # luxury pass banned. They are always struck as a soft-rimmed medallion.
+    if engraving in ("barleycorn", "hobnail"):
         eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
         clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
+    # Asymmetry injection: the ornament is struck a seeded touch off the true
+    # centre while the clip and numeral stay put — perfect concentricity reads
+    # as decoration, a slight miss reads as a hand on the machine. Vertical
+    # jitter is capped at 4px so the engraving can never climb the masthead.
+    eng_cx += (seed >> 12) % 37 - 18
+    eng_cy += (seed >> 18) % 9 - 4
     eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
+    # Resolve the tiled families' ink to a literal hex. currentColor renders
+    # fine in a browser but cairosvg/resvg/librsvg — what most indexers
+    # rasterize on-chain SVGs with — drop it to black, which on this plate is
+    # invisible. Literal hex measures strictly better on every rasterizer.
+    eng_ink = _mix(rim, "#ffffff", 0.35)
+    eng_defs = eng_defs.replace('stroke="currentColor"', f'stroke="{eng_ink}"')
+
+    # ── the card is an OBJECT ───────────────────────────────────────────────
+    # A luxury card is a machined thing, not a themed rectangle. Four material
+    # layers do that work: a rounded silhouette floating on obsidian with a
+    # soft shadow; brushed-metal grain; one diagonal light sheen, as on
+    # anodised aluminium under a lamp; and furniture filled with three-stop
+    # metal gradients so gold TURNS instead of sitting flat.
+    metal_hi = _mix(metal, "#ffffff", 0.38)
+    metal_lo = _mix(metal, "#000000", 0.45)
+    sheen_ink = "#000000" if proof else "#ffffff"
+    CR_X, CR_Y, CR_W, CR_H, CR_R = 34, 34, W_ - 68, H_ - 68, 42
 
     p = [
         "<defs>",
         f'<clipPath id="cut">{clip_shape}</clipPath>',
+        f'<clipPath id="card"><rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" '
+        f'rx="{CR_R}"/></clipPath>',
+        f'<linearGradient id="mgrad" x1="0" y1="0" x2="0.9" y2="1">'
+        f'<stop offset="0" stop-color="{metal_hi}"/>'
+        f'<stop offset="0.45" stop-color="{metal}"/>'
+        f'<stop offset="1" stop-color="{metal_lo}"/></linearGradient>',
+        f'<linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0.22" stop-color="{sheen_ink}" stop-opacity="0"/>'
+        f'<stop offset="0.46" stop-color="{sheen_ink}" stop-opacity="0.065"/>'
+        f'<stop offset="0.58" stop-color="{sheen_ink}" stop-opacity="0.015"/>'
+        f'<stop offset="0.80" stop-color="{sheen_ink}" stop-opacity="0"/></linearGradient>',
+        f'<pattern id="brush" width="{W_}" height="4" patternUnits="userSpaceOnUse">'
+        f'<line x1="0" y1="0.5" x2="{W_}" y2="0.5" stroke="{sheen_ink}" '
+        f'stroke-opacity="0.028" stroke-width="1"/>'
+        f'<line x1="0" y1="2.5" x2="{W_}" y2="2.5" stroke="{"#ffffff" if proof else "#000000"}" '
+        f'stroke-opacity="0.020" stroke-width="1"/></pattern>',
+        f'<filter id="drop" x="-6%" y="-6%" width="112%" height="112%">'
+        f'<feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000000" '
+        f'flood-opacity="0.55"/></filter>',
+        # brushed-metal grain: one fixed-seed turbulence pass, barely there
+        f'<filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" '
+        f'numOctaves="2" seed="7" stitchTiles="stitch"/>'
+        f'<feColorMatrix type="matrix" values="0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 '
+        f'0 0 0 0.04 0"/></filter>',
+        # soft rim for the tiled-pattern medallion — fades to nothing instead
+        # of ending in a hard clipped edge
+        f'<radialGradient id="fadeg" gradientUnits="userSpaceOnUse" cx="{eng_cx}" '
+        f'cy="{eng_cy}" r="{eng_r}">'
+        f'<stop offset="0.88" stop-color="#ffffff"/>'
+        f'<stop offset="1" stop-color="#000000"/></radialGradient>',
+        f'<mask id="fade"><circle cx="{eng_cx}" cy="{eng_cy}" r="{eng_r}" '
+        f'fill="url(#fadeg)"/></mask>',
+        # a physical object darkens toward its corners under one lamp
+        f'<radialGradient id="vig" cx="0.5" cy="0.42" r="0.75">'
+        f'<stop offset="0.55" stop-color="#000000" stop-opacity="0"/>'
+        f'<stop offset="1" stop-color="#000000" stop-opacity="{0.10 if proof else 0.34}"/>'
+        f"</radialGradient>",
         eng_defs,
         f'<linearGradient id="plate" x1="0.1" y1="0" x2="0.85" y2="1">'
         f'<stop offset="0" stop-color="{field}"/>'
         f'<stop offset="0.62" stop-color="{field2}"/>'
         f'<stop offset="1" stop-color="{edge_col}"/></linearGradient>',
         f'<radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.16 if proof else 0.34}"/>'
-        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.08 if proof else 0.15}"/>'
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.10 if proof else 0.12}"/>'
+        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.05 if proof else 0.06}"/>'
         f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
         f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{field2 if proof else b["bg"]}" stop-opacity="0.90"/>'
-        f'<stop offset="0.6" stop-color="{field2 if proof else b["bg"]}" stop-opacity="0.74"/>'
-        f'<stop offset="1" stop-color="{field2 if proof else b["bg"]}" '
+        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.62"/>'
+        f'<stop offset="0.42" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.40"/>'
+        f'<stop offset="1" stop-color="{b["bg"] if proof else field2}" '
         f'stop-opacity="0"/></radialGradient>',
         f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
         f'patternTransform="rotate(35)">'
-        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#ffffff" if proof else "#000000"}" '
+        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#000000" if proof else "#ffffff"}" '
         f'stroke-opacity="0.030" stroke-width="1"/></pattern>',
-        f'<linearGradient id="span" x1="0" y1="0" x2="1" y2="0">'
-        f'<stop offset="0" stop-color="{hero_col}" stop-opacity="0.10"/>'
-        f'<stop offset="1" stop-color="{hero_col}" stop-opacity="0.55"/></linearGradient>',
-        f'<path id="gs" d="{_guilloche(W_ - 200, 1082, 52, petals + 2, inner * 0.8, 140)}"/>',
-        f'<path id="sealArc" d="M{W_ - 258} 1082 A58 58 0 0 1 {W_ - 142} 1082" fill="none"/>',
         "</defs>",
-        f'<rect width="{W_}" height="{H_}" fill="url(#plate)"/>',
+        # the obsidian slab the card floats on
+        f'<rect width="{W_}" height="{H_}" fill="{"#dcd5c7" if proof else "#0a0b0d"}"/>',
+        f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
+        f'fill="url(#plate)" filter="url(#drop)"/>',
+        # everything on the plate is cut to the card silhouette
+        f'<g clip-path="url(#card)">',
         f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
+        f'<rect width="{W_}" height="{H_}" fill="url(#brush)"/>',
+        f'<rect width="{W_}" height="{H_}" filter="url(#grain)"/>',
         f'<ellipse cx="{eng_cx}" cy="{eng_cy}" rx="{eng_r + 150}" ry="{eng_r + 140}" '
         f'fill="url(#bloom)"/>',
     ]
@@ -516,16 +756,21 @@ def render_card(
     # Stroke weights are set for the THUMBNAIL. At 0.7px on a 1000px plate an
     # engraving resolves to 0.13px in a 190px grid cell and simply vanishes.
     if eng_body.startswith("__PATTERN__"):
-        pid = eng_body[len("__PATTERN__") :]
-        p.append(
-            f'<g clip-path="url(#cut)" color="{rim}" opacity="0.55">'
-            f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
-        )
+        # Positive polarity like the line families — the lattice is struck in
+        # lightened rim ink and fades at the medallion rim, not a dark panel.
+        # Two near-miss passes layer into a real moiré (see the engravers).
+        pids = eng_body[len("__PATTERN__") :].split("|")
+        for k, pid in enumerate(pids):
+            p.append(
+                f'<g clip-path="url(#cut)" mask="url(#fade)" '
+                f'opacity="{(1.0, 0.7, 0.5)[min(k, 2)]}">'
+                f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
+            )
     else:
         dash = ' stroke-dasharray="5 6"' if ink == "stipple" else ""
         p.append(
-            f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.2" '
-            f'opacity="0.52"{dash}>{eng_body}</g>'
+            f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.3" '
+            f'opacity="0.66"{dash}>{eng_body}</g>'
         )
         if ink == "double":
             # The same cut struck again off-register, the way a second pass on
@@ -535,64 +780,54 @@ def render_card(
                 f'stroke-width="1.1" opacity="0.40" transform="translate(3 3)">{eng_body}</g>'
             )
 
-    # ── ruled border ────────────────────────────────────────────────────────
+    # ── no drawn borders: the card edge IS the frame ────────────────────────
+    # Every luxury card sourced (Apple, N26, Robinhood Gold, Centurion) draws
+    # zero borders, bolts or rules on the face. The tiered frame weight moved
+    # onto the silhouette rim itself.
+    #
+    # ── head: wordmark top-left, serial + tier top-right. Nothing else. ─────
+    p.append(_small_caps("Suwappu", IL, 122, 17, mark_col, 7.0, "bold"))
     p.append(
-        f'<rect x="{PL}" y="{PT}" width="{PR - PL}" height="{PB - PT}" fill="none" '
-        f'stroke="{rim}" stroke-opacity="0.75" stroke-width="3.5"/>'
-        f'<rect x="{PL + 11}" y="{PT + 11}" width="{PR - PL - 22}" height="{PB - PT - 22}" '
-        f'fill="none" stroke="{rim}" stroke-opacity="0.32" stroke-width="1.2"/>'
+        f'<text x="{IR}" y="122" font-family="{SERIF}" font-size="19" fill="url(#mgrad)" '
+        f'text-anchor="end" letter-spacing="1.6">{esc(f"No. {rank:04d}")}</text>'
     )
-    for cx_, cy_ in (
-        (PL + 11, PT + 11),
-        (PR - 11, PT + 11),
-        (PL + 11, PB - 11),
-        (PR - 11, PB - 11),
-    ):
-        p.append(
-            f'<circle cx="{cx_}" cy="{cy_}" r="17" fill="none" stroke="{rim}" '
-            f'stroke-opacity="0.5" stroke-width="1.6"/>'
-            f'<circle cx="{cx_}" cy="{cy_}" r="7" fill="{rim}" fill-opacity="0.55"/>'
-        )
-
-    # ── head ────────────────────────────────────────────────────────────────
-    p.append(_small_caps("Suwappu", IL, 118, 16, mark_col, 7.0, "bold"))
-    p.append(
-        _small_caps(
-            "Certificate of Position",
-            W_ / 2,
-            118,
-            11.5,
-            _mix(rim, "#ffffff", 0.25),
-            4.0,
-            anchor="middle",
-        )
-    )
-    p.append(
-        f'<text x="{IR}" y="118" font-family="{SERIF}" font-size="18" fill="{rim}" '
-        f'text-anchor="end" letter-spacing="1.4">{esc(f"No. {rank:04d}")}</text>'
-    )
-    p.append(
-        f'<line x1="{IL}" y1="140" x2="{IR}" y2="140" stroke="{rim}" '
-        f'stroke-opacity="0.45" stroke-width="1.2"/>'
-    )
+    # The tier line always prints — at 190px an absent label reads as a broken
+    # card, not a base one. 13px vanished in a grid cell; 17px survives.
+    p.append(_small_caps(badge or "Member", IR, 154, 17, metal, 3.2, "bold", anchor="end"))
 
     # ── ticker: at 190px this and one number ARE the card ───────────────────
-    tsize = 150 if len(ticker) <= 4 else (124 if len(ticker) == 5 else 104)
+    # Embossed, not printed: a shadow struck below-right and a highlight
+    # above-left, the way type is pressed into metal.
+    # (moved to the low third, where a metal card carries the cardholder's
+    # name — the upper half belongs to negative space)
+    tsize = 116 if len(ticker) <= 4 else (96 if len(ticker) == 5 else 82)
+    hi_ink, hi_op = ("#ffffff", 0.65) if proof else ("#ffffff", 0.16)
+    sh_op = 0.28 if proof else 0.55
+    ty = 1024
+    tick_attrs = f'font-family="{SERIF}" font-size="{tsize}" font-weight="bold" letter-spacing="-2"'
     p.append(
-        f'<text x="{IL}" y="290" font-family="{SERIF}" font-size="{tsize}" font-weight="bold" '
-        f'fill="{body_col}" letter-spacing="-3">{esc(ticker)}</text>'
+        f'<text x="{IL + 2.5}" y="{ty + 3}" {tick_attrs} fill="#000000" '
+        f'fill-opacity="{sh_op}">{esc(ticker)}</text>'
     )
+    p.append(
+        f'<text x="{IL - 2}" y="{ty - 2.5}" {tick_attrs} fill="{hi_ink}" '
+        f'fill-opacity="{hi_op}">{esc(ticker)}</text>'
+    )
+    p.append(f'<text x="{IL}" y="{ty}" {tick_attrs} fill="{body_col}">{esc(ticker)}</text>')
     if len(company) <= 40:
         name = company
     else:
         cut = company[:40].rsplit(" ", 1)[0]
         name = (cut if len(cut) > 18 else company[:39]) + "\u2026"
-    p.append(_small_caps(name, IL, 330, 14.5, _mix(sector_col, "#ffffff", 0.35), 3.2))
-    p.append(_small_caps(sector, IL, 360, 12, sector_col, 3.4))
-    if badge:
+    p.append(_small_caps(name, IL, ty + 40, 13.5, _mix(sector_col, body_col, 0.45), 3.2))
+    # basis -> now, one quiet data block on the right of the name line. The
+    # ruled ruler, ticks and gradient bar of the certificate era are gone.
+    if priced:
+        p.append(_small_caps(f"entry ${fmt_px(entry)}", IR, ty - 44, 13, quiet, 3.0, anchor="end"))
         p.append(
-            f'<text x="{IR}" y="290" font-family="{SERIF}" font-size="30" fill="{accent}" '
-            f'text-anchor="end" font-style="italic">{esc(badge)}</text>'
+            _small_caps(
+                f"now ${fmt_px(price)}", IR, ty - 12, 16, hero_col, 3.0, "bold", anchor="end"
+            )
         )
 
     # ── the two real numbers ────────────────────────────────────────────────
@@ -608,14 +843,20 @@ def render_card(
         sign = "+" if ret_bps >= 0 else "\u2212"
         hero = f"{sign}{abs(ret_bps) / 100:,.1f}%"
         hsize = 138 if len(hero) <= 6 else (120 if len(hero) <= 7 else 104)
+        hero_attrs = (
+            f'font-family="{SERIF}" font-size="{hsize}" font-weight="bold" '
+            f'text-anchor="middle" letter-spacing="-3"'
+        )
         p.append(
-            f'<text x="{W_ / 2}" y="{cy + 44}" font-family="{SERIF}" font-size="{hsize}" '
-            f'font-weight="bold" fill="{hero_col}" text-anchor="middle" '
-            f'letter-spacing="-3">{esc(hero)}</text>'
+            f'<text x="{W_ / 2 + 2.5}" y="{cy + 47}" {hero_attrs} fill="#000000" '
+            f'fill-opacity="{0.25 if proof else 0.5}">{esc(hero)}</text>'
+        )
+        p.append(
+            f'<text x="{W_ / 2}" y="{cy + 44}" {hero_attrs} fill="{hero_col}">{esc(hero)}</text>'
         )
         p.append(
             _small_caps(
-                "since entry",
+                f"since entry · {grade['name']}",
                 W_ / 2,
                 cy + 84,
                 12,
@@ -627,86 +868,26 @@ def render_card(
     else:
         p.append(
             f'<text x="{W_ / 2}" y="{cy + 26}" font-family="{SERIF}" font-size="82" '
-            f'fill="#a09889" text-anchor="middle" font-style="italic" '
-            f'letter-spacing="2">Unpriced</text>'
+            f'font-weight="bold" fill="#a09889" text-anchor="middle" '
+            f'letter-spacing="-1">Unpriced</text>'
         )
         p.append(
             _small_caps("no basis stamped", W_ / 2, cy + 70, 12, "#7a7367", 5.0, anchor="middle")
         )
 
-    # ── basis -> now, engraved. One band, not four. ─────────────────────────
-    sy = 952
-    p.append(
-        f'<line x1="{IL}" y1="{sy}" x2="{IR}" y2="{sy}" stroke="{_mix(rim, "#000000", 0.45)}" '
-        f'stroke-width="1.4"/>'
-    )
-    if priced:
-        for k in range(1, 20):
-            tx = IL + (IR - IL) * k / 20.0
-            tall = 10 if k % 5 == 0 else 5
-            p.append(
-                f'<line x1="{tx:.1f}" y1="{sy - tall}" x2="{tx:.1f}" y2="{sy + tall}" '
-                f'stroke="{_mix(rim, "#000000", 0.4)}" stroke-width="1.1"/>'
-            )
-        e_x = IL if price >= entry else IR
-        n_x = IR if price >= entry else IL
-        flip = ' transform="rotate(180 500 0)"' if n_x < e_x else ""
-        p.append(
-            f'<rect x="{min(e_x, n_x)}" y="{sy - 17}" width="{abs(n_x - e_x)}" height="34" '
-            f'fill="url(#span)"{flip}/>'
-        )
-        for xx, lab, val, col in (
-            (e_x, "basis", fmt_px(entry), quiet),
-            (n_x, "now", fmt_px(price), hero_col),
-        ):
-            anc = "start" if xx < W_ / 2 else "end"
-            p.append(
-                f'<line x1="{xx}" y1="{sy - 26}" x2="{xx}" y2="{sy + 26}" stroke="{col}" '
-                f'stroke-width="3"/>'
-            )
-            p.append(_small_caps(lab, xx, sy - 38, 11, quiet, 4.0, anchor=anc))
-            p.append(
-                f'<text x="{xx}" y="{sy + 60}" font-family="{SERIF}" font-size="34" '
-                f'fill="{col}" text-anchor="{anc}">${esc(val)}</text>'
-            )
-
-    # ── seal ────────────────────────────────────────────────────────────────
-    scx, scy, sr = W_ - 200, 1082, 72
-    p.append(
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="{edge_col}" fill-opacity="0.75"/>'
-        f'<circle cx="{scx}" cy="{scy}" r="{sr}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.7" stroke-width="2.6"/>'
-        f'<circle cx="{scx}" cy="{scy}" r="{sr - 10}" fill="none" stroke="{accent}" '
-        f'stroke-opacity="0.3" stroke-width="1"/>'
-    )
-    p.append(f'<g stroke="{accent}" fill="none" stroke-width="1" opacity="0.32">')
-    for i in range(5):
-        p.append(f'<use href="#gs" transform="rotate({spin + i * 72:.1f} {scx} {scy})"/>')
-    p.append("</g>")
-    p.append(
-        f'<text font-family="{MONO}" font-size="11" fill="{accent}" fill-opacity="0.9" '
-        f'letter-spacing="3.4"><textPath href="#sealArc" startOffset="50%" '
-        f'text-anchor="middle">{esc(grade["name"].upper())}</textPath></text>'
-    )
-    p.append(
-        f'<text x="{scx}" y="{scy + 12}" font-family="{SERIF}" font-size="30" '
-        f'font-weight="bold" fill="{body_col}" text-anchor="middle">{esc(ticker[:4])}</text>'
-    )
-
-    # ── one footing band, not four ──────────────────────────────────────────
+    # ── foot: one quiet line. The seal, gauge band and rosette stamp are
+    # gone — a real card carries no instrument cluster. ─────────────────────
     struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
-    p.append(
-        f'<text x="{IL}" y="1072" font-family="{SERIF}" font-size="30" fill="{body_col}">'
-        f"\u2212{disc_pct}% off every swap</text>"
-    )
+    p.append(_small_caps(f"{disc_pct}% off every swap", IL, 1112, 14, body_col, 4.5, "bold"))
     p.append(
         _small_caps(
             f"struck {struck} \u00b7 rank {rank} of {cfg['collection']['supply']:,}",
-            IL,
-            1104,
-            11.5,
+            IR,
+            1112,
+            11,
             quiet,
             3.0,
+            anchor="end",
         )
     )
     p.append(
@@ -716,12 +897,20 @@ def render_card(
             IL,
             PB - 26,
             9.5,
-            "#5f5a51",
+            faint,
             2.2,
         )
     )
-    p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, "#5f5a51", 2.2, anchor="end"))
+    p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, faint, 2.2, anchor="end"))
 
+    # the light sheen sweeps the finished plate, then the silhouette is rimmed
+    # in the tier metal — the last two strokes of the machining
+    p.append(f'<rect width="{W_}" height="{H_}" fill="url(#sheen)"/>')
+    p.append("</g>")
+    p.append(
+        f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
+        f'fill="none" stroke="url(#mgrad)" stroke-width="2.5"/>'
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
         f'viewBox="0 0 {W_} {H_}" role="img" aria-label="{esc(ticker)} position card">'

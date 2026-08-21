@@ -119,6 +119,28 @@ class HyperLiquidClient:
             )
         return self._client
 
+    async def get_meta_and_asset_ctxs(self) -> Optional[list]:
+        """Raw ``metaAndAssetCtxs`` info response: ``[meta, assetCtxs]``.
+
+        ``meta["universe"][i]`` pairs positionally with ``assetCtxs[i]`` —
+        one entry per perp market, carrying funding rate, open interest,
+        mark/oracle price, and 24h notional volume in a single request.
+        Feeds the venue data capture service's perp metrics loop
+        (bot/services/venue_data.py). Returns ``None`` on any failure.
+        """
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                self.INFO_URL,
+                json={"type": "metaAndAssetCtxs"},
+            )
+            if response.status_code != 200:
+                return None
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get HyperLiquid metaAndAssetCtxs: {e}")
+            return None
+
     async def get_markets(self) -> list[HLMarketInfo]:
         """Get all available markets."""
         try:

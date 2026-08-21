@@ -14,6 +14,7 @@ import type { SimulationResult } from '../types/simulation'
 import type { SnipeRequest, SnipeResult, LaunchToken } from '../types/snipe'
 import type { PredictionMarket, PredictionMarketDetail, PredictionEvent, PredictionTrade, MarketPrice, PredictionPosition, PredictionOrderRequest, PredictionOrderResult } from '../types/prediction'
 import type { P2POffersQuery, P2POffersResponse, P2PTradesResponse, P2PMyOffersResponse, P2PStartTradeRequest, P2PStartTradeResult, P2PCreateOfferRequest, P2PCreateOfferResult } from '../types/p2p'
+import type { MarketDataStatus, OhlcvResponse, PerpMarketsResponse, PerpHistoryResponse, PredictionMarketsResponse, PredictionHistoryResponse, LendMarketsResponse } from '../types/marketData'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
@@ -786,6 +787,53 @@ class ApiClient {
 
   async getPerpsMarkets(): Promise<{ markets: Array<{ name: string; asset: string; szDecimals: number; maxLeverage: number; markPrice: number; fundingRate: number }> }> {
     return this.fetch('/v1/agent/perps/markets')
+  }
+
+  // === Market Data (candles, perps, predictions, lend) ===
+
+  /** Coverage/freshness summary for every dataset in the market-data store. */
+  async getMarketDataStatus(): Promise<MarketDataStatus> {
+    return this.fetch<MarketDataStatus>('/webapp/data/status')
+  }
+
+  /** OHLCV candles for a symbol/timeframe. */
+  async getMarketDataOhlcv(params: { symbol: string; chain: string; timeframe: string; limit?: number }): Promise<OhlcvResponse> {
+    const qs = new URLSearchParams({
+      symbol: params.symbol,
+      chain: params.chain,
+      timeframe: params.timeframe,
+      limit: String(params.limit ?? 200),
+    })
+    return this.fetch<OhlcvResponse>(`/webapp/data/ohlcv?${qs}`)
+  }
+
+  /** Latest snapshot (funding, OI, mark price) across perp venues/symbols. */
+  async getMarketDataPerpMarkets(limit = 100): Promise<PerpMarketsResponse> {
+    return this.fetch<PerpMarketsResponse>(`/webapp/data/perps/markets?limit=${limit}`)
+  }
+
+  /** Funding/OI history for a single perp symbol. */
+  async getMarketDataPerpHistory(symbol: string, venue: string, limit = 200): Promise<PerpHistoryResponse> {
+    const qs = new URLSearchParams({ symbol, venue, limit: String(limit) })
+    return this.fetch<PerpHistoryResponse>(`/webapp/data/perps/history?${qs}`)
+  }
+
+  /** Prediction-market list, optionally filtered by a search query. */
+  async getMarketDataPredictionMarkets(q = '', limit = 50): Promise<PredictionMarketsResponse> {
+    const qs = new URLSearchParams({ limit: String(limit) })
+    if (q) qs.set('q', q)
+    return this.fetch<PredictionMarketsResponse>(`/webapp/data/predictions/markets?${qs}`)
+  }
+
+  /** Odds history for a prediction-market outcome. */
+  async getMarketDataPredictionHistory(marketId: string, outcome: string, limit = 200): Promise<PredictionHistoryResponse> {
+    const qs = new URLSearchParams({ market_id: marketId, outcome, limit: String(limit) })
+    return this.fetch<PredictionHistoryResponse>(`/webapp/data/predictions/history?${qs}`)
+  }
+
+  /** Lending-market rates (supply/borrow APY, TVL, utilization). */
+  async getMarketDataLendMarkets(limit = 50): Promise<LendMarketsResponse> {
+    return this.fetch<LendMarketsResponse>(`/webapp/data/lend/markets?limit=${limit}`)
   }
 
   // === P2P Marketplace ===

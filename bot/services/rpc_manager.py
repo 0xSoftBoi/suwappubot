@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import aiohttp
 from web3 import Web3
@@ -38,6 +38,57 @@ _QUOTA_ERROR = re.compile(
     r"insufficient funds for (?:rpc|request)",
     re.IGNORECASE,
 )
+
+# Endpoint is gone or now gated — same class of problem as quota exhaustion, and
+# for the same reason it must not go back into rotation in ten minutes.
+#
+# A host that does not resolve will not resolve on the next attempt, and a public
+# endpoint answering 401/403 has been put behind a key. The generic backoff caps
+# at 600s, so these were re-probed every 10 minutes forever: production logs
+# showed 288 consecutive failures on each of ~20 endpoints (that is what a 600s
+# retry looks like after two days), and the resulting wall of WARNING lines
+# drowned the worker's logs so thoroughly that the log buffer covered only a few
+# minutes — which is why an unrelated incident could not be debugged from them.
+#
+# Measured 2026-08-15: polygon/avax/optimism/zksync .meowrpc.com are NXDOMAIN,
+# polygon/optimism/ava blastapi public answer 403, rpc.ftm.tools answers 401 —
+# while eth/base/bsc/arbitrum on the same domains still serve fine. The failure
+# is per-endpoint, not per-domain, so this belongs in the circuit breaker rather
+# than in the trusted-domain allowlist.
+_UNRECOVERABLE_ERROR = re.compile(
+    r"name or service not known|temporary failure in name resolution|"
+    r"nodename nor servname|no address associated with hostname|"
+    r"\bhttp_401\b|\bhttp_403\b",
+    re.IGNORECASE,
+)
+
+# Contract-level EVM reverts are successful RPC transport/capability events: the
+# node received the request, executed it, and returned the contract's rejection.
+# Several callers historically flattened JSON-RPC errors into strings before
+# calling report_failure(), so keep this matcher deliberately narrow and usable
+# on those flattened messages. Counting these against the endpoint opens a
+# chain-wide circuit because one token/contract rejected one call.
+_EXECUTION_REVERT_ERROR = re.compile(r"\bexecution reverted\b", re.IGNORECASE)
+
+
+def _safe_url(url: str) -> str:
+    """Log-safe endpoint identity: scheme://host plus a redacted path.
+
+    Endpoint URLs carry credentials in the path (`.../v2/<api-key>`), and the
+    previous `url[:60]` truncation cut *past* that boundary — production logs
+    leaked ~17 characters of an Alchemy key on every circuit-open line. The host
+    is what makes a log line actionable; the key never is.
+    """
+    try:
+        parts = urlsplit(url)
+        if not parts.scheme or not parts.netloc:
+            return "<malformed-url>"
+        # Keep the first path segment (often the chain/version), drop the rest.
+        head = parts.path.split("/")[1] if len(parts.path.split("/")) > 1 else ""
+        suffix = f"/{head}/***" if head and parts.path.rstrip("/") != f"/{head}" else parts.path
+        return f"{parts.scheme}://{parts.netloc}{suffix}"
+    except Exception:  # pragma: no cover - never let logging raise
+        return "<unparseable-url>"
 
 
 def _build_ssl_context() -> Optional[ssl.SSLContext]:
@@ -313,13 +364,24 @@ class RPCEndpoint:
         self.total_requests += 1
         self.last_error = error
         self.consecutive_failures += 1
+        was_open = self.is_circuit_open
         if _QUOTA_ERROR.search(error):
             # Log only on the transition, or a 6h cooldown still produces a wall
             # of identical lines every time a caller retries mid-cooldown.
-            if not self.is_circuit_open:
+            if not was_open:
                 logger.warning(
-                    "RPC circuit OPEN (quota exhausted) %s... (%ss, reason=%s)",
-                    self.url[:60],
+                    "RPC circuit OPEN (quota exhausted) %s (%ss, reason=%s)",
+                    _safe_url(self.url),
+                    self.QUOTA_COOLDOWN_SECONDS,
+                    error[:120],
+                )
+            self.circuit_open_until = time.monotonic() + self.QUOTA_COOLDOWN_SECONDS
+            return
+        if _UNRECOVERABLE_ERROR.search(error):
+            if not was_open:
+                logger.warning(
+                    "RPC circuit OPEN (endpoint gone or gated) %s (%ss, reason=%s)",
+                    _safe_url(self.url),
                     self.QUOTA_COOLDOWN_SECONDS,
                     error[:120],
                 )
@@ -327,15 +389,26 @@ class RPCEndpoint:
             return
         if fatal:
             self.circuit_open_until = time.monotonic() + 600
-            logger.warning(f"RPC circuit OPEN (fatal) {self.url[:60]}... (600s, reason={error})")
+            # Same transition guard as above. Without it a fatal endpoint logged
+            # on every single call for the whole cooldown.
+            if not was_open:
+                logger.warning(
+                    "RPC circuit OPEN (fatal) %s (600s, reason=%s)",
+                    _safe_url(self.url),
+                    error[:120],
+                )
             return
         if self.consecutive_failures >= 3:
             backoff = min(600, 30 * (2 ** (self.consecutive_failures - 3)))
             self.circuit_open_until = time.monotonic() + backoff
-            logger.warning(
-                f"RPC circuit OPEN {self.url[:60]}... ({backoff}s, "
-                f"{self.consecutive_failures} failures, reason={error})"
-            )
+            if not was_open:
+                logger.warning(
+                    "RPC circuit OPEN %s (%ss, %s failures, reason=%s)",
+                    _safe_url(self.url),
+                    backoff,
+                    self.consecutive_failures,
+                    error[:120],
+                )
 
     def decay_stats(self):
         """Halve counters so recent performance dominates."""
@@ -622,7 +695,15 @@ class RPCManager:
             ep.record_success(latency_ms)
 
     def report_failure(self, chain_name: str, url: str, error: str):
-        """Report a failed RPC call."""
+        """Report a failed RPC call unless it is a contract-level execution revert.
+
+        An execution revert proves the endpoint successfully served eth_call;
+        penalizing it here lets one bad/uninitialized contract poison RPC health
+        for every other reader on the chain. The caller still receives its
+        original exception and decides how to represent the contract failure.
+        """
+        if _EXECUTION_REVERT_ERROR.search(error):
+            return
         chain_name = chain_name.lower()
         ep = self._find_endpoint(chain_name, url)
         if ep:

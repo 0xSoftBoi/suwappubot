@@ -54,3 +54,7 @@ contracts/lib/openzeppelin-contracts/package-lock.json
 
 # MCP registry publish tokens (were committed once — never again)
 .mcpregistry_*
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/

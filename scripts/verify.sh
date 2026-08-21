@@ -3,10 +3,10 @@ set -e
 MODE=${1:-all}
 
 case "$MODE" in
-  all|python|api|agent|env|health|onchain) ;;
+  all|python|api|agent|env|health|onchain|docs|deployed) ;;
   *)
     echo "✗ Unknown verify lane: '$MODE'" >&2
-    echo "  Valid lanes: all python api agent env health onchain" >&2
+    echo "  Valid lanes: all python api agent env health onchain docs deployed" >&2
     exit 2
     ;;
 esac
@@ -54,6 +54,15 @@ if [[ "$MODE" == "all" || "$MODE" == "env" ]]; then
   echo "✓ Env contract in sync"
 fi
 
+if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
+  echo "=== Docs drift ==="
+  if ! python3 scripts/check_docs_drift.py; then
+    echo "✗ Canonical docs reference paths that no longer exist."
+    echo "  Update the doc alongside the rename/removal that stranded it."
+    exit 1
+  fi
+fi
+
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then
   echo "=== Production health ==="
   curl -fsS https://api.suwappu.bot/health | python3 -m json.tool
@@ -71,6 +80,15 @@ if [[ "$MODE" == "onchain" ]]; then
   echo "=== On-chain constants ==="
   python3.12 scripts/verify_onchain_constants.py
   echo "✓ On-chain constants verified"
+fi
+
+# Opt-in, not part of "all": this probes deployed services, so it can fail for
+# a healthy branch that simply has not shipped yet. Run after a deploy to answer
+# "is the expected code actually live?" rather than relying on build status alone.
+if [[ "$MODE" == "deployed" ]]; then
+  echo "=== Deployed code matches main ==="
+  python3 scripts/check_deploy_freshness.py --ref origin/main
+  echo "✓ Deployed fingerprints match main"
 fi
 
 echo "All checks passed ✓"
