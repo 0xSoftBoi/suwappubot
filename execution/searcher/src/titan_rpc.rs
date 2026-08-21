@@ -181,7 +181,7 @@ mod tests {
         let sender = transport.into_inner();
         let rpc = &sender.requests[0];
         assert_eq!(rpc["method"], "eth_sendBundle");
-        assert_eq!(rpc["params"][0]["blockNumber"], "0x17a7840");
+        assert_eq!(rpc["params"][0]["blockNumber"], "0x17a6b00");
         assert_eq!(rpc["params"][0]["txs"][1], "0xdef");
         assert_eq!(
             rpc["params"][0]["replacementUuid"],
