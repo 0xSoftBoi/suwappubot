@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { API_CHANGELOG } from '../src/lib/apiChangelog'
 import { API_LIFECYCLE_REGISTRY, validateLifecycleRegistry } from '../src/lib/apiLifecycle'
 import { PUBLIC_AGENT_OPENAPI } from '../src/lib/publicOpenApi'
 import developerContract from '../developer-contract.json'
@@ -9,6 +12,12 @@ function invariant(condition: unknown, message: string): asserts condition {
 }
 
 validateLifecycleRegistry()
+
+const expectedCategories = ['Breaking', 'Deprecated', 'Security', 'Added', 'Changed', 'Fixed']
+invariant(
+	JSON.stringify(API_CHANGELOG.categories) === JSON.stringify(expectedCategories),
+	`API changelog categories must be ${expectedCategories.join(' / ')}`,
+)
 
 const description = String(PUBLIC_AGENT_OPENAPI.info?.description ?? '')
 invariant(!/7\+\s*chains/i.test(description), 'served OpenAPI still publishes the stale 7+ chains claim')
@@ -39,6 +48,32 @@ invariant(
 )
 
 for (const [name, record] of Object.entries(API_LIFECYCLE_REGISTRY.resources)) {
+	if (record.status === 'deprecated' || record.status === 'sunset') {
+		invariant(record.deprecationAt, `deprecated lifecycle resource ${name} is missing deprecationAt`)
+		invariant(record.documentationUrl, `deprecated lifecycle resource ${name} is missing documentationUrl`)
+		invariant(record.replacement !== undefined, `deprecated lifecycle resource ${name} must state replacement or explicit no-replacement`)
+
+		const routeIdentity = `${record.method.toUpperCase()} ${record.path}`
+		const changelogEntry = API_CHANGELOG.entries.find(
+			(entry) => entry.category === 'Deprecated' && entry.affected.includes(routeIdentity),
+		)
+		invariant(changelogEntry, `deprecated lifecycle resource ${name} has no matching Deprecated changelog entry`)
+		invariant(
+			changelogEntry.documentationUrl === record.documentationUrl,
+			`deprecated lifecycle resource ${name} changelog documentation URL drift`,
+		)
+
+		const githubDocsMatch = record.documentationUrl.match(
+			/^https:\/\/github\.com\/0xSoftBoi\/suwappubot\/blob\/main\/(docs\/[^?#]+)$/,
+		)
+		if (githubDocsMatch) {
+			invariant(
+				existsSync(resolve(process.cwd(), '..', githubDocsMatch[1])),
+				`deprecated lifecycle resource ${name} points to missing migration document ${githubDocsMatch[1]}`,
+			)
+		}
+	}
+
 	if (record.fixtureOnly) continue
 	if (!record.path.startsWith(`${developerContract.agentRest.basePath}/`)) continue
 	const relative = record.path.slice(developerContract.agentRest.basePath.length)
@@ -52,5 +87,5 @@ for (const [name, record] of Object.entries(API_LIFECYCLE_REGISTRY.resources)) {
 
 console.log(
 	`✓ Public contract valid: REST ${developerContract.agentRest.compatibilityMajor}, OpenAPI ${developerContract.agentRest.openapiRevision}, ` +
-		`${Object.keys(API_LIFECYCLE_REGISTRY.resources).length} lifecycle record(s), verified production server only.`,
+		`${Object.keys(API_LIFECYCLE_REGISTRY.resources).length} lifecycle record(s), ${API_CHANGELOG.entries.length} changelog entr${API_CHANGELOG.entries.length === 1 ? 'y' : 'ies'}, verified production server only.`,
 )
