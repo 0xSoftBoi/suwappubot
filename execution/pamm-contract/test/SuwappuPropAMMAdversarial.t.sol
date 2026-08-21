@@ -6,6 +6,7 @@ import {SuwappuPropAMM} from "../src/SuwappuPropAMM.sol";
 interface VmAdv {
     function addr(uint256 privateKey) external returns (address);
     function sign(uint256 privateKey, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
+    function chainId(uint256 newChainId) external;
 }
 
 contract StrictToken {
@@ -42,16 +43,25 @@ contract StrictToken {
 }
 
 contract FeeOnTransferToken is StrictToken {
+    function transfer(address to, uint256 amount) external override returns (bool) {
+        _moveWithFee(msg.sender, to, amount);
+        return true;
+    }
+
     function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         require(allowed >= amount, "allowance");
         if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
+        _moveWithFee(from, to, amount);
+        return true;
+    }
+
+    function _moveWithFee(address from, address to, uint256 amount) internal {
         uint256 fee = amount / 100;
         uint256 received = amount - fee;
         require(balanceOf[from] >= amount, "balance");
         balanceOf[from] -= amount;
         balanceOf[to] += received;
-        return true;
     }
 }
 
@@ -101,7 +111,7 @@ contract SuwappuPropAMMAdversarialTest {
         quoteToken.mint(address(pamm), 1_000);
         base.approve(address(pamm), type(uint256).max);
 
-        SuwappuPropAMM.Quote memory q = _quote(pamm, 1, 0, bytes32(0), 500, 500);
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 500, 500);
         pamm.applyQuote(q, _sign(pamm, q, SIGNER_KEY));
         (bool ok,) = address(pamm).call(
             abi.encodeCall(
@@ -111,6 +121,30 @@ contract SuwappuPropAMMAdversarialTest {
         );
         require(!ok, "fee-on-transfer input must fail");
         require(pamm.consumedBaseIn() == 0, "revert restores capacity");
+    }
+
+    function testFeeOnTransferOutputFailsClosed() public {
+        StrictToken base = new StrictToken();
+        FeeOnTransferToken quoteToken = new FeeOnTransferToken();
+        SuwappuPropAMM pamm = new SuwappuPropAMM(
+            address(base), address(quoteToken), vm.addr(SIGNER_KEY)
+        );
+        base.mint(address(this), 1_000);
+        quoteToken.mint(address(pamm), 1_000);
+        base.approve(address(pamm), type(uint256).max);
+
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 500, 500);
+        pamm.applyQuote(q, _sign(pamm, q, SIGNER_KEY));
+        uint256 beforeBalance = quoteToken.balanceOf(address(this));
+        (bool ok,) = address(pamm).call(
+            abi.encodeCall(
+                SuwappuPropAMM.sellBaseExactIn,
+                (uint96(100), uint256(0), pamm.currentQuoteHash(), address(this))
+            )
+        );
+        require(!ok, "fee-on-transfer output must fail");
+        require(quoteToken.balanceOf(address(this)) == beforeBalance, "output rollback");
+        require(pamm.consumedBaseIn() == 0, "capacity rollback");
     }
 
     function testReentrantTransferFromCannotEnterSecondFill() public {
@@ -123,7 +157,7 @@ contract SuwappuPropAMMAdversarialTest {
         quoteToken.mint(address(pamm), 1_000);
         base.approve(address(pamm), type(uint256).max);
 
-        SuwappuPropAMM.Quote memory q = _quote(pamm, 1, 0, bytes32(0), 500, 500);
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 500, 500);
         pamm.applyQuote(q, _sign(pamm, q, SIGNER_KEY));
         base.arm(pamm, pamm.currentQuoteHash());
         pamm.sellBaseExactIn(100, 0, pamm.currentQuoteHash(), address(this));
@@ -139,7 +173,7 @@ contract SuwappuPropAMMAdversarialTest {
         SuwappuPropAMM pamm = new SuwappuPropAMM(
             address(base), address(quoteToken), vm.addr(SIGNER_KEY)
         );
-        SuwappuPropAMM.Quote memory q = _quote(pamm, 1, 0, bytes32(0), 100, 100);
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
         bytes32 digest = pamm.quoteDigest(q);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
         bytes32 highS = bytes32(SECP256K1N - uint256(s));
@@ -152,16 +186,30 @@ contract SuwappuPropAMMAdversarialTest {
         require(!ok, "high-s signature must fail");
     }
 
+    function testDomainSeparatorTracksChainIdChange() public {
+        StrictToken base = new StrictToken();
+        StrictToken quoteToken = new StrictToken();
+        SuwappuPropAMM pamm = new SuwappuPropAMM(
+            address(base), address(quoteToken), vm.addr(SIGNER_KEY)
+        );
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        bytes32 beforeDigest = pamm.quoteDigest(q);
+        vm.chainId(block.chainid + 1);
+        bytes32 afterDigest = pamm.quoteDigest(q);
+        require(afterDigest != beforeDigest, "domain must change");
+        pamm.applyQuote(q, _sign(pamm, q, SIGNER_KEY));
+    }
+
     function testWrongParentFailsClosed() public {
         StrictToken base = new StrictToken();
         StrictToken quoteToken = new StrictToken();
         SuwappuPropAMM pamm = new SuwappuPropAMM(
             address(base), address(quoteToken), vm.addr(SIGNER_KEY)
         );
-        SuwappuPropAMM.Quote memory first = _quote(pamm, 1, 0, bytes32(0), 100, 100);
+        SuwappuPropAMM.Quote memory first = _quote(1, 0, bytes32(0), 100, 100);
         pamm.applyQuote(first, _sign(pamm, first, SIGNER_KEY));
 
-        SuwappuPropAMM.Quote memory bad = _quote(pamm, 1, 1, bytes32(uint256(1)), 100, 100);
+        SuwappuPropAMM.Quote memory bad = _quote(1, 1, bytes32(uint256(1)), 100, 100);
         (bool ok,) = address(pamm).call(
             abi.encodeCall(SuwappuPropAMM.applyQuote, (bad, _sign(pamm, bad, SIGNER_KEY)))
         );
@@ -174,11 +222,11 @@ contract SuwappuPropAMMAdversarialTest {
         SuwappuPropAMM pamm = new SuwappuPropAMM(
             address(base), address(quoteToken), vm.addr(SIGNER_KEY)
         );
-        SuwappuPropAMM.Quote memory first = _quote(pamm, 7, 0, bytes32(0), 100, 100);
+        SuwappuPropAMM.Quote memory first = _quote(7, 0, bytes32(0), 100, 100);
         pamm.applyQuote(first, _sign(pamm, first, SIGNER_KEY));
         pamm.invalidateQuote();
 
-        SuwappuPropAMM.Quote memory sameEpoch = _quote(pamm, 7, 0, bytes32(0), 100, 100);
+        SuwappuPropAMM.Quote memory sameEpoch = _quote(7, 0, bytes32(0), 100, 100);
         (bool ok,) = address(pamm).call(
             abi.encodeCall(
                 SuwappuPropAMM.applyQuote,
@@ -205,7 +253,6 @@ contract SuwappuPropAMMAdversarialTest {
     }
 
     function _quote(
-        SuwappuPropAMM,
         uint64 epoch,
         uint64 sequence,
         bytes32 parent,
