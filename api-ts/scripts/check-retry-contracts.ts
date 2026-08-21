@@ -42,12 +42,15 @@ const agentSource = readFileSync(resolve(repoRoot, 'api-ts/src/routes/agent.ts')
 const predictSource = readFileSync(resolve(repoRoot, 'api-ts/src/routes/predict.ts'), 'utf8')
 const publicSwapSource = readFileSync(resolve(repoRoot, 'api-ts/src/routes/publicSwap.ts'), 'utf8')
 const paymentSchema = readFileSync(resolve(repoRoot, 'api-ts/src/db/schema/payments.ts'), 'utf8')
+const paymentConsumptionSource = readFileSync(resolve(repoRoot, 'api-ts/src/lib/paymentConsumption.ts'), 'utf8')
 const terminalSource = readFileSync(resolve(repoRoot, 'api/webapp.py'), 'utf8')
 
 invariant(agentSource.includes("c.req.header('Idempotency-Key')"), 'agent managed swap lost client Idempotency-Key handling')
 invariant(agentSource.includes('internalOutcomeUnknown = true'), 'agent managed swap lost explicit unknown-outcome handling')
 invariant(paymentSchema.includes("unique('uq_consumed_payments_chain_tx')"), 'global payment replay unique constraint missing')
-invariant(agentSource.includes('.from(consumedPayments)'), 'agent payment paths no longer use the global consumed-payments ledger')
+invariant(agentSource.includes('consumePayment(tx,'), 'agent payment paths no longer call the shared consumed-payments guard')
+invariant(paymentConsumptionSource.includes('consumedPayments'), 'shared payment replay helper no longer writes the consumed-payments ledger')
+invariant(paymentConsumptionSource.includes('.onConflictDoNothing()'), 'shared payment replay helper lost atomic conflict handling')
 
 const predictionContract = RETRY_CONTRACTS.operations['agent.prediction.place-order']
 invariant(predictionContract?.blocker === true, 'prediction order must remain a blocker until durable operation identity is implemented')
