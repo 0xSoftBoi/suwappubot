@@ -78,11 +78,34 @@ pub enum MarketEvent {
         valid_block: Option<BlockNumber>,
         valid_until_ns: TimestampNs,
     },
+    /// Public builder/relay market telemetry. These observations describe builder-market
+    /// pressure and delivered payloads; they are not labels for Suwappu submissions.
     BuilderTrace {
         builder: String,
         opportunity_id: String,
         bid_wei: u128,
         simulated: bool,
+        included: bool,
+        failure: Option<String>,
+    },
+    /// A Suwappu bundle/order submitted to one builder. This is the feature-side record
+    /// used by the builder inclusion model.
+    BuilderSubmission {
+        builder: String,
+        opportunity_id: String,
+        slot: u64,
+        builder_payment_wei: u128,
+        profit_before_bid_wei: u128,
+        opportunity_created_ts_ns: TimestampNs,
+        slot_phase_ms: u32,
+        simulation_confidence_bps: u16,
+        replace_sequence: Option<u64>,
+    },
+    /// Terminal or observed outcome for a previously submitted Suwappu opportunity.
+    BuilderOutcome {
+        builder: String,
+        opportunity_id: String,
+        slot: u64,
         included: bool,
         failure: Option<String>,
     },
