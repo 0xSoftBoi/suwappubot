@@ -62,6 +62,14 @@ _UNRECOVERABLE_ERROR = re.compile(
     re.IGNORECASE,
 )
 
+# Contract-level EVM reverts are successful RPC transport/capability events: the
+# node received the request, executed it, and returned the contract's rejection.
+# Several callers historically flattened JSON-RPC errors into strings before
+# calling report_failure(), so keep this matcher deliberately narrow and usable
+# on those flattened messages. Counting these against the endpoint opens a
+# chain-wide circuit because one token/contract rejected one call.
+_EXECUTION_REVERT_ERROR = re.compile(r"\bexecution reverted\b", re.IGNORECASE)
+
 
 def _safe_url(url: str) -> str:
     """Log-safe endpoint identity: scheme://host plus a redacted path.
@@ -687,7 +695,15 @@ class RPCManager:
             ep.record_success(latency_ms)
 
     def report_failure(self, chain_name: str, url: str, error: str):
-        """Report a failed RPC call."""
+        """Report a failed RPC call unless it is a contract-level execution revert.
+
+        An execution revert proves the endpoint successfully served eth_call;
+        penalizing it here lets one bad/uninitialized contract poison RPC health
+        for every other reader on the chain. The caller still receives its
+        original exception and decides how to represent the contract failure.
+        """
+        if _EXECUTION_REVERT_ERROR.search(error):
+            return
         chain_name = chain_name.lower()
         ep = self._find_endpoint(chain_name, url)
         if ep:
