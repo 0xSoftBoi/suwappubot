@@ -1,9 +1,100 @@
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::cmp::Ordering;
+use std::fmt;
 
 pub type TimestampNs = u64;
 pub type BlockNumber = u64;
 pub type Fixed = i128;
+
+fn deserialize_i128<'de, D>(deserializer: D) -> Result<i128, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct I128Visitor;
+
+    impl<'de> de::Visitor<'de> for I128Visitor {
+        type Value = i128;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a signed 128-bit integer encoded as a JSON integer or decimal string")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(i128::from(value))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(i128::from(value))
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            value.parse::<i128>().map_err(E::custom)
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+    }
+
+    deserializer.deserialize_any(I128Visitor)
+}
+
+fn deserialize_u128<'de, D>(deserializer: D) -> Result<u128, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct U128Visitor;
+
+    impl<'de> de::Visitor<'de> for U128Visitor {
+        type Value = u128;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an unsigned 128-bit integer encoded as a JSON integer or decimal string")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            u128::try_from(value).map_err(E::custom)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(u128::from(value))
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            value.parse::<u128>().map_err(E::custom)
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+    }
+
+    deserializer.deserialize_any(U128Visitor)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EventId(pub String);
@@ -48,20 +139,25 @@ impl Side {
 pub enum MarketEvent {
     FairValue {
         instrument: InstrumentId,
+        #[serde(deserialize_with = "deserialize_i128")]
         price: Fixed,
     },
     Trade {
         venue: VenueId,
         instrument: InstrumentId,
         side: Side,
+        #[serde(deserialize_with = "deserialize_i128")]
         price: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         quantity: Fixed,
     },
     Fill {
         venue: VenueId,
         instrument: InstrumentId,
         side: Side,
+        #[serde(deserialize_with = "deserialize_i128")]
         price: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         quantity: Fixed,
         strategy_id: String,
         opportunity_id: Option<String>,
@@ -71,9 +167,13 @@ pub enum MarketEvent {
         venue: VenueId,
         instrument: InstrumentId,
         quote_sequence: u64,
+        #[serde(deserialize_with = "deserialize_i128")]
         bid: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         ask: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         max_bid_quantity: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         max_ask_quantity: Fixed,
         valid_block: Option<BlockNumber>,
         valid_until_ns: TimestampNs,
@@ -83,6 +183,7 @@ pub enum MarketEvent {
     BuilderTrace {
         builder: String,
         opportunity_id: String,
+        #[serde(deserialize_with = "deserialize_u128")]
         bid_wei: u128,
         simulated: bool,
         included: bool,
@@ -94,7 +195,9 @@ pub enum MarketEvent {
         builder: String,
         opportunity_id: String,
         slot: u64,
+        #[serde(deserialize_with = "deserialize_u128")]
         builder_payment_wei: u128,
+        #[serde(deserialize_with = "deserialize_u128")]
         profit_before_bid_wei: u128,
         opportunity_created_ts_ns: TimestampNs,
         slot_phase_ms: u32,
@@ -112,6 +215,7 @@ pub enum MarketEvent {
     ExecutionAttempt {
         opportunity_id: String,
         strategy_id: String,
+        #[serde(deserialize_with = "deserialize_i128")]
         gross_pnl: Fixed,
         gas_used: Option<u64>,
         calldata_bytes: u32,
@@ -119,13 +223,18 @@ pub enum MarketEvent {
     },
     InventorySnapshot {
         asset: String,
+        #[serde(deserialize_with = "deserialize_i128")]
         amount: Fixed,
     },
     CapitalState {
         asset: String,
+        #[serde(deserialize_with = "deserialize_i128")]
         hot: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         warm: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         cold: Fixed,
+        #[serde(deserialize_with = "deserialize_i128")]
         synchronously_withdrawable: Fixed,
     },
 }
