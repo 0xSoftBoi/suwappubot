@@ -2,7 +2,7 @@
 /**
  * check-developer-contract.ts
  *
- * Enforces the developer-platform facts that can already be derived mechanically.
+ * Enforces developer-platform facts that can already be derived mechanically.
  * This is intentionally narrower than the target state in #873: OpenAPI prose and
  * llms endpoint inventories are still partly hand-authored, so this guard blocks
  * known high-risk contradictions while the full generator is implemented.
@@ -56,7 +56,19 @@ type OpenApiDoc = {
 	servers?: Array<{ url?: string; description?: string }>
 }
 
-type PackageJson = { name?: string; version?: string }
+type PackageJson = {
+	name?: string
+	version?: string
+	suwappu?: {
+		supportStage?: string
+		compatibleApiMajors?: string[]
+		apiBasePath?: string
+		bridgeType?: string
+		catalogAuthority?: string
+		hostedEndpoint?: string
+		compatibilityPolicy?: string
+	}
+}
 
 const contractPath = join(API_ROOT, 'developer-contract.json')
 const openApiPath = join(API_ROOT, 'openapi-agent.json')
@@ -72,20 +84,75 @@ const appSource = readFileSync(appPath, 'utf8')
 
 const { agentRest } = contract
 invariant(agentRest.compatibilityMajor.length > 0, 'Agent REST compatibility major is empty')
-invariant(agentRest.basePath.startsWith(`/${agentRest.compatibilityMajor}/`), `${agentRest.basePath} does not match compatibility major ${agentRest.compatibilityMajor}`)
+invariant(
+	agentRest.basePath.startsWith(`/${agentRest.compatibilityMajor}/`),
+	`${agentRest.basePath} does not match compatibility major ${agentRest.compatibilityMajor}`,
+)
 invariant(agentRest.lifecycle.length > 0, 'Agent REST lifecycle is empty')
-invariant(openApi.info?.version === agentRest.openapiRevision, `OpenAPI info.version ${openApi.info?.version ?? '<missing>'} != developer contract revision ${agentRest.openapiRevision}`)
+invariant(
+	openApi.info?.version === agentRest.openapiRevision,
+	`OpenAPI info.version ${openApi.info?.version ?? '<missing>'} != developer contract revision ${agentRest.openapiRevision}`,
+)
 
 const productionServer = `https://api.suwappu.bot${agentRest.basePath}`
-invariant(openApi.servers?.some((server) => server.url === productionServer), `OpenAPI servers do not contain canonical production server ${productionServer}`)
+invariant(
+	openApi.servers?.some((server) => server.url === productionServer),
+	`OpenAPI servers do not contain canonical production server ${productionServer}`,
+)
 
-invariant(sdkPackage.name === contract.packages.typescriptSdk.name, `TypeScript SDK package name ${sdkPackage.name ?? '<missing>'} != ${contract.packages.typescriptSdk.name}`)
-invariant(contract.packages.typescriptSdk.compatibleApiMajors.includes(agentRest.compatibilityMajor), `TypeScript SDK does not declare compatibility with REST ${agentRest.compatibilityMajor}`)
-invariant(mcpPackage.name === contract.packages.mcpBridge.name, `MCP bridge package name ${mcpPackage.name ?? '<missing>'} != ${contract.packages.mcpBridge.name}`)
-invariant(contract.packages.mcpBridge.catalogAuthority === 'hosted-mcp-runtime', 'MCP bridge must not claim package-version authority over the hosted tool catalog')
+invariant(
+	sdkPackage.name === contract.packages.typescriptSdk.name,
+	`TypeScript SDK package name ${sdkPackage.name ?? '<missing>'} != ${contract.packages.typescriptSdk.name}`,
+)
+invariant(
+	contract.packages.typescriptSdk.compatibleApiMajors.includes(agentRest.compatibilityMajor),
+	`TypeScript SDK contract does not declare compatibility with REST ${agentRest.compatibilityMajor}`,
+)
+invariant(sdkPackage.suwappu?.supportStage === 'active', 'TypeScript SDK package must declare active support stage')
+invariant(
+	sdkPackage.suwappu?.compatibleApiMajors?.includes(agentRest.compatibilityMajor),
+	`TypeScript SDK package metadata does not declare compatibility with REST ${agentRest.compatibilityMajor}`,
+)
+invariant(
+	sdkPackage.suwappu?.apiBasePath === agentRest.basePath,
+	`TypeScript SDK package apiBasePath ${sdkPackage.suwappu?.apiBasePath ?? '<missing>'} != ${agentRest.basePath}`,
+)
+invariant(
+	typeof sdkPackage.suwappu?.compatibilityPolicy === 'string' && sdkPackage.suwappu.compatibilityPolicy.length > 0,
+	'TypeScript SDK package must link its compatibility policy',
+)
+
+invariant(
+	mcpPackage.name === contract.packages.mcpBridge.name,
+	`MCP bridge package name ${mcpPackage.name ?? '<missing>'} != ${contract.packages.mcpBridge.name}`,
+)
+invariant(
+	contract.packages.mcpBridge.catalogAuthority === 'hosted-mcp-runtime',
+	'MCP bridge contract must not claim package-version authority over the hosted tool catalog',
+)
+invariant(mcpPackage.suwappu?.supportStage === 'active', 'MCP bridge package must declare active support stage')
+invariant(
+	mcpPackage.suwappu?.bridgeType === 'stdio-to-hosted-runtime',
+	'MCP bridge package must identify itself as a bridge to the hosted runtime',
+)
+invariant(
+	mcpPackage.suwappu?.catalogAuthority === contract.packages.mcpBridge.catalogAuthority,
+	'MCP bridge package catalog authority disagrees with developer contract',
+)
+invariant(
+	mcpPackage.suwappu?.hostedEndpoint === 'https://api.suwappu.bot/mcp',
+	'MCP bridge package must identify the canonical hosted MCP endpoint',
+)
+
 invariant(contract.packages.pythonSdk.publication === 'source-only', 'Python SDK must remain source-only until publication is verified')
-invariant(contract.packages.pythonSdk.productionInstall === 'pin-full-commit-sha', 'Source-only Python SDK must require a full commit SHA for production installs')
-invariant(contract.packages.pythonSdk.compatibleApiMajors.includes(agentRest.compatibilityMajor), `Python SDK source contract does not declare compatibility with REST ${agentRest.compatibilityMajor}`)
+invariant(
+	contract.packages.pythonSdk.productionInstall === 'pin-full-commit-sha',
+	'Source-only Python SDK must require a full commit SHA for production installs',
+)
+invariant(
+	contract.packages.pythonSdk.compatibleApiMajors.includes(agentRest.compatibilityMajor),
+	`Python SDK source contract does not declare compatibility with REST ${agentRest.compatibilityMajor}`,
+)
 
 for (const [name, relativePath] of Object.entries(contract.policies)) {
 	const policyPath = resolve(API_ROOT, relativePath)
