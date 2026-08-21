@@ -23,7 +23,9 @@ struct OutcomeRecord {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BuilderDatasetError {
-    #[error("conflicting submission replacement for builder={builder} opportunity={opportunity_id}")]
+    #[error(
+        "conflicting submission replacement for builder={builder} opportunity={opportunity_id}"
+    )]
     ConflictingSubmission {
         builder: String,
         opportunity_id: String,
@@ -266,7 +268,8 @@ mod tests {
 
     #[test]
     fn open_submission_is_not_labeled_as_failure() {
-        let rows = training_rows_from_events(&[envelope("submit", 2_000_000, submission(1, 100))]).unwrap();
+        let rows = training_rows_from_events(&[envelope("submit", 2_000_000, submission(1, 100))])
+            .unwrap();
         assert!(rows.is_empty());
     }
 
