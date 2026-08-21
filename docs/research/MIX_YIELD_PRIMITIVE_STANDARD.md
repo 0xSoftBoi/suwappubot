@@ -129,6 +129,8 @@ The current Ethereum fork suite covers:
 - production Morpho USDC ERC-4626 deposit and withdrawal;
 - portfolio withdrawal bounds derived from the Morpho target's live `maxWithdraw`.
 
+The integrated Solidity gate has passed all of the above together with the local unit, adapter, adversarial, compile, and 512-run / 64-depth invariant suites.
+
 CI uses a public Ethereum live-head RPC. This validates current deployed behavior but is not deterministic historical replay. A production release process SHOULD additionally use an authenticated archive RPC and pin known-good Ethereum block numbers for reproducible regression testing.
 
 ## Release bar
