@@ -15,6 +15,8 @@ monorepo directory-by-directory unless you are maintaining it.
 | **Build an agent** | [Agent clients](agent-clients.md) | [Agent control plane](agents/control-plane.md) |
 | **Integrate an app** | [Quickstart](quickstart.md#build-an-application) | [`@suwappu/sdk`](../packages/sdk/README.md) · [Python SDK](../packages/sdk-python/README.md) |
 | **Check maturity / execution authority** | [Product status](product-status.md) | [Agent clients](agent-clients.md) |
+| **Check compatibility / upgrade policy** | [API lifecycle](api-lifecycle.md) | [SDK support](sdk-support.md) |
+| **Review security responsibility** | [Shared responsibility](security/shared-responsibility.md) | [`SECURITY.md`](../SECURITY.md) |
 | **Understand the system** | [Architecture overview](architecture/OVERVIEW.md) | [`ARCHITECTURE.md`](../ARCHITECTURE.md) · [ADRs](adr/README.md) |
 | **Contribute** | [Onboarding](ONBOARDING.md) | [`CONVENTIONS.md`](../CONVENTIONS.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | **Operate production** | [Production inventory](deployment/production-inventory.md) | [Railway](deployment/railway.md) · [Monitoring](deployment/monitoring.md) |
@@ -30,6 +32,19 @@ monorepo directory-by-directory unless you are maintaining it.
   shadow, experimental, plan, and research semantics.
 - [Agent clients](agent-clients.md) — MCP, SDK, REST, A2A, auth, version and custody
   boundaries.
+
+### Developer contract
+
+- [API lifecycle and deprecation](api-lifecycle.md) — REST compatibility majors,
+  OpenAPI revision semantics, lifecycle states, deprecation/sunset signaling, and migration
+  requirements.
+- [SDK support and compatibility](sdk-support.md) — registry vs source authority, API-major
+  compatibility, support stages, release gates, and source-only package rules.
+- [Security shared responsibility](security/shared-responsibility.md) — what Suwappu,
+  integrators, and both parties must protect at each execution-authority level.
+- [Infrastructure parity benchmark](research/infrastructure-parity-2026-08.md) — the verified
+  point-in-time benchmark against top developer/onchain infrastructure and the P0/P1/P2 gap
+  analysis. Research is evidence for priorities, not a statement that all parity work has shipped.
 
 ### Feature guides
 
@@ -83,6 +98,7 @@ security posture.
 
 Money-path and security references:
 
+- [Shared responsibility model](security/shared-responsibility.md)
 - [Product status / authority](product-status.md)
 - [Agent security and custody](agent-clients.md)
 - [Compliance screening architecture](architecture/compliance-screening.md)
@@ -128,6 +144,8 @@ non-authoritative by definition.
 | Platform/Agent chain + router counts | `showcase/src/data/stats.generated.json` |
 | Agent chain support | runtime discovery / `GET /v1/agent/chains` |
 | MCP catalog | runtime MCP discovery |
+| REST compatibility/deprecation policy | [api-lifecycle.md](api-lifecycle.md) |
+| SDK support / registry-source semantics | [sdk-support.md](sdk-support.md) |
 | Environment requirements | `.env.schema` + `capabilities.yaml` |
 | Product maturity / execution authority | [product-status.md](product-status.md) |
 | Production service membership/source | Railway + [production inventory](deployment/production-inventory.md) |
