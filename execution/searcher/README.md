@@ -22,7 +22,7 @@ The intended live inputs are:
 - `proposer_payload_delivered` data for realized inclusion labels;
 - Titan's authenticated `builder/top_bid` WebSocket when credentials/eligibility are available.
 
-Transport and credential handling stay outside the economics core. The strategy/model consumes normalized events only.
+Representative wire fixtures live in `fixtures/titan_relay_bid.json` and `fixtures/titan_top_bid.json`. Transport and credential handling stay outside the economics core. The strategy/model consumes normalized events only.
 
 ## Executor baseline
 
