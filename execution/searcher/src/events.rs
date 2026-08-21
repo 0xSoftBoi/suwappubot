@@ -16,7 +16,8 @@ where
         type Value = i128;
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a signed 128-bit integer encoded as a JSON integer or decimal string")
+            formatter
+                .write_str("a signed 128-bit integer encoded as a JSON integer or decimal string")
         }
 
         fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
@@ -61,7 +62,9 @@ where
         type Value = u128;
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("an unsigned 128-bit integer encoded as a JSON integer or decimal string")
+            formatter.write_str(
+                "an unsigned 128-bit integer encoded as a JSON integer or decimal string",
+            )
         }
 
         fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
