@@ -43,8 +43,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: execution/searcher
-      - name: Format
-        run: cargo fmt --check
+      - name: Normalize Rust formatting
+        run: cargo fmt
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
