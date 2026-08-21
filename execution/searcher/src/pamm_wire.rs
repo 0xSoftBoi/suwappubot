@@ -27,6 +27,16 @@ pub struct WireQuote {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuoteTerms {
+    pub target_block: u64,
+    pub valid_until: u64,
+    pub bid_rate_x96: u128,
+    pub ask_rate_x96: u128,
+    pub max_base_in: u128,
+    pub max_base_out: u128,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Eip712Domain {
     pub chain_id: u64,
     pub verifying_contract: [u8; 20],
@@ -50,24 +60,22 @@ pub enum WireQuoteError {
 
 pub fn chain_quote(
     epoch: u64,
-    target_block: u64,
-    valid_until: u64,
-    bid_rate_x96: u128,
-    ask_rate_x96: u128,
-    max_base_in: u128,
-    max_base_out: u128,
+    terms: QuoteTerms,
     previous: Option<&WireQuote>,
 ) -> Result<WireQuote, WireQuoteError> {
     if epoch == 0 {
         return Err(WireQuoteError::InvalidEpoch);
     }
-    if bid_rate_x96 == 0 || ask_rate_x96 == 0 || bid_rate_x96 > ask_rate_x96 {
+    if terms.bid_rate_x96 == 0
+        || terms.ask_rate_x96 == 0
+        || terms.bid_rate_x96 > terms.ask_rate_x96
+    {
         return Err(WireQuoteError::InvalidRate);
     }
-    if max_base_in == 0
-        || max_base_out == 0
-        || max_base_in > U96_MAX
-        || max_base_out > U96_MAX
+    if terms.max_base_in == 0
+        || terms.max_base_out == 0
+        || terms.max_base_in > U96_MAX
+        || terms.max_base_out > U96_MAX
     {
         return Err(WireQuoteError::InvalidCapacity);
     }
@@ -89,13 +97,13 @@ pub fn chain_quote(
         epoch,
         sequence,
         previous_hash,
-        valid_block_min: target_block,
-        valid_block_max: target_block,
-        valid_until,
-        bid_rate_x96,
-        ask_rate_x96,
-        max_base_in,
-        max_base_out,
+        valid_block_min: terms.target_block,
+        valid_block_max: terms.target_block,
+        valid_until: terms.valid_until,
+        bid_rate_x96: terms.bid_rate_x96,
+        ask_rate_x96: terms.ask_rate_x96,
+        max_base_in: terms.max_base_in,
+        max_base_out: terms.max_base_out,
     })
 }
 
@@ -169,25 +177,36 @@ fn keccak(bytes: &[u8]) -> [u8; 32] {
 mod tests {
     use super::*;
 
+    fn terms(target_block: u64, valid_until: u64) -> QuoteTerms {
+        QuoteTerms {
+            target_block,
+            valid_until,
+            bid_rate_x96: 100,
+            ask_rate_x96: 101,
+            max_base_in: 1_000,
+            max_base_out: 1_000,
+        }
+    }
+
     #[test]
     fn same_epoch_quote_chains_to_previous_struct_hash() {
-        let first = chain_quote(1, 100, 200, 100, 101, 1_000, 1_000, None).unwrap();
-        let second = chain_quote(1, 101, 201, 100, 101, 1_000, 1_000, Some(&first)).unwrap();
+        let first = chain_quote(1, terms(100, 200), None).unwrap();
+        let second = chain_quote(1, terms(101, 201), Some(&first)).unwrap();
         assert_eq!(second.sequence, 1);
         assert_eq!(second.previous_hash, quote_struct_hash(&first));
     }
 
     #[test]
     fn new_epoch_resets_sequence_and_parent() {
-        let first = chain_quote(1, 100, 200, 100, 101, 1_000, 1_000, None).unwrap();
-        let second = chain_quote(2, 101, 201, 100, 101, 1_000, 1_000, Some(&first)).unwrap();
+        let first = chain_quote(1, terms(100, 200), None).unwrap();
+        let second = chain_quote(2, terms(101, 201), Some(&first)).unwrap();
         assert_eq!(second.sequence, 0);
         assert_eq!(second.previous_hash, [0u8; 32]);
     }
 
     #[test]
     fn digest_changes_with_contract_domain() {
-        let quote = chain_quote(1, 100, 200, 100, 101, 1_000, 1_000, None).unwrap();
+        let quote = chain_quote(1, terms(100, 200), None).unwrap();
         let a = quote_digest(
             Eip712Domain {
                 chain_id: 1,
@@ -207,8 +226,10 @@ mod tests {
 
     #[test]
     fn capacity_above_uint96_fails_closed() {
+        let mut invalid = terms(100, 200);
+        invalid.max_base_in = U96_MAX + 1;
         assert_eq!(
-            chain_quote(1, 100, 200, 100, 101, U96_MAX + 1, 1, None).unwrap_err(),
+            chain_quote(1, invalid, None).unwrap_err(),
             WireQuoteError::InvalidCapacity
         );
     }
