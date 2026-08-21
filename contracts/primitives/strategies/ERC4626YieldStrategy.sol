@@ -23,6 +23,8 @@ interface IERC4626Target {
 /// @notice Generic adapter for audited ERC-4626 vaults, including Morpho Vault-style strategies.
 /// @dev Governance must still risk-classify and cap each concrete target vault independently.
 contract ERC4626YieldStrategy is ISuwappuYieldStrategy {
+    uint256 internal constant MAX_DEPOSIT_ROUNDING_LOSS = 1;
+
     IERC4626Asset public immutable underlying;
     IERC4626Target public immutable target;
     address public immutable override vault;
@@ -69,12 +71,29 @@ contract ERC4626YieldStrategy is ISuwappuYieldStrategy {
     function deposit(uint256 assets, bytes calldata) external override onlyVault returns (uint256 deployed) {
         if (assets == 0 || underlying.balanceOf(address(this)) < assets) revert AccountingMismatch();
         uint256 beforeAssets = totalAssets();
+        uint256 beforeShares = target.balanceOf(address(this));
+
         _forceApprove(address(target), assets);
         target.deposit(assets, address(this));
         _forceApprove(address(target), 0);
+
+        uint256 afterShares = target.balanceOf(address(this));
+        if (afterShares < beforeShares) revert AccountingMismatch();
         uint256 afterAssets = totalAssets();
-        if (afterAssets < beforeAssets) revert AccountingMismatch();
-        deployed = assets;
+
+        // ERC-4626 conversion math is explicitly allowed to round down. Real Morpho
+        // vaults can therefore turn an exact deposit into a claim one smallest
+        // underlying unit lower. Accept only that bounded protocol rounding and let
+        // the parent vault's immediate-loss synchronization book it into NAV.
+        if (afterAssets < beforeAssets) {
+            uint256 loss = beforeAssets - afterAssets;
+            if (loss > MAX_DEPOSIT_ROUNDING_LOSS || loss > assets) revert AccountingMismatch();
+            deployed = assets - loss;
+        } else {
+            uint256 newValue = target.convertToAssets(afterShares - beforeShares);
+            if (newValue > assets) revert AccountingMismatch();
+            deployed = newValue;
+        }
     }
 
     function withdraw(uint256 assets, uint256 minAssetsOut, bytes calldata)
