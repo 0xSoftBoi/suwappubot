@@ -28,7 +28,9 @@ jobs:
           python -m py_compile \
             bot/services/execution_sync.py \
             bot/services/execution_sync_receipt.py \
+            bot/services/execution_sync_calibration.py \
+            bot/services/execution_sync_replay.py \
             scripts/validate_execution_sync.py
 
-      - name: Validate optimizer and receipt invariants
+      - name: Validate optimizer, receipts, calibration, and replay
         run: python scripts/validate_execution_sync.py
