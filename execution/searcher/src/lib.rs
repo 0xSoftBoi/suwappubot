@@ -4,11 +4,11 @@
 //! normalized events -> deterministic replay -> markouts/economics -> execution costs
 //! -> versioned venue graph -> deterministic route sizing.
 
+pub mod builder;
 pub mod cost;
 pub mod economics;
 pub mod events;
 pub mod graph;
-pub mod labels;
 pub mod markout;
 pub mod replay;
 pub mod sizing;
