@@ -25,6 +25,7 @@ def load(name: str, relative_path: str):
 
 sync = load("execution_sync_standalone", "bot/services/execution_sync.py")
 receipt = load("execution_sync_receipt_standalone", "bot/services/execution_sync_receipt.py")
+calibration = load("execution_sync_calibration_standalone", "bot/services/execution_sync_calibration.py")
 
 
 def candidate(**overrides):
@@ -78,8 +79,6 @@ def main() -> None:
     assert event["event"] == "execution_sync_shadow_decision"
     assert event["candidate_count"] == 2
 
-    # Public/production repo already persists realized_to_amount_usd. The
-    # receipt layer must distinguish it from quote-time to_amount_usd.
     tx = SimpleNamespace(
         id=7,
         route_provider="lifi",
@@ -102,6 +101,35 @@ def main() -> None:
     assert r.realized_output == 999.7
     assert r.settlement_latency_seconds == 12.0
     assert r.execution_welfare_bps is not None and r.execution_welfare_bps > 0
+
+    history = [
+        tx,
+        SimpleNamespace(
+            route_provider="lifi",
+            status="completed",
+            to_amount_usd=1000.0,
+            realized_to_amount_usd=995.0,
+            created_at=datetime(2026, 8, 21, 7, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2026, 8, 21, 7, 0, 20, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            route_provider="lifi",
+            status="failed",
+            to_amount_usd=1000.0,
+            realized_to_amount_usd=None,
+            created_at=datetime(2026, 8, 21, 8, 0, tzinfo=timezone.utc),
+            completed_at=None,
+        ),
+    ]
+    cal = calibration.calibrate_provider("lifi", history)
+    assert cal.observations == 3
+    assert cal.realized_observations == 2
+    assert 0 < cal.success_rate < 1
+
+    rejected = SimpleNamespace(provider="lifi", quoted_to_amount_usd=1002.0)
+    modeled = calibration.model_candidate(rejected, cal)
+    assert modeled.is_counterfactual is True
+    assert modeled.modeled_realized_output_usd is not None
 
     print("execution-sync validation: PASS")
 
