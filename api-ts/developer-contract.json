@@ -8,6 +8,7 @@
     "discovery": {
       "developerContract": "GET /v1/developer-contract",
       "lifecycle": "GET /v1/api-lifecycle",
+      "retryContracts": "GET /v1/retry-contracts",
       "chains": "GET /v1/agent/chains",
       "openapi": "GET /v1/agent/openapi"
     }
@@ -59,6 +60,7 @@
     "apiLifecycle": "../docs/api-lifecycle.md",
     "sdkSupport": "../docs/sdk-support.md",
     "sharedResponsibility": "../docs/security/shared-responsibility.md",
-    "sandbox": "../docs/sandbox.md"
+    "sandbox": "../docs/sandbox.md",
+    "idempotency": "../docs/idempotency.md"
   }
 }
