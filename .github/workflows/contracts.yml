@@ -35,6 +35,7 @@ jobs:
       FOUNDRY_REMAPPINGS: |
         forge-std/=lib/forge-std/src/
         @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+      ETHEREUM_RPC_URL: https://ethereum-rpc.publicnode.com
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -56,12 +57,14 @@ jobs:
       - name: Mixed-yield unit, adapter and adversarial tests
         run: forge test --match-path 'test/MixYield*Test.t.sol' --no-match-path 'test/MixYieldMainnetFork.t.sol' -vvv
 
-      - name: Ethereum live mainnet fork integration
-        run: |
-          forge test \
-            --match-path 'test/MixYieldMainnetFork.t.sol' \
-            --fork-url 'https://ethereum-rpc.publicnode.com' \
-            -vvv
+      - name: Fork - Aave V3 USDC round trip
+        run: forge test --match-path 'test/MixYieldMainnetFork.t.sol' --match-test 'testFork_AaveV3SupplyWithdrawRoundTrip' --fork-url "$ETHEREUM_RPC_URL" -vvv
+
+      - name: Fork - Morpho USDC round trip
+        run: forge test --match-path 'test/MixYieldMainnetFork.t.sol' --match-test 'testFork_MorphoERC4626DepositWithdrawRoundTrip' --fork-url "$ETHEREUM_RPC_URL" -vvv
+
+      - name: Fork - protocol liquidity bound
+        run: forge test --match-path 'test/MixYieldMainnetFork.t.sol' --match-test 'testFork_ProtocolLiquidityBoundsPortfolioWithdrawals' --fork-url "$ETHEREUM_RPC_URL" -vvv
 
       - name: Mixed-yield invariant stress run
         env:
