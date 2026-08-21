@@ -16,6 +16,7 @@ contract SuwappuPropAMM {
     error Slippage();
     error ZeroAmount();
     error InvalidRecipient();
+    error TransferFailed();
     error UnsupportedTransferSemantics();
 
     event QuoteApplied(
@@ -31,9 +32,23 @@ contract SuwappuPropAMM {
         uint64 validBlockMax,
         uint64 validUntil
     );
-    event QuoteInvalidated(uint64 indexed epoch, uint64 indexed sequence, bytes32 indexed quoteHash);
-    event BaseSold(address indexed taker, address indexed recipient, uint96 baseIn, uint256 quoteOut);
-    event BaseBought(address indexed taker, address indexed recipient, uint96 baseOut, uint256 quoteIn);
+    event QuoteInvalidated(
+        uint64 indexed epoch,
+        uint64 indexed sequence,
+        bytes32 indexed quoteHash
+    );
+    event BaseSold(
+        address indexed taker,
+        address indexed recipient,
+        uint96 baseIn,
+        uint256 quoteOut
+    );
+    event BaseBought(
+        address indexed taker,
+        address indexed recipient,
+        uint96 baseOut,
+        uint256 quoteIn
+    );
     event InventoryWithdrawn(address indexed token, address indexed recipient, uint256 amount);
     event QuoteSignerUpdated(address indexed signer);
     event PauseUpdated(bool paused);
@@ -50,11 +65,13 @@ contract SuwappuPropAMM {
     );
     bytes32 internal constant NAME_HASH = keccak256("SuwappuPropAMM");
     bytes32 internal constant VERSION_HASH = keccak256("1");
+    bytes32 internal constant REENTRANCY_SLOT =
+        0x5375776170707550726f70414d4d000000000000000000000000000000000001;
 
     address public immutable baseToken;
     address public immutable quoteToken;
-    uint256 private immutable INITIAL_CHAIN_ID;
-    bytes32 private immutable INITIAL_DOMAIN_SEPARATOR;
+    uint256 public immutable INITIAL_CHAIN_ID;
+    bytes32 public immutable INITIAL_DOMAIN_SEPARATOR;
 
     address public owner;
     address public quoteSigner;
@@ -93,14 +110,14 @@ contract SuwappuPropAMM {
     }
 
     modifier nonReentrant() {
+        bytes32 slot = REENTRANCY_SLOT;
         assembly ("memory-safe") {
-            let slot := 0x5375776170707550726f70414d4d000000000000000000000000000000000001
             if tload(slot) { revert(0, 0) }
             tstore(slot, 1)
         }
         _;
         assembly ("memory-safe") {
-            tstore(0x5375776170707550726f70414d4d000000000000000000000000000000000001, 0)
+            tstore(slot, 0)
         }
     }
 
@@ -110,12 +127,14 @@ contract SuwappuPropAMM {
                 || baseToken_ == quoteToken_ || baseToken_.code.length == 0
                 || quoteToken_.code.length == 0
         ) revert InvalidTokenPair();
+
         baseToken = baseToken_;
         quoteToken = quoteToken_;
         quoteSigner = quoteSigner_;
         owner = msg.sender;
         INITIAL_CHAIN_ID = block.chainid;
         INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
+
         emit OwnershipTransferred(address(0), msg.sender);
         emit QuoteSignerUpdated(quoteSigner_);
     }
@@ -142,8 +161,6 @@ contract SuwappuPropAMM {
         _invalidateActiveQuote();
     }
 
-    /// @notice Inventory may only leave while paused, preventing governance from silently
-    ///         underfunding a live quote inside its execution block.
     function withdrawInventory(address token, address recipient, uint256 amount)
         external
         onlyOwner
@@ -157,7 +174,9 @@ contract SuwappuPropAMM {
     }
 
     function domainSeparator() public view returns (bytes32) {
-        return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : _computeDomainSeparator();
+        return block.chainid == INITIAL_CHAIN_ID
+            ? INITIAL_DOMAIN_SEPARATOR
+            : _computeDomainSeparator();
     }
 
     function quoteStructHash(Quote calldata quote) public pure returns (bytes32) {
@@ -182,8 +201,6 @@ contract SuwappuPropAMM {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), quoteStructHash(quote)));
     }
 
-    /// @notice Anyone may relay a valid maker-signed quote. A builder can therefore include
-    ///         the exact state update it simulated. Quotes are intentionally single-block.
     function applyQuote(Quote calldata quote, bytes calldata signature) external {
         if (
             quote.epoch == 0 || quote.bidRateX96 == 0 || quote.askRateX96 == 0
@@ -208,8 +225,7 @@ contract SuwappuPropAMM {
             ) revert InvalidSequence();
         }
 
-        bytes32 digest = quoteDigest(quote);
-        if (_recover(digest, signature) != quoteSigner) revert InvalidSignature();
+        if (_recover(quoteDigest(quote), signature) != quoteSigner) revert InvalidSignature();
 
         bytes32 structHash = quoteStructHash(quote);
         currentEpoch = quote.epoch;
@@ -240,7 +256,6 @@ contract SuwappuPropAMM {
         );
     }
 
-    /// @notice Taker sells exact raw base units to the pAMM at the active bid.
     function sellBaseExactIn(
         uint96 baseIn,
         uint256 minQuoteOut,
@@ -255,7 +270,7 @@ contract SuwappuPropAMM {
         if (nextConsumed > maxBaseIn) revert CapacityExceeded();
 
         quoteOut = (uint256(baseIn) * uint256(bidRateX96)) >> 96;
-        if (quoteOut < minQuoteOut || quoteOut == 0) revert Slippage();
+        if (quoteOut == 0 || quoteOut < minQuoteOut) revert Slippage();
 
         consumedBaseIn = uint96(nextConsumed);
         _pullExact(baseToken, msg.sender, baseIn);
@@ -263,7 +278,6 @@ contract SuwappuPropAMM {
         emit BaseSold(msg.sender, recipient, baseIn, quoteOut);
     }
 
-    /// @notice Taker buys exact raw base units from the pAMM at the active ask.
     function buyBaseExactOut(
         uint96 baseOut,
         uint256 maxQuoteIn,
@@ -279,7 +293,7 @@ contract SuwappuPropAMM {
 
         uint256 product = uint256(baseOut) * uint256(askRateX96);
         quoteIn = (product + Q96 - 1) >> 96;
-        if (quoteIn > maxQuoteIn || quoteIn == 0) revert Slippage();
+        if (quoteIn == 0 || quoteIn > maxQuoteIn) revert Slippage();
 
         consumedBaseOut = uint96(nextConsumed);
         _pullExact(quoteToken, msg.sender, quoteIn);
@@ -300,14 +314,16 @@ contract SuwappuPropAMM {
         if (currentQuoteHash == bytes32(0) || expectedQuoteHash != currentQuoteHash) {
             revert QuoteHashMismatch();
         }
-        if (block.number != validBlockMin || block.number != validBlockMax || block.timestamp > validUntil) {
-            revert QuoteNotLive();
-        }
+        if (
+            block.number != validBlockMin || block.number != validBlockMax
+                || block.timestamp > validUntil
+        ) revert QuoteNotLive();
     }
 
     function _invalidateActiveQuote() internal {
         bytes32 hash = currentQuoteHash;
         if (hash == bytes32(0)) return;
+
         emit QuoteInvalidated(currentEpoch, currentSequence, hash);
         currentQuoteHash = bytes32(0);
         validBlockMin = 0;
@@ -327,8 +343,13 @@ contract SuwappuPropAMM {
         );
     }
 
-    function _recover(bytes32 digest, bytes calldata signature) internal pure returns (address signer) {
+    function _recover(bytes32 digest, bytes calldata signature)
+        internal
+        pure
+        returns (address signer)
+    {
         if (signature.length != 65) revert InvalidSignature();
+
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -338,6 +359,7 @@ contract SuwappuPropAMM {
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
         if (uint256(s) > SECP256K1N_HALF || (v != 27 && v != 28)) revert InvalidSignature();
+
         signer = ecrecover(digest, v, r, s);
         if (signer == address(0)) revert InvalidSignature();
     }
@@ -352,22 +374,30 @@ contract SuwappuPropAMM {
     }
 
     function _pushExact(address token, address recipient, uint256 amount) internal {
-        uint256 beforeBalance = _balanceOf(token, recipient);
+        uint256 senderBefore = _balanceOf(token, address(this));
+        uint256 recipientBefore = _balanceOf(token, recipient);
         _safeTransfer(token, recipient, amount);
-        uint256 afterBalance = _balanceOf(token, recipient);
-        if (afterBalance < beforeBalance || afterBalance - beforeBalance != amount) {
-            revert UnsupportedTransferSemantics();
-        }
+        uint256 senderAfter = _balanceOf(token, address(this));
+        uint256 recipientAfter = _balanceOf(token, recipient);
+
+        if (
+            senderBefore < senderAfter || senderBefore - senderAfter != amount
+                || recipientAfter < recipientBefore || recipientAfter - recipientBefore != amount
+        ) revert UnsupportedTransferSemantics();
     }
 
-    function _balanceOf(address token, address account) internal view returns (uint256 balance) {
+    function _balanceOf(address token, address account)
+        internal
+        view
+        returns (uint256 tokenBalance)
+    {
         assembly ("memory-safe") {
             let ptr := mload(0x40)
             mstore(ptr, shl(224, 0x70a08231))
             mstore(add(ptr, 4), account)
             if iszero(staticcall(gas(), token, ptr, 36, ptr, 32)) { revert(0, 0) }
             if lt(returndatasize(), 32) { revert(0, 0) }
-            balance := mload(ptr)
+            tokenBalance := mload(ptr)
         }
     }
 
@@ -377,9 +407,11 @@ contract SuwappuPropAMM {
             mstore(ptr, shl(224, 0xa9059cbb))
             mstore(add(ptr, 4), to)
             mstore(add(ptr, 36), amount)
-            let ok := call(gas(), token, 0, ptr, 68, 0, 32)
-            if iszero(and(ok, or(iszero(returndatasize()), and(gt(returndatasize(), 31), eq(mload(0), 1))))) {
-                revert(0, 0)
+            let ok := call(gas(), token, 0, ptr, 68, ptr, 32)
+            let size := returndatasize()
+            if iszero(and(ok, or(iszero(size), and(gt(size, 31), eq(mload(ptr), 1))))) {
+                mstore(ptr, shl(224, 0x90b8ec18))
+                revert(ptr, 4)
             }
         }
     }
@@ -391,9 +423,11 @@ contract SuwappuPropAMM {
             mstore(add(ptr, 4), from)
             mstore(add(ptr, 36), to)
             mstore(add(ptr, 68), amount)
-            let ok := call(gas(), token, 0, ptr, 100, 0, 32)
-            if iszero(and(ok, or(iszero(returndatasize()), and(gt(returndatasize(), 31), eq(mload(0), 1))))) {
-                revert(0, 0)
+            let ok := call(gas(), token, 0, ptr, 100, ptr, 32)
+            let size := returndatasize()
+            if iszero(and(ok, or(iszero(size), and(gt(size, 31), eq(mload(ptr), 1))))) {
+                mstore(ptr, shl(224, 0x90b8ec18))
+                revert(ptr, 4)
             }
         }
     }
