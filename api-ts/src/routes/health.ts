@@ -108,7 +108,7 @@ const VERIFIED_TOKENS: Record<string, string[]> = {
 	'10': ['ETH', 'USDC', 'USDT', 'WETH', 'OP', 'DAI', 'LINK', 'WBTC'],
 	'137': ['MATIC', 'USDC', 'USDT', 'WETH', 'WBTC', 'DAI', 'LINK', 'AAVE'],
 	'42161': ['ETH', 'USDC', 'USDT', 'WETH', 'ARB', 'WBTC', 'DAI', 'LINK', 'GMX'],
-	'8453': ['ETH', 'USDC', 'WETH', 'DAI', 'LINK', 'GMX'],
+	'8453': ['ETH', 'USDC', 'WETH', 'DAI', 'cbETH'],
 	'56': ['BNB', 'USDC', 'USDT', 'WBNB', 'BUSD', 'ETH', 'BTCB'],
 }
 
