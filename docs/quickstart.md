@@ -3,6 +3,19 @@
 Choose the shortest path for what you are trying to do. You do **not** need to run the
 whole monorepo to use Suwappu or integrate an agent.
 
+Before enabling execution, understand the platform's authority ladder:
+
+| Level | Capability | Moves funds? |
+|---|---|---:|
+| **0 — Discover** | Chains, tokens, prices, markets, portfolio metadata | No |
+| **1 — Quote** | Price an intent / compare routes | No |
+| **2 — Simulate** | Evaluate a transaction | No |
+| **3 — Prepare** | Return unsigned self-custody transaction data | No |
+| **4 — Managed execute** | Server-side managed execution | **Yes** |
+
+Start at the lowest level your product needs. See [Product Status](product-status.md) for
+maturity semantics and [Agent Clients](agent-clients.md) for method-level custody behavior.
+
 ## Use Suwappu
 
 No code required:
@@ -23,10 +36,20 @@ curl -X POST https://api.suwappu.bot/v1/agent/register \
   -d '{"name":"my-agent"}'
 ```
 
-The response includes a `suwappu_sk_...` credential. Store it as
-`SUWAPPU_API_KEY`; never commit it.
+The response includes a `suwappu_sk_...` credential. Store it as `SUWAPPU_API_KEY`; never
+commit or log it.
 
-### 2. Connect to hosted MCP
+### 2. Prove read-only access first
+
+```bash
+curl https://api.suwappu.bot/v1/agent/chains \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
+```
+
+Do not use a README's chain count as an application registry. Discover chains at runtime
+with Agent REST, MCP `list_chains`, or the SDK.
+
+### 3. Connect to hosted MCP
 
 Use the hosted endpoint whenever your client supports Streamable HTTP:
 
@@ -49,30 +72,26 @@ Example MCP configuration:
 }
 ```
 
-Then call `tools/list` at runtime. Do not hard-code the catalog from a README: tools,
+Call `tools/list` at runtime. Do not hard-code the catalog from documentation: tools,
 resources, prompts, chain support, and auth requirements can evolve.
 
-### 3. Start read-only
+### 4. Stay least-privilege until execution is required
 
-A safe first integration should discover chains/tokens, request prices or quotes, and
-simulate before enabling any money-moving capability.
+The naming boundary matters:
 
-The current hosted MCP semantics matter:
+- MCP `execute_swap` is **Level 3**: it prepares an unsigned self-custody transaction.
+- Managed server-side execution is **Level 4** and uses an explicit REST/managed SDK path.
+- A2A currently stops at discovery/quote semantics and has no Level 3/4 method.
 
-- `execute_swap` **prepares an unsigned self-custody transaction**.
-- Managed server-side execution is a separate REST capability:
-  `POST /v1/agent/swap/execute`.
-- A2A has **no execution method** today; natural-language `swap ...` requests return a
-  quote.
+For an AI system, begin with an application-owned allowlist of Level 0–2 capabilities.
+Only add transaction preparation or managed execution with explicit policy appropriate to
+the value at risk.
 
-Continue to [Build on Suwappu: MCP, SDK, REST, and A2A](agent-clients.md) for client
-configuration, protocol negotiation, current tool semantics, and the security baseline.
+Continue to [Build on Suwappu: MCP, SDK, REST, and A2A](agent-clients.md).
 
 ## Build an application
 
 ### TypeScript SDK
-
-Install the published package:
 
 ```bash
 npm install @suwappu/sdk
@@ -91,13 +110,26 @@ const chains = await client.listChains();
 console.log(chains);
 ```
 
+Then request a quote:
+
+```ts
+const quote = await client.getQuote({
+  from: "USDC",
+  to: "ETH",
+  chain: "base",
+  amount: "100",
+});
+
+console.log(quote.toAmount);
+```
+
 Repository source can be ahead of the npm release. Check
-[`packages/sdk/README.md`](../packages/sdk/README.md) and
-[agent-clients.md](agent-clients.md#typescript-sdk) before relying on a source-only API.
+[`packages/sdk/README.md`](../packages/sdk/README.md), [Product Status](product-status.md),
+and [agent-clients.md](agent-clients.md) when version boundaries matter.
 
 ### Python SDK
 
-The Python SDK is source-only today. For production use, pin a commit instead of tracking
+The Python SDK is source-only today. Pin a commit for production instead of tracking
 `main` blindly:
 
 ```bash
@@ -105,22 +137,17 @@ pip install "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@main#subd
 ```
 
 See [`packages/sdk-python/README.md`](../packages/sdk-python/README.md) and
-[agent-clients.md](agent-clients.md#python-sdk) for the current API and custody split.
+[agent-clients.md](agent-clients.md) for the current API and custody split.
 
 ### REST
 
-The Agent REST API is the lowest-level integration surface. A useful first request after
-registration is chain discovery:
+Agent REST is the lowest-level integration surface. It keeps preparation and managed
+execution separate:
 
-```bash
-curl https://api.suwappu.bot/v1/agent/chains \
-  -H "Authorization: Bearer $SUWAPPU_API_KEY"
-```
+- `POST /v1/agent/swap` — prepare unsigned self-custody transaction data.
+- `POST /v1/agent/swap/execute` — explicit managed execution.
 
-Do not use a README's chain count as an application registry. Discover supported chains
-at runtime with `GET /v1/agent/chains`, MCP `list_chains`, or the SDK.
-
-For execution semantics, use the [Agent REST custody map](agent-clients.md#agent-rest-custody-map).
+Use [Agent Clients](agent-clients.md) as the authoritative method/custody map.
 
 ## Use A2A
 
@@ -131,7 +158,7 @@ curl https://api.suwappu.bot/.well-known/agent.json
 ```
 
 A2A is intentionally a natural-language quote/price/discovery surface today. It does not
-provide a fund-moving execution method. See [A2A 0.3](agent-clients.md#a2a-03).
+provide fund-moving execution. See [Agent Clients](agent-clients.md).
 
 ## Run the repository locally
 
@@ -143,7 +170,7 @@ You only need this path if you are contributing to Suwappu itself.
 python3 scripts/doctor.py
 ```
 
-`doctor.py` evaluates the capability/configuration contract rather than assuming every
+`doctor.py` evaluates the capability/configuration contract instead of assuming every
 optional integration is configured locally.
 
 ### 2. Start the component you need
@@ -186,19 +213,20 @@ For documentation-only changes:
 ```
 
 For component-specific code changes, follow [ONBOARDING.md](ONBOARDING.md), the root
-[`CONVENTIONS.md`](../CONVENTIONS.md), and any directory-local agent instructions.
+[`CONVENTIONS.md`](../CONVENTIONS.md), and directory-local agent instructions.
 
 ## Money-moving safety checklist
 
-Before enabling managed execution in an application or agent:
+Before enabling Level 3 or 4 capabilities:
 
 1. Keep `SUWAPPU_API_KEY` out of source and logs.
 2. Maintain an application-owned allowlist of callable tools/capabilities.
 3. Treat discovered annotations as metadata, not authorization.
-4. Simulate unfamiliar routes before executing.
-5. Keep self-custody transaction preparation/signing separate from managed execution.
-6. Require explicit policy/user approval for fund-moving calls.
-7. Treat model-generated trade ideas as untrusted input to your policy layer.
+4. Simulate unfamiliar routes before execution.
+5. Keep self-custody signing separate from managed execution.
+6. Enforce explicit spend/value/destination policy and user/application approval.
+7. Treat model-generated trade ideas and third-party text as untrusted policy input.
 
-Next: [Agent clients](agent-clients.md) · [Architecture](architecture/OVERVIEW.md) ·
-[Features](features/README.md) · [Contributing](../CONTRIBUTING.md)
+Next: [Product Status](product-status.md) · [Agent Clients](agent-clients.md) ·
+[Architecture](architecture/OVERVIEW.md) · [Features](features/README.md) ·
+[Contributing](../CONTRIBUTING.md)
