@@ -16,19 +16,28 @@ contract TwoCallExecutor {
         address token,
         uint256 minimum
     ) external payable returns (uint256 finalBalance) {
+        _callTarget(target0, value0, data0);
+        _callTarget(target1, value1, data1);
+        finalBalance = _balanceOf(token);
+
+        if (finalBalance < minimum) {
+            revert MinBalanceNotMet(token, finalBalance, minimum);
+        }
+    }
+
+    function _callTarget(address target, uint256 value, bytes calldata data) private {
         assembly ("memory-safe") {
             let ptr := mload(0x40)
-
-            calldatacopy(ptr, data0.offset, data0.length)
-            if iszero(call(gas(), target0, value0, ptr, data0.length, 0, 0)) {
+            calldatacopy(ptr, data.offset, data.length)
+            if iszero(call(gas(), target, value, ptr, data.length, 0, 0)) {
                 revert(0, 0)
             }
+        }
+    }
 
-            calldatacopy(ptr, data1.offset, data1.length)
-            if iszero(call(gas(), target1, value1, ptr, data1.length, 0, 0)) {
-                revert(0, 0)
-            }
-
+    function _balanceOf(address token) private view returns (uint256 balance) {
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
             // IERC20.balanceOf(address(this)) selector = 0x70a08231.
             mstore(ptr, shl(224, 0x70a08231))
             mstore(add(ptr, 4), address())
@@ -38,11 +47,7 @@ contract TwoCallExecutor {
             if lt(returndatasize(), 32) {
                 revert(0, 0)
             }
-            finalBalance := mload(ptr)
-        }
-
-        if (finalBalance < minimum) {
-            revert MinBalanceNotMet(token, finalBalance, minimum);
+            balance := mload(ptr)
         }
     }
 
