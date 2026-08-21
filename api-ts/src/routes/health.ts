@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import packageJson from '../../package.json'
 import developerContract from '../../developer-contract.json'
 import { API_LIFECYCLE_REGISTRY } from '../lib/apiLifecycle'
+import { PUBLIC_AGENT_OPENAPI } from '../lib/publicOpenApi'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
@@ -20,6 +21,15 @@ const healthRoutes = new Hono()
 // no-production-dependencies boundary. See #874.
 healthRoutes.route('/v1/sandbox', sandboxRoutes)
 healthRoutes.route('/v1/sandbox', lifecycleFixtureRoutes)
+
+// Serve the normalized contract BEFORE the legacy /v1/agent router mount in
+// createApp(). The checked-in JSON is a prose/schema template; this served form
+// derives version, server authority, lifecycle metadata and discovery links from
+// machine-readable contracts so stale template copy cannot become public truth.
+healthRoutes.get('/v1/agent/openapi', (c) => {
+	c.header('Cache-Control', 'public, max-age=300')
+	return c.json(PUBLIC_AGENT_OPENAPI)
+})
 
 // Public machine-readable developer contract. This is the same file CI validates;
 // serving it directly avoids another hand-maintained API/SDK/sandbox metadata copy.
@@ -132,7 +142,6 @@ healthRoutes.get('/tokens', async (c) => {
 				...(process.env.LIFI_API_KEY && {
 					'x-lifi-api-key': process.env.LIFI_API_KEY,
 				}),
-			},
 		})
 
 		if (!response.ok) {
