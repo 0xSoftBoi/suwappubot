@@ -259,7 +259,7 @@ export function createApp(config: AppConfig) {
 		const mcpToolNames = MCP_TOOLS.map((t) => t.name).join(', ')
 		return c.text(`# Suwappu API
 
-> Cross-chain DEX API for AI agents. Best-price swaps, HyperLiquid perps, and gasless trades across 40+ chains.
+> Cross-chain execution API for AI agents. Discover current chain support at GET /v1/agent/chains; quote and simulate before preparing or explicitly opting into managed execution.
 
 ## Base URL
 https://api.suwappu.bot/v1/agent
@@ -268,17 +268,16 @@ https://api.suwappu.bot/v1/agent
 Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`.
 Get a key with POST /register (no auth needed). Lending REST reads listed below are public.
 
-## Quick Start
-1. POST /register {"name":"my-agent"} → get api_key + 100 free starter credits
-2. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id (1 credit)
-3. POST /swap/execute {"quote_id":"..."} → swap executed (5 credits)
-4. GET /swap/status/{id} — check result
+## Quick Start — least privilege first
+1. POST /register {"name":"my-agent"} → get api_key + starter credits when eligible
+2. GET /chains → discover the current Agent API chain registry (free)
+3. POST /quote {"from_token":"ETH","to_token":"USDC","amount":"0.5","chain":"base"} → get quote_id
+4. POST /swap {"quote_id":"..."} → prepare an unsigned self-custody transaction; your wallet controls signing/broadcast
+
+Managed execution can move funds and is a separate explicit capability: POST /swap/execute {"quote_id":"..."}. Do not enable it for an agent merely because the route is discoverable. Apply application-owned spend/destination/tool policy and reconcile unknown outcomes before retrying.
 
 ## Credits & billing
-New agents get 100 free credits (1 credit ≈ $0.001 USD) on registration. GET /tokens and
-GET /chains are always free (0 credits). Metered calls 402 with a structured payment
-challenge once your balance runs out — top up via POST /billing/topup {txHash, chain, amount}
-or subscribe via POST /billing/subscribe for unmetered access.
+New agents may receive starter credits on registration. GET /tokens and GET /chains are always free (0 credits). Metered calls 402 with a structured payment challenge once your balance runs out — top up via POST /billing/topup {txHash, chain, amount} or subscribe via POST /billing/subscribe for unmetered access.
 
 ## Endpoints
 
@@ -324,7 +323,7 @@ or subscribe via POST /billing/subscribe for unmetered access.
 
 ### Lending (Morpho)
 - GET /lend/markets?chainId= — Current APY, USD liquidity, listing status, and warnings
-- GET /lend/market/{id}?chainId= — Chain-scoped market detail (read-only)
+- GET /lend/market/:id?chainId= — Chain-scoped market detail (read-only)
 
 ## Protocols
 - REST: https://api.suwappu.bot/v1/agent/*
@@ -334,7 +333,7 @@ or subscribe via POST /billing/subscribe for unmetered access.
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
 
 ## Chains
-Ethereum (1), Optimism (10), BSC (56), Polygon (137), Arbitrum (42161), Base (8453), Avalanche (43114), Fantom (250), Linea (59144), Mantle (5000), Gnosis (100), Scroll (534352), Solana, Sui, TON
+Discover the current Agent API chain registry at GET /v1/agent/chains. Do not embed a static chain count or list in an integration.
 
 ## Response Format
 {"success": true, ...data} or {"success": false, "error": "message"}
@@ -353,7 +352,7 @@ Paid endpoints and MCP tools are metered in prepaid credits (1 credit ≈ $0.001
 - Human users: Stripe checkout (GET /billing/stripe/checkout?tier=) or crypto (POST /billing/crypto).
 
 ## SDK
-npm: @suwappu/sdk | PyPI: suwappu | OpenClaw skill: @suwappu/openclaw
+npm: @suwappu/sdk | Python SDK: source-only; pin a reviewed repository commit | OpenClaw skill: @suwappu/openclaw
 MCP Server: hosted at POST https://api.suwappu.bot/mcp (no install — point your MCP client at the URL with a Bearer key)
 Full endpoint list: GET https://api.suwappu.bot/llms-full.txt
 
@@ -452,7 +451,7 @@ Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`. Get one from P
 - OpenAPI: GET https://api.suwappu.bot/v1/agent/openapi
 
 ## SDKs
-npm: @suwappu/sdk | PyPI: suwappu | OpenClaw skill: @suwappu/openclaw
+npm: @suwappu/sdk | Python SDK: source-only; pin a reviewed repository commit | OpenClaw skill: @suwappu/openclaw
 
 ## Docs
 https://suwappu.bot/docs
@@ -490,9 +489,9 @@ https://suwappu.bot/docs
 			schema_version: 'v1',
 			name_for_human: 'Suwappu DEX',
 			name_for_model: 'suwappu',
-			description_for_human: 'Swap tokens across 7 blockchain networks via natural language',
+			description_for_human: 'Discover and route token swaps across supported blockchain networks',
 			description_for_model:
-				"Use Suwappu to execute token swaps across Ethereum, BSC, Polygon, Arbitrum, Optimism, Base, and Solana. Accepts natural language commands like 'swap 0.5 ETH to USDC on Base'. Returns transaction status and explorer links.",
+				"Use Suwappu to discover supported chains at GET /v1/agent/chains, quote swaps, prepare unsigned self-custody transactions, or use explicit managed execution only when authorized. Do not assume a static chain list or infer authority from a method name.",
 			auth: {
 				type: 'service_http',
 				authorization_type: 'bearer',
