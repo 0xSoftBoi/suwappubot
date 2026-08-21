@@ -50,7 +50,10 @@ invariant(agentSource.includes('internalOutcomeUnknown = true'), 'agent managed 
 invariant(paymentSchema.includes("unique('uq_consumed_payments_chain_tx')"), 'global payment replay unique constraint missing')
 invariant(agentSource.includes('consumePayment(tx,'), 'agent payment paths no longer call the shared consumed-payments guard')
 invariant(paymentConsumptionSource.includes('consumedPayments'), 'shared payment replay helper no longer writes the consumed-payments ledger')
-invariant(paymentConsumptionSource.includes('.onConflictDoNothing()'), 'shared payment replay helper lost atomic conflict handling')
+invariant(
+	paymentConsumptionSource.includes('.onConflictDoNothing({ target: [consumedPayments.chain, consumedPayments.txHash] })'),
+	'shared payment replay helper lost the targeted atomic (chain, txHash) conflict guard',
+)
 
 const predictionContract = RETRY_CONTRACTS.operations['agent.prediction.place-order']
 invariant(predictionContract?.blocker === true, 'prediction order must remain a blocker until durable operation identity is implemented')
