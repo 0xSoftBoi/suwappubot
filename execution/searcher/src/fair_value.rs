@@ -1,5 +1,5 @@
 use crate::events::Fixed;
-use crate::{BPS_SCALE, FIXED_SCALE};
+use crate::BPS_SCALE;
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +100,9 @@ pub fn estimate(
     if features.mid <= 0 {
         return Err(FairValueError::InvalidMid);
     }
-    if coefficients.max_abs_adjustment_bps == 0 || coefficients.max_abs_adjustment_bps >= BPS_SCALE as u32 {
+    if coefficients.max_abs_adjustment_bps == 0
+        || coefficients.max_abs_adjustment_bps >= BPS_SCALE as u32
+    {
         return Err(FairValueError::InvalidGuardrail);
     }
 
@@ -116,7 +118,9 @@ pub fn estimate(
             .checked_mul(i128::from(weight))
             .and_then(|value| value.checked_div(BPS_SCALE))
             .ok_or(FairValueError::Overflow)?;
-        adjustment = adjustment.checked_add(term).ok_or(FairValueError::Overflow)?;
+        adjustment = adjustment
+            .checked_add(term)
+            .ok_or(FairValueError::Overflow)?;
     }
 
     let guardrail = i128::from(coefficients.max_abs_adjustment_bps);
@@ -130,7 +134,8 @@ pub fn estimate(
         .mid
         .checked_add(price_delta)
         .ok_or(FairValueError::Overflow)?;
-    if price <= 0 || price > Fixed::MAX / FIXED_SCALE.max(1) * FIXED_SCALE.max(1) {
+    // The guardrail is strictly below 100%, so a positive mid must remain positive.
+    if price <= 0 {
         return Err(FairValueError::Overflow);
     }
 
@@ -145,6 +150,7 @@ pub fn estimate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FIXED_SCALE;
 
     fn coefficients(weight: i64) -> FairValueCoefficients {
         FairValueCoefficients {
