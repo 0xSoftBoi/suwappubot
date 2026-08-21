@@ -10,6 +10,21 @@
       "openapi": "GET /v1/agent/openapi"
     }
   },
+  "sandbox": {
+    "kind": "deterministic-contract-simulator",
+    "endpoint": "https://api.suwappu.bot/v1/sandbox",
+    "realFunds": false,
+    "liveQuotes": false,
+    "providerCalls": false,
+    "rpcCalls": false,
+    "signing": false,
+    "broadcast": false,
+    "billing": false,
+    "productionDatabase": false,
+    "persistence": "ephemeral-in-memory",
+    "devapiCustomerSandboxStatus": "unverified-do-not-assume-isolated",
+    "policy": "../docs/sandbox.md"
+  },
   "hostedProtocols": {
     "mcp": {
       "catalogAuthority": "runtime-discovery",
@@ -41,6 +56,7 @@
   "policies": {
     "apiLifecycle": "../docs/api-lifecycle.md",
     "sdkSupport": "../docs/sdk-support.md",
-    "sharedResponsibility": "../docs/security/shared-responsibility.md"
+    "sharedResponsibility": "../docs/security/shared-responsibility.md",
+    "sandbox": "../docs/sandbox.md"
   }
 }
