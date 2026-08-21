@@ -252,7 +252,7 @@ mod tests {
             optimize_grid(search, 4, |_| Some(0)).unwrap_err(),
             SizingError::EvaluationBudgetExceeded
         );
-        let optimum = optimize_grid(search, 5, |x| Some(x)).unwrap();
+        let optimum = optimize_grid(search, 5, Some).unwrap();
         assert_eq!(optimum.input, 10);
         assert_eq!(optimum.evaluations, 5);
     }
