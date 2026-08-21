@@ -1,0 +1,34 @@
+name: Execution Sync CI
+
+on:
+  pull_request:
+    paths:
+      - 'bot/services/execution_sync*.py'
+      - 'scripts/validate_execution_sync.py'
+      - '.github/workflows/execution-sync-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Parse execution-sync Python
+        run: |
+          python -m py_compile \
+            bot/services/execution_sync.py \
+            bot/services/execution_sync_receipt.py \
+            scripts/validate_execution_sync.py
+
+      - name: Validate optimizer and receipt invariants
+        run: python scripts/validate_execution_sync.py
