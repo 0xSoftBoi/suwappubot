@@ -75,7 +75,8 @@ contract SuwappuPropAMMFuzzTest {
         uint256 baseBefore = base.balanceOf(address(this));
         uint256 quoteBefore = quoteToken.balanceOf(address(this));
         uint256 expectedOut = (uint256(amount) * uint256(q.bidRateX96)) >> 96;
-        uint256 received = pamm.sellBaseExactIn(amount, expectedOut, pamm.currentQuoteHash(), address(this));
+        uint256 received =
+            pamm.sellBaseExactIn(amount, expectedOut, pamm.currentQuoteHash(), address(this));
 
         require(received == expectedOut, "sell formula");
         require(base.balanceOf(address(this)) == baseBefore - amount, "base debit");
@@ -93,7 +94,8 @@ contract SuwappuPropAMMFuzzTest {
         uint256 quoteBefore = quoteToken.balanceOf(address(this));
         uint256 product = uint256(amount) * uint256(q.askRateX96);
         uint256 expectedIn = (product + Q96 - 1) >> 96;
-        uint256 paid = pamm.buyBaseExactOut(amount, expectedIn, pamm.currentQuoteHash(), address(this));
+        uint256 paid =
+            pamm.buyBaseExactOut(amount, expectedIn, pamm.currentQuoteHash(), address(this));
 
         require(paid == expectedIn, "buy formula");
         require(base.balanceOf(address(this)) == baseBefore + amount, "base credit");
@@ -124,7 +126,9 @@ contract SuwappuPropAMMFuzzTest {
                 )
             );
         require(!ok, "over-capacity fill accepted");
-        require(uint256(pamm.consumedBaseIn()) + pamm.remainingBaseInCapacity() == capacity, "rollback");
+        require(
+            uint256(pamm.consumedBaseIn()) + pamm.remainingBaseInCapacity() == capacity, "rollback"
+        );
     }
 
     function testFuzzInvalidatedEpochCannotReplay(uint64 rawEpoch) public {
@@ -134,8 +138,8 @@ contract SuwappuPropAMMFuzzTest {
         pamm.invalidateQuote();
 
         SuwappuPropAMM.Quote memory replay = _quote(epoch, 1_000, 1_000);
-        (bool ok,) = address(pamm)
-            .call(abi.encodeCall(SuwappuPropAMM.applyQuote, (replay, _sign(replay))));
+        (bool ok,) =
+            address(pamm).call(abi.encodeCall(SuwappuPropAMM.applyQuote, (replay, _sign(replay))));
         require(!ok, "invalidated epoch replayed");
     }
 
