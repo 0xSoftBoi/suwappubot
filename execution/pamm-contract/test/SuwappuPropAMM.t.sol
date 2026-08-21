@@ -1,0 +1,214 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.27;
+
+import {SuwappuPropAMM} from "../src/SuwappuPropAMM.sol";
+
+interface Vm {
+    function addr(uint256 privateKey) external returns (address);
+    function sign(uint256 privateKey, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
+    function warp(uint256 timestamp) external;
+    function roll(uint256 blockNumber) external;
+}
+
+contract MockToken {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        _move(msg.sender, to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 allowed = allowance[from][msg.sender];
+        require(allowed >= amount, "allowance");
+        if (allowed != type(uint256).max) allowance[from][msg.sender] = allowed - amount;
+        _move(from, to, amount);
+        return true;
+    }
+
+    function _move(address from, address to, uint256 amount) internal {
+        require(balanceOf[from] >= amount, "balance");
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+    }
+}
+
+contract SuwappuPropAMMTest {
+    Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    uint256 internal constant SIGNER_KEY = 0xA11CE;
+    uint256 internal constant Q96 = 1 << 96;
+
+    MockToken internal base;
+    MockToken internal quoteToken;
+    SuwappuPropAMM internal pamm;
+    address internal signer;
+
+    function setUp() public {
+        signer = vm.addr(SIGNER_KEY);
+        base = new MockToken();
+        quoteToken = new MockToken();
+        pamm = new SuwappuPropAMM(address(base), address(quoteToken), signer);
+
+        base.mint(address(this), 1_000_000);
+        quoteToken.mint(address(this), 1_000_000);
+        base.mint(address(pamm), 1_000_000);
+        quoteToken.mint(address(pamm), 1_000_000);
+        base.approve(address(pamm), type(uint256).max);
+        quoteToken.approve(address(pamm), type(uint256).max);
+    }
+
+    function testSignedQuoteSupportsBothMakerSides() public {
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        bytes memory sig = _sign(q);
+        pamm.applyQuote(q, sig);
+        bytes32 hash = pamm.currentQuoteHash();
+
+        uint256 quoteBefore = quoteToken.balanceOf(address(this));
+        uint256 received = pamm.sellBaseExactIn(100, 99, hash, address(this));
+        require(received == 99, "bid math");
+        require(quoteToken.balanceOf(address(this)) == quoteBefore + 99, "quote received");
+
+        uint256 baseBefore = base.balanceOf(address(this));
+        uint256 paid = pamm.buyBaseExactOut(100, 101, hash, address(this));
+        require(paid == 101, "ask rounding");
+        require(base.balanceOf(address(this)) == baseBefore + 100, "base received");
+    }
+
+    function testSequenceAndParentHashChain() public {
+        SuwappuPropAMM.Quote memory first = _quote(1, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(first, _sign(first));
+        bytes32 parent = pamm.currentQuoteHash();
+
+        SuwappuPropAMM.Quote memory second = _quote(1, 1, parent, 100, 100);
+        pamm.applyQuote(second, _sign(second));
+        require(pamm.currentSequence() == 1, "sequence");
+
+        SuwappuPropAMM.Quote memory replay = _quote(1, 1, parent, 100, 100);
+        (bool ok,) = address(pamm).call(
+            abi.encodeCall(SuwappuPropAMM.applyQuote, (replay, _sign(replay)))
+        );
+        require(!ok, "replay must fail");
+    }
+
+    function testNewEpochResetsParentAndSequence() public {
+        SuwappuPropAMM.Quote memory first = _quote(1, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(first, _sign(first));
+
+        SuwappuPropAMM.Quote memory nextEpoch = _quote(2, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(nextEpoch, _sign(nextEpoch));
+        require(pamm.currentEpoch() == 2, "epoch");
+        require(pamm.currentSequence() == 0, "sequence reset");
+    }
+
+    function testWrongSignerFails() public {
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        bytes32 digest = pamm.quoteDigest(q);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xB0B, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        (bool ok,) = address(pamm).call(abi.encodeCall(SuwappuPropAMM.applyQuote, (q, sig)));
+        require(!ok, "wrong signer must fail");
+    }
+
+    function testExpectedHashPreventsStaleFill() public {
+        SuwappuPropAMM.Quote memory first = _quote(1, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(first, _sign(first));
+        bytes32 staleHash = pamm.currentQuoteHash();
+
+        SuwappuPropAMM.Quote memory second = _quote(1, 1, staleHash, 100, 100);
+        pamm.applyQuote(second, _sign(second));
+
+        (bool ok,) = address(pamm).call(
+            abi.encodeCall(SuwappuPropAMM.sellBaseExactIn, (uint96(1), uint256(0), staleHash, address(this)))
+        );
+        require(!ok, "stale expected hash must fail");
+    }
+
+    function testCapacityIsPerQuoteAndEnforced() public {
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(q, _sign(q));
+        bytes32 hash = pamm.currentQuoteHash();
+        pamm.sellBaseExactIn(60, 0, hash, address(this));
+        (bool ok,) = address(pamm).call(
+            abi.encodeCall(SuwappuPropAMM.sellBaseExactIn, (uint96(41), uint256(0), hash, address(this)))
+        );
+        require(!ok, "capacity must fail");
+        require(pamm.remainingBaseInCapacity() == 40, "remaining capacity");
+    }
+
+    function testExpiredQuoteCannotTrade() public {
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(q, _sign(q));
+        bytes32 hash = pamm.currentQuoteHash();
+        vm.warp(block.timestamp + 101);
+        (bool ok,) = address(pamm).call(
+            abi.encodeCall(SuwappuPropAMM.sellBaseExactIn, (uint96(1), uint256(0), hash, address(this)))
+        );
+        require(!ok, "expired quote must fail");
+    }
+
+    function testQuoteBlockWindowIsEnforced() public {
+        uint64 minBlock = uint64(block.number + 2);
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        q.validBlockMin = minBlock;
+        q.validBlockMax = minBlock;
+        pamm.applyQuote(q, _sign(q));
+        bytes32 hash = pamm.currentQuoteHash();
+
+        (bool early,) = address(pamm).call(
+            abi.encodeCall(SuwappuPropAMM.sellBaseExactIn, (uint96(1), uint256(0), hash, address(this)))
+        );
+        require(!early, "early block must fail");
+
+        vm.roll(minBlock);
+        pamm.sellBaseExactIn(1, 0, hash, address(this));
+    }
+
+    function testPauseStopsFillsButDoesNotDestroyQuote() public {
+        SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 100, 100);
+        pamm.applyQuote(q, _sign(q));
+        bytes32 hash = pamm.currentQuoteHash();
+        pamm.setPaused(true);
+        (bool ok,) = address(pamm).call(
+            abi.encodeCall(SuwappuPropAMM.sellBaseExactIn, (uint96(1), uint256(0), hash, address(this)))
+        );
+        require(!ok, "paused fill must fail");
+        require(pamm.currentQuoteHash() == hash, "quote preserved");
+    }
+
+    function _quote(
+        uint64 epoch,
+        uint64 sequence,
+        bytes32 parent,
+        uint96 maxIn,
+        uint96 maxOut
+    ) internal view returns (SuwappuPropAMM.Quote memory q) {
+        q = SuwappuPropAMM.Quote({
+            epoch: epoch,
+            sequence: sequence,
+            previousHash: parent,
+            validBlockMin: uint64(block.number),
+            validBlockMax: uint64(block.number + 10),
+            validUntil: uint64(block.timestamp + 100),
+            bidRateX96: uint160((Q96 * 99) / 100),
+            askRateX96: uint160((Q96 * 101) / 100),
+            maxBaseIn: maxIn,
+            maxBaseOut: maxOut
+        });
+    }
+
+    function _sign(SuwappuPropAMM.Quote memory q) internal returns (bytes memory) {
+        bytes32 digest = pamm.quoteDigest(q);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_KEY, digest);
+        return abi.encodePacked(r, s, v);
+    }
+}
