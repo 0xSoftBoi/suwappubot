@@ -31,6 +31,29 @@ pub enum ReplayError {
     ConflictingDuplicate(EventId),
     #[error("event serialization failed: {0}")]
     Serialization(String),
+    #[error("event deserialization failed at JSONL line {line}: {message}")]
+    Deserialization { line: usize, message: String },
+}
+
+pub fn parse_jsonl(input: &str) -> Result<Vec<EventEnvelope>, ReplayError> {
+    input
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let trimmed = line.trim();
+            (!trimmed.is_empty()).then_some((index + 1, trimmed))
+        })
+        .map(|(line, json)| {
+            serde_json::from_str(json).map_err(|error| ReplayError::Deserialization {
+                line,
+                message: error.to_string(),
+            })
+        })
+        .collect()
+}
+
+pub fn replay_jsonl(input: &str) -> Result<ReplayReport, ReplayError> {
+    replay(parse_jsonl(input)?)
 }
 
 pub fn replay(events: impl IntoIterator<Item = EventEnvelope>) -> Result<ReplayReport, ReplayError> {
@@ -170,5 +193,11 @@ mod tests {
                 observed: 1,
             }
         );
+    }
+
+    #[test]
+    fn malformed_jsonl_records_the_source_line() {
+        let error = parse_jsonl("\n{not-json}\n").unwrap_err();
+        assert!(matches!(error, ReplayError::Deserialization { line: 2, .. }));
     }
 }
