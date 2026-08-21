@@ -46,14 +46,7 @@ contract TwoCallDifferentialTest {
         bytes memory data1 = abi.encodeCall(DifferentialVenue.noop, (hex"05060708090a"));
         uint256 baselineBalance = _runBaseline(data0, data1, 1_000_000e6);
         uint256 specializedBalance = specialized.executeTwo(
-            address(venueA),
-            0,
-            data0,
-            address(venueB),
-            0,
-            data1,
-            address(token),
-            1_000_000e6
+            address(venueA), 0, data0, address(venueB), 0, data1, address(token), 1_000_000e6
         );
         require(baselineBalance == specializedBalance, "final balance mismatch");
     }
@@ -62,24 +55,24 @@ contract TwoCallDifferentialTest {
         bytes memory data0 = abi.encodeCall(DifferentialVenue.noop, (hex"01"));
         bytes memory data1 = abi.encodeCall(DifferentialVenue.revertAlways, ());
 
-        (bool baselineOk,) = address(this).call(
-            abi.encodeCall(this.runBaselineExternal, (data0, data1, 1_000_000e6))
-        );
-        (bool specializedOk,) = address(specialized).call(
-            abi.encodeCall(
-                TwoCallExecutor.executeTwo,
-                (
-                    address(venueA),
-                    0,
-                    data0,
-                    address(venueB),
-                    0,
-                    data1,
-                    address(token),
-                    1_000_000e6
+        (bool baselineOk,) = address(this)
+            .call(abi.encodeCall(this.runBaselineExternal, (data0, data1, 1_000_000e6)));
+        (bool specializedOk,) = address(specialized)
+            .call(
+                abi.encodeCall(
+                    TwoCallExecutor.executeTwo,
+                    (
+                        address(venueA),
+                        0,
+                        data0,
+                        address(venueB),
+                        0,
+                        data1,
+                        address(token),
+                        1_000_000e6
+                    )
                 )
-            )
-        );
+            );
         require(!baselineOk && !specializedOk, "both must fail closed");
     }
 
@@ -88,24 +81,24 @@ contract TwoCallDifferentialTest {
         bytes memory data1 = abi.encodeCall(DifferentialVenue.noop, (hex"02"));
         uint256 impossible = 1_000_001e6;
 
-        (bool baselineOk,) = address(this).call(
-            abi.encodeCall(this.runBaselineExternal, (data0, data1, impossible))
-        );
-        (bool specializedOk,) = address(specialized).call(
-            abi.encodeCall(
-                TwoCallExecutor.executeTwo,
-                (
-                    address(venueA),
-                    0,
-                    data0,
-                    address(venueB),
-                    0,
-                    data1,
-                    address(token),
-                    impossible
+        (bool baselineOk,) =
+            address(this).call(abi.encodeCall(this.runBaselineExternal, (data0, data1, impossible)));
+        (bool specializedOk,) = address(specialized)
+            .call(
+                abi.encodeCall(
+                    TwoCallExecutor.executeTwo,
+                    (
+                        address(venueA),
+                        0,
+                        data0,
+                        address(venueB),
+                        0,
+                        data1,
+                        address(token),
+                        impossible
+                    )
                 )
-            )
-        );
+            );
         require(!baselineOk && !specializedOk, "both must enforce final economics");
     }
 
@@ -119,18 +112,13 @@ contract TwoCallDifferentialTest {
 
         uint256 beforeSpecialized = gasleft();
         specialized.executeTwo(
-            address(venueA),
-            0,
-            data0,
-            address(venueB),
-            0,
-            data1,
-            address(token),
-            1_000_000e6
+            address(venueA), 0, data0, address(venueB), 0, data1, address(token), 1_000_000e6
         );
         uint256 specializedGas = beforeSpecialized - gasleft();
 
-        emit GasComparison(baselineGas, specializedGas, int256(baselineGas) - int256(specializedGas));
+        emit GasComparison(
+            baselineGas, specializedGas, int256(baselineGas) - int256(specializedGas)
+        );
     }
 
     function runBaselineExternal(bytes calldata data0, bytes calldata data1, uint256 minimum)
@@ -148,8 +136,7 @@ contract TwoCallDifferentialTest {
         calls[0] = BaselineExecutor.Call({target: address(venueA), value: 0, data: data0});
         calls[1] = BaselineExecutor.Call({target: address(venueB), value: 0, data: data1});
         return baseline.execute(
-            calls,
-            BaselineExecutor.BalanceCheck({token: address(token), minimum: minimum})
+            calls, BaselineExecutor.BalanceCheck({token: address(token), minimum: minimum})
         );
     }
 }
