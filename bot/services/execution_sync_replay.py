@@ -21,7 +21,6 @@ from typing import Any, Iterable, Mapping, Optional
 from bot.services.execution_sync import ExecutionCandidate, ExecutionIntent, optimize
 from bot.services.execution_sync_calibration import ProviderCalibration, calibrate_provider
 
-
 DEFAULT_MIN_PROVIDER_EVIDENCE = 20
 DEFAULT_WINDOW_DAYS = 30
 MAX_WINDOW_DAYS = 180
@@ -177,9 +176,15 @@ def replay_race(
 
     quote_id = str(getattr(rows[0], "quote_id", ""))
     selected_row = next((row for row in rows if bool(getattr(row, "was_selected", False))), None)
-    production_provider = _provider(getattr(selected_row, "provider", None)) if selected_row else None
-    production_quoted = _float(getattr(selected_row, "quoted_to_amount_usd", None)) if selected_row else None
-    production_observed = _float(getattr(selected_row, "observed_to_amount_usd", None)) if selected_row else None
+    production_provider = (
+        _provider(getattr(selected_row, "provider", None)) if selected_row else None
+    )
+    production_quoted = (
+        _float(getattr(selected_row, "quoted_to_amount_usd", None)) if selected_row else None
+    )
+    production_observed = (
+        _float(getattr(selected_row, "observed_to_amount_usd", None)) if selected_row else None
+    )
     swap_id = getattr(selected_row, "swap_id", None) if selected_row else None
 
     candidates: list[ExecutionCandidate] = []

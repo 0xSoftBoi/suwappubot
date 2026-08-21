@@ -100,7 +100,10 @@ def run_walk_forward(
     for quote_time, rows in normalized_races:
         # Strict inequality: a terminal observation at the exact quote timestamp
         # is not assumed known to the router yet.
-        while swap_idx < len(swaps) and _utc(getattr(swaps[swap_idx], "created_at", None)) < quote_time:
+        while (
+            swap_idx < len(swaps)
+            and _utc(getattr(swaps[swap_idx], "created_at", None)) < quote_time
+        ):
             prior_swaps.append(swaps[swap_idx])
             swap_idx += 1
 

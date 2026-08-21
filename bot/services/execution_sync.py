@@ -133,8 +133,12 @@ def candidate_from_swap_quote(quote: Any) -> ExecutionCandidate:
         total_cost_usd=max(0.0, float(getattr(quote, "total_cost_usd", 0.0) or 0.0)),
         expected_latency_seconds=max(0.0, float(getattr(quote, "estimated_time", 0.0) or 0.0)),
         price_impact=max(0.0, float(getattr(quote, "price_impact", 0.0) or 0.0)),
-        settlement_probability=min(1.0, max(0.0, float(raw.get("settlement_probability", prior["settlement_probability"])))),
-        security_score=min(1.0, max(0.0, float(raw.get("security_score", prior["security_score"])))),
+        settlement_probability=min(
+            1.0, max(0.0, float(raw.get("settlement_probability", prior["settlement_probability"])))
+        ),
+        security_score=min(
+            1.0, max(0.0, float(raw.get("security_score", prior["security_score"])))
+        ),
         mev_protected=bool(raw.get("mev_protected", prior["mev_protected"])),
         quote_timestamp=timestamp,
         expires_in_seconds=max(0, int(getattr(quote, "expires_in", 30) or 0)),
@@ -142,7 +146,9 @@ def candidate_from_swap_quote(quote: Any) -> ExecutionCandidate:
     )
 
 
-def validate_candidate(candidate: ExecutionCandidate, intent: ExecutionIntent, *, now: Optional[datetime] = None) -> tuple[ConstraintViolation, ...]:
+def validate_candidate(
+    candidate: ExecutionCandidate, intent: ExecutionIntent, *, now: Optional[datetime] = None
+) -> tuple[ConstraintViolation, ...]:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -151,12 +157,24 @@ def validate_candidate(candidate: ExecutionCandidate, intent: ExecutionIntent, *
         violations.append(ConstraintViolation("stale_quote", "quote expired before optimization"))
     if candidate.guaranteed_min_output < intent.min_output:
         violations.append(ConstraintViolation("min_output", "guaranteed output below user minimum"))
-    if intent.max_total_cost_usd is not None and candidate.total_cost_usd > intent.max_total_cost_usd:
-        violations.append(ConstraintViolation("max_cost", "total execution cost exceeds user maximum"))
-    if intent.max_latency_seconds is not None and candidate.expected_latency_seconds > intent.max_latency_seconds:
-        violations.append(ConstraintViolation("max_latency", "expected latency exceeds user maximum"))
+    if (
+        intent.max_total_cost_usd is not None
+        and candidate.total_cost_usd > intent.max_total_cost_usd
+    ):
+        violations.append(
+            ConstraintViolation("max_cost", "total execution cost exceeds user maximum")
+        )
+    if (
+        intent.max_latency_seconds is not None
+        and candidate.expected_latency_seconds > intent.max_latency_seconds
+    ):
+        violations.append(
+            ConstraintViolation("max_latency", "expected latency exceeds user maximum")
+        )
     if candidate.settlement_probability < intent.min_settlement_probability:
-        violations.append(ConstraintViolation("settlement_probability", "settlement probability below minimum"))
+        violations.append(
+            ConstraintViolation("settlement_probability", "settlement probability below minimum")
+        )
     if candidate.security_score < intent.min_security_score:
         violations.append(ConstraintViolation("security", "security score below minimum"))
     if intent.max_price_impact is not None and candidate.price_impact > intent.max_price_impact:
@@ -164,13 +182,17 @@ def validate_candidate(candidate: ExecutionCandidate, intent: ExecutionIntent, *
     if intent.require_mev_protection and not candidate.mev_protected:
         violations.append(ConstraintViolation("mev_policy", "MEV protection is required"))
     if intent.allowed_providers and candidate.provider not in intent.allowed_providers:
-        violations.append(ConstraintViolation("provider_not_allowed", "provider is outside allow-list"))
+        violations.append(
+            ConstraintViolation("provider_not_allowed", "provider is outside allow-list")
+        )
     if candidate.provider in intent.forbidden_providers:
         violations.append(ConstraintViolation("provider_forbidden", "provider is forbidden"))
     return tuple(violations)
 
 
-def expected_utility(candidate: ExecutionCandidate, weights: UtilityWeights = UtilityWeights()) -> float:
+def expected_utility(
+    candidate: ExecutionCandidate, weights: UtilityWeights = UtilityWeights()
+) -> float:
     return (
         candidate.expected_output
         - weights.usd_cost_penalty * candidate.total_cost_usd
@@ -183,16 +205,38 @@ def expected_utility(candidate: ExecutionCandidate, weights: UtilityWeights = Ut
 
 
 def _dominates(a: ExecutionCandidate, b: ExecutionCandidate) -> bool:
-    am = (a.expected_output, -a.total_cost_usd, -a.expected_latency_seconds, a.settlement_probability, a.security_score, -a.price_impact)
-    bm = (b.expected_output, -b.total_cost_usd, -b.expected_latency_seconds, b.settlement_probability, b.security_score, -b.price_impact)
+    am = (
+        a.expected_output,
+        -a.total_cost_usd,
+        -a.expected_latency_seconds,
+        a.settlement_probability,
+        a.security_score,
+        -a.price_impact,
+    )
+    bm = (
+        b.expected_output,
+        -b.total_cost_usd,
+        -b.expected_latency_seconds,
+        b.settlement_probability,
+        b.security_score,
+        -b.price_impact,
+    )
     return all(x >= y for x, y in zip(am, bm)) and any(x > y for x, y in zip(am, bm))
 
 
 def pareto_frontier(candidates: Sequence[ExecutionCandidate]) -> tuple[ExecutionCandidate, ...]:
-    return tuple(c for c in candidates if not any(_dominates(o, c) for o in candidates if o is not c))
+    return tuple(
+        c for c in candidates if not any(_dominates(o, c) for o in candidates if o is not c)
+    )
 
 
-def optimize(candidates: Iterable[ExecutionCandidate], intent: ExecutionIntent, *, weights: UtilityWeights = UtilityWeights(), now: Optional[datetime] = None) -> ShadowDecision:
+def optimize(
+    candidates: Iterable[ExecutionCandidate],
+    intent: ExecutionIntent,
+    *,
+    weights: UtilityWeights = UtilityWeights(),
+    now: Optional[datetime] = None,
+) -> ShadowDecision:
     evaluations: list[CandidateEvaluation] = []
     feasible: list[ExecutionCandidate] = []
     for candidate in candidates:
@@ -206,11 +250,15 @@ def optimize(candidates: Iterable[ExecutionCandidate], intent: ExecutionIntent, 
     return ShadowDecision(selected, frontier, tuple(evaluations))
 
 
-def evaluate_swap_quotes_shadow(quotes: Iterable[Any], *, now: Optional[datetime] = None) -> ShadowDecision:
+def evaluate_swap_quotes_shadow(
+    quotes: Iterable[Any], *, now: Optional[datetime] = None
+) -> ShadowDecision:
     return optimize(tuple(candidate_from_swap_quote(q) for q in quotes), ExecutionIntent(), now=now)
 
 
-def shadow_event(*, production_provider: str, production_output: float, decision: ShadowDecision) -> dict[str, Any]:
+def shadow_event(
+    *, production_provider: str, production_output: float, decision: ShadowDecision
+) -> dict[str, Any]:
     selected = decision.selected
     return {
         "event": "execution_sync_shadow_decision",

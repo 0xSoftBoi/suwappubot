@@ -43,8 +43,16 @@ def _iso(value: Any) -> Optional[str]:
 def _latency_seconds(created_at: Any, completed_at: Any) -> Optional[float]:
     if created_at is None or completed_at is None:
         return None
-    start = created_at if getattr(created_at, "tzinfo", None) else created_at.replace(tzinfo=timezone.utc)
-    end = completed_at if getattr(completed_at, "tzinfo", None) else completed_at.replace(tzinfo=timezone.utc)
+    start = (
+        created_at
+        if getattr(created_at, "tzinfo", None)
+        else created_at.replace(tzinfo=timezone.utc)
+    )
+    end = (
+        completed_at
+        if getattr(completed_at, "tzinfo", None)
+        else completed_at.replace(tzinfo=timezone.utc)
+    )
     return max(0.0, (end - start).total_seconds())
 
 
