@@ -96,7 +96,7 @@ where
     F: FnMut(Fixed) -> Option<Fixed>,
 {
     let points = grid_point_count(search)?;
-    if points == 0 || max_evaluations == 0 {
+    if max_evaluations == 0 {
         return Err(SizingError::EvaluationBudgetExceeded);
     }
 
@@ -182,7 +182,7 @@ where
     }
     let input = input_at(search, points, index)?;
     let net = evaluate(input).ok_or(SizingError::NonExecutablePoint)?;
-    *evaluations = evaluations.saturating_add(1);
+    *evaluations = (*evaluations).saturating_add(1);
     cache.insert(index, net);
     Ok(net)
 }
@@ -197,9 +197,10 @@ fn grid_point_count(search: SizeSearch) -> Result<u64, SizingError> {
         .ok_or(SizingError::Overflow)?;
     let full_steps = span.checked_div(search.step).ok_or(SizingError::Overflow)?;
     let remainder = span.checked_rem(search.step).ok_or(SizingError::Overflow)?;
+    let terminal_point = if remainder == 0 { 0 } else { 1 };
     let points = full_steps
         .checked_add(1)
-        .and_then(|value| value.checked_add(i128::from(remainder != 0)))
+        .and_then(|value| value.checked_add(terminal_point))
         .ok_or(SizingError::Overflow)?;
     u64::try_from(points).map_err(|_| SizingError::EvaluationBudgetExceeded)
 }
@@ -262,9 +263,14 @@ mod tests {
             max_input: 1_000,
             step: 1,
         };
-        let objective = |x: Fixed| Some(1_000_000 - (x - 613) * (x - 613));
-        let oracle = optimize_grid(search, 1_001, objective).unwrap();
-        let refined = optimize_unimodal_grid(search, 100, objective).unwrap();
+        let oracle = optimize_grid(search, 1_001, |x| {
+            Some(1_000_000 - (x - 613) * (x - 613))
+        })
+        .unwrap();
+        let refined = optimize_unimodal_grid(search, 100, |x| {
+            Some(1_000_000 - (x - 613) * (x - 613))
+        })
+        .unwrap();
         assert_eq!(refined.input, oracle.input);
         assert_eq!(refined.net_pnl_quote, oracle.net_pnl_quote);
         assert!(refined.evaluations < oracle.evaluations);
