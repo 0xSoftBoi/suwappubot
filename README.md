@@ -306,7 +306,7 @@ See [ONBOARDING](docs/ONBOARDING.md) for the full contributor setup and test lan
 Suwappu moves money. Treat any change to signing, custody, routing, withdrawals, fee collection, or authorization as security-sensitive.
 
 - Read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
-- Review the [architecture overview](docs/architecture/OVERVIEW.md#wallets--keys-money-path) for key-handling boundaries.
+- Review the [architecture overview](docs/architecture/OVERVIEW.md) for key-handling boundaries.
 - Review [agent clients](docs/agent-clients.md#security-baseline-for-builders) before granting an AI system execution capabilities.
 - The checked-in [CycloneDX SBOM](sbom/suwappubot.cdx.json) inventories dependencies; it is not a security certification.
 
