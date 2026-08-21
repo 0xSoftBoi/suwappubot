@@ -11,8 +11,9 @@
  * It reads the existing spec, overwrites the mapped request schemas with output
  * from `z.toJSONSchema(...)` (plus deterministic manual overrides for constraints
  * that Zod's JSON-Schema export drops, e.g. `.refine()`), preserves any
- * human-written descriptions/examples the generator can't derive, bumps the spec
- * version, and writes the result back with stable key ordering.
+ * human-written descriptions/examples the generator can't derive, applies the
+ * OpenAPI document revision from `developer-contract.json`, and writes the result
+ * back with stable key ordering.
  *
  * Modes:
  *   (default)  write openapi-agent.json
@@ -40,8 +41,39 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const SPEC_PATH = join(__dirname, '..', 'openapi-agent.json')
+export const DEVELOPER_CONTRACT_PATH = join(__dirname, '..', 'developer-contract.json')
 
-const SPEC_VERSION = '0.5.0'
+type DeveloperContract = {
+	agentRest: {
+		compatibilityMajor: string
+		basePath: string
+		openapiRevision: string
+		lifecycle: string
+	}
+}
+
+function loadDeveloperContract(): DeveloperContract {
+	const parsed = JSON.parse(readFileSync(DEVELOPER_CONTRACT_PATH, 'utf8')) as Partial<DeveloperContract>
+	const agentRest = parsed.agentRest
+	if (
+		!agentRest ||
+		typeof agentRest.compatibilityMajor !== 'string' ||
+		typeof agentRest.basePath !== 'string' ||
+		typeof agentRest.openapiRevision !== 'string' ||
+		typeof agentRest.lifecycle !== 'string'
+	) {
+		throw new Error('developer-contract.json is missing required agentRest lifecycle/version fields')
+	}
+	if (!agentRest.basePath.startsWith(`/${agentRest.compatibilityMajor}/`)) {
+		throw new Error(
+			`developer-contract.json basePath ${agentRest.basePath} does not match compatibility major ${agentRest.compatibilityMajor}`,
+		)
+	}
+	return parsed as DeveloperContract
+}
+
+const DEVELOPER_CONTRACT = loadDeveloperContract()
+const SPEC_VERSION = DEVELOPER_CONTRACT.agentRest.openapiRevision
 
 import { deepMerge, toJsonSchema as toSchema, type Json } from '../src/lib/zodJsonSchema'
 
@@ -327,17 +359,19 @@ function main(): void {
 	if (check) {
 		if (next !== onDisk) {
 			console.error(
-				'❌ openapi-agent.json is out of date with the Zod validators.\n' +
+				'❌ openapi-agent.json is out of date with the Zod validators or developer contract.\n' +
 					'   Run `bun run generate:openapi` and commit the result.',
 			)
 			process.exit(1)
 		}
-		console.log('✓ openapi-agent.json is in sync with the Zod validators.')
+		console.log('✓ openapi-agent.json is in sync with the Zod validators and developer contract.')
 		return
 	}
 
 	writeFileSync(SPEC_PATH, next)
-	console.log(`✓ Wrote ${SPEC_PATH} (version ${SPEC_VERSION}).`)
+	console.log(
+		`✓ Wrote ${SPEC_PATH} (REST ${DEVELOPER_CONTRACT.agentRest.compatibilityMajor}, OpenAPI revision ${SPEC_VERSION}).`,
+	)
 }
 
 // Only run when executed directly (`bun run scripts/gen-openapi.ts`), not when
