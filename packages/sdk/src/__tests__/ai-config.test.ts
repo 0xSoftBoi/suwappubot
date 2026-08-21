@@ -53,7 +53,10 @@ describe("ai config persistence", () => {
 
   it("preserves existing top-level fields when only the ai config changes", () => {
     configModule.writeConfig({ apiKey: "suwappu-agent-key", baseUrl: "https://api.suwappu.bot" });
-    configModule.writeConfig({ ...configModule.readConfig(), ai: { backend: "router", apiKey: "sk-abc123456789" } });
+    configModule.writeConfig({
+      ...configModule.readConfig(),
+      ai: { backend: "router", apiKey: "sk-abc123456789" },
+    });
 
     const config = configModule.readConfig();
     expect(config.apiKey).toBe("suwappu-agent-key");
@@ -61,12 +64,15 @@ describe("ai config persistence", () => {
     expect(config.ai?.backend).toBe("router");
   });
 
-  it("masks the stored router key for display without ever printing it raw", () => {
-    configModule.writeConfig({ ai: { backend: "router", apiKey: "sk-or-v1-topsecretvalue7890" } });
+  it("reports a stored router key as configured without printing key-derived material", () => {
+    const rawKey = "sk-or-v1-topsecretvalue7890";
+    configModule.writeConfig({ ai: { backend: "router", apiKey: rawKey } });
     const config = configModule.readConfig();
     const masked = maskApiKey(config.ai!.apiKey!);
 
-    expect(masked).toBe("sk-...7890");
+    expect(masked).toBe("[configured]");
     expect(masked).not.toContain("topsecret");
+    expect(masked).not.toContain("7890");
+    expect(masked).not.toContain(rawKey);
   });
 });
