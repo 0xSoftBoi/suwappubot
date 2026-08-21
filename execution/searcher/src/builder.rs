@@ -25,27 +25,32 @@ pub struct RelayBidTrace {
     pub timestamp_ms: Option<String>,
 }
 
-/// Minimal real-time top-bid shape. Titan may add fields over time, so unknown fields
-/// are deliberately tolerated by serde. We retain the raw identifiers needed to join
-/// the stream to delivered-payload and execution-attempt datasets.
+/// Titan's documented top-bid wire message. Unknown future fields remain tolerated.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TitanTopBidUpdate {
+    pub timestamp: u64,
     pub slot: u64,
-    #[serde(default)]
-    pub block_hash: Option<String>,
-    #[serde(default)]
-    pub builder_pubkey: Option<String>,
-    #[serde(default)]
-    pub value: Option<String>,
-    #[serde(default)]
-    pub timestamp_ms: Option<u64>,
+    pub block_number: u64,
+    pub block_hash: String,
+    pub parent_hash: String,
+    pub builder_pubkey: String,
+    pub fee_recipient: String,
+    pub value: String,
+}
+
+/// Titan documents the top-bid timestamp field but does not currently state its unit on
+/// the integration page. Transport code must therefore choose the unit explicitly rather
+/// than letting the economics layer guess.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TitanTimestampUnit {
+    Milliseconds,
+    Nanoseconds,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RelayTraceKind {
     BuilderBidReceived,
     PayloadDelivered,
-    TopBid,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -54,8 +59,8 @@ pub enum BuilderTelemetryError {
     InvalidInteger { field: &'static str },
     #[error("relay bid value exceeds u128")]
     BidValueOverflow,
-    #[error("missing top-bid value")]
-    MissingTopBidValue,
+    #[error("timestamp conversion overflow")]
+    TimestampOverflow,
 }
 
 #[must_use]
@@ -84,7 +89,6 @@ pub fn normalize_relay_trace(
     let kind_name = match kind {
         RelayTraceKind::BuilderBidReceived => "builder_bid",
         RelayTraceKind::PayloadDelivered => "payload_delivered",
-        RelayTraceKind::TopBid => "top_bid",
     };
 
     Ok(EventEnvelope {
@@ -123,31 +127,42 @@ pub fn normalize_relay_trace(
 pub fn normalize_titan_top_bid(
     source: impl Into<String>,
     update: TitanTopBidUpdate,
+    timestamp_unit: TitanTimestampUnit,
     receive_ts_ns: u64,
 ) -> Result<EventEnvelope, BuilderTelemetryError> {
-    let block_hash = update.block_hash.unwrap_or_else(|| "unknown".into());
-    let builder = update.builder_pubkey.unwrap_or_else(|| "unknown".into());
-    let value = update.value.ok_or(BuilderTelemetryError::MissingTopBidValue)?;
-    let bid_wei = value
+    let bid_wei = update
+        .value
         .parse::<u128>()
         .map_err(|_| BuilderTelemetryError::BidValueOverflow)?;
-    let exchange_ts_ns = update
-        .timestamp_ms
-        .and_then(|ms| ms.checked_mul(1_000_000))
-        .unwrap_or(receive_ts_ns);
+    let exchange_ts_ns = match timestamp_unit {
+        TitanTimestampUnit::Milliseconds => update
+            .timestamp
+            .checked_mul(1_000_000)
+            .ok_or(BuilderTelemetryError::TimestampOverflow)?,
+        TitanTimestampUnit::Nanoseconds => update.timestamp,
+    };
 
     Ok(EventEnvelope {
         schema_version: 1,
-        event_id: EventId(format!("top_bid:{}:{block_hash}:{builder}:{bid_wei}", update.slot)),
+        event_id: EventId(format!(
+            "top_bid:{}:{}:{}:{bid_wei}", update.slot, update.block_hash, update.builder_pubkey
+        )),
         source: SourceId(source.into()),
         exchange_ts_ns,
         receive_ts_ns,
         sequence: None,
         clock_uncertainty_ns: receive_ts_ns.abs_diff(exchange_ts_ns),
-        chain: None,
+        chain: Some(crate::events::ChainContext {
+            chain_id: 1,
+            block_number: update.block_number,
+            block_hash: Some(update.block_hash.clone()),
+            tx_hash: None,
+            tx_index: None,
+            log_index: None,
+        }),
         payload: MarketEvent::BuilderTrace {
-            builder,
-            opportunity_id: relay_opportunity_id(update.slot, &block_hash),
+            builder: update.builder_pubkey,
+            opportunity_id: relay_opportunity_id(update.slot, &update.block_hash),
             bid_wei,
             simulated: true,
             included: false,
@@ -196,6 +211,19 @@ mod tests {
         }
     }
 
+    fn top_bid() -> TitanTopBidUpdate {
+        TitanTopBidUpdate {
+            timestamp: 1_770_000_000_456,
+            slot: 14_000_000,
+            block_number: 24_800_000,
+            block_hash: "0xblock".into(),
+            parent_hash: "0xparent".into(),
+            builder_pubkey: "0xbuilder".into(),
+            fee_recipient: "0xfee".into(),
+            value: "125000000000000000".into(),
+        }
+    }
+
     #[test]
     fn delivered_payload_becomes_included_builder_trace() {
         let event = normalize_relay_trace(
@@ -218,20 +246,16 @@ mod tests {
     }
 
     #[test]
-    fn top_bid_requires_precise_value() {
-        let error = normalize_titan_top_bid(
+    fn top_bid_uses_explicit_timestamp_unit() {
+        let event = normalize_titan_top_bid(
             "titan:ws:top_bid",
-            TitanTopBidUpdate {
-                slot: 1,
-                block_hash: None,
-                builder_pubkey: None,
-                value: None,
-                timestamp_ms: None,
-            },
-            1,
+            top_bid(),
+            TitanTimestampUnit::Milliseconds,
+            1_770_000_000_457_000_000,
         )
-        .unwrap_err();
-        assert_eq!(error, BuilderTelemetryError::MissingTopBidValue);
+        .unwrap();
+        assert_eq!(event.exchange_ts_ns, 1_770_000_000_456_000_000);
+        assert_eq!(event.clock_uncertainty_ns, 1_000_000);
     }
 
     #[test]
@@ -255,5 +279,13 @@ mod tests {
             _ => unreachable!(),
         };
         assert_eq!(opportunity(bid), opportunity(delivered));
+    }
+
+    #[test]
+    fn documented_wire_fixture_deserializes() {
+        let wire = include_str!("../fixtures/titan_top_bid.json");
+        let update: TitanTopBidUpdate = serde_json::from_str(wire).unwrap();
+        assert_eq!(update.slot, 14_000_000);
+        assert_eq!(update.block_number, 24_800_000);
     }
 }
