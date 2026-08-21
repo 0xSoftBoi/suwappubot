@@ -111,3 +111,85 @@ def test_known_good_providers_still_trusted():
 def test_attacker_domain_still_rejected():
     assert not _is_trusted_rpc_url("https://evil.example.com/rpc")
     assert not _is_trusted_rpc_url("https://rpc.ankr.com.evil.tld/polygon")
+
+
+# --------------------------------------------------------------------------
+# 3. Dead/gated endpoints must not be re-probed (or re-logged) every 10 minutes
+#
+# Measured in prod 2026-08-15: ~20 endpoints sat at 288 consecutive failures —
+# what a 600s-capped backoff looks like after two days — and each re-logged a
+# WARNING on every probe. The resulting flood left the worker's log buffer
+# covering only a few minutes, so an unrelated incident could not be debugged
+# from the logs at all.
+# --------------------------------------------------------------------------
+
+from bot.services.rpc_manager import RPCEndpoint, RPCTier, _safe_url
+
+
+def _endpoint(url="https://polygon.meowrpc.com"):
+    return RPCEndpoint(url=url, chain="polygon", tier=RPCTier.PUBLIC)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Cannot connect to host polygon.meowrpc.com:443 ssl:default [Name or service not known]",
+        "Temporary failure in name resolution",
+        "http_403",
+        "http_401",
+    ],
+)
+def test_unrecoverable_errors_get_the_long_cooldown_not_ten_minutes(error):
+    """DNS death and 401/403 gating are properties of the endpoint, not blips."""
+    ep = _endpoint()
+    ep.record_failure(error)
+    remaining = ep.circuit_open_until - __import__("time").monotonic()
+    # Must be the quota-class cooldown (6h), not the 600s generic backoff.
+    assert remaining > 3600, f"{error!r} got only {remaining:.0f}s cooldown"
+
+
+def test_transient_errors_still_use_the_short_backoff():
+    """Guard against over-matching: a normal timeout must stay recoverable."""
+    ep = _endpoint()
+    for _ in range(3):
+        ep.record_failure("timeout")
+    remaining = ep.circuit_open_until - __import__("time").monotonic()
+    assert 0 < remaining <= 600
+
+
+def test_circuit_open_logs_once_per_cooldown_not_once_per_probe(caplog):
+    """The wall of identical lines is the actual outage-debugging problem."""
+    ep = _endpoint()
+    with caplog.at_level("WARNING"):
+        for _ in range(25):
+            ep.record_failure("http_403")
+    opens = [r for r in caplog.records if "circuit OPEN" in r.getMessage()]
+    assert len(opens) == 1, f"expected 1 log line, got {len(opens)}"
+
+
+def test_fatal_errors_also_log_once(caplog):
+    ep = _endpoint()
+    with caplog.at_level("WARNING"):
+        for _ in range(10):
+            ep.record_failure("eth_call unsupported", fatal=True)
+    opens = [r for r in caplog.records if "circuit OPEN" in r.getMessage()]
+    assert len(opens) == 1
+
+
+def test_logged_urls_never_leak_credentials(caplog):
+    """`url[:60]` truncated PAST `/v2/`, leaking ~17 chars of an Alchemy key."""
+    secret = "ykAk5ChQy84xeQQFpSUPERSECRETKEY"
+    ep = _endpoint(f"https://robinhood-mainnet.g.alchemy.com/v2/{secret}")
+    with caplog.at_level("WARNING"):
+        ep.record_failure("http_403")
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert secret not in logged
+    assert secret[:12] not in logged, "partial key still leaked"
+    # ...but the host must survive, or the line stops being actionable.
+    assert "robinhood-mainnet.g.alchemy.com" in logged
+
+
+def test_safe_url_keeps_host_and_drops_secrets():
+    assert _safe_url("https://eth.meowrpc.com") == "https://eth.meowrpc.com"
+    assert _safe_url("https://x.g.alchemy.com/v2/KEY") == "https://x.g.alchemy.com/v2/***"
+    assert _safe_url("not a url") == "<malformed-url>"

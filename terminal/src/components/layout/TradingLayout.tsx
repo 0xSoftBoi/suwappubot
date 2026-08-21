@@ -72,6 +72,9 @@ const PendingApprovalsPanel = lazy(() =>
 const AuditLogPanel = lazy(() =>
   import('../agent-control/AuditLogPanel').then((m) => ({ default: m.AuditLogPanel })),
 )
+const MarketDataPanel = lazy(() =>
+  import('../market-data/MarketDataPanel').then((m) => ({ default: m.MarketDataPanel })),
+)
 
 function DeferredPanel({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -83,6 +86,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'discovery', label: 'Discovery' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'intel', label: 'Token Intel' },
+  { id: 'data', label: 'Data' },
   { id: 'copy-trading', label: 'Copy Trading' },
   { id: 'wallet-tracker', label: 'Wallet Tracker' },
   { id: 'tweets', label: 'Tweets' },
@@ -223,6 +227,11 @@ function MobileLayout() {
                 {bottomTab === 'audit' && (
                   <ErrorBoundary label="Agent Audit">
                     <AuditLogPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'data' && (
+                  <ErrorBoundary label="Market Data">
+                    <MarketDataPanel />
                   </ErrorBoundary>
                 )}
               </DeferredPanel>
@@ -383,6 +392,11 @@ function DesktopLayout() {
               {bottomTab === 'audit' && (
                 <ErrorBoundary label="Agent Audit">
                   <AuditLogPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'data' && (
+                <ErrorBoundary label="Market Data">
+                  <MarketDataPanel />
                 </ErrorBoundary>
               )}
             </DeferredPanel>

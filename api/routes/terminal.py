@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -59,7 +60,9 @@ def _is_eth_usdc_chart(pair: str, chain: str) -> bool:
 
 # --- Per-token charts via GeckoTerminal pool OHLCV (any token, not just ETH/USDC) ---
 
-# Suwappu chain name -> GeckoTerminal/DexScreener network ids.
+# Suwappu chain name -> GeckoTerminal network id. Covers 44 of the 45 chains in
+# bot/config/chains.py (verified live against GeckoTerminal's network list on
+# 2026-08-13). `worldchain` is NOT on GeckoTerminal and is deliberately omitted.
 GECKO_NETWORK = {
     "ethereum": "eth",
     "eth": "eth",
@@ -76,8 +79,53 @@ GECKO_NETWORK = {
     "avax": "avax",
     "solana": "solana",
     "sol": "solana",
+    # Exact id matches on GeckoTerminal.
+    "abstract": "abstract",
+    "apechain": "apechain",
+    "aurora": "aurora",
+    "berachain": "berachain",
+    "blast": "blast",
+    "citrea": "citrea",
+    "flare": "flare",
+    "fraxtal": "fraxtal",
+    "goat": "goat",
+    "hemi": "hemi",
+    "hyperevm": "hyperevm",
+    "ink": "ink",
+    "kaia": "kaia",
+    "linea": "linea",
+    "lisk": "lisk",
+    "mantle": "mantle",
+    "mode": "mode",
+    "opbnb": "opbnb",
+    "plasma": "plasma",
+    "robinhood": "robinhood",
+    "rootstock": "rootstock",
+    "scroll": "scroll",
+    "soneium": "soneium",
+    "sonic": "sonic",
+    "swellchain": "swellchain",
+    "taiko": "taiko",
+    "tempo": "tempo",
+    "tron": "tron",
+    "unichain": "unichain",
+    "zksync": "zksync",
+    # Aliases: Suwappu chain name differs from the GeckoTerminal network id.
+    "bob": "bob-network",
+    "fantom": "ftm",
+    "flow": "flow-evm",
+    "gnosis": "xdai",
+    "sei": "sei-evm",
+    "starknet": "starknet-alpha",
 }
-DEXSCREENER_CHAIN = {  # GeckoTerminal network -> DexScreener chainId
+# GeckoTerminal network -> DexScreener chainId. ONLY populated where verified
+# live (resolved a real token per network via GeckoTerminal's top-pools
+# endpoint, then confirmed the same chainId came back from DexScreener's
+# `/latest/dex/tokens/<addr>`). Networks not listed here are deliberately left
+# unmapped — see the fail-closed comment in `_resolve_pool` for why guessing
+# is unsafe (e.g. an `ink` token resolves to pairs on base/ink/optimism/
+# soneium/unichain; picking the wrong one charts the wrong asset).
+DEXSCREENER_CHAIN = {
     "eth": "ethereum",
     "base": "base",
     "arbitrum": "arbitrum",
@@ -86,6 +134,27 @@ DEXSCREENER_CHAIN = {  # GeckoTerminal network -> DexScreener chainId
     "bsc": "bsc",
     "avax": "avalanche",
     "solana": "solana",
+    "abstract": "abstract",
+    "apechain": "apechain",
+    "berachain": "berachain",
+    "blast": "blast",
+    "flare": "flare",
+    "flow-evm": "flowevm",
+    "ftm": "fantom",
+    "hyperevm": "hyperevm",
+    "ink": "ink",
+    "linea": "linea",
+    "mantle": "mantle",
+    "opbnb": "opbnb",
+    "robinhood": "robinhood",
+    "scroll": "scroll",
+    "sei-evm": "seiv2",
+    "soneium": "soneium",
+    "sonic": "sonic",
+    "starknet-alpha": "starknet",
+    "tron": "tron",
+    "unichain": "unichain",
+    "zksync": "zksync",
 }
 # interval -> (GeckoTerminal timeframe, aggregate)
 GECKO_TIMEFRAME = {
@@ -100,8 +169,20 @@ GECKO_TIMEFRAME = {
 
 
 async def _resolve_pool(token_address: str, network: str) -> str | None:
-    """Find the highest-liquidity pool for a token on a chain via DexScreener."""
+    """Find the highest-liquidity pool for a token on a chain via DexScreener.
+
+    Fails CLOSED: a token address is not unique across chains (DexScreener
+    returns pairs for every chain that happens to have a token at that
+    address — e.g. an `ink`-network token resolves to pairs on base/ink/
+    optimism/soneium/unichain). Without a verified DEXSCREENER_CHAIN entry we
+    cannot filter down to the right chain, so `max(pairs, key=liquidity)`
+    could silently pick the highest-liquidity pool on a DIFFERENT chain and
+    chart the wrong asset. Returning None (no chart) is the safe outcome;
+    guessing a chainId is not.
+    """
     ds_chain = DEXSCREENER_CHAIN.get(network)
+    if not ds_chain:
+        return None
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
             resp = await client.get(
@@ -112,12 +193,75 @@ async def _resolve_pool(token_address: str, network: str) -> str | None:
             pairs = resp.json().get("pairs") or []
     except Exception:
         return None
-    if ds_chain:
-        pairs = [p for p in pairs if (p.get("chainId") or "").lower() == ds_chain]
+    pairs = [p for p in pairs if (p.get("chainId") or "").lower() == ds_chain]
     if not pairs:
         return None
     best = max(pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0)
     return best.get("pairAddress")
+
+
+# --- Simple in-process TTL caches (same pattern as `_leaderboard_cache` below).
+# Bounded size + explicit TTLs so a burst of distinct tokens/intervals can't
+# grow these unboundedly, and so we don't blow through GeckoTerminal's ~30
+# req/min free-tier limit on repeat chart loads.
+_POOL_CACHE_TTL_SECONDS = 3600  # a token's best pool rarely changes within an hour
+_POOL_NEG_CACHE_TTL_SECONDS = 60  # transient upstream failure -> retry soon
+_POOL_CACHE_MAX_ENTRIES = 2000
+_pool_cache: dict[tuple[str, str], tuple[float, str | None]] = {}
+
+_OHLCV_CACHE_MAX_ENTRIES = 2000
+# interval -> candle cache TTL. Minute candles move fast (short TTL); hour+
+# candles barely change within a few minutes (longer TTL is safe and cuts
+# GeckoTerminal calls the most for the default 1h/1D chart views).
+_OHLCV_CACHE_TTL_SECONDS = {
+    "1m": 30,
+    "5m": 30,
+    "15m": 60,
+    "1h": 120,
+    "4h": 180,
+    "1D": 300,
+    "1d": 300,
+}
+_ohlcv_cache: dict[tuple[str, str, str, int], tuple[float, list[dict]]] = {}
+
+
+_CACHE_MISS = object()
+
+
+def _cache_get(cache: dict, key):
+    """Returns the cached value, or the `_CACHE_MISS` sentinel on a miss/expiry
+    (distinct from `None`, which is itself a valid cached value here — e.g. a
+    token with no resolvable pool)."""
+    entry = cache.get(key)
+    if not entry:
+        return _CACHE_MISS
+    expires_at, value = entry
+    if time.monotonic() >= expires_at:
+        return _CACHE_MISS
+    return value
+
+
+def _cache_set(cache: dict, key, value, max_entries: int, ttl: float) -> None:
+    if len(cache) >= max_entries:
+        # Cheap bound: drop an arbitrary (oldest-inserted, dict-ordered) entry
+        # rather than tracking LRU order for this simple TTL cache.
+        cache.pop(next(iter(cache)), None)
+    cache[key] = (time.monotonic() + ttl, value)
+
+
+async def _resolve_pool_cached(token_address: str, network: str) -> str | None:
+    key = (token_address.lower(), network)
+    cached = _cache_get(_pool_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    pool = await _resolve_pool(token_address, network)
+    # `_resolve_pool` returns None both for "no pool exists" AND for a transient
+    # DexScreener failure, which it swallows. Caching that for the full hour
+    # would let one upstream blip blank the chart for 60 minutes, so negative
+    # results get a much shorter TTL and retry soon.
+    ttl = _POOL_CACHE_TTL_SECONDS if pool else _POOL_NEG_CACHE_TTL_SECONDS
+    _cache_set(_pool_cache, key, pool, _POOL_CACHE_MAX_ENTRIES, ttl)
+    return pool
 
 
 async def _gecko_ohlcv(network: str, pool: str, interval: str, limit: int) -> list[dict]:
@@ -149,6 +293,17 @@ async def _gecko_ohlcv(network: str, pool: str, interval: str, limit: int) -> li
     ]
     candles.sort(key=lambda c: c["time"])
     return candles[-limit:]
+
+
+async def _gecko_ohlcv_cached(network: str, pool: str, interval: str, limit: int) -> list[dict]:
+    key = (network, pool, interval, limit)
+    ttl = _OHLCV_CACHE_TTL_SECONDS.get(interval, 120)
+    cached = _cache_get(_ohlcv_cache, key)
+    if cached is not _CACHE_MISS:
+        return cached
+    candles = await _gecko_ohlcv(network, pool, interval, limit)
+    _cache_set(_ohlcv_cache, key, candles, _OHLCV_CACHE_MAX_ENTRIES, ttl)
+    return candles
 
 
 def _levels_with_totals(levels: list[list[str]], depth: int) -> list[dict]:
@@ -199,14 +354,15 @@ async def get_terminal_ohlcv(
             for candle in reversed(candles[:limit])
         ]
 
-    # Any other token: GeckoTerminal pool OHLCV.
+    # Any other token: GeckoTerminal pool OHLCV (both steps cached — see
+    # `_resolve_pool_cached` / `_gecko_ohlcv_cached` above).
     network = GECKO_NETWORK.get(chain.lower())
     if not network:
         return []
-    pool = await _resolve_pool(pair, network)
+    pool = await _resolve_pool_cached(pair, network)
     if not pool:
         return []
-    return await _gecko_ohlcv(network, pool, interval, limit)
+    return await _gecko_ohlcv_cached(network, pool, interval, limit)
 
 
 # --- Perps candles via the public HyperLiquid candleSnapshot API ---

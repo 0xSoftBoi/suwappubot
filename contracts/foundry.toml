@@ -5,6 +5,7 @@ libs = ["lib"]
 test = "test"
 script = "deploy"
 solc_version = "0.8.27"
+evm_version = "cancun"  # primitives/ use EIP-1153 tstore/tload; Base is on Cancun
 optimizer = true
 optimizer_runs = 200
 via_ir = false

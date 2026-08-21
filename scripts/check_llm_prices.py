@@ -69,6 +69,9 @@ _PROVIDER_PREFIXES = {
     "kimi": ["moonshot/", "kimi/", ""],
     "deepseek": ["deepseek/", ""],
     "groq": ["groq/", ""],
+    # model_id already carries the upstream slug (e.g. "anthropic/claude-sonnet-5"),
+    # so LiteLLM's openrouter/<upstream-slug> key needs just the "openrouter/" prefix.
+    "openrouter": ["openrouter/", ""],
 }
 
 

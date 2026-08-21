@@ -47,6 +47,171 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Admin access required.")
         return
 
+    # Internal-wallet lifecycle. Subcommands rather than a conversation, so each
+    # is one message from a phone.
+    args = context.args or []
+    sub = args[0].lower() if args else ""
+
+    if sub == "new":
+        label = args[1] if len(args) > 1 else ""
+        chain = args[2].lower() if len(args) > 2 else "evm"
+        try:
+            wallet, created = await hot_wallet_service.provision_internal_wallet(
+                label, chain, owner=str(user.id)
+            )
+        except ValueError as e:
+            await update.message.reply_text(
+                f"❌ {e}\n\nUsage: `/hw new <label> [evm|solana]`", parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            logger.error(f"provision_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+        verb = "Provisioned" if created else "Reusing"
+        expiry = f"Expires {wallet.expires_at:%Y-%m-%d}" if wallet.expires_at else "No expiry"
+        await update.message.reply_text(
+            f"✅ *{verb}* `{wallet.name}`\n\n"
+            f"`{wallet.address}`\n\n"
+            f"_{expiry}. Turnkey holds the key. No deposit or gas-payer role — "
+            "nothing routes here, so it is safe to fund._",
+            parse_mode="Markdown",
+        )
+        return
+
+    if sub == "retire":
+        label = args[1] if len(args) > 1 else ""
+        force = "--force" in args
+        reason_parts = [a for a in args[2:] if a != "--force"]
+        reason = " ".join(reason_parts).strip()
+        if not label or not reason:
+            await update.message.reply_text(
+                "Usage: `/hw retire <label> <reason>` (add `--force` to retire "
+                "a wallet that still holds funds)",
+                parse_mode="Markdown",
+            )
+            return
+        try:
+            result = await hot_wallet_service.retire_internal_wallet(
+                label, reason, retired_by=str(user.id), force=force
+            )
+        except ValueError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+        except Exception as e:
+            logger.error(f"retire_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+
+        if not result["retired"]:
+            held = "\n".join(
+                f"• {c}: {v['native']}"
+                + (f" + {len(v['tokens'])} token(s)" if v.get("tokens") else "")
+                for c, v in result["funded_on"].items()
+            )
+            unreachable = ", ".join(result["unreachable"]) or "none"
+            first = next(iter(result["funded_on"]), "<chain>")
+            await update.message.reply_text(
+                f"⚠️ *Not retired* — `{result['name']}` still holds funds.\n\n"
+                f"{held or '_(no balances, but some chains were unreachable)_'}\n\n"
+                f"Checked: {', '.join(result.get('checked', [])) or 'nothing'}\n"
+                f"Unreachable: {unreachable}\n\n"
+                f"`{result['address']}`\n\n"
+                f"_Sweep it:_ `/hw sweep {result['name'].split('/')[-1]} {first} <to-address>`\n"
+                "_or re-run with `--force` to retire anyway and accept losing "
+                "track of the balance._",
+                parse_mode="Markdown",
+            )
+            return
+
+        await update.message.reply_text(
+            f"🗑 *Retired* `{result['name']}`\n\n"
+            f"`{result['address']}`\n\n"
+            f"_{result['reason']}_\n\n"
+            "_The Turnkey key is kept, not deleted — it is the only way to recover "
+            "a balance that surfaces later. Nothing in the bot points here now._",
+            parse_mode="Markdown",
+        )
+        return
+
+    if sub == "sweep":
+        label = args[1] if len(args) > 1 else ""
+        chain = args[2].lower() if len(args) > 2 else ""
+        to_address = args[3] if len(args) > 3 else ""
+        if not (label and chain and to_address):
+            await update.message.reply_text(
+                "Usage: `/hw sweep <label> <chain> <to-address>`\n\n"
+                "_Moves the native balance out, leaving only gas. The "
+                "destination is never guessed._",
+                parse_mode="Markdown",
+            )
+            return
+        await update.message.reply_text(f"🧹 Sweeping `{label}` on {chain}…", parse_mode="Markdown")
+        try:
+            result = await hot_wallet_service.sweep_internal_wallet(label, chain, to_address)
+        except ValueError as e:
+            await update.message.reply_text(f"❌ {e}")
+            return
+        except Exception as e:
+            logger.error(f"sweep_internal_wallet failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+
+        if not result["swept"]:
+            await update.message.reply_text(
+                f"⚠️ *Nothing swept* — {result['reason']}", parse_mode="Markdown"
+            )
+            return
+        await update.message.reply_text(
+            f"✅ *Swept* {result['amount']} from `{result['name']}` on {result['chain']}\n\n"
+            f"→ `{result['to']}`\n`{result['tx_hash']}`\n\n"
+            f"_Now retirable:_ `/hw retire {label} <reason>`",
+            parse_mode="Markdown",
+        )
+        return
+
+    if sub == "audit":
+        await update.message.reply_text("🔍 Checking balances across chains…")
+        try:
+            rep = await hot_wallet_service.audit_internal_wallets()
+        except Exception as e:
+            logger.error(f"audit_internal_wallets failed: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {e}")
+            return
+
+        out = [
+            f"📋 *Internal wallets* — {rep['live']}/{rep['cap']} live "
+            f"({rep['headroom']} free)\n"
+        ]
+        if rep["needs_sweep"]:
+            out.append("*⚠️ Expired but funded — sweep these*")
+            for r in rep["needs_sweep"]:
+                held = ", ".join(f"{c} {v['native']}" for c, v in r["funded_on"].items())
+                chain = next(iter(r["funded_on"]), "<chain>")
+                out.append(
+                    f"`{r['label']}` — {held}\n`{r['address']}`\n"
+                    f"`/hw sweep {r['label']} {chain} <to>`"
+                )
+            out.append("")
+        if rep["retire_now"]:
+            out.append("*✅ Expired and empty — free to retire*")
+            for r in rep["retire_now"]:
+                out.append(f"`{r['label']}` — /hw retire {r['label']} <reason>")
+            out.append("")
+        if rep["in_use"]:
+            out.append("*In use*")
+            for r in rep["in_use"]:
+                held = ", ".join(f"{c} {v['native']}" for c, v in r["funded_on"].items()) or "empty"
+                out.append(f"`{r['label']}` — {held}")
+        if not (rep["needs_sweep"] or rep["retire_now"] or rep["in_use"]):
+            out.append("_None provisioned._")
+        # Coverage, always. "No funds found" is only as good as where we looked.
+        if rep.get("checked"):
+            out.append(f"\n_Chains checked: {', '.join(rep['checked'])}_")
+
+        await update.message.reply_text("\n".join(out), parse_mode="Markdown")
+        return
+
     with get_session() as session:
         wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
 
@@ -62,6 +227,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             for w in wallets
         ]
 
+    internal = hot_wallet_service.list_internal_wallets()
     lines = ["🔑 *Hot Wallet Management*\n"]
 
     if wallet_data:
@@ -80,10 +246,28 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         lines.append("_No hot wallets configured._\n")
 
+    if internal:
+        lines.append("\n*Internal (no roles, nothing routes here)*")
+        for w in internal:
+            tag = " ⏳ expired" if w["expired"] else ""
+            lines.append(
+                f"`{w['label']}` ({w['chain_type']}){tag}\n`{w['address']}`"
+                + (f"\n_{w['purpose']}_" if w.get("purpose") else "")
+            )
+    lines.append(
+        "\n_Manage:_ `/hw new <label>` · `/hw audit` · "
+        "`/hw sweep <label> <chain> <to>` · `/hw retire <label> <reason>`"
+    )
+
     keyboard = [
         [
             InlineKeyboardButton("➕ Create EVM Wallet", callback_data="admin_create_evm"),
             InlineKeyboardButton("➕ Create SOL Wallet", callback_data="admin_create_sol"),
+        ],
+        [
+            InlineKeyboardButton(
+                "🚀 Create Deployer (no roles)", callback_data="admin_create_deploy"
+            )
         ],
         # NOTE: "Import Wallet" button removed — no admin_import_wallet handler/conversation
         # was ever implemented in this module (dead button, eternal spinner on tap).
@@ -126,6 +310,54 @@ async def create_evm_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
     except Exception as e:
         logger.error(f"Error in create_evm_wallet: {e}", exc_info=True)
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+
+
+async def create_deploy_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Create a Turnkey EVM wallet with NO operational roles.
+
+    Distinct from `create_evm_wallet` on purpose. That one hardcodes
+    is_deposit_wallet=True and is_gas_payer=True, so the wallet it makes starts
+    receiving user deposits and paying gas the moment it exists. That is right
+    for a hot wallet and actively wrong for anything else — a contract-deployer
+    key used for a testnet experiment must never end up in the deposit rotation.
+
+    Both flags are False here, so this wallet is inert: Turnkey holds the key,
+    nothing routes to it, and it does nothing until someone signs with it
+    deliberately.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    if not is_admin(user.id):
+        await query.edit_message_text("❌ Admin access required.")
+        return
+
+    try:
+        wallet = await hot_wallet_service.create_hot_wallet(
+            name="Deployer (no roles)",
+            chain_type="evm",
+            is_deposit_wallet=False,
+            is_gas_payer=False,
+        )
+
+        # Full address in a code block — a truncated one cannot be funded, and
+        # the list view above deliberately truncates.
+        await query.edit_message_text(
+            "✅ *Deployer wallet created*\n\n"
+            f"`{wallet.address}`\n\n"
+            "Key is held by Turnkey — it was never exported and there is no "
+            "private key to copy\.\n\n"
+            "⚠️ No deposit or gas\-payer role\. Nothing routes here; it is safe "
+            "to fund for a deploy\.",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("« Back", callback_data="admin_wallets")]]
+            ),
+        )
+    except Exception as e:
+        logger.error(f"Error in create_deploy_wallet: {e}", exc_info=True)
         await query.edit_message_text(f"❌ Error: {str(e)}")
 
 
@@ -285,6 +517,11 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
         [
             InlineKeyboardButton("➕ Create EVM", callback_data="admin_create_evm"),
             InlineKeyboardButton("➕ Create SOL", callback_data="admin_create_sol"),
+        ],
+        [
+            InlineKeyboardButton(
+                "🚀 Create Deployer (no roles)", callback_data="admin_create_deploy"
+            )
         ],
         [InlineKeyboardButton("⛽ Gas Config", callback_data="admin_gas_config")],
     ]

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
+import json
 import os
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
 import httpx
@@ -16,18 +19,34 @@ from suwappu.types import (
     BillingCheckoutResult,
     BillingStatus,
     Chain,
+    DataMetadata,
+    DataStatus,
+    DataUsage,
     KillSwitch,
+    LendHistoryResult,
     LendingMarket,
+    LendMarketsResult,
     LinkCodeResult,
     LendingMarketDetail,
+    LiveCandle,
+    LiveTick,
+    OhlcvMultiResult,
+    OhlcvResult,
     PerpMarket,
     PerpPosition,
     PerpQuote,
+    PerpsHistoryResult,
+    PerpsMarketsResult,
+    PredictionHistoryResult,
     PredictionMarket,
     PredictionMarketDetail,
+    PredictionMarketsResult,
     PredictionMarketToken,
     Quote,
+    ReferenceChain,
+    ReferenceTokensResult,
     RegisterAgentResult,
+    ResolvedSymbol,
     RotateKeysResult,
     StepUpChallenge,
     SuwappuConfig,
@@ -82,6 +101,59 @@ class SuwappuApiError(SuwappuError):
             self.args = (f"Suwappu API error {status} [{code}]: {message}",)
 
 
+class _LiveSubscription:
+    """Handle returned by :meth:`SuwappuClient.subscribe_live`.
+
+    Wraps the underlying `websockets` connection and the background task
+    driving the receive loop.
+    """
+
+    def __init__(self, ws: Any, task: "asyncio.Task[None]") -> None:
+        self._ws = ws
+        self._task = task
+
+    async def subscribe(self, symbols: list[str]) -> None:
+        """Add symbols to the live tick subscription."""
+        await self._ws.send(json.dumps({"action": "subscribe", "symbols": [s.upper() for s in symbols]}))
+
+    async def unsubscribe(self, symbols: list[str]) -> None:
+        """Remove symbols from the live tick subscription."""
+        await self._ws.send(
+            json.dumps({"action": "unsubscribe", "symbols": [s.upper() for s in symbols]})
+        )
+
+    async def subscribe_candles(self, symbols: list[str]) -> None:
+        """Add symbols to the 1m OHLCV candle subscription (`ohlcv` channel)."""
+        await self._ws.send(
+            json.dumps(
+                {
+                    "action": "subscribe",
+                    "channel": "ohlcv",
+                    "timeframe": "1m",
+                    "symbols": [s.upper() for s in symbols],
+                }
+            )
+        )
+
+    async def unsubscribe_candles(self, symbols: list[str]) -> None:
+        """Remove symbols from the 1m OHLCV candle subscription."""
+        await self._ws.send(
+            json.dumps(
+                {
+                    "action": "unsubscribe",
+                    "channel": "ohlcv",
+                    "timeframe": "1m",
+                    "symbols": [s.upper() for s in symbols],
+                }
+            )
+        )
+
+    async def close(self) -> None:
+        """Cancel the receive loop and close the WebSocket connection."""
+        self._task.cancel()
+        await self._ws.close()
+
+
 class SuwappuClient:
     """Async client for the Suwappu cross-chain DEX API."""
 
@@ -95,6 +167,8 @@ class SuwappuClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
+        self._api_key = api_key
+        self._base_url = base_url
         self._client = httpx.AsyncClient(
             base_url=base_url,
             headers=headers,
@@ -131,6 +205,31 @@ class SuwappuClient:
                 )
             raise SuwappuError(response.status_code, response.text)
         return response.json()
+
+    async def _request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> str:
+        """Like `_request`, but returns the raw response text (used for `format=csv`)."""
+        response = await self._client.request(method, path, params=params)
+        if response.status_code >= 400:
+            code: str | None = None
+            message: str | None = None
+            try:
+                error_body = response.json()
+                code = error_body.get("error_code")
+                message = error_body.get("message") or error_body.get("error")
+            except Exception:
+                pass
+            if code:
+                raise SuwappuApiError(
+                    response.status_code, response.text, code=code, message=message
+                )
+            raise SuwappuError(response.status_code, response.text)
+        return response.text
 
     async def get_quote(
         self,
@@ -350,6 +449,386 @@ class SuwappuClient:
             raise SuwappuError(
                 200, f"Malformed token entry from /v1/agent/tokens: missing {e}"
             ) from e
+
+    # --- Market data (/v1/data/*) ---
+
+    async def get_ohlcv(
+        self,
+        symbol: str,
+        chain: str,
+        *,
+        timeframe: str = "1h",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> OhlcvResult:
+        """GET /v1/data/history/ohlcv — historical candles.
+
+        Served from persisted candles when available; falls back to a
+        DexScreener-derived synthetic series otherwise (see `.source` on the
+        result). `timeframe` is one of "1m", "5m", "1h", "1d". `start`/`end`
+        accept an ISO 8601 string or unix seconds. Pass `cursor` (from a
+        previous result's `.next_cursor`) to page forward.
+        """
+        params: dict[str, str] = {"symbol": symbol, "chain": chain, "timeframe": timeframe}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/history/ohlcv", params=params)
+        return OhlcvResult.model_validate(data)
+
+    async def get_ohlcv_multi(
+        self,
+        symbols: list[str],
+        chain: str,
+        *,
+        timeframe: str = "1h",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> OhlcvMultiResult:
+        """GET /v1/data/history/ohlcv?symbols=A,B — the multi-symbol variant
+        of `get_ohlcv`, grouped by symbol in the response."""
+        params: dict[str, str] = {"symbols": ",".join(symbols), "chain": chain, "timeframe": timeframe}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/history/ohlcv", params=params)
+        return OhlcvMultiResult.model_validate(data)
+
+    async def get_ohlcv_csv(
+        self,
+        *,
+        symbol: str | None = None,
+        symbols: list[str] | None = None,
+        chain: str,
+        timeframe: str = "1h",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> str:
+        """GET /v1/data/history/ohlcv?...&format=csv — returns the raw CSV
+        text (header: symbol,chain,timeframe,ts,open,high,low,close,volume,source).
+        Pass exactly one of `symbol` or `symbols`."""
+        params: dict[str, str] = {"chain": chain, "timeframe": timeframe, "format": "csv"}
+        if symbols:
+            params["symbols"] = ",".join(symbols)
+        elif symbol:
+            params["symbol"] = symbol
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        return await self._request_text("GET", "/v1/data/history/ohlcv", params=params)
+
+    async def get_reference_chains(self) -> list[ReferenceChain]:
+        """GET /v1/data/reference/chains — supported chain slugs + names."""
+        data = await self._request("GET", "/v1/data/reference/chains")
+        return [ReferenceChain.model_validate(c) for c in data.get("chains", [])]
+
+    async def get_reference_tokens(self, chain: str | None = None) -> ReferenceTokensResult:
+        """GET /v1/data/reference/tokens?chain=... — omit `chain` for every
+        chain's registry at once (see `.chains` on the result in that case)."""
+        params = {"chain": chain} if chain else None
+        data = await self._request("GET", "/v1/data/reference/tokens", params=params)
+        return ReferenceTokensResult.model_validate(data)
+
+    async def resolve_symbol(self, symbol: str, chain: str | None = None) -> ResolvedSymbol:
+        """GET /v1/data/reference/resolve?symbol=&chain= — canonical
+        address/decimals/coingecko id for a symbol on a chain. Omitting
+        `chain` now returns entries across every known chain on the API side;
+        this method still returns the single-pair shape for backward
+        compatibility — use `resolve_symbols([symbol])` for the grouped
+        all-chains result."""
+        params: dict[str, str] = {"symbol": symbol}
+        if chain:
+            params["chain"] = chain
+        data = await self._request("GET", "/v1/data/reference/resolve", params=params)
+        return ResolvedSymbol.model_validate(data)
+
+    async def resolve_symbols(
+        self, symbols: list[str], chain: str | None = None
+    ) -> dict[str, list[ResolvedSymbol]]:
+        """GET /v1/data/reference/resolve?symbols=A,B[&chain=] — batch
+        resolve, grouped by symbol. Without `chain`, each symbol's list
+        covers every known chain; with `chain`, each list has 0 or 1 entries.
+        """
+        params: dict[str, str] = {"symbols": ",".join(symbols)}
+        if chain:
+            params["chain"] = chain
+        data = await self._request("GET", "/v1/data/reference/resolve", params=params)
+        results = data.get("results", {})
+        return {
+            symbol: [ResolvedSymbol.model_validate(e) for e in entries]
+            for symbol, entries in results.items()
+        }
+
+    async def resolve_address(self, address: str, chain: str) -> ResolvedSymbol:
+        """GET /v1/data/reference/resolve?address=0x...&chain= — reverse
+        lookup: canonical address -> symbol/decimals."""
+        data = await self._request(
+            "GET", "/v1/data/reference/resolve", params={"address": address, "chain": chain}
+        )
+        return ResolvedSymbol.model_validate(data)
+
+    async def get_data_usage(self) -> DataUsage:
+        """GET /v1/data/usage — this caller's /v1/data/* request counts."""
+        data = await self._request("GET", "/v1/data/usage")
+        return DataUsage.model_validate(data)
+
+    async def get_data_metadata(
+        self, *, symbol: str | None = None, chain: str | None = None
+    ) -> DataMetadata:
+        """GET /v1/data/metadata?symbol=&chain= — dataset coverage from
+        `market_candles`, grouped by (symbol, chain, timeframe). Omit both
+        params to list every tracked dataset (capped at 500 — see
+        `.truncated`)."""
+        params: dict[str, str] = {}
+        if symbol:
+            params["symbol"] = symbol
+        if chain:
+            params["chain"] = chain
+        data = await self._request("GET", "/v1/data/metadata", params=params or None)
+        return DataMetadata.model_validate(data)
+
+    async def get_data_status(self) -> DataStatus:
+        """GET /v1/data/status — capture freshness per timeframe (newest
+        candle + age in seconds) plus per-source candle counts. `.healthy`
+        is true when 1m data is fresher than 5 minutes."""
+        data = await self._request("GET", "/v1/data/status")
+        return DataStatus.model_validate(data)
+
+    # --- Round 5: perps / predictions / lend (docs/plans/market-data-parity.md) ---
+
+    async def get_perps_markets(self, venue: str | None = None) -> PerpsMarketsResult:
+        """GET /v1/data/perps/markets?venue= — latest perp_metrics row per (venue, symbol)."""
+        params = {"venue": venue} if venue else None
+        data = await self._request("GET", "/v1/data/perps/markets", params=params)
+        return PerpsMarketsResult.model_validate(data)
+
+    async def get_perps_history(
+        self,
+        symbol: str,
+        *,
+        venue: str = "hyperliquid",
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> PerpsHistoryResult:
+        """GET /v1/data/perps/history?symbol=&venue=&start=&end=&limit=&cursor="""
+        params: dict[str, str] = {"symbol": symbol, "venue": venue}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/perps/history", params=params)
+        return PerpsHistoryResult.model_validate(data)
+
+    async def get_prediction_markets(
+        self, *, q: str | None = None, limit: int | None = None
+    ) -> PredictionMarketsResult:
+        """GET /v1/data/predictions/markets?q=&limit= — latest prediction_snapshots
+        row per (market_id, outcome), sorted by volume desc. `limit` defaults to
+        50, capped at 200."""
+        params: dict[str, str] = {}
+        if q:
+            params["q"] = q
+        if limit is not None:
+            params["limit"] = str(limit)
+        data = await self._request("GET", "/v1/data/predictions/markets", params=params or None)
+        return PredictionMarketsResult.model_validate(data)
+
+    async def get_prediction_history(
+        self,
+        market_id: str,
+        *,
+        outcome: str | None = None,
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> PredictionHistoryResult:
+        """GET /v1/data/predictions/history?market_id=&outcome=&start=&end=&limit=&cursor=
+
+        Pass `outcome` for a single-outcome time series (`.history`); omit it
+        to get every outcome grouped under `.outcomes`.
+        """
+        params: dict[str, str] = {"market_id": market_id}
+        if outcome:
+            params["outcome"] = outcome
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/predictions/history", params=params)
+        return PredictionHistoryResult.model_validate(data)
+
+    async def get_lend_markets(self, *, chain_id: int | None = None) -> LendMarketsResult:
+        """GET /v1/data/lend/markets?chain_id= — latest lend_metrics row per market_id."""
+        params = {"chain_id": str(chain_id)} if chain_id is not None else None
+        data = await self._request("GET", "/v1/data/lend/markets", params=params)
+        return LendMarketsResult.model_validate(data)
+
+    async def get_lend_history(
+        self,
+        market_id: str,
+        *,
+        start: str | int | None = None,
+        end: str | int | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> LendHistoryResult:
+        """GET /v1/data/lend/history?market_id=&start=&end=&limit=&cursor="""
+        params: dict[str, str] = {"market_id": market_id}
+        if start is not None:
+            params["start"] = str(start)
+        if end is not None:
+            params["end"] = str(end)
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._request("GET", "/v1/data/lend/history", params=params)
+        return LendHistoryResult.model_validate(data)
+
+    def _ws_url(self, path: str) -> str:
+        base = self._base_url.rstrip("/")
+        if base.startswith("https://"):
+            base = "wss://" + base[len("https://") :]
+        elif base.startswith("http://"):
+            base = "ws://" + base[len("http://") :]
+        return f"{base}{path}"
+
+    async def subscribe_live(
+        self,
+        symbols: list[str] | str,
+        on_tick: Callable[[LiveTick], Any | Awaitable[Any]],
+        *,
+        candle_symbols: list[str] | str | None = None,
+        on_candle: Callable[[LiveCandle], Any | Awaitable[Any]] | None = None,
+        on_error: Callable[[Exception], Any | Awaitable[Any]] | None = None,
+    ) -> "_LiveSubscription":
+        """WS /v1/data/live — subscribe to live price ticks, pushed on
+        change (plus a ~30s keepalive when unchanged). `on_tick` (and
+        `on_error`) may be sync or async callables.
+
+        Pass `candle_symbols` (+ `on_candle`) to also subscribe to the 1m
+        OHLCV candle channel — `on_candle` fires with the in-progress candle
+        on each price change, and once more (`final=True`) when the minute
+        closes.
+
+        Requires the optional `websockets` dependency:
+        `pip install "suwappu[live]"`. Runs the receive loop as a background
+        asyncio task; use the returned handle's `.subscribe()`,
+        `.unsubscribe()`, `.subscribe_candles()`, `.unsubscribe_candles()`,
+        and `.close()` to manage the connection.
+
+        ```python
+        live = await client.subscribe_live(
+            ["ETH", "SOL"],
+            on_tick=lambda t: print(t.symbol, t.price_usd),
+            candle_symbols=["ETH"],
+            on_candle=lambda c: print(c.symbol, c.close, c.final),
+        )
+        # later:
+        await live.subscribe(["BTC"])
+        await live.close()
+        ```
+        """
+        try:
+            import websockets
+        except ImportError as e:
+            raise ImportError(
+                "subscribe_live() requires the optional 'websockets' dependency. "
+                'Install it with: pip install "suwappu[live]"'
+            ) from e
+
+        if isinstance(symbols, str):
+            symbols = [s.strip() for s in symbols.split(",") if s.strip()]
+        if isinstance(candle_symbols, str):
+            candle_symbols = [s.strip() for s in candle_symbols.split(",") if s.strip()]
+
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        ws = await websockets.connect(self._ws_url("/v1/data/live"), additional_headers=headers)
+
+        async def _dispatch(fn: Callable[..., Any], *fn_args: Any) -> None:
+            result = fn(*fn_args)
+            if inspect.isawaitable(result):
+                await result
+
+        async def _run() -> None:
+            try:
+                async for raw in ws:
+                    try:
+                        msg = json.loads(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if msg.get("type") == "tick":
+                        tick = LiveTick(
+                            symbol=msg.get("symbol", ""),
+                            price_usd=msg.get("price_usd", 0),
+                            ts=msg.get("ts", ""),
+                        )
+                        await _dispatch(on_tick, tick)
+                    elif msg.get("type") == "candle" and on_candle is not None:
+                        candle = LiveCandle(
+                            symbol=msg.get("symbol", ""),
+                            final=bool(msg.get("final", False)),
+                            ts=msg.get("ts", ""),
+                            open=msg.get("open", 0),
+                            high=msg.get("high", 0),
+                            low=msg.get("low", 0),
+                            close=msg.get("close", 0),
+                        )
+                        await _dispatch(on_candle, candle)
+                    elif msg.get("type") == "error" and on_error is not None:
+                        await _dispatch(on_error, RuntimeError(msg.get("message", "live stream error")))
+            except asyncio.CancelledError:
+                pass
+            except Exception as err:  # connection dropped, etc.
+                if on_error is not None:
+                    await _dispatch(on_error, err)
+
+        task = asyncio.create_task(_run())
+        await ws.send(json.dumps({"action": "subscribe", "symbols": [s.upper() for s in symbols]}))
+        if candle_symbols:
+            await ws.send(
+                json.dumps(
+                    {
+                        "action": "subscribe",
+                        "channel": "ohlcv",
+                        "timeframe": "1m",
+                        "symbols": [s.upper() for s in candle_symbols],
+                    }
+                )
+            )
+        return _LiveSubscription(ws, task)
 
     # --- Perps (Hyperliquid) ---
 

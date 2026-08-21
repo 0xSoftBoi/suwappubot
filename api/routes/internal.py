@@ -366,3 +366,115 @@ async def execute_agent_swap(
     except Exception as e:
         logger.error(f"Agent swap execution failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─── Internal Wallet Provisioning ─────────────────────────────
+
+
+class ProvisionInternalWalletRequest(BaseModel):
+    label: str
+    chain_type: str = "evm"
+    purpose: Optional[str] = None
+    owner: Optional[str] = None
+    ttl_days: Optional[int] = 30
+
+
+class ProvisionInternalWalletResponse(BaseModel):
+    name: str
+    address: str
+    chain_type: str
+    created: bool
+
+
+class RetireInternalWalletRequest(BaseModel):
+    label: str
+    reason: str
+    retired_by: Optional[str] = None
+    force: bool = False
+
+
+@router.post("/provision-internal-wallet", response_model=ProvisionInternalWalletResponse)
+async def provision_internal_wallet(
+    request: ProvisionInternalWalletRequest,
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
+):
+    """Provision an internal (non-operational) wallet for testing and deployments.
+
+    Internal wallets are namespaced under 'internal/' and have both is_deposit_wallet
+    and is_gas_payer flags set to False, preventing them from participating in
+    operational flows (swap routing, gas payment, deposit cycles).
+    """
+    _verify_internal_key(x_internal_key)
+
+    try:
+        from bot.services.hot_wallet import hot_wallet_service
+
+        wallet, created = await hot_wallet_service.provision_internal_wallet(
+            label=request.label,
+            chain_type=request.chain_type,
+            purpose=request.purpose,
+            owner=request.owner,
+            ttl_days=request.ttl_days,
+        )
+
+        logger.info(
+            f"{'Provisioned' if created else 'Reused'} internal wallet: "
+            f"name={wallet.name}, address={wallet.address}, chain={wallet.chain_type}"
+        )
+
+        return ProvisionInternalWalletResponse(
+            name=wallet.name,
+            address=wallet.address,
+            chain_type=wallet.chain_type,
+            created=created,
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Internal wallet provision failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/retire-internal-wallet")
+async def retire_internal_wallet(
+    request: RetireInternalWalletRequest,
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
+):
+    """Decommission an internal wallet. Refuses if it still holds funds.
+
+    Returns retired=False with the balances found rather than raising, so an
+    automated caller can sweep and retry instead of treating it as an error.
+    """
+    _verify_internal_key(x_internal_key)
+
+    try:
+        from bot.services.hot_wallet import hot_wallet_service
+
+        return await hot_wallet_service.retire_internal_wallet(
+            label_or_name=request.label,
+            reason=request.reason,
+            retired_by=request.retired_by,
+            force=request.force,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Internal wallet retire failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/internal-wallets")
+async def audit_internal_wallets(
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
+):
+    """Roster + balances: what is live, what is expired, what still holds funds."""
+    _verify_internal_key(x_internal_key)
+
+    try:
+        from bot.services.hot_wallet import hot_wallet_service
+
+        return await hot_wallet_service.audit_internal_wallets()
+    except Exception as e:
+        logger.error(f"Internal wallet audit failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
