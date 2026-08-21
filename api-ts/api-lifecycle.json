@@ -13,7 +13,7 @@
       "status": "deprecated",
       "deprecationAt": "2026-08-21T00:00:00.000Z",
       "sunsetAt": "2026-12-01T00:00:00.000Z",
-      "documentationUrl": "https://suwappu.bot/docs/api-lifecycle",
+      "documentationUrl": "https://github.com/0xSoftBoi/suwappubot/blob/main/docs/migrations/sandbox-deprecation-fixture.md",
       "replacement": "/v1/sandbox",
       "fixtureOnly": true
     }
