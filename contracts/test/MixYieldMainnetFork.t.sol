@@ -81,6 +81,34 @@ contract MixYieldMainnetForkTest is Test {
         assertEq(IERC20Fork(USDC).balanceOf(alice), aliceBefore + 500_000e6);
     }
 
+    function testFork_AaveReserveUtilizationBoundsPortfolioLiquidity() public {
+        SuwappuMixYieldVault vault = _newVault();
+        AaveV3YieldStrategy strategy = new AaveV3YieldStrategy(
+            USDC, address(vault), AAVE_V3_POOL, AAVE_V3_AUSDC, "Aave V3 USDC"
+        );
+        _configure(vault, address(strategy), SuwappuMixYieldVault.RiskClass.Conservative, 10_000);
+        _fundAndDeposit(vault, 1_000_000e6);
+
+        vm.prank(allocator);
+        vault.allocate(address(strategy), 600_000e6, "");
+
+        // Simulate a highly utilized reserve after a real Aave supply by shrinking
+        // the underlying cash sitting behind aUSDC. The strategy claim remains,
+        // but synchronous liquidity must contract to reserve cash.
+        deal(USDC, AAVE_V3_AUSDC, 50_000e6, true);
+
+        assertEq(strategy.liquidAssets(), 50_000e6, "Aave cash bound");
+        uint256 expected = 400_000e6 + 50_000e6;
+        assertApproxEqAbs(vault.maxWithdraw(alice), expected, 1, "portfolio liquidity must contract");
+
+        vm.prank(alice);
+        vm.expectRevert(SuwappuMixYieldVault.InsufficientLiquidity.selector);
+        vault.withdraw(500_000e6, alice, alice);
+
+        vm.prank(alice);
+        vault.withdraw(450_000e6 - 1, alice, alice);
+    }
+
     function testFork_MorphoERC4626DepositWithdrawRoundTrip() public {
         assertEq(block.chainid, 1, "ethereum fork required");
         assertEq(IERC4626Target(MORPHO_USDC_VAULT).asset(), USDC, "Morpho fixture asset changed");
