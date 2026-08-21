@@ -122,6 +122,7 @@ healthRoutes.get('/tokens', async (c) => {
 				...(process.env.LIFI_API_KEY && {
 					'x-lifi-api-key': process.env.LIFI_API_KEY,
 				}),
+			},
 		})
 
 		if (!response.ok) {
