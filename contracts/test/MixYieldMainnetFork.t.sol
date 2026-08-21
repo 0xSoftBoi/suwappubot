@@ -19,7 +19,7 @@ interface IERC20Fork {
 contract MixYieldMainnetForkTest is Test {
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant AAVE_V3_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-    address constant AAVE_V3_AUSDC = 0x98C23E9d8f34FEFb1B7BD6a91B7Ff122F4e16F5c;
+    address constant AAVE_V3_AUSDC = 0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c;
     address constant MORPHO_USDC_VAULT = 0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB;
 
     address owner = address(0xA11CE);
@@ -85,8 +85,6 @@ contract MixYieldMainnetForkTest is Test {
     function testFork_MorphoERC4626DepositWithdrawRoundTrip() public {
         assertEq(block.chainid, 1, "ethereum fork required");
 
-        // Guard the fixture itself: if Morpho ever migrates this address to another asset,
-        // the test fails loudly instead of silently validating the wrong integration.
         assertEq(IERC4626Target(MORPHO_USDC_VAULT).asset(), USDC, "Morpho fixture asset changed");
 
         SuwappuMixYieldVault vault = _newVault();
