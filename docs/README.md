@@ -16,10 +16,11 @@ protocol work, and production infrastructure in one monorepo. This index is orga
 | **Use Suwappu** | [Quickstart](quickstart.md) | [Feature guides](features/README.md) |
 | **Build an agent** | [Agent clients](agent-clients.md) | [Agent control plane](agents/control-plane.md) · API reference under [`api/`](api/) |
 | **Integrate an app** | [Quickstart](quickstart.md#build-an-application) | [`@suwappu/sdk`](../packages/sdk/README.md) · [Python SDK](../packages/sdk-python/README.md) |
+| **Check whether something is actually production** | [Product status](product-status.md) | [Production inventory](deployment/production-inventory.md) |
 | **Understand the architecture** | [Architecture overview](architecture/OVERVIEW.md) | [`ARCHITECTURE.md`](../ARCHITECTURE.md) · [ADRs](adr/README.md) |
 | **Contribute code** | [Onboarding](ONBOARDING.md) | [`CONVENTIONS.md`](../CONVENTIONS.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | **Operate production** | [Production inventory](deployment/production-inventory.md) | [Railway](deployment/railway.md) · [Monitoring](deployment/monitoring.md) · [Incidents](incidents/README.md) |
-| **Work on money-path code** | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | [Key management](KMS_AWS_MIGRATION.md) · [Agent custody boundaries](agent-clients.md#agent-rest-custody-map) |
+| **Work on money-path code** | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | [Product status](product-status.md) · [Agent clients](agent-clients.md) · [Key management](KMS_AWS_MIGRATION.md) |
 | **Understand why a decision exists** | [Decision log](DECISIONS.md) | [ADRs](adr/README.md) |
 
 ## Product and integration
@@ -27,11 +28,27 @@ protocol work, and production infrastructure in one monorepo. This index is orga
 ### Quickstarts
 
 - [Quickstart](quickstart.md) — shortest paths for a user, agent builder, application
-  developer, and contributor.
+  developer, and contributor; starts with a least-privilege execution ladder.
+- [Product status](product-status.md) — canonical meanings for production, hosted,
+  published/source, source-only, shadow, experimental, and research artifacts.
 - [Agent clients](agent-clients.md) — the authoritative guide to hosted MCP, TypeScript
   and Python SDKs, Agent REST, A2A, authentication, version boundaries, and custody.
 - [Feature guides](features/README.md) — user-facing capabilities and where they are
   available.
+
+### Execution authority
+
+The platform deliberately separates five levels of authority:
+
+1. **Discover** — read-only chains/tokens/prices/markets/portfolio metadata.
+2. **Quote** — price an intent and compare routes.
+3. **Simulate** — evaluate a proposed transaction without moving funds.
+4. **Prepare** — return unsigned self-custody transaction data.
+5. **Managed execute** — explicit server-side fund movement.
+
+Do not infer authority from a tool name. MCP `execute_swap` is currently an unsigned
+preparation capability, not managed execution. See [Product Status](product-status.md) and
+[Agent Clients](agent-clients.md).
 
 ### Agent platform
 
@@ -80,6 +97,7 @@ Supporting references:
 
 - [`SECURITY.md`](../SECURITY.md) — vulnerability reporting and repository security
   posture.
+- [product-status.md](product-status.md) — maturity and execution-authority boundaries.
 - [architecture/compliance-screening.md](architecture/compliance-screening.md) —
   compliance-screening architecture.
 - [security/dependency-exceptions.md](security/dependency-exceptions.md) — documented
@@ -100,6 +118,8 @@ otherwise.
 - [deployment/production-inventory.md](deployment/production-inventory.md) — current
   service-catalog view of the Railway production runtime. Use this before assuming the
   old four-service topology still exists.
+- [product-status.md](product-status.md) — separates production/hosted surfaces from
+  source-only, shadow, experimental, plan, and research artifacts.
 - [deployment/railway.md](deployment/railway.md) — Railway configuration and migration
   history. Some sections are historical; use the production inventory plus actual
   committed service config for current topology.
@@ -129,9 +149,9 @@ otherwise.
 
 The Solidity primitives under [`../contracts/primitives/`](../contracts/primitives/) are
 separate from the production route-selection authority. See
-[`../contracts/README.md`](../contracts/README.md) and
-[`../contracts/MAINNET_READINESS.md`](../contracts/MAINNET_READINESS.md) before treating
-anything there as production-ready.
+[`../contracts/README.md`](../contracts/README.md),
+[`../contracts/MAINNET_READINESS.md`](../contracts/MAINNET_READINESS.md), and
+[Product Status](product-status.md) before treating anything there as production-ready.
 
 The execution-synchronization modules under `bot/services/execution_sync*.py` are also
 **shadow/read-only evidence infrastructure today**. They support calibration and replay;
@@ -200,6 +220,8 @@ change whenever possible.
   `capabilities.yaml`.
 - **Agent capabilities:** discover MCP tools/resources/prompts at runtime; use
   [agent-clients.md](agent-clients.md) for semantics and custody boundaries.
+- **Maturity:** update [product-status.md](product-status.md) when a capability moves from
+  source-only/shadow/experimental into a higher-authority state.
 - **Production topology:** use [production-inventory.md](deployment/production-inventory.md)
   plus committed Railway config; do not infer deployment from source directories.
 - **Plans/research:** label them as forward-looking or point-in-time.
