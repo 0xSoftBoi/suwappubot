@@ -16,3 +16,6 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = "warn"
+# QuoteDecision intentionally keeps ControlledQuote inline so the maker hot path remains
+# Copy + allocation-free; boxing this single large variant would add heap indirection.
+large_enum_variant = "allow"
