@@ -7,8 +7,15 @@ import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
 import { sourceFingerprint } from '../lib/sourceFingerprint'
+import { sandboxRoutes } from './sandbox'
 
 const healthRoutes = new Hono()
+
+// Public deterministic contract sandbox. This route is mounted through the root
+// public route group so it can remain isolated from agent auth, billing, provider,
+// wallet and internal-service middleware. The sandbox module itself has a tested
+// no-production-dependencies boundary. See #874.
+healthRoutes.route('/v1/sandbox', sandboxRoutes)
 
 let cachedDbStatus: { status: string; checkedAt: number } | null = null
 const DB_HEALTH_TTL = 30_000
@@ -151,8 +158,7 @@ healthRoutes.get('/tokens', async (c) => {
 		return c.json(responseData)
 	} catch (error) {
 		logger.error({ err: error }, '[Tokens] Failed to fetch')
-		return c.json({
- error: 'Failed to fetch tokens' }, 500)
+		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 })
 
