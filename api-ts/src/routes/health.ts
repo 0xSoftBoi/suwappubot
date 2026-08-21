@@ -4,10 +4,12 @@ import { Hono } from 'hono'
 import { logger } from '../lib/logger'
 import packageJson from '../../package.json'
 import developerContract from '../../developer-contract.json'
+import { API_LIFECYCLE_REGISTRY } from '../lib/apiLifecycle'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
 import { sourceFingerprint } from '../lib/sourceFingerprint'
+import { lifecycleFixtureRoutes } from './lifecycleFixture'
 import { sandboxRoutes } from './sandbox'
 
 const healthRoutes = new Hono()
@@ -17,12 +19,20 @@ const healthRoutes = new Hono()
 // wallet and internal-service middleware. The sandbox module itself has a tested
 // no-production-dependencies boundary. See #874.
 healthRoutes.route('/v1/sandbox', sandboxRoutes)
+healthRoutes.route('/v1/sandbox', lifecycleFixtureRoutes)
 
 // Public machine-readable developer contract. This is the same file CI validates;
 // serving it directly avoids another hand-maintained API/SDK/sandbox metadata copy.
 healthRoutes.get('/v1/developer-contract', (c) => {
 	c.header('Cache-Control', 'public, max-age=300')
 	return c.json(developerContract)
+})
+
+// Public machine-readable lifecycle registry. Deprecated/sunset resources are
+// declared once here and consumed by both runtime header middleware and CI.
+healthRoutes.get('/v1/api-lifecycle', (c) => {
+	c.header('Cache-Control', 'public, max-age=300')
+	return c.json(API_LIFECYCLE_REGISTRY)
 })
 
 let cachedDbStatus: { status: string; checkedAt: number } | null = null
@@ -98,7 +108,7 @@ const VERIFIED_TOKENS: Record<string, string[]> = {
 	'10': ['ETH', 'USDC', 'USDT', 'WETH', 'OP', 'DAI', 'LINK', 'WBTC'],
 	'137': ['MATIC', 'USDC', 'USDT', 'WETH', 'WBTC', 'DAI', 'LINK', 'AAVE'],
 	'42161': ['ETH', 'USDC', 'USDT', 'WETH', 'ARB', 'WBTC', 'DAI', 'LINK', 'GMX'],
-	'8453': ['ETH', 'USDC', 'WETH', 'DAI', 'cbETH'],
+	'8453': ['ETH', 'USDC', 'WETH', 'DAI', 'LINK', 'GMX'],
 	'56': ['BNB', 'USDC', 'USDT', 'WBNB', 'BUSD', 'ETH', 'BTCB'],
 }
 
