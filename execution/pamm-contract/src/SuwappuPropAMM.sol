@@ -16,7 +16,6 @@ contract SuwappuPropAMM {
     error Slippage();
     error ZeroAmount();
     error InvalidRecipient();
-    error TransferFailed();
     error UnsupportedTransferSemantics();
 
     event QuoteApplied(
@@ -32,8 +31,10 @@ contract SuwappuPropAMM {
         uint64 validBlockMax,
         uint64 validUntil
     );
+    event QuoteInvalidated(uint64 indexed epoch, uint64 indexed sequence, bytes32 indexed quoteHash);
     event BaseSold(address indexed taker, address indexed recipient, uint96 baseIn, uint256 quoteOut);
     event BaseBought(address indexed taker, address indexed recipient, uint96 baseOut, uint256 quoteIn);
+    event InventoryWithdrawn(address indexed token, address indexed recipient, uint256 amount);
     event QuoteSignerUpdated(address indexed signer);
     event PauseUpdated(bool paused);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -105,7 +106,8 @@ contract SuwappuPropAMM {
     constructor(address baseToken_, address quoteToken_, address quoteSigner_) {
         if (
             baseToken_ == address(0) || quoteToken_ == address(0) || quoteSigner_ == address(0)
-                || baseToken_ == quoteToken_
+                || baseToken_ == quoteToken_ || baseToken_.code.length == 0
+                || quoteToken_.code.length == 0
         ) revert InvalidTokenPair();
         baseToken = baseToken_;
         quoteToken = quoteToken_;
@@ -126,6 +128,7 @@ contract SuwappuPropAMM {
 
     function setQuoteSigner(address newSigner) external onlyOwner {
         if (newSigner == address(0)) revert InvalidSignature();
+        _invalidateActiveQuote();
         quoteSigner = newSigner;
         emit QuoteSignerUpdated(newSigner);
     }
@@ -133,6 +136,24 @@ contract SuwappuPropAMM {
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
         emit PauseUpdated(paused_);
+    }
+
+    function invalidateQuote() external onlyOwner {
+        _invalidateActiveQuote();
+    }
+
+    /// @notice Inventory may only leave while paused, preventing governance from silently
+    ///         underfunding a live quote inside its execution block.
+    function withdrawInventory(address token, address recipient, uint256 amount)
+        external
+        onlyOwner
+        nonReentrant
+    {
+        if (!paused) revert QuoteNotLive();
+        if (token != baseToken && token != quoteToken) revert InvalidTokenPair();
+        if (recipient == address(0)) revert InvalidRecipient();
+        _safeTransfer(token, recipient, amount);
+        emit InventoryWithdrawn(token, recipient, amount);
     }
 
     function quoteStructHash(Quote calldata quote) public pure returns (bytes32) {
@@ -157,25 +178,30 @@ contract SuwappuPropAMM {
         return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, quoteStructHash(quote)));
     }
 
-    /// @notice Anyone may relay a valid maker-signed quote. This lets builders include the
-    ///         exact quote update they simulated without requiring the signer to be tx.sender.
+    /// @notice Anyone may relay a valid maker-signed quote. A builder can therefore include
+    ///         the exact state update it simulated. Quotes are intentionally single-block.
     function applyQuote(Quote calldata quote, bytes calldata signature) external {
         if (
-            quote.bidRateX96 == 0 || quote.askRateX96 == 0 || quote.bidRateX96 > quote.askRateX96
-                || quote.maxBaseIn == 0 || quote.maxBaseOut == 0
-                || quote.validBlockMax < quote.validBlockMin || quote.validUntil < block.timestamp
+            quote.epoch == 0 || quote.bidRateX96 == 0 || quote.askRateX96 == 0
+                || quote.bidRateX96 > quote.askRateX96 || quote.maxBaseIn == 0
+                || quote.maxBaseOut == 0 || quote.validBlockMin != block.number
+                || quote.validBlockMax != block.number || quote.validUntil < block.timestamp
         ) revert InvalidQuote();
 
         bytes32 parent = currentQuoteHash;
         if (parent == bytes32(0)) {
-            if (quote.sequence != 0 || quote.previousHash != bytes32(0)) revert InvalidSequence();
+            if (
+                quote.epoch <= currentEpoch || quote.sequence != 0
+                    || quote.previousHash != bytes32(0)
+            ) revert InvalidSequence();
         } else if (quote.epoch == currentEpoch) {
             if (quote.sequence != currentSequence + 1) revert InvalidSequence();
             if (quote.previousHash != parent) revert InvalidParent();
         } else {
-            if (quote.epoch <= currentEpoch || quote.sequence != 0 || quote.previousHash != bytes32(0)) {
-                revert InvalidSequence();
-            }
+            if (
+                quote.epoch <= currentEpoch || quote.sequence != 0
+                    || quote.previousHash != bytes32(0)
+            ) revert InvalidSequence();
         }
 
         bytes32 digest = quoteDigest(quote);
@@ -270,9 +296,25 @@ contract SuwappuPropAMM {
         if (currentQuoteHash == bytes32(0) || expectedQuoteHash != currentQuoteHash) {
             revert QuoteHashMismatch();
         }
-        if (
-            block.number < validBlockMin || block.number > validBlockMax || block.timestamp > validUntil
-        ) revert QuoteNotLive();
+        if (block.number != validBlockMin || block.number != validBlockMax || block.timestamp > validUntil) {
+            revert QuoteNotLive();
+        }
+    }
+
+    function _invalidateActiveQuote() internal {
+        bytes32 hash = currentQuoteHash;
+        if (hash == bytes32(0)) return;
+        emit QuoteInvalidated(currentEpoch, currentSequence, hash);
+        currentQuoteHash = bytes32(0);
+        validBlockMin = 0;
+        validBlockMax = 0;
+        validUntil = 0;
+        bidRateX96 = 0;
+        askRateX96 = 0;
+        maxBaseIn = 0;
+        maxBaseOut = 0;
+        consumedBaseIn = 0;
+        consumedBaseOut = 0;
     }
 
     function _recover(bytes32 digest, bytes calldata signature) internal pure returns (address signer) {
@@ -318,8 +360,7 @@ contract SuwappuPropAMM {
             mstore(add(ptr, 36), amount)
             let ok := call(gas(), token, 0, ptr, 68, 0, 32)
             if iszero(and(ok, or(iszero(returndatasize()), and(gt(returndatasize(), 31), eq(mload(0), 1))))) {
-                mstore(ptr, shl(224, 0x90b8ec18))
-                revert(ptr, 4)
+                revert(0, 0)
             }
         }
     }
@@ -333,8 +374,7 @@ contract SuwappuPropAMM {
             mstore(add(ptr, 68), amount)
             let ok := call(gas(), token, 0, ptr, 100, 0, 32)
             if iszero(and(ok, or(iszero(returndatasize()), and(gt(returndatasize(), 31), eq(mload(0), 1))))) {
-                mstore(ptr, shl(224, 0x90b8ec18))
-                revert(ptr, 4)
+                revert(0, 0)
             }
         }
     }
