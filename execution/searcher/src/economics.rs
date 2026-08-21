@@ -8,13 +8,13 @@ pub struct FillEconomics {
     pub spread_capture_quote: Fixed,
     /// PnL from fair-value movement after the fill, excluding the initial spread capture.
     pub post_fill_fair_move_pnl_quote: Fixed,
-    /// PnL from the actual fill price to the future fair value.
+    /// Total edge from the actual fill to future fair value.
     pub markout_pnl_quote: Fixed,
     /// Positive means post-fill fair-value movement adversely selected the maker.
     pub adverse_selection_cost_quote: Fixed,
     /// Conservative clipped empirical proxy for LVR aggregation. Not exact theoretical LVR.
     pub lvr_proxy_quote: Fixed,
-    /// Total edge from fill price to the future fair value. Equal to markout PnL by construction.
+    /// Alias of markout PnL for route/portfolio aggregation.
     pub net_edge_quote: Fixed,
 }
 
@@ -40,20 +40,18 @@ pub fn fill_economics(
     let sign = maker_side.maker_sign();
     let spread_per_unit = signed_delta(fair_at_fill, fill_price, sign)?;
     let fair_move_per_unit = signed_delta(future_fair, fair_at_fill, sign)?;
-    let markout_per_unit = signed_delta(future_fair, fill_price, sign)?;
 
     let spread_capture_quote = mul_fixed(spread_per_unit, quantity)?;
     let post_fill_fair_move_pnl_quote = mul_fixed(fair_move_per_unit, quantity)?;
-    let markout_pnl_quote = mul_fixed(markout_per_unit, quantity)?;
+    // Sum the decomposition rather than independently rounding a second multiplication.
+    // This makes the accounting identity exact at the crate's fixed-point precision.
+    let markout_pnl_quote = spread_capture_quote
+        .checked_add(post_fill_fair_move_pnl_quote)
+        .ok_or(EconomicsError::Overflow)?;
     let adverse_selection_cost_quote = post_fill_fair_move_pnl_quote
         .checked_neg()
         .ok_or(EconomicsError::Overflow)?;
     let lvr_proxy_quote = adverse_selection_cost_quote.max(0);
-
-    debug_assert_eq!(
-        spread_capture_quote.checked_add(post_fill_fair_move_pnl_quote),
-        Some(markout_pnl_quote)
-    );
 
     Ok(FillEconomics {
         spread_capture_quote,
@@ -103,5 +101,21 @@ mod tests {
         assert_eq!(result.adverse_selection_cost_quote, -5 * p);
         assert_eq!(result.lvr_proxy_quote, 0);
         assert_eq!(result.net_edge_quote, 10 * p);
+    }
+
+    #[test]
+    fn accounting_identity_survives_fractional_fixed_point_rounding() {
+        let result = fill_economics(
+            Side::Buy,
+            333_333_333,
+            99_900_000_000,
+            100_000_000_000,
+            100_050_000_000,
+        )
+        .unwrap();
+        assert_eq!(
+            result.markout_pnl_quote,
+            result.spread_capture_quote + result.post_fill_fair_move_pnl_quote
+        );
     }
 }

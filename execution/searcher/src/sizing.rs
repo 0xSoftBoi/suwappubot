@@ -88,6 +88,18 @@ where
     Ok(best)
 }
 
+pub fn optimize_profitable_grid<F>(
+    search: SizeSearch,
+    max_evaluations: u64,
+    evaluate: F,
+) -> Result<Option<SizeOptimum>, SizingError>
+where
+    F: FnMut(Fixed) -> Option<Fixed>,
+{
+    let best = optimize_grid(search, max_evaluations, evaluate)?;
+    Ok((best.net_pnl_quote > 0).then_some(best))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,7 +107,11 @@ mod tests {
     #[test]
     fn optimizer_finds_exact_discrete_profit_maximum() {
         let optimum = optimize_grid(
-            SizeSearch { min_input: 0, max_input: 20, step: 1 },
+            SizeSearch {
+                min_input: 0,
+                max_input: 20,
+                step: 1,
+            },
             100,
             |x| Some(100 - (x - 7) * (x - 7)),
         )
@@ -106,21 +122,29 @@ mod tests {
     }
 
     #[test]
-    fn fixed_activation_cost_can_change_no_trade_decision() {
+    fn fixed_activation_cost_can_make_no_trade_optimal() {
         let fixed_activation_cost = 110;
-        let optimum = optimize_grid(
-            SizeSearch { min_input: 0, max_input: 10, step: 1 },
+        let optimum = optimize_profitable_grid(
+            SizeSearch {
+                min_input: 1,
+                max_input: 10,
+                step: 1,
+            },
             20,
             |x| Some(100 + 4 * x - x * x - fixed_activation_cost),
         )
         .unwrap();
-        assert!(optimum.net_pnl_quote < 0);
+        assert!(optimum.is_none());
     }
 
     #[test]
     fn lower_input_wins_deterministic_ties() {
         let optimum = optimize_grid(
-            SizeSearch { min_input: 1, max_input: 3, step: 1 },
+            SizeSearch {
+                min_input: 1,
+                max_input: 3,
+                step: 1,
+            },
             3,
             |_x| Some(10),
         )
@@ -131,7 +155,11 @@ mod tests {
     #[test]
     fn evaluation_budget_is_hard_bound() {
         let error = optimize_grid(
-            SizeSearch { min_input: 0, max_input: 100, step: 1 },
+            SizeSearch {
+                min_input: 0,
+                max_input: 100,
+                step: 1,
+            },
             100,
             |_| Some(0),
         )

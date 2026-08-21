@@ -71,7 +71,10 @@ pub fn label_markout(
             let target = base.saturating_add(delta);
             series
                 .iter()
-                .find(|point| point.block_number.is_some_and(|block| block >= target))
+                .find(|point| {
+                    point.ts_ns >= fill_ts_ns
+                        && point.block_number.is_some_and(|block| block >= target)
+                })
                 .ok_or(MarkoutError::MissingSample)?
         }
     };
@@ -159,6 +162,33 @@ mod tests {
     }
 
     #[test]
+    fn block_markout_never_samples_pre_fill_point() {
+        let series = [
+            FairValuePoint {
+                ts_ns: 90,
+                block_number: Some(101),
+                price: 90 * FIXED_SCALE,
+            },
+            FairValuePoint {
+                ts_ns: 110,
+                block_number: Some(101),
+                price: 101 * FIXED_SCALE,
+            },
+        ];
+        let markout = label_markout(
+            &series,
+            100,
+            Some(100),
+            100 * FIXED_SCALE,
+            Side::Buy,
+            Horizon::Blocks(1),
+            SamplingPolicy::AtOrAfter { max_delay_ns: 0 },
+        )
+        .unwrap();
+        assert_eq!(markout.sampled_ts_ns, 110);
+    }
+
+    #[test]
     fn stale_samples_are_rejected() {
         let series = [FairValuePoint {
             ts_ns: 120,
@@ -181,8 +211,16 @@ mod tests {
     #[test]
     fn unsorted_series_is_rejected() {
         let series = [
-            FairValuePoint { ts_ns: 120, block_number: None, price: 100 * FIXED_SCALE },
-            FairValuePoint { ts_ns: 110, block_number: None, price: 100 * FIXED_SCALE },
+            FairValuePoint {
+                ts_ns: 120,
+                block_number: None,
+                price: 100 * FIXED_SCALE,
+            },
+            FairValuePoint {
+                ts_ns: 110,
+                block_number: None,
+                price: 100 * FIXED_SCALE,
+            },
         ];
         let error = label_markout(
             &series,
