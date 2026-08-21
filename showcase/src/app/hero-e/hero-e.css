@@ -24,7 +24,9 @@
   background:
     radial-gradient(ellipse 70% 55% at 50% 8%, rgba(246, 169, 60, 0.20), transparent 62%),
     radial-gradient(ellipse 90% 60% at 50% 0%, rgba(150, 60, 20, 0.28), transparent 70%),
-    linear-gradient(180deg, #17100A 0%, #0C0A08 46%, #0A0A0A 78%);
+    /* Blends into the soil base (--sw-soil-0/1, see globals.css PERSIMMON
+       ORCHARD block) rather than fading to near-neutral black. */
+    linear-gradient(180deg, #241A15 0%, #1F1512 46%, var(--sw-soil-0) 78%);
 }
 
 /* The existing 9% glow is redundant against the field. */

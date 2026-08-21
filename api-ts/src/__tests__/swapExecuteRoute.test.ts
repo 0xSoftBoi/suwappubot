@@ -73,10 +73,24 @@ mock.module('../middleware/x402Payment', () => ({
 // Mock the runtime so no real Effect/EnvService/DB layer needs to spin up — this only
 // matters for the POSITIVE case (decimals resolve, code proceeds past the gate); the
 // negative case never reaches this code at all, which is exactly what we're proving.
+//
+// enforcePolicyGateForFreshQuote() ALSO now calls runEffectEither (org-less agents are
+// policy-gated too, not just org agents — see PolicyService.evaluate()'s org-less
+// per-agent-policy path), so this generic runtime mock is invoked twice per request:
+// once for the policy evaluate() call, once for the internal Python execute-swap call.
+// It must return an 'allow' verdict shape for the FIRST call (so the gate falls through
+// exactly like a real no-DB fail-open would) and the canned swap result for the rest.
 let fetchCallCount = 0
+let runEffectEitherCallCount = 0
 mock.module('../runtime', () => ({
 	runEffect: async () => ({}),
 	runEffectEither: async () => {
+		runEffectEitherCallCount++
+		if (runEffectEitherCallCount === 1) {
+			// Stands in for enforcePolicyGateForFreshQuote's PolicyService.evaluate()
+			// call — 'allow' means the gate returns null and the route proceeds.
+			return Either.right({ decision: 'allow' })
+		}
 		fetchCallCount++
 		return Either.right({ swap_id: 999, tx_hash: '0xabc', status: 'pending' })
 	},
@@ -112,6 +126,7 @@ beforeAll(() => {
 afterEach(() => {
 	fetchCalls = []
 	fetchCallCount = 0
+	runEffectEitherCallCount = 0
 })
 
 afterAll(() => {
@@ -147,7 +162,7 @@ describe('POST /v1/agent/swap/execute — decimals gate (route-level, MONEY-PATH
 		})
 
 		expect(res.status).toBe(422)
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.error_code).toBe('QUOTE_NOT_FOUND')
 
 		// The route must reject before ever reaching the internal Python

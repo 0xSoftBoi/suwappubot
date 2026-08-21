@@ -14,8 +14,15 @@ import '@rainbow-me/rainbowkit/styles.css'
 import bs58 from 'bs58'
 import { config as wagmiConfig } from '../lib/wagmi'
 import { setAuthToken, getAuthToken, clearAuthToken, setAuthMethod } from '../lib/auth'
-import { getPhantom, isPhantomAvailable } from '../lib/phantom'
+import { isRetryableAuthError, shouldClearSession } from '../lib/authFailure'
+
+// Bounded retry for the boot session probe so one flaky response doesn't leave
+// a valid session looking signed out. 3 attempts total: ~0.4s + ~0.8s of wait.
+const SESSION_PROBE_RETRIES = 2
+const SESSION_PROBE_BACKOFF_MS = 400
+import { getPhantom, isPhantomAvailable, siwsInputFromChallenge } from '../lib/phantom'
 import { api } from '../lib/api'
+import { hasTradingProof } from '../lib/sessionProof'
 import {
   isExternalProvider,
   isLedgerConnectorId,
@@ -24,6 +31,10 @@ import {
 
 interface AuthContextType {
   isAuthenticated: boolean
+  // Provenance of the server-issued session. `weak` OAuth proves identity but
+  // not wallet control, so money-changing UI must request wallet proof first.
+  sessionSource: string | null
+  needsTradingProof: boolean
   isLoading: boolean
   userId: number | null
   walletAddress: string | null
@@ -53,7 +64,7 @@ interface AuthContextType {
   // flight, so the Header can show a dedicated "Signing…" state on that button.
   isWalletConnecting: boolean
   // Whether the wallet-connect SIWE backend is reachable. Flips to false the
-  // first time /auth/turnkey/* answers 404/501/503 so the Header can honestly
+  // first time /auth/turnkey/* answers 404/501 so the Header can honestly
   // disable the button with a tooltip instead of letting it silently fail.
   isWalletAuthAvailable: boolean
 }
@@ -78,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 function AuthInner({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [sessionSource, setSessionSource] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [userId, setUserId] = useState<number | null>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
@@ -92,6 +104,11 @@ function AuthInner({ children }: { children: ReactNode }) {
   const { signMessageAsync } = useSignMessage()
   const { disconnectAsync } = useDisconnect()
   const { openConnectModal } = useConnectModal()
+  const authFlowEpoch = useRef(0)
+  const signingOutRef = useRef(false)
+  const walletSiwePromiseRef = useRef<Promise<boolean> | null>(null)
+  const walletSiweAddressRef = useRef<string | null>(null)
+  const phantomSignInPromiseRef = useRef<Promise<void> | null>(null)
 
   // Data hooks (portfolio, wallet tracker, etc.) fire on mount — before the user
   // signs in — and 401, landing in React Query's error state. Nothing refetches
@@ -149,8 +166,10 @@ function AuthInner({ children }: { children: ReactNode }) {
         try {
           const result = await api.telegramAuth(tgInitData)
           setAuthToken(result.token, result.expiresAt)
+          setAuthMethod('telegram')
           setUserId(result.userId)
           setWalletAddress(result.walletAddress)
+          setSessionSource('telegram')
           setIsAuthenticated(true)
           setIsTelegram(true)
           setIsLoading(false)
@@ -166,10 +185,18 @@ function AuthInner({ children }: { children: ReactNode }) {
       // attempt getMe() on mount: it sends the cookie via credentials:'include'
       // (OAuth) and the Bearer token if present (passkey). This is what makes a
       // cookie-only OAuth session resume across reloads.
-      const token = getAuthToken()
+      let token = getAuthToken()
       const returningFromOAuth =
         typeof window !== 'undefined' &&
         new URLSearchParams(window.location.search).get('auth') === 'success'
+
+      // Authorization is intentionally Bearer-first server-side. Never let a
+      // stale wallet/passkey token shadow the fresh OAuth HttpOnly cookie after
+      // the callback, or /auth/me can resume the wrong identity.
+      if (returningFromOAuth && token) {
+        clearAuthToken()
+        token = null
+      }
 
       // OAuthCallback bounces failed sign-ins back with ?auth_error=<reason>.
       const authError =
@@ -184,13 +211,36 @@ function AuthInner({ children }: { children: ReactNode }) {
       }
 
       try {
-        const me = await api.getMe()
-        setUserId(me.userId)
-        setWalletAddress(me.walletAddress)
-        setWalletProvider(me.walletProvider)
-        setIsAuthenticated(true)
-      } catch {
-        if (token) clearAuthToken()
+        // A transient failure here must not sign the user out. Retry the probe
+        // for network drops / 5xx (the upstream Python API hiccuping), then
+        // clear the stored session ONLY on an explicit 401. See lib/authFailure.
+        let me: Awaited<ReturnType<typeof api.getMe>> | null = null
+        let lastErr: unknown = null
+        for (let attempt = 0; attempt <= SESSION_PROBE_RETRIES; attempt++) {
+          try {
+            me = await api.getMe()
+            lastErr = null
+            break
+          } catch (err: unknown) {
+            lastErr = err
+            if (attempt === SESSION_PROBE_RETRIES || !isRetryableAuthError(err)) break
+            await new Promise((resolve) => setTimeout(resolve, SESSION_PROBE_BACKOFF_MS * 2 ** attempt))
+          }
+        }
+
+        if (me) {
+          setUserId(me.userId)
+          setWalletAddress(me.walletAddress)
+          setWalletProvider(me.walletProvider)
+          setSessionSource(me.sessionSource)
+          setIsAuthenticated(true)
+        } else if (shouldClearSession(lastErr)) {
+          if (token) clearAuthToken()
+        } else if (lastErr) {
+          // Session preserved — surface why the terminal looks signed out so a
+          // reload (or the next probe) can resume it.
+          setError(errorDetail(lastErr))
+        }
       } finally {
         // Strip the one-time ?auth=success&provider=… params after handling.
         if (returningFromOAuth && typeof window !== 'undefined') {
@@ -356,6 +406,8 @@ function AuthInner({ children }: { children: ReactNode }) {
       return
     }
 
+    signingOutRef.current = false
+    const flowEpoch = authFlowEpoch.current
     try {
       setIsLoading(true)
       setError(null)
@@ -377,9 +429,12 @@ function AuthInner({ children }: { children: ReactNode }) {
         result = await createPasskeyWallet()
       }
 
+      if (signingOutRef.current || authFlowEpoch.current !== flowEpoch) return
       setAuthToken(result.token, result.expiresAt)
+      setAuthMethod('passkey')
       setUserId(result.userId)
       setWalletAddress(result.walletAddress)
+      setSessionSource('passkey')
       setIsAuthenticated(true)
     } catch (err: unknown) {
       setError(errorDetail(err))
@@ -396,6 +451,9 @@ function AuthInner({ children }: { children: ReactNode }) {
   const signInWithGoogle = useCallback(() => {
     if (typeof window === 'undefined') return
     setError(null)
+    // OAuth completes with an HttpOnly cookie. Remove any old Bearer session
+    // before leaving so it cannot override that cookie on the return request.
+    clearAuthToken()
     // Return the user to the page they started from (origin + path), minus any
     // stale query string. Must be on the oauth_redirect_base allowlist.
     const returnUrl = `${window.location.origin}${window.location.pathname}`
@@ -405,40 +463,67 @@ function AuthInner({ children }: { children: ReactNode }) {
   // Sign-In With Ethereum (SIWE) round-trip against the existing
   // /auth/turnkey/challenge + /auth/turnkey/verify pair: fetch a nonce-bound
   // message, sign it with the connected wallet, exchange the signature for a
-  // session JWT. Returns true on success. Honest about backend availability:
-  // a 404/501/503 from either endpoint flips isWalletAuthAvailable off so the
-  // UI stops offering a path the server can't honour.
+  // session JWT. Returns true on success. Only deterministic "route missing"
+  // responses (404/501) disable the path; a transient 5xx must stay retryable.
+  // The promise ref makes every caller (explicit click + post-connect effects)
+  // share one signature request for an address, preventing double SIWE prompts.
   const runWalletSiwe = useCallback(
-    async (address: string): Promise<boolean> => {
-      try {
-        const { message, nonce } = await api.walletChallenge(address)
-        // The wallet prompt is the one step that can legitimately be cancelled
-        // by the user; everything else is server I/O.
-        const signature = await signMessageAsync({ message })
-        // Tag hardware-wallet sessions so the backend records "ledger" and the UI
-        // can badge it. Still an external (client-signing) provider — see
-        // isExternalProvider.
-        const providerTag = resolveWalletProviderTag(connector?.id)
-        const result = await api.walletVerify(address, signature, nonce, providerTag)
-        setAuthToken(result.token, result.expiresAt)
-        setAuthMethod('wallet')
-        setUserId(result.userId)
-        setWalletAddress(address)
-        setWalletProvider(providerTag)
-        setIsAuthenticated(true)
-        return true
-      } catch (err: unknown) {
-        const status = errorStatus(err)
-        if (status === 404 || status === 501 || status === 503) {
-          setIsWalletAuthAvailable(false)
-          setError('Wallet sign-in is not available on this server yet.')
-        } else if (/reject|denied|cancel|user rejected/i.test(errorDetail(err))) {
-          setError('Signature request was cancelled.')
-        } else {
-          setError(errorDetail(err))
-        }
-        return false
+    (address: string): Promise<boolean> => {
+      const normalizedAddress = address.toLowerCase()
+      const existing = walletSiwePromiseRef.current
+      if (existing) {
+        if (walletSiweAddressRef.current === normalizedAddress) return existing
+        setError('Finish the current wallet request before switching accounts.')
+        return Promise.resolve(false)
       }
+
+      const flowEpoch = authFlowEpoch.current
+      setIsWalletConnecting(true)
+      const task = (async (): Promise<boolean> => {
+        try {
+          const { message, nonce } = await api.walletChallenge(address)
+          const signature = await signMessageAsync({ message })
+          const providerTag = resolveWalletProviderTag(connector?.id)
+          const result = await api.walletVerify(address, signature, nonce, providerTag)
+
+          // A wallet prompt cannot be programmatically cancelled. If the user
+          // signed out while it was open, discard its late result rather than
+          // resurrecting the session after sign-out.
+          if (signingOutRef.current || authFlowEpoch.current !== flowEpoch) return false
+
+          setAuthToken(result.token, result.expiresAt)
+          setAuthMethod('wallet')
+          setUserId(result.userId)
+          setWalletAddress(address)
+          setWalletProvider(providerTag)
+          setSessionSource('siwe')
+          setIsAuthenticated(true)
+          return true
+        } catch (err: unknown) {
+          const status = errorStatus(err)
+          if (status === 404 || status === 501) {
+            setIsWalletAuthAvailable(false)
+            setError('Wallet sign-in is not available on this server yet.')
+          } else if (/reject|denied|cancel|user rejected/i.test(errorDetail(err))) {
+            setError('Signature request was cancelled.')
+          } else {
+            setError(errorDetail(err))
+          }
+          return false
+        } finally {
+          setIsWalletConnecting(false)
+        }
+      })()
+
+      walletSiwePromiseRef.current = task
+      walletSiweAddressRef.current = normalizedAddress
+      void task.finally(() => {
+        if (walletSiwePromiseRef.current === task) {
+          walletSiwePromiseRef.current = null
+          walletSiweAddressRef.current = null
+        }
+      })
+      return task
     },
     [signMessageAsync, connector],
   )
@@ -453,14 +538,13 @@ function AuthInner({ children }: { children: ReactNode }) {
       setError('Wallet sign-in is not available on this server yet.')
       return
     }
+    signingOutRef.current = false
     setError(null)
     // Already connected (e.g. session expired but wallet still linked): go
     // straight to the SIWE signature. Otherwise open the connect modal and
     // defer signing to the post-connect effect.
     if (isConnected && connectedAddress) {
-      setIsWalletConnecting(true)
       await runWalletSiwe(connectedAddress)
-      setIsWalletConnecting(false)
       return
     }
     if (!openConnectModal) {
@@ -468,7 +552,6 @@ function AuthInner({ children }: { children: ReactNode }) {
       return
     }
     pendingWalletSignIn.current = true
-    setIsWalletConnecting(true)
     openConnectModal()
   }, [isWalletAuthAvailable, isConnected, connectedAddress, openConnectModal, runWalletSiwe])
 
@@ -479,10 +562,7 @@ function AuthInner({ children }: { children: ReactNode }) {
     if (!pendingWalletSignIn.current) return
     if (!isConnected || !connectedAddress) return
     pendingWalletSignIn.current = false
-    void (async () => {
-      await runWalletSiwe(connectedAddress)
-      setIsWalletConnecting(false)
-    })()
+    void runWalletSiwe(connectedAddress)
   }, [isConnected, connectedAddress, runWalletSiwe])
 
   // Addresses we've already attempted (or the user rejected) auto sign-in for,
@@ -494,64 +574,123 @@ function AuthInner({ children }: { children: ReactNode }) {
   // the signature request automatically the moment a wallet connects, so the
   // user only has to approve two wallet prompts (connect + sign), not click
   // twice in our UI. Skips when already authenticated, when nothing is
-  // connected, when auth isn't available, and — critically — when this address
-  // already had an auto-attempt (success or rejection): a rejected signature
-  // falls back to the manual "Sign in" button in WalletConnect instead of
-  // re-spamming the wallet with repeat prompts.
+  // connected or auth isn't available. Strong sessions only re-sign when the
+  // connected external account changed; weak OAuth sessions deliberately use
+  // this path to upgrade to wallet proof. A rejected address is remembered so
+  // re-renders do not spam repeat prompts.
   useEffect(() => {
     if (!isWalletAuthAvailable) return
-    if (isAuthenticated) return
+    if (isLoading) return
+    if (signingOutRef.current) return
     if (!isConnected || !connectedAddress) return
     if (pendingWalletSignIn.current) return // already handled by the explicit-connect flow above
     const address = connectedAddress
+    const hasStrongSession = hasTradingProof(sessionSource)
+    if (isAuthenticated && hasStrongSession) {
+      // A resumed external session does not need another signature when wagmi
+      // reconnects the same account. A genuinely different live account does.
+      if (!isExternalProvider(walletProvider)) return
+      if (walletAddress?.toLowerCase() === address.toLowerCase()) return
+    }
     if (autoSignInAttempted.current.has(address)) return
     autoSignInAttempted.current.add(address)
-    setIsWalletConnecting(true)
-    void (async () => {
-      await runWalletSiwe(address)
-      setIsWalletConnecting(false)
-    })()
-  }, [isWalletAuthAvailable, isAuthenticated, isConnected, connectedAddress, runWalletSiwe])
+    void runWalletSiwe(address)
+  }, [
+    isWalletAuthAvailable,
+    isLoading,
+    isAuthenticated,
+    isConnected,
+    connectedAddress,
+    sessionSource,
+    walletProvider,
+    walletAddress,
+    runWalletSiwe,
+  ])
 
   // Sign-out (or disconnect) should let a future reconnect of the same address
   // auto-attempt again rather than staying permanently skipped.
   useEffect(() => {
-    if (!isConnected) autoSignInAttempted.current.clear()
-  }, [isConnected])
+    if (!isConnected) {
+      autoSignInAttempted.current.clear()
+      if (!isAuthenticated) signingOutRef.current = false
+    }
+  }, [isConnected, isAuthenticated])
 
   // Connect Phantom and authenticate via Sign-In-With-Solana (ed25519). Same
   // keyless model as the EVM path: the backend recovers nothing — it verifies the
   // signature against the provided pubkey and mints the session JWT.
-  const signInWithPhantom = useCallback(async () => {
+  const signInWithPhantom = useCallback((): Promise<void> => {
+    if (phantomSignInPromiseRef.current) return phantomSignInPromiseRef.current
     const provider = getPhantom()
     if (!provider) {
-      setError('Phantom wallet not found. Install the Phantom extension.')
-      return
+      const onMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      setError(
+        onMobile
+          ? 'Open Suwappu in the Phantom browser to connect your Solana wallet.'
+          : 'Phantom wallet not found. Install the Phantom extension.',
+      )
+      return Promise.resolve()
     }
-    try {
-      setIsLoading(true)
-      setError(null)
-      const { publicKey } = await provider.connect()
-      const address = publicKey.toString()
-      const { nonce, message } = await api.solanaChallenge(address)
-      const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8')
-      const result = await api.solanaVerify(address, bs58.encode(signature), nonce)
-      setAuthToken(result.token, result.expiresAt)
-      setAuthMethod('wallet')
-      setUserId(result.userId)
-      setWalletAddress(address)
-      setWalletProvider('external')
-      setIsAuthenticated(true)
-    } catch (err: unknown) {
-      setError(errorDetail(err))
-    } finally {
-      setIsLoading(false)
-    }
+
+    signingOutRef.current = false
+    const flowEpoch = authFlowEpoch.current
+    const task = (async () => {
+      try {
+        setIsLoading(true)
+        setError(null)
+        const address = provider.publicKey?.toString() ?? (await provider.connect()).publicKey.toString()
+        const { nonce, message } = await api.solanaChallenge(address)
+
+        let signature: Uint8Array
+        if (typeof provider.signIn === 'function') {
+          const output = await provider.signIn(siwsInputFromChallenge(message, address))
+          const signedMessage = new TextDecoder().decode(output.signedMessage)
+          if (signedMessage !== message || (output.account?.address && output.account.address !== address)) {
+            throw new Error('Phantom returned a different Solana sign-in challenge. Please retry.')
+          }
+          signature = output.signature
+        } else {
+          ;({ signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8'))
+        }
+
+        const result = await api.solanaVerify(address, bs58.encode(signature), nonce)
+        if (signingOutRef.current || authFlowEpoch.current !== flowEpoch) return
+
+        setAuthToken(result.token, result.expiresAt)
+        setAuthMethod('wallet')
+        setUserId(result.userId)
+        setWalletAddress(address)
+        setWalletProvider('external')
+        setSessionSource('siwe')
+        setIsAuthenticated(true)
+      } catch (err: unknown) {
+        if (/reject|denied|cancel|user rejected/i.test(errorDetail(err))) {
+          setError('Phantom sign-in was cancelled.')
+        } else {
+          setError(errorDetail(err))
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    })()
+
+    phantomSignInPromiseRef.current = task
+    void task.finally(() => {
+      if (phantomSignInPromiseRef.current === task) phantomSignInPromiseRef.current = null
+    })
+    return task
   }, [])
 
   const signOut = useCallback(() => {
+    signingOutRef.current = true
+    authFlowEpoch.current += 1
+    // Clear both access-token and HttpOnly-cookie sessions. The network call is
+    // best-effort because local state should sign out immediately even offline.
+    void api.logout().catch(() => {})
     clearAuthToken()
     setIsAuthenticated(false)
+    setSessionSource(null)
+    setIsTelegram(false)
     setUserId(null)
     setWalletAddress(null)
     setWalletProvider(null)
@@ -574,6 +713,8 @@ function AuthInner({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         isAuthenticated,
+        sessionSource,
+        needsTradingProof: isAuthenticated && !hasTradingProof(sessionSource),
         isLoading,
         userId,
         walletAddress,

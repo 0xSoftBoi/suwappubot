@@ -7,6 +7,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
+    InlineQueryHandler,
     MessageHandler,
     filters,
     PicklePersistence,
@@ -23,6 +24,7 @@ from bot.handlers.start import (
     noop_callback,
     tos_accept_callback,
     tos_decline_callback,
+    tos_review_callback,
 )
 from bot.handlers.home import home_refresh_callback
 from bot.handlers.balance import balance_handler, balance_callback
@@ -63,6 +65,7 @@ from bot.handlers.paste_trade import (
     paste_check_hint_callback,
 )
 from bot.handlers.nl_trade import handle_nl_text
+from bot.handlers.llm_model import llm_model_command
 from bot.handlers.trending import (
     trending_command,
     trending_open_callback,
@@ -77,6 +80,7 @@ from bot.handlers.history import (
     history_menu_callback,
     history_page_handler,
     share_pnl_handler,
+    execution_receipt_handler,
 )
 from bot.handlers.portfolio import portfolio_handler, portfolio_callback
 from bot.handlers.positions import (
@@ -119,6 +123,7 @@ from bot.handlers.settings import (
 )
 from bot.handlers.admin import (
     status_handler,
+    status_refresh_callback,
     clear_cache_handler,
     broadcast_handler,
     hl_builder_handler,
@@ -144,6 +149,7 @@ from bot.handlers.admin_custodial import (
     admin_wallets_callback,
     create_evm_wallet,
     create_sol_wallet,
+    create_deploy_wallet,
     gas_config,
     configure_gas_chain,
 )
@@ -172,6 +178,9 @@ from bot.handlers.referral import (
     fees_callback_handler,
     rewards_callback_handler as ref_rewards_callback_handler,
 )
+from bot.handlers.position_cards import position_cards_handler
+from bot.handlers.bindwallet import bindwallet_handler, unbindwallet_handler
+from bot.handlers.subscribe_onchain import subscribe_onchain_handler
 from bot.handlers.limit_orders import (
     orders_handler,
     dca_handler,
@@ -279,6 +288,8 @@ from bot.handlers.admin_p2p import (
     p2p_resolve_handler,
     p2p_dispute_handler,
 )
+from bot.handlers.approvals import approval_decision_handler, approvals_command_handler
+from bot.handlers.admin_killswitch import kill_switch_handler
 from bot.handlers.fund import fund_command_handler, fund_callback_handler
 from bot.handlers.hl_ecosystem import (
     twap_handler,
@@ -315,7 +326,10 @@ from bot.handlers.enterprise import (
 )
 from bot.handlers.mpp_handler import get_mpp_handlers
 from bot.handlers.tempo import get_tempo_handlers
+from bot.handlers.claim_agent import claim_agent_handler, unlink_agent_handler
 from bot.handlers.aegis_scan import aegis_scan_update
+from bot.handlers.inline_query import inline_query_handler
+from bot.handlers.chart import chart_handler
 from bot.services.sniping import launch_detector
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
@@ -348,6 +362,20 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=getattr(logging, settings.log_level.upper()),
 )
+
+# SECRET LEAK: httpx logs every request URL at INFO, and the Telegram Bot API
+# puts the bot token IN the path — so a plain INFO log level published the full
+# token to Railway logs on every API call:
+#
+#   httpx - INFO - HTTP Request: POST https://api.telegram.org/bot<TOKEN>/sendMessage
+#
+# Anyone who can read the logs can then read every message and post as the bot.
+# The same applies to any other client whose credentials ride in a URL, so pin
+# the HTTP libraries to WARNING regardless of LOG_LEVEL rather than relying on
+# the deploy never being set to INFO/DEBUG.
+for _noisy in ("httpx", "httpcore", "urllib3", "telegram.request"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -394,6 +422,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(pos_manage_callback_handler)  # Positions → Manage token
     application.add_handler(pos_sell_callback_handler)  # Positions → Sell %
     application.add_handler(gas_handler)  # /g
+    application.add_handler(chart_handler)  # /chart
     application.add_handler(favorites_handler)  # /f
     application.add_handler(settings_handler)  # /set
     application.add_handler(recovery_handler)  # /recovery
@@ -421,6 +450,10 @@ def add_handlers(application: Application) -> None:
 
     # Points/XP system
     application.add_handler(xp_handler)  # /xp
+    application.add_handler(position_cards_handler)  # /cards
+    application.add_handler(bindwallet_handler)  # /bindwallet
+    application.add_handler(unbindwallet_handler)  # /unbindwallet
+    application.add_handler(subscribe_onchain_handler)  # /subscribe
     application.add_handler(checkin_handler)  # /checkin
     application.add_handler(leaderboard_handler)  # /lb
     application.add_handler(rewards_handler)  # /rewards (XP rewards)
@@ -433,6 +466,9 @@ def add_handlers(application: Application) -> None:
 
     # Admin commands
     application.add_handler(status_handler)  # /status
+    application.add_handler(
+        CallbackQueryHandler(status_refresh_callback, pattern="^admin_status$")
+    )  # "Refresh" button on /status output
     application.add_handler(clear_cache_handler)  # /clearcache
     application.add_handler(broadcast_handler)  # /broadcast
     application.add_handler(hl_builder_handler)  # /hlbuilder
@@ -450,6 +486,8 @@ def add_handlers(application: Application) -> None:
     application.add_handler(hl_hub_handler)  # /hl hub
     application.add_handler(hl_ecosystem_conversation)  # stake/vault amount-entry flow
     application.add_handler(hl_cancel_handler)  # dashboard close button
+    application.add_handler(claim_agent_handler)  # /claim (agent control-plane)
+    application.add_handler(unlink_agent_handler)  # /unlink
     application.add_handler(hl_twap_cancel_handler)  # TWAP cancel button
     application.add_handler(hl_twap_refresh_handler)  # TWAP refresh button
     application.add_handler(hl_hub_cb_handler)  # /hl hub buttons
@@ -500,6 +538,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(p2p_dispute_handler)  # /p2pdispute — party freezes escrow
     application.add_handler(p2p_disputes_handler)  # admin /p2pdisputes — arbiter queue
     application.add_handler(p2p_resolve_handler)  # admin /p2presolve — arbitrate
+    application.add_handler(approvals_command_handler)  # /approvals (agent control-plane)
+    application.add_handler(approval_decision_handler)  # apprv:<id>:yes|no callback
+    application.add_handler(kill_switch_handler)  # admin /ks — agent-policy kill switch
     application.add_handler(token_conv_handler)  # SUWP token /token /suwp
     application.add_handler(twofa_conversation)  # TOTP 2FA enrollment /2fa
     application.add_handler(smart_account_handler)  # ERC-4337 smart account /sa
@@ -523,6 +564,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(
         CallbackQueryHandler(paste_check_hint_callback, pattern="^paste_check_hint$")
     )
+
+    # LLM model preference for natural-language trading (multi-provider routing)
+    application.add_handler(CommandHandler("model", llm_model_command))
 
     # Trending (pull-only discovery): /trending + inline tile + token-view-to-buy.
     # Buy buttons funnel through paste_token + the swap "^pbuy_" entry_point.
@@ -564,6 +608,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
     application.add_handler(CallbackQueryHandler(tos_accept_callback, pattern="^tos_accept$"))
     application.add_handler(CallbackQueryHandler(tos_decline_callback, pattern="^tos_decline$"))
+    application.add_handler(CallbackQueryHandler(tos_review_callback, pattern="^tos_review$"))
 
     # Balance & Portfolio
     application.add_handler(CallbackQueryHandler(balance_callback, pattern="^balance$"))
@@ -571,6 +616,10 @@ def add_handlers(application: Application) -> None:
     application.add_handler(history_callback)
     application.add_handler(history_menu_callback)
     application.add_handler(history_page_handler)
+    application.add_handler(share_pnl_handler)  # "^pnl_share_\d+$" Share PnL button
+    application.add_handler(
+        execution_receipt_handler
+    )  # "^exec_receipt_\d+$" per-fill execution receipt
 
     # Wallet
     application.add_handler(CallbackQueryHandler(wallet_menu_callback, pattern="^wallet_menu$"))
@@ -622,6 +671,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(admin_wallets_callback, pattern="^admin_wallets$"))
     application.add_handler(CallbackQueryHandler(create_evm_wallet, pattern="^admin_create_evm$"))
     application.add_handler(CallbackQueryHandler(create_sol_wallet, pattern="^admin_create_sol$"))
+    application.add_handler(
+        CallbackQueryHandler(create_deploy_wallet, pattern="^admin_create_deploy$")
+    )
     application.add_handler(CallbackQueryHandler(gas_config, pattern="^admin_gas_config$"))
     application.add_handler(CallbackQueryHandler(configure_gas_chain, pattern="^admin_gas_"))
 
@@ -722,8 +774,13 @@ def add_handlers(application: Application) -> None:
     application.add_handler(skip_copy_callback_handler)
 
     # Tempo MPP (Machine Payments Protocol) — /mpp
-    for mpp_handler in get_mpp_handlers():
-        application.add_handler(mpp_handler)
+    # Gated OFF by default: the MPP hosts (api.mpp.dev / directory.mpp.dev) do
+    # not resolve, so registering this would ship a command that always fails.
+    if settings.mpp_enabled:
+        for mpp_handler in get_mpp_handlers():
+            application.add_handler(mpp_handler)
+    else:
+        logger.info("MPP surface disabled (mpp_enabled=false) — /mpp not registered")
 
     # Tempo session keys (access keys) — /tempo
     for tempo_handler in get_tempo_handlers():
@@ -731,6 +788,11 @@ def add_handlers(application: Application) -> None:
 
     # BullX Neo migration wizard — /import
     application.add_handler(import_conversation_handler)
+
+    # Inline mode — "@<botname> BTC" in any chat renders a price card with a
+    # referral deep link. Requires enabling inline mode for the bot via
+    # BotFather (/setinline) in addition to this registration.
+    application.add_handler(InlineQueryHandler(inline_query_handler))
 
     # Natural-language trade intent (Anthropic-backed) — registered in the
     # SAME default group (0), immediately BEFORE the freeform-text catch-all,
@@ -795,10 +857,15 @@ async def post_init(application) -> None:
             BotCommand("save", "🏦 Earn yield on idle USDC"),
             BotCommand("a", "🔔 Price alerts"),
             BotCommand("check", "🛡️ Token safety check"),
+            BotCommand("chart", "📈 Candlestick chart"),
             BotCommand("btc", "₿ BTC bridge (Lightning ⇄ Starknet)"),
             BotCommand("ref", "🎁 Referrals & rewards"),
             BotCommand("vip", "⭐ VIP status — your tier, fee rate & XP multiplier"),
+            BotCommand("cards", "🃏 Position cards — live P&L & swap-fee discount"),
+            BotCommand("bindwallet", "🔗 Link your Robinhood Wallet for on-chain membership"),
+            BotCommand("subscribe", "💳 Subscribe on-chain in USDG — one signature, no gas"),
             BotCommand("import", "📥 Import wallets — migrate from BullX or another bot"),
+            BotCommand("model", "🤖 AI model for natural-language trading"),
             BotCommand("support", "🆘 Contact support"),
             BotCommand("bug", "🐞 Report a bug"),
             BotCommand("set", "⚙️ Settings"),
@@ -888,9 +955,25 @@ async def post_init(application) -> None:
         await launch_detector.start()
         logger.info("✓ Token launch detector started")
 
-        # Start rug protection service
-        await rug_service.start(swap_engine=SwapEngine())
-        logger.info("✓ Rug protection service started")
+        # Start rug protection service (money-path auto-sell — gated off by
+        # default, see RUG_AUTO_SELL_ENABLED in bot/config/settings.py).
+        # H2: RugService.start() now hard-refuses (raises RuntimeError) if the
+        # DB schema it depends on isn't ready (e.g. swap_transactions.from_token/
+        # to_token not yet widened) rather than starting a silently-dead
+        # service. Caught here so a schema-gap on an opt-in feature doesn't
+        # take the whole bot boot down — it's logged as CRITICAL and the
+        # service simply doesn't run.
+        if settings.rug_auto_sell_enabled:
+            try:
+                await rug_service.start(swap_engine=SwapEngine())
+                logger.info("✓ Rug protection service started")
+            except Exception as e:
+                # Broadened from RuntimeError: any failure here (schema gap,
+                # transient DB blip, etc.) must not brick the whole bot boot —
+                # log CRITICAL and continue without the (opt-in) service.
+                logger.critical(f"✗ Rug protection service refused to start: {e}")
+        else:
+            logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
 
         # Start support ticket fan-out (admin DM + support group + Linear sync)
         await support_notifier.start(bot=application.bot)
@@ -922,6 +1005,13 @@ async def post_shutdown(application) -> None:
         await support_notifier.stop()
         await battle_monitor.stop()
 
+    # Finding 4: stop the rug protection service on shutdown too — same gate
+    # (rug_auto_sell_enabled) as the start call in post_init. `stop()` itself
+    # is safe to call even if start() never ran (or refused to start via the
+    # H2 schema-capability guard) — it's a no-op guard on `self._ws_task`.
+    if settings.rug_auto_sell_enabled:
+        await rug_service.stop()
+
     logger.info("Closing HTTP session pool...")
     await close_http_session()
 
@@ -942,7 +1032,15 @@ async def run_headless() -> None:
     await order_service.start(bot=None, swap_engine=SwapEngine())
     await tx_poller.start(bot=None)
     await health_monitor.start(bot=None, admin_ids=admin_ids)
-    await rug_service.start(swap_engine=SwapEngine())
+    if settings.rug_auto_sell_enabled:
+        try:
+            await rug_service.start(swap_engine=SwapEngine())
+        except Exception as e:
+            # Broadened from RuntimeError — see comment at the other
+            # rug_service.start() call site above.
+            logger.critical(f"✗ Rug protection service refused to start: {e}")
+    else:
+        logger.info("⏭️ Rug protection service DISABLED via RUG_AUTO_SELL_ENABLED=false")
     await battle_monitor.start(bot=None)
 
     logger.info("✅ Headless services are running. Press Ctrl+C to stop.")

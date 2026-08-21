@@ -54,6 +54,28 @@ BETA_PASSWORDS = _load_beta_passwords()
 # (TIER_FEE_RATES) — the single source of truth for what's actually charged
 # on-chain. Do NOT hardcode the fee here: it would let this copy drift from the
 # fee the swap engine collects. Update fee_service.TIER_FEE_RATES instead.
+# EIP-712 domains for the x402 `exact` (EIP-3009) scheme, keyed by chain.
+#
+# MIRRORS api-ts/src/config/x402Networks.ts. That file is the authority; this is
+# the Python-side copy so the bot can build a signable authorization without
+# calling into the TS stack. tests/test_membership.py asserts the two agree,
+# because a wrong domain does not fail loudly — it produces a signature that
+# recovers to the wrong address and silently fails settlement.
+#
+# USDG's `version()` REVERTS, so its version was recovered by brute-forcing the
+# domain against the on-chain DOMAIN_SEPARATOR
+# (0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036).
+# Do not "fix" this by calling version().
+X402_EIP712_DOMAINS = {
+    "base": {"name": "USD Coin", "version": "2", "chain_id": 8453, "symbol": "USDC"},
+    "robinhood": {
+        "name": "Global Dollar",
+        "version": "1",
+        "chain_id": 4663,
+        "symbol": "USDG",
+    },
+}
+
 TIER_LIMITS = {
     SubscriptionTier.FREE: {
         "daily_swaps": None,  # Unlimited — revenue comes from swap fee
@@ -208,6 +230,19 @@ class X402Service:
                 "BetaUSD": "0x20c0000000000000000000000000000000000002",
                 "ThetaUSD": "0x20c0000000000000000000000000000000000003",
             },
+            "robinhood": {
+                # Robinhood Chain (4663) has NO USDC. Paxos USDG ("Global Dollar")
+                # is the anchor stablecoin, 6 decimals — same base-unit scale as
+                # USDC, so credit math needs no special-casing. Decimals are still
+                # resolved per-address at verify time via get_decimals_by_address
+                # (USDG is registered in bot/config/tokens.py under chain
+                # "robinhood"). USDG supports EIP-3009, so the x402 `exact` scheme
+                # works; its EIP-712 domain is name="Global Dollar", version="1"
+                # (derived by matching the on-chain DOMAIN_SEPARATOR — version()
+                # reverts on this contract, so do NOT try to read it).
+                "USDG": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+                "ETH": "0x0000000000000000000000000000000000000000",
+            },
         }
 
     # =========================================================================
@@ -232,14 +267,37 @@ class X402Service:
             return sub
 
     async def get_tier(self, user_id: int) -> SubscriptionTier:
-        """Get user's current subscription tier."""
+        """User's current tier: max(database subscription, on-chain membership).
+
+        The SuwappuMembership NFT on Robinhood Chain is an additional way to hold
+        a paid tier (docs/plans/robinhood-membership-integration.md). The max()
+        rule keeps the two systems composable: Stripe/x402 subscriptions work
+        exactly as before, and the chain can only ever RAISE the tier. The
+        on-chain lookup is TTL-cached and fail-open — any failure returns None
+        and the DB tier stands, so an RPC outage can never strip a paying
+        subscriber mid-swap.
+        """
         sub = await self.get_subscription(user_id)
 
-        # Check if subscription expired
-        if sub.expires_at and sub.expires_at < datetime.now(timezone.utc):
-            return SubscriptionTier.FREE
+        # Subscription.expires_at is a timestamp-without-time-zone column, so
+        # PostgreSQL returns it as a naive datetime even though we persist UTC.
+        # Normalize before comparing against an aware UTC clock; otherwise a
+        # real paid subscription with an expiry raises TypeError here.
+        expires_at = sub.expires_at
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        db_tier = sub.tier
+        if expires_at is not None and expires_at < datetime.now(timezone.utc):
+            db_tier = SubscriptionTier.FREE
 
-        return sub.tier
+        try:
+            from bot.services.membership_service import membership_service
+
+            onchain = await membership_service.get_onchain_tier(user_id)
+            return membership_service.best_tier(db_tier, onchain)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Membership tier lookup failed for user {user_id}: {e}")
+            return db_tier
 
     async def upgrade_subscription(
         self,
@@ -727,13 +785,39 @@ class X402Service:
             return credits.balance if credits else 0
 
     async def _add_api_credits(self, user_id: int, amount: float) -> None:
-        """Add API credits to user account."""
-        with get_session() as session:
-            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+        """Add API credits to user account.
 
+        Takes the same row lock as every other balance mutation. Locking only
+        the debit side still loses updates: an unlocked top-up
+        read-modify-write can interleave with a concurrent LLM debit and write
+        back a balance computed before that debit, silently erasing it.
+        """
+        with get_session() as session:
+
+            def _locked():
+                return (
+                    session.query(APICredit)
+                    .filter(APICredit.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
+
+            credits = _locked()
             if not credits:
-                credits = APICredit(user_id=user_id)
-                session.add(credits)
+                # FOR UPDATE cannot lock a row that doesn't exist yet: two
+                # concurrent first-time grants both reach the INSERT and
+                # user_id is UNIQUE, so the loser raises IntegrityError. That
+                # would consume an on-chain payment without crediting it, so
+                # recover and re-read the winner's row under the lock.
+                try:
+                    credits = APICredit(user_id=user_id)
+                    session.add(credits)
+                    session.flush()
+                except IntegrityError:
+                    session.rollback()
+                    credits = _locked()
+                    if credits is None:
+                        raise
 
             credits.balance += amount
             credits.lifetime_purchased += amount
@@ -741,7 +825,15 @@ class X402Service:
     async def use_credits(self, user_id: int, amount: float) -> bool:
         """Use API credits. Returns True if successful."""
         with get_session() as session:
-            credits = session.query(APICredit).filter(APICredit.user_id == user_id).first()
+            # Row lock: llm_credit_service.record_usage debits this same row
+            # under FOR UPDATE; an unlocked read-modify-write here could
+            # interleave and silently erase a concurrent LLM debit.
+            credits = (
+                session.query(APICredit)
+                .filter(APICredit.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
 
             if not credits or credits.balance < amount:
                 return False

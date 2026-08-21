@@ -31,8 +31,10 @@ export interface SwapQuote {
   toToken: SwapToken
   fromAmount: string
   toAmount: string
-  fromAmountUsd: number
-  toAmountUsd: number
+  // Real USD value from the price service; omitted (not 0, not a lie) when
+  // no price is derivable for the token — always null-check before use.
+  fromAmountUsd?: number
+  toAmountUsd?: number
   exchangeRate: number
   priceImpact: number  // percentage
   estimatedGas: string

@@ -276,6 +276,9 @@ export interface CaptureQuoteParams {
 	fromAmount: string
 	fromAmountUsd: number | null
 	fromAddress: string
+	/** Principal, for funnel attribution and the agent-vs-human split. */
+	userId?: number | null
+	agentId?: number | null
 	/** Tool name of the route `/quote` actually selected, for was_selected. */
 	selectedTool: string | null
 }
@@ -317,6 +320,8 @@ export async function captureQuoteRoutes(params: CaptureQuoteParams): Promise<vo
 				fromToken: params.fromTokenSymbol,
 				toToken: params.toTokenSymbol,
 				fromAmountUsd: params.fromAmountUsd,
+				userId: params.userId ?? null,
+				agentId: params.agentId ?? null,
 				provider: c.provider,
 				tool: c.tool,
 				quotedToAmount: c.quotedToAmount,

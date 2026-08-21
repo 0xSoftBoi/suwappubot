@@ -4,7 +4,11 @@ import toast from 'react-hot-toast'
 import { api } from '../../lib/api'
 import type { HLMarket, TerminalPerpsPosition } from '../../types/api'
 import { useAuth } from '../../contexts/AuthContext'
-import { useTerminalPerpsPositions, useClosePerps } from '../../hooks/useTerminalPerps'
+import {
+  useTerminalPerpsPositions,
+  useClosePerps,
+  useSetPerpsTpSl,
+} from '../../hooks/useTerminalPerps'
 import { perpsRoutesAvailable } from '../../lib/perpsApi'
 import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
 
@@ -13,25 +17,20 @@ const CLOSE_STEPS = [25, 50, 100]
 // Number of columns in the positions table — drives the inline editor's colSpan.
 const COL_COUNT = 10
 
-// TP/SL editor state, keyed by row. Held locally — there is no
-// /webapp/me/perps/tpsl route yet, so the "Set" action stays gated (disabled +
-// tooltip) the same honest way order execution is. The full UI is built so it's
-// drop-in ready once the route lands.
+// TP/SL editor state, keyed by row. Each level submits to /terminal/perps/tpsl,
+// which rests a reduce-only trigger on HyperLiquid for the whole position —
+// there is no partial-size trigger, so the editor only asks for prices.
 interface TpSlDraft {
   takeProfitPrice: string
   stopLossPrice: string
-  takeProfitPct: string
-  stopLossPct: string
 }
 
 const EMPTY_DRAFT: TpSlDraft = {
   takeProfitPrice: '',
   stopLossPrice: '',
-  takeProfitPct: '',
-  stopLossPct: '',
 }
 
-const TPSL_DISABLED_TOOLTIP = 'TP/SL coming soon — not yet available'
+const TPSL_DISABLED_TOOLTIP = 'Perps routes are offline right now'
 
 // Live perp positions for the signed-in user. Mark price is overlaid from the
 // live markets feed (the HL open-positions endpoint doesn't return a mark), so
@@ -49,6 +48,72 @@ export function PerpsPositions() {
   const getDraft = (key: string): TpSlDraft => drafts[key] ?? EMPTY_DRAFT
   const updateDraft = (key: string, patch: Partial<TpSlDraft>) =>
     setDrafts((prev) => ({ ...prev, [key]: { ...getDraft(key), ...patch } }))
+
+  const setTpSl = useSetPerpsTpSl()
+  const [tpSlError, setTpSlError] = useState<string | null>(null)
+  const [tpSlErrorKey, setTpSlErrorKey] = useState<string | null>(null)
+
+  async function submitTpSl(pos: TerminalPerpsPosition, key: string, draft: TpSlDraft) {
+    setTpSlError(null)
+    setTpSlErrorKey(key)
+
+    // Positions opened outside Suwappu have no local row to attach triggers to.
+    if (pos.id === null) {
+      setTpSlError(
+        'This position was opened outside Suwappu, so levels cannot be set here. Manage it on HyperLiquid.',
+      )
+      return
+    }
+
+    // Parse before sending: a typo should be caught here, not by the exchange.
+    const parse = (raw: string, label: string): number | undefined => {
+      const trimmed = raw.trim()
+      if (!trimmed) return undefined
+      const value = Number(trimmed)
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error(`Enter a ${label} price greater than zero.`)
+      }
+      return value
+    }
+
+    let takeProfit: number | undefined
+    let stopLoss: number | undefined
+    try {
+      takeProfit = parse(draft.takeProfitPrice, 'take profit')
+      stopLoss = parse(draft.stopLossPrice, 'stop loss')
+    } catch (e) {
+      setTpSlError((e as Error).message)
+      return
+    }
+
+    // A stop on the wrong side of the mark triggers the moment it rests, which
+    // closes the position instantly — catch it before it costs the user.
+    const mark = markFor(pos)
+    if (mark) {
+      const long = pos.side === 'long'
+      if (stopLoss !== undefined && (long ? stopLoss >= mark : stopLoss <= mark)) {
+        setTpSlError(
+          `A ${pos.side} stop must sit ${long ? 'below' : 'above'} the mark price of ${mark}.`,
+        )
+        return
+      }
+      if (takeProfit !== undefined && (long ? takeProfit <= mark : takeProfit >= mark)) {
+        setTpSlError(
+          `A ${pos.side} take profit must sit ${long ? 'above' : 'below'} the mark price of ${mark}.`,
+        )
+        return
+      }
+    }
+
+    try {
+      await setTpSl.mutateAsync({ positionId: pos.id, takeProfit, stopLoss })
+      toast.success(`Levels set on ${pos.market}`)
+      setOpenTpSl(null)
+    } catch (e) {
+      const detail = (e as { detail?: string })?.detail
+      setTpSlError(detail ?? 'The levels could not be set. Your existing protection is unchanged.')
+    }
+  }
 
   // Live marks to overlay onto positions (backend returns mark == entry).
   const { data: markets } = useQuery({
@@ -219,15 +284,13 @@ export function PerpsPositions() {
                       <span className="terminal-theme-caption text-[10px] uppercase">
                         TP / SL — {pos.market}
                       </span>
-                      {/* §3.6 honesty chip: quiet, non-interactive, no ghost CTA. */}
                       {!perpsRoutesAvailable() && (
                         <span
-                          data-testid="perps-tpsl-set"
                           aria-disabled="true"
                           title={TPSL_DISABLED_TOOLTIP}
                           className="hairline rounded-terminal-pill px-2 py-0.5 text-[10px] font-medium text-terminal-text-muted"
                         >
-                          In development — ships with the vNEXT backend
+                          Unavailable — perps routes are offline
                         </span>
                       )}
                     </div>
@@ -245,15 +308,6 @@ export function PerpsPositions() {
                             data-testid="perps-tp-price"
                             className="terminal-input w-full py-1 font-mono text-xs tnum"
                           />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={draft.takeProfitPct}
-                            onChange={(e) => updateDraft(rowKey, { takeProfitPct: e.target.value })}
-                            placeholder="% size"
-                            data-testid="perps-tp-pct"
-                            className="terminal-input w-20 py-1 font-mono text-xs tnum"
-                          />
                         </div>
                       </div>
 
@@ -270,23 +324,24 @@ export function PerpsPositions() {
                             data-testid="perps-sl-price"
                             className="terminal-input w-full py-1 font-mono text-xs tnum"
                           />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={draft.stopLossPct}
-                            onChange={(e) => updateDraft(rowKey, { stopLossPct: e.target.value })}
-                            placeholder="% size"
-                            data-testid="perps-sl-pct"
-                            className="terminal-input w-20 py-1 font-mono text-xs tnum"
-                          />
                         </div>
                       </div>
                     </div>
 
+                    {tpSlError && rowKey === tpSlErrorKey ? (
+                      <p
+                        role="alert"
+                        data-testid="perps-tpsl-error"
+                        className="mt-2.5 text-[11px] leading-[1.45] text-bear"
+                      >
+                        {tpSlError}
+                      </p>
+                    ) : null}
+
                     <div className="mt-3 flex items-center justify-end gap-2">
                       <span className="mr-auto text-[10px] text-terminal-text-muted">
-                        Draft your levels here — they’ll submit to HyperLiquid once the TP/SL route
-                        lands. Blank % size means 100% of the position.
+                        Each level rests on HyperLiquid as a reduce-only trigger for the full
+                        position. Leave a field blank to keep that level as it is.
                       </span>
                       <button
                         onClick={() => setOpenTpSl(null)}
@@ -294,6 +349,19 @@ export function PerpsPositions() {
                         className="rounded-terminal-control border border-terminal-border px-3 py-1 text-[11px] text-terminal-text-secondary transition-colors hover:text-terminal-text"
                       >
                         Hide
+                      </button>
+                      <button
+                        onClick={() => submitTpSl(pos, rowKey, draft)}
+                        data-testid="perps-tpsl-set"
+                        disabled={
+                          !perpsRoutesAvailable() ||
+                          setTpSl.isPending ||
+                          (!draft.takeProfitPrice.trim() && !draft.stopLossPrice.trim())
+                        }
+                        title={perpsRoutesAvailable() ? undefined : TPSL_DISABLED_TOOLTIP}
+                        className="rounded-terminal-control bg-terminal-accent px-3 py-1 text-[11px] font-semibold text-terminal-on-accent transition-colors hover:bg-terminal-accent-bright active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {setTpSl.isPending ? 'Setting…' : 'Set levels'}
                       </button>
                     </div>
                   </td>

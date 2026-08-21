@@ -400,7 +400,7 @@ async def oauth_callback(
     # address in the session so address-keyed features (portfolio, perps
     # positions, the terminal header) work. Fall back to a synthetic identifier
     # only when no wallet exists yet (e.g. Turnkey wasn't configured).
-    from api.main import create_jwt_token, JWT_EXPIRY_HOURS
+    from api.main import JWT_EXPIRY_HOURS, _session_cookie_kwargs, create_jwt_token
 
     wallet = (
         db.query(Wallet)
@@ -415,20 +415,8 @@ async def oauth_callback(
     jwt_token = create_jwt_token(
         address=session_address,
         user_id=user.id,
+        src="weak",
     )
-    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
-
-    # Set cookie
-    response.set_cookie(
-        key="suwappu_auth",
-        value=jwt_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=JWT_EXPIRY_HOURS * 3600,
-        path="/",
-    )
-
     # Redirect to frontend success page. Re-validate the stored redirect_uri as
     # defense-in-depth — never emit a Location header to a non-allowlisted
     # destination even if a state row was somehow persisted with a bad value.
@@ -439,6 +427,16 @@ async def oauth_callback(
     success_url = f"{redirect_url}?auth=success&provider={provider}"
 
     success_redirect = RedirectResponse(url=success_url, status_code=302)
+    # The route returns this RedirectResponse, not FastAPI's injected ``response``.
+    # Set the session cookie on the object that actually leaves the server or a
+    # successful Google login returns to Terminal with no authenticated session.
+    success_redirect.set_cookie(
+        key="suwappu_auth",
+        value=jwt_token,
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        **_session_cookie_kwargs(),
+        path="/",
+    )
     # The one-time login nonce has served its purpose; clear it from the browser.
     success_redirect.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
     return success_redirect

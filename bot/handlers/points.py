@@ -395,9 +395,19 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # REFUNDS while the marketplace is disabled (points never lost). gift_card now
     # routes here instead of the old hard reject.
     if reward_category in ASYNC_CATEGORIES:
-        success, message, order_id = points_service.redeem_marketplace_reward(
-            user_id=user_id, reward_id=reward_id
-        )
+        try:
+            success, message, order_id = points_service.redeem_marketplace_reward(
+                user_id=user_id, reward_id=reward_id
+            )
+        except NotImplementedError as e:
+            # Defense-in-depth: redeem_marketplace_reward already treats a provider
+            # crash (base RewardProvider.fulfill() raises NotImplementedError for
+            # any category without a real provider wired) as a refunded failure, so
+            # this should never actually surface — but never let a raw
+            # NotImplementedError reach the redemption button regardless.
+            logger.error(f"Reward provider not implemented for category {reward_category}: {e}")
+            await query.answer("This reward option isn't available yet.", show_alert=True)
+            return
         if success:
             await query.answer(f"🎉 Redeemed {reward_name}!", show_alert=True)
             msg = (
@@ -454,13 +464,16 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             duration_days=reward_duration_days,
         )
         # fee-discount / gas-rebate EFFECTS now auto-apply at swap time:
-        #  • fee_discount — subtracted from your tier fee on every swap until it
-        #    expires (floored at our best paid-tier rate; never below).
+        #  • fee_discount — takes a PROPORTION off your tier fee on every swap
+        #    until it expires (reward_value is percentage points against the FREE
+        #    rate, so the catalogue's 0.5 == 50% off whatever rate you are on).
+        #    Not offered on ENTERPRISE, which is contracted pricing, and the
+        #    self-serve tiers are floored at the ENTERPRISE rate; never below.
         #  • gas_rebate — applied once, to your very next successful swap.
         if reward_type == "fee_discount":
             effect_note = (
-                "\n\n✅ _Active now — this discount comes off your swap fee "
-                "automatically on every swap until it expires._"
+                "\n\n✅ _Active now — this comes off your swap fee automatically "
+                "on every swap until it expires._"
             )
         elif reward_type == "gas_rebate":
             effect_note = (

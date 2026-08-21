@@ -60,6 +60,10 @@ export interface SwapQuote {
   minReceived: string
   slippage: number
   estimatedDuration?: number
+  /** USD edge of this route over the runner-up, estimated at quote time. */
+  priceImprovementUsd?: number | null
+  /** Provider id of the runner-up this edge is measured against. */
+  runnerUpProvider?: string | null
 }
 
 export interface SwapExecuteRequest {
@@ -599,12 +603,42 @@ export interface TopTrader {
   followers: number
   copiers?: number
   totalTrades: number
+  trackRecordDays: number
+  jellyLinked: boolean
+  jellyUsername?: string | null
+  jellyWatchUrl?: string | null
+}
+
+export interface TraderActivity {
+  id: string
+  action: 'buy' | 'sell'
+  token: string
+  tokenPair: string
+  chain: string
+  fromToken: string
+  toToken: string
+  fromChain: string
+  toChain: string
+  amountUsd: number
+  pnlUsd: number
+  timestamp: string
+}
+
+export interface TraderFeedItem extends TraderActivity {
+  traderId: string
+  traderName?: string | null
+  traderAddress: string
+  winRate: number
+  jellyLinked: boolean
+  jellyUsername?: string | null
+  jellyWatchUrl?: string | null
 }
 
 export interface TraderProfile {
   id: string
   address: string
   name?: string
+  bio?: string | null
   pnl7d: number
   pnl30d: number
   winRate: number
@@ -614,6 +648,11 @@ export interface TraderProfile {
   worstTrade: number
   avgTradeSize: number
   isFollowing: boolean
+  trackRecordDays: number
+  jellyLinked: boolean
+  jellyUsername?: string | null
+  jellyWatchUrl?: string | null
+  recentTrades: TraderActivity[]
 }
 
 export interface FollowedTrader {
@@ -633,7 +672,15 @@ export interface CopyTrade {
   tokenPair: string
   amount: number
   pnl: number
-  status?: 'pending' | 'notified' | 'copied' | 'skipped' | 'failed'
+  status?:
+    | 'pending'
+    | 'auto_pending'
+    | 'notified'
+    | 'executing'
+    | 'copied'
+    | 'outcome_unknown'
+    | 'skipped'
+    | 'failed'
   timestamp: string
 }
 

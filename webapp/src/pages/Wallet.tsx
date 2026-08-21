@@ -4,7 +4,6 @@ import {
   createWalletClient,
   createPublicClient,
   http,
-  parseEther,
   parseUnits,
   formatEther,
   formatUnits,
@@ -656,7 +655,13 @@ function SendView({
             chain,
             to: toAddr,
             value,
-            ...feeOverrides,
+            // Cast scoped to the fee bag ONLY. getFeeOverrides() returns legacy
+            // `gasPrice` OR the EIP-1559 pair — never both, see its body — but
+            // viem models those as a discriminated union and rejects a value
+            // that might hold either. Keeping the cast this narrow (rather than
+            // casting the whole literal) means `to`/`value`/`account` above stay
+            // type-checked, so a wrong-typed amount still fails the build.
+            ...(feeOverrides as {}),
           })
           serializedTransaction = await walletClient.signTransaction(request as any)
         } else {
@@ -672,7 +677,9 @@ function SendView({
             chain,
             to: tokenAddress,
             data,
-            ...feeOverrides,
+            // See the native-transfer branch above: cast scoped to the fee bag
+            // so `to`/`data`/`account` stay type-checked.
+            ...(feeOverrides as {}),
           })
           serializedTransaction = await walletClient.signTransaction(request as any)
         }
@@ -752,14 +759,19 @@ function SendView({
                 : `Sent ${amount} ${selectedToken.symbol} to ${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`}
             </p>
             <p className="font-mono text-xs text-suwappu-text break-all mb-4 px-2">{txHash}</p>
-            <a
-              href={getExplorerTxUrl(explorerKey, txHash)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block px-6 py-2.5 bg-suwappu-gradient text-white font-heading font-semibold text-sm rounded-suwappu-pill shadow-suwappu-button"
-            >
-              View on Explorer
-            </a>
+            {(() => {
+              const explorerHref = getExplorerTxUrl(explorerKey, txHash)
+              return explorerHref ? (
+                <a
+                  href={explorerHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block px-6 py-2.5 bg-suwappu-gradient text-white font-heading font-semibold text-sm rounded-suwappu-pill shadow-suwappu-button"
+                >
+                  View on Explorer
+                </a>
+              ) : null
+            })()}
           </div>
           {uncertain && (
             <div className="bg-suwappu-warning/10 border border-suwappu-warning/20 rounded-suwappu-lg p-3">

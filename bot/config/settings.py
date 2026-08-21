@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict, field_validator
+from pydantic import Field, ConfigDict, SecretStr, field_validator
 from typing import ClassVar, Dict, Optional, List
 from functools import lru_cache
 import os
@@ -27,10 +27,10 @@ class Settings(BaseSettings):
         default=None, description="Secret token for webhook verification"
     )
     bot_concurrent_updates: int = Field(
-        default=0,
+        default=256,
         description=(
             "Max concurrent Telegram updates (per-user serialized). "
-            "0 = sequential processing (PTB default). Recommended: 256."
+            "Defaults to 256; set 0 to use sequential PTB processing."
         ),
     )
 
@@ -203,27 +203,27 @@ class Settings(BaseSettings):
     # Ethereum reads fail — a USDT0 quoteSend on ethereum returned no route
     # because of it. See the matching note in rpc_manager.TRUSTED_RPC_DOMAINS.
     ethereum_rpc_url: str = Field(
-        default="https://ethereum-rpc.publicnode.com,https://1rpc.io/eth,https://eth.drpc.org",
+        default="https://ethereum-rpc.publicnode.com,https://eth.drpc.org",
         description="Ethereum mainnet RPC URL(s)",
     )
     bsc_rpc_url: str = Field(
-        default="https://bsc-dataseed.binance.org,https://bsc-rpc.publicnode.com,https://1rpc.io/bnb,https://bsc.drpc.org",
+        default="https://bsc-dataseed.binance.org,https://bsc-rpc.publicnode.com,https://bsc.drpc.org",
         description="BSC mainnet RPC URL(s)",
     )
     polygon_rpc_url: str = Field(
-        default="https://polygon-bor-rpc.publicnode.com,https://1rpc.io/matic,https://polygon.drpc.org",
+        default="https://polygon-bor-rpc.publicnode.com,https://polygon.drpc.org",
         description="Polygon mainnet RPC URL(s)",
     )
     arbitrum_rpc_url: str = Field(
-        default="https://arb1.arbitrum.io/rpc,https://arbitrum-one-rpc.publicnode.com,https://1rpc.io/arb,https://arbitrum.drpc.org",
+        default="https://arb1.arbitrum.io/rpc,https://arbitrum-one-rpc.publicnode.com,https://arbitrum.drpc.org",
         description="Arbitrum mainnet RPC URL(s)",
     )
     optimism_rpc_url: str = Field(
-        default="https://mainnet.optimism.io,https://optimism-rpc.publicnode.com,https://1rpc.io/op,https://optimism.drpc.org",
+        default="https://mainnet.optimism.io,https://optimism-rpc.publicnode.com,https://optimism.drpc.org",
         description="Optimism mainnet RPC URL(s)",
     )
     base_rpc_url: str = Field(
-        default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base,https://base.drpc.org",
+        default="https://mainnet.base.org,https://base-rpc.publicnode.com,https://base.drpc.org",
         description="Base mainnet RPC URL(s)",
     )
     base_sepolia_rpc_url: str = Field(
@@ -231,27 +231,27 @@ class Settings(BaseSettings):
         description="Base Sepolia testnet RPC URL(s) — used for native P2P escrow testing",
     )
     avalanche_rpc_url: str = Field(
-        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://1rpc.io/avax/c,https://avalanche.drpc.org",
+        default="https://api.avax.network/ext/bc/C/rpc,https://avalanche-c-chain-rpc.publicnode.com,https://avalanche.drpc.org",
         description="Avalanche C-Chain RPC URL(s)",
     )
     fantom_rpc_url: str = Field(
-        default="https://rpcapi.fantom.network,https://fantom-rpc.publicnode.com,https://1rpc.io/ftm,https://fantom.drpc.org,https://rpc.ftm.tools",
+        default="https://rpcapi.fantom.network,https://fantom.drpc.org",
         description="Fantom mainnet RPC URL(s)",
     )
     linea_rpc_url: str = Field(
-        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://1rpc.io/linea,https://linea.drpc.org,https://linea.blockpi.network/v1/rpc/public",
+        default="https://rpc.linea.build,https://linea-rpc.publicnode.com,https://linea.drpc.org",
         description="Linea mainnet RPC URL(s)",
     )
     mantle_rpc_url: str = Field(
-        default="https://rpc.mantle.xyz,https://mantle-rpc.publicnode.com,https://1rpc.io/mantle,https://mantle.drpc.org",
+        default="https://rpc.mantle.xyz,https://mantle-rpc.publicnode.com,https://mantle.drpc.org",
         description="Mantle mainnet RPC URL(s)",
     )
     gnosis_rpc_url: str = Field(
-        default="https://rpc.gnosischain.com,https://gnosis-rpc.publicnode.com,https://1rpc.io/gnosis,https://gnosis.drpc.org",
+        default="https://rpc.gnosischain.com,https://gnosis-rpc.publicnode.com,https://gnosis.drpc.org",
         description="Gnosis Chain RPC URL(s)",
     )
     scroll_rpc_url: str = Field(
-        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://1rpc.io/scroll,https://scroll.drpc.org,https://scroll.blockpi.network/v1/rpc/public",
+        default="https://rpc.scroll.io,https://scroll-rpc.publicnode.com,https://scroll.drpc.org",
         description="Scroll mainnet RPC URL(s)",
     )
     tempo_rpc_url: str = Field(
@@ -272,6 +272,24 @@ class Settings(BaseSettings):
             "Name of the HotWallet DB record whose key counter-signs Tempo "
             "sponsored swaps as fee payer (pays gas in pathUSD)."
         ),
+    )
+    mpp_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the MPP (Machine Payments Protocol) surface — the /mpp "
+            "command and the browse_mpp_directory MCP tool. Default OFF: as of "
+            "2026-07-26 api.mpp.dev and directory.mpp.dev do not resolve "
+            "(NXDOMAIN), so every MPP call fails. Only turn this on once the "
+            "hosts in mpp_api_base / mpp_directory_url are confirmed live."
+        ),
+    )
+    mpp_api_base: str = Field(
+        default="https://api.mpp.dev/v1",
+        description="MPP API base URL. Override if the protocol ships on a different host.",
+    )
+    mpp_directory_url: str = Field(
+        default="https://directory.mpp.dev/v1",
+        description="MPP service-directory base URL.",
     )
     goat_rpc_url: Optional[str] = Field(
         default="https://rpc.goat.network",
@@ -312,6 +330,10 @@ class Settings(BaseSettings):
     # 0x2611 (9745), matching chains.py.
     plasma_rpc_url: str = Field(
         default="https://rpc.plasma.to", description="Plasma mainnet RPC URL(s)"
+    )
+    robinhood_rpc_url: str = Field(
+        default="https://rpc.mainnet.chain.robinhood.com",
+        description="Robinhood Chain mainnet (Arbitrum Orbit, chain id 4663) RPC URL(s)",
     )
 
     # HyperLiquid builder codes — Suwappu earns a builder fee on perp orders routed
@@ -399,6 +421,27 @@ class Settings(BaseSettings):
         description="Enable the USDT0 (LayerZero OFT) bridge provider. Default OFF until a "
         "live small-amount transfer is verified in both directions.",
     )
+    # Suwappu Lattice Bridge (post-quantum settlement, LTP gateway). Quote-only
+    # scaffold per docs/pq-settlement-profile.md -- stays False (dark) until
+    # every activation gate in that doc passes, including a verified live
+    # small-amount testnet transfer. Never add "lattice" to
+    # SwapEngine.EXECUTABLE_PROVIDERS while this is the case.
+    lattice_bridge_enabled: bool = Field(
+        default=False,
+        description="Enable the Suwappu Lattice (post-quantum settlement) bridge provider. "
+        "Default OFF until the activation gates in docs/pq-settlement-profile.md pass, "
+        "including a verified live small-amount testnet transfer.",
+    )
+    lattice_gateway_url: Optional[str] = Field(
+        default=None,
+        description="Base URL of the LTP gateway VM (Suwappu Lattice Bridge). Required, "
+        "together with lattice_bridge_enabled, for the provider to activate.",
+    )
+    lattice_supported_routes: str = Field(
+        default="",
+        description="Comma-separated 'from_chain:to_chain' pairs the Lattice corridor "
+        "supports (e.g. 'ethereum:arbitrum,arbitrum:ethereum'). Empty = no routes.",
+    )
     allbridge_api_url: str = Field(
         default="https://core.api.allbridgecoreapi.net",
         description="Allbridge Core API base URL (public, no key required).",
@@ -456,7 +499,7 @@ class Settings(BaseSettings):
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
     swellchain_rpc_url: str = Field(
-        default="https://swell-mainnet.alt.technology", description="Swellchain RPC"
+        default="https://swell.drpc.org,https://rpc.ankr.com/swell", description="Swellchain RPC"
     )
     abstract_rpc_url: str = Field(default="https://api.mainnet.abs.xyz", description="Abstract RPC")
     kaia_rpc_url: str = Field(default="https://public-en.node.kaia.io", description="Kaia RPC")
@@ -474,6 +517,12 @@ class Settings(BaseSettings):
     flare_rpc_url: str = Field(
         default="https://flare-api.flare.network/ext/C/rpc", description="Flare RPC"
     )
+    aurora_rpc_url: str = Field(default="https://mainnet.aurora.dev", description="Aurora RPC")
+    blast_rpc_url: str = Field(
+        default="https://rpc.blast.io,https://blast-rpc.publicnode.com",
+        description="Blast RPC",
+    )
+    ink_rpc_url: str = Field(default="https://rpc-gel.inkonchain.com", description="Ink RPC")
 
     # Solana RPC
     solana_rpc_url: str = Field(
@@ -659,6 +708,57 @@ class Settings(BaseSettings):
         description="Default MetaMorpho USDC earn vault on Base (Steakhouse USDC)",
     )
 
+    # Rug Protection auto-sell (bot/services/token_security/rug_service.py).
+    # MONEY-PATH: when True, the bot subscribes to Raydium AMM logs and fires
+    # unattended panic-sell swaps (25% slippage, full balance) for opted-in
+    # users when a liquidity removal is detected AND verified (an executed
+    # Raydium instruction that drained >50% of its own pool vault — see
+    # RUG_WITHDRAWAL_MIN_FRACTION). Default OFF: this moves user funds off a
+    # public log/mempool signal with no human in the loop, so it stays behind
+    # an explicit, deliberate opt-in even after that hardening.
+    rug_auto_sell_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the Rug Protection auto-sell service. When True, "
+            "opted-in users' full balance of a token is auto-sold at 25% slippage "
+            "the moment a verified Raydium liquidity-removal is detected. Default "
+            "off — a deliberate, explicit opt-in required to arm this money-path."
+        ),
+    )
+
+    # B1 hardening: RUG_WITHDRAWAL_MIN_FRACTION (relative-only) let a
+    # permissionless Raydium pool seeded with a few dollars trigger the exact
+    # same panic-sell as a real multi-figure rug. This is an absolute USD
+    # floor on the paired WSOL/stablecoin vault's PRE-withdrawal balance —
+    # see rug_service.RUG_MIN_DRAINED_NOTIONAL_USD for the full rationale.
+    rug_min_drained_notional_usd: float = Field(
+        default=35_000.0,
+        description=(
+            "Absolute USD floor on the paired WSOL/stablecoin vault's pre-withdrawal "
+            "balance before a Raydium liquidity removal is treated as a real rug. "
+            "Closes the gap where RUG_WITHDRAWAL_MIN_FRACTION alone (purely relative) "
+            "let an attacker spin up a fresh, cheaply-seeded pool and 100%-withdraw it "
+            "to trigger the same panic-sell as a real multi-figure rug."
+        ),
+    )
+
+    # H3 hardening: flash-loan / single-tx forgery defense. A drain event only
+    # arms a panic sell if rug_service independently observed the pool (via a
+    # separate Raydium pool-creation log match, decoupled from the drain
+    # itself) at least this many seconds before the drain. See
+    # rug_service.RUG_MIN_POOL_AGE_SECONDS / module docstring for the full
+    # rationale and residual-risk note.
+    rug_min_pool_age_seconds: int = Field(
+        default=3600,
+        description=(
+            "Minimum seconds a Raydium pool must have been independently observed by "
+            "rug_service before a drain event on it is allowed to arm a panic sell. "
+            "Defeats the single-transaction 'create pool, seed it, drain it' forgery, "
+            "where the pool never existed in the service's own observation prior to "
+            "the drain."
+        ),
+    )
+
     # HyperLiquid real-time WebSocket alert feed (fills / liquidations / funding / whales).
     # Connects to wss://api.hyperliquid.xyz/ws and pushes Telegram alerts. OFF by default.
     hl_ws_alerts_enabled: bool = Field(
@@ -676,6 +776,24 @@ class Settings(BaseSettings):
     hl_whale_alert_coins: str = Field(
         default="BTC,ETH,SOL,HYPE",
         description="Comma-separated coins to watch for HyperLiquid whale trades.",
+    )
+
+    # Market data capture (docs/plans/market-data-parity.md Phase 2): polls
+    # tracked-token USD prices every 60s and persists 1m/5m/1h/1d OHLCV candles
+    # to market_candles, plus a one-time 30d GeckoTerminal backfill on startup.
+    # On by default — read-only capture, no funds/keys involved.
+    market_data_capture_enabled: bool = Field(
+        default=True,
+        description="Enable the market data capture/rollup/backfill background service.",
+    )
+
+    # Venue data capture (docs/plans/market-data-parity.md Round 5): captures
+    # perps (Hyperliquid), prediction odds (Polymarket), and lending rates
+    # (Morpho) into perp_metrics/prediction_snapshots/lend_metrics. Read-only
+    # capture, no funds/keys involved. On by default.
+    venue_data_capture_enabled: bool = Field(
+        default=True,
+        description="Enable the venue data capture background service (perps/predictions/lend).",
     )
 
     # Infura network name mappings
@@ -737,6 +855,10 @@ class Settings(BaseSettings):
             "optimism": "opt-mainnet",
             "base": "base-mainnet",
             "solana": "solana-mainnet",
+            # Confirmed live on Alchemy (alchemy.com/rpc/robinhood, 2026-08-04) —
+            # not a guess. Robinhood Chain's 2-validator set (Offchain Labs +
+            # Alchemy) makes a managed fallback worth having.
+            "robinhood": "robinhood-mainnet",
         }
 
         # Apply custom overrides if configured
@@ -838,6 +960,31 @@ class Settings(BaseSettings):
     kyberswap_client_id: str = Field(
         default="suwappu-bot",
         description="KyberSwap x-client-id header (free identifier, avoids anon 429s)",
+    )
+
+    # PropAMM liquidity via Titan Builder (Ethereum mainnet only, same-chain).
+    # https://docs.titanbuilder.xyz/propamms/takers — quoting is public (no key)
+    # via titan_getPammQuote; execution goes through the PropAMMRouter proxy,
+    # which re-quotes all whitelisted pAMM venues + Uniswap V3 in-tx and falls
+    # back to Uniswap V3 transparently. Gated behind an explicit enable flag
+    # (not a key) so it ships dark and has a no-redeploy kill switch — mirrors
+    # kyberswap_enabled.
+    propamm_enabled: bool = Field(
+        default=False,
+        description="Enable PropAMM (Titan Builder) in the best-price race (Ethereum mainnet only, no API key needed)",
+    )
+    titan_rpc_url: str = Field(
+        default="https://us.rpc.titanbuilder.xyz",
+        description=(
+            "Titan Builder JSON-RPC base URL for titan_getPammQuote. Regional hosts: "
+            "us/eu/ap.rpc.titanbuilder.xyz — us default measured 2-3x faster than the "
+            "bare host from Railway US infra (0.26s vs 0.75s round trip), which matters "
+            "inside the quote race's fast window"
+        ),
+    )
+    propamm_router_address: str = Field(
+        default="0x4DdF368080CD7946db5b459aD591c350158175e1",
+        description="PropAMMRouter proxy address (Ethereum mainnet) — both the ERC20 spender to approve and the tx `to` target",
     )
 
     # WhatsApp Business API (Optional)
@@ -983,6 +1130,52 @@ class Settings(BaseSettings):
         description="Max LLM fallback calls (deterministic-parse misses) globally per day",
     )
 
+    # Multi-provider LLM (direct provider keys, no aggregator) + credit
+    # metering. OFF by default: with the flag off, NL parsing keeps today's
+    # single env-provider behavior and no credits are debited. See
+    # bot/config/llm_providers.py, bot/config/llm_models.py,
+    # bot/services/llm_credit_service.py.
+    LLM_MULTI_PROVIDER_ENABLED: bool = Field(
+        default=False,
+        description="Route LLM calls per-user via the model catalog and meter paid models",
+    )
+    LLM_CREDIT_MARKUP: float = Field(
+        default=1.5,
+        description="Multiplier on provider list price when debiting api_credits for LLM usage",
+    )
+    LLM_BUDGET_PER_USER_DAILY_USD: float = Field(
+        default=0.25,
+        description=(
+            "Rolling 24h per-user ceiling on RAW provider spend in USD (cost-weighted, "
+            "Redis-backed, excludes LLM_CREDIT_MARKUP). This is the FREE-tier figure — "
+            "PRO gets 5x, PREMIUM 20x, ENTERPRISE 100x. At FREE it buys roughly 850 "
+            "deepseek-flash calls, 27 claude-sonnet, or 15 gpt-flagship. 0 disables."
+        ),
+    )
+    LLM_BUDGET_GLOBAL_DAILY_USD: float = Field(
+        default=25.0,
+        description=(
+            "Rolling 24h platform-wide ceiling on RAW provider spend in USD. Backstop "
+            "against a coordinated drain; 0 disables the limit."
+        ),
+    )
+    LLM_ALLOW_UNVERIFIED_PROVIDERS: bool = Field(
+        default=False,
+        description=(
+            "Allow LLM providers whose forced-tool-call support is unverified "
+            "(gemini/xai/qwen/kimi/openrouter). Off by default: an unsupported "
+            "tool_choice makes every parse silently degrade. Enable only after "
+            "a live smoke test."
+        ),
+    )
+    XAI_API_KEY: str = Field(default="", description="xAI (Grok) API key for LLM calls")
+    GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key for LLM calls")
+    QWEN_API_KEY: str = Field(
+        default="", description="Alibaba DashScope (Qwen) API key for LLM calls"
+    )
+    KIMI_API_KEY: str = Field(default="", description="Moonshot (Kimi) API key for LLM calls")
+    OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key for LLM calls")
+
     # Application Settings
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
@@ -1021,18 +1214,16 @@ class Settings(BaseSettings):
             "approve() for Turnkey wallets or on any permit error."
         ),
     )
-    tempo_fee_sponsorship_enabled: bool = Field(
-        default=False,
-        description=(
-            "When true, the bot sponsors gas (paid in TIP-20 stablecoins) for a new "
-            "user's first few Tempo transactions. Requires tempo_sponsor_address to be "
-            "set. Default off so the bot never spends funds unexpectedly."
-        ),
-    )
-    tempo_sponsor_address: Optional[str] = Field(
-        default=None,
-        description="EVM address that pays sponsored Tempo gas (Tempo T2 feePayer).",
-    )
+    # NOTE: there is deliberately NO `tempo_fee_sponsorship_enabled` /
+    # `tempo_sponsor_address` here. Those two fields existed but had ZERO
+    # consumers, while the real gate is `tempo_fee_sponsor_enabled` (above) and
+    # the fee payer is resolved from a HotWallet DB row named by
+    # `tempo_fee_sponsor_wallet_name` (see bot/services/tempo_keychain.py), NOT
+    # from an env address. Keeping near-identical dead twins on a gasless money
+    # path meant setting the wrong one looked like activation but changed
+    # nothing. Removed 2026-07-26 — `extra="ignore"` makes any stale env var inert.
+    # To actually enable sponsorship: create + fund the HotWallet row, then set
+    # TEMPO_FEE_SPONSOR_ENABLED=true.
     tempo_sponsor_max_txs: int = Field(
         default=3, description="Max sponsored Tempo transactions per user."
     )
@@ -1150,6 +1341,51 @@ class Settings(BaseSettings):
     )
     fee_collector_address: Optional[str] = Field(
         default=None, description="EVM address for fee collection"
+    )
+    # Gasless membership relayer. SuwappuMembership.subscribeWithAuthorization
+    # credits the SIGNER, never msg.sender, so a relayer submitting someone's
+    # authorization pays gas and the signer gets the term — there is nothing to
+    # steal. DISABLED by default: only enable once the wallet is funded with ETH
+    # on chain 4663.
+    membership_relayer_enabled: bool = Field(
+        default=False,
+        description="Enable broadcasting membership subscriptions on the user's behalf.",
+    )
+    # SecretStr, not str: this key controls a gas-funded hot wallet on 4663, and
+    # a plain str is printed in full by any model_dump()/repr()/debug log of
+    # settings. Read it with .get_secret_value().
+    membership_relayer_private_key: Optional[SecretStr] = Field(
+        default=None,
+        description="Private key of the ETH-funded relayer wallet on Robinhood Chain (hex).",
+    )
+    suwappu_membership_treasury: Optional[str] = Field(
+        default=None,
+        description=(
+            "Treasury address subscription USDG settles to on Robinhood Chain. "
+            "DISPLAY ONLY — the EIP-3009 authorization signs `to = the membership "
+            "contract`, which sweeps to the treasury it reads from its own "
+            "storage, so a stale value here cannot strand a payment."
+        ),
+    )
+    suwappu_membership_contract: Optional[str] = Field(
+        default=None,
+        description=(
+            "SuwappuMembership soulbound ERC-721 on Robinhood Chain (chain 4663). "
+            "The NFT IS the subscription: free mint = FREE tier, USDG-paid periods = "
+            "PRO/PREMIUM/ENTERPRISE. When set, x402_service.get_tier takes "
+            "max(db tier, on-chain tier), fail-open to the DB. Unset disables the "
+            "on-chain path entirely."
+        ),
+    )
+    suwappu_position_cards_contract: Optional[str] = Field(
+        default=None,
+        description=(
+            "SuwappuPositions ERC-721 address on Robinhood Chain (chain 4663). When set, "
+            "holding a Position takes a proportional discount off the swap fee (see "
+            "nft/position-cards/config.json economics.hold_discount_fraction) via "
+            "fee_service.get_fee_decimal, plus an XP boost on the position's own ticker. "
+            "Unset disables the perk entirely."
+        ),
     )
     fee_collector_solana: Optional[str] = Field(
         default=None, description="Solana address for fee collection"
@@ -1375,6 +1611,27 @@ class Settings(BaseSettings):
             "ETH/MATIC/AVAX). Deliberately conservative/uniform across chains -- top up "
             "generously rather than tuning per-chain thresholds."
         ),
+    )
+
+    # Agent control-plane approvals: DM the owning Telegram user an
+    # Approve/Deny prompt for pending api-ts approval_requests rows. Defaults
+    # off so this is a no-op until intentionally enabled; the notifier and
+    # handlers are defensive either way (tolerate the table not existing).
+    agent_approvals_enabled: bool = Field(
+        default=False,
+        description="Enable the agent-approval Telegram notifier + /approvals command",
+    )
+
+    # Mirrors api-ts's APPROVAL_STEP_UP_REQUIRED (api-ts/src/config/EnvService.ts).
+    # When true, the web POST /approvals/:id/approve demands a server-issued
+    # step-up nonce before honoring an approve decision. The Telegram inline
+    # Approve button must enforce an equivalent re-confirmation (a first tap
+    # only re-prompts with a fresh confirm callback; a second tap within a
+    # short TTL actually decides) so turning this flag on is a real guarantee
+    # across both surfaces, not just the web one. Deny never needs step-up.
+    approval_step_up_required: bool = Field(
+        default=False,
+        description="Require re-confirmation before Telegram/web approve decisions are honored",
     )
 
     model_config = ConfigDict(

@@ -42,23 +42,32 @@ If you have not created a wallet yet, the response hints you to create one with 
 
 Send the native gas token (and any tokens you want to swap) to the managed address. The wallet needs gas on whichever chain you intend to swap on (ETH on Base/Arbitrum/Optimism, BNB on BSC, MATIC on Polygon, etc.).
 
-## Step 4: Quote and Execute
+## Step 4: Quote, Simulate, and Execute
 
-Because the wallet is recorded against your agent, you do not pass an address — just quote and execute:
+Use the managed wallet address on quote/simulation so routing and balance/gas checks run against the real sender. The final managed execution still resolves that wallet server-side:
 
 ```bash
 # Quote
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.1", "chain": "base"}'
+  -d '{"from_token": "ETH", "to_token": "USDC", "amount": "0.1", "chain": "base", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
 
-# Execute server-side (managed signing)
+# Dry-run the returned q_abc123 before any broadcast
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id": "q_abc123", "wallet_address": "0xYOUR_MANAGED_ADDRESS"}'
+
+# Only after would_execute=true and explicit approval: execute server-side
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: rebalance-2026-08-06-001" \
   -d '{"quote_id": "q_abc123"}'
 ```
+
+Persist the idempotency key. If an execution response is lost, reconcile status/history before retrying and reuse the same key.
 
 ## Ownership & Security
 

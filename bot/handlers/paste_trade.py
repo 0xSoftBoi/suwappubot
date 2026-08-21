@@ -27,6 +27,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from bot.config.chains import get_chain_by_name
+from bot.config.tokens import is_robinhood_equity_address
 from bot.config.xstocks import (
     XSTOCKS_BLOCKED_REGION_NAMES,
     is_xstock_mint,
@@ -43,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 # EVM chains probed (priority order) when a 0x address is pasted — the first
 # chain whose metadata resolves wins. Must match alchemy_client._get_base_url.
-EVM_PROBE_CHAINS = ["base", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]
+EVM_PROBE_CHAINS = ["base", "robinhood", "ethereum", "arbitrum", "optimism", "polygon", "bsc"]
 
 # Preset buy amounts, denominated in each chain's NATIVE token.
 PRESET_AMOUNTS = {
@@ -61,7 +62,9 @@ def _short(addr: str) -> str:
     return f"{addr[:6]}…{addr[-4:]}" if len(addr) > 12 else addr
 
 
-def build_buy_keyboard(native_symbol: str) -> InlineKeyboardMarkup:
+def build_buy_keyboard(
+    native_symbol: str, *, allow_cross_chain: bool = False
+) -> InlineKeyboardMarkup:
     """Reusable Buy keyboard for a pending ``paste_token``.
 
     Used by both the paste-to-trade card and the /trending token view so the
@@ -73,6 +76,10 @@ def build_buy_keyboard(native_symbol: str) -> InlineKeyboardMarkup:
     """
     presets = PRESET_AMOUNTS.get(native_symbol, DEFAULT_PRESETS)
     rows, row = [], []
+    if allow_cross_chain:
+        rows.append(
+            [InlineKeyboardButton("🌉 Fund from another chain", callback_data="pbuy_cross")]
+        )
     for i, amt in enumerate(presets):
         row.append(InlineKeyboardButton(f"{amt} {native_symbol}", callback_data=f"pbuy_{amt}"))
         if (i + 1) % 2 == 0:
@@ -186,6 +193,19 @@ async def _render_token_card(
 
     info = await get_token_info(address, chain_family)
 
+    # Robinhood Stock Tokens are a distinct eligibility-gated product. Keep the
+    # generic long-tail launch-token path open while failing closed for the
+    # canonical equity contracts until we have a dedicated eligibility flow.
+    if info["chain"] == "robinhood" and is_robinhood_equity_address(address):
+        await update.message.reply_text(
+            f"*{safe_md(info['symbol'])}* — Robinhood Stock Token\n\n"
+            "Trading canonical Robinhood Stock Tokens is *not enabled* in Suwappu yet. "
+            "These assets have jurisdiction and eligibility requirements that need a "
+            "dedicated verification flow before we can expose a Buy action.",
+            parse_mode="Markdown",
+        )
+        return
+
     chain_config = get_chain_by_name(info["chain"])
     native = chain_config.native_token if chain_config else "ETH"
     chain_label = chain_config.display_name if chain_config else info["chain"]
@@ -237,15 +257,24 @@ async def _render_token_card(
 
     context.user_data["paste_token"] = info
 
+    cross_chain_hint = ""
+    if info["chain"] == "robinhood":
+        cross_chain_hint = (
+            "\n\nNo Robinhood ETH yet? Fund this buy from another EVM chain and "
+            "Suwappu will bridge + swap in one route."
+        )
+
     text = (
         f"*{safe_md(info['symbol'])}* — {safe_md(info.get('name', ''))}\n"
         f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
-        f"{safety}\n\n"
+        f"{safety}{cross_chain_hint}\n\n"
         f"Buy with {native}:"
     )
 
     await update.message.reply_text(
-        text, parse_mode="Markdown", reply_markup=build_buy_keyboard(native)
+        text,
+        parse_mode="Markdown",
+        reply_markup=build_buy_keyboard(native, allow_cross_chain=info["chain"] == "robinhood"),
     )
 
 

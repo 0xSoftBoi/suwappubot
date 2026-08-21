@@ -1,27 +1,20 @@
 # Build stage
-# node 22 (the LTS this lockfile is verified against locally). The Aug 2026
-# build breakage — tailwind 4.3.3 failing to resolve the design-tokens .ts
-# subpath export — appeared on node 26 and not on 22; whether node version or
-# a since-fixed tailwind patch was the trigger, pinning the locally-verified
-# LTS keeps the build reproducible either way.
+# Node 22 is the verified LTS for this lockfile and avoids build drift from
+# floating install/runtime behavior on newer builders.
 FROM node:22-alpine AS builder
 
-# Mirror the repo layout so package.json's file:../packages/design-tokens and
-# package-lock.json's "resolved": "../packages/design-tokens" BOTH hold, and
-# `npm ci` runs unmodified. The previous image flattened webapp/ into /app and
-# sed-rewrote package.json to an absolute file: path — the lockfile kept the
-# relative path, npm ci failed on the mismatch, and the `npm install` fallback
-# made builds nondeterministic (two builds of identical source produced
-# FAIL then SUCCESS 22 minutes apart as floating deps drifted).
+# Mirror the monorepo layout so package.json's file:../packages/design-tokens
+# and package-lock.json's relative resolution remain identical. This lets us
+# use npm ci without rewriting package metadata inside the image.
 WORKDIR /app/webapp
 
-# Copy design-tokens dependency at the relative path the lockfile expects
+# Copy design-tokens dependency at the relative path the lockfile expects.
 COPY packages/design-tokens/ /app/packages/design-tokens/
 
 # Copy package files (context is monorepo root, so prefix with webapp/)
 COPY webapp/package.json webapp/bun.lock* webapp/package-lock.json* ./
 
-# Deterministic install straight from the lockfile
+# Deterministic install straight from the committed lockfile.
 RUN npm ci
 
 # Copy source files

@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/links';
-import { useDashboardAuth } from './auth-context';
+import { type AuthState, useDashboardAuth } from './auth-context';
 import UsageChart, { DailyBucket } from './components/UsageChart';
 import BillingPanel from './components/BillingPanel';
 import styles from './dashboard.module.css';
@@ -150,8 +149,9 @@ const ENTERPRISE_SOFT_WARN = 500_000;
 
 // ── Fetch helper: clears token + redirects on 401 ────────────────────────────
 
-function useApiFetch(token: string, clearToken: () => void) {
-  const router = useRouter();
+// clearToken is intentionally NOT a parameter here: this helper must never
+// end the session on its own. See the note in the 401 branch below.
+function useApiFetch(auth: AuthState) {
   return useCallback(
     async (path: string, opts: RequestInit = {}): Promise<Response> => {
       const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -163,15 +163,27 @@ function useApiFetch(token: string, clearToken: () => void) {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          // Only sent when a token was pasted manually — the legacy fallback.
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // Only a real pasted token becomes a bearer header. A cookie
+          // session has no token to send — the browser attaches it. The type
+          // makes the old bug (shipping a sentinel string as a bearer)
+          // unrepresentable rather than merely guarded against.
+          ...(auth.kind === 'token' ? { Authorization: `Bearer ${auth.value}` } : {}),
           ...(opts.headers ?? {}),
         },
       });
-      if (res.status === 401) { clearToken(); router.replace('/dashboard'); }
+      // Deliberately does NOT sign the user out on 401.
+      //
+      // It used to. That meant a 401 from ANY endpoint ended the session — and
+      // the organisation sub-routes (/orgs/me/members, /api-keys, /usage) 401
+      // for a user who has no organisation, which is the normal state for a
+      // fresh Google sign-up. So the dashboard signed people out milliseconds
+      // after they signed in, and the login screen reappeared with no
+      // explanation. Only the session probe in layout.tsx decides whether the
+      // session is actually dead; a feature endpoint refusing one request is
+      // not evidence of that.
       return res;
     },
-    [token, clearToken, router]
+    [auth]
   );
 }
 
@@ -287,8 +299,8 @@ function parseUsage(payload: Record<string, unknown>): UsageData {
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { token, clearToken } = useDashboardAuth();
-  const apiFetch              = useApiFetch(token, clearToken);
+  const { auth, clearToken } = useDashboardAuth();
+  const apiFetch              = useApiFetch(auth);
 
   const [data, setData]         = useState<DashboardData | null>(null);
   const [loading, setLoading]   = useState(true);
@@ -315,12 +327,20 @@ export default function DashboardPage() {
 
     async function load() {
       try {
-        const [orgRes, membersRes, keysRes, usageRes] = await Promise.all([
-          apiFetch('/enterprise/orgs/me'),
-          apiFetch('/enterprise/orgs/me/members'),
-          apiFetch('/enterprise/orgs/me/api-keys'),
-          apiFetch('/enterprise/orgs/me/usage?period=7d'),
-        ]);
+        // Resolve the org FIRST. The sub-routes are meaningless without one,
+        // and firing them regardless produced a burst of 401s in the console
+        // for every user who has no organisation.
+        const orgRes = await apiFetch('/enterprise/orgs/me');
+        if (cancelled) return;
+
+        const orgOk = orgRes.ok;
+        const [membersRes, keysRes, usageRes] = orgOk
+          ? await Promise.all([
+              apiFetch('/enterprise/orgs/me/members'),
+              apiFetch('/enterprise/orgs/me/api-keys'),
+              apiFetch('/enterprise/orgs/me/usage?period=7d'),
+            ])
+          : [null, null, null];
         if (cancelled) return;
 
         // 401 = the session is genuinely invalid; bounce to sign-in.
@@ -338,12 +358,12 @@ export default function DashboardPage() {
         // plan and billing.
         const org: OrgMe | null = orgRes.ok ? await orgRes.json() : null;
 
-        const membersPayload = membersRes.ok ? await membersRes.json() : [];
+        const membersPayload = membersRes?.ok ? await membersRes.json() : [];
         const members: Member[] = Array.isArray(membersPayload)
           ? membersPayload
           : (membersPayload?.members ?? []);
 
-        const keysPayload = keysRes.ok ? await keysRes.json() : [];
+        const keysPayload = keysRes?.ok ? await keysRes.json() : [];
         const apiKeys: ApiKey[] = Array.isArray(keysPayload)
           ? keysPayload
           : (keysPayload?.keys ?? []);
@@ -356,7 +376,7 @@ export default function DashboardPage() {
           return new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime();
         });
 
-        const usagePayload = usageRes.ok ? await usageRes.json() : {};
+        const usagePayload = usageRes?.ok ? await usageRes.json() : {};
         const usage = parseUsage(usagePayload as Record<string, unknown>);
 
         const callerRole: DashboardData['callerRole'] =
@@ -423,7 +443,7 @@ export default function DashboardPage() {
     // visibly reflow when data lands.
     return (
       <div aria-busy="true" aria-live="polite">
-        <span className={styles.srOnly}>Loading your dashboard</span>
+        <span className="sr-only">Loading your dashboard</span>
         <div className={styles.skelTabs} aria-hidden="true">
           <span /><span /><span />
         </div>
@@ -801,9 +821,6 @@ export default function DashboardPage() {
           missing, still loading, or failed. */}
       {!hasOrg && (
         <section className={styles.card} aria-label="Account">
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Your account</h2>
-          </div>
           <p className={styles.billingMeta} style={{ margin: 0, lineHeight: 1.6 }}>
             Team management, API keys and usage analytics are organisation
             features &mdash; they appear here once your account belongs to one.

@@ -10,7 +10,7 @@ export default function HeroA() {
       <div className="ha__navwrap"><SummerNav /></div>
       <section className="ha__hero">
         <div className="ha__copy">
-          <h1>Best price.<br />41 chains.<br /><em>You sign.</em></h1>
+          <h1>Best price.<br />42 chains.<br /><em>You sign.</em></h1>
           <p>
             Nine routing providers compete for every trade. Non-custodial from
             quote to settlement.

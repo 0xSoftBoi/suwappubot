@@ -2,6 +2,8 @@
 
 Fetch current USD prices and 24-hour change for token symbols. Prices are cached for 60 seconds and sourced from CoinGecko.
 
+This is a **reference price feed**, not a chain-specific executable-liquidity feed. There is no `chain` query parameter. If you need to compare what a fixed size can actually swap for on Base versus Arbitrum (for example), request same-size [`POST /v1/agent/quote`](quote.md) routes on those chains. See [Build a Quote-Qualified Arbitrage Monitor](../guides/arbitrage-monitor.md) for the safe screening pattern.
+
 ## GET /v1/agent/prices
 
 Requires authentication.

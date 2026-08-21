@@ -9,9 +9,11 @@ export default defineConfig({
 	},
 	// This database is SHARED with the python-api (SQLAlchemy), which is the authority for
 	// every table both services define (users, wallets, limit_orders, agents, …). Scope
-	// drizzle-kit (push/migrate) to ONLY the tables api-ts exclusively owns, so it never
+	// drizzle-kit schema sync/introspection (push/pull) to ONLY the tables api-ts
+	// exclusively owns, so it never
 	// alters or drops python-owned tables/columns (e.g. wallets.turnkey_sub_org_id). Runtime
-	// Drizzle queries are unaffected — tablesFilter only scopes the migration tool.
+	// Drizzle queries are unaffected. Committed migrations still execute their SQL
+	// verbatim; tablesFilter only scopes commands that support schema filtering.
 	//
 	// MAINTENANCE RULE: every NEW api-ts-exclusive pgTable (one with no SQLAlchemy
 	// __tablename__ in bot/models and no CREATE in database/db.py) MUST be added here.
@@ -30,6 +32,8 @@ export default defineConfig({
 		'daily_quests',
 		'jackpot_pools',
 		'polymarket_accounts',
+		// api-ts-exclusive passkey credential registry (passkeyCredentials.ts).
+		'passkey_credentials',
 		// x402 native-billing tables (payments.ts) — co-created by python _ensure_schema.
 		'agent_credits',
 		'agent_credit_topups',
@@ -61,5 +65,11 @@ export default defineConfig({
 		// aegis_user_trust (keyed on (platform, user_id), bot end-user trust);
 		// this one is keyed on agents.id (registered-agent A2A/MCP surface).
 		'agent_trust',
+		// api-ts-exclusive agent->owner link codes (agentLinkCodes.ts) — no
+		// python owner; redeemed via /claim <code> in the Telegram bot.
+		'agent_link_codes',
+		// api-ts-exclusive step-up re-confirmation nonces for owner approve
+		// decisions (approvalStepUpChallenges.ts) — no python owner.
+		'approval_step_up_challenges',
 	],
 })

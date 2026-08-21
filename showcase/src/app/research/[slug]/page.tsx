@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
@@ -38,7 +39,7 @@ export async function generateMetadata({
       type: 'article',
       url,
       publishedTime: post.date,
-      modifiedTime: post.date,
+      modifiedTime: post.updated ?? post.date,
       authors: [AUTHOR_NAME],
       section: post.category,
     },
@@ -74,7 +75,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
     headline: post.title,
     description: post.excerpt,
     datePublished: post.date,
-    dateModified: post.date,
+    dateModified: post.updated ?? post.date,
     inLanguage: 'en',
     isAccessibleForFree: true,
     articleSection: post.category,
@@ -88,6 +89,23 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
     },
     mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE}/research/${post.slug}` },
     url: `${SITE}/research/${post.slug}`,
+    ...(post.heroArt && {
+      image: {
+        '@type': 'ImageObject',
+        url: `${SITE}${post.heroArt.src}`,
+        width: 1536,
+        height: 1024,
+        caption: post.heroArt.caption,
+      },
+    }),
+    ...(post.report && {
+      associatedMedia: {
+        '@type': 'MediaObject',
+        contentUrl: `${SITE}${post.report.path}`,
+        encodingFormat: 'application/pdf',
+        name: post.report.title,
+      },
+    }),
   };
 
   const breadcrumbLd = {
@@ -101,7 +119,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleLd) }}
@@ -124,9 +142,53 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
           <div className="research-post__meta">
             <span className="research-tag">{post.category}</span>
             <time>{fmtDate(post.date)}</time>
+            {post.updated && <span>Revised {fmtDate(post.updated)}</span>}
             {post.readMins && <span>{post.readMins} min read</span>}
           </div>
           <h1>{post.title}</h1>
+          {(post.report || post.paperPath) && (
+            <div className="research-post__artifacts" aria-label="Research artifacts">
+              {post.report && (
+                <a className="research-post__report" href={post.report.path}>
+                  Read report (PDF) →
+                </a>
+              )}
+              {post.paperPath && <a href={post.paperPath}>Full working paper →</a>}
+              {post.kind === 'research' && <a href="/research/replication">Data &amp; code →</a>}
+            </div>
+          )}
+          {post.evidence && (
+            <dl className="research-post__evidence" aria-label="Evidence standard">
+              <div>
+                <dt>Evidence</dt>
+                <dd className="research-post__evidence-status">{post.evidence.status}</dd>
+              </div>
+              <div>
+                <dt>As of</dt>
+                <dd>{fmtDate(post.evidence.asOf)}</dd>
+              </div>
+              <div>
+                <dt>Basis</dt>
+                <dd>{post.evidence.basis}</dd>
+              </div>
+              <div>
+                <dt>Boundary</dt>
+                <dd>{post.evidence.boundary}</dd>
+              </div>
+            </dl>
+          )}
+          {post.heroArt && (
+            <figure className="research-post__hero-art">
+              <Image
+                src={post.heroArt.src}
+                alt={post.heroArt.alt}
+                width={1536}
+                height={1024}
+                priority
+              />
+              <figcaption>{post.heroArt.caption}</figcaption>
+            </figure>
+          )}
         </header>
 
         <DocsReader html={html} title={post.title} />

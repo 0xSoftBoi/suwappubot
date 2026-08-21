@@ -49,7 +49,7 @@ export default function RouteStages() {
         {journey.legs.map((leg, i) => (
           <li key={i} className={i === stage ? 'stages__on' : undefined}>
             <span className="stages__n">{String(i + 1).padStart(2, '0')}</span>
-            <span className="stages__kind">{leg.kind}</span>
+            <span className={`stages__kind stages__kind--${leg.kind}`}>{leg.kind}</span>
             <span className="stages__venue">{leg.venue}</span>
             <span className="stages__note">{leg.note}</span>
           </li>

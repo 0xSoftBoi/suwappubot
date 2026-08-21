@@ -327,6 +327,12 @@ META_KEYS = {
     "commit",
     "build",
     "name",
+    # Build fingerprints are hex digests, not statuses — without these entries
+    # the walker flags every fingerprint as unhealthy and the uptime probe
+    # pages on perfectly healthy services forever.
+    "source_fingerprint",
+    "worker_fingerprint",
+    "fingerprint",
 }
 
 

@@ -5,13 +5,24 @@
  * ```ts
  * import { Suwappu } from "@suwappu/sdk";
  *
- * const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY });
+ * const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
  * const quote = await client.getQuote({ from: "USDC", to: "ETH", chain: "base", amount: "1000" });
- * const tx = await client.swap(quote);
+ * console.log(quote.toAmount);
+ * // Managed execution is an explicit opt-in:
+ * // const execution = await client.executeManagedSwap(quote);
  * ```
  */
 
-export { Suwappu, SuwappuError, SuwappuApiError, createClient, DEFAULT_BASE_URL } from "./client.js";
+export {
+  Suwappu,
+  SuwappuError,
+  SuwappuApiError,
+  createClient,
+  DEFAULT_BASE_URL,
+  ApprovalsNamespace,
+  AuditNamespace,
+  KillSwitchNamespace,
+} from "./client.js";
 
 export type {
   SuwappuConfig,
@@ -25,6 +36,7 @@ export type {
   PerpMarket,
   PerpQuote,
   PerpPosition,
+  PredictionMarketToken,
   PredictionMarket,
   PredictionMarketDetail,
   PredictionOrderbook,
@@ -38,6 +50,7 @@ export type {
   PredictionOrderResult,
   PredictionPosition,
   PredictionOrder,
+  LendingMarketWarning,
   LendingMarket,
   LendingMarketDetail,
   GetQuoteArgs,
@@ -62,4 +75,56 @@ export type {
   BillingCredits,
   BillingSubscribe,
   BillingTopup,
+  SwapSimulation,
+  SwapSimulationCheck,
+  SwapHistoryItem,
+  SwapHistoryResult,
+  AgentWallet,
+  LinkCodeResult,
+  Approval,
+  ApprovalStatus,
+  StepUpChallenge,
+  AuditEvent,
+  AuditListArgs,
+  AuditVerifyResult,
+  KillSwitch,
+  KillSwitchScope,
+  SetKillSwitchArgs,
+  ReferenceChain,
+  ReferenceToken,
+  ReferenceTokensForChain,
+  ReferenceTokensAllChains,
+  ReferenceTokensResult,
+  ResolvedSymbol,
+  Timeframe,
+  GetOhlcvArgs,
+  OhlcvCandle,
+  OhlcvResult,
+  DataUsage,
+  DataMetadataDataset,
+  DataMetadata,
+  DataStatusTimeframe,
+  DataStatus,
+  VenueDatasetCoverage,
+  VenueDatasetFreshness,
+  PerpMarketSnapshot,
+  PerpsMarketsResult,
+  GetPerpsHistoryArgs,
+  PerpHistoryPoint,
+  PerpsHistoryResult,
+  PredictionMarketSnapshot,
+  GetPredictionMarketsArgs,
+  PredictionMarketsResult,
+  GetPredictionHistoryArgs,
+  PredictionHistoryPoint,
+  PredictionHistoryResult,
+  LendMarketSnapshot,
+  GetLendMarketsArgs,
+  LendMarketsResult,
+  GetLendHistoryArgs,
+  LendHistoryPoint,
+  LendHistoryResult,
+  LiveTick,
+  SubscribeLiveArgs,
+  LiveSubscription,
 } from "./types.js";

@@ -55,6 +55,36 @@ def format_usd(amount: float) -> str:
     return f"${amount:,.2f}"
 
 
+_MARKDOWN_V1_SPECIAL_CHARS = ("_", "*", "`", "[")
+
+
+def escape_markdown(text: Optional[str]) -> str:
+    """
+    Escape legacy Telegram Markdown (``parse_mode="Markdown"``) control characters.
+
+    Telegram's legacy Markdown mode treats ``_``, ``*``, `` ` ``, and ``[`` as
+    formatting delimiters. Any untrusted or arbitrary text (token symbols,
+    exception messages, user-entered strings) interpolated into a message
+    rendered with ``parse_mode="Markdown"`` must be escaped first, or a stray
+    delimiter can break formatting or get silently dropped/misrendered.
+
+    Only escapes the legacy Markdown charset (not MarkdownV2's larger set) —
+    the bot renders with ``parse_mode="Markdown"`` throughout.
+
+    Args:
+        text: The raw string to escape (falsy values pass through unchanged).
+
+    Returns:
+        The string with legacy Markdown special characters backslash-escaped.
+    """
+    if not text:
+        return text or ""
+    text = str(text)
+    for ch in _MARKDOWN_V1_SPECIAL_CHARS:
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+
 def format_tx_link(tx_hash: str, chain_name: str) -> str:
     """
     Create a clickable transaction link for Telegram.

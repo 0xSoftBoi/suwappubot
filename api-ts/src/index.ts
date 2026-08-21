@@ -1,11 +1,14 @@
 import { Effect } from 'effect'
+import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
 import { initSentry } from './lib/sentry'
+import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
+import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
 
 async function main() {
@@ -35,13 +38,18 @@ async function main() {
 		allowedOrigins: env.ALLOWED_ORIGINS,
 		adminApiKey: env.ADMIN_API_KEY,
 		internalApiKey: env.INTERNAL_API_KEY,
+		internalApiUrl: env.INTERNAL_API_URL,
 		otelEnabled: env.OTEL_ENABLED,
 	})
 
-	// Start server
+	// Start server. `websocket` (from hono/bun) wires the Bun-native WS upgrade
+	// handler used by GET /v1/data/live (routes/data.ts's upgradeWebSocket()) —
+	// without it Bun.serve has no `websocket` handler to hand upgraded
+	// connections off to and hono's upgradeWebSocket() would throw at request time.
 	const server = Bun.serve({
 		port: env.PORT,
 		fetch: app.fetch,
+		websocket,
 	})
 
 	logger.info(`Suwappu API (TypeScript) running at http://localhost:${server.port}`)
@@ -53,6 +61,12 @@ async function main() {
 		logger.info('Shutting down...')
 		stopA2aCleanup()
 		stopAgentCleanup()
+		stopDataLiveTicker()
+		// Drain the write-behind usage buffer before stopping the flush timer —
+		// otherwise any unflushed /v1/data/* request counts from the last <30s
+		// are silently dropped on every deploy/restart.
+		await flushDataUsage()
+		stopDataUsageFlusher()
 		server.stop()
 		await shutdownOtel()
 		await shutdownRuntime()

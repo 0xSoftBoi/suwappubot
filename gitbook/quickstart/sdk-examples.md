@@ -1,11 +1,14 @@
 # SDK Examples
 
-TypeScript examples for the most common agent operations — quote, swap, and portfolio. The SDK is a thin wrapper over the REST API; every call maps one-to-one to an endpoint under `/v1/agent`, so the request and response shapes match the [API Reference](../api-reference/README.md) exactly.
+TypeScript examples for the current Suwappu SDK contract: quote, preview, managed execution, self-custody preparation, and portfolio reads.
+
+> **Version check:** these examples target `@suwappu/sdk` `0.6.x`. The repository can be ahead of npm, so check the registry before copying them. If `npm view @suwappu/sdk version` reports anything below `0.6.0`, use the REST example at the bottom of this page until `0.6.x` is published.
 
 ## Install
 
 ```bash
-bun add @suwappu/sdk
+npm view @suwappu/sdk version
+npm install @suwappu/sdk@^0.6.0
 ```
 
 ## Initialize the client
@@ -13,66 +16,116 @@ bun add @suwappu/sdk
 ```ts
 import { Suwappu } from '@suwappu/sdk'
 
-const client = new Suwappu({ apiKey: process.env.SUWAPPU_KEY! })
+const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY })
 ```
 
-Your API key comes from [registration](../api-reference/registration.md) and looks like `suwappu_sk_...`. Every request the client makes sends it as `Authorization: Bearer <key>`.
+Your API key comes from [registration](../api-reference/registration.md) and looks like `suwappu_sk_...`. The SDK sends it as `Authorization: Bearer <key>`.
 
 ## Get a quote
 
 ```ts
-const quote = await client.quote({
-  from_token: 'ETH',
-  to_token: 'USDC',
+const quote = await client.getQuote({
+  from: 'ETH',
+  to: 'USDC',
   amount: '0.1',
   chain: 'base',
 })
 
-console.log(`${quote.amount_in} ETH -> ${quote.amount_out} USDC`)
-console.log(`Quote ID: ${quote.quote_id} (valid 60s)`)
+console.log(`${quote.fromAmount} ${quote.fromToken} -> ${quote.toAmount} ${quote.toToken}`)
+console.log(`Quote ID: ${quote.id}`)
+console.log(`Minimum output: ${quote.amountOutMin}`)
+console.log(`Estimated gas: $${quote.gas}; route fee: $${quote.fee}`)
 ```
 
-## Execute a swap (managed wallet)
+Treat a quote as a short-lived preview, not a promise of profit. Refresh it before an execution decision if it is near expiry.
+
+## Managed wallet: preview first, execute explicitly
+
+Managed execution signs and broadcasts server-side, so make the live boundary obvious in your code. This example dry-runs the quote and requires `SUWAPPU_LIVE=1` before funds can move.
 
 ```ts
-// Create a managed wallet once, then fund it.
-const { wallet } = await client.createWallet()
-console.log('Fund this address:', wallet.address)
+const wallet = await client.agent.createWallet()
+console.log('Managed wallet:', wallet.address)
 
-// Quote, then execute against your managed wallet.
-const quote = await client.quote({
-  from_token: 'ETH',
-  to_token: 'USDC',
+const quote = await client.getQuote({
+  from: 'ETH',
+  to: 'USDC',
   amount: '0.1',
   chain: 'base',
-  wallet_address: wallet.address,
+  walletAddress: wallet.address,
 })
 
-const swap = await client.executeSwap({ quote_id: quote.quote_id })
-console.log('Swap submitted:', swap.swap_id, swap.status)
+const simulation = await client.simulateSwap({
+  quoteId: quote.id,
+  walletAddress: wallet.address,
+})
 
-// Poll for completion.
-const status = await client.swapStatus(swap.swap_id)
-console.log('Final status:', status.status, status.tx_hash)
+console.table({
+  expectedOutput: quote.toAmount,
+  minimumOutput: quote.amountOutMin,
+  gasUsd: quote.gas,
+  routeFeeUsd: quote.fee,
+  wouldExecute: simulation.wouldExecute,
+})
+
+if (!simulation.wouldExecute) {
+  throw new Error(`Simulation did not pass: ${simulation.warnings.join('; ')}`)
+}
+
+if (process.env.SUWAPPU_LIVE !== '1') {
+  console.log('Preview only. Set SUWAPPU_LIVE=1 after reviewing the quote.')
+} else {
+  const swap = await client.executeManagedSwap(quote, {
+    idempotencyKey: `quickstart-${quote.id}`.slice(0, 64),
+  })
+  console.log('Managed swap submitted:', swap.swapId, swap.status)
+
+  const status = await client.getSwapStatus(swap.swapId)
+  console.log('Current status:', status.status, status.txHash)
+}
 ```
+
+`executeManagedSwap()` is the explicit managed-custody path and maps to `POST /v1/agent/swap/execute`. Give each intended trade a durable idempotency key; after an outcome-unknown timeout/network/5xx, reconcile first and reuse that key. Keep wallet policies, spend caps, approvals, and a kill switch around unattended automation.
+
+## Self-custody: prepare, then sign yourself
+
+```ts
+const selfCustodyAddress = '0xYOUR_WALLET'
+const selfCustodyQuote = await client.getQuote({
+  from: 'ETH',
+  to: 'USDC',
+  amount: '0.1',
+  chain: 'base',
+  walletAddress: selfCustodyAddress,
+})
+
+const tx = await client.prepareSwap({
+  quoteId: selfCustodyQuote.id,
+  walletAddress: selfCustodyAddress,
+})
+
+console.log(tx)
+```
+
+`prepareSwap()` maps to `POST /v1/agent/swap`. It returns an **unsigned** transaction. Suwappu does not sign or broadcast it; your wallet must review, sign, and submit it.
 
 ## Read a portfolio
 
 ```ts
-const portfolio = await client.portfolio({ wallet_address: wallet.address })
+const portfolioAddress = '0xYOUR_MANAGED_WALLET'
+const balances = await client.getPortfolio(portfolioAddress)
 
-console.log(`Total: $${portfolio.total_usd}`)
-for (const b of portfolio.balances) {
-  console.log(`${b.symbol} on ${b.chain}: ${b.balance} ($${b.usd_value})`)
+for (const balance of balances) {
+  console.log(`${balance.token} on ${balance.chain}: ${balance.balance} ($${balance.usdValue})`)
 }
 ```
 
 ## Prefer plain `fetch`?
 
-The SDK is optional. Every example above is a single HTTP call you can make directly:
+The REST contract is canonical and is the safest fallback whenever a package registry lags the repository:
 
 ```ts
-const apiKey = process.env.SUWAPPU_KEY!
+const apiKey = process.env.SUWAPPU_API_KEY!
 
 const quote = await fetch('https://api.suwappu.bot/v1/agent/quote', {
   method: 'POST',
@@ -91,4 +144,4 @@ const quote = await fetch('https://api.suwappu.bot/v1/agent/quote', {
 console.log(`Quote ID: ${quote.quote_id}`)
 ```
 
-See the [API Reference](../api-reference/README.md) for the full set of endpoints and their exact request and response fields.
+See the [API Reference](../api-reference/README.md) for exact REST request and response fields.

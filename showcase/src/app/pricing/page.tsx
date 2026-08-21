@@ -13,7 +13,7 @@ import styles from './pricing.module.css';
 export const metadata: Metadata = {
   title: 'Pricing | Suwappu',
   description:
-    'Simple subscription tiers that lower your swap fee: Free, Pro, Premium, and Enterprise. No seat counts, no hidden fees. Refer a friend and earn 30% of their trading fees.',
+    'Account trading plans for Suwappu, plus separate Agent API credit, rate-limit, and route-fee pricing for developers.',
 };
 
 type Tier = {
@@ -35,7 +35,7 @@ const tiers: Tier[] = [
     price: '$0',
     cadence: '',
     fee: '1.0%',
-    blurb: `1.0% swap fee on ${stats.platformChains} chains. No card, no seat count, no trial clock.`,
+    blurb: `1.0% account trading swap fee on ${stats.platformChains} chains. No card, no seat count, no trial clock.`,
     cta: 'Start free',
     highlight: false,
     features: [
@@ -56,7 +56,7 @@ const tiers: Tier[] = [
     highlight: false,
     features: [
       'Everything in Free',
-      '0.5% swap fee: half of Free',
+      '0.5% account trading swap fee: half of Free',
       '500 API requests/min',
       'Copy trading & DCA',
       '1.1× loyalty points on every trade',
@@ -73,8 +73,8 @@ const tiers: Tier[] = [
     badge: 'Recommended',
     features: [
       'Everything in Pro',
-      '0.3% swap fee: 70% below Free',
-      '500 API requests/min',
+      '0.3% account trading swap fee: 70% below Free',
+      '2,000 Agent API requests/min',
       'Advanced alerts & analytics',
       '1.25× loyalty points on every trade',
     ],
@@ -84,18 +84,18 @@ const tiers: Tier[] = [
     price: 'Custom',
     cadence: '',
     fee: '0.1%',
-    blurb: '0.1% swap fee, org accounts with RBAC, and 1,000 API requests/min.',
+    blurb: '0.1% account trading swap fee, org accounts with RBAC, and 10,000 Agent API requests/min.',
     cta: 'Talk to sales',
     href: ENTERPRISE_CONTACT_PATH,
     highlight: false,
     badge: 'Industry-First',
     features: [
       'Everything in Premium',
-      '0.1% swap fee (vs 1% industry standard)',
+      '0.1% account trading swap fee (vs 1% industry standard)',
       'Multi-user org accounts with RBAC (Owner / Admin / Member / Viewer)',
       'Up to 10 seats per org (configurable)',
       'Programmatic API keys with scoped permissions',
-      'Per-org rate limits: 1,000 API calls/min default',
+      'Agent key: 10,000 API requests/min',
       `${stats.platformChains}-chain execution (competitors offer 1–2)`,
       'KMS envelope encryption: institutional-grade custody',
       'Dedicated support + SLA: first in category',
@@ -141,7 +141,7 @@ const featuredIndex = tiers.findIndex((t) => t.highlight);
 
 const enterpriseStats: { value: string; label: string }[] = [
   { value: '0.1%', label: 'Swap fee: a tenth of the 1% category standard' },
-  { value: '1,000', label: 'API requests per minute, per org, by default' },
+  { value: '10,000', label: 'Agent API requests per minute on the Enterprise tier' },
   { value: '10', label: 'Seats per org with RBAC roles (configurable)' },
 ];
 
@@ -166,7 +166,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
     category: 'Agents & API',
     rows: [
       { label: 'REST API, SDK & MCP server', values: ['✓', '✓', '✓', '✓'] },
-      { label: 'Rate limits', values: ['30 req/min', '500 req/min', '500 req/min', '1,000 req/min'] },
+      { label: 'Agent key rate limit', values: ['30 req/min', '500 req/min', '2,000 req/min', '10,000 req/min'] },
       { label: 'Managed wallets & policy guardrails', values: ['✓', '✓', '✓', '✓'] },
     ],
   },
@@ -202,7 +202,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
 const faqs = [
   {
     q: 'How does the swap fee work?',
-    a: 'A small percentage is applied to each swap, set by your subscription tier: 1.0% on Free down to 0.1% on Enterprise. There are no per-seat charges; one subscription covers your whole account.',
+    a: 'For account trading in the consumer product, the plan fee runs from 1.0% on Free down to 0.1% on Enterprise. The Agent API uses a separate route/configuration fee model; its current EVM/Solana defaults are not derived from the account plan. Developer integrations should read the live quote instead of applying this account fee ladder.',
   },
   {
     q: 'Can I cancel anytime?',
@@ -230,30 +230,31 @@ const faqs = [
   },
   {
     q: "What's a credit, for the Agent API?",
-    a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Reads (quotes, prices, portfolio, chains, tokens) cost 1 credit each; a swap execution costs 5 credits. Top up your balance with USDC on Base whenever it runs low, independent of any subscription tier.',
+    a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Metered reads such as quotes, simulation, prices, and portfolio cost 1 credit; chain/token discovery is free; transaction preparation and managed execution cost 5. Top up with USDC on Base when needed.',
   },
   {
     q: 'x402 pay-per-call vs a subscription, which should my agent use?',
-    a: 'x402 is the zero-setup path: pay per request over HTTP 402 with no signup and no API key, ideal for one-off or low-volume calls. A subscription (Pro/Premium/Enterprise) is worth it once your agent is calling often enough that a higher rate limit and a lower swap fee outweigh a flat monthly cost. Both share the same auth, wallets, and execution engine, so you can start on x402 and add a subscription later without changing integration code.',
+    a: 'x402 is the zero-setup path: pay per request over HTTP 402 with no signup and no API key, ideal for one-off or low-volume calls. A Pro/Premium/Enterprise window is worth considering when the higher rate limit and unmetered calls beat pay-per-call costs. Agent-surface swap fees are route/configuration-specific, so evaluate them from the live quote rather than assuming a tier discount.',
   },
   {
     q: 'What are the Agent API rate limits?',
-    a: 'Free and unauthenticated default keys get 30–100 requests/min; Pro and Premium raise that to 500 req/min; Enterprise gets 1,000 req/min by default (higher on request). See the Agent API table above for the full breakdown by tier.',
+    a: 'The current per-agent limits are Free 30 req/min, Agent 100, Pro 500, Premium 2,000, and Enterprise 10,000. Clients should still honor the live X-RateLimit and Retry-After headers instead of hardcoding delays.',
   },
 ];
 
 // ── Agent API pricing (MONEY-PATH: mirrors api-ts credit/tier config) ──
 const creditCosts: { action: string; credits: string; usd: string }[] = [
-  { action: 'Reads: quote, prices, portfolio, chains, tokens', credits: '1 credit', usd: '≈ $0.001' },
-  { action: 'Swaps: execute', credits: '5 credits', usd: '≈ $0.005' },
+  { action: 'Metered reads: quote, simulate, prices, portfolio', credits: '1 credit', usd: '≈ $0.001' },
+  { action: 'Discovery: chains, tokens', credits: '0 credits', usd: '$0' },
+  { action: 'Transaction prep / managed execution', credits: '5 credits', usd: '≈ $0.005' },
 ];
 
 const agentTiers: { tier: string; rateLimit: string; swapFee: string }[] = [
-  { tier: 'Free', rateLimit: '30 req/min', swapFee: '1.0%' },
-  { tier: 'Agent (default key)', rateLimit: '100 req/min', swapFee: '1.0%' },
-  { tier: 'Pro: $9.99/mo', rateLimit: '500 req/min', swapFee: '0.5%' },
-  { tier: 'Premium: $29.99/mo', rateLimit: '500 req/min', swapFee: '0.3%' },
-  { tier: 'Enterprise: $99.99/mo', rateLimit: '1,000 req/min', swapFee: '0.1%' },
+  { tier: 'Free', rateLimit: '30 req/min', swapFee: 'Route-configured*' },
+  { tier: 'Agent (assigned)', rateLimit: '100 req/min', swapFee: 'Route-configured*' },
+  { tier: 'Pro: $9.99 / 30 days', rateLimit: '500 req/min', swapFee: 'Route-configured*' },
+  { tier: 'Premium: $29.99 / 30 days', rateLimit: '2,000 req/min', swapFee: 'Route-configured*' },
+  { tier: 'Enterprise: $99.99 / 30 days', rateLimit: '10,000 req/min', swapFee: 'Route-configured*' },
 ];
 
 const agentPaymentModes = [
@@ -267,7 +268,7 @@ const agentPaymentModes = [
   },
   {
     title: 'Subscription tiers',
-    body: 'Crypto or Stripe fiat checkout for Pro, Premium, or Enterprise: 30-day prepaid and stackable. Each tier raises your rate limit and lowers your swap fee.',
+    body: 'Agent API Pro, Premium, and Enterprise windows are activated through the crypto subscription endpoint: 30-day prepaid, stackable, higher-rate-limit, and unmetered while active. Stripe is a separate human/web checkout flow and does not currently promote an Agent API key’s subscription tier.',
   },
 ];
 
@@ -299,7 +300,7 @@ function CompareValue({ value }: { value: string }) {
 
 export default function PricingPage() {
   return (
-    <main id="main-content" className="summer-page sw-dark docs-shell">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
@@ -329,7 +330,7 @@ export default function PricingPage() {
                 {t.cadence && <span className={styles.cadence}>{t.cadence}</span>}
               </p>
               <p className={styles.fee}>
-                <b className={styles.feeValue}>{t.fee}</b> swap fee
+                <b className={styles.feeValue}>{t.fee}</b> account trading swap fee
               </p>
               <p className={styles.blurb}>{t.blurb}</p>
               {t.name === 'Pro' || t.name === 'Premium' ? (
@@ -438,8 +439,8 @@ export default function PricingPage() {
             Compare plans
           </h2>
           <p className={styles.compareLead}>
-            The engine is identical on every tier. What moves is the swap fee, the rate limit, and
-            the org controls.
+            For account trading, what moves is the plan swap fee, the rate limit, and the org
+            controls. Agent API route fees are a separate model shown below.
           </p>
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -538,11 +539,11 @@ export default function PricingPage() {
           </div>
 
           <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
-            Rate limits &amp; swap fee by tier
+            Agent API rate limits &amp; route-fee behavior
           </h3>
           <div className="compare__scroll" role="region" aria-label="Agent API tier table" tabIndex={0}>
             <table className="compare-table">
-              <caption className="sr-only">Rate limit and swap fee for each Agent API tier.</caption>
+              <caption className="sr-only">Agent API rate limits and route-configured swap fees.</caption>
               <thead>
                 <tr>
                   <th scope="col" className="compare-table__rowhead">Tier</th>
@@ -562,8 +563,13 @@ export default function PricingPage() {
             </table>
           </div>
           <p className="compare__note">
-            Subscriptions are 30-day prepaid and stackable, and work as crypto payment or Stripe
-            fiat checkout. Full endpoint list at{' '}
+            * This table is specifically for the Agent API, not the account-trading fee ladder
+            above. Agent-surface swap fees are not derived from the subscription tier. Current
+            source defaults are 0.8% on EVM routes and 0.3% on Solana routes; deployment
+            configuration can change them, so use the live quote as the economic source of truth.
+            Agent API subscription windows are 30-day prepaid, stackable crypto purchases through
+            the agent billing endpoint. Stripe checkout applies to human account plans and does not
+            currently set an Agent API key&apos;s subscription tier. Full endpoint list at{' '}
             <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">
               the OpenAPI spec
             </a>{' '}

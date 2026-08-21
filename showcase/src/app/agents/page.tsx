@@ -56,12 +56,12 @@ const CELL_WORD: Record<Cell, string> = { yes: 'Yes', partial: 'Partial', no: 'N
 
 const MATRIX_ROWS: { label: string; cells: Record<string, Cell> }[] = [
   { label: 'Quotes', cells: { rest: 'yes', mcp: 'yes', a2a: 'yes', sdk: 'yes' } },
-  { label: 'Swap execution', cells: { rest: 'yes', mcp: 'yes', a2a: 'yes', sdk: 'yes' } },
-  { label: 'Portfolio & prices', cells: { rest: 'yes', mcp: 'yes', a2a: 'yes', sdk: 'yes' } },
-  { label: 'Managed wallets & policies', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'yes' } },
-  { label: 'Streaming / webhooks', cells: { rest: 'yes', mcp: 'no', a2a: 'partial', sdk: 'yes' } },
+  { label: 'Swap execution', cells: { rest: 'yes', mcp: 'partial', a2a: 'no', sdk: 'yes' } },
+  { label: 'Portfolio & prices', cells: { rest: 'yes', mcp: 'yes', a2a: 'partial', sdk: 'yes' } },
+  { label: 'Managed wallets & policies', cells: { rest: 'yes', mcp: 'partial', a2a: 'no', sdk: 'yes' } },
+  { label: 'Streaming / webhooks', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'yes' } },
   { label: 'Self-registration (no signup)', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'yes' } },
-  { label: 'Pay-per-call (x402)', cells: { rest: 'yes', mcp: 'no', a2a: 'no', sdk: 'no' } },
+  { label: 'Pay-per-call (x402)', cells: { rest: 'yes', mcp: 'yes', a2a: 'no', sdk: 'no' } },
 ];
 
 // ── e. Agentic payments ─────────────────────────────────────────────
@@ -76,7 +76,7 @@ const PAYMENT_MODES = [
   },
   {
     title: 'Subscription tiers',
-    body: 'Crypto or Stripe fiat checkout for Pro ($9.99/mo), Premium ($29.99/mo), or Enterprise ($99.99/mo): 30-day prepaid, stackable, and each tier raises your rate limit and lowers your swap fee.',
+    body: 'Agent API Pro ($9.99/30 days), Premium ($29.99/30 days), and Enterprise ($99.99/30 days) windows are crypto-native, prepaid, stackable, higher-rate-limit, and unmetered while active. Stripe checkout is for the separate human account plan; it does not currently promote a bearer agent key.',
   },
 ];
 
@@ -84,7 +84,7 @@ const PAYMENT_MODES = [
 const FAQS = [
   {
     q: 'What is the Suwappu MCP server?',
-    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp that exposes 16+ tools: quotes, swap execution, portfolio, prices, chains, tokens, prediction markets, perps, lending, and Tempo tokens: as agent-callable tools over JSON-RPC 2.0. Any MCP-compatible client can call it without custom integration code.',
+    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp. Source 0.6.0 advertises 22 tools; clients should call tools/list at runtime. Its historical execute_swap tool prepares an unsigned self-custody transaction — it never signs or broadcasts a managed swap.',
   },
   {
     q: 'Which AI clients work with it?',
@@ -92,7 +92,7 @@ const FAQS = [
   },
   {
     q: "What's the difference between REST, MCP, and A2A?",
-    a: 'REST is the full, typed surface: every endpoint, every parameter, for custom backends and SDKs. MCP wraps a subset of that surface as LLM tool calls for agent hosts. A2A is JSON-RPC for agent-to-agent messaging: send natural language like "swap 0.5 ETH to USDC on base" and get back a structured task. All three share the same auth, wallets, and execution engine.',
+    a: 'REST is the full surface and includes explicit managed execution. MCP exposes discoverable tools, but swap preparation is unsigned self-custody. A2A is an intent/quote layer: a message like "swap 0.5 ETH to USDC on base" returns a structured quote task and does not execute it. Use the surface whose authority matches your product.',
   },
   {
     q: 'Which chains are supported?',
@@ -100,7 +100,7 @@ const FAQS = [
   },
   {
     q: 'What does it cost?',
-    a: 'Three ways to pay: pay-per-call over HTTP 402 (x402) with no signup, prepaid credits (1 credit ≈ $0.001: reads cost 1 credit, swaps cost 5), or a monthly subscription (Pro/Premium/Enterprise) that raises your rate limit and lowers your swap fee. See the Agent API section on the pricing page for the full breakdown.',
+    a: 'Use pay-per-call over HTTP 402 (x402), prepaid credits (1 credit ≈ $0.001; metered reads are typically 1 and transaction preparation/execution is 5), or a 30-day Pro/Premium/Enterprise window that raises the rate limit and bypasses per-call metering. Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts; inspect the live quote.',
   },
   {
     q: 'How do managed wallets work?',
@@ -118,7 +118,7 @@ const FAQS = [
 
 export default function AgentsPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell sw-dark">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <Navigation />
       <div className="summer-shell mkt-page">
         {/* ── a. HERO ── */}
@@ -308,7 +308,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
             ))}
           </div>
           <p className="agents-caption agent-payments__note">
-            Full credit costs, rate limits, and fee rates by tier are on the{' '}
+            Full credit costs, rate limits, and agent-surface fee notes are on the{' '}
             <a href="/pricing#agent-api">Agent API pricing</a> section.
           </p>
         </section>
@@ -323,9 +323,9 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
         <section className="mkt-callout mkt-callout--enterprise" aria-label="Enterprise">
           <p className="mkt-callout__eyebrow">Enterprise</p>
           <p className="mkt-callout__body">
-            Running an agent fleet or a trading desk at volume? Enterprise adds a 0.1% swap fee,
-            multi-user org accounts with RBAC, scoped programmatic API keys, higher per-org rate
-            limits, and a dedicated support SLA.
+            Running an agent fleet or a trading desk at volume? Enterprise adds multi-user org
+            accounts with RBAC, scoped programmatic API keys, higher per-org rate limits,
+            unmetered Agent API calls while the tier is active, and a dedicated support SLA.
           </p>
           <div className="summer-actions">
             <DemoCallCta source="agents_page_callout" className="summer-button summer-button--primary">

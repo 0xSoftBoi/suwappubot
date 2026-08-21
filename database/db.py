@@ -194,6 +194,10 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
         # OAuth models
         from bot.models.oauth import OAuthIdentity, OAuthToken, OAuthState
 
+        # Public JellyJelly creator-account claims. Only proof metadata and a
+        # canonical source ID are stored; source media remains at JellyJelly.
+        from bot.models.social import JellyAccountClaim
+
         # Agent registration models
         from bot.models.agent import RegisteredAgent
 
@@ -223,6 +227,9 @@ def init_db(database_url: str, max_retries: int = 3, retry_delay: float = 2.0) -
 
         # P2P marketplace models
         from bot.models.p2p import P2POffer, P2PTrade
+
+        # Handle-reservation waitlist + referral leaderboard
+        from bot.models.waitlist import WaitlistSignup
 
         # Token staking models
         from bot.models.token_staking import (
@@ -428,6 +435,7 @@ def _ensure_schema(db_engine) -> None:
     if "hot_wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "hot_wallets", is_sqlite)
         _add_turnkey_columns(db_engine, inspector, "hot_wallets", is_sqlite, include_sub_org=False)
+        _add_internal_wallet_lifecycle_columns(db_engine, inspector, is_sqlite)
 
     # --- oauth_states: login CSRF nonce column (additive + idempotent) ---
     if "oauth_states" in tables:
@@ -439,6 +447,59 @@ def _ensure_schema(db_engine) -> None:
                 ddl = "ALTER TABLE oauth_states ADD COLUMN IF NOT EXISTS login_nonce VARCHAR(128)"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+    # --- users: signature-proved membership binding address (additive) ---
+    if "users" in tables:
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "membership_address" not in user_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN membership_address VARCHAR(64)"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS membership_address VARCHAR(64)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # --- users.membership_address: one wallet backs at most one account ---
+    # Without this a single paid membership NFT could be signed for unlimited
+    # accounts (the signature proves key possession, not identity), handing every
+    # one of them ENTERPRISE fee rates off one purchase.
+    if "users" in tables:
+        idx_names = {i["name"] for i in inspector.get_indexes("users")}
+        # Indexed on lower(...), not the raw column. A plain unique index is
+        # CASE-SENSITIVE, so 0xab..ab and 0xAB..AB both insert and two accounts
+        # share one wallet — the exact thing this index exists to stop. It held
+        # only because bindwallet.py lowercases before writing, i.e. one caller
+        # remembering. Any other writer (admin tool, API route, import) that
+        # forgets reopens the vector silently. Enforce it in the database.
+        if "ux_users_membership_address_lower" not in idx_names:
+            with db_engine.begin() as conn:
+                # Normalise first: a pre-existing mixed-case row would fail the
+                # index creation below and block startup.
+                conn.execute(
+                    text(
+                        "UPDATE users SET membership_address = lower(membership_address) "
+                        "WHERE membership_address IS NOT NULL "
+                        "AND membership_address <> lower(membership_address)"
+                    )
+                )
+                # Clear any duplicates created before the constraint existed —
+                # keep the lowest user id, unbind the rest (they can re-bind).
+                conn.execute(
+                    text(
+                        "UPDATE users SET membership_address = NULL "
+                        "WHERE membership_address IS NOT NULL AND id NOT IN ("
+                        "  SELECT MIN(id) FROM users WHERE membership_address IS NOT NULL"
+                        "  GROUP BY lower(membership_address))"
+                    )
+                )
+                conn.execute(text("DROP INDEX IF EXISTS ux_users_membership_address"))
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "ux_users_membership_address_lower "
+                        "ON users (lower(membership_address))"
+                    )
+                )
 
     # --- agents: unique index on api_key + Drizzle schema alignment ---
     agents_table = (
@@ -461,6 +522,7 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_agent_columns(db_engine, inspector, is_sqlite)
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
         _add_swap_error_category_column(db_engine, inspector, is_sqlite)
+        _add_swap_realized_output_columns(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -509,6 +571,11 @@ def _ensure_schema(db_engine) -> None:
 
     # --- agent billing: agent_credits, agent_credit_topups, agent_subscriptions ---
     _create_agent_billing_tables(db_engine, inspector, is_sqlite)
+    # MUST run after the CREATEs above, and needs a fresh inspector so it sees
+    # tables this boot just created. Was previously nested in the unrelated
+    # `if "users" in tables:` block and ran BEFORE them — a no-op on a fresh DB
+    # purely by luck, since the CREATE DDL already emits DOUBLE PRECISION.
+    _widen_money_columns_to_double(db_engine, inspect(db_engine), is_sqlite)
 
     # --- recurring crypto subscriptions (Base Spend Permissions) ---
     _create_recurring_subscriptions_table(db_engine, inspector, is_sqlite)
@@ -574,6 +641,7 @@ def _ensure_schema(db_engine) -> None:
     _add_bridge_transfer_tables(db_engine, inspector, is_sqlite)
     _add_user_region_column(db_engine, inspector, is_sqlite)
     _add_user_language_preference_column(db_engine, inspector, is_sqlite)
+    _add_user_llm_model_column(db_engine, inspector, is_sqlite)
     _add_savings_tables(db_engine, inspector, is_sqlite)
     _add_auth_tables(db_engine, inspector, is_sqlite)
     _add_btc_swap_tables(db_engine, inspector, is_sqlite)
@@ -687,6 +755,243 @@ def _ensure_schema(db_engine) -> None:
 
     # --- AEGIS per-user trust adaptation (Phase 2.3): aegis_user_trust ---
     _create_aegis_trust_table(db_engine, inspector, is_sqlite)
+
+    # --- Agent control-plane approval notification bookkeeping ---
+    _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite)
+    _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
+
+    # --- Agent ownership linking (/claim, /unlink): agents.owner_user_id + agent_link_codes ---
+    _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite)
+    _create_agent_link_codes_table(db_engine, inspector, is_sqlite)
+
+    # --- Handle-reservation waitlist + referral leaderboard: waitlist_signups ---
+    _create_waitlist_signups_table(db_engine, inspector, is_sqlite)
+
+    # --- swap_transactions: widen from_token/to_token for rug panic-sell mints ---
+    if "swap_transactions" in tables:
+        _widen_swap_token_columns(db_engine, inspector, is_sqlite)
+
+    # --- point_redemptions: idempotency_key for durable redeem-replay guard ---
+    if "point_redemptions" in tables:
+        _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite)
+
+    # --- Market data parity Phase 1: normalized OHLCV candles ---
+    _create_market_candles_table(db_engine, inspector, is_sqlite)
+
+    # --- API usage metering: per-caller/route/day request counts ---
+    _create_api_usage_daily_table(db_engine, inspector, is_sqlite)
+
+    # --- Market data parity Round 5: perps / predictions / lend time series ---
+    _create_perp_metrics_table(db_engine, inspector, is_sqlite)
+    _create_prediction_snapshots_table(db_engine, inspector, is_sqlite)
+    _create_lend_metrics_table(db_engine, inspector, is_sqlite)
+
+    # --- swap_transactions: execution-savings receipts (best-vs-runner-up) ---
+    if "swap_transactions" in tables:
+        _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite)
+
+
+def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
+
+    MONEY-PATH (rug panic sell): rug_service's auto-sell writes a raw base58
+    Solana mint address (43-44 chars) into from_token/to_token when selling an
+    unregistered/rugged token — the old VARCHAR(20) column raised
+    psycopg2.errors.StringDataRightTruncation on Postgres (INSERT), which killed
+    the panic-sell SwapTransaction write and, by extension, the whole sell.
+    SQLite ignores VARCHAR length so this was invisible in tests.
+
+    Additive + idempotent: ALTER COLUMN ... TYPE VARCHAR(64) is safe to widen
+    repeatedly, and never truncates/loses existing data since we're only
+    growing the column. SQLite is skipped — same "ignores VARCHAR length"
+    reasoning as `_widen_totp_secret`.
+
+    RUNS AT EVERY BOOT, so it must issue ZERO DDL once migrated (mirrors
+    `_widen_money_columns_to_double`): inspect widths first, build a pending
+    list, and early-return when nothing needs widening. The two ALTERs run in
+    a single transaction bounded by `SET LOCAL lock_timeout` so a contended
+    boot fails fast and retries next boot instead of hanging behind a live
+    writer and getting the container killed mid-DDL.
+    """
+    if is_sqlite:
+        return
+
+    try:
+        cols = {c["name"]: c for c in inspector.get_columns("swap_transactions")}
+    except Exception as e:
+        logger.error("Could not inspect swap_transactions columns: %s", e)
+        return
+
+    pending: list[str] = []
+    for column in ("from_token", "to_token"):
+        info = cols.get(column)
+        if info is None:
+            continue
+        col_type = info.get("type")
+        length = getattr(col_type, "length", None)
+        # Only widen VARCHAR columns whose length is known and still < 64.
+        # A None length (e.g. already TEXT) or length >= 64 is already fine.
+        if length is not None and length < 64:
+            pending.append(column)
+
+    if not pending:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            # Fail fast instead of queueing behind a live swap write and
+            # taking the panic-sell path down with us. Unapplied columns are
+            # simply retried next boot.
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+            for column in pending:
+                conn.execute(
+                    text(f"ALTER TABLE swap_transactions ALTER COLUMN {column} TYPE VARCHAR(64)")
+                )
+        logger.info("Widened swap_transactions column(s) to VARCHAR(64): %s", ", ".join(pending))
+    except Exception as e:
+        msg = str(e).lower()
+        if "lock timeout" in msg or "55p03" in msg or "canceling statement due to lock" in msg:
+            # Contended boot — not a real failure. Retry on next boot.
+            logger.warning(
+                "Widening swap_transactions.%s to VARCHAR(64) timed out waiting for a "
+                "lock; will retry on next boot: %s",
+                ", ".join(pending),
+                e,
+            )
+        else:
+            logger.error(
+                "Could not widen swap_transactions.%s to VARCHAR(64): %s",
+                ", ".join(pending),
+                e,
+            )
+
+
+def _add_point_redemption_idempotency_key(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add point_redemptions.idempotency_key + a partial UNIQUE(user_id, key) index.
+
+    MONEY-PATH: durable replay guard for `/v1/mobile/points/rewards/{id}/redeem`.
+    The route already has an in-process idempotency cache (mobile.py), which is
+    NOT durable across worker restarts / multi-replica deploys — a retry landing
+    on a different process re-invokes points_service and double-charges points
+    for a redemption whose first response merely dropped in transit. This DB-level
+    unique index makes a replayed INSERT conflict (IntegrityError) instead of
+    silently creating a second PointRedemption row, so the caller can catch the
+    conflict and return the original result.
+
+    Additive + idempotent: ADD COLUMN IF NOT EXISTS + CREATE UNIQUE INDEX IF NOT
+    EXISTS. Partial index (WHERE idempotency_key IS NOT NULL) so historical rows
+    and non-idempotent redemption paths (NULL key) are unaffected.
+    """
+    try:
+        cols = {c["name"] for c in inspector.get_columns("point_redemptions")}
+        if "idempotency_key" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE point_redemptions ADD COLUMN idempotency_key VARCHAR(160)"
+            else:
+                ddl = (
+                    "ALTER TABLE point_redemptions "
+                    "ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(160)"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+        with db_engine.begin() as conn:
+            # Both SQLite (>=3.8) and Postgres support partial unique indexes.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_point_redemptions_user_idempotency_key "
+                    "ON point_redemptions(user_id, idempotency_key) "
+                    "WHERE idempotency_key IS NOT NULL"
+                )
+            )
+    except Exception as e:
+        logger.error("Could not add point_redemptions idempotency guard: %s", e)
+
+
+def _create_waitlist_signups_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the waitlist_signups table (idempotent).
+
+    Backs the handle-reservation waitlist + live referral leaderboard
+    (``/webapp/waitlist/*`` in api/webapp.py — see bot/services/waitlist_service.py
+    for the ranking query). Distinct from the mobile-app waitlist which rides
+    ``support_tickets`` (category="mobile_waitlist") and is left untouched.
+
+    One row per email (unique). ``referred_by_id`` is a self-referential pointer
+    to another row's id; ``referral_count`` is never denormalized here — it is
+    always computed live via COUNT(*) WHERE referred_by_id = id so it cannot drift.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "waitlist_signups" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS waitlist_signups (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        handle VARCHAR(32) NOT NULL,
+                        email VARCHAR(320) NOT NULL,
+                        telegram VARCHAR(64),
+                        referral_code VARCHAR(40) NOT NULL,
+                        referred_by_id INTEGER,
+                        seed INTEGER NOT NULL,
+                        attribution_json TEXT,
+                        ip_hash VARCHAR(64),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS waitlist_signups (
+                        id SERIAL PRIMARY KEY,
+                        handle VARCHAR(32) NOT NULL,
+                        email VARCHAR(320) NOT NULL,
+                        telegram VARCHAR(64),
+                        referral_code VARCHAR(40) NOT NULL,
+                        referred_by_id INTEGER,
+                        seed INTEGER NOT NULL,
+                        attribution_json TEXT,
+                        ip_hash VARCHAR(64),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created waitlist_signups table")
+
+        # Unique indexes: one handle, one email, one referral code per row.
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_waitlist_signups_handle"
+                " ON waitlist_signups(handle)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_waitlist_signups_email"
+                " ON waitlist_signups(email)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_waitlist_signups_referral_code"
+                " ON waitlist_signups(referral_code)"
+            )
+        )
+        # Non-unique: referral edges lookup + rank-query tie-break support.
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_waitlist_signups_referred_by"
+                " ON waitlist_signups(referred_by_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_waitlist_signups_created_id"
+                " ON waitlist_signups(created_at, id)"
+            )
+        )
 
 
 def _add_user_org_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1016,6 +1321,22 @@ def _add_user_language_preference_column(db_engine, inspector, is_sqlite: bool) 
         logger.warning(f"Failed to add users.language_preference: {e}")
 
 
+def _add_user_llm_model_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add users.llm_model for per-user LLM model preference, idempotently."""
+    try:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        if "llm_model" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE users ADD COLUMN llm_model VARCHAR(64)"
+            else:
+                ddl = "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_model VARCHAR(64)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added users.llm_model")
+    except Exception as e:
+        logger.warning(f"Failed to add users.llm_model: {e}")
+
+
 def _add_treasury_tables_and_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Create treasury_positions table and add vault columns to distribution_epochs."""
     try:
@@ -1310,6 +1631,105 @@ def _add_discord_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 ddl = f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _widen_money_columns_to_double(db_engine, inspector, is_sqlite: bool) -> None:
+    """Widen the agent-billing money columns from REAL (float4) to DOUBLE PRECISION.
+
+    MONEY-PATH. These were created as REAL, which is a 4-byte float with only
+    ~7 significant decimal digits — a 24-bit mantissa. That is not enough for a
+    running balance debited in sub-cent amounts. At a ~$100 balance the ULP is
+    ~7.6e-6, so each ~$0.000728 LLM debit rounds by up to ~3.8e-6. Over 20k
+    debits that bounds the error near $0.076; the expected drift is far smaller
+    (a random walk, ~$0.0005) and its DIRECTION is not guaranteed. The number to
+    care about is not the typical case but the failure mode: once
+    balance/debit exceeds 2**24 — a balance over ~$12,200 — a debit can round to
+    a complete no-op and the balance stops decreasing at all. Not reachable
+    today, not absurd for a funded enterprise agent.
+
+    Widening is safe and lossless: every float4 is exactly representable as a
+    float8, so no value changes and no rewrite of meaning occurs. It does NOT
+    make the columns exact — float8 is still binary floating point — but it
+    removes the precision loss that is actually reachable at our amounts. The
+    exact-integer (micro-dollar) representation is the follow-up; this is the
+    part that is safe to ship without touching every read site.
+
+    SQLite has a single REAL type that is already 8-byte, so this is a no-op
+    there.
+
+    RUNS AT EVERY BOOT, so it must issue ZERO DDL once migrated. float4 -> float8
+    is not binary-coercible, so Postgres rewrites the heap and rebuilds indexes
+    under ACCESS EXCLUSIVE. Re-issuing a same-type ALTER is *accepted* by
+    Postgres but is not free — it still takes that lock. A queued ACCESS
+    EXCLUSIVE blocks every reader behind it, so on a busy agent_credits an
+    unconditional ALTER could stall startup past the healthcheck, get the
+    container killed, and requeue the same lock on restart — a billing outage in
+    a restart loop. Hence: skip when the column is already double precision, and
+    bound the wait with lock_timeout so a contended boot fails fast and
+    retries later instead of hanging.
+    """
+    if is_sqlite:
+        return
+
+    # (table, columns) — every REAL money column created by the agent-billing
+    # DDL above. api_credits is created by SQLAlchemy's Float (already float8),
+    # so it is deliberately absent — and it must STAY absent: it is not in
+    # api-ts's drizzle tablesFilter, so nothing narrows it.
+    targets = {
+        "agent_credits": ("balance", "lifetime_purchased", "lifetime_used"),
+        "agent_credit_topups": ("amount_usd", "credits_added"),
+        # Not an accumulating balance, so precision is not reachable here the
+        # same way — included so the column matches its api-ts declaration.
+        # A declaration that disagrees with the column is the same class of
+        # latent bug this function exists to remove.
+        "agent_subscriptions": ("amount_usd",),
+    }
+
+    existing = set(inspector.get_table_names())
+    pending: list[tuple[str, str]] = []
+    for table, columns in targets.items():
+        if table not in existing:
+            continue
+        types = {c["name"]: str(c["type"]).upper() for c in inspector.get_columns(table)}
+        for column in columns:
+            current = types.get(column)
+            if current is None:
+                continue
+            # Already float8 — the steady state. Emit no DDL at all.
+            if "DOUBLE" in current or "FLOAT8" in current:
+                continue
+            pending.append((table, column))
+
+    if not pending:
+        return
+
+    # ALL-OR-NOTHING. Per-column failure would leave a half-migrated table
+    # (balance float4, lifetime_used float8) that boots green and is visible
+    # only in a startup warning nobody greps — and drizzle would then see a
+    # partial mismatch. One transaction, so a timeout rolls back cleanly and the
+    # next boot retries the whole set.
+    try:
+        with db_engine.begin() as conn:
+            # Fail fast instead of queueing behind a live debit and taking the
+            # service down with us. Unapplied columns are simply retried next boot.
+            conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+            for table, column in pending:
+                conn.execute(
+                    text(f"ALTER TABLE {table} ALTER COLUMN {column} TYPE DOUBLE PRECISION")
+                )
+        logger.info(
+            "Widened %d money column(s) to DOUBLE PRECISION: %s",
+            len(pending),
+            ", ".join(f"{t}.{c}" for t, c in pending),
+        )
+    except Exception as e:
+        # Never crash boot on DDL. Escalated to ERROR with a stable token so it
+        # is alertable — a money column silently left at float4 is not a warning.
+        logger.error(
+            "MONEY_COLUMN_WIDEN_FAILED: could not widen %s to DOUBLE PRECISION: %s",
+            ", ".join(f"{t}.{c}" for t, c in pending),
+            e,
+        )
 
 
 def _widen_totp_secret(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1720,6 +2140,37 @@ def _add_swap_price_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 conn.execute(text(ddl))
 
 
+def _add_swap_realized_output_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add realized (post-fill) output columns to swap_transactions.
+
+    Everything else on the row is the quote's projection, written before the
+    transaction was broadcast. These record what actually settled, which is the
+    prerequisite for measuring fill-vs-quote accuracy at all.
+
+    Additive and idempotent, per the runtime-migration contract in
+    docs/development/migrations.md — existing rows keep NULL, which reads as
+    "not observed" rather than "received nothing".
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("realized_to_amount", "VARCHAR(78)"),
+        ("realized_to_amount_usd", "FLOAT"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = (
+                    f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+
 def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> None:
     """Add the classified failure-cause column to swap_transactions.
 
@@ -1737,6 +2188,37 @@ def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> No
             )
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add execution-savings receipt columns to swap_transactions.
+
+    Persists what the quote race already computed and discarded: how much
+    better the winning venue was than the runner-up. `price_improvement_usd`
+    is the USD value of that edge (clamped to >=0 by the engine before
+    writing); `runner_up_provider` is who the winner beat (NULL when only one
+    quote raced). Additive and idempotent, per
+    docs/development/migrations.md — existing rows keep NULL, read as
+    "not measured" rather than "zero savings".
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    new_columns = [
+        ("price_improvement_usd", "FLOAT"),
+        ("runner_up_provider", "VARCHAR(50)"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type}"
+            else:
+                ddl = (
+                    f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
 
 
 def _add_user_settings_mev_column(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1915,6 +2397,42 @@ def _add_turnkey_columns(
                 ddl = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT {default}"
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_internal_wallet_lifecycle_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Lifecycle metadata for internally-provisioned wallets. Additive + idempotent.
+
+    All nullable and unset for the operational hot wallets that predate them, so
+    existing deposit/gas-payer rows are untouched by this migration.
+    """
+    cols = {c["name"] for c in inspector.get_columns("hot_wallets")}
+
+    new_columns = [
+        ("purpose", "VARCHAR(200)", "NULL"),
+        ("owner", "VARCHAR(100)", "NULL"),
+        ("expires_at", "TIMESTAMP", "NULL"),
+        ("retired_at", "TIMESTAMP", "NULL"),
+        ("retired_reason", "VARCHAR(200)", "NULL"),
+        ("retired_by", "VARCHAR(100)", "NULL"),
+    ]
+
+    for col_name, col_type, default in new_columns:
+        if col_name not in cols:
+            if is_sqlite:
+                ddl = f"ALTER TABLE hot_wallets ADD COLUMN {col_name} {col_type} DEFAULT {default}"
+            else:
+                ddl = (
+                    f"ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS "
+                    f"{col_name} {col_type} DEFAULT {default}"
+                )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+
+    # The audit sweep scans by expiry.
+    with db_engine.begin() as conn:
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_hot_wallets_expires_at ON hot_wallets(expires_at)")
+        )
 
 
 def _add_swap_agent_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -2157,9 +2675,9 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     CREATE TABLE IF NOT EXISTS agent_credits (
                         id SERIAL PRIMARY KEY,
                         agent_id INTEGER NOT NULL UNIQUE,
-                        balance REAL NOT NULL DEFAULT 0,
-                        lifetime_purchased REAL NOT NULL DEFAULT 0,
-                        lifetime_used REAL NOT NULL DEFAULT 0,
+                        balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        lifetime_purchased DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        lifetime_used DOUBLE PRECISION NOT NULL DEFAULT 0,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
@@ -2186,8 +2704,8 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         agent_id INTEGER NOT NULL,
                         tx_hash VARCHAR(128) NOT NULL UNIQUE,
                         chain VARCHAR(32) NOT NULL DEFAULT 'base',
-                        amount_usd REAL NOT NULL,
-                        credits_added REAL NOT NULL,
+                        amount_usd DOUBLE PRECISION NOT NULL,
+                        credits_added DOUBLE PRECISION NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
                     )
                 """))
@@ -2223,7 +2741,7 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
                         tier VARCHAR(20) NOT NULL,
                         tx_hash VARCHAR(128) NOT NULL UNIQUE,
                         chain VARCHAR(32) NOT NULL DEFAULT 'base',
-                        amount_usd REAL NOT NULL,
+                        amount_usd DOUBLE PRECISION NOT NULL,
                         started_at TIMESTAMP NOT NULL DEFAULT NOW(),
                         expires_at TIMESTAMP NOT NULL,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -3483,3 +4001,530 @@ def _create_aegis_trust_table(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created aegis_user_trust table")
     except Exception as e:
         logger.warning(f"Failed to create aegis_user_trust table: {e}")
+
+
+def _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add Python-owned Telegram-notification bookkeeping columns to
+    ``approval_requests`` (owned/created by api-ts — schema at
+    ``api-ts/src/db/schema/approvals.ts``), idempotently.
+
+    ``notified_at`` / ``notify_chat_id`` / ``notify_message_id`` are
+    PYTHON-OWNED — api-ts must NOT write them. They only track whether/where
+    ``bot/services/approval_notifier.py`` has DM'd the owning Telegram user
+    for a given row, so the notifier never double-sends and the decision
+    handler (``bot/handlers/approvals.py``) can edit the original message in
+    place. No-op (via ``has_table``) until api-ts has actually created the
+    table.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "approval_requests" not in tables:
+        return
+
+    try:
+        cols = {c["name"] for c in inspector.get_columns("approval_requests")}
+    except Exception as e:
+        logger.warning(f"Could not inspect approval_requests columns: {e}")
+        return
+
+    additions = []
+    if "notified_at" not in cols:
+        ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+        additions.append(f"ADD COLUMN notified_at {ts_type}")
+    if "notify_chat_id" not in cols:
+        bigint_type = "BIGINT" if not is_sqlite else "INTEGER"
+        additions.append(f"ADD COLUMN notify_chat_id {bigint_type}")
+    if "notify_message_id" not in cols:
+        additions.append("ADD COLUMN notify_message_id INTEGER")
+
+    if not additions:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            if is_sqlite:
+                # SQLite doesn't support multi-column ALTER TABLE ADD COLUMN
+                # in one statement.
+                for addition in additions:
+                    conn.execute(text(f"ALTER TABLE approval_requests {addition}"))
+            else:
+                for addition in additions:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE approval_requests "
+                            f"{addition.replace('ADD COLUMN', 'ADD COLUMN IF NOT EXISTS')}"
+                        )
+                    )
+        logger.info(f"Added approval_requests notify columns: {additions}")
+    except Exception as e:
+        logger.warning(f"Failed to add approval_requests notify columns: {e}")
+
+
+def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_webhook_deliveries idempotently (durable approval-decision webhooks).
+
+    Python-owned table — ``approval_requests`` (id: uuid, agent_id: varchar(64))
+    is owned by api-ts (``api-ts/src/db/schema/approvals.ts``); this table only
+    references it by id/agent_id string values, it never creates or alters
+    that table. ``id`` is a text/uuid primary key assigned by this bot on
+    enqueue (not autoincrement) so a delivery row can be created without a
+    round-trip to read back an identity value. Includes ``claimed_at`` from
+    the start (unlike the upstream port, which added it in a follow-up
+    migration) so ``WebhookDispatcher`` can reclaim rows stranded in
+    ``status='sending'`` by a crash mid-POST.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_webhook_deliveries" in tables:
+        return
+
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text(f"""
+                    CREATE TABLE IF NOT EXISTS agent_webhook_deliveries (
+                        id VARCHAR(36) PRIMARY KEY,
+                        approval_id VARCHAR(36) NOT NULL,
+                        agent_id TEXT,
+                        url VARCHAR(1024) NOT NULL,
+                        payload_json {json_type} NOT NULL,
+                        signature_ts VARCHAR(32),
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        claimed_at {ts_type},
+                        next_attempt_at {ts_type},
+                        last_error TEXT,
+                        created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        delivered_at {ts_type}
+                    )
+                    """))
+            for idx, cols in (
+                ("ix_agent_webhook_deliveries_status_next", "status, next_attempt_at"),
+                ("ix_agent_webhook_deliveries_approval_id", "approval_id"),
+            ):
+                conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS {idx} ON agent_webhook_deliveries ({cols})")
+                )
+        logger.info("Created agent_webhook_deliveries table")
+    except Exception as e:
+        logger.warning(f"Failed to create agent_webhook_deliveries table: {e}")
+
+
+def _add_agents_owner_user_id_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add agents.owner_user_id (nullable FK -> users.id) idempotently.
+
+    Shared column: api-ts already ships this on agents.ts's ownerUserId via
+    Drizzle. This migration exists for any Python-provisioned database
+    (sqlite dev/tests, or Postgres where the Python side runs first) so it
+    also gets the column. Additive/nullable; never touches agents creation.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agents" not in tables:
+        return
+    try:
+        cols = {c["name"] for c in inspector.get_columns("agents")}
+    except Exception as e:
+        logger.warning(f"Could not inspect agents columns: {e}")
+        return
+    if "owner_user_id" in cols:
+        return
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN owner_user_id INTEGER"))
+        logger.info("Added agents.owner_user_id column")
+    except Exception as e:
+        logger.warning(f"Failed to add agents.owner_user_id column: {e}")
+
+
+def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create agent_link_codes idempotently (agent ownership linking).
+
+    Matches api-ts's shipped Drizzle schema (agentLinkCodes.ts) exactly:
+    agent_id is an INTEGER FK to agents.id (NOT agents.uuid), code_hash is a
+    UNIQUE varchar(64) sha256 hex digest of a code minted+shown once by
+    api-ts's POST /v1/agent/link/code, expires_at/used_at/created_at are
+    timestamps. Exists for any Python-provisioned database that hasn't seen
+    api-ts's migration yet.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "agent_link_codes" in tables:
+        return
+
+    ts_type = "DATETIME" if is_sqlite else "TIMESTAMP"
+    pk_extra = "AUTOINCREMENT" if is_sqlite else ""
+
+    try:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"CREATE TABLE IF NOT EXISTS agent_link_codes ("
+                    f"id INTEGER PRIMARY KEY {pk_extra}, "
+                    f"agent_id INTEGER NOT NULL, "
+                    f"code_hash VARCHAR(64) NOT NULL, "
+                    f"expires_at {ts_type} NOT NULL, "
+                    f"used_at {ts_type}, "
+                    f"created_at {ts_type} NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_link_codes_code_hash "
+                    "ON agent_link_codes (code_hash)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_agent_link_codes_agent_id "
+                    "ON agent_link_codes (agent_id)"
+                )
+            )
+        logger.info("Created agent_link_codes table")
+    except Exception as e:
+        logger.warning(f"Failed to create agent_link_codes table: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Market data parity Phase 1 — normalized OHLCV candles
+# ---------------------------------------------------------------------------
+
+
+def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the market_candles table idempotently.
+
+    Backs the Historical API (GET /v1/data/history/ohlcv) per
+    docs/plans/market-data-parity.md. One row per (symbol, chain, timeframe, ts)
+    candle; populated by bot/services/market_data.py (Phase 2 — not yet
+    implemented as of this migration). open/high/low/close/volume use
+    NUMERIC(38,18) for exact decimal arithmetic across chains with wildly
+    different token decimals.
+
+    Mirrors api-ts's Drizzle schema (marketCandles.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "market_candles" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS market_candles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        token_address VARCHAR(255),
+                        timeframe VARCHAR(10) NOT NULL,
+                        ts DATETIME NOT NULL,
+                        open NUMERIC(38,18) NOT NULL,
+                        high NUMERIC(38,18) NOT NULL,
+                        low NUMERIC(38,18) NOT NULL,
+                        close NUMERIC(38,18) NOT NULL,
+                        volume NUMERIC(38,18),
+                        source VARCHAR(20) NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS market_candles (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(20) NOT NULL,
+                        chain VARCHAR(50) NOT NULL,
+                        token_address VARCHAR(255),
+                        timeframe VARCHAR(10) NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        open NUMERIC(38,18) NOT NULL,
+                        high NUMERIC(38,18) NOT NULL,
+                        low NUMERIC(38,18) NOT NULL,
+                        close NUMERIC(38,18) NOT NULL,
+                        volume NUMERIC(38,18),
+                        source VARCHAR(20) NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created market_candles table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
+                "ON market_candles(symbol, chain, timeframe, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
+                "ON market_candles(symbol, chain, timeframe, ts DESC)"
+            )
+        )
+
+
+def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the api_usage_daily table idempotently.
+
+    Per-caller (`api_key_id`), per-route, per-day request counter backing
+    /v1/data/* metering (see `callerKeyOf()` in api-ts/src/routes/data.ts).
+    One row per (api_key_id, route, day); `count` increments per request and
+    `last_used_at` records the most recent hit.
+
+    Mirrors api-ts's Drizzle schema (apiUsageDaily.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "api_usage_daily" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS api_usage_daily (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        api_key_id TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        day DATE NOT NULL,
+                        count INTEGER NOT NULL DEFAULT 0,
+                        last_used_at DATETIME
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS api_usage_daily (
+                        id BIGSERIAL PRIMARY KEY,
+                        api_key_id TEXT NOT NULL,
+                        route TEXT NOT NULL,
+                        day DATE NOT NULL,
+                        count BIGINT NOT NULL DEFAULT 0,
+                        last_used_at TIMESTAMPTZ
+                    )
+                """))
+            logger.info("Created api_usage_daily table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
+                "ON api_usage_daily(api_key_id, route, day)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
+                "ON api_usage_daily(api_key_id, day)"
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Market data parity Round 5 — perps / predictions / lend time series
+# ---------------------------------------------------------------------------
+
+
+def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the perp_metrics table idempotently.
+
+    Backs /v1/data/perps/* per docs/plans/market-data-parity.md (Round 5).
+    One row per (venue, symbol, ts) snapshot of a perp market — funding
+    rate, open interest, mark/index price, 24h volume — captured every 60s
+    from Hyperliquid REST metaAndAssetCtxs
+    (bot/services/hyperliquid_client.py).
+
+    Mirrors api-ts's Drizzle schema (perpMetrics.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "perp_metrics" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS perp_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        venue TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        ts DATETIME NOT NULL,
+                        funding_rate NUMERIC(38,18),
+                        open_interest NUMERIC(38,18),
+                        mark_price NUMERIC(38,18),
+                        index_price NUMERIC(38,18),
+                        volume_24h NUMERIC(38,18),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS perp_metrics (
+                        id BIGSERIAL PRIMARY KEY,
+                        venue TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        funding_rate NUMERIC(38,18),
+                        open_interest NUMERIC(38,18),
+                        mark_price NUMERIC(38,18),
+                        index_price NUMERIC(38,18),
+                        volume_24h NUMERIC(38,18),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created perp_metrics table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_perp_metrics_venue_symbol_ts "
+                "ON perp_metrics(venue, symbol, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_perp_metrics_venue_symbol_ts "
+                "ON perp_metrics(venue, symbol, ts DESC)"
+            )
+        )
+
+
+def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the prediction_snapshots table idempotently.
+
+    Backs /v1/data/predictions/* per docs/plans/market-data-parity.md
+    (Round 5). One row per (venue, market_id, outcome, ts) odds snapshot,
+    captured every 5 minutes for the top ~100 active markets by volume from
+    Polymarket Gamma (bot/services/polymarket_api.py).
+
+    Mirrors api-ts's Drizzle schema (predictionSnapshots.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "prediction_snapshots" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS prediction_snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        condition_id TEXT,
+                        question TEXT,
+                        outcome TEXT NOT NULL,
+                        ts DATETIME NOT NULL,
+                        price NUMERIC(38,18),
+                        volume NUMERIC(38,18),
+                        liquidity NUMERIC(38,18),
+                        end_date DATETIME,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS prediction_snapshots (
+                        id BIGSERIAL PRIMARY KEY,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        condition_id TEXT,
+                        question TEXT,
+                        outcome TEXT NOT NULL,
+                        ts TIMESTAMPTZ NOT NULL,
+                        price NUMERIC(38,18),
+                        volume NUMERIC(38,18),
+                        liquidity NUMERIC(38,18),
+                        end_date TIMESTAMPTZ,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created prediction_snapshots table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "uq_prediction_snapshots_venue_market_id_outcome_ts "
+                "ON prediction_snapshots(venue, market_id, outcome, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_prediction_snapshots_venue_market_id_ts "
+                "ON prediction_snapshots(venue, market_id, ts DESC)"
+            )
+        )
+
+
+def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the lend_metrics table idempotently.
+
+    Backs /v1/data/lend/* per docs/plans/market-data-parity.md (Round 5).
+    One row per (venue, market_id, ts) snapshot of a lending market —
+    supply/borrow APY, TVL, utilization — captured every 10 minutes from
+    Morpho GraphQL (bot/services/morpho_api.py).
+
+    Mirrors api-ts's Drizzle schema (lendMetrics.ts) exactly.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "lend_metrics" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lend_metrics (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        chain_id INTEGER,
+                        loan_symbol TEXT,
+                        collateral_symbol TEXT,
+                        ts DATETIME NOT NULL,
+                        supply_apy NUMERIC(38,18),
+                        borrow_apy NUMERIC(38,18),
+                        tvl NUMERIC(38,18),
+                        utilization NUMERIC(38,18),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS lend_metrics (
+                        id BIGSERIAL PRIMARY KEY,
+                        venue TEXT NOT NULL,
+                        market_id TEXT NOT NULL,
+                        chain_id INTEGER,
+                        loan_symbol TEXT,
+                        collateral_symbol TEXT,
+                        ts TIMESTAMPTZ NOT NULL,
+                        supply_apy NUMERIC(38,18),
+                        borrow_apy NUMERIC(38,18),
+                        tvl NUMERIC(38,18),
+                        utilization NUMERIC(38,18),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            logger.info("Created lend_metrics table")
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_lend_metrics_venue_market_id_ts "
+                "ON lend_metrics(venue, market_id, ts)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
+                "ON lend_metrics(venue, market_id, ts DESC)"
+            )
+        )

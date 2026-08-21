@@ -14,8 +14,8 @@
 [![Scorecard](https://img.shields.io/github/actions/workflow/status/0xSoftBoi/suwappubot/scorecard.yml?branch=main&label=scorecard)](.github/workflows/scorecard.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-[![Chains](https://img.shields.io/badge/Chains-14-green)]()
-[![Providers](https://img.shields.io/badge/Swap_Providers-15+-orange)]()
+[![Chains](https://img.shields.io/badge/Chains-45-green)](showcase/src/data/stats.generated.json)
+[![Providers](https://img.shields.io/badge/Swap_Providers-19-orange)](showcase/src/data/stats.generated.json)
 [![Agent-Ready](https://img.shields.io/badge/Agent--Ready-MCP-blueviolet)](docs/agent-clients.md)
 [![A2A Protocol](https://img.shields.io/badge/A2A-Protocol-blue)](api-ts/agent-card.json)
 [![ClawHub](https://img.shields.io/badge/ClawHub-suwappu--dex-ff4d4d)](https://clawhub.ai/0xsoftboi/suwappu-dex)
@@ -24,7 +24,7 @@
 
 <p align="center">
   <b>Cross-chain DEX infrastructure for humans and AI agents.</b><br>
-  Swap tokens across 14 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
+  Swap tokens across 45 chains via Telegram, WhatsApp, Discord, a web terminal, or a programmatic API.
 </p>
 
 <p align="center">
@@ -82,12 +82,12 @@
 
 ## Overview
 
-**14 chains. 15+ swap providers. 3 agent protocols. 5 frontends.**
+**45 chains. 19 swap providers. 3 agent protocols. 5 frontends.**
 
 | | |
 |---|---|
-| **Chains** | 12 EVM (ETH, BSC, Polygon, Arbitrum, Optimism, Base, Avalanche, Fantom, Linea, Mantle, Gnosis, Scroll) + Solana + TRON |
-| **Swap Providers** | CoW Protocol, Socket, Jupiter, Jito, Li.Fi, Circle CCTP, Across, Wormhole, LayerZero, Chainlink CCIP, OKX DEX, 1inch, KyberSwap, 0x, SunSwap + more |
+| **Chains** | 45 mainnet chains — EVM + Solana + TRON + Starknet (canonical list: `bot/config/chains.py`; 18 served on the agent API) |
+| **Swap Providers** | 19 routing providers — 0x, 1inch, Across, AVNU, CCIP, CCTP, CoW, GoatSwap, JuiceSwap, Jupiter, KyberSwap, LayerZero, Li.Fi, OKX, Socket, SunSwap, Tempo DEX, usdt0, Wormhole (chain-gated per route; source of truth: `showcase/src/data/stats.generated.json`) |
 | **Agent Protocols** | REST API (50+ endpoints) · MCP (22 tools) · A2A (JSON-RPC) |
 | **Platforms** | Telegram Bot · WhatsApp · Discord · Web Terminal · Browser Extension |
 | **SDKs** | [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) · [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) · Python SDK |
@@ -112,8 +112,8 @@ flowchart LR
         API["TypeScript API\nHono + Effect-TS\n50+ Endpoints"]
     end
 
-    subgraph Providers["15+ Swap Providers"]
-        EVM["12 EVM Chains"]
+    subgraph Providers["19 Swap Providers"]
+        EVM["EVM Chains"]
         SOL["Solana"]
         TRON["TRON"]
     end
@@ -130,7 +130,7 @@ flowchart LR
 ## Features
 
 ### Trading
-- **Cross-chain swaps** — 15+ providers raced in parallel per route, best-price selection, slippage protection
+- **Cross-chain swaps** — 19 providers, chain-gated per route and raced in parallel, best-price selection, slippage protection
 - **MEV protection** — CoW Protocol batch auctions (EVM) + Jito bundles (Solana)
 - **Limit orders** — Buy/sell triggers, stop-loss, trailing stop with expiry
 - **DCA orders** — Dollar-cost averaging on daily/weekly/monthly intervals
@@ -153,7 +153,7 @@ flowchart LR
 |----------|----------|-------------|
 | **REST API** | `/v1/agent/*` | 50+ endpoints — swaps, wallets, portfolio, perps, predictions, lending, webhooks |
 | **MCP** | `/mcp` | 22 tools — quotes, swaps, portfolio, perps, predictions, lending, wallet policies, and more |
-| **A2A** | `/a2a` | Natural language — "swap 0.5 ETH to USDC on base", "price ETH SOL BTC" |
+| **A2A** | `/a2a` | Natural-language quotes/prices/discovery — `swap ...` returns a quote; no A2A execution method |
 
 **Framework toolkits:** [LangChain](https://github.com/0xSoftBoi/suwappu-langchain) · [CrewAI](https://github.com/0xSoftBoi/suwappu-crewai-crew) · **[OpenClaw](packages/openclaw/SKILL.md)** (zero-code, native MCP). Add Suwappu to any OpenClaw agent in one command:
 
@@ -201,12 +201,9 @@ Add to your Claude Desktop config:
 }
 ```
 
-Or via npm:
-
-```bash
-npm install -g @suwappu/mcp-server
-SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
-```
+For stdio-only clients, repository source `packages/mcp-server` contains the
+`0.6.0` forwarding bridge. The npm release is still `0.1.1`, so use hosted
+MCP for the current catalog until `0.6.0` is published.
 
 ### A2A (Agent-to-Agent)
 
@@ -214,11 +211,11 @@ SUWAPPU_API_KEY=suwappu_sk_YOUR_KEY npx @suwappu/mcp-server
 # Discover capabilities
 curl https://api.suwappu.bot/.well-known/agent.json
 
-# Natural language swap
+# Natural-language quote (`swap` wording is quote-only in A2A)
 curl -X POST https://api.suwappu.bot/a2a \
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","role":"user","parts":[{"kind":"text","type":"text","text":"swap 0.5 ETH to USDC on base"}]}}}'
 ```
 
 ### Local Development
@@ -261,6 +258,8 @@ Request → Pre-checks (spending limits, safety score, MEV config)
 ---
 
 ## Supported Chains
+
+The table below highlights the original launch chains. The canonical list of all **45 mainnet chains** lives in `bot/config/chains.py`, drift-checked into `showcase/src/data/stats.generated.json` (18 of them are served on the agent API).
 
 | Chain | ID | Native | Type | Swap Providers |
 |-------|-----|--------|------|---------------|
@@ -334,6 +333,7 @@ suwappubot/
 ├── packages/
 │   ├── shared/         # Shared TypeScript types
 │   ├── sdk/            # @suwappu/sdk (npm, published)
+│   ├── mcp-server/     # @suwappu/mcp-server stdio -> hosted MCP bridge
 │   ├── openclaw/       # @suwappu/openclaw (npm, published)
 │   ├── design-tokens/  # @suwappu/design-tokens
 │   └── sdk-python/     # Python SDK (development)
@@ -347,7 +347,7 @@ suwappubot/
 └── .github/workflows/  # CI/CD
 ```
 
-`@suwappu/mcp-server` is published to npm but not vendored in this monorepo.
+`packages/mcp-server` source is vendored here and can be ahead of the published npm release; see the package README for the current version boundary.
 
 ---
 
@@ -374,9 +374,11 @@ suwappubot/
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.5.2 | TypeScript SDK + `suwappu` CLI |
+| [`@suwappu/sdk`](https://www.npmjs.com/package/@suwappu/sdk) | 0.4.0 | TypeScript SDK + `suwappu` CLI |
 | [`@suwappu/mcp-server`](https://www.npmjs.com/package/@suwappu/mcp-server) | 0.1.1 | MCP server for Claude Desktop/Cursor |
 | [`@suwappu/openclaw`](https://www.npmjs.com/package/@suwappu/openclaw) | 0.2.0 | OpenClaw skill module |
+
+> Versions above are the current npm releases. Package source in this monorepo may be ahead while the next release is being prepared.
 
 ---
 
@@ -417,7 +419,6 @@ checked post-deploy).
 - **Token analysis** — GoPlus Security API integration
 - **Transaction simulation** — Simulate before executing
 - **Withdrawal whitelisting** — 24h cooldown for new addresses
-- **WAF** — AWS WAF with rate limiting (300 req/IP)
 - **Audit logging** — All security-sensitive actions logged
 
 Report vulnerabilities to **security@suwappu.bot** — see [SECURITY.md](./SECURITY.md).

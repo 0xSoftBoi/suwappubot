@@ -8,16 +8,25 @@ import { keccak_256 } from '@noble/hashes/sha3'
 // exchange 0x4bFb…982E) produced signatures the CLOB rejects — Polymarket migrated
 // to pUSD collateral + a new exchange in April 2026.
 //
-// Neg-risk markets are matched by a separate exchange (NegRiskCtfExchange
-// 0xC5d563A36AE78145C45a50134d48A1215220f80a) with the same domain name/version but
-// a different verifyingContract; pass `verifyingContract` through buildOrderTypedData
-// when adding neg-risk support.
-const EIP712_DOMAIN = {
-	name: 'Polymarket CTF Exchange',
-	version: '2',
-	chainId: 137,
-	verifyingContract: '0xE111180000d2663C0091e4f400237545B87B996B' as const,
+// Neg-risk (multi-outcome) markets are matched by a SEPARATE deployment of the
+// same contract code — only verifyingContract differs, name/version are
+// identical. Value copied verbatim from
+// bot/services/polymarket_v2_order.py's NEG_RISK_CTF_EXCHANGE (ground truth,
+// verified 2026-07-26 first-party) — the two MUST stay byte-identical, pinned
+// by a test in __tests__/polymarketEip712.test.ts.
+export const CTF_EXCHANGE = '0xE111180000d2663C0091e4f400237545B87B996B'
+export const NEG_RISK_CTF_EXCHANGE = '0xe2222d279d744050d28e00520010520000310F59'
+
+function domainFor(negRisk: boolean) {
+	return {
+		name: 'Polymarket CTF Exchange',
+		version: '2',
+		chainId: 137,
+		verifyingContract: (negRisk ? NEG_RISK_CTF_EXCHANGE : CTF_EXCHANGE) as string,
+	}
 }
+
+const EIP712_DOMAIN = domainFor(false)
 
 // v2 Order struct, verified against the on-chain ORDER_TYPEHASH
 // (0xbb86318a…818589) in src/exchange/libraries/Structs.sol. Note the v2 schema
@@ -90,9 +99,37 @@ function encodeUint8(value: number): Buffer {
 	return encodeUint256(String(value))
 }
 
+// Matches bot/services/polymarket_v2_order.py's builder-code validation
+// pattern (32-byte hex). Exported so callers can validate a user/env-supplied
+// bytes32 field (e.g. POLYMARKET_BUILDER_CODE) before it ever reaches
+// encodeBytes32, and fall back to ZERO_BYTES32 on a mismatch.
+export const BUILDER_CODE_RE = /^0x[0-9a-fA-F]{64}$/
+
+/**
+ * Resolve a caller-supplied bytes32 hex value against BUILDER_CODE_RE,
+ * falling back to ZERO_BYTES32 (mirrors the Python side's
+ * `_BUILDER_CODE_RE` fallback in polymarket_api.py). A malformed value
+ * (wrong length, non-hex, missing 0x) silently signing garbage into the
+ * order's `builder` field is worse than just treating it as "no builder".
+ */
+export function resolveBuilderCode(raw: string | undefined | null): string {
+	if (raw && BUILDER_CODE_RE.test(raw)) return raw
+	return ZERO_BYTES32
+}
+
 function encodeBytes32(value: string): Buffer {
-	const clean = value.toLowerCase().replace('0x', '').padStart(64, '0').slice(-64)
-	return Buffer.from(clean, 'hex')
+	const hasPrefix = value.toLowerCase().startsWith('0x')
+	const clean = (hasPrefix ? value.slice(2) : value).toLowerCase()
+	// Previously this silently truncated an over-length value via
+	// `.slice(-64)` — a mistakenly-longer input would sign a DIFFERENT
+	// bytes32 than the caller intended, with no error. Reject instead:
+	// only accept 1-64 valid hex chars, left-padded to 32 bytes.
+	if (clean.length === 0 || clean.length > 64 || !/^[0-9a-f]+$/.test(clean)) {
+		throw new Error(
+			`encodeBytes32: expected a 0x-prefixed hex string of at most 32 bytes, got ${JSON.stringify(value)}`,
+		)
+	}
+	return Buffer.from(clean.padStart(64, '0'), 'hex')
 }
 
 function hashStruct(primaryType: string, data: ClobOrderData, types: Record<string, { name: string; type: string }[]>): Buffer {
@@ -118,32 +155,45 @@ function hashStruct(primaryType: string, data: ClobOrderData, types: Record<stri
 	return keccak256(Buffer.concat(encodedValues))
 }
 
-function hashDomain(): Buffer {
+function hashDomain(domain: typeof EIP712_DOMAIN): Buffer {
 	const domainTypeHash = keccak256(
 		Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
 	)
 	return keccak256(
 		Buffer.concat([
 			domainTypeHash,
-			keccak256(Buffer.from(EIP712_DOMAIN.name)),
-			keccak256(Buffer.from(EIP712_DOMAIN.version)),
-			encodeUint256(String(EIP712_DOMAIN.chainId)),
-			encodeAddress(EIP712_DOMAIN.verifyingContract),
+			keccak256(Buffer.from(domain.name)),
+			keccak256(Buffer.from(domain.version)),
+			encodeUint256(String(domain.chainId)),
+			encodeAddress(domain.verifyingContract),
 		])
 	)
 }
 
-export function buildOrderTypedData(order: ClobOrderData): EIP712TypedData {
+/**
+ * Build the full EIP-712 payload for an order.
+ *
+ * `negRisk` MUST reflect the market (CLOB `GET /neg-risk?token_id=`) — it
+ * selects which exchange's domain (verifyingContract) the order is bound to.
+ * Getting it wrong produces a valid-looking signature the CLOB still rejects,
+ * because it recovers against the wrong contract. Mirrors
+ * bot/services/polymarket_v2_order.py's `domain_for`/`sign_order`.
+ */
+export function buildOrderTypedData(order: ClobOrderData, negRisk: boolean): EIP712TypedData {
 	return {
 		types: ORDER_TYPES,
 		primaryType: 'Order',
-		domain: EIP712_DOMAIN,
+		domain: domainFor(negRisk),
 		message: order,
 	}
 }
 
 export function hashEip712Order(typedData: EIP712TypedData): string {
-	const domainSeparator = hashDomain()
+	// Hash the domain that was ACTUALLY passed in typedData, not a fixed
+	// module-level constant — this used to always hash the non-neg-risk domain
+	// regardless of what buildOrderTypedData produced, silently signing
+	// neg-risk orders against the wrong exchange.
+	const domainSeparator = hashDomain(typedData.domain)
 	const structHash = hashStruct(typedData.primaryType, typedData.message, typedData.types)
 	const prefix = Buffer.from('1901', 'hex')
 	const digest = keccak256(Buffer.concat([prefix, domainSeparator, structHash]))

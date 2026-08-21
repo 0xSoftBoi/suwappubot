@@ -98,7 +98,7 @@ async def _aggregate_positions(user_db_id: int) -> tuple[str, list[dict]]:
     # ---- Perps ----
     perps_lines: list[str] = []
     try:
-        positions = perps_service.get_positions(user_db_id)
+        positions = await perps_service.get_positions(user_db_id)
     except Exception:
         positions = []
     for pos in positions or []:

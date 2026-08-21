@@ -1,48 +1,15 @@
 import { Context, Effect, Layer } from 'effect'
 import { DEFAULT_AGENT_FEE_BPS, DEFAULT_FEE_WALLET_SOLANA } from '../config/constants'
+import { SOLANA_TOKENS } from '../config/tokenRegistry'
 import { ValidationError } from '../errors'
 import { logger } from '../lib/logger'
 
 // Jupiter API base URL
 const JUPITER_API_BASE = 'https://lite-api.jup.ag/swap/v1'
 
-// Solana token addresses
-export const SOLANA_TOKENS: Record<string, { address: string; decimals: number; name: string }> = {
-	SOL: { address: 'So11111111111111111111111111111111111111112', decimals: 9, name: 'Solana' },
-	WSOL: {
-		address: 'So11111111111111111111111111111111111111112',
-		decimals: 9,
-		name: 'Wrapped SOL',
-	},
-	USDC: { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6, name: 'USD Coin' },
-	USDT: {
-		address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-		decimals: 6,
-		name: 'Tether USD',
-	},
-	BONK: { address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', decimals: 5, name: 'Bonk' },
-	WIF: { address: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm', decimals: 6, name: 'dogwifhat' },
-	JUP: { address: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', decimals: 6, name: 'Jupiter' },
-	RAY: { address: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', decimals: 6, name: 'Raydium' },
-	PYTH: {
-		address: 'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3',
-		decimals: 6,
-		name: 'Pyth Network',
-	},
-	JTO: { address: 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL', decimals: 9, name: 'Jito' },
-	ORCA: { address: 'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE', decimals: 6, name: 'Orca' },
-	MNDE: { address: 'MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey', decimals: 9, name: 'Marinade' },
-	MSOL: {
-		address: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
-		decimals: 9,
-		name: 'Marinade Staked SOL',
-	},
-	JITOSOL: {
-		address: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn',
-		decimals: 9,
-		name: 'Jito Staked SOL',
-	},
-}
+// SOLANA_TOKENS now lives in config/tokenRegistry.ts (imported above, re-exported
+// below) — single source of truth shared with routes/data.ts's reference API.
+export { SOLANA_TOKENS }
 
 // Jupiter quote response
 export interface JupiterQuote {

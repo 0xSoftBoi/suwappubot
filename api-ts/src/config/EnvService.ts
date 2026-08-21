@@ -32,6 +32,10 @@ export const EnvSchema = Schema.Struct({
 	// JWT
 	JWT_SECRET: Schema.optional(Schema.String),
 
+	// Webapp passkey recovery (WebAuthn relying party)
+	WEBAPP_RP_ID: Schema.optionalWith(Schema.String, { default: () => 'app.suwappu.bot' }),
+	WEBAPP_RP_NAME: Schema.optionalWith(Schema.String, { default: () => 'Suwappu' }),
+
 	// CORS
 	ALLOWED_ORIGINS: Schema.optionalWith(Schema.String, {
 		default: () =>
@@ -68,6 +72,10 @@ export const EnvSchema = Schema.Struct({
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Require a server-issued step-up challenge (approval_step_up_challenges)
+	// to be presented and consumed before an owner's approve decision is
+	// honored. Default OFF so existing owner approve flows are unaffected.
+	APPROVAL_STEP_UP_REQUIRED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	// Address that receives USDC topups. Falls back to FEE_WALLET_EVM in code if unset.
 	AGENT_METERING_COLLECTOR_ADDRESS: Schema.optional(Schema.String),
 	// Network + USDC asset address used in the x402 402 challenge body.
@@ -76,6 +84,11 @@ export const EnvSchema = Schema.Struct({
 	AGENT_METERING_USDC_ADDRESS: Schema.optionalWith(Schema.String, {
 		default: () => '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 	}),
+	// Extra x402 payment networks advertised alongside the primary one, comma
+	// separated (see config/x402Networks.ts for the registry). Empty by default:
+	// enabling a payment rail is a deliberate act. e.g. "robinhood" to accept
+	// Paxos USDG on Robinhood Chain (4663).
+	X402_EXTRA_NETWORKS: Schema.optionalWith(Schema.String, { default: () => '' }),
 
 	// x402 facilitator (direct on-chain settlement of a single call via the
 	// X-PAYMENT header, as an alternative to prepaid credits). OFF by default —

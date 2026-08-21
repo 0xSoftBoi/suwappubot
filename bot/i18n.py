@@ -119,6 +119,17 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "fr": "⚠️ _Échec de la création du portefeuille — utilisez /w pour réessayer._",
         "zh": "⚠️ _钱包创建失败 — 使用 /w 重试。_",
     },
+    # ------------------------------------------------------------------
+    # wallet_ready — explicit confirmation once background provisioning
+    # finishes, so the "Creating your wallets…" message visibly resolves
+    # instead of just silently swapping in the address block.
+    # ------------------------------------------------------------------
+    "wallet_ready": {
+        "en": "✅ *Wallets ready!*",
+        "es": "✅ *¡Carteras listas!*",
+        "fr": "✅ *Portefeuilles prêts !*",
+        "zh": "✅ *钱包已就绪！*",
+    },
 }
 
 _SUPPORTED_LANGS = frozenset({"en", "es", "fr", "zh"})

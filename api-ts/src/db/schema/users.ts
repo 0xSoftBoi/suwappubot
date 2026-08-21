@@ -45,6 +45,13 @@ export const users = pgTable('users', {
 	// Enterprise org membership
 	organizationId: uuid('organization_id'),
 
+	// Account recovery (passkey recovery flow). unique() so two accounts can
+	// never claim the same recovery email — without it, an attacker who sets
+	// their own recovery_email to a victim's address could receive the
+	// victim's recovery token once email delivery is wired.
+	recoveryEmail: text('recovery_email').unique(),
+	recoveryEmailSetAt: timestamp('recovery_email_set_at'),
+
 	// Timestamps
 	createdAt: timestamp('created_at').defaultNow(),
 	updatedAt: timestamp('updated_at').defaultNow(),

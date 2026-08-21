@@ -21,6 +21,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
   {
     title: 'Solutions',
     links: [
+      { label: 'Enterprise', href: '/enterprise' },
       { label: 'Trading agents', href: '/solutions#trading' },
       { label: 'Portfolio agents', href: '/solutions#portfolio' },
       { label: 'Payment & commerce agents', href: '/solutions#payments' },
@@ -33,6 +34,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     links: [
       { label: 'Documentation', href: '/docs' },
       { label: 'API Reference', href: '/docs/api-reference/overview' },
+      { label: 'Architecture', href: '/architecture' },
       { label: 'Changelog', href: '/changelog' },
       { label: 'Research', href: '/research' },
       { label: 'llms.txt', href: '/llms.txt', external: true },
@@ -69,7 +71,7 @@ export default function SummerFooter() {
             <img src="/logo.svg" alt="" aria-hidden="true" />
             <span>suwappu</span>
           </a>
-          <p>Cross-chain execution for agents and humans: best-price swaps, HyperLiquid perps, and gasless trades across {stats.platformChains} chains.</p>
+          <p>Cross-chain execution for agents and humans: routed swaps, HyperLiquid perps, and gas-sponsored Tempo trades across {stats.platformChains} platform chains.</p>
           <div className="summer-footer__social">
             <a href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)">X</a>
             <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Telegram">Telegram</a>
@@ -118,7 +120,7 @@ export default function SummerFooter() {
 
       <div className="summer-footer__bottom">
         <span>&copy; 2026 Suwappu. All rights reserved.</span>
-        <span>Non-custodial where you bring your own keys. Crypto trading carries risk.</span>
+        <span>You sign every swap by default; bring your own keys for full self-custody. Crypto trading carries risk.</span>
       </div>
     </footer>
   );

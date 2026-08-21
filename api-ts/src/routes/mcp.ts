@@ -14,6 +14,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
+import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
@@ -22,7 +23,8 @@ import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
-import { checkEvmWalletOwnership } from './agent'
+import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf } from './agent'
+import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
@@ -38,13 +40,15 @@ type McpContext = { Variables: { agent: Agent } }
 
 const mcpRoutes = new Hono<McpContext>()
 
-// MCP handshake/discovery methods must work without auth (anonymous initialize is
-// part of the spec) — auth is enforced per-method inside the POST handler instead
-// of a blanket `use('*', ...)` gate so unhappy paths stay inside the JSON-RPC envelope.
+// MCP discovery and the legacy handshake must work without auth — auth is
+// enforced per-method inside the POST handler instead of a blanket `use('*', ...)`
+// gate so unhappy paths stay inside the JSON-RPC envelope.
 const PUBLIC_MCP_METHODS = new Set([
 	'initialize',
+	'server/discover',
 	'tools/list',
 	'resources/list',
+	'resources/templates/list',
 	'resources/read',
 	'prompts/list',
 	'prompts/get',
@@ -64,336 +68,85 @@ const PUBLIC_MCP_METHODS = new Set([
 const PUBLIC_READ_TOOLS = new Set(['list_chains', 'list_tokens', 'get_tempo_tokens', 'browse_mpp_directory'])
 
 // ---------------------------------------------------------------
-// Protocol version negotiation (MCP spec: lifecycle / initialize)
+// Protocol eras (MCP 2026-07-28 + legacy initialize compatibility)
 //
-// We are a simple JSON-RPC 2.0 server — none of our tools/resources/prompts
-// behavior is gated on protocolVersion, so negotiation is limited to the
-// initialize handshake. Per spec: if the client's requested version is one
-// we support, echo it back; otherwise respond with our latest supported
-// version (the client may then decide whether to proceed or disconnect).
-// Do NOT bump this to unreleased/RC spec revisions.
+// 2026-07-28 is the first stateless/core-modern revision: every request is
+// self-describing via params._meta and mirrored HTTP headers. Legacy revisions
+// still negotiate through initialize. Keep those paths separate — initialize
+// must never negotiate a modern revision because modern MCP has no handshake.
 // ---------------------------------------------------------------
-const SUPPORTED_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'] as const
-const LATEST_MCP_VERSION = SUPPORTED_MCP_VERSIONS[SUPPORTED_MCP_VERSIONS.length - 1]
+const LEGACY_MCP_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'] as const
+const MODERN_MCP_VERSION = '2026-07-28' as const
+const SUPPORTED_MCP_VERSIONS = [...LEGACY_MCP_VERSIONS, MODERN_MCP_VERSION] as const
+const LATEST_LEGACY_MCP_VERSION = LEGACY_MCP_VERSIONS[LEGACY_MCP_VERSIONS.length - 1]
+const LATEST_MCP_VERSION = MODERN_MCP_VERSION
+
+const MCP_PROTOCOL_VERSION_META = 'io.modelcontextprotocol/protocolVersion'
+const MCP_CLIENT_CAPABILITIES_META = 'io.modelcontextprotocol/clientCapabilities'
+const MCP_SERVER_INFO_META = 'io.modelcontextprotocol/serverInfo'
+const MCP_SERVER_INFO = { name: 'suwappu', version: '0.6.0' } as const
+const MCP_CATALOG_TTL_MS = 60_000
+const MCP_DISCOVERY_TTL_MS = 3_600_000
 
 function negotiateProtocolVersion(requested: unknown): string {
-	if (typeof requested === 'string' && (SUPPORTED_MCP_VERSIONS as readonly string[]).includes(requested)) {
+	if (typeof requested === 'string' && (LEGACY_MCP_VERSIONS as readonly string[]).includes(requested)) {
 		return requested
 	}
-	return LATEST_MCP_VERSION
+	return LATEST_LEGACY_MCP_VERSION
 }
 
-// ---------------------------------------------------------------
-// Tool definitions (MCP tool schema)
-// ---------------------------------------------------------------
+// MPP (Machine Payments Protocol, i.e. api.mpp.dev / directory.mpp.dev — the
+// browse_mpp_directory tool's upstream, NOT the unrelated Suwappu Micropayments
+// 402 flow in middleware/mppAuth.ts which coincidentally reuses the same
+// MPP_ENABLED env var name) is gated OFF by default. As of 2026-07-26 those
+// hosts do not resolve (NXDOMAIN), so browse_mpp_directory always fails.
+// Advertising a tool that can only error is worse than not advertising it, so
+// it is hidden from tools/list and rejected in tools/call unless
+// MPP_ENABLED=true.
+const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
+const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
 
-const TOOLS = [
-	{
-		name: 'get_quote',
-		description: 'Get a swap quote for exchanging tokens. Supports EVM chains (Ethereum, Base, Arbitrum, Polygon, BSC, Optimism, Avalanche) via Li.Fi and Solana via Jupiter.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				from_token: { type: 'string', description: 'Source token symbol (e.g. ETH, SOL, USDC)' },
-				to_token: { type: 'string', description: 'Destination token symbol' },
-				amount: { type: 'string', description: 'Amount to swap in human units (e.g. "0.5")' },
-				chain: { type: 'string', description: 'Chain name (ethereum, base, arbitrum, polygon, bsc, optimism, avalanche, solana). Defaults to ethereum.' },
-				from_chain: { type: 'string', description: 'Source chain for cross-chain swaps (optional)' },
-				to_chain: { type: 'string', description: 'Destination chain for cross-chain swaps (optional)' },
-				wallet_address: { type: 'string', description: 'Wallet address to get executable transaction data (optional)' },
-				slippage: { type: 'number', description: 'Slippage tolerance as decimal (0.03 = 3%). Default 0.03' },
-			},
-			required: ['from_token', 'to_token', 'amount'],
-		},
-	},
-	{
-		name: 'get_portfolio',
-		description: 'Get token balances and portfolio value for a wallet address across all supported chains.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				wallet_address: { type: 'string', description: 'Wallet address (0x... for EVM, base58 for Solana)' },
-				chain: { type: 'string', description: 'Filter to specific chain (optional)' },
-			},
-			required: ['wallet_address'],
-		},
-	},
-	{
-		name: 'get_prices',
-		description: 'Get current token prices in USD with 24h change. Supported: ETH, SOL, BNB, USDC, USDT, BTC, DAI, WBTC, ARB, OP, AVAX, MATIC, WETH, BONK, JUP, RAY.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				symbols: { type: 'string', description: 'Comma-separated token symbols (e.g. "ETH,SOL,USDC"). Max 20.' },
-			},
-			required: ['symbols'],
-		},
-	},
-	{
-		name: 'list_chains',
-		description: 'List all supported blockchain networks for swapping. Free and public — no API key required.',
-		inputSchema: { type: 'object', properties: {} },
-	},
-	{
-		name: 'list_tokens',
-		description: 'List available tokens on a specific chain. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				chain: { type: 'string', description: 'Chain name (e.g. "base", "solana"). If omitted, returns all chains.' },
-				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
-			},
-		},
-	},
-	{
-		name: 'execute_swap',
-		description: 'Execute a swap using a previously obtained quote_id. Returns an unsigned transaction for the user to sign.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
-				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
-				idempotency_key: { type: 'string', description: 'Optional client-supplied idempotency key (scoped per-agent server-side) to dedupe retries of the same swap intent.' },
-			},
-			required: ['quote_id', 'wallet_address'],
-		},
-	},
-	{
-		name: 'simulate_swap',
-		description: 'Dry-run a swap with zero funds moved. Fetches (or reuses a quote_id from get_quote) and returns expected output, price impact, and safety checks (balance, ERC-20 allowance, gas affordability, eth_call revert simulation, slippage sanity) — never signs or broadcasts anything.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call (optional — if omitted, from_token/to_token/amount are required)' },
-				from_token: { type: 'string', description: 'Source token symbol (e.g. ETH, SOL, USDC)' },
-				to_token: { type: 'string', description: 'Destination token symbol' },
-				amount: { type: 'string', description: 'Amount to swap in human units (e.g. "0.5")' },
-				chain: { type: 'string', description: 'Chain name (ethereum, base, arbitrum, polygon, bsc, optimism, avalanche, solana). Defaults to ethereum.' },
-				from_chain: { type: 'string', description: 'Source chain for cross-chain swaps (optional)' },
-				to_chain: { type: 'string', description: 'Destination chain for cross-chain swaps (optional)' },
-				wallet_address: { type: 'string', description: 'Wallet address to run balance/allowance/gas/eth_call checks against. Strongly recommended — without it those checks are skipped.' },
-				slippage: { type: 'number', description: 'Slippage tolerance as decimal (0.03 = 3%). Default 0.03' },
-			},
-		},
-	},
-	{
-		name: 'get_tempo_tokens',
-		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
-			},
-		},
-	},
-	{
-		name: 'browse_mpp_directory',
-		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				category: { type: 'string', description: 'Filter by category (e.g. "defi", "ai", "data"). Optional.' },
-				limit: { type: 'number', description: 'Max results to return (default 20, max 100)' },
-			},
-		},
-	},
-	{
-		name: 'predict_markets',
-		description: 'Search and browse prediction markets on Polymarket. Returns active markets with live prices, volumes, and CLOB token IDs.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				query: { type: 'string', description: 'Search query or category tag (e.g. "bitcoin", "crypto", "politics")' },
-				limit: { type: 'number', description: 'Max results (default 10, max 50)' },
-			},
-		},
-	},
-	{
-		name: 'predict_market',
-		description: 'Get detailed prediction market info including live CLOB midpoint prices for each outcome. Requires a market condition ID.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
-			},
-			required: ['market_id'],
-		},
-	},
-	{
-		name: 'perps_markets',
-		description: 'List available Hyperliquid perpetual futures markets with mark price, funding rate, max leverage, and size decimals.',
-		inputSchema: { type: 'object', properties: {} },
-	},
-	{
-		name: 'perps_quote',
-		description: 'Quote a Hyperliquid perpetual position: entry price, margin required, liquidation price, funding rate, and fees. Requires authentication.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market: { type: 'string', description: 'Perp market symbol (e.g. "ETH-PERP", "BTC-PERP") from perps_markets' },
-				side: { type: 'string', enum: ['long', 'short'], description: 'Position direction' },
-				size: { type: 'number', description: 'Position size in the base asset' },
-				leverage: { type: 'number', description: 'Leverage multiplier (e.g. 10)' },
-			},
-			required: ['market', 'side', 'size', 'leverage'],
-		},
-	},
-	{
-		name: 'perps_positions',
-		description: 'List open Hyperliquid perpetual positions for a wallet address, with size, entry price, unrealized PnL, and liquidation price.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				address: { type: 'string', description: 'Wallet address to inspect' },
-			},
-			required: ['address'],
-		},
-	},
-	{
-		name: 'lend_markets',
-		description: 'List Morpho lending markets on a chain with supply/borrow APY, LLTV, utilization, and TVL.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				chain_id: { type: 'number', description: 'EVM chain ID (default 8453 = Base)' },
-			},
-		},
-	},
-	{
-		name: 'lend_market',
-		description: 'Get details for a single Morpho lending market by its unique market ID.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Morpho market unique ID (from lend_markets results)' },
-			},
-			required: ['market_id'],
-		},
-	},
-	{
-		name: 'get_swap_status',
-		description: 'Get the status of a previously executed swap (pending, completed, failed) with tx hash and amounts.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				swap_id: { type: 'string', description: 'Swap ID returned by execute_swap or POST /v1/agent/swap/execute' },
-			},
-			required: ['swap_id'],
-		},
-	},
-	{
-		name: 'get_swap_history',
-		description: 'List paginated swap history for the authenticated agent, optionally filtered by status.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				status: { type: 'string', description: 'Filter by swap status (e.g. "pending", "completed", "failed"). Optional.' },
-				limit: { type: 'number', description: 'Max results (default 20, max 100)' },
-				offset: { type: 'number', description: 'Pagination offset (default 0)' },
-			},
-		},
-	},
-	{
-		name: 'predict_book',
-		description: 'Get the live CLOB order book for every outcome of a prediction market.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
-			},
-			required: ['market_id'],
-		},
-	},
-	{
-		name: 'predict_price',
-		description: 'Get live CLOB midpoint prices for every outcome of a prediction market.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
-			},
-			required: ['market_id'],
-		},
-	},
-	{
-		name: 'predict_trades',
-		description: 'Get recent trades across all outcomes of a prediction market.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				market_id: { type: 'string', description: 'Market condition ID (from predict_markets results)' },
-				limit: { type: 'number', description: 'Max trades to return (default 20)' },
-			},
-			required: ['market_id'],
-		},
-	},
-	{
-		name: 'list_wallet_policies',
-		description: 'List Turnkey spending/whitelist policies configured on the agent\'s managed wallet.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				wallet_address: { type: 'string', description: 'Wallet address (optional — defaults to the authenticated agent\'s managed wallet).' },
-			},
-		},
-	},
-]
+const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
 
-// ---------------------------------------------------------------
-// Tool annotations (MCP behavioural hints, spec 2025-03-26)
-//
-// Hints only — clients MUST NOT make security decisions from them.
-// readOnlyHint:   tool does not mutate server/chain state
-// destructiveHint: tool may perform irreversible updates (only meaningful when not read-only)
-// idempotentHint:  repeated identical calls have no additional effect
-// openWorldHint:   tool talks to external systems (chains, DEX aggregators, oracles)
-// ---------------------------------------------------------------
-
-type ToolAnnotations = {
-	title: string
-	readOnlyHint: boolean
-	destructiveHint?: boolean
-	idempotentHint?: boolean
-	openWorldHint: boolean
-}
-
-const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
-	get_quote: { title: 'Get Swap Quote', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-	get_portfolio: { title: 'Get Portfolio', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	get_prices: { title: 'Get Token Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	list_chains: { title: 'List Supported Chains', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-	list_tokens: { title: 'List Tokens', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-	// Builds an UNSIGNED transaction — it never broadcasts, so it is not destructive
-	// on its own. The user signs and submits. Not read-only because it consumes a
-	// one-time cached quote.
-	execute_swap: { title: 'Prepare Swap Transaction', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-	// Never signs or broadcasts — strictly reads (quote + on-chain balance/allowance/eth_call).
-	simulate_swap: { title: 'Simulate Swap (Dry Run)', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-	get_tempo_tokens: { title: 'Get Tempo (TIP-20) Tokens', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-	browse_mpp_directory: { title: 'Browse MPP Service Directory', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	predict_markets: { title: 'Search Prediction Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	predict_market: { title: 'Prediction Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	perps_markets: { title: 'List Perp Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	perps_quote: { title: 'Quote Perp Position', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
-	perps_positions: { title: 'List Perp Positions', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	lend_markets: { title: 'List Lending Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	lend_market: { title: 'Lending Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	get_swap_status: { title: 'Get Swap Status', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-	get_swap_history: { title: 'Get Swap History', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-	predict_book: { title: 'Prediction Market Order Book', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	predict_price: { title: 'Prediction Market Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	predict_trades: { title: 'Prediction Market Trades', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-}
-
-const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
-	...t,
-	...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
-}))
+const TOOLS_WITH_ANNOTATIONS = MPP_ENABLED
+	? ALL_TOOLS_WITH_ANNOTATIONS
+	: ALL_TOOLS_WITH_ANNOTATIONS.filter((t) => t.name !== 'browse_mpp_directory')
 
 // Registered tool names, including legacy aliases handled in the tools/call switch
 // below. Used to reject unknown tool calls BEFORE any credit is charged.
-const TOOL_NAMES = new Set<string>([...TOOLS.map((t) => t.name), 'predict_market_detail'])
+const TOOL_NAMES = new Set<string>([...ADVERTISED_TOOLS.map((t) => t.name), 'predict_market_detail'])
+
+
+/**
+ * Attach `structuredContent` for tools that declare an `outputSchema`.
+ *
+ * Handlers already serialise their payload with JSON.stringify into the text
+ * content, so we parse that exact string back rather than having each handler
+ * build the object twice. It looks roundabout, but it is the point: the
+ * structured value is *by construction* the same value the text shows, so the
+ * two can never disagree. Doing it in one place also means adding a schema to
+ * TOOL_OUTPUT_SCHEMAS is the only step needed to light a tool up.
+ *
+ * Conservative on purpose — we skip when the tool declares no schema, when the
+ * result is an error, or when the text is not a JSON object. Declaring an
+ * outputSchema obliges us to return conforming structuredContent, so emitting
+ * nothing is always safer than emitting something malformed.
+ */
+export function withStructuredContent(toolName: string, result: unknown): unknown {
+	if (!TOOLS_WITH_OUTPUT_SCHEMA.has(toolSchemaName(toolName))) return result
+	const r = result as { isError?: boolean; content?: Array<{ type?: string; text?: string }> }
+	if (!r || r.isError || !Array.isArray(r.content)) return result
+	const text = r.content.find((part) => part?.type === 'text')?.text
+	if (typeof text !== 'string') return result
+	try {
+		const parsed = JSON.parse(text)
+		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return result
+		return { ...r, structuredContent: parsed }
+	} catch {
+		// Not JSON (a plain-prose result) — leave it alone.
+		return result
+	}
+}
 
 // predict_market_detail is a legacy alias for predict_market's schema.
 function toolSchemaName(name: string): string {
@@ -437,6 +190,177 @@ function rpcErr(
 			? { ...(typeof data === 'object' && data !== null ? data : data !== undefined ? { data } : {}), error_code: agentErrorCode }
 			: data
 	return { jsonrpc: '2.0' as const, id, error: { code, message, ...(errData !== undefined && { data: errData }) } }
+}
+
+type McpWireRequest = {
+	jsonrpc: string
+	id: string | number | null
+	method: string
+	params?: Record<string, unknown>
+}
+
+type McpTransportHeaders = {
+	protocolVersion?: string
+	method?: string
+	name?: string
+}
+
+type ModernMcpValidation =
+	| { modern: false }
+	| { modern: true; protocolVersion: typeof MODERN_MCP_VERSION }
+	| {
+			modern: true
+			error: { code: number; message: string; data?: unknown; httpStatus: 200 | 400 }
+	  }
+
+function asRecord(value: unknown): Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {}
+}
+
+/** Decode Mcp-Name's 2026-07-28 Base64 sentinel form before comparison. */
+export function decodeMcpHeaderValue(value: string): string | null {
+	if (!(value.startsWith('=?base64?') && value.endsWith('?='))) {
+		// Edge whitespace is not safely representable as a plain HTTP field value;
+		// compliant clients Base64-wrap it so intermediaries cannot trim it.
+		if (/^[\t ]|[\t ]$/.test(value)) return null
+		return /^[\x20-\x7e\t]*$/.test(value) ? value : null
+	}
+
+	const match = /^=\?base64\?([A-Za-z0-9+/]*={0,2})\?=$/.exec(value)
+	if (!match || match[1].length % 4 !== 0) return null
+	const bytes = Buffer.from(match[1], 'base64')
+	if (bytes.toString('base64') !== match[1]) return null
+	const decoded = bytes.toString('utf8')
+	if (!Buffer.from(decoded, 'utf8').equals(bytes)) return null
+	return decoded
+}
+
+/**
+ * Validate the transport/body invariants that distinguish modern MCP from the
+ * legacy initialize era. Legacy traffic is deliberately left byte-compatible.
+ */
+export function validateModernMcpRequest(
+	req: McpWireRequest,
+	headers: McpTransportHeaders,
+): ModernMcpValidation {
+	const params = asRecord(req.params)
+	const meta = asRecord(params._meta)
+	const metaProtocol =
+		typeof meta[MCP_PROTOCOL_VERSION_META] === 'string'
+			? (meta[MCP_PROTOCOL_VERSION_META] as string)
+			: undefined
+	const headerProtocol = headers.protocolVersion
+	const legacyVersions = LEGACY_MCP_VERSIONS as readonly string[]
+	const modern =
+		(metaProtocol !== undefined && !legacyVersions.includes(metaProtocol)) ||
+		(headerProtocol !== undefined && !legacyVersions.includes(headerProtocol))
+
+	if (!modern) return { modern: false }
+
+	if (!metaProtocol || !headerProtocol) {
+		return {
+			modern: true,
+			error: {
+				code: -32020,
+				message: 'Header mismatch: MCP-Protocol-Version must match params._meta protocolVersion',
+				httpStatus: 400,
+			},
+		}
+	}
+	if (metaProtocol !== headerProtocol) {
+		return {
+			modern: true,
+			error: {
+				code: -32020,
+				message: `Header mismatch: MCP-Protocol-Version '${headerProtocol}' does not match body value '${metaProtocol}'`,
+				httpStatus: 400,
+			},
+		}
+	}
+	if (metaProtocol !== MODERN_MCP_VERSION) {
+		return {
+			modern: true,
+			error: {
+				code: -32022,
+				message: 'Unsupported protocol version',
+				data: { supported: [...SUPPORTED_MCP_VERSIONS], requested: metaProtocol },
+				httpStatus: 400,
+			},
+		}
+	}
+	if (!headers.method || headers.method !== req.method) {
+		return {
+			modern: true,
+			error: {
+				code: -32020,
+				message: headers.method
+					? `Header mismatch: Mcp-Method '${headers.method}' does not match body value '${req.method}'`
+					: 'Header mismatch: required Mcp-Method header is missing',
+				httpStatus: 400,
+			},
+		}
+	}
+
+	let bodyName: unknown
+	if (req.method === 'tools/call' || req.method === 'prompts/get') bodyName = params.name
+	if (req.method === 'resources/read') bodyName = params.uri
+	if (bodyName !== undefined || ['tools/call', 'prompts/get', 'resources/read'].includes(req.method)) {
+		if (!headers.name) {
+			return {
+				modern: true,
+				error: {
+					code: -32020,
+					message: 'Header mismatch: required Mcp-Name header is missing',
+					httpStatus: 400,
+				},
+			}
+		}
+		const decodedName = decodeMcpHeaderValue(headers.name)
+		if (decodedName === null || typeof bodyName !== 'string' || decodedName !== bodyName) {
+			return {
+				modern: true,
+				error: {
+					code: -32020,
+					message: `Header mismatch: Mcp-Name does not match the request body`,
+					httpStatus: 400,
+				},
+			}
+		}
+	}
+
+	const clientCapabilities = meta[MCP_CLIENT_CAPABILITIES_META]
+	if (clientCapabilities === null || typeof clientCapabilities !== 'object' || Array.isArray(clientCapabilities)) {
+		return {
+			modern: true,
+			error: {
+				code: -32602,
+				message: `Missing required ${MCP_CLIENT_CAPABILITIES_META} request metadata`,
+				httpStatus: 400,
+			},
+		}
+	}
+
+	return { modern: true, protocolVersion: MODERN_MCP_VERSION }
+}
+
+type McpCacheHint = { ttlMs: number; cacheScope: 'public' | 'private' }
+
+/** Attach the result fields required by the stateless 2026-07-28 core. */
+export function completeModernMcpResult(result: unknown, cache?: McpCacheHint): Record<string, unknown> {
+	const base = asRecord(result)
+	const meta = asRecord(base._meta)
+	return {
+		...base,
+		resultType: 'complete',
+		_meta: { ...meta, [MCP_SERVER_INFO_META]: MCP_SERVER_INFO },
+		...(cache ?? {}),
+	}
+}
+
+function resultForMcpEra(result: unknown, modern: boolean, cache?: McpCacheHint): unknown {
+	return modern ? completeModernMcpResult(result, cache) : result
 }
 
 // ---------------------------------------------------------------
@@ -555,7 +479,7 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
 
 	try {
-		const url = new URL('https://directory.mpp.dev/v1/services')
+		const url = new URL(`${MPP_DIRECTORY_URL}/services`)
 		if (category) url.searchParams.set('category', category)
 		url.searchParams.set('limit', String(limit))
 
@@ -910,6 +834,9 @@ export async function handlePerpsPositions(args: Record<string, unknown>, agent:
 
 async function handleLendMarkets(args: Record<string, unknown>) {
 	const chainId = typeof args.chain_id === 'number' ? args.chain_id : 8453
+	if (!Number.isInteger(chainId) || chainId <= 0) {
+		return { isError: true, content: [{ type: 'text' as const, text: 'chain_id must be a positive integer' }] }
+	}
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const morpho = yield* MorphoService
@@ -923,18 +850,40 @@ async function handleLendMarkets(args: Record<string, unknown>) {
 async function handleLendMarket(args: Record<string, unknown>) {
 	const marketId = args.market_id as string | undefined
 	if (!marketId) return { isError: true, content: [{ type: 'text', text: 'market_id is required' }] }
+	const chainId = typeof args.chain_id === 'number' ? args.chain_id : 8453
+	if (!Number.isInteger(chainId) || chainId <= 0) {
+		return { isError: true, content: [{ type: 'text' as const, text: 'chain_id must be a positive integer' }] }
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const morpho = yield* MorphoService
-			return yield* morpho.getMarket(marketId)
+			return yield* morpho.getMarket(marketId, chainId)
 		}),
 	)
 	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: `Morpho error: ${result.left.message}` }] }
 	return { content: [{ type: 'text', text: JSON.stringify(result.right) }] }
 }
 
-async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
+/**
+ * Converts the Response returned by enforcePolicyGateForFreshQuote (built for
+ * the REST /v1/agent/swap routes via c.json(...)) into the MCP tool-call
+ * isError envelope, so execute_swap shares the exact same policy gate
+ * (including approval-request creation) instead of a parallel implementation.
+ */
+async function policyGateResponseToMcpEnvelope(
+	resp: Response,
+): Promise<{ isError: true; content: { type: 'text'; text: string }[] }> {
+	let body: unknown
+	try {
+		body = await resp.json()
+	} catch {
+		body = { error: 'Policy gate blocked this request' }
+	}
+	return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] }
+}
+
+async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c: Context) {
 	// idempotency_key is accepted for parity with POST /v1/agent/swap/execute, but this
 	// tool only returns an unsigned transaction for client-side signing (no backend
 	// execute call to dedupe here) — it is echoed back so callers can carry it through
@@ -952,6 +901,25 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent) {
 		return { isError: true, content: [{ type: 'text', text: 'Quote expired or not found. Get a new quote first.' }] }
 
 	const quote = cached.quote
+
+	// --- Institutional policy gate ---
+	// Evaluate the trade intent against org policy rules + this agent's spend
+	// profile + kill switches BEFORE returning a signable tx — closes the MCP
+	// bypass where an agent could call execute_swap to skip the same gate that
+	// POST /v1/agent/swap enforces. Org context comes from agents.organizationId
+	// (plain agent-token/MCP auth carries no org API key) — see
+	// enforcePolicyGateForFreshQuote in routes/agent.ts (single source of truth,
+	// shared with both REST swap routes).
+	const gateResponse = await enforcePolicyGateForFreshQuote(
+		c,
+		agentIdentifierOf(agent),
+		agent.organizationId ?? null,
+		quote,
+		!!cached.isSolana,
+		wallet_address,
+	)
+	if (gateResponse) return await policyGateResponseToMcpEnvelope(gateResponse)
+
 	if (cached.isSolana) {
 		const result = await runEffectEither(
 			Effect.gen(function* () {
@@ -1420,15 +1388,11 @@ const PROMPTS: Array<{ name: string; description: string; arguments: PromptArg[]
 // MCP JSON-RPC endpoint
 // ---------------------------------------------------------------
 
-// MCP Streamable HTTP transport (spec: 2025-03-26+) defines a single endpoint
-// supporting POST (JSON-RPC messages) and, optionally, GET to open a
-// server-initiated SSE stream. We are a stateless request/response JSON-RPC
-// server — every tools/call response is a synchronous JSON body, never SSE —
-// so we do not offer that optional GET stream. Per spec: "If the server does
-// not offer an SSE stream at this endpoint, it MUST respond with 405 Method
-// Not Allowed." Do NOT confuse this with the legacy (pre-2025-03-26) HTTP+SSE
-// transport, which required a long-lived GET SSE connection for every response —
-// we never implemented and are explicitly not adopting that transport.
+// Modern MCP 2026-07-28 Streamable HTTP is POST-only at the endpoint and has no
+// standalone GET stream. Older Streamable HTTP revisions allowed a GET SSE
+// stream, but Suwappu never offered one; GET therefore remains 405 for both
+// eras. Individual modern POST responses may still use request-scoped SSE in a
+// future implementation, but today's handlers return synchronous JSON.
 mcpRoutes.get('/', (c) => {
 	c.header('Allow', 'POST')
 	return c.body(null, 405)
@@ -1442,13 +1406,26 @@ mcpRoutes.post('/', async (c) => {
 		return c.json(rpcErr(null, -32700, 'Parse error', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	const req = body as { jsonrpc: string; id: string | number | null; method: string; params?: any }
+	const req = body as McpWireRequest
 	if (!req || req.jsonrpc !== '2.0' || !req.method) {
 		return c.json(rpcErr(req?.id ?? null, -32600, 'Invalid request', undefined, 'VALIDATION_ERROR'), 200)
 	}
 
-	// Only gate non-public methods on auth so anonymous MCP clients can complete the
-	// initialize/tools-list handshake before ever presenting an API key (spec compliance).
+	const modernValidation = validateModernMcpRequest(req, {
+		protocolVersion: c.req.header('MCP-Protocol-Version'),
+		method: c.req.header('Mcp-Method'),
+		name: c.req.header('Mcp-Name'),
+	})
+	if ('error' in modernValidation) {
+		return c.json(
+			rpcErr(req.id, modernValidation.error.code, modernValidation.error.message, modernValidation.error.data),
+			modernValidation.error.httpStatus,
+		)
+	}
+	const modern = modernValidation.modern
+
+	// Only gate non-public methods on auth so anonymous MCP clients can discover
+	// the server/catalog (or complete a legacy initialize) before presenting a key.
 	// A tools/call targeting a PUBLIC_READ_TOOLS entry is likewise exempt — read/discovery
 	// tools must not require payment-capable auth (registry acceptance criteria).
 	const isPublicToolCall =
@@ -1475,31 +1452,60 @@ mcpRoutes.post('/', async (c) => {
 	}
 
 	switch (req.method) {
+		case 'server/discover':
+			if (!modern) return c.json(rpcErr(req.id, -32601, 'Unknown method: server/discover', undefined, 'NOT_FOUND'), 200)
+			return c.json(rpcOk(req.id, completeModernMcpResult({
+				supportedVersions: [...SUPPORTED_MCP_VERSIONS],
+				capabilities: { tools: {}, resources: {}, prompts: {} },
+				instructions:
+					'Suwappu provides market reads, quotes, simulation, and unsigned transaction preparation. execute_swap never signs or broadcasts. Treat tool annotations as hints and enforce an application-owned allowlist.',
+			}, { ttlMs: MCP_DISCOVERY_TTL_MS, cacheScope: 'public' })), 200)
+
 		case 'initialize':
+			if (modern) return c.json(rpcErr(req.id, -32601, 'Unknown method: initialize', undefined, 'NOT_FOUND'), 404)
 			return c.json(rpcOk(req.id, {
 				protocolVersion: negotiateProtocolVersion((req.params || {}).protocolVersion),
 				capabilities: { tools: {}, resources: {}, prompts: {} },
-				serverInfo: { name: 'suwappu', version: '0.6.0' },
+				serverInfo: MCP_SERVER_INFO,
 			}), 200)
 
 		case 'tools/list':
-			return c.json(rpcOk(req.id, { tools: TOOLS_WITH_ANNOTATIONS }), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				{ tools: TOOLS_WITH_ANNOTATIONS },
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
 
 		case 'resources/list':
-			return c.json(rpcOk(req.id, { resources: RESOURCES }), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				{ resources: RESOURCES },
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
+
+		case 'resources/templates/list':
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				{ resourceTemplates: [] },
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
 
 		case 'resources/read': {
 			const uri = (req.params || {}).uri as string | undefined
 			if (!uri) return c.json(rpcErr(req.id, -32602, 'Missing resource uri', undefined, 'VALIDATION_ERROR'), 200)
 			const res = readResource(uri)
 			if (!res) return c.json(rpcErr(req.id, -32602, `Unknown resource: ${uri}`, undefined, 'NOT_FOUND'), 200)
-			return c.json(rpcOk(req.id, res), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(
+				res,
+				modern,
+				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
+			)), 200)
 		}
 
 		case 'prompts/list':
-			return c.json(rpcOk(req.id, {
+			return c.json(rpcOk(req.id, resultForMcpEra({
 				prompts: PROMPTS.map((p) => ({ name: p.name, description: p.description, arguments: p.arguments })),
-			}), 200)
+			}, modern, { ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' })), 200)
 
 		case 'prompts/get': {
 			const { name, arguments: args } = (req.params || {}) as { name?: string; arguments?: Record<string, string> }
@@ -1508,10 +1514,10 @@ mcpRoutes.post('/', async (c) => {
 			if (!prompt) return c.json(rpcErr(req.id, -32602, `Unknown prompt: ${name}`, undefined, 'NOT_FOUND'), 200)
 			const missing = prompt.arguments.filter((a) => a.required && !(args || {})[a.name]).map((a) => a.name)
 			if (missing.length > 0) return c.json(rpcErr(req.id, -32602, `Missing required argument(s): ${missing.join(', ')}`, undefined, 'VALIDATION_ERROR'), 200)
-			return c.json(rpcOk(req.id, {
+			return c.json(rpcOk(req.id, resultForMcpEra({
 				description: prompt.description,
 				messages: [{ role: 'user', content: { type: 'text', text: prompt.build(args || {}) } }],
-			}), 200)
+			}, modern)), 200)
 		}
 
 		case 'tools/call': {
@@ -1526,7 +1532,7 @@ mcpRoutes.post('/', async (c) => {
 			// Validate the tool exists and its required args are present BEFORE any
 			// metering — nonexistent tools or malformed args must never consume credits.
 			if (!TOOL_NAMES.has(name)) {
-				return c.json(rpcErr(req.id, -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
+				return c.json(rpcErr(req.id, modern ? -32602 : -32601, `Unknown tool: ${name}`, undefined, 'NOT_FOUND'), 200)
 			}
 			const argsError = validateToolArgs(name, args || {})
 			if (argsError) {
@@ -1628,7 +1634,7 @@ mcpRoutes.post('/', async (c) => {
 						result = handleListTokens(args || {})
 						break
 					case 'execute_swap':
-						result = await handleExecuteSwap(args || {}, callAgent)
+						result = await handleExecuteSwap(args || {}, callAgent, c)
 						break
 					case 'simulate_swap':
 						result = await handleSimulateSwap(args || {}, callAgent)
@@ -1714,7 +1720,7 @@ mcpRoutes.post('/', async (c) => {
 				})
 			}
 
-			return c.json(rpcOk(req.id, result), 200)
+			return c.json(rpcOk(req.id, resultForMcpEra(withStructuredContent(name, result), modern)), 200)
 		}
 
 		case 'notifications/initialized':
@@ -1722,7 +1728,10 @@ mcpRoutes.post('/', async (c) => {
 			return c.body(null, 204)
 
 		default:
-			return c.json(rpcErr(req.id, -32601, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'), 200)
+			return c.json(
+				rpcErr(req.id, -32601, `Unknown method: ${req.method}`, undefined, 'NOT_FOUND'),
+				modern ? 404 : 200,
+			)
 	}
 })
 
@@ -1731,5 +1740,12 @@ export { mcpRoutes }
 // for llms.txt (app.ts) to generate its MCP tool list from the single source of
 // truth instead of a hand-written list that can drift out of sync.
 export { TOOLS, TOOLS_WITH_ANNOTATIONS, RESOURCES, PROMPTS, readResource }
-// Exported for unit testing protocol version negotiation.
-export { SUPPORTED_MCP_VERSIONS, LATEST_MCP_VERSION, negotiateProtocolVersion }
+// Exported for unit testing dual-era protocol negotiation.
+export {
+	LEGACY_MCP_VERSIONS,
+	MODERN_MCP_VERSION,
+	SUPPORTED_MCP_VERSIONS,
+	LATEST_LEGACY_MCP_VERSION,
+	LATEST_MCP_VERSION,
+	negotiateProtocolVersion,
+}

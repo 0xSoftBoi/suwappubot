@@ -280,6 +280,20 @@ TOKENS: dict[str, TokenConfig] = {
         logo_emoji="🔷",
         is_stablecoin=True,
     ),
+    # === Robinhood Chain (4663) anchor stablecoin ===
+    # There is NO USDC on Robinhood Chain. Paxos USDG is the anchor. Two contracts
+    # report symbol "USDG"; we pin the one with real supply (338.7M vs 1.1k when
+    # verified on 2026-08-04 via totalSupply()). Do not swap these without re-checking.
+    "USDG": TokenConfig(
+        symbol="USDG",
+        name="Paxos USDG",
+        decimals=6,
+        addresses={
+            "robinhood": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        },
+        logo_emoji="🪶",
+        is_stablecoin=True,
+    ),
     # === Major Tokens (Non-Stablecoins) ===
     "WETH": TokenConfig(
         symbol="WETH",
@@ -427,6 +441,7 @@ TOKENS: dict[str, TokenConfig] = {
             "arbitrum": "0x0000000000000000000000000000000000000000",
             "optimism": "0x0000000000000000000000000000000000000000",
             "base": "0x0000000000000000000000000000000000000000",
+            "robinhood": NATIVE_TOKEN_ADDRESS,
             "solana": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
             "starknet": starknet_addresses.ETH,
         },
@@ -890,3 +905,157 @@ def get_decimals_by_address(address: str, chain_name: str) -> int:
         if chain_addr and chain_addr.lower() == addr_lower:
             return _chain_decimals(token.symbol, chain_name, token.decimals)
     return 18
+
+
+# === Robinhood Chain tokenized equities (chain 4663) ===
+# Robinhood Chain's defining feature: ~100 tokenized stocks/ETFs trade as ordinary
+# ERC-20s on open DEX liquidity, reachable through the normal Li.Fi swap path.
+#
+# SOURCE: Robinhood's own canonical asset registry, api.robinhood.com/rhj/assets
+# (public, unauthenticated, live). This supersedes an earlier Li.Fi-inferred subset
+# because the docs at docs.robinhood.com/chain/contracts explicitly warn that a
+# ticker/name match does NOT guarantee a token is the canonical Robinhood Stock
+# Token -- this registry IS the canonical source, not a symbol-matched guess.
+# Pulled + spot-verified on-chain (eth_getCode + symbol() + decimals()) 2026-08-04.
+# All are 18-decimal. Re-pull periodically -- the registry is live and can add/
+# retire assets; this is a point-in-time snapshot, not an auto-synced feed.
+#
+# IMPORTANT (compliance): these are secondary-market *token* representations. Buying
+# one is NOT buying equity — no shareholder/voting rights, and Robinhood's own
+# issuance/redemption flow stays KYC-gated (EU/EEA brokerage product). Surface them
+# as tokens, never as "real stock". See docs/plans/robinhood-chain-native.md.
+#
+# symbol -> (address, decimals, display name)
+ROBINHOOD_EQUITIES: dict[str, tuple[str, int, str]] = {
+    "AAOI": ("0x521Cf887E6531c6F667b5BC4D896E5d9bfE8EB2E", 18, "Applied Optoelectronics"),
+    "AAPL": ("0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", 18, "Apple"),
+    "AMAT": ("0x36046893810a7E7fCE501229d57dc3FC8c8716d0", 18, "Applied Materials"),
+    "AMD": ("0x86923f96303D656E4aa86D9d42D1e57ad2023fdC", 18, "AMD"),
+    "AMZN": ("0x12f190a9F9d7D37a250758b26824B97CE941bF54", 18, "Amazon"),
+    "APLD": ("0xb8DBf92F9741c9ac1c32115E78581f23509916FD", 18, "Applied Digital"),
+    "ASML": ("0x47F93d52cBeC7C6D2CfC080e154002370a60dAEA", 18, "ASML Holding NV"),
+    "ASTS": ("0x1AF6446f07eb1d97c546AFC8c9544cBDF3AD5137", 18, "AST SpaceMobile"),
+    "AVGO": ("0x156E175DD063a8cE274C50654eF40e0032b3fbcF", 18, "Broadcom"),
+    "BA": ("0x4D21483a44Bf67a86b77E3dA301411880797D452", 18, "Boeing"),
+    "BABA": ("0xad25Ac6C84D497db898fa1E8387bf6Af3532a1c4", 18, "Alibaba"),
+    "BE": ("0x822CC93fFD030293E9842c30BBD678F530701867", 18, "Bloom Energy"),
+    "CBRS": ("0x5c90450Bbb4273D7b2f17CF6917AEB237A569679", 18, "Cerebras Systems"),
+    "CCL": ("0x9651342CeA770aE9a2969Ba2A52611523146aef9", 18, "Carnival Corporation"),
+    "CELH": ("0x8cF07C5A878945185d327aAa6e33FAa95F95e7bF", 18, "Celsius"),
+    "CLSK": ("0xcBB95BBF36099d34dA091dc6Fa6F49EfA257Cee3", 18, "CleanSpark"),
+    "COIN": ("0x6330D8C3178a418788dF01a47479c0ce7CCF450b", 18, "Coinbase"),
+    "COST": ("0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2", 18, "Costco"),
+    "CRCL": ("0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5", 18, "Circle Internet Group"),
+    "CRWD": ("0xea72Ecca2d0f6bFA1394DBBCff85b52CD4233931", 18, "CrowdStrike Holdings"),
+    "CRWV": ("0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3", 18, "CoreWeave"),
+    "DDOG": ("0x27c99fBde9D0d2AA4f4Bfb4943f237843DdF6958", 18, "Datadog"),
+    "DELL": ("0x941AE714EC6D8130c7B75d67160Ca08f1e7d11Dd", 18, "Dell"),
+    "ELF": ("0x39EC44Bee4F6A116c6F9B8De566848a985C53C60", 18, "e.l.f. Beauty"),
+    "EWY": ("0x7f0aBeF0C07280F82c6a08ead09dEd6BAE2C13Fc", 18, "iShares MSCI South Korea fund"),
+    "F": ("0x25C288E6D899b9BC30160965aD9644c67e73bE0C", 18, "Ford Motor"),
+    "FLNC": ("0x282e87451E10fA6679BC7D76C69BE44cD3fC777C", 18, "Fluence Energy"),
+    "FUTU": ("0xeB30663bDFf0622Ef4e4E5cBb4E975F19f33f51D", 18, "Futu Holdings"),
+    "GLW": ("0x7c04E6A3368F2A1DE3874f0e80d2e0A1a9915da6", 18, "Corning"),
+    "GME": ("0x1b0E319c6A659F002271B69dB8A7df2F911c153E", 18, "GameStop"),
+    "GOOGL": ("0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", 18, "Alphabet Class A"),
+    "INOD": ("0xf1953DAB6FaD537488d5A022361FfAa8B4c95eC6", 18, "Innodata"),
+    "INTC": ("0xc72b96e0E48ecd4DC75E1e45396e26300BC39681", 18, "Intel"),
+    "INTU": ("0x56d23beE5f41A7120170b0c603Dae30128e460e9", 18, "Intuit"),
+    "IONQ": ("0x558378E000D634A36593E338eBacdd6207640EfE", 18, "IonQ"),
+    "IREN": ("0xF0AB0c93bE6F41369d302e55db1A96b3c430212D", 18, "IREN Limited"),
+    "LITE": ("0x8eF20885F94e3D9bc7eB3080279188Bd5ED7c08C", 18, "Lumentum"),
+    "LLY": ("0x8005d266423c7ea827372c9c864491e5786600ea", 18, "Eli Lilly"),
+    "LULU": ("0x4e62068525Ab11FE768e29dfD00ef909B9803016", 18, "Lululemon"),
+    "LUNR": ("0xa5D4968421bA94814Be3B136b15cf422101aC1a3", 18, "Intuitive Machines"),
+    "MDB": ("0xDdf2266b79abf0B48898959B0ed6E6adf512be74", 18, "MongoDB"),
+    "META": ("0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35", 18, "Meta Platforms"),
+    "MRVL": ("0x62fd0668e10D8B72339BE2DCF7643001688ff13B", 18, "Marvell Technology"),
+    "MSFT": ("0xe93237C50D904957Cf27E7B1133b510C669c2e74", 18, "Microsoft"),
+    "MSTR": ("0xec262a75e413fAfD0dF80480274532C79D42da09", 18, "Strategy Inc."),
+    "MU": ("0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD", 18, "Micron Technology"),
+    "MXL": ("0x48961813349333209994750ffA89b3c5C22eC969", 18, "MaxLinear"),
+    "NBIS": ("0x9D9c6684F596F66a64C030B93A886D51Fd4D7931", 18, "Nebius Group"),
+    "NFLX": ("0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8", 18, "Netflix"),
+    "NNE": ("0xBEF75684C43c4ea7BD18Dd532a2244674Ee8b926", 18, "Nano Nuclear Energy"),
+    "NOW": ("0x0C3260aF4B8f13a69c4c2dFb84fD667890CDFa14", 18, "ServiceNow"),
+    "NU": ("0x408c14038a04f7bD235329E26d2bf569ee20e250", 18, "Nu"),
+    "NVDA": ("0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", 18, "NVIDIA"),
+    "NVTS": ("0xbE6702d7b70315376dC48a3293f24f0982F86386", 18, "Navitas Semiconductor"),
+    "ORCL": ("0xb0992820E760d836549ba69BC7598b4af75dEE03", 18, "Oracle"),
+    "P": ("0x1Cdad396DB64BDa184d5182A97Dd9B3C62100b7D", 18, "Everpure"),
+    "PENG": ("0x9b23573b156B52565012F5cE02CDF60AFBaa70Be", 18, "Penguin Solutions"),
+    "PLTR": ("0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", 18, "Palantir Technologies"),
+    "POET": ("0xcf6B2D875361be807EAfa57458c80f28521F9333", 18, "POET Technologies"),
+    "PR": ("0x4189F0c66EBBB0bfeF1C31f763131361EF32f77C", 18, "Permian Resources"),
+    "QBTS": ("0xC583c60aeF9Dc401Da72cEC1B404743a93cea1Cc", 18, "D-Wave Quantum Inc. Common Stock"),
+    "QCOM": ("0x0f17206447090e464C277571124dD2688E48AEA9", 18, "Qualcomm"),
+    "QQQ": ("0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", 18, "Invesco QQQ"),
+    "QUBT": ("0x59818904ab4cE163b3cE4FfB64f2D6Ca02c434B4", 18, "Quantum Computing"),
+    "RBLX": ("0xF0C4BF4C582cb3836e98394b1d4e7B7281101bE8", 18, "Roblox"),
+    "RDDT": ("0x05b37Fb53A299a1b874A619e1c4C404D52C36F4C", 18, "Reddit"),
+    "RDW": ("0x92Ef19E82bD8fF36661DE838D5eaE7e5CEF0EfFE", 18, "Redwire"),
+    "RGTI": ("0x284358abc07F9359f19f4b5b4aC91901Be2597Ba", 18, "Rigetti Computing"),
+    "RIVN": ("0xB1BF26c1D20ff267A4f93550d1E0d06ac40a114B", 18, "Rivian Automotive"),
+    "RKLB": ("0x3b14C39E89D60D627b42a1A4CA45b5bb45Fc12e2", 18, "Rocket Lab Corporation"),
+    "SATS": ("0x95052ddcd5DC25641657424A8Cf04834997E1730", 18, "EchoStar"),
+    "SGOV": ("0x92FD66527192E3e61d4DDd13322Aa222DE86F9B5", 18, "iShares 0-3 Month Treasury Bond"),
+    "SHOP": ("0xF53F66751B1Eff985311b693531E3290F600c410", 18, "Shopify"),
+    "SKHY": (
+        "0x84CAb63bc87912E71ad199ff14A0bA45de68FeF8",
+        18,
+        "SK hynix Inc. American Depositary Shares",
+    ),
+    "SLV": ("0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f", 18, "iShares Silver Trust"),
+    "SMCI": ("0xc01aA1fECeC0605b13bc84874ff7256C0f5F562a", 18, "Super Micro Computer"),
+    "SNDK": ("0xB90A19fF0Af67f7779afF50A882A9CfF42446400", 18, "Sandisk Corporation"),
+    "SOFI": ("0x98E75885157C80992A8D41b696D8c9C6Fb30A926", 18, "SoFi Technologies"),
+    "SOXX": ("0x75742c18BC1f1C5c5f448f4C9D9C6F66dafAAa38", 18, "iShares Semiconductor ETF"),
+    "SPCX": (
+        "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+        18,
+        "Space Exploration Technologies Corp. Class A Common Stock",
+    ),
+    "SPMO": ("0xAd622320e520de39e72d41EF07438C3Fd3354875", 18, "Invesco S&P 500 Momentum ETF"),
+    "SPY": ("0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", 18, "SPDR S&P 500 ETF Trust"),
+    "TSEM": ("0x89776d4Cd68193597A2fC132cfaC1fDe36CCeA8a", 18, "Tower Semiconductor"),
+    "TSLA": ("0x322F0929c4625eD5bAd873c95208D54E1c003b2d", 18, "Tesla"),
+    "TSM": ("0x58FfE4a942d3885bAa22D7520691F611EF09e7AA", 18, "Taiwan Semiconductor Manufacturing"),
+    "TTWO": ("0x5e81213613b6B86EaB4c6c50d718d34359459786", 18, "Take-Two Interactive Software"),
+    "UMC": ("0x0E6e67Ba88e7b5d9B67636A215c76779B948dE79", 18, "United Microelectronics"),
+    "UPS": ("0xf23250dac154D05Bb671CB0d0eBEf3c635c79CE2", 18, "UPS"),
+    "USAR": ("0xd917B029C761D264c6A312BBbcDA868658eF86a6", 18, "USA Rare Earth"),
+    "USO": ("0xa30FA36Db767ad9eD3f7a60fC79526fB4d56D344", 18, "United States Oil Fund"),
+    "WDAY": ("0x82DA4646242e1D962e96e932269Dc644c94a9CaA", 18, "Workday"),
+    "XLK": (
+        "0x15Cd20759CE7F3285c29A319dE2D1A2e098c6f43",
+        18,
+        "State Street Technology Select Sector SPDR ETF",
+    ),
+    "XNDU": ("0xA8eB3BCcbf2017eE7CBfb652eB51CF2E1B153289", 18, "Xanadu Quantum"),
+    "XOM": ("0xf9B46d3D1B22199D4D1025a9cEDB540A33F1a2d5", 18, "ExxonMobil Holdings Corporation"),
+    "ZM": ("0x44c4F142009036cF477eD2d09932051843137CF1", 18, "Zoom"),
+    "ZS": ("0x7dc013eB55e436f30d7ED1AFE4E36d6e45e3c3f7", 18, "Zscaler"),
+}
+
+_ROBINHOOD_EQUITY_ADDRESSES = frozenset(
+    address.lower() for address, _decimals, _name in ROBINHOOD_EQUITIES.values()
+)
+
+
+def get_robinhood_equity(symbol: str) -> Optional[tuple[str, int, str]]:
+    """Look up a tokenized equity on Robinhood Chain by ticker. None if unknown."""
+    if not symbol:
+        return None
+    return ROBINHOOD_EQUITIES.get(symbol.strip().upper())
+
+
+def is_robinhood_equity(symbol: str) -> bool:
+    """True if the ticker is a Robinhood Chain tokenized equity."""
+    return get_robinhood_equity(symbol) is not None
+
+
+def is_robinhood_equity_address(address: str) -> bool:
+    """True only for a canonical Robinhood Stock Token contract address."""
+    if not address:
+        return False
+    return address.lower() in _ROBINHOOD_EQUITY_ADDRESSES

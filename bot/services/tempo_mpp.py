@@ -10,14 +10,19 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 from datetime import datetime, timezone
 
+from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
 
 logger = logging.getLogger(__name__)
 
-# MPP endpoints
-MPP_API_BASE = "https://api.mpp.dev/v1"
-MPP_DIRECTORY_URL = "https://directory.mpp.dev/v1"
+# MPP endpoints. NOTE (2026-07-26): the default hosts api.mpp.dev and
+# directory.mpp.dev do NOT resolve (NXDOMAIN) — every call below fails until
+# the protocol actually ships them. The whole MPP surface is therefore gated
+# behind settings.mpp_enabled (default False); override these if MPP launches
+# on different hosts.
+MPP_API_BASE = settings.mpp_api_base
+MPP_DIRECTORY_URL = settings.mpp_directory_url
 
 
 @dataclass

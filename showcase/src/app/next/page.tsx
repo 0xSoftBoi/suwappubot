@@ -7,7 +7,7 @@ import styles from './next.module.css';
 export const metadata: Metadata = {
   title: 'Suwappu | the cross-chain execution terminal',
   description:
-    'Nine routers race for every swap. Non-custodial, sub-second, 41 chains. The best price wins, and you sign.',
+    'Nine routers race for every swap. Non-custodial, sub-second, 42 chains. The best price wins, and you sign.',
 };
 
 const jb = JetBrains_Mono({
@@ -265,7 +265,7 @@ export default function KakisPage() {
                       │
              ┌────────▼────────┐
              │  suwappu engine │
-             │  41 chains · 9  │
+             │  42 chains · 9  │
              │  routers · MPC  │
              └────────┬────────┘
                       │
@@ -342,9 +342,9 @@ export default function KakisPage() {
           </div>
           <nav className={styles.footerNav} aria-label="Site navigation">
             {[
-              { label: 'Docs',     href: 'https://docs.suwappu.bot' },
+              { label: 'Docs',     href: 'https://suwappu.bot/docs' },
               { label: 'Pricing',  href: '/pricing' },
-              { label: 'Agents',   href: 'https://docs.suwappu.bot/agents' },
+              { label: 'Agents',   href: 'https://suwappu.bot/agents' },
               { label: 'Terminal', href: 'https://terminal.suwappu.bot' },
               { label: 'Telegram', href: 'https://t.me/suwappu_bot' },
             ].map((link, i, arr) => (

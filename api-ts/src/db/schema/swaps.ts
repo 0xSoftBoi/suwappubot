@@ -10,15 +10,20 @@ export const swapTransactions = pgTable('swap_transactions', {
 
 	// Source details
 	fromChain: varchar('from_chain', { length: 50 }).notNull(),
-	fromToken: varchar('from_token', { length: 20 }).notNull(),
+	fromToken: varchar('from_token', { length: 64 }).notNull(),
 	fromAmount: varchar('from_amount', { length: 78 }).notNull(),
 	fromAmountUsd: real('from_amount_usd'),
 
 	// Destination details
 	toChain: varchar('to_chain', { length: 50 }).notNull(),
-	toToken: varchar('to_token', { length: 20 }).notNull(),
+	toToken: varchar('to_token', { length: 64 }).notNull(),
 	toAmount: varchar('to_amount', { length: 78 }),
 	toAmountUsd: real('to_amount_usd'),
+	// Realized (post-fill) output. Every other amount here is the quote's
+	// projection, written before broadcast; these record what actually settled.
+	// NULL means "not observed" — never "received nothing". Do not coalesce.
+	realizedToAmount: varchar('realized_to_amount', { length: 78 }),
+	realizedToAmountUsd: real('realized_to_amount_usd'),
 
 	// Transaction details
 	status: varchar('status', { length: 30 }).default('pending'),
@@ -42,6 +47,13 @@ export const swapTransactions = pgTable('swap_transactions', {
 	// Fees
 	gasFee: real('gas_fee'),
 	bridgeFee: real('bridge_fee'),
+
+	// Execution-savings receipt (written by the Python engine at swap-record
+	// time): USD edge of the winning route over the race's runner-up, and
+	// which provider that runner-up was. NULL = not measured. Declared here
+	// so `bun run db:push` never proposes dropping the live columns.
+	priceImprovementUsd: real('price_improvement_usd'),
+	runnerUpProvider: varchar('runner_up_provider', { length: 50 }),
 	slippage: integer('slippage').default(50),
 
 	// Timing

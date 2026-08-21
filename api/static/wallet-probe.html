@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Suwappu · wallet probe</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; padding:24px; background:#0b0b0d; color:#e9e7e2;
+         font:15px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:#8d8577; margin:0 0 20px; font-size:13px; }
+  .row { border:1px solid #26262b; border-radius:10px; padding:12px 14px; margin:8px 0; }
+  .k { color:#8d8577; font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .v { font-family:ui-monospace,monospace; font-size:13px; word-break:break-all; margin-top:4px; }
+  .pass { color:#3ddc97 } .fail { color:#ff6b6b } .warn { color:#fcd34d }
+  button { width:100%; padding:14px; font-size:15px; font-weight:600; border:0;
+           border-radius:10px; background:#e9e7e2; color:#0b0b0d; margin-top:12px; }
+  button:disabled { opacity:.4 }
+</style>
+<h1>Robinhood Wallet capability probe</h1>
+<p class="sub">Open this page <b>inside Robinhood Wallet's in-app browser</b>. It
+answers the one question the USDG mint depends on: will this wallet sign an
+EIP-3009 authorization?</p>
+
+<div class="row"><div class="k">Injected provider</div><div class="v" id="prov">checking…</div></div>
+<div class="row"><div class="k">Chain</div><div class="v" id="chain">—</div></div>
+<div class="row"><div class="k">Account</div><div class="v" id="acct">—</div></div>
+<div class="row"><div class="k">eth_signTypedData_v4</div><div class="v" id="sig">not run</div></div>
+<div class="row"><div class="k">Recovered signer</div><div class="v" id="rec">—</div></div>
+<button id="go">Run probe</button>
+
+<script type="module">
+// Live mainnet USDG on chain 4663. name()="Global Dollar"; version() REVERTS, so
+// "1" is inferred — and verified: it reproduces the on-chain DOMAIN_SEPARATOR
+// 0x7a3d7400b27830f4f91c2c16a082486d67c1befecaec2f53b33f1f35d5b62036 exactly.
+const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
+const CHAIN_ID = 4663;
+const COLLECTION = "0x1111111111111111111111111111111111111111"; // probe only
+const $ = (id) => document.getElementById(id);
+
+function findProvider() {
+  const eth = window.ethereum;
+  if (!eth) return null;
+  // EIP-6963 style multi-provider, or the legacy single injection.
+  const list = eth.providers || [eth];
+  return list.find((p) => p.isRobinhoodMobileWallet) || eth;
+}
+
+const provider = findProvider();
+if (!provider) {
+  $("prov").innerHTML = '<span class="fail">none — not in a wallet browser</span>';
+  $("go").disabled = true;
+} else {
+  $("prov").innerHTML = provider.isRobinhoodMobileWallet
+    ? '<span class="pass">Robinhood Wallet (isRobinhoodMobileWallet)</span>'
+    : '<span class="warn">some injected wallet (not flagged Robinhood)</span>';
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true;
+  try {
+    const [account] = await provider.request({ method: "eth_requestAccounts" });
+    $("acct").textContent = account;
+    const cid = await provider.request({ method: "eth_chainId" });
+    const n = parseInt(cid, 16);
+    $("chain").innerHTML = n === CHAIN_ID
+      ? `<span class="pass">${n} — Robinhood Chain</span>`
+      : `<span class="warn">${n} — not 4663; switch network and re-run</span>`;
+
+    const typed = {
+      types: {
+        EIP712Domain: [
+          { name: "name", type: "string" },
+          { name: "version", type: "string" },
+          { name: "chainId", type: "uint256" },
+          { name: "verifyingContract", type: "address" },
+        ],
+        ReceiveWithAuthorization: [
+          { name: "from", type: "address" },
+          { name: "to", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "validAfter", type: "uint256" },
+          { name: "validBefore", type: "uint256" },
+          { name: "nonce", type: "bytes32" },
+        ],
+      },
+      primaryType: "ReceiveWithAuthorization",
+      domain: { name: "Global Dollar", version: "1", chainId: CHAIN_ID, verifyingContract: USDG },
+      message: {
+        from: account,
+        to: COLLECTION,
+        value: "20000000",            // $20.00, USDG is 6dp
+        validAfter: "0",
+        validBefore: "4102444800",
+        nonce: "0x" + "5".repeat(64),  // probe-only, never settled
+      },
+    };
+
+    const sig = await provider.request({
+      method: "eth_signTypedData_v4",
+      params: [account, JSON.stringify(typed)],
+    });
+    $("sig").innerHTML = `<span class="pass">SIGNED</span><br>${sig}`;
+    $("rec").innerHTML =
+      '<span class="pass">PASS — this wallet signs EIP-3009. The gasless USDG ' +
+      'mint works on this wallet.</span><br>Verify the recovery locally:<br>' +
+      `<code>python3 scripts/probe_wallet_eip3009.py verify --payer ${account} --signature ${sig}</code>`;
+  } catch (e) {
+    $("sig").innerHTML = `<span class="fail">REFUSED / ERROR</span><br>${(e && e.message) || e}`;
+    $("rec").innerHTML =
+      '<span class="fail">FAIL — if the wallet refused to sign typed data, that ' +
+      'is the finding: the mint needs a different rail.</span>';
+  } finally {
+    $("go").disabled = false;
+  }
+};
+</script>

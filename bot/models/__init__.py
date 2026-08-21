@@ -48,6 +48,14 @@ from .tracking import TrackedTwitterAccount, TrackedWallet
 from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
 from .tempo_access_key import TempoAccessKey
+from .waitlist import WaitlistSignup
+from .market_data import (
+    MarketCandle,
+    ApiUsageDaily,
+    PerpMetric,
+    PredictionSnapshot,
+    LendMetric,
+)
 
 __all__ = [
     "User",
@@ -112,4 +120,14 @@ __all__ = [
     # Tempo (chain 4217)
     "TempoSponsorship",
     "TempoAccessKey",
+    # Handle-reservation waitlist + referral leaderboard
+    "WaitlistSignup",
+    # Market data (Databento-parity Phase 1): OHLCV candles
+    "MarketCandle",
+    # API usage metering (per-caller/route/day request counts)
+    "ApiUsageDaily",
+    # Market data (Databento-parity Round 5): perps/predictions/lend time series
+    "PerpMetric",
+    "PredictionSnapshot",
+    "LendMetric",
 ]

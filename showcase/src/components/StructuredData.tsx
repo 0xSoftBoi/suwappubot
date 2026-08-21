@@ -7,7 +7,7 @@ export default function StructuredData() {
       '@type': 'SoftwareApplication',
       name: 'Suwappu',
       description:
-        `Cross-chain DeFi SDK for AI agents: swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend across ${stats.platformChains} blockchains.`,
+        `Execution infrastructure between trade intent and supported markets, with ${stats.platformChains} platform chains and route-specific interface coverage.`,
       url: 'https://suwappu.bot',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web, iOS',
@@ -16,16 +16,16 @@ export default function StructuredData() {
         'cross-chain swap, DEX aggregator, DeFi SDK, AI agent tooling, MCP server, perpetual futures, prediction markets, lending',
       featureList: [
         `Cross-chain token swaps across ${stats.platformChains} blockchains`,
-        'Perpetual futures trading via HyperLiquid',
-        'Gasless fee-sponsored swaps on Tempo',
+        'HyperLiquid market, quote, and position research via the Agent API',
+        'Tempo token discovery with execution availability varying by interface',
         'Prediction markets via Polymarket',
-        'DeFi lending via Morpho',
+        'Morpho lending-market research',
         'MCP server for Claude and AI agents',
         'A2A agent-to-agent protocol',
         'REST API with OpenAPI spec',
         'Telegram trading bot',
         'MEV-shielded routing',
-        'Non-custodial execution',
+        'User-signed execution with TEE-backed and self-custody key options',
       ],
     },
     // Organization
@@ -46,7 +46,7 @@ export default function StructuredData() {
       '@type': 'TechArticle',
       name: 'Suwappu API Documentation',
       description:
-        'Complete API reference for the Suwappu cross-chain DeFi SDK. Endpoints for swaps, perpetual futures, prediction markets, lending, and wallet management.',
+        'Complete API reference for Suwappu: swap execution, HyperLiquid market research, prediction markets, Morpho market data, and managed-wallet controls.',
       url: 'https://suwappu.bot/docs',
       about: {
         '@type': 'SoftwareApplication',
@@ -63,7 +63,7 @@ export default function StructuredData() {
           name: 'What chains does Suwappu support?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: `Suwappu supports ${stats.platformChains} chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, plus best-price routing across ${stats.routerCount} providers.`,
+            text: `Suwappu supports ${stats.platformChains} platform chains, including Ethereum, Base, Arbitrum, Optimism, Solana, Polygon, BSC, Avalanche, Starknet, TRON, Tempo, and Bitcoin L2s, with ${stats.routerCount} integrated routing venues. Venue availability varies by route.`,
           },
         },
         {
@@ -76,10 +76,10 @@ export default function StructuredData() {
         },
         {
           '@type': 'Question',
-          name: 'Is Suwappu non-custodial?',
+          name: 'Who holds the keys on Suwappu?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Keys are encrypted with KMS envelope encryption and signed server-side by default. For full self-custody, bring your own keys via the agent API: the non-custodial path is always available.',
+            text: 'By default you sign every swap yourself. Managed-wallet keys are secured by envelope encryption (kms_aesgcm_v2) or signed inside a hardware-backed TEE via Turnkey, never as a plaintext key Suwappu can read. Bring your own keys via the agent API for full self-custody.',
           },
         },
         {

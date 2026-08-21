@@ -50,6 +50,7 @@ from bot.services.p2p_service import (
 )
 from bot.utils.rate_limiter import UserRateLimiter
 from bot.utils.tos_utils import enforce_tos
+from bot.services.error_guidance import user_facing_error
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -426,9 +427,13 @@ async def _load_and_show_offers(update: Update, context: ContextTypes.DEFAULT_TY
             limit=20,
         )
     except P2PError as e:
+        logger.error(f"P2P list_offers rejected: {e}", exc_info=True)
         await _render(
             update,
-            f"*P2P unavailable*\n\n{str(e)}",
+            "*P2P unavailable*\n\n"
+            + user_facing_error(
+                e, prefix="", safe_exceptions=(P2PError,), escape_for_markdown=True
+            ),
             [[InlineKeyboardButton("\U0001f519 Back", callback_data="p2p_menu")]],
         )
         return OFFER_LIST
@@ -865,7 +870,8 @@ async def pause_offer_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             status=P2POfferStatus.PAUSED.value,
         )
     except P2PError as e:
-        await query.answer(str(e), show_alert=True)
+        logger.error(f"P2P pause_offer rejected for offer {offer_id}: {e}", exc_info=True)
+        await query.answer(user_facing_error(e, safe_exceptions=(P2PError,)), show_alert=True)
         return MY_ITEMS
     if not ok:
         await query.answer("Offer not found.", show_alert=True)
@@ -887,7 +893,8 @@ async def cancel_offer_callback(update: Update, context: ContextTypes.DEFAULT_TY
             status=P2POfferStatus.CANCELLED.value,
         )
     except P2PError as e:
-        await query.answer(str(e), show_alert=True)
+        logger.error(f"P2P cancel_offer rejected for offer {offer_id}: {e}", exc_info=True)
+        await query.answer(user_facing_error(e, safe_exceptions=(P2PError,)), show_alert=True)
         return MY_ITEMS
     if not ok:
         await query.answer("Offer not found.", show_alert=True)
@@ -1148,8 +1155,15 @@ async def create_region_handler(update: Update, context: ContextTypes.DEFAULT_TY
             region=region,
         )
     except P2PError as e:
+        logger.error(
+            f"P2P create_offer rejected for user {data.get('user_id')}: {e}", exc_info=True
+        )
         await update.message.reply_text(
-            f"*Could not create offer*\n\n{str(e)}", parse_mode="Markdown"
+            "*Could not create offer*\n\n"
+            + user_facing_error(
+                e, prefix="", safe_exceptions=(P2PError,), escape_for_markdown=True
+            ),
+            parse_mode="Markdown",
         )
         context.user_data.pop("p2p", None)
         return ConversationHandler.END

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import aiohttp
 
 from bot.config.settings import settings
+from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
@@ -71,19 +72,14 @@ class OAuthService:
         },
     }
 
-    def __init__(self):
-        self._http_session: Optional[aiohttp.ClientSession] = None
-
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session."""
-        if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
-        return self._http_session
+        """Get the shared, pooled HTTP session (see bot/utils/http_client.py)."""
+        return await get_http_session()
 
     async def close(self):
-        """Close HTTP session."""
-        if self._http_session and not self._http_session.closed:
-            await self._http_session.close()
+        """No-op: the underlying session is shared/global and closed centrally
+        on app shutdown (bot.utils.http_client.close_session), not per-instance."""
+        pass
 
     def _get_credentials(self, provider: str) -> Tuple[str, str]:
         """Get OAuth credentials for a provider."""

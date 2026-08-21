@@ -47,5 +47,5 @@ The following are in scope:
 
 - Never commit secrets, API keys, or private keys
 - Use environment variables for all sensitive configuration
-- All secrets should be stored in AWS Secrets Manager
+- Store secrets only in the configured deployment secret store; never commit them to the repository
 - Run `git grep -i "password\|secret\|token\|key"` before committing to check for leaks

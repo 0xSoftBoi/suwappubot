@@ -4,12 +4,13 @@ import type { PredictionMarket } from '../../types/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { usePlacePredictionOrder } from '../../hooks/useTerminalPredict'
 import { TerminalEmptyState } from '../foundation'
+import { WalletConnect } from '../auth/WalletConnect'
 
 // Order ticket for a single prediction market. Pick an outcome, enter a USDC
 // amount, buy at the current market price. Posts to /terminal/predict/order,
 // which signs + submits through the same Polymarket client the bot uses.
 export function PredictTradeTicket({ market }: { market: PredictionMarket | null }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, needsTradingProof } = useAuth()
   const place = usePlacePredictionOrder()
   const [outcomeIdx, setOutcomeIdx] = useState(0)
   const [amount, setAmount] = useState('')
@@ -28,7 +29,13 @@ export function PredictTradeTicket({ market }: { market: PredictionMarket | null
   )
 
   const canTrade =
-    isAuthenticated && !!market && !!selectedToken && price > 0 && amountNum > 0 && !place.isPending
+    isAuthenticated &&
+    !needsTradingProof &&
+    !!market &&
+    !!selectedToken &&
+    price > 0 &&
+    amountNum > 0 &&
+    !place.isPending
 
   async function buy() {
     if (!market || !selectedToken || !(amountNum > 0) || !(price > 0)) return
@@ -167,8 +174,8 @@ export function PredictTradeTicket({ market }: { market: PredictionMarket | null
         </div>
       )}
 
-      {!isAuthenticated ? (
-        <p className="py-2 text-center text-xs text-terminal-text-muted">Sign in to trade.</p>
+      {!isAuthenticated || needsTradingProof ? (
+        <WalletConnect preferredChain="polygon" showGoogle={!isAuthenticated} />
       ) : (
         <button
           onClick={buy}

@@ -15,8 +15,10 @@ what sigma would the model need to reproduce the observed top-1 share, and
 what active-set size does the model then imply? If no sigma jointly matches
 (top-1, participation), the active-set channel is rejected at wallet level.
 
-Wallet-level caveat, everywhere: farmers split across wallets, so measured
-concentration is a LOWER BOUND on person-level concentration.
+Wallet-level caveat, everywhere: wallet and beneficial-owner concentration are
+different objects. Splitting one entity across wallets can make entity concentration
+higher than the wallet measure; omnibus or custodial wallets can move the measurement
+in the opposite direction. The sign is not identified without entity resolution.
 
 Writes data/airdrops/concentration.json
 """
@@ -91,16 +93,16 @@ def model_top1_and_active(sigma, n_potential, draws=25, rng=None):
 
 def joint_rejection_test(observed_top1, observed_n, n_potential,
                          draws=200, rng=None):
-    """Formal sup-over-sigma rejection test of the active-set model.
+    """Finite-grid simulation test of the active-set model's joint wallet-level fit.
 
-    For each sigma on a grid spanning the whole parameter space (1e-4..1.2,
-    log-spaced), draw `draws` economies and count draws in which the model
+    For each sigma on a prespecified log-spaced grid from 1e-4 through 1.2,
+    draw `draws` economies and count draws in which the model
     simultaneously produces (a) a top-1 share within a factor of two of the
     observed one AND (b) an active set of at least half the observed recipient
-    count. Generous windows, both moments required. If the count is zero at
-    every sigma, the model cannot generate the observed (top-1, participation)
-    pair anywhere in its parameter space, and the sup over sigma of the
-    joint-tail probability is below 1/draws.
+    count. Generous windows, both moments required. A zero count at every tested
+    sigma is reported as a rejection over this model/grid, not as proof over a
+    continuous parameter space or over alternative behavioral models. With zero
+    hits, 1/draws is reported as simulation resolution, not a confidence bound.
 
     The two moments trade off monotonically in sigma (small sigma: broad
     participation but near-uniform shares; large sigma: matched-or-higher
@@ -127,13 +129,17 @@ def joint_rejection_test(observed_top1, observed_n, n_potential,
             "median_active": float(np.median(acts)),
         })
     total_hits = sum(p["hits"] for p in per_sigma)
+    max_grid_hits = max(p["hits"] for p in per_sigma)
     return {
         "windows": "top1 in [obs/2, 2*obs] AND active >= obs/2",
         "draws_per_sigma": draws,
         "sigma_grid": [p["sigma"] for p in per_sigma],
         "per_sigma": per_sigma,
         "total_joint_hits": total_hits,
-        "sup_p_bound": (total_hits / draws) if total_hits else 1.0 / draws,
+        # Legacy field name retained for compatibility. This is the maximum hit
+        # rate over the finite sigma grid; with zero hits it records Monte Carlo
+        # resolution (1/draws), not a continuous-space statistical upper bound.
+        "sup_p_bound": (max_grid_hits / draws) if max_grid_hits else 1.0 / draws,
     }
 
 

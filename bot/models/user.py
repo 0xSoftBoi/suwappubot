@@ -25,6 +25,10 @@ class User(Base):
     whatsapp_id = Column(String(255), unique=True, nullable=True, index=True)
     discord_id = Column(String(100), unique=True, nullable=True, index=True)
     discord_username = Column(String(255), nullable=True)
+    # Signature-proved external EVM address for the SuwappuMembership NFT
+    # (Robinhood Wallet / smart accounts). Set only by /bindwallet after an
+    # EIP-191 ownership proof — never written from unauthenticated input.
+    membership_address = Column(String(64), nullable=True)
     username = Column(String(255), nullable=True)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
@@ -37,6 +41,10 @@ class User(Base):
 
     # Language preference (IETF tag, e.g. "en", "es", "fr", "zh")
     language_preference = Column(String(10), nullable=True, default="en")
+
+    # Preferred LLM model (friendly name from bot/config/llm_models.py catalog).
+    # None = catalog default. Only honored when settings.LLM_MULTI_PROVIDER_ENABLED.
+    llm_model = Column(String(64), nullable=True)
 
     # Region (ISO-3166 alpha-2, e.g. "US", "GB"). Set by onboarding/KYC. Used to
     # gate region-restricted features (e.g. HyperUnit native deposits, which are
@@ -165,3 +173,15 @@ class Wallet(Base):
     def is_local_wallet(self) -> bool:
         """Check if wallet is stored locally."""
         return self.wallet_provider == "local"
+
+    @property
+    def can_server_sign(self) -> bool:
+        """Whether unattended server-side execution has a real signing capability."""
+        provider = (self.wallet_provider or "local").lower()
+        if provider == "turnkey":
+            return bool(self.turnkey_sub_org_id and self.address)
+        return bool(
+            provider == "local"
+            and self.encrypted_private_key
+            and self.encrypted_private_key != "turnkey_managed"
+        )

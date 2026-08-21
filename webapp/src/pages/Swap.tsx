@@ -161,8 +161,8 @@ export function Swap() {
 
   // Format display values
   const toAmount = quote?.toAmount || ''
-  const fromUsdValue = quote ? `~$${quote.fromAmountUsd.toFixed(2)}` : undefined
-  const toUsdValue = quote ? `~$${quote.toAmountUsd.toFixed(2)}` : undefined
+  const fromUsdValue = quote?.fromAmountUsd != null ? `~$${quote.fromAmountUsd.toFixed(2)}` : undefined
+  const toUsdValue = quote?.toAmountUsd != null ? `~$${quote.toAmountUsd.toFixed(2)}` : undefined
   const exchangeRate = quote && fromToken && toToken 
     ? `1 ${fromToken.symbol} = ${quote.exchangeRate.toFixed(4)} ${toToken.symbol}`
     : undefined

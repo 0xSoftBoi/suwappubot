@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Geist, JetBrains_Mono } from 'next/font/google';
+import { Geist, EB_Garamond, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
 import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
+import './institutional.css';
 
 // Two families, one voice: Geist carries display + UI + body, JetBrains Mono
 // is rationed to numerals, kickers, and code. Geist is loaded ONCE: globals.css
@@ -25,6 +26,21 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
+// Display-only serif: hero + section headlines and the A2A pull-quote on the
+// homepage. Never used for body copy or UI — Geist and JetBrains Mono keep
+// carrying those. EB Garamond is a warm old-style face chosen over the
+// LLM-default display serifs after an A/B render of the real headline copy
+// (see docs/design/serif-decision.md): it matches the warm soil/persimmon
+// palette, keeps the pull-quote on one line, and ships a weight axis so
+// display type can carry 500 against dark without faking bold.
+const displaySerif = EB_Garamond({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  style: ['normal', 'italic'],
+  variable: '--font-serif',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://suwappu.bot'),
   title: {
@@ -32,7 +48,7 @@ export const metadata: Metadata = {
     template: '%s | Suwappu',
   },
   description:
-    `One SDK. ${stats.platformChains} chains. Swap tokens, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend: all from a single API. Built for AI agents, bots, and developers.`,
+    `One API across ${stats.platformChains} chains: swap tokens, research HyperLiquid perps and Morpho markets, access prediction markets, and build agent automations. Built for AI agents, bots, and developers.`,
   keywords: [
     'cross-chain swap',
     'DEX SDK',
@@ -62,7 +78,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades, access prediction markets, and lend: one SDK, three lines of code.`,
+      `Swap tokens across ${stats.platformChains} chains, research HyperLiquid perps and Morpho markets, and access prediction markets through one agent API.`,
     type: 'website',
     siteName: 'Suwappu',
     url: 'https://suwappu.bot',
@@ -75,7 +91,7 @@ export const metadata: Metadata = {
     creator: '@suwappubot',
     title: 'Suwappu | Cross-chain DeFi SDK for AI Agents',
     description:
-      `Swap tokens across ${stats.platformChains} chains, trade HyperLiquid perps, make gasless trades: one SDK, three lines of code.`,
+      `Swap tokens across ${stats.platformChains} chains and build agent workflows with REST, SDK, MCP, and A2A.`,
     // twitter:image is auto-wired by Next from twitter-image.tsx (file convention).
   },
   // Deliberately no canonical at the root. Next inherits metadata down the tree
@@ -106,7 +122,7 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable}`}>
+    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable} ${displaySerif.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />

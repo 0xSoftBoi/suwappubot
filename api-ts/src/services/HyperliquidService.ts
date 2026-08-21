@@ -5,6 +5,7 @@ export interface HLMarket {
 	asset: string
 	szDecimals: number
 	maxLeverage: number
+	venueMaxLeverage: number
 	markPrice: number
 	fundingRate: number
 }
@@ -35,15 +36,7 @@ export interface HLPosition {
 	fundingRate: number
 }
 
-export interface HLOrderResult {
-	orderId: string
-	status: 'filled' | 'pending' | 'failed'
-	fillPrice: number | null
-	filledSize: number | null
-}
-
 const INFO_URL = 'https://api.hyperliquid.xyz/info'
-const EXCHANGE_URL = 'https://api.hyperliquid.xyz/exchange'
 
 const MARKETS: Record<string, string> = {
 	'ETH-USD': 'ETH',
@@ -58,22 +51,26 @@ const MARKETS: Record<string, string> = {
 	'APT-USD': 'APT',
 }
 
-const ASSET_INDEX: Record<string, number> = {
-	BTC: 0,
-	ETH: 1,
-	SOL: 2,
-	ARB: 3,
-	AVAX: 4,
-	DOGE: 5,
-	MATIC: 6,
-	OP: 7,
-	SUI: 8,
-	APT: 9,
-}
-
 const MAX_LEVERAGE = 20
 const MIN_MARGIN_USD = 10.0
 const FEE_BPS = 2
+
+interface HLAssetMeta {
+	name: string
+	szDecimals: number
+	maxLeverage: number
+}
+
+interface HLAssetContext {
+	funding: string
+	markPx: string | null
+	midPx?: string | null
+}
+
+interface HLPerpSnapshot {
+	universe: HLAssetMeta[]
+	contexts: HLAssetContext[]
+}
 
 export class HyperliquidService extends Context.Tag('HyperliquidService')<
 	HyperliquidService,
@@ -85,7 +82,7 @@ export class HyperliquidService extends Context.Tag('HyperliquidService')<
 			size: number,
 			leverage: number,
 		) => Effect.Effect<HLPositionQuote, Error>
-		// open/close/positions require user credentials — stubbed for now
+		// Read-only address state. Perps execution is intentionally not exposed here.
 		getPositions: (address: string) => Effect.Effect<HLPosition[], Error>
 	}
 >() {}
@@ -100,29 +97,67 @@ async function fetchInfo(body: Record<string, unknown>): Promise<unknown> {
 	return res.json()
 }
 
-async function getMarketsImpl(): Promise<HLMarket[]> {
-	const data = (await fetchInfo({ type: 'meta' })) as {
-		universe: Array<{
-			name: string
-			szDecimals: number
-			maxLeverage: number
-		}>
+function requiredFinite(value: string | number | null | undefined, label: string): number {
+	if (value === null || value === undefined || value === '') {
+		throw new Error(`Hyperliquid ${label} is unavailable`)
 	}
-	const midData = (await fetchInfo({ type: 'allMids' })) as Record<string, string>
+	const parsed = typeof value === 'number' ? value : Number.parseFloat(value)
+	if (!Number.isFinite(parsed)) {
+		throw new Error(`Hyperliquid ${label} is invalid`)
+	}
+	return parsed
+}
 
-	return data.universe
-		.filter((u) => MARKETS[`${u.name}-USD`] || Object.values(MARKETS).includes(u.name))
-		.map((u) => {
-			const marketName = `${u.name}-USD`
-			return {
-				name: marketName,
-				asset: u.name,
-				szDecimals: u.szDecimals,
-				maxLeverage: u.maxLeverage,
-				markPrice: parseFloat(midData[u.name] ?? '0'),
-				fundingRate: 0, // funding requires separate call
-			}
-		})
+function requiredPositive(value: string | number | null | undefined, label: string): number {
+	const parsed = requiredFinite(value, label)
+	if (parsed <= 0) throw new Error(`Hyperliquid ${label} must be positive`)
+	return parsed
+}
+
+async function getPerpSnapshot(): Promise<HLPerpSnapshot> {
+	const data = await fetchInfo({ type: 'metaAndAssetCtxs' })
+	if (!Array.isArray(data) || data.length < 2) {
+		throw new Error('Invalid Hyperliquid metaAndAssetCtxs response')
+	}
+
+	const meta = data[0] as { universe?: HLAssetMeta[] }
+	const contexts = data[1] as HLAssetContext[]
+	if (!Array.isArray(meta?.universe) || !Array.isArray(contexts)) {
+		throw new Error('Invalid Hyperliquid metaAndAssetCtxs response')
+	}
+
+	return { universe: meta.universe, contexts }
+}
+
+function assetFromSnapshot(snapshot: HLPerpSnapshot, asset: string) {
+	const index = snapshot.universe.findIndex((item) => item.name === asset)
+	if (index < 0) throw new Error(`No live Hyperliquid market data for ${asset}`)
+	const meta = snapshot.universe[index]
+	const context = snapshot.contexts[index]
+	if (!meta || !context) throw new Error(`No live Hyperliquid market context for ${asset}`)
+	return { meta, context }
+}
+
+function marketFromSnapshot(snapshot: HLPerpSnapshot, asset: string): HLMarket {
+	const { meta, context } = assetFromSnapshot(snapshot, asset)
+	const venueMaxLeverage = requiredPositive(meta.maxLeverage, `${asset} max leverage`)
+	return {
+		name: `${asset}-USD`,
+		asset,
+		szDecimals: meta.szDecimals,
+		maxLeverage: Math.min(venueMaxLeverage, MAX_LEVERAGE),
+		venueMaxLeverage,
+		markPrice: requiredPositive(context.markPx, `${asset} mark price`),
+		fundingRate: requiredFinite(context.funding, `${asset} funding rate`),
+	}
+}
+
+async function getMarketsImpl(): Promise<HLMarket[]> {
+	const snapshot = await getPerpSnapshot()
+	const supported = new Set(Object.values(MARKETS))
+	return snapshot.universe
+		.filter((item) => supported.has(item.name))
+		.map((item) => marketFromSnapshot(snapshot, item.name))
 }
 
 async function getQuoteImpl(
@@ -132,43 +167,53 @@ async function getQuoteImpl(
 	leverage: number,
 ): Promise<HLPositionQuote> {
 	const asset = MARKETS[market]
-	if (!asset) throw new Error(`Unknown market: ${market}. Available: ${Object.keys(MARKETS).join(', ')}`)
-	if (leverage < 1 || leverage > MAX_LEVERAGE)
-		throw new Error(`Leverage must be 1-${MAX_LEVERAGE}x`)
+	if (!asset)
+		throw new Error(`Unknown market: ${market}. Available: ${Object.keys(MARKETS).join(', ')}`)
+	const snapshot = await getPerpSnapshot()
+	const { context } = assetFromSnapshot(snapshot, asset)
+	const marketData = marketFromSnapshot(snapshot, asset)
+	if (leverage < 1 || leverage > marketData.maxLeverage)
+		throw new Error(`Leverage must be 1-${marketData.maxLeverage}x for ${market}`)
 
-	const midData = (await fetchInfo({ type: 'allMids' })) as Record<string, string>
-	const markPrice = parseFloat(midData[asset] ?? '0')
-	if (!markPrice) throw new Error(`No price available for ${asset}`)
+	const markPrice = marketData.markPrice
+	const entryPrice =
+		context.midPx === null || context.midPx === undefined || context.midPx === ''
+			? markPrice
+			: requiredPositive(context.midPx, `${asset} midpoint`)
 
-	const notional = size * markPrice
+	const notional = size * entryPrice
 	const margin = notional / leverage
 	if (margin < MIN_MARGIN_USD) throw new Error(`Minimum margin is $${MIN_MARGIN_USD}`)
 
 	const fee = notional * (FEE_BPS / 10000)
 
 	// Approximate liquidation price
-	const liqDistance = markPrice / leverage
+	const liqDistance = entryPrice / leverage
 	const liquidationPrice =
-		side === 'long' ? markPrice - liqDistance * 0.9 : markPrice + liqDistance * 0.9
+		side === 'long' ? entryPrice - liqDistance * 0.9 : entryPrice + liqDistance * 0.9
 
 	return {
 		market,
 		side,
 		size,
 		leverage,
-		entryPrice: markPrice,
+		entryPrice,
 		margin,
 		liquidationPrice,
-		fundingRate: 0,
+		fundingRate: marketData.fundingRate,
 		fee,
 	}
 }
 
 async function getPositionsImpl(address: string): Promise<HLPosition[]> {
-	const data = (await fetchInfo({
-		type: 'clearinghouseState',
-		user: address,
-	})) as {
+	const [data, snapshot] = (await Promise.all([
+		fetchInfo({
+			type: 'clearinghouseState',
+			user: address,
+		}),
+		getPerpSnapshot(),
+	])) as [unknown, HLPerpSnapshot]
+	const state = data as {
 		assetPositions: Array<{
 			position: {
 				coin: string
@@ -183,13 +228,14 @@ async function getPositionsImpl(address: string): Promise<HLPosition[]> {
 		}>
 	}
 
-	return data.assetPositions
+	return state.assetPositions
 		.filter((ap) => parseFloat(ap.position.szi) !== 0)
 		.map((ap, i) => {
 			const pos = ap.position
 			const size = parseFloat(pos.szi)
 			const entryPrice = parseFloat(pos.entryPx)
 			const markPrice = parseFloat(pos.positionValue) / Math.abs(size)
+			const { context } = assetFromSnapshot(snapshot, pos.coin)
 
 			return {
 				id: `${pos.coin}-${i}`,
@@ -202,7 +248,7 @@ async function getPositionsImpl(address: string): Promise<HLPosition[]> {
 				margin: parseFloat(pos.marginUsed),
 				unrealizedPnl: parseFloat(pos.unrealizedPnl),
 				liquidationPrice: pos.liquidationPx ? parseFloat(pos.liquidationPx) : 0,
-				fundingRate: 0,
+				fundingRate: requiredFinite(context.funding, `${pos.coin} funding rate`),
 			}
 		})
 }
@@ -210,7 +256,10 @@ async function getPositionsImpl(address: string): Promise<HLPosition[]> {
 export const HyperliquidServiceLive = Layer.succeed(HyperliquidService, {
 	getMarkets: () => Effect.tryPromise({ try: () => getMarketsImpl(), catch: (e) => e as Error }),
 	getQuote: (market, side, size, leverage) =>
-		Effect.tryPromise({ try: () => getQuoteImpl(market, side, size, leverage), catch: (e) => e as Error }),
+		Effect.tryPromise({
+			try: () => getQuoteImpl(market, side, size, leverage),
+			catch: (e) => e as Error,
+		}),
 	getPositions: (address) =>
 		Effect.tryPromise({ try: () => getPositionsImpl(address), catch: (e) => e as Error }),
 })

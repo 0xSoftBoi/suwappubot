@@ -208,7 +208,7 @@ const HIGHLIGHTS = [
 
 export default function ComparePage() {
   return (
-    <main id="main-content" className="summer-page docs-shell sw-dark">
+    <main id="main-content" className="summer-page docs-shell institutional-page">
       <Navigation />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">

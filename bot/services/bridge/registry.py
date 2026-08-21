@@ -7,6 +7,7 @@ from typing import List, Optional
 from bot.services.bridge.allbridge_api import allbridge_api
 from bot.services.bridge.arbitrum_native import arbitrum_native_api
 from bot.services.bridge.base import BridgeProvider, BridgeQuote
+from bot.services.bridge.lattice_api import lattice_api
 from bot.services.bridge.near_intents import near_intents_api
 from bot.services.bridge.symbiosis_api import symbiosis_api
 from bot.services.bridge.usdt0_api import usdt0_api
@@ -19,6 +20,12 @@ BRIDGE_PROVIDERS: List[BridgeProvider] = [
     symbiosis_api,
     arbitrum_native_api,
     usdt0_api,
+    # Dark/quote-only per docs/pq-settlement-profile.md -- `enabled` is False
+    # by default (requires both LATTICE_BRIDGE_ENABLED and
+    # LATTICE_GATEWAY_URL), so it never races other providers until the
+    # activation gates in that doc pass. Do NOT add "lattice" to
+    # SwapEngine.EXECUTABLE_PROVIDERS.
+    lattice_api,
 ]
 
 

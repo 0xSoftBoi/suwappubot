@@ -6,7 +6,11 @@ export interface SimulationBalanceChange {
   token: string
   symbol: string
   amount: string
-  amountUsd: number
+  // Optional: the quote-derived fallback (buildSimulationFromQuote) can
+  // leave this unset when no real USD price is derivable for the token —
+  // never a lie (e.g. a token amount reported as USD), so callers must
+  // null-check before formatting.
+  amountUsd?: number
   direction: 'in' | 'out'
 }
 

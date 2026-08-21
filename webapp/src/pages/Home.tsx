@@ -68,6 +68,18 @@ export function Home() {
 
         <QuickActions />
 
+        <button
+          type="button"
+          onClick={() => navigate('/discover')}
+          className="w-full flex items-center justify-between gap-3 rounded-suwappu-xl border border-suwappu-sakura-mid/20 bg-white px-4 py-3 text-left shadow-suwappu-1 transition-colors hover:border-suwappu-magenta-mid/40"
+        >
+          <span>
+            <span className="block font-heading font-semibold text-sm text-suwappu-purple-deep">Social pulse</span>
+            <span className="mt-0.5 block text-xs text-suwappu-text-secondary">Discover real JellyJelly creator moments and claim your audience.</span>
+          </span>
+          <span className="shrink-0 text-sm font-semibold text-suwappu-magenta-mid">Explore →</span>
+        </button>
+
         <FeatureGrid />
 
         <QuickSwap />

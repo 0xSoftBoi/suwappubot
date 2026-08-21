@@ -14,6 +14,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 import aiohttp
 
+from bot.utils.http_client import get_session as get_http_session
+
 logger = logging.getLogger(__name__)
 
 
@@ -187,31 +189,35 @@ class TurnkeyClient:
             "X-Stamp": stamp,  # Already base64-encoded
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.request(
-                method,
-                url,
-                data=body_str,
-                headers=headers,
-            ) as response:
-                # Get response text first for better error handling
-                text = await response.text()
+        # Signing activities can legitimately take longer than the shared
+        # session's default total timeout (20s) — use the shared session for
+        # pooling/DNS caching but keep a per-request 30s override.
+        session = await get_http_session()
+        async with session.request(
+            method,
+            url,
+            data=body_str,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as response:
+            # Get response text first for better error handling
+            text = await response.text()
 
-                try:
-                    result = json.loads(text) if text else {}
-                except json.JSONDecodeError:
-                    logger.error(f"Turnkey API returned non-JSON: {text[:200]}")
-                    raise TurnkeyAPIError(response.status, f"Invalid JSON response: {text[:200]}")
+            try:
+                result = json.loads(text) if text else {}
+            except json.JSONDecodeError:
+                logger.error(f"Turnkey API returned non-JSON: {text[:200]}")
+                raise TurnkeyAPIError(response.status, f"Invalid JSON response: {text[:200]}")
 
-                if response.status >= 400:
-                    if isinstance(result, dict):
-                        error_msg = result.get("message", str(result))
-                    else:
-                        error_msg = str(result)
-                    logger.error(f"Turnkey API error: {response.status} - {error_msg}")
-                    raise TurnkeyAPIError(response.status, error_msg)
+            if response.status >= 400:
+                if isinstance(result, dict):
+                    error_msg = result.get("message", str(result))
+                else:
+                    error_msg = str(result)
+                logger.error(f"Turnkey API error: {response.status} - {error_msg}")
+                raise TurnkeyAPIError(response.status, error_msg)
 
-                return result
+            return result
 
     async def _submit_activity(
         self,
@@ -986,7 +992,11 @@ from datetime import datetime, timezone, timedelta
 _auth_challenges: Dict[str, Dict[str, Any]] = {}
 
 
-def generate_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Dict[str, str]:
+def generate_auth_challenge(
+    address: str,
+    domain: str = "terminal.suwappu.bot",
+    uri: Optional[str] = None,
+) -> Dict[str, str]:
     """
     Generate an EIP-4361 style sign-in message for wallet authentication.
 
@@ -997,9 +1007,13 @@ def generate_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Di
     Returns:
         Dict with 'challenge', 'nonce', and 'expiresAt' fields
     """
-    nonce = secrets.token_urlsafe(32)
+    # EIP-4361 requires an alphanumeric nonce. token_urlsafe() may emit '-'/'_'.
+    nonce = secrets.token_hex(16)
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(minutes=10)
+    sign_in_uri = uri or f"https://{domain}"
+    issued_at_rfc3339 = issued_at.isoformat().replace("+00:00", "Z")
+    expires_at_rfc3339 = expires_at.isoformat().replace("+00:00", "Z")
 
     # EIP-4361 SIWE-style message
     challenge = f"""{domain} wants you to sign in with your Ethereum account:
@@ -1007,12 +1021,12 @@ def generate_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Di
 
 Sign in to Suwappu
 
-URI: https://{domain}
+URI: {sign_in_uri}
 Version: 1
 Chain ID: 1
 Nonce: {nonce}
-Issued At: {issued_at.isoformat()}Z
-Expiration Time: {expires_at.isoformat()}Z"""
+Issued At: {issued_at_rfc3339}
+Expiration Time: {expires_at_rfc3339}"""
 
     # Store challenge for verification
     _auth_challenges[nonce] = {
@@ -1024,7 +1038,7 @@ Expiration Time: {expires_at.isoformat()}Z"""
     return {
         "challenge": challenge,
         "nonce": nonce,
-        "expiresAt": expires_at.isoformat() + "Z",
+        "expiresAt": expires_at_rfc3339,
     }
 
 
@@ -1083,7 +1097,11 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
         return False
 
 
-def generate_solana_auth_challenge(address: str, domain: str = "app.suwappu.com") -> Dict[str, str]:
+def generate_solana_auth_challenge(
+    address: str,
+    domain: str = "terminal.suwappu.bot",
+    uri: Optional[str] = None,
+) -> Dict[str, str]:
     """
     Generate a Sign-In-With-Solana style message for Phantom/Solana wallets.
 
@@ -1091,20 +1109,24 @@ def generate_solana_auth_challenge(address: str, domain: str = "app.suwappu.com"
     base58 pubkey (CASE-SENSITIVE — never lowercase it) and there is no EVM chain
     id. The wallet signs the returned ``challenge`` text with signMessage.
     """
-    nonce = secrets.token_urlsafe(32)
+    # SIWS requires a nonce of at least eight alphanumeric characters.
+    nonce = secrets.token_hex(16)
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(minutes=10)
+    sign_in_uri = uri or f"https://{domain}"
+    issued_at_rfc3339 = issued_at.isoformat().replace("+00:00", "Z")
+    expires_at_rfc3339 = expires_at.isoformat().replace("+00:00", "Z")
 
     challenge = f"""{domain} wants you to sign in with your Solana account:
 {address}
 
 Sign in to Suwappu
 
-URI: https://{domain}
+URI: {sign_in_uri}
 Version: 1
 Nonce: {nonce}
-Issued At: {issued_at.isoformat()}Z
-Expiration Time: {expires_at.isoformat()}Z"""
+Issued At: {issued_at_rfc3339}
+Expiration Time: {expires_at_rfc3339}"""
 
     # Store with the EXACT-case address + a chain marker so verify uses the right path.
     _auth_challenges[nonce] = {
@@ -1117,7 +1139,7 @@ Expiration Time: {expires_at.isoformat()}Z"""
     return {
         "challenge": challenge,
         "nonce": nonce,
-        "expiresAt": expires_at.isoformat() + "Z",
+        "expiresAt": expires_at_rfc3339,
     }
 
 
@@ -1126,8 +1148,8 @@ def verify_solana_auth_signature(address: str, signature: str, nonce: str) -> bo
     Verify a Solana (ed25519) wallet signature against a stored challenge.
 
     ``signature`` is base58-encoded (Phantom's signMessage output, base58'd by the
-    client). ``address`` is the base58 pubkey. Uses PyNaCl (a dep of `solana`) for
-    the ed25519 check. Never lowercases the address (base58 is case-sensitive).
+    client). ``address`` is the base58 pubkey. Never lowercases the address
+    (base58 is case-sensitive).
     """
     challenge_data = _auth_challenges.get(nonce)
     if not challenge_data:
@@ -1145,8 +1167,8 @@ def verify_solana_auth_signature(address: str, signature: str, nonce: str) -> bo
 
     try:
         import base58
-        from nacl.signing import VerifyKey
-        from nacl.exceptions import BadSignatureError
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
         pubkey_bytes = base58.b58decode(address)
         if len(pubkey_bytes) != 32:
@@ -1157,8 +1179,8 @@ def verify_solana_auth_signature(address: str, signature: str, nonce: str) -> bo
         message = challenge_data["challenge"].encode("utf-8")
 
         try:
-            VerifyKey(pubkey_bytes).verify(message, sig_bytes)
-        except BadSignatureError:
+            Ed25519PublicKey.from_public_bytes(pubkey_bytes).verify(sig_bytes, message)
+        except (InvalidSignature, ValueError):
             logger.warning("Solana auth verification failed: signature mismatch")
             return False
 
@@ -1168,7 +1190,7 @@ def verify_solana_auth_signature(address: str, signature: str, nonce: str) -> bo
         return True
 
     except ImportError:
-        logger.error("base58 + pynacl required for Solana signature verification")
+        logger.error("base58 + cryptography required for Solana signature verification")
         return False
     except Exception as e:
         logger.error(f"Solana auth verification error: {e}")

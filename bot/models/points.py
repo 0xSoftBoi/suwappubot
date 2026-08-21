@@ -139,7 +139,14 @@ class UserPoints(Base):
         return LEVELS[next_level]["xp"] - self.xp
 
     def check_level_up(self) -> str:
-        """Check if user should level up and return new level if so."""
+        """Check if user should level up and return new level if so.
+
+        Intentionally unpaid: this only relabels ``level``, it does not credit
+        a level_up bonus. The 100pt level_up bonus is paid exclusively by the
+        api-ts PointsService (see api-ts/src/services/PointsService.ts,
+        awardLevelUpBonusTx) via an insert-guarded ledger row, which is the
+        sole gate preventing a double pay under concurrency.
+        """
         level_order = ["bronze", "silver", "gold", "platinum", "diamond"]
 
         for level_name in reversed(level_order):
@@ -209,6 +216,14 @@ class PointRedemption(Base):
 
     # Optional: expiry for temporary rewards
     expires_at = Column(DateTime, nullable=True)
+
+    # Durable replay guard (H6/MONEY-PATH): when set, a UNIQUE(user_id,
+    # idempotency_key) partial index (see database/db.py
+    # `_add_point_redemption_idempotency_key`) makes a retried redemption's
+    # INSERT conflict instead of double-charging points across a worker
+    # restart or multi-replica deploy. NULL for redemption paths that don't
+    # pass a key (index is partial, so NULLs are unaffected).
+    idempotency_key = Column(String(160), nullable=True)
 
 
 class Milestone(Base):
@@ -378,7 +393,7 @@ DEFAULT_MILESTONES = [
 DEFAULT_REWARDS = [
     {
         "name": "Fee Discount 24h",
-        "description": "0.5% fee for 24 hours",
+        "description": "50% off your swap fee for 24 hours",
         "points_cost": 500,
         "reward_type": "fee_discount",
         "reward_value": "0.5",
@@ -387,7 +402,7 @@ DEFAULT_REWARDS = [
     },
     {
         "name": "Fee Discount 7d",
-        "description": "0.5% fee for 7 days",
+        "description": "50% off your swap fee for 7 days",
         "points_cost": 2500,
         "reward_type": "fee_discount",
         "reward_value": "0.5",

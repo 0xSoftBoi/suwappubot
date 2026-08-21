@@ -6,8 +6,11 @@
      small radii, radial glow (not mesh), motion only on scroll entry.
    ========================================================================== */
 .hd {
-  --bg: #0A0A0A;
-  --bg-elev: #131313;
+  /* Soil tokens (warm aubergine-brown) live in globals.css's PERSIMMON
+     ORCHARD block — a tint shift off near-neutral black, not a brightness
+     change, so the page still reads dark and calm. */
+  --bg: var(--sw-soil-0, #1C1310);
+  --bg-elev: var(--sw-soil-1, #241A15);
   --fg: #FAFAFA;
   --fg-dim: #A1A1A1;
   --fg-faint: #6E6E6E;
@@ -67,12 +70,14 @@
 .hd__h1 {
   position: relative;
   margin: 0;
-  font-size: clamp(2.6rem, 6.2vw, 4.75rem);
-  line-height: 1.04;
-  letter-spacing: -0.035em;
-  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: clamp(3rem, 7vw, 5.6rem);
+  line-height: 1.02;
+  /* Display serifs need air, not the sans register's tight negative tracking. */
+  letter-spacing: -0.005em;
+  font-weight: 500;
   color: var(--fg);
-  max-width: 16ch;
+  max-width: 17ch;
 }
 
 .hd__lead {
@@ -96,8 +101,7 @@
 .hd__btn {
   display: inline-flex;
   align-items: center;
-  padding: 0.72rem 1.35rem;
-  border-radius: var(--r);
+  padding: 0.72rem 1.5rem 0.72rem 1.35rem;
   font-size: 0.9375rem;
   font-weight: 600;
   text-decoration: none;
@@ -105,19 +109,51 @@
   background: var(--fg);
   color: #0A0A0A;
   border: 1px solid transparent;
+  /* Shared button silhouette (see D2 in the design system, .btn-cut below):
+     opposite corners cut so every CTA on the site reads as one family. */
+  clip-path: var(--btn-cut);
   transition: opacity 0.18s ease, background 0.18s ease;
 }
 
 .hd__btn:hover { opacity: 0.88; }
 
-/* The accent appears exactly twice on this page: this border and the glow. */
+/* Secondary CTA = leaf, everywhere (see PERSIMMON ORCHARD block, globals.css):
+   persimmon stays reserved for the primary fill + route-swap + live. */
 .hd__btn--ghost {
   background: transparent;
-  color: var(--fg);
-  border-color: var(--line-strong);
+  color: var(--sw-leaf-bright, #8FCC9E);
+  border-color: var(--sw-leaf-deep, #3E6B4F);
 }
 
-.hd__btn--ghost:hover { background: rgba(255, 255, 255, 0.05); }
+.hd__btn--ghost:hover {
+  background: var(--sw-leaf-fainter, rgba(94, 156, 111, 0.07));
+  border-color: var(--sw-leaf, #5E9C6F);
+}
+
+/* clip-path clips outline AND box-shadow drawn outside the border box, so the
+   site-wide outer focus ring (--sw-focus) is invisible here. Draw the ring
+   inset instead, in the button's own foreground colour. */
+.hd__btn:focus-visible,
+.hd__btn--ghost:focus-visible {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+/* One text link beside the one primary CTA (D4) — no second button shape
+   competing with the primary. */
+.hd__textlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.72rem 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--fg-dim);
+  text-decoration: none;
+  transition: color 0.18s ease, gap 0.18s ease;
+}
+.hd__textlink span { transition: transform 0.18s ease; }
+.hd__textlink:hover { color: var(--fg); }
+.hd__textlink:hover span { transform: translateX(3px); }
 
 /* ── The product ─────────────────────────────────────────────── */
 .hd__stage {
@@ -176,6 +212,34 @@
 
 .hd .lq__bar { border-bottom-color: var(--line); padding: 0.8rem 1.1rem; }
 .hd .lq__title { color: var(--fg); letter-spacing: 0.14em; font-size: 0.66rem; }
+/* Status chip: live/captured are the same "success/live" role (leaf), just
+   a dimmer step for captured — never live and never claimed to be. */
+.hd .lq__title--live {
+  color: var(--sw-leaf-bright, #8FCC9E);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+.hd .lq__title--live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sw-leaf, #5E9C6F);
+  animation: lq-pulse 2s var(--pp-ease, ease) infinite;
+}
+.hd .lq__title--stale { color: var(--sw-leaf-muted, #6BAF7C); }
+.hd .lq__title--expired,
+.hd .lq__title--unavailable { color: var(--sw-accent-muted, #BD7526); }
+.hd .lq__body--expired .lq__out { opacity: 0.62; }
+@keyframes lq-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(94, 156, 111, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(94, 156, 111, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(94, 156, 111, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hd .lq__title--live::before { animation: none; }
+}
 .hd .lq__src { font-size: 0.62rem; color: var(--fg-faint); opacity: 1; }
 .hd .lq__pairs { padding: 0.9rem 1.1rem 0; }
 
@@ -188,10 +252,12 @@
   font-size: 0.68rem;
 }
 
+/* Inverted chip (P3/cream) — the selected pair, e.g. "100 USDC to ETH". */
 .hd .lq__pair--on {
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--fg);
+  border-color: var(--sw-cream, #FAF3E6);
+  background: var(--sw-cream, #FAF3E6);
+  color: var(--sw-soil-0, #1C1310);
+  font-weight: 700;
 }
 
 .hd .lq__body { padding: 1.1rem; }
@@ -231,7 +297,7 @@
 
 /* Dark header treatment for this page. */
 .hd .summer-nav {
-  background: rgba(10, 10, 10, 0.72);
+  background: rgba(28, 19, 16, 0.72);
   border-bottom-color: var(--line);
 }
 .hd .summer-brand { color: var(--fg); }
@@ -240,5 +306,13 @@
 .hd .summer-nav nav a:hover, .hd .summer-nav__trigger:hover {
   color: var(--fg); background: rgba(255,255,255,0.07);
 }
-.hd .summer-nav__cta--ghost { color: var(--fg); border-color: var(--line-strong); background: transparent; }
+.hd .summer-nav__cta--ghost {
+  color: var(--sw-leaf-bright, #8FCC9E);
+  border-color: var(--sw-leaf-deep, #3E6B4F);
+  background: transparent;
+}
+.hd .summer-nav__cta--ghost:hover {
+  background: var(--sw-leaf-fainter, rgba(94, 156, 111, 0.07));
+  border-color: var(--sw-leaf, #5E9C6F);
+}
 .hd .summer-nav__burger .nav__hamburger-line { background: var(--fg); }

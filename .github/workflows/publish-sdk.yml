@@ -1,37 +1,97 @@
 name: Publish SDKs
+
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Which SDKs to publish'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, ts, python]
 
 jobs:
   publish-ts:
+    if: github.event_name == 'push' || contains(fromJSON('["all","ts"]'), inputs.targets)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - run: cd packages/sdk && bun install && bun run build
+        with:
+          bun-version: 1.3.14
       - uses: actions/setup-node@v7
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
-      - run: cd packages/sdk && npm publish --access public
+
+      - name: Run shared TypeScript package release contract
+        run: bash scripts/verify-ts-packages.sh
+
+      # Publishes are version-guarded so a re-run (or a tag covering an
+      # already-published package) is a no-op instead of a hard failure.
+      - name: Publish @suwappu/sdk
+        run: |
+          cd packages/sdk
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@suwappu/sdk@$VERSION" version >/dev/null 2>&1; then
+            echo "@suwappu/sdk@$VERSION already published — skipping."
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - run: cd packages/openclaw && bun install && bun run build 2>/dev/null || true
-      - run: cd packages/openclaw && npm publish --access public
+
+      - name: Publish @suwappu/openclaw
+        run: |
+          cd packages/openclaw
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@suwappu/openclaw@$VERSION" version >/dev/null 2>&1; then
+            echo "@suwappu/openclaw@$VERSION already published — skipping."
+          else
+            npm publish --access public --provenance
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @suwappu/mcp-server
+        run: |
+          cd packages/mcp-server
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@suwappu/mcp-server@$VERSION" version >/dev/null 2>&1; then
+            echo "@suwappu/mcp-server@$VERSION already published — skipping."
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-python:
+    if: github.event_name == 'push' || contains(fromJSON('["all","python"]'), inputs.targets)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - run: pip install build twine
-      - run: cd packages/sdk-python && python -m build
-      - run: cd packages/sdk-python && twine upload dist/*
+      - run: pip install build twine './packages/sdk-python[dev]'
+      - name: Test Python SDK
+        run: python -m pytest packages/sdk-python/tests -q
+      - name: Build sdist + wheel
+        run: cd packages/sdk-python && python -m build
+      - name: Clean-install built wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/python-publish-consumer"
+          "$RUNNER_TEMP/python-publish-consumer/bin/pip" install packages/sdk-python/dist/*.whl
+          "$RUNNER_TEMP/python-publish-consumer/bin/python" -I -c "from suwappu import create_client; assert callable(create_client)"
+      - name: Check metadata
+        run: cd packages/sdk-python && twine check dist/*
+      - name: Publish to PyPI
+        run: cd packages/sdk-python && twine upload --skip-existing dist/*
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}

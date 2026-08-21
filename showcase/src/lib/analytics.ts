@@ -16,6 +16,7 @@ interface PlausibleWindow extends Window {
   gtag?: (command: 'event', event: string, params?: EventProps) => void;
   twq?: (command: 'event', eventId: string, params?: EventProps) => void;
   rdt?: (command: 'track', eventName: string, params?: EventProps) => void;
+  posthog?: { capture?: (event: string, props?: EventProps) => void };
 }
 
 // Events worth reporting to ad platforms as conversions, mapped to each
@@ -25,6 +26,7 @@ const CONVERSION_EVENTS: Record<string, { x?: string; reddit?: string }> = {
   enterprise_lead_submitted: { x: 'tw-lead', reddit: 'Lead' },
   contact_sales_submitted: { x: 'tw-lead', reddit: 'Lead' },
   newsletter_subscribed: { x: 'tw-signup', reddit: 'SignUp' },
+  waitlist_reserved: { x: 'tw-signup', reddit: 'SignUp' },
   demo_call_click: { reddit: 'Lead' },
 };
 
@@ -34,6 +36,7 @@ export function track(event: string, props?: EventProps): void {
   try {
     w.plausible?.(event, props ? { props } : undefined);
     w.gtag?.('event', event, props);
+    w.posthog?.capture?.(event, props);
 
     const conversion = CONVERSION_EVENTS[event];
     if (conversion?.x) w.twq?.('event', conversion.x, props);

@@ -1,18 +1,22 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
+import { track } from '@/lib/analytics';
 import ProductMenu from './ProductMenu';
 import NavDrawer from './NavDrawer';
 
 /**
  * SummerNav: the homepage header.
  *
- * Keeps the `.summer-nav` shell (sticky, in-flow, sits above the cosmic hero)
- * that the homepage layout is built around, but swaps the old flat row of eight
- * anchor links for the same grouped product directory the rest of the site
- * uses. See ProductMenu for why the two shells stay separate.
+ * Product discovery is intentionally explicit here. Important product surfaces
+ * must be reachable from the first screen of suwappu.bot rather than living as
+ * hidden routes inside account or research pages.
  */
 export default function SummerNav() {
+  const nav = useTranslations('nav');
+  const hero = useTranslations('home.hero');
+
   return (
     <header className="summer-nav">
       <a className="summer-brand" href="/">
@@ -22,42 +26,54 @@ export default function SummerNav() {
 
       <nav aria-label="Primary navigation" className="summer-nav__menu">
         <ProductMenu triggerClassName="summer-nav__trigger" />
-        <a href="/pricing">Pricing</a>
-        <a href="/docs">Docs</a>
+        <a href="/products"><strong>Explore</strong></a>
+        <a href="/dashboard/signals">Signals <span aria-hidden="true">↗</span></a>
+        <a href="/research">Research</a>
+        <a href="/pricing">{nav('pricing')}</a>
+        <a href="/docs">{nav('docs')}</a>
+        <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">{hero('telegramNav')}</a>
       </nav>
 
       <div className="summer-nav__actions">
-        <a className="summer-nav__cta summer-nav__cta--ghost" href={TERMINAL_URL}>
-          Open Terminal
-        </a>
         <a
           className="summer-nav__cta"
-          href={TELEGRAM_URL}
-          target="_blank"
-          rel="noopener noreferrer"
+          href={TERMINAL_URL}
+          onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'terminal' })}
         >
-          Open Bot
+          {hero('ctaTerminal')}
+        </a>
+        <a
+          className="summer-nav__cta summer-nav__cta--ghost"
+          href="/products"
+          onClick={() => track('cta_clicked', { surface: 'homepage_nav', destination: 'products' })}
+        >
+          Explore all
         </a>
 
         {/* Below 980px the link row is hidden; this is the only way in. */}
         <NavDrawer
           className="summer-nav__burger"
           extraLinks={[
-            { href: '/pricing', label: 'Pricing' },
-            { href: '/docs', label: 'Docs' },
+            { href: '/products', label: 'Explore all products' },
+            { href: '/dashboard/signals', label: 'Signal Intelligence' },
+            { href: '/research', label: 'Research' },
+            { href: '/pricing', label: nav('pricing') },
+            { href: '/docs', label: nav('docs') },
+            { href: TELEGRAM_URL, label: hero('telegramNav'), external: true },
           ]}
           actions={
             <>
               <a
-                href={TELEGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={TERMINAL_URL}
                 className="nav__drawer-cta"
               >
-                Open Bot
+                {hero('ctaTerminal')}
               </a>
-              <a href={TERMINAL_URL} className="nav__drawer-cta nav__drawer-cta--ghost">
-                Open Terminal
+              <a
+                href="/products"
+                className="nav__drawer-cta nav__drawer-cta--ghost"
+              >
+                Explore all
               </a>
             </>
           }

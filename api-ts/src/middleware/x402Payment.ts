@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import type { Context, Next } from 'hono'
 import { EnvService } from '../config/EnvService'
+import { resolveX402Networks } from '../config/x402Networks'
 import { requireDb } from '../db/DrizzleService'
 import { agentCredits } from '../db/schema'
 import { runEffectEither } from '../runtime'
@@ -9,6 +10,7 @@ import {
 	facilitatorVerifyAndSettle,
 	isFacilitatorEnabled,
 	type PaymentRequirements,
+	selectRequirementsForPayment,
 } from '../services/FacilitatorService'
 
 /**
@@ -123,6 +125,8 @@ export type X402EnvLike = {
 	FEE_WALLET_EVM: string
 	AGENT_METERING_NETWORK: string
 	AGENT_METERING_USDC_ADDRESS: string
+	/** Comma-separated extra x402 payment networks (e.g. "robinhood"). Opt-in. */
+	X402_EXTRA_NETWORKS?: string
 }
 
 export function buildX402Challenge(
@@ -130,27 +134,34 @@ export function buildX402Challenge(
 	opts: { cost: number; resource: string; description: string; error?: string },
 ) {
 	const collector = env.AGENT_METERING_COLLECTOR_ADDRESS || env.FEE_WALLET_EVM
-	const network = env.AGENT_METERING_NETWORK
-	const asset = env.AGENT_METERING_USDC_ADDRESS
 	const maxAmountRequired = creditsToUsdcBaseUnits(opts.cost)
+
+	// One accepts[] entry per enabled payment network. accepts[0] stays the
+	// env-configured network so existing clients that ignore the rest are
+	// unaffected. Each entry carries its OWN EIP-712 domain — the domain used to
+	// be hardcoded to USDC's, which is wrong for any non-USDC asset (e.g. USDG on
+	// Robinhood Chain, where it would produce an unsignable/invalid payload).
+	const networks = resolveX402Networks(
+		env.AGENT_METERING_NETWORK,
+		env.AGENT_METERING_USDC_ADDRESS,
+		env.X402_EXTRA_NETWORKS,
+	)
 
 	return {
 		x402Version: 1,
-		accepts: [
-			{
-				scheme: 'exact',
-				network,
-				maxAmountRequired,
-				resource: opts.resource,
-				description: opts.description,
-				mimeType: 'application/json',
-				payTo: collector,
-				maxTimeoutSeconds: 120,
-				asset,
-				// EIP-712 domain hints for EIP-3009 transferWithAuthorization (USDC).
-				extra: { name: 'USD Coin', version: '2' },
-			},
-		],
+		accepts: networks.map((n) => ({
+			scheme: 'exact' as const,
+			network: n.network,
+			maxAmountRequired,
+			resource: opts.resource,
+			description: opts.description,
+			mimeType: 'application/json',
+			payTo: collector,
+			maxTimeoutSeconds: 120,
+			asset: n.asset,
+			// EIP-712 domain hints for EIP-3009 transferWithAuthorization.
+			extra: n.eip712,
+		})),
 		error: opts.error ?? 'insufficient_credits',
 		// Stable 17-code contract (see lib/agentError.ts) — keep `error` for
 		// back-compat with existing SDK/agent consumers reading the old field.
@@ -247,7 +258,13 @@ export async function chargeAgentForCall(params: {
 		// No prepaid credits — if the client supplied an X-PAYMENT header and the
 		// facilitator is enabled, settle this single call directly on-chain.
 		if (paymentHeader && isFacilitatorEnabled(env.right)) {
-			const requirements = challenge.accepts[0] as PaymentRequirements
+			// Select the entry the payer actually signed for — with several networks
+			// advertised, always using accepts[0] would reject every payment made on
+			// any other network (asset_mismatch in the cross-check).
+			const requirements = selectRequirementsForPayment(
+				paymentHeader,
+				challenge.accepts as PaymentRequirements[],
+			)
 			const settle = await facilitatorVerifyAndSettle(env.right, paymentHeader, requirements)
 			if (settle.ok) {
 				return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { eq, and, or, isNull, gt } from 'drizzle-orm'
+import { eq, and, or, isNull, gt, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import type { Context, Next } from 'hono'
 import { requireDb, apiKeys, organizations, subscriptions } from '../db'
@@ -79,7 +79,12 @@ export function apiKeyAuth() {
 							.where(
 								and(
 									eq(subscriptions.userId, row.orgOwnerId),
-									eq(subscriptions.tier, 'enterprise'),
+									// The subscriptions table is shared with the Python bot, whose
+									// SQLAlchemy Enum stores uppercase member names ('ENTERPRISE')
+									// in a pg enum; a plain eq against 'enterprise' either errors
+									// (enum input) or never matches. Compare case-insensitively on
+									// the text value so both representations authenticate.
+									sql`upper(${subscriptions.tier}::text) = 'ENTERPRISE'`,
 									or(isNull(subscriptions.expiresAt), gt(subscriptions.expiresAt, now)),
 								),
 							)

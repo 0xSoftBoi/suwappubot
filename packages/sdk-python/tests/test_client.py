@@ -9,7 +9,7 @@ from suwappu import create_client
 from suwappu.client import SuwappuClient, SuwappuError
 from suwappu.types import (
     Chain, LendingMarket, PerpMarket, PerpQuote, PredictionMarket,
-    Quote, SwapResult, Token, TokenBalance, TokenPrice, TokenRef,
+    Quote, SwapResult, SwapSimulation, Token, TokenBalance, TokenPrice, TokenRef,
 )
 
 MOCK_BASE = "https://test.suwappu.bot"
@@ -41,7 +41,10 @@ class TestCreateClient:
         c = create_client()
         methods = [
             "get_quote",
+            "execute_managed_swap",
             "execute_swap",
+            "prepare_swap",
+            "simulate_swap",
             "get_portfolio",
             "get_prices",
             "list_chains",
@@ -147,6 +150,44 @@ class TestGetQuote:
         assert quote.amount_out_min == "148.000000"
 
     @pytest.mark.asyncio
+    async def test_supports_wallet_bound_cross_chain_quotes(self, client: SuwappuClient) -> None:
+        mock_data = {
+            "quote_id": "q-cross",
+            "chain_type": "evm",
+            "from_token": {"symbol": "USDC", "address": "0xUSDC", "decimals": 6},
+            "to_token": {"symbol": "ETH", "address": "0xETH", "decimals": 18},
+            "amount_in": "100.0",
+            "amount_out": "0.03",
+        }
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            quote = await client.get_quote(
+                "USDC",
+                "ETH",
+                100.0,
+                wallet_address="0xabc",
+                from_chain="base",
+                to_chain="arbitrum",
+                slippage=0.01,
+            )
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/quote",
+            params=None,
+            json={
+                "from_token": "USDC",
+                "to_token": "ETH",
+                "amount": "100.0",
+                "from_chain": "base",
+                "to_chain": "arbitrum",
+                "wallet_address": "0xabc",
+                "slippage": 0.01,
+            },
+        )
+        assert quote.quote_id == "q-cross"
+
+    @pytest.mark.asyncio
     async def test_raises_clear_error_on_malformed_response(self, client: SuwappuClient) -> None:
         with patch.object(
             client._client, "request", new_callable=AsyncMock
@@ -197,6 +238,91 @@ class TestExecuteSwap:
             mock_req.return_value = _mock_response({"success": True, "txHash": "0xabc"})
             with pytest.raises(SuwappuError):
                 await client.execute_swap("q1")
+
+
+    @pytest.mark.asyncio
+    async def test_explicit_managed_method_uses_execute_endpoint(self, client: SuwappuClient) -> None:
+        mock_data = {"swap_id": 43, "status": "pending", "tx_hash": None}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            result = await client.execute_managed_swap("q-managed")
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/execute",
+            params=None,
+            json={"quote_id": "q-managed"},
+        )
+        assert result.swap_id == 43
+
+    @pytest.mark.asyncio
+    async def test_managed_method_forwards_idempotency_key(self, client: SuwappuClient) -> None:
+        mock_data = {"swap_id": 44, "status": "pending", "tx_hash": None}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            await client.execute_managed_swap(
+                "q-idempotent", idempotency_key="strategy-run-44"
+            )
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/execute",
+            params=None,
+            json={"quote_id": "q-idempotent"},
+            headers={"Idempotency-Key": "strategy-run-44"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_simulate_swap_validates_full_report(self, client: SuwappuClient) -> None:
+        mock_data = {
+            "success": True,
+            "would_execute": True,
+            "quote_id": "q-sim",
+            "chain_type": "evm",
+            "expected_output": {"token": "USDC", "amount": "3190", "amount_usd": "3190"},
+            "min_output_after_slippage": "3174.05",
+            "price_impact_pct": 0.12,
+            "fees": {"protocol": "25.52", "gas_estimate": "0.08"},
+            "checks": [{"name": "balance", "status": "pass", "detail": "sufficient"}],
+            "warnings": [],
+        }
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            report = await client.simulate_swap(quote_id="q-sim", wallet_address="0xabc")
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap/simulate",
+            params=None,
+            json={"quote_id": "q-sim", "wallet_address": "0xabc"},
+        )
+        assert isinstance(report, SwapSimulation)
+        assert report.would_execute is True
+        assert report.expected_output.amount_usd == "3190"
+        assert report.fees.gas_estimate == "0.08"
+        assert report.checks[0].status == "pass"
+
+    @pytest.mark.asyncio
+    async def test_prepare_swap_uses_unsigned_self_custody_endpoint(self, client: SuwappuClient) -> None:
+        mock_data = {"status": "ready", "transaction": {"to": "0xdef"}}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            result = await client.prepare_swap(
+                quote_id="q-self-custody",
+                wallet_address="0xabc",
+            )
+
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/swap",
+            params=None,
+            json={
+                "quote_id": "q-self-custody",
+                "wallet_address": "0xabc",
+            },
+        )
+        assert result["status"] == "ready"
+
 
 
 class TestGetPortfolio:
@@ -384,7 +510,7 @@ class TestPerpsNamespace:
     @pytest.mark.asyncio
     async def test_markets(self, client: SuwappuClient) -> None:
         mock_data = {"markets": [
-            {"name": "ETH-USD", "asset": "ETH", "szDecimals": 4, "maxLeverage": 20, "markPrice": 2847, "fundingRate": 0.01}
+            {"name": "ETH-USD", "asset": "ETH", "szDecimals": 4, "maxLeverage": 20, "venueMaxLeverage": 25, "markPrice": 2847, "fundingRate": 0.000125}
         ]}
         with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
@@ -393,6 +519,19 @@ class TestPerpsNamespace:
         assert len(markets) == 1
         assert isinstance(markets[0], PerpMarket)
         assert markets[0].name == "ETH-USD"
+        assert markets[0].max_leverage == 20
+        assert markets[0].venue_max_leverage == 25
+        assert markets[0].funding_rate == 0.000125
+
+    @pytest.mark.asyncio
+    async def test_markets_do_not_invent_missing_live_funding(self, client: SuwappuClient) -> None:
+        mock_data = {"markets": [
+            {"name": "ETH-USD", "asset": "ETH", "szDecimals": 4, "maxLeverage": 20, "venueMaxLeverage": 25, "markPrice": 2847}
+        ]}
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            with pytest.raises(KeyError, match="fundingRate"):
+                await client.perps.markets()
 
     @pytest.mark.asyncio
     async def test_quote(self, client: SuwappuClient) -> None:
@@ -422,15 +561,34 @@ class TestPerpsNamespace:
 class TestPredictNamespace:
     @pytest.mark.asyncio
     async def test_markets(self, client: SuwappuClient) -> None:
-        mock_data = {"markets": [
-            {"id": "m1", "question": "Will ETH hit 5k?", "outcomes": ["Yes", "No"], "outcomePrices": [0.65, 0.35], "volume": 100000, "liquidity": 50000, "endDate": "2026-12-31", "active": True, "category": "crypto"}
-        ]}
+        mock_data = {
+            "markets": [
+                {
+                    "id": "m1",
+                    "conditionId": "0xcondition",
+                    "question": "Will ETH hit 5k?",
+                    "outcomes": ["Yes", "No"],
+                    "outcomePrices": [0.65, 0.35],
+                    "tokens": [
+                        {"tokenId": "yes-token", "outcome": "Yes"},
+                        {"tokenId": "no-token", "outcome": "No"},
+                    ],
+                    "volume": 100000,
+                    "liquidity": 50000,
+                    "endDate": "2026-12-31",
+                    "active": True,
+                    "category": "crypto",
+                }
+            ]
+        }
         with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
             markets = await client.predict.markets()
         mock_req.assert_called_once_with("GET", "/v1/agent/predict/markets", params=None, json=None)
         assert len(markets) == 1
         assert isinstance(markets[0], PredictionMarket)
+        assert markets[0].condition_id == "0xcondition"
+        assert markets[0].tokens[0].token_id == "yes-token"
 
     @pytest.mark.asyncio
     async def test_markets_with_query(self, client: SuwappuClient) -> None:
@@ -445,27 +603,82 @@ class TestPredictNamespace:
 
     @pytest.mark.asyncio
     async def test_market_detail(self, client: SuwappuClient) -> None:
-        mock_data = {"id": "m1", "question": "Test?", "description": "d", "outcomes": [], "outcomePrices": [], "volume": 0, "liquidity": 0, "endDate": "", "active": True, "category": "", "createdAt": "", "resolvedOutcome": None}
+        mock_data = {
+            "id": "m1",
+            "conditionId": "0xcondition",
+            "question": "Test?",
+            "description": "d",
+            "outcomes": ["Yes"],
+            "outcomePrices": [0.5],
+            "tokens": [{"tokenId": "tok/yes", "outcome": "Yes"}],
+            "volume": 0,
+            "liquidity": 0,
+            "endDate": "",
+            "active": True,
+            "category": "",
+            "createdAt": "",
+            "resolvedOutcome": None,
+        }
         with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
-            market = await client.predict.market("m1")
-        mock_req.assert_called_once_with("GET", "/v1/agent/predict/market/m1", params=None, json=None)
+            market = await client.predict.market("m/1")
+        mock_req.assert_called_once_with("GET", "/v1/agent/predict/market/m%2F1", params=None, json=None)
         assert market.id == "m1"
+        assert market.tokens[0].token_id == "tok/yes"
+
+    @pytest.mark.asyncio
+    async def test_order_sends_only_supported_gtc_fields(self, client: SuwappuClient) -> None:
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response({"order": {"id": "order-1"}})
+            await client.predict.order(
+                token_id="yes-token", price="0.42", size="10", side="BUY"
+            )
+        mock_req.assert_called_once_with(
+            "POST",
+            "/v1/agent/predict/order",
+            params=None,
+            json={"tokenId": "yes-token", "price": "0.42", "size": "10", "side": "BUY"},
+        )
 
 
 class TestLendNamespace:
     @pytest.mark.asyncio
     async def test_markets(self, client: SuwappuClient) -> None:
-        mock_data = {"markets": [
-            {"id": "mk1", "loanToken": "USDC", "collateralToken": "ETH", "lltv": 0.86, "supplyApy": 5.2, "borrowApy": 7.1, "totalSupply": 1000000, "totalBorrow": 800000, "utilization": 80, "chainId": 8453}
-        ]}
+        mock_data = {
+            "markets": [
+                {
+                    "id": "mk1",
+                    "loanToken": "USDC",
+                    "collateralToken": "ETH",
+                    "lltv": 0.86,
+                    "supplyApy": 5.2,
+                    "borrowApy": 7.1,
+                    "totalSupply": 1000000,
+                    "totalBorrow": 800000,
+                    "totalSupplyUsd": 1000000,
+                    "totalBorrowUsd": 800000,
+                    "availableLiquidityUsd": 200000,
+                    "utilization": 80,
+                    "chainId": 8453,
+                    "listed": True,
+                    "warnings": [
+                        {"type": "oracle_price_derivation", "level": "RED"}
+                    ],
+                }
+            ]
+        }
         with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = _mock_response(mock_data)
             markets = await client.lend.markets()
-        mock_req.assert_called_once_with("GET", "/v1/agent/lend/markets", params=None, json=None)
+        mock_req.assert_called_once_with(
+            "GET", "/v1/agent/lend/markets", params=None, json=None
+        )
         assert len(markets) == 1
         assert isinstance(markets[0], LendingMarket)
         assert markets[0].loan_token == "USDC"
+        assert markets[0].total_supply_usd == 1000000
+        assert markets[0].available_liquidity_usd == 200000
+        assert markets[0].warnings[0].level == "RED"
 
     @pytest.mark.asyncio
     async def test_markets_with_chain(self, client: SuwappuClient) -> None:
@@ -474,5 +687,122 @@ class TestLendNamespace:
             mock_req.return_value = _mock_response(mock_data)
             await client.lend.markets(chain_id=1)
         mock_req.assert_called_once_with(
-            "GET", "/v1/agent/lend/markets", params={"chainId": "1"}, json=None,
+            "GET",
+            "/v1/agent/lend/markets",
+            params={"chainId": "1"},
+            json=None,
         )
+
+    @pytest.mark.asyncio
+    async def test_market_is_chain_scoped_and_url_encoded(
+        self, client: SuwappuClient
+    ) -> None:
+        mock_data = {
+            "id": "mk/1",
+            "loanToken": "USDC",
+            "collateralToken": "ETH",
+            "lltv": 0.86,
+            "supplyApy": 5.2,
+            "borrowApy": 7.1,
+            "totalSupply": None,
+            "totalBorrow": None,
+            "totalSupplyUsd": None,
+            "totalBorrowUsd": None,
+            "availableLiquidityUsd": None,
+            "utilization": 80,
+            "chainId": 1,
+            "listed": False,
+            "warnings": [],
+            "oracle": "0xoracle",
+            "irm": "0xirm",
+            "createdAt": "2026-01-01T00:00:00.000Z",
+        }
+        with patch.object(client._client, "request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = _mock_response(mock_data)
+            market = await client.lend.market("mk/1", chain_id=1)
+        mock_req.assert_called_once_with(
+            "GET",
+            "/v1/agent/lend/market/mk%2F1",
+            params={"chainId": "1"},
+            json=None,
+        )
+        assert market.listed is False
+        assert market.total_supply_usd is None
+
+
+# --- Agent control plane (approvals / audit / kill switch) ---
+#
+# Mirrors packages/sdk/src/__tests__/client.test.ts. Both SDKs must hit the
+# same routes with the same wire names; drift between them is a real bug we
+# have shipped before.
+
+
+@pytest.mark.asyncio
+async def test_control_plane_endpoints(monkeypatch):
+    seen: list[tuple[str, str, dict | None]] = []
+
+    async def fake_request(self, method, path, *, params=None, json=None):
+        qs = ""
+        if params:
+            qs = "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        seen.append((method, path + qs, json))
+        return {
+            "success": True, "approvals": [], "events": [], "killswitches": [],
+            "wallets": [], "swaps": [], "pagination": {}, "code": "ABC",
+            "expires_at": "T", "challenge": "c", "valid": True,
+            "scope": "org", "active": True, "id": "a1", "status": "pending",
+            "address": "0x1",
+        }
+
+    monkeypatch.setattr(SuwappuClient, "_request", fake_request)
+    c = create_client(api_key="k")
+
+    await c.simulate_swap(quote_id="q1", wallet_address="0xabc")
+    await c.list_swaps(status="completed", limit=5)
+    await c.agent.create_wallet()
+    await c.agent.link_code()
+    await c.approvals.list(status="pending")
+    await c.approvals.get("id 1")
+    await c.approvals.approve("a1", step_up_challenge="ch")
+    await c.approvals.deny("a1")
+    await c.approvals.step_up_challenge("a1")
+    await c.audit.list(event_type="swap", limit=10)
+    await c.audit.verify()
+    await c.killswitch.list()
+    await c.killswitch.set(scope="org", active=True, reason="incident")
+
+    paths = [p for _, p, _ in seen]
+    assert paths == [
+        "/v1/agent/swap/simulate",
+        "/v1/agent/swaps?status=completed&limit=5",
+        "/v1/agent/wallets",
+        "/v1/agent/link/code",
+        "/v1/agent/approvals?status=pending",
+        "/v1/agent/approvals/id%201",
+        "/v1/agent/approvals/a1/approve",
+        "/v1/agent/approvals/a1/deny",
+        "/v1/agent/approvals/a1/step-up/challenge",
+        "/v1/agent/audit?event_type=swap&limit=10",
+        "/v1/agent/audit/verify",
+        "/v1/agent/killswitch",
+        "/v1/agent/killswitch",
+    ]
+    # Wire names are snake_case, not the Python kwarg names.
+    assert seen[0][2] == {"quote_id": "q1", "wallet_address": "0xabc"}
+    assert seen[6][2] == {"step_up_challenge": "ch"}
+    assert seen[12][2] == {"scope": "org", "active": True, "reason": "incident"}
+
+
+@pytest.mark.asyncio
+async def test_approval_id_is_url_encoded(monkeypatch):
+    """An id must never be able to escape its path segment."""
+    seen: list[str] = []
+
+    async def fake_request(self, method, path, *, params=None, json=None):
+        seen.append(path)
+        return {"id": "a1", "status": "pending"}
+
+    monkeypatch.setattr(SuwappuClient, "_request", fake_request)
+    c = create_client(api_key="k")
+    await c.approvals.get("a/../b 1")
+    assert seen == ["/v1/agent/approvals/a%2F..%2Fb%201"]

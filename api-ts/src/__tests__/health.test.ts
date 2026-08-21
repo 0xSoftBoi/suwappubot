@@ -12,7 +12,7 @@ describe('health endpoint', () => {
 		const res = await app.request('/health')
 		expect(res.status).toBe(200)
 
-		const body = await res.json()
+		const body = (await res.json()) as any
 		expect(body.service).toBe('suwappu-api-ts')
 		expect(body.status).toBeDefined()
 		expect(body.timestamp).toBeDefined()

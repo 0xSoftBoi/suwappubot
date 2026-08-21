@@ -49,6 +49,7 @@ import type {
   PredictOrderResult,
   PredictRedeemResult,
   TopTrader,
+  TraderFeedItem,
   TraderProfile,
   FollowedTrader,
   CopyTrade,
@@ -80,6 +81,15 @@ import type {
   DevWatchEntry,
   DevWatchHit,
 } from '../types/api'
+import type {
+  MarketDataStatus,
+  MarketDataOhlcvResponse,
+  MarketDataPerpsMarketsResponse,
+  MarketDataPerpsHistoryResponse,
+  MarketDataPredictionsMarketsResponse,
+  MarketDataPredictionsHistoryResponse,
+  MarketDataLendMarketsResponse,
+} from '../types/marketData'
 
 const BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -101,7 +111,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response
   try {
     res = await fetch(`${BASE_URL}${path}`, { credentials: 'include', ...options, headers })
-  } catch {
+  } catch (error) {
+    // TanStack supplies an AbortSignal to quote/route queries. Preserve an
+    // intentional cancellation instead of misreporting it as a network outage.
+    if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw error
+    }
     // fetch() rejects (TypeError "Load failed" / "Failed to fetch") on network/CORS
     // failures — surface a human message instead of the raw browser error.
     throw { detail: "Can't reach Suwappu right now. Check your connection and try again.", status: 0 }
@@ -178,6 +193,7 @@ export const api = {
       userId?: number
       address?: string
       walletProvider?: string
+      sessionSource?: string
     }>('/auth/me')
     if (!result.authenticated || !result.userId || !result.address) {
       throw { detail: 'Not authenticated', status: 401 }
@@ -186,7 +202,15 @@ export const api = {
       userId: result.userId,
       walletAddress: result.address,
       walletProvider: result.walletProvider ?? null,
+      sessionSource: result.sessionSource ?? null,
     }
+  },
+
+  logout() {
+    return request<{ success: boolean }>('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
   },
 
   // Telegram Mini App login: validate the WebApp initData server-side (HMAC over
@@ -286,10 +310,11 @@ export const api = {
   // Bridge — cross-chain routes and in-flight tracking. Separate from swap
   // because the interesting state is what happens *between* the chains, which
   // a single quote/execute pair has nowhere to put.
-  getBridgeRoutes(req: BridgeRoutesRequest) {
+  getBridgeRoutes(req: BridgeRoutesRequest, signal?: AbortSignal) {
     return request<BridgeRoutesResponse>('/webapp/bridge/routes', {
       method: 'POST',
       body: JSON.stringify(req),
+      signal,
     })
   },
 
@@ -315,10 +340,11 @@ export const api = {
   },
 
   // Swap
-  getSwapQuote(req: SwapQuoteRequest) {
+  getSwapQuote(req: SwapQuoteRequest, signal?: AbortSignal) {
     return request<SwapQuote>('/webapp/swap/quote', {
       method: 'POST',
       body: JSON.stringify(req),
+      signal,
     })
   },
 
@@ -565,6 +591,13 @@ export const api = {
     })
   },
 
+  setPerpsTpSl(params: { positionId: number; takeProfit?: number; stopLoss?: number }) {
+    return request<{ ok: boolean; takeProfit: number | null; stopLoss: number | null }>(
+      '/terminal/perps/tpsl',
+      { method: 'POST', body: JSON.stringify(params) },
+    )
+  },
+
   getTerminalPerpsOrders() {
     return request<{ orders: TerminalPerpsOrder[] }>('/terminal/perps/orders').then(
       (r) => r.orders ?? []
@@ -626,43 +659,48 @@ export const api = {
     return request<DevWatchHit[]>(`/terminal/intel/devwatch/hits?limit=${limit}`)
   },
 
-  // Copy Trading — real routes live under /webapp/me/copy/* and /webapp/copy/* (telegramAuth)
-  getTopTraders(timeframe?: string, limit?: number) {
+  // Copy Trading — Terminal-aware routes accept the same browser session used
+  // everywhere else in Terminal. Trader discovery/profile reads are public;
+  // follow/copy state stays authenticated server-side.
+  getTopTraders(timeframe?: string, limit?: number, query?: string) {
     const params = new URLSearchParams()
     if (timeframe) params.set('timeframe', timeframe)
     if (limit) params.set('limit', String(limit))
+    if (query) params.set('q', query)
     const qs = params.toString()
-    return request<TopTrader[]>(`/webapp/me/copy/top-traders${qs ? `?${qs}` : ''}`)
+    return request<TopTrader[]>(`/webapp/copy-trading/top-traders${qs ? `?${qs}` : ''}`)
+  },
+
+  getTraderFeed(limit = 50) {
+    return request<TraderFeedItem[]>(`/webapp/copy-trading/feed?limit=${limit}`)
   },
 
   getTraderProfile(traderId: string) {
-    return request<TraderProfile>(`/webapp/me/copy/trader/${traderId}`)
+    return request<TraderProfile>(`/webapp/copy-trading/traders/${traderId}`)
   },
 
   followTrader(traderId: string, settings: FollowSettings) {
-    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
+    return request<void>(`/webapp/copy-trading/follow/${traderId}`, {
       method: 'POST',
       body: JSON.stringify(settings),
     })
   },
 
   unfollowTrader(traderId: string) {
-    // Backend uses DELETE /webapp/me/copy/follow/:traderId
-    return request<void>(`/webapp/me/copy/follow/${traderId}`, { method: 'DELETE' })
+    return request<void>(`/webapp/copy-trading/unfollow/${traderId}`, { method: 'POST' })
   },
 
   getFollowing() {
-    return request<FollowedTrader[]>('/webapp/me/copy/following')
+    return request<FollowedTrader[]>('/webapp/copy-trading/following')
   },
 
   getCopyTrades(limit?: number) {
     const params = limit ? `?limit=${limit}` : ''
-    return request<CopyTrade[]>(`/webapp/me/copy/trades${params}`)
+    return request<CopyTrade[]>(`/webapp/copy-trading/trades${params}`)
   },
 
   updateFollowSettings(traderId: string, settings: FollowSettings) {
-    // Backend uses PUT /webapp/me/copy/follow/:traderId
-    return request<void>(`/webapp/me/copy/follow/${traderId}`, {
+    return request<void>(`/webapp/copy-trading/follow/${traderId}/settings`, {
       method: 'PUT',
       body: JSON.stringify(settings),
     })
@@ -812,6 +850,43 @@ export const api = {
 
   getTweetFeed() {
     return request<TweetData[]>('/webapp/tweets/feed')
+  },
+
+  // Proprietary market-data store — coverage/status + candles + perp
+  // funding/OI + prediction odds + lending rates. Distinct from the
+  // HyperLiquid/Polymarket/Morpho-live routes above (getPerpsMarkets,
+  // getPredictionMarkets, getLendingMarkets) — this reads our own capture
+  // pipeline's warehouse, which can be empty pre-deploy.
+  getMarketDataStatus() {
+    return request<MarketDataStatus>('/webapp/data/status')
+  },
+
+  getMarketDataOhlcv(symbol: string, chain: string, timeframe: string, limit = 200) {
+    const params = new URLSearchParams({ symbol, chain, timeframe, limit: String(limit) })
+    return request<MarketDataOhlcvResponse>(`/webapp/data/ohlcv?${params}`)
+  },
+
+  getMarketDataPerpsMarkets(limit = 100) {
+    return request<MarketDataPerpsMarketsResponse>(`/webapp/data/perps/markets?limit=${limit}`)
+  },
+
+  getMarketDataPerpsHistory(symbol: string, venue: string, limit = 200) {
+    const params = new URLSearchParams({ symbol, venue, limit: String(limit) })
+    return request<MarketDataPerpsHistoryResponse>(`/webapp/data/perps/history?${params}`)
+  },
+
+  getMarketDataPredictionMarkets(q = '', limit = 50) {
+    const params = new URLSearchParams({ q, limit: String(limit) })
+    return request<MarketDataPredictionsMarketsResponse>(`/webapp/data/predictions/markets?${params}`)
+  },
+
+  getMarketDataPredictionHistory(marketId: string, outcome: string, limit = 200) {
+    const params = new URLSearchParams({ market_id: marketId, outcome, limit: String(limit) })
+    return request<MarketDataPredictionsHistoryResponse>(`/webapp/data/predictions/history?${params}`)
+  },
+
+  getMarketDataLendMarkets(limit = 50) {
+    return request<MarketDataLendMarketsResponse>(`/webapp/data/lend/markets?limit=${limit}`)
   },
 
   // Agent / Copilot

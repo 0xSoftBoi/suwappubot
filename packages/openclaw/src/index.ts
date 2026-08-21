@@ -3,7 +3,7 @@
  *
  * A zero-dependency, typed HTTP client built for autonomous agents: typed errors
  * you can branch on, automatic retries with backoff, request timeouts, and the
- * full agent lifecycle (self-register → quote → execute → poll status).
+ * full agent lifecycle (self-register → quote → simulate → prepare or managed execute).
  *
  * Usage:
  *   import { createClient } from "@suwappu/openclaw";
@@ -27,7 +27,7 @@ import {
 export * from './errors.js'
 
 /** Semantic version of this client; sent as `X-Suwappu-Client` for attribution. */
-export const VERSION = '0.2.0'
+export const VERSION = '0.3.0'
 
 export interface RequestHooks {
 	/** Fired before each attempt (including retries). */
@@ -123,6 +123,44 @@ export interface SwapResult {
 	instructions: string[]
 }
 
+export interface SwapSimulationCheck {
+	name: string
+	status: 'pass' | 'warn' | 'fail'
+	detail: string
+	unverified?: boolean
+}
+
+/** Dry-run result from POST /v1/agent/swap/simulate. Nothing is broadcast. */
+export interface SwapSimulation {
+	success: boolean
+	wouldExecute: boolean
+	quoteId: string
+	chainType: 'evm' | 'solana'
+	expectedOutput: {
+		token: string
+		amount: string
+		amountUsd: string | null
+	}
+	minOutputAfterSlippage: string
+	priceImpactPct: number | null
+	fees: {
+		protocol: string | null
+		gasEstimate: string | null
+	}
+	checks: SwapSimulationCheck[]
+	warnings: string[]
+}
+
+function simulationChainType(value: unknown): SwapSimulation['chainType'] {
+	if (value === 'evm' || value === 'solana') return value
+	throw new Error(`Invalid swap simulation chain_type: ${String(value)}`)
+}
+
+function simulationCheckStatus(value: unknown): SwapSimulationCheck['status'] {
+	if (value === 'pass' || value === 'warn' || value === 'fail') return value
+	throw new Error(`Invalid swap simulation check status: ${String(value)}`)
+}
+
 export interface TokenBalance {
 	token: string
 	balance: string
@@ -207,6 +245,7 @@ export interface PerpMarket {
 	asset: string
 	szDecimals: number
 	maxLeverage: number
+	venueMaxLeverage: number
 	markPrice: number
 	fundingRate: number
 }
@@ -238,11 +277,18 @@ export interface PerpPosition {
 }
 
 // Prediction types (Polymarket)
+export interface PredictionMarketToken {
+	tokenId: string
+	outcome: string
+}
+
 export interface PredictionMarket {
 	id: string
+	conditionId: string
 	question: string
 	outcomes: string[]
 	outcomePrices: number[]
+	tokens: PredictionMarketToken[]
 	volume: number
 	liquidity: number
 	endDate: string
@@ -257,6 +303,11 @@ export interface PredictionMarketDetail extends PredictionMarket {
 }
 
 // Lending types (Morpho)
+export interface LendingMarketWarning {
+	type: string
+	level: string
+}
+
 export interface LendingMarket {
 	id: string
 	loanToken: string
@@ -264,10 +315,15 @@ export interface LendingMarket {
 	lltv: number
 	supplyApy: number
 	borrowApy: number
-	totalSupply: number
-	totalBorrow: number
+	totalSupply: number | null
+	totalBorrow: number | null
+	totalSupplyUsd: number | null
+	totalBorrowUsd: number | null
+	availableLiquidityUsd: number | null
 	utilization: number
 	chainId: number
+	listed: boolean
+	warnings: LendingMarketWarning[]
 }
 
 export interface LendingMarketDetail extends LendingMarket {
@@ -507,6 +563,49 @@ export function createClient(config?: SuwappuConfig) {
 			}
 		},
 
+		/** Dry-run a cached quote. Use before either transaction-preparation or managed execution. */
+		async simulateSwap(quoteId: string, walletAddress?: string): Promise<SwapSimulation> {
+			const raw = await request<Record<string, any>>('/v1/agent/swap/simulate', config, {
+				method: 'POST',
+				body: JSON.stringify({
+					quote_id: quoteId,
+					...(walletAddress ? { wallet_address: walletAddress } : {}),
+				}),
+			})
+			return {
+				success: Boolean(raw.success),
+				wouldExecute: Boolean(raw.would_execute),
+				quoteId: String(raw.quote_id ?? quoteId),
+				chainType: simulationChainType(raw.chain_type),
+				expectedOutput: {
+					token: String(raw.expected_output?.token ?? ''),
+					amount: String(raw.expected_output?.amount ?? ''),
+					amountUsd:
+						raw.expected_output?.amount_usd == null
+							? null
+							: String(raw.expected_output.amount_usd),
+				},
+				minOutputAfterSlippage: String(raw.min_output_after_slippage ?? ''),
+				priceImpactPct: raw.price_impact_pct == null ? null : Number(raw.price_impact_pct),
+				fees: {
+					protocol: raw.fees?.protocol == null ? null : String(raw.fees.protocol),
+					gasEstimate:
+						raw.fees?.gas_estimate == null ? null : String(raw.fees.gas_estimate),
+				},
+				checks: Array.isArray(raw.checks)
+					? raw.checks.map((check: Record<string, any>) => ({
+							name: String(check.name ?? ''),
+							status: simulationCheckStatus(check.status),
+							detail: String(check.detail ?? ''),
+							...(check.unverified === undefined
+								? {}
+								: { unverified: Boolean(check.unverified) }),
+						}))
+					: [],
+				warnings: Array.isArray(raw.warnings) ? raw.warnings.map(String) : [],
+			}
+		},
+
 		async executeSwap(quoteId: string, walletAddress: string): Promise<SwapResult> {
 			const raw = await request<Record<string, unknown>>('/v1/agent/swap', config, {
 				method: 'POST',
@@ -560,9 +659,13 @@ export function createClient(config?: SuwappuConfig) {
 		async executeManagedSwap(
 			quoteId: string,
 			walletAddress: string,
+			options: { idempotencyKey?: string } = {},
 		): Promise<ManagedSwapReceipt> {
 			const raw = await request<Record<string, unknown>>('/v1/agent/swap/execute', config, {
 				method: 'POST',
+				headers: options.idempotencyKey
+					? { 'Idempotency-Key': options.idempotencyKey }
+					: undefined,
 				body: JSON.stringify({ quote_id: quoteId, wallet_address: walletAddress }),
 			})
 			const tracking = (raw.tracking as Record<string, unknown>) ?? {}
@@ -668,22 +771,29 @@ export function createClient(config?: SuwappuConfig) {
 				return res.markets
 			},
 			async market(id: string): Promise<PredictionMarketDetail> {
-				return request<PredictionMarketDetail>(`/v1/agent/predict/market/${id}`, config)
+				return request<PredictionMarketDetail>(
+					`/v1/agent/predict/market/${encodeURIComponent(id)}`,
+					config,
+				)
 			},
 		},
 
 		// Lending (Morpho)
 		lend: {
 			async markets(chainId?: number): Promise<LendingMarket[]> {
-				const qs = chainId ? `?chainId=${chainId}` : ''
+				const qs = chainId !== undefined ? `?chainId=${chainId}` : ''
 				const res = await request<{ markets: LendingMarket[] }>(
 					`/v1/agent/lend/markets${qs}`,
 					config,
 				)
 				return res.markets
 			},
-			async market(id: string): Promise<LendingMarketDetail> {
-				return request<LendingMarketDetail>(`/v1/agent/lend/market/${id}`, config)
+			async market(id: string, chainId?: number): Promise<LendingMarketDetail> {
+				const qs = chainId !== undefined ? `?chainId=${chainId}` : ''
+				return request<LendingMarketDetail>(
+					`/v1/agent/lend/market/${encodeURIComponent(id)}${qs}`,
+					config,
+				)
 			},
 		},
 	}

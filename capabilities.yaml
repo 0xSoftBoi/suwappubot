@@ -404,3 +404,58 @@ capabilities:
       failures are caught and logged, never fatal.
     evidence: "api-ts/src/config/EnvService.ts:139-144, api-ts/src/lib/otel.ts, api-ts/src/middleware/otelTracing.ts, api-ts/src/app.ts"
     verify: "curl -s https://<api-ts-host>/health"
+
+  - name: multi_provider_llm_credits
+    description: >
+      Subscription-funded natural-language trading: routes each user's LLM
+      call to one of seven providers (Anthropic, OpenAI, xAI, Gemini, Qwen,
+      Kimi, DeepSeek) via a tier-gated model catalog, meters PAID models
+      against the shared api_credits balance (the cheap default,
+      deepseek-v4-flash, is intentionally unmetered and rides the spend
+      budget only), and bounds platform spend with a cost-weighted Redis
+      token bucket. OFF by default — with the flag unset,
+      NL parsing keeps today's single env-provider behavior and nothing is
+      metered. Providers whose forced-tool-choice support is unverified
+      (xai/gemini/qwen/kimi) stay excluded until explicitly opted in, because
+      an unsupported tool_choice degrades every parse silently.
+    service: python-bot
+    env_vars:
+      - name: NL_TRADING_ENABLED
+        required_to_enable: true   # the NL handler's own master switch
+      - name: LLM_MULTI_PROVIDER_ENABLED
+        required_to_enable: true
+      - name: LLM_CREDIT_MARKUP
+        required_to_enable: false
+      - name: LLM_BUDGET_PER_USER_DAILY_USD
+        required_to_enable: false
+      - name: LLM_BUDGET_GLOBAL_DAILY_USD
+        required_to_enable: false
+      - name: LLM_ALLOW_UNVERIFIED_PROVIDERS
+        required_to_enable: false
+      - name: REDIS_URL
+        required_to_enable: false   # without it the budget degrades per-replica
+      - name: ANTHROPIC_API_KEY
+        required_to_enable: false   # at least ONE provider key is required
+      - name: OPENAI_API_KEY
+        required_to_enable: false
+      - name: DEEPSEEK_API_KEY
+        required_to_enable: false   # default model (deepseek-v4-flash)
+      - name: XAI_API_KEY
+        required_to_enable: false
+      - name: GEMINI_API_KEY
+        required_to_enable: false
+      - name: QWEN_API_KEY
+        required_to_enable: false
+      - name: KIMI_API_KEY
+        required_to_enable: false
+    enabled_when: >
+      NL_TRADING_ENABLED=true AND LLM_MULTI_PROVIDER_ENABLED=true (both
+      default false) AND at least one provider API key is set for a model the user's tier may select. Without
+      REDIS_URL the spend budget still applies but degrades to a per-process
+      bucket, so the effective ceiling becomes budget x replica count (logged
+      as a WARNING with a degraded_calls counter). LLM_ALLOW_UNVERIFIED_PROVIDERS
+      defaults false, keeping xai/gemini/qwen/kimi out of model resolution.
+      Budget settings are denominated in RAW provider USD (markup excluded);
+      set either to 0 to disable that limit.
+    evidence: "bot/config/settings.py (LLM_* fields), bot/config/llm_providers.py, bot/config/llm_models.py, bot/services/llm_credit_service.py, bot/utils/llm_budget.py, bot/services/nl_intent_service.py"
+    verify: "send an ambiguous NL message to the bot and grep logs for 'llm_cost provider='; python3 scripts/check_llm_prices.py"

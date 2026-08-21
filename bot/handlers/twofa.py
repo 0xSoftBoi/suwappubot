@@ -15,6 +15,7 @@ from telegram.ext import (
 from bot.models.user import User
 from bot.services.spending_limits import spending_limit_service
 from bot.services.twofa import twofa_service
+from bot.services.error_guidance import user_facing_error
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,8 @@ async def twofa_enable_callback(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         secret, uri = twofa_service.begin_enrollment(user_id)
     except ValueError as e:
-        await query.edit_message_text(f"❌ {e}")
+        logger.error(f"2FA enrollment failed for user {user_id}: {e}")
+        await query.edit_message_text(user_facing_error(e))
         return ConversationHandler.END
 
     context.user_data["twofa_attempts"] = 0

@@ -19,6 +19,7 @@ from bot.services.hot_wallet import (
     hot_wallet_service,
     WithdrawalsPausedError,
     PostBroadcastAmbiguous,
+    ComplianceBlockedError,
     quantize_to_decimals,
 )
 from bot.config.chains import CHAINS, get_chain_by_name
@@ -830,6 +831,27 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                         [InlineKeyboardButton("🔄 Try Again", callback_data="custodial_withdraw")],
                         [InlineKeyboardButton("« Back", callback_data="custodial_menu")],
                     ]
+                ),
+            )
+
+        except ComplianceBlockedError:
+            # Sanctions screening happens before any node call — safe to
+            # fully undo, same as WithdrawalsPausedError above. Distinct
+            # message so the user sees a clear compliance block instead of a
+            # generic "withdrawal failed".
+            if reserved:
+                hot_wallet_service.update_custodial_balance(
+                    user_id=user_id,
+                    chain=chain,
+                    token_symbol=token,
+                    amount=withdraw_amount,
+                    operation="add",
+                )
+                hot_wallet_service.release_claimed_transaction(claimed_tx_id)
+            await query.edit_message_text(
+                "🚫 This withdrawal cannot be completed due to compliance restrictions.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("« Back", callback_data="custodial_menu")]]
                 ),
             )
 

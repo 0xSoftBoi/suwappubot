@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "suwappu"
-version = "0.2.2"
-description = "Cross-chain DEX aggregator SDK — swap, perps, predict, lending across 7+ chains"
+version = "0.3.0"
+description = "Python SDK for Suwappu agent quotes, swaps, portfolio, perps, predictions, and lending"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -29,14 +29,22 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
 ]
+live = [
+    "websockets>=11.0",
+]
 
 [project.urls]
 Homepage = "https://suwappu.bot"
-Documentation = "https://docs.suwappu.bot"
-Repository = "https://github.com/suwappu/suwappu"
+Documentation = "https://suwappu.bot/docs"
+Repository = "https://github.com/0xSoftBoi/suwappubot"
+Source = "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk-python"
+Issues = "https://github.com/0xSoftBoi/suwappubot/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/suwappu"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/suwappu", "tests", "README.md", "LICENSE", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

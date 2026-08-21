@@ -199,6 +199,22 @@ swapRoutes.get('/quote', ipRateLimit(30), telegramAuth(), async (c) => {
 				fromAddress: wallet.address,
 				slippage: slippage ? parseFloat(slippage) : DEFAULT_SLIPPAGE,
 				order: order || 'RECOMMENDED',
+				// Attribution — see QuoteParams. Without it the activation
+				// funnel cannot tell who reached the quote stage.
+				//
+				// Resolved lazily: this handler deliberately skips the user+wallet
+				// DB lookup (a quote only needs a valid fromAddress), so the
+				// internal id is fetched here purely for attribution and a miss
+				// is non-fatal — capture records an anonymous row rather than
+				// failing the quote.
+				userId: yield* Effect.orElseSucceed(
+					Effect.gen(function* () {
+						const userService = yield* UserService
+						const u = yield* userService.getUserByTelegramId(telegramUser.id)
+						return Option.isNone(u) ? null : u.value.id
+					}),
+					() => null,
+				),
 			}
 
 			// Get quote from Li.Fi
@@ -668,7 +684,7 @@ swapRoutes.post('/execute', ipRateLimit(10), telegramAuth(), async (c) => {
  */
 swapRoutes.get('/status/:swapId', telegramAuth(), async (c) => {
 	const telegramUser = c.get('telegramUser') as TelegramUser
-	const swapId = parseInt(c.req.param('swapId'), 10)
+	const swapId = parseInt(c.req.param('swapId') ?? '', 10)
 
 	if (isNaN(swapId)) {
 		return c.json({ error: 'Validation Error', message: 'Invalid swap ID' }, 400)

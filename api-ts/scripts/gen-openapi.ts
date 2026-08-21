@@ -43,55 +43,7 @@ export const SPEC_PATH = join(__dirname, '..', 'openapi-agent.json')
 
 const SPEC_VERSION = '0.5.0'
 
-// deno-lint-ignore no-explicit-any
-type Json = any
-
-/** Convert a Zod schema to a draft-7 JSON Schema object, stripping the `$schema` key. */
-function toSchema(schema: z.ZodTypeAny): Json {
-	const out = z.toJSONSchema(schema, {
-		unrepresentable: 'any',
-		io: 'input',
-		target: 'draft-7',
-	}) as Json
-	delete out.$schema
-	return out
-}
-
-/** Recursive deterministic deep-merge: `override` wins; objects merge, everything else replaces. */
-function deepMerge(base: Json, override: Json): Json {
-	if (
-		override === null ||
-		typeof override !== 'object' ||
-		Array.isArray(override)
-	) {
-		return override
-	}
-	const out: Json = Array.isArray(base) ? [...base] : { ...(base ?? {}) }
-	// `$dropKeys: [...]` is a directive (not emitted) that deletes generated keys
-	// before the rest of the override is applied — used to collapse Zod unions
-	// (anyOf) back to the hand-authored representation.
-	if (Array.isArray(override.$dropKeys)) {
-		for (const k of override.$dropKeys) delete out[k]
-	}
-	for (const key of Object.keys(override)) {
-		if (key === '$dropKeys') continue
-		const b = (out as Json)[key]
-		const o = override[key]
-		if (
-			b &&
-			typeof b === 'object' &&
-			!Array.isArray(b) &&
-			o &&
-			typeof o === 'object' &&
-			!Array.isArray(o)
-		) {
-			out[key] = deepMerge(b, o)
-		} else {
-			out[key] = o
-		}
-	}
-	return out
-}
+import { deepMerge, toJsonSchema as toSchema, type Json } from '../src/lib/zodJsonSchema'
 
 /**
  * Re-apply human-written documentation from the existing schema object onto the
@@ -303,7 +255,11 @@ const SCHEMA_MAP: Record<
 				},
 				side: { description: 'Position direction.' },
 				size: { description: 'Position size in base units (positive).', example: 1 },
-				leverage: { description: 'Leverage multiplier (1-20).', example: 5 },
+				leverage: {
+					description:
+						'Leverage multiplier (1 through the market maxLeverage returned by GET /perps/markets; current Suwappu ceiling is 20).',
+					example: 5,
+				},
 			},
 		},
 	},
@@ -319,7 +275,6 @@ const SCHEMA_MAP: Record<
 				price: { description: 'Decimal string between 0 and 1.', example: '0.62' },
 				size: { description: 'Positive decimal string (number of shares).', example: '10' },
 				side: { description: 'Order direction.' },
-				feeRateBps: { description: 'Optional fee rate in basis points (0-500).' },
 			},
 		},
 	},

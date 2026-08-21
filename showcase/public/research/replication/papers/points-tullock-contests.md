@@ -1,39 +1,37 @@
-# Points Programs Are Tullock Contests
+# Points-Program Economics After Empirical Rejection
 
-**Equilibrium participation, dissipation, and the denomination lever**
+**Conditional Tullock benchmarks for participation, dissipation, fee denomination, and wallet splitting**
 
 Tsolmondorj Natsagdorj (0xSoftBoi), Suwappu Research
-26 July 2026
+26 July 2026; materially revised 8 August 2026
 
-*A closed-form equilibrium model of pro-rata token-points programs, with Monte Carlo sampling distributions, and what it implies for anyone designing or diligencing one.*
+*A closed-form equilibrium model of a pro-rata points contest, retained as a conditional mechanism benchmark after its active-set prediction failed a wallet-level field test. The revision separates solved model identities from rejected descriptive claims and corrects the original treatment of hard quantity caps.*
 
 ---
 
 ## Executive summary
 
-- **A pro-rata points pool is captured by single-digit-to-low-teens numbers of operators, not by a user base.** With 5,000 potential entrants, no fixed cost of entry, and lognormal cost dispersion σ from 0.2 to 1.0, the median Nash-equilibrium active set falls from 18 to 5. Across 500 draws per σ the 5th-to-95th-percentile range runs 12 to 24 at σ = 0.2 and 3 to 8 at σ = 1.0. All four summary measures are monotone in σ: concentration tightens as dispersion widens.
+- **Empirical status: the active-set prediction is rejected at wallet level.** In this model, 5,000 potential entrants with lognormal marginal-cost dispersion σ ∈ {0.2, 0.4, 0.6, 1.0} produce median active sets of 18, 10, 8 and 5 and median top-1 shares of 17.1%–40.8%. The companion field test measures 90,912 HYPE wallets and 239,035 EIGEN wallets, with top-1 shares of 0.73% and 2.40%. Its grid test finds no sampled σ that jointly matches observed participation and top-share concentration. **Tables 1–2 below are therefore model benchmarks, not forecasts for named programs.**
 
-- **The part of the pool that is not competed away is operator profit, not protocol savings.** Median farmer surplus rises from 9.5% of the entire pool at σ = 0.2 to 29.8% at σ = 1.0, with a 95th percentile of 50.9%. The single largest operator takes a median 17.1% of the pool at σ = 0.2 and 40.8% at σ = 1.0, with a 95th percentile of 66.0%.
+- **What the model does establish is conditional.** Under the stated one-shot, complete-information, risk-neutral game with unbounded effort and linear marginal cost, the equilibrium and active-set solver are internally verified. The model can answer "what follows if these assumptions hold?" It cannot establish that the assumptions describe a live incentive program.
 
-- **Caps and minimum trade sizes do not reduce the fraction of the pool competed away.** Symmetric dissipation is exactly *D*(*n*) = (*n*−1)/*n*, an expression containing no cost term. Sweeping unit cost over a 1,000× range at *n* = 100 leaves dissipation at 0.990 throughout: points minted fall from 9.9 million at $0.10 per point to 9,900 at $100, while dollars burned stay at $990k.
+- **Cost invariance is narrower than the first version claimed.** In the symmetric unconstrained benchmark, *D*(*n*) = (*n*−1)/*n* is invariant to a scalar common unit cost *c*. A **binding hard quantity cap is not a scalar cost change**; it is a corner constraint on effort and is not solved by Proposition 2. The original generalization from cost scaling to hard caps is retracted.
 
-- **Denomination is the only lever that relocates value.** At *n* = 100 on a $1m pool, all four designs tested burn $990k. Protocol capture ranges from $49.5k (5.0% of the pool) under volume denomination to $960k (96.0%) under near-total fee denomination.
+- **Fee denomination is a modeled destination-of-spend result, not a realized P&L forecast.** Holding modeled contest spend fixed, increasing the protocol share of marginal cost increases modeled protocol revenue. Table 3 is scenario arithmetic conditional on the cost decomposition; it does not show that a live program will dissipate $990k or that denomination is the only design lever available.
 
-- **Fee-proportional points are sybil-neutral by construction; the standard anti-sybil device is what creates the sybil incentive.** Splitting a fixed budget across *k* = 1 to 1,000 wallets moves pool share by exactly zero at every competing-effort level tested, from 100,000 to 20,000,000 points; at 1,000,000 competing points a $100k budget holds 0.091 of the pool whether it sits in one wallet or a thousand. A 25% bonus on the first 5,000 points *per wallet* makes splitting pay by 1.104× to 1.233× over that same range.
+- **Wallet-splitting neutrality is also conditional.** If points are strictly proportional to fees and a participant's aggregate budget is fixed, splitting that budget across *k* wallets leaves own points unchanged. A per-wallet bonus breaks that invariance in the simulated example. This is a statement about the pro-rata formula, not proof of identity-level sybil resistance or a measurement of sybil prevalence.
 
-- **No number here is calibrated against an observed points program.** The model is falsifiable on a public variable, the top-10 share of allocated supply at completed points-to-airdrop programs, and at first publication we had not run that test. What follows is the equilibrium of a stated game and the design implications it carries: theory with sampling bands, not measurement.
-
-- ***Postscript, 31 July 2026 — the test has now been run, and the sharp prediction fails.*** *Measured against complete recipient vectors for Hyperliquid's HYPE genesis (90,912 wallets) and EigenLayer's EIGEN Season 1, both phases (239,035 wallets), the top-1 recipient holds 0.73% and 2.40% of the pool against this paper's predicted 17–41% band, and no cost-dispersion parameter reconciles the top share with the observed participation. The active-set concentration channel of Sections 4 and 7.4 does not describe program-wide allocation at wallet level; allocation instead mirrors the participant capital distribution (Gini ≈ 0.95, top-1% of wallets ≈ 60%). The denomination and sybil-neutrality results (Propositions 2, 4 and the corollary) are mechanism arithmetic and are unaffected. See the companion paper, "Who Actually Collected the Airdrops," for the data, the diagnosis — capital-denominated points make marginal costs near-uniform while budgets, which this model leaves unbounded, bind — and the revised underwriting guidance.*
+- **Decision use.** Do not underwrite a points program as "roughly ten counterparties" from this model. Measure the actual recipient vector, govern entity resolution separately, model hard caps as constraints, and use the surviving identities only inside their stated assumptions.
 
 ---
 
-## Why this matters
+## Why retain a model that failed its first field test?
 
-The pitch for a points program is that it converts usage into ownership: thousands of users earn, the pool splits proportionally, and the token base ends up wide. The mechanism as written down does not produce that. A pro-rata split of a fixed pool by share of accumulated points is, exactly and not by analogy, a Tullock proportional contest, and under realistic cost heterogeneity its equilibrium concentrates. A handful of operators with the lowest marginal cost per point crowd everyone else to zero effort, without cheating, without fixed entry costs, and without any sybil behavior. Concentration is the equilibrium, not the failure mode.
+Because a failed descriptive prediction can still leave useful conditional mechanics—provided the boundary is explicit. A pro-rata fixed-prize rule with costly effort maps cleanly into the Tullock proportional-contest family. The model below solves that game and shows how its equilibrium responds to cost dispersion, how modeled spend decomposes between protocol and external cost, and when a per-wallet nonlinear term creates a splitting incentive.
 
-For an investor diligencing a token distribution, this reframes the question. Wallet counts and points-holder counts describe who showed up, not who gets paid. Two numbers predict the outcome: the dispersion of marginal cost per point across participants, and the share of the pool sitting in the top ten point balances. The second follows from the first, and a program built on continuous, uncapped, linear-cost accumulation should be underwritten as an allocation to roughly ten counterparties and priced accordingly.
+The companion evidence changes what can be inferred from those mechanics. It shows that the model's tiny active set is not a credible wallet-level description of the measured HYPE and EIGEN programs. It does **not** invalidate the algebraic identities inside the game. This revision keeps those identities, marks the rejected external-validity claim, and removes two overextensions from the original paper: the general hard-cap claim and the instruction to treat program allocation as a handful of professional counterparties.
 
-For policy staff, the retail-participation framing needs the same correction: participation here is real in headcount and close to irrelevant in allocation. The design responses that read as protective, including per-wallet floors, first-*N*-points bonuses, and minimum trade sizes, either leave concentration untouched or actively manufacture the incentive to split wallets. The one intervention that changes anything is denomination, and its limit is narrow: it moves dissipated value out of third-party gas and slippage and into protocol revenue, without widening the set of people who capture the pool.
+For institutional diligence, that separation matters more than the model's drama. A solved equilibrium is **model evidence**. A recipient ledger is **measurement evidence**. Beneficial-owner concentration, realized revenue, market impact, legal treatment, and prudential risk require additional evidence and should not be inferred from either one by analogy.
 
 ---
 
@@ -41,7 +39,7 @@ For policy staff, the retail-participation framing needs the same correction: pa
 
 A large share of token-distribution mechanisms shipped since 2022 convert accumulated activity into a pro-rata share of a fixed pool at a future token-generation event. If Pool dollars are split in proportion to points earned, and points cost something real to acquire (gas, capital lockup, slippage, or protocol fees), the payoff facing each user is the Tullock (1980) lottery contest payoff, and the equilibrium behavior of the program is the equilibrium behavior of a rent-seeking contest.
 
-Two standard intuitions fail as a result. Caps are held to limit dissipation; Proposition 2 shows the dissipated fraction depends on the number and cost-heterogeneity of competitors and not at all on the unit cost of a point. Linear common costs are held to spread the airdrop across a user base; Proposition 3 shows a small low-cost subset absorbs the pool and keeps the un-dissipated remainder as profit.
+Two results organize the benchmark. Proposition 2 shows that **in the symmetric unconstrained game**, multiplying the common marginal unit cost changes equilibrium effort but not the dissipated fraction. It does not solve a binding hard-cap constraint. Proposition 3 characterizes the small active set that emerges **inside the heterogeneous linear-cost game**; the companion field test rejects that active-set prediction as a wallet-level description of the programs measured there.
 
 Proposition 3 is not new. It restates the standard asymmetric-Tullock active-set characterization in the notation of a points program, derived here for self-containedness: existence and uniqueness are Szidarovszky and Okuguchi (1997); the sort-and-admit rule and active-player count are Stein (2002), which is this setting after dividing each payoff by *cᵢ*; the share-function derivation is Cornes and Hartley (2005); the marginal-entry condition appears in Franke, Kanzow, Leininger and Schwartz (2013); and Konrad (2009) covers the family in textbook form. The contribution is the application, not the algebra.
 
@@ -89,7 +87,9 @@ The active-set solver of Section 4, specialized to identical costs, reproduces t
 
 *Proof.* Immediate from Proposition 1. ∎
 
-Holding *n* = 100 and sweeping *c* ∈ {0.1, 0.5, 1.0, 5.0, 25.0, 100.0}, a 1,000× range, dissipation is 0.990 at every point; the spread across the sweep is 2.220e−16. What moves is the points ledger: *S*\* = 990,000/*c*, so minting falls from 9.9 million points at *c* = $0.10 to 9,900 points at *c* = $100, while farmer spend stays pinned at $990k. A minimum trade size or a daily cap raises the effective marginal cost of a point, which changes the denominator of the points ledger, not the fraction of the pool competed away.
+Holding *n* = 100 and sweeping *c* ∈ {0.1, 0.5, 1.0, 5.0, 25.0, 100.0}, a 1,000× range, dissipation is 0.990 at every point; the spread across the sweep is 2.220e−16. What moves is the points ledger: *S*\* = 990,000/*c*, so minting falls from 9.9 million points at *c* = $0.10 to 9,900 points at *c* = $100, while modeled spend stays pinned at $990k.
+
+**Scope correction (6 August 2026).** Proposition 2 establishes invariance to a **scalar common marginal cost** in an unconstrained symmetric game. A minimum trade size is a discrete-action constraint and a per-user daily quantity cap is an upper bound on effort; neither is generally equivalent to multiplying *c*. A binding hard cap can change individual best responses and therefore equilibrium dissipation. That constrained game is not solved here. The first version of this paper treated hard caps as if Proposition 2 covered them; that generalization was incorrect and is retracted.
 
 Source: Suwappu Research, `data/tullock_results.json`, keys `P1_symmetric_equilibrium` and `P2_cost_invariance`.
 
@@ -113,7 +113,7 @@ Feasibility requires *eᵢ* ≥ 0 for every *i* ∈ *A*, i.e. *cᵢ* ≤ *V*/*S*
 
 This is the algorithm implemented in `exact_equilibrium()` (`code/tullock_sim.py`).
 
-**Table 1 — the active set does not grow with the entrant pool.** Lognormal cost draw *cᵢ* = exp(εᵢ)/mean(exp(ε)), εᵢ ~ N(0, 0.6²); *V* = $1m; one realization per row.
+**Table 1 — model benchmark: active-set size across entrant pools.** Lognormal cost draw *cᵢ* = exp(εᵢ)/mean(exp(ε)), εᵢ ~ N(0, 0.6²); *V* = $1m; one realization per row.
 
 | *n* potential | active | dissipation *D* | top-1 share of points |
 |---:|---:|---:|---:|
@@ -124,11 +124,11 @@ This is the algorithm implemented in `exact_equilibrium()` (`code/tullock_sim.py
 
 Source: Suwappu Research, `data/tullock_results.json` key `P3_heterogeneous_costs`, seed 20260725. Single draw per row, no sampling band; the supported claim is qualitative, that active count stays in single digits across a hundredfold range of *n*, not the specific counts.
 
-Adding participants from the same cost distribution does not proportionally add active farmers, because the added mass is priced out by the feasibility condition. Scaling to 5,000 potential entrants and drawing 500 independent cost vectors per dispersion level gives the sampling distribution of every quantity the paper depends on.
+Adding participants from the same cost distribution does not proportionally add active operators inside this model, because the added mass is priced out by the feasibility condition. Scaling to 5,000 potential entrants and drawing 500 independent cost vectors per dispersion level gives the sampling distribution of every quantity the paper depends on.
 
-**Table 2 — who captures the pool. 5,000 potential entrants, *V* = $1m, 500 draws per σ, median [5th, 95th percentile].**
+**Table 2 — model benchmark under heterogeneous costs. 5,000 potential entrants, *V* = $1m, 500 draws per σ, median [5th, 95th percentile].**
 
-| σ | active / 5,000 | dissipation *D* | farmer surplus (share of pool) | top-1 share of pool |
+| σ | active / 5,000 | dissipation *D* | participant surplus (share of pool) | top-1 share of pool |
 |---:|---|---|---|---|
 | 0.2 | 18 [12, 24] | 0.905 [0.857, 0.931] | 9.5% [6.9, 14.3] | 17.1% [11.3, 25.8] |
 | 0.4 | 10 [7, 15] | 0.842 [0.733, 0.893] | 15.8% [10.7, 26.7] | 25.9% [16.2, 40.2] |
@@ -137,7 +137,7 @@ Adding participants from the same cost distribution does not proportionally add 
 
 Source: Suwappu Research, `data/tullock_mc.json`, `code/tullock_mc.py`, seed 20260726. Lognormal costs normalized to unit mean. Farmer surplus is pool dollars won less dollars spent, summed over active players, as a share of *V*.
 
-All four medians are monotone in σ. The active set contracts, dissipation falls, and both concentration measures rise, so the shortfall from the symmetric *D* → 1 ceiling is not protocol savings but a rent the surviving operators keep. At σ = 1.0 the median outcome is five active farmers out of 5,000, one of whom takes 40.8% of the pool, with 29.8% booked as profit across the five. What a naive "dissipation approaches 100%" reading expects to be wasted on gas and slippage is instead profit for professional farming infrastructure.
+All four medians are monotone in σ. The active set contracts, dissipation falls, and both concentration measures rise, so the shortfall from the symmetric *D* → 1 ceiling appears as participant surplus inside the model, not as protocol savings. At σ = 1.0 the median outcome is five active operators out of 5,000, one of whom takes 40.8% of the pool, with 29.8% retained as surplus across the five. These are model allocations, not evidence about professional operators in a named program.
 
 **Exhibit 1** (`figures/p2-exhibit-1-participation.png`) shows the active set contracting and operator profit expanding as dispersion widens. Bars are medians of the 500 draws per σ; whiskers span the 5th to 95th percentile. Source: Suwappu Research, `code/exhibits.py`, `data/tullock_mc.json`.
 
@@ -153,36 +153,36 @@ $$R = \text{spend}^* \cdot \frac{c_{\text{protocol}}}{c} = D(n)\cdot V \cdot \fr
 
 *Proof.* spend\* = *cS*\* = *D*(*n*)*V* by Proposition 1; the protocol's share of every dollar spent is *c*_protocol/*c* by linearity of costs. ∎
 
-**Table 3 — same burn, four destinations.** *n* = 100, *D* = 0.990, total spend $990k, pool $1m.
+**Table 3 — conditional benchmark: fixed modeled spend, four destinations.** *n* = 100, *D* = 0.990, modeled total spend $990k, pool $1m.
 
 | design | *c*_protocol/*c* | total dissipated | protocol revenue | revenue / pool |
 |---|---:|---:|---:|---:|
 | volume-denominated (cost is external slippage and gas) | 0.050 | $990k | $49.5k | 5.0% |
 | mixed (fee is half of marginal cost) | 0.500 | $990k | $495k | 49.5% |
-| fee-denominated, cheap chain | 0.900 | $990k | $891k | 89.1% |
-| fee-denominated, very cheap chain | 0.970 | $990k | $960k | 96.0% |
+| fee-denominated, low external-cost case | 0.900 | $990k | $891k | 89.1% |
+| fee-denominated, very-low external-cost case | 0.970 | $990k | $960.3k | 96.0% |
 
 Source: Suwappu Research, `data/tullock_results.json` key `P5_revenue_capture`.
 
-**Exhibit 2** (`figures/p2-exhibit-2-denomination.png`) shows the $990k burn holding constant across all four designs while the split between protocol revenue and third-party deadweight swings from $49.5k to $960k. Source: Suwappu Research, `code/exhibits.py`.
+**Exhibit 2** (`figures/p2-exhibit-2-denomination.png`) holds modeled spend at $990k and varies the assumed protocol share of marginal cost, moving modeled protocol revenue from $49.5k to $960.3k. It is comparative-static scenario arithmetic, not observed revenue. Source: Suwappu Research, `code/exhibits.py`.
 
-As *c*_protocol/*c* → 1, revenue *R* → *D*(*n*)*V*, which is not *V* unless *n* → ∞ as well. The self-funding airdrop needs both conditions at once, and gets neither free: gas and slippage never fully vanish on a real chain, so *c*_protocol/*c* < 1 strictly, and *n* is whatever the user base actually is.
+As *c*_protocol/*c* → 1, revenue *R* → *D*(*n*)*V*, which is not *V* unless *n* → ∞ as well. In a live program, external execution costs remain nonzero and participation is endogenous. The identity therefore does not establish full economic cost recovery.
 
-**Corollary (sybil neutrality).** If points are strictly proportional to fees paid (pointsᵢ = α · feesᵢ, with no per-wallet floor or bonus), a farmer splitting a fixed budget across *k* wallets obtains
+**Corollary (fixed-budget wallet-splitting invariance).** If points are strictly proportional to fees paid (pointsᵢ = α · feesᵢ, with no per-wallet floor or bonus), a participant splitting a fixed aggregate budget across *k* wallets obtains
 
 $$\text{own points} = k\cdot\frac{\text{budget}/k}{c} = \frac{\text{budget}}{c},$$
 
-independent of *k*, so pool share is invariant to *k*. Measured deviation is exactly zero across *k* ∈ {1, 2, 5, 10, 100, 1000}: against 1,000,000 points of competing effort, a $100k budget at *c* = 1 holds pool share 0.091 at every *k*, and deviation stays at zero at every competing-effort level from 100,000 to 20,000,000 points.
+independent of *k*, so pool share is invariant to *k* **holding aggregate budget and competing effort fixed**. Measured deviation is exactly zero across *k* ∈ {1, 2, 5, 10, 100, 1000}: against 1,000,000 points of competing effort, a $100k budget at *c* = 1 holds pool share 0.091 at every *k*, and deviation stays at zero at every competing-effort level from 100,000 to 20,000,000 points. This is not a general proof of identity-level sybil resistance; it isolates one wallet-splitting margin in the pro-rata formula.
 
-The common anti-sybil design breaks this. A 25% bonus on the first 5,000 points *per wallet* lets a farmer re-trigger the capped bonus once per wallet. At $100k split across 1,000 wallets, $100 each is 100 points at *c* = 1, well under the threshold, so every wallet earns the full bonus; a single $100k wallet earns it only on the first 5,000 of 100,000 points. Against 1,000,000 points of competing effort, pool share rises from 0.092 at *k* = 1 to 0.111 at *k* = 1,000, a 1.209× gain, and across competing-effort levels from 100,000 to 20,000,000 points the gain runs 1.104× to 1.233× (Section 6). The mechanism built to fight sybils is the mechanism creating the sybil incentive. Remove the per-wallet threshold and splitting stops paying, so detection stops being load-bearing on this margin.
+A per-wallet bonus breaks this invariance. A 25% bonus on the first 5,000 points *per wallet* lets a participant re-trigger the bonus once per wallet. At $100k split across 1,000 wallets, $100 each is 100 points at *c* = 1, below the threshold, so every wallet earns the full bonus; a single $100k wallet earns it only on the first 5,000 of 100,000 points. Against 1,000,000 points of competing effort, modeled pool share rises from 0.092 at *k* = 1 to 0.111 at *k* = 1,000, a 1.209× gain, and across competing-effort levels from 100,000 to 20,000,000 points the gain runs 1.104× to 1.233× (Section 6). The supported conclusion is specific: **this nonlinear per-wallet term creates a splitting incentive absent from the fixed-budget proportional core.** The analysis does not estimate how much sybil behavior a live program will exhibit.
 
-### 5.1 Applied design: Suwappu seasons
+### 5.1 Applied design: Suwappu source configuration
 
-Suwappu's seasons program denominates points in fees paid rather than raw volume: points = 100 × fee_usd × multiplier (`docs/economics/SEASONS_TOKENOMICS.md`). By the corollary the pro-rata core is sybil-neutral; by Proposition 4 dissipated spend routes toward protocol revenue rather than external deadweight.
+The repository snapshot reviewed on 6 August 2026 configures the pro-rata fee component at 100 points per fee dollar, with separate per-user engagement and referral limits. That source state is evidence about the implemented formula; it is not, by itself, evidence that a particular production deployment is enabled or that a future token allocation will use the same parameters unchanged.
 
-The engagement grants layered on that core are not fee-backed and are capped per wallet: 5,000 points per user per day, and 10,000 referral points per season (same source). That is the re-triggerable per-wallet structure the corollary identifies, and it carries the same incentive in kind. The exposure is bounded, not removed: at 100 points per fee dollar the daily cap is worth $50 of fee-backed activity per wallet per day, the number to compare against the cost of running an additional wallet.
+The fixed-budget wallet-splitting corollary applies only to the strictly fee-proportional component. Per-user grants and referral terms are nonlinear wallet-level features and sit outside that invariance result; they require their own abuse analysis. Likewise, Proposition 4 says what happens to modeled contest spend **if** the assumed marginal-cost decomposition holds. It does not establish realized program revenue.
 
-*[Revised 1 Aug 2026 in light of the companion paper's empirical test.]* This section originally stated that our seasons program "should be expected to concentrate on the terms of Table 2." That expectation does not survive our own subsequent diagnosis. Points priced at 100 × fee_usd give every participant a near-identical marginal cost per point — the σ ≈ 0 condition under which the active-set channel of Table 2 demonstrably fails to describe real programs (measured top-1 shares at completed capital- and activity-denominated programs are 0.7–2.6% against Table 2's 17–41%; see the companion paper). The revised expectation for our program is the empirical regularity those measurements support: allocation shares mirroring the capital/fee distribution of the recruited participants — a heavy-tailed outcome on the order of a top-1% cohort holding roughly 60%, not a handful of operators holding the pool. Conversion to tokens is gated to a generation event that has not occurred, and we have no realized data on our own program's concentration; when we do, testing this revised prediction against it is an obligation this section creates.
+The original paper also projected Table 2's active-set concentration onto Suwappu's own program. That projection is withdrawn. No completed Suwappu token distribution is measured here, so the concentration of any eventual allocation is **unverified**. The companion paper's roughly 60% top-percentile wallet shares are empirical observations for HYPE, EIGEN, and ENA—not a calibrated forecast for Suwappu.
 
 ---
 
@@ -192,7 +192,7 @@ The engagement grants layered on that core are not fee-backed and are capped per
 
 Checks A, B and D all evaluate or solve the model's own first-order condition; only C is calculus-free. The suite establishes that the solver correctly solves the stated game. It does not establish that the game describes reality.
 
-**Sensitivity of the sybil gain.** The per-wallet-bonus gain depends on how much competing effort the farmer faces, which the first version of this analysis held fixed at one value.
+**Sensitivity of the wallet-splitting gain.** The per-wallet-bonus gain depends on how much competing effort the participant faces, which the first version of this analysis held fixed at one value.
 
 | competing effort (points) | gain from *k* = 1,000 vs *k* = 1 | fee-denominated deviation |
 |---:|---:|---:|
@@ -204,42 +204,40 @@ Checks A, B and D all evaluate or solve the model's own first-order condition; o
 
 Source: Suwappu Research, `data/tullock_mc.json` key `sybil_sensitivity`. $100k budget, 25% bonus on the first 5,000 points per wallet, *c* = 1. Deviation is the change in pool share from splitting under strictly fee-proportional points.
 
-The gain is a range, not a point, and it rises as the farmer's own share of the pool falls, approaching the bonus rate itself. It is a best response against fixed competing effort, not an equilibrium quantity. Fee-proportional points are exactly invariant at every level tested.
+The gain is a range, not a point, and it rises as the participant's own share of the pool falls, approaching the bonus rate itself. It is a best response against fixed competing effort, not an equilibrium quantity. Fee-proportional points are exactly invariant at every level tested.
 
-**Sampling distributions versus point estimates.** The first version of this paper reported one realization per dispersion level. Three of the four series in that table were non-monotone in σ, only the active count fell cleanly, and its concentration figures understated the result: at σ = 1.0 the single draw put top-1 share at 22.9% and farmer surplus at 19.9%, against Monte Carlo medians of 40.8% and 29.8%. Table 2 removes the internal contradiction and strengthens the finding in the same move. Table 1 remains single-draw and carries only its qualitative point.
+**Sampling distributions versus point estimates.** The first version of this paper reported one realization per dispersion level. Three of the four series in that table were non-monotone in σ, only the active count fell cleanly, and its concentration figures understated the result: at σ = 1.0 the single draw put top-1 share at 22.9% and participant surplus at 19.9%, against Monte Carlo medians of 40.8% and 29.8%. Table 2 removes the internal contradiction and strengthens the model result in the same move. Table 1 remains single-draw and carries only its qualitative point.
 
 ---
 
 ## 7. Design implications
 
-1. **Denominate points in fees paid to the protocol, not raw volume.** This is the only lever that changes where dissipated value lands (Proposition 4), and it is sybil-neutral with no detection system required for the pro-rata core.
-2. **Do not add per-wallet floors, minimums, or bonuses to a pro-rata formula.** They create a 1.104× to 1.233× sybil incentive where none otherwise exists. If retention needs a bonus, build it with no re-triggerable per-wallet threshold.
-3. **Do not expect caps or minimum trade sizes to reduce the dissipated fraction.** They change points minted, not *D*(*n*): hygiene against dust wash-trades, not a rent-seeking remedy.
-4. **Expect thin participation dominated by a handful of professional operators.** Cost dispersion alone, with zero fixed entry cost and no cheating, produces a median 5 to 18 active out of 5,000, and 3 to 24 across the 5th-to-95th-percentile range. A founder who wants broad retail distribution should not use a continuous pro-rata contest as the primary mechanism.
-5. **If broad distribution is the goal, this is structurally the wrong tool.** Mechanisms that break the aggregative externality do not inherit Proposition 3's concentration, because they remove the feature producing it: payoff depending on *share* of aggregate effort. Candidates are fixed per-action rewards, identity-gated allocations with superlinear marginal cost in wallet count, and lottery selection among qualifying actions. We have not modeled these; this is a direction, not a result.
-6. **State the limit plainly to stakeholders.** Fee denomination moves captured value from external parties to the treasury without reducing concentration of that capture: a fee-denominated program still yields a small active set and a dominant top participant. Denomination improves the protocol's P&L; it does not solve farming and should not be described as doing so.
+1. **Treat fee denomination as a cost-allocation choice, not a concentration guarantee.** Proposition 4 says that, within the symmetric benchmark, a larger protocol share of marginal cost sends more modeled contest spend to the protocol. It does not establish realized revenue or a distributional outcome.
+2. **Test every per-wallet nonlinearity for splitting incentives.** The simulated 25% first-5,000-points bonus makes splitting a fixed budget across wallets more valuable by 1.104×–1.233× across the tested competing-effort range. That result is specific to the stated bonus and fixed-budget comparison; it is not a forecast of live sybil prevalence.
+3. **Model hard caps as hard constraints.** Proposition 2 does not justify the original claim that a binding daily cap leaves dissipation unchanged. Any policy decision that depends on cap effectiveness needs a constrained model or empirical test.
+4. **Do not use Table 2 as an ownership or counterparty forecast.** The companion data reject its small active set at wallet level. Entity concentration must be measured with recipient data and, where possible, beneficial-owner resolution.
+5. **Separate mechanism hygiene from distribution objectives.** A formula can remove one wallet-splitting incentive without proving broad ownership, retention, lower sell pressure, or reduced economic waste. Those are separate outcomes with separate evidence requirements.
+6. **Govern model status explicitly.** For descriptive allocation use, the active-set model is **challenged by empirical evidence**. For conditional mechanism arithmetic, the model remains **usable within assumptions**. New external claims should state which status they rely on.
 
 ---
 
 ## 8. What would change our view
 
-- **The obvious test — now run, against us.** For completed points-to-airdrop programs with public allocation snapshots, compute the top-10 share of allocated supply. The model predicts it lands near the Table 2 band, roughly 25% to 66% for the top recipient alone at wide dispersion; a measured top-10 share in the low single digits across several programs falsifies the mechanism as the dominant force. *Result (1 August 2026): measured top-10 shares are 4.7% (HYPE genesis) and 12.7% (EIGEN S1, both phases) — the falsification branch. See the postscript in the executive summary and the companion paper.*
-- **Broad, roughly even participation in a real program with verified cost heterogeneity.** Hundreds of participants each holding under 1% of a pool, with documented dispersion in cost per point, would put the complete-information Nash assumption in question.
-- **A cap that changes the concentrated *fraction*, not just the quantity of points.** Proposition 2 predicts that imposing or removing a per-user cap leaves *D* unchanged while moving points minted by the same factor. We model caps as an increase in effective marginal cost; a hard quantity ceiling is instead a corner constraint on individual effort, unsolved here for heterogeneous costs, and a binding one plausibly does interact with the active-set logic by preventing the top farmer from scaling.
-- **Removing a per-wallet bonus not reducing measured sybil activity.** The corollary predicts the 1.104× to 1.233× gain disappears. If it does not, that program's sybil incentives come from a source other than the bonus structure.
-- **Convex cost curves.** Real farming plausibly carries fixed infrastructure costs and convexity at scale from liquidity constraints and detection risk. Convexity erodes the cheapest player's advantage as it scales, and is the leading candidate for real-world concentration being milder than a median 5 to 18 of 5,000.
-- **Risk aversion and private information.** We assume neither. Risk-averse participants under-invest, which shows up as observed dissipation below the predicted 0.702 to 0.905 median band; cost uncertainty softens Proposition 3's sharp active/inactive cutoff into a smoother participation margin, the most likely source of any discrepancy in measured active-set size.
-- **Price feedback.** *V* is a fixed dollar prize here. If heavy farming and subsequent selling depress the token price, *V* depends on the outcome of the contest being modeled, and realized dollar capture is lower than modeled for every participant, including the top operator.
-- **Cost-distribution calibration.** The lognormal σ ∈ {0.2, …, 1.0} spans mild to large heterogeneity and is fit to no observed distribution of farmer costs, because that data is not public. Table 2 is evidence that concentration under heterogeneity is real and large across a plausible parameter range, not a forecast for any named program.
+- **Beneficial-owner resolution.** Credible clustering that collapses the HYPE/EIGEN wallet populations toward the modeled active set would weaken or reverse the companion paper's wallet-level rejection. The companion study quantifies how extreme that clustering would need to be.
+- **A constrained hard-cap solution.** Solving or simulating the game with explicit per-player effort ceilings would determine where Proposition 2 stops being informative for program caps.
+- **Measured budgets and marginal costs.** Direct evidence on participant capital constraints, activity that would have occurred without rewards, and heterogeneous cost per point would let us replace the current lognormal scenarios with a calibrated behavioral model.
+- **Out-of-sample completed programs.** More clean recipient vectors can establish whether HYPE/EIGEN are representative or exceptional. A program with a genuine top-wallet concentration near Table 2 would reopen the active-set channel for that design class.
+- **Entity-level incentive experiments.** Removing or varying a per-wallet bonus while holding the core formula constant would test whether the algebraic splitting incentive has a material behavioral effect.
+- **Realized Suwappu outcome data.** If a future Suwappu allocation occurs, it should be evaluated as a new empirical observation rather than treated as validation by design intent.
 
 ---
 
 ## Reproducibility
 
-Every number here comes from three deterministic scripts; none is drawn from or calibrated against an observed points program.
+Every **model number in Tables 1–3 and Section 6** comes from three deterministic scripts and is not calibrated against an observed points program. The empirical HYPE/EIGEN figures cited in the executive summary come from the separately released companion study and are not inputs to these simulations.
 
 - `code/tullock_sim.py` — closed-form and active-set solver; writes `data/tullock_results.json`. Seed `np.random.default_rng(20260725)`.
-- `code/tullock_mc.py` — 500-draw Monte Carlo per σ at *n* = 5,000, and the sybil-gain sensitivity sweep; writes `data/tullock_mc.json`. Seed `np.random.default_rng(20260726)`.
+- `code/tullock_mc.py` — 500-draw Monte Carlo per σ at *n* = 5,000, and the wallet-splitting sensitivity sweep; writes `data/tullock_mc.json`. Seed `np.random.default_rng(20260726)`.
 - `code/verify_equilibrium.py` — checks A–D; imports `exact_equilibrium` from `tullock_sim.py`. Seed `np.random.default_rng(7)`.
 - Console transcripts `data/sim_output.txt` and `data/verify_output.txt`; structured results `data/tullock_results.json` and `data/tullock_mc.json`, holding full precision for every rounded figure above.
 - Exhibits `figures/p2-exhibit-1-participation.png` and `figures/p2-exhibit-2-denomination.png`, generated by `code/exhibits.py`. Applied-design reference: `docs/economics/SEASONS_TOKENOMICS.md`.
@@ -250,7 +248,7 @@ Run `code/tullock_sim.py`, then `code/tullock_mc.py`, then `code/verify_equilibr
 
 ## Disclosures
 
-This is research, not investment advice, and nothing here is a recommendation to buy, sell, or hold any token or security. Suwappu Research is the research function of Suwappu, which builds cross-chain trading and liquidity infrastructure and operates a fee-denominated seasons points program of the type analyzed in Section 5.1. We therefore have a direct commercial interest in the design conclusions of Section 7, and Section 5.1 should be read as an interested party's account of its own product. The author holds no position in any third-party token program referenced or alluded to here. We did not contact any issuer or program operator, and no figure reflects issuer confirmation. All inputs are self-generated by the simulation code listed under Reproducibility; there is no proprietary or third-party data in this paper. Views are the author's, not necessarily those of any other person at Suwappu.
+This is research, not investment, legal, accounting, or prudential advice, and nothing here is a recommendation to buy, sell, or hold any token or security. Suwappu builds financial-execution infrastructure and has a commercial interest in fee-denominated incentive design; Section 5.1 is therefore an interested party's account of its own source configuration. This paper does not verify production enablement or a completed Suwappu token distribution. The author holds no position in any third-party token program taken on the basis of this analysis. No issuer or program operator reviewed the model. Model inputs are self-generated by the simulation code listed under Reproducibility; the companion empirical data is separately documented and released. The paper's active-set prediction failed its first published wallet-level field test, and that challenged status is part of the current conclusion.
 
 ---
 

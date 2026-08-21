@@ -9,7 +9,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
-export const webCheckoutTierEnum = pgEnum('web_checkout_tier', ['pro', 'premium'])
+export const webCheckoutTierEnum = pgEnum('web_checkout_tier', ['pro', 'premium', 'enterprise'])
 
 export const webCheckoutStatusEnum = pgEnum('web_checkout_status', [
 	'pending',

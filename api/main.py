@@ -18,6 +18,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 # Request-ID context variable — propagated into every service/log call within
 # the same async context without threading explicit parameters everywhere.
@@ -52,12 +53,16 @@ from bot.services.wallet import WalletService
 from bot.config.settings import settings
 from bot.services.fee_sweeper import fee_sweeper
 from bot.services.alerts import alert_service
+from bot.services.market_data import market_data_service
+from bot.services.venue_data import venue_data_service
 from bot.services.orders import order_service
 from bot.services.swap_engine import SwapEngine
 from bot.services.tx_poller import tx_poller
 from bot.services.execution_scorer import execution_scorer
 from bot.services.withdraw_reconciler import withdraw_reconciler
 from bot.services.health_monitor import health_monitor
+from bot.services.approval_notifier import approval_notifier
+from bot.services.webhook_dispatcher import webhook_dispatcher
 from bot.services.balance_refresher import balance_refresher
 from bot.services.perps_monitor import perps_monitor
 from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
@@ -82,11 +87,51 @@ from bot.utils.telegram_safe import safe_md
 from bot.main import add_handlers
 from telegram.ext import AIORateLimiter, Application, PicklePersistence
 from telegram import Update
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Tracks optional/non-critical services that failed to start (or, for
+# periodic tasks, most recently failed) so /health can surface them without
+# flipping the process unhealthy — these are deliberately non-fatal to
+# startup, but a failure should never be invisible. name -> short error
+# summary. Cleared on a subsequent success so a self-healing periodic task
+# (e.g. auth-challenge cleanup) doesn't stay flagged forever.
+DEGRADED_SERVICES: dict[str, str] = {}
+
+
+def _mark_degraded(name: str, error: BaseException) -> None:
+    DEGRADED_SERVICES[name] = str(error)[:300]
+
+
+def _clear_degraded(name: str) -> None:
+    DEGRADED_SERVICES.pop(name, None)
+
+
+@contextmanager
+def _track_degraded(name: str, log_prefix: str, auto_clear: bool = True):
+    """Run one optional startup step, never letting its failure block startup.
+
+    Collapses the try/except/`_mark_degraded`/`_clear_degraded` skeleton that
+    was previously hand-rolled at each optional-service call site (p2p_escrow,
+    discord_alerts, auth_challenge_cleanup, event_bus, internal_api_client,
+    whatsapp_queue) into one reusable wrapper. On a clean exit,
+    `_clear_degraded(name)` runs automatically unless `auto_clear=False` — the
+    event_bus site needs that escape hatch because "connected" and "ran
+    without error but stayed disconnected" are both non-exceptional outcomes
+    that should NOT both clear the degraded flag, so it clears explicitly
+    inside its own body instead.
+    """
+    try:
+        yield
+        if auto_clear:
+            _clear_degraded(name)
+    except Exception as e:  # noqa: BLE001 — deliberately broad: never block startup
+        logger.warning(f"{log_prefix}: {e}")
+        _mark_degraded(name, e)
+
 
 # --- Lifespan Manager ---
 
@@ -292,6 +337,29 @@ async def lifespan(app: FastAPI):
                 "service:worker:fingerprint", SOURCE_FINGERPRINT, ttl_seconds=86400
             )
             logger.info(f"✓ Worker build fingerprint published: {SOURCE_FINGERPRINT}")
+
+            # ...and keep republishing it. Writing this ONCE at startup meant a
+            # 24h TTL could only answer the question for the first 24h of a
+            # deploy. Observed in production: the worker last deployed 04 Aug,
+            # the key expired on the 5th, and /health reported
+            # worker_fingerprint "unknown" for ten days on a worker that was
+            # demonstrably alive and logging — which is precisely the ambiguity
+            # the comment above says this exists to remove. A stable worker does
+            # not restart for weeks, so "outlive a quiet period" needed a
+            # refresh, not a longer TTL.
+            async def _republish_fingerprint():
+                while True:
+                    await asyncio.sleep(3600)
+                    try:
+                        await redis_cache.set(
+                            "service:worker:fingerprint",
+                            SOURCE_FINGERPRINT,
+                            ttl_seconds=86400,
+                        )
+                    except Exception:  # pragma: no cover - best effort
+                        pass
+
+            asyncio.create_task(_republish_fingerprint())
         except Exception as e:
             logger.warning(f"Could not publish worker fingerprint: {e}")
 
@@ -299,6 +367,14 @@ async def lifespan(app: FastAPI):
         await fee_sweeper.start()
         await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
+        # Market data capture (candles for the Historical API). No-op unless
+        # market_data_capture_enabled (default True).
+        await market_data_service.start()
+        await asyncio.sleep(2)
+        # Venue data capture (perps/predictions/lend time series). No-op unless
+        # venue_data_capture_enabled (default True).
+        await venue_data_service.start()
         await asyncio.sleep(2)
         await order_service.start(
             bot=bot_app.bot if bot_initialized else None, swap_engine=SwapEngine()
@@ -318,6 +394,17 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Agent control-plane approval notifier: DMs the owning Telegram user
+        # for pending api-ts approval_requests rows (gated on
+        # AGENT_APPROVALS_ENABLED, no-op otherwise).
+        await approval_notifier.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
+        # Durable retry + dead-letter for approval-decision webhooks enqueued
+        # by approval_webhook.notify_approval_decided. Same feature flag as
+        # approval_notifier since it's part of the same agent control-plane
+        # feature.
+        await webhook_dispatcher.start()
+        await asyncio.sleep(2)
         # Post-trade execution scoring (execution intelligence, phase 2).
         # Marks out completed swaps at fixed horizons so realized-vs-quoted
         # (ours) can be separated from markout (the market's).
@@ -334,12 +421,10 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         # Wire the native P2P escrow executor to the on-chain USDC settlement path.
         if getattr(settings, "p2p_enabled", True):
-            try:
+            with _track_degraded("p2p_escrow", "P2P escrow wiring skipped"):
                 from bot.services.p2p_escrow_executor import wire_p2p_escrow
 
                 wire_p2p_escrow()
-            except Exception as e:  # noqa: BLE001 — never block startup on P2P
-                logger.warning("P2P escrow wiring skipped: %s", e)
         # Real-time HyperLiquid WS alert feed (no-op unless hl_ws/whale flags on).
         await hl_ws_alerts.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -365,13 +450,11 @@ async def lifespan(app: FastAPI):
 
         # Start Discord alert service if Discord bot is available
         if discord_bot:
-            try:
+            with _track_degraded("discord_alerts", "⚠️ Discord alerts failed to start"):
                 from bot.services.discord_alerts import discord_alert_service
 
                 await discord_alert_service.start(discord_bot)
                 logger.info("✓ Discord alert service started")
-            except Exception as e:
-                logger.warning(f"⚠️ Discord alerts failed to start: {e}")
 
         logger.info("✓ All background services running")
     else:
@@ -383,36 +466,29 @@ async def lifespan(app: FastAPI):
 
         while True:
             await asyncio.sleep(300)  # every 5 minutes
-            try:
+            with _track_degraded("auth_challenge_cleanup", "Auth challenge cleanup error"):
                 removed = cleanup_expired_challenges()
                 if removed:
                     logger.debug(f"Cleaned up {removed} expired auth challenges")
-            except Exception as e:
-                logger.warning(f"Auth challenge cleanup error: {e}")
 
     auth_cleanup_task = asyncio.create_task(_cleanup_auth_challenges_loop())
 
     # 6. Start cross-service integrations
-    try:
+    with _track_degraded("event_bus", "⚠️ Event bus failed to connect", auto_clear=False):
         await event_bus.connect()
         if event_bus.connected:
             logger.info("✓ Event bus connected (Redis pub/sub)")
+            _clear_degraded("event_bus")
         else:
             logger.info("ℹ Event bus not connected (Redis unavailable, events disabled)")
-    except Exception as e:
-        logger.warning(f"⚠️ Event bus failed to connect: {e}")
 
-    try:
+    with _track_degraded("internal_api_client", "⚠️ Internal API client failed to init"):
         await api_client.init()
         logger.info("✓ Internal API client initialized")
-    except Exception as e:
-        logger.warning(f"⚠️ Internal API client failed to init: {e}")
 
     # Start the per-user WhatsApp message queue (ordered processing).
-    try:
+    with _track_degraded("whatsapp_queue", "⚠️ WhatsApp message queue failed to start"):
         await _wa_queue.start()
-    except Exception as e:
-        logger.warning(f"⚠️ WhatsApp message queue failed to start: {e}")
 
     yield
 
@@ -453,11 +529,15 @@ async def lifespan(app: FastAPI):
         await fee_sweeper.stop()
         await digest_service.stop()
         await alert_service.stop()
+        await market_data_service.stop()
+        await venue_data_service.stop()
         await order_service.stop()
         await tx_poller.stop()
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await approval_notifier.stop()
+        await webhook_dispatcher.stop()
         await execution_scorer.stop()
         await perps_monitor.stop()
         await hl_ecosystem_monitor.stop()
@@ -697,6 +777,11 @@ from api.routes.mobile import router as mobile_router
 
 app.include_router(mobile_router)
 
+# Jelly-native public discovery and wallet-backed creator claims (no third-party login).
+from api.routes.social import router as social_router
+
+app.include_router(social_router)
+
 try:
     from api.routes.internal import router as internal_router
 
@@ -852,6 +937,7 @@ class AuthMeResponse(BaseModel):
     address: Optional[str] = None
     userId: Optional[int] = None
     createdAt: Optional[datetime] = None
+    sessionSource: Optional[str] = None
     # "external" => non-custodial (connected wallet signs client-side);
     # "turnkey"/"local" => custodial (server signs). Lets the client pick the
     # right swap path on session resume, before any wallet re-connects.
@@ -881,13 +967,26 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 7 days
 
 
-def create_jwt_token(address: str, user_id: int) -> str:
-    """Create a JWT token for authenticated user."""
+def create_jwt_token(address: str, user_id: int, src: str) -> str:
+    """Create a JWT token for authenticated user.
+
+    ``src`` records what this session actually proved possession of, so
+    downstream consumers (e.g. api-ts's requireProofOfPossession guard on the
+    agent-approvals surface) can distinguish strong wallet/account proofs
+    ('siwe', 'passkey', 'telegram') from sessions that didn't prove wallet
+    possession at all ('weak'). No default is provided — every call site must
+    state its provenance explicitly.
+    """
+    # EVM addresses are case-insensitive, Solana base58 public keys are not.
+    session_address = address.lower() if address.startswith("0x") else address
     payload = {
-        "address": address.lower(),
+        "address": session_address,
+        # api-ts flexAuth uses this camelCase field when normalizing a session.
+        "walletAddress": session_address,
         "user_id": user_id,
         # camelCase alias so api-ts (which reads `userId`) accepts Python-issued tokens.
         "userId": user_id,
+        "src": src,
         "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         "iat": datetime.utcnow(),
     }
@@ -909,15 +1008,15 @@ async def get_current_user_from_token(
     request: Request,
     auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
 ) -> Optional[Dict]:
-    """Extract current user from JWT token in cookie or header."""
-    # Try cookie first
-    token = auth_token
+    """Extract current user from JWT token in header or cookie.
 
-    # Fallback to Authorization header
-    if not token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+    Authorization deliberately wins when both are present. The browser can carry
+    an HttpOnly OAuth cookie for one account while localStorage still contains a
+    wallet bearer for another; every API surface must resolve that conflict the
+    same way or the UI can display one user while a money route acts as another.
+    """
+    auth_header = request.headers.get("Authorization")
+    token = auth_header[7:] if auth_header and auth_header.startswith("Bearer ") else auth_token
 
     if not token:
         return None
@@ -959,6 +1058,13 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
 }
 DEFAULT_STALENESS_SECONDS = 90
 
+# When this process came up. Needed to distinguish a service that has NOT YET
+# written its first heartbeat (normal, for a few seconds after boot) from one
+# that never will. Without it both read "unknown", and "unknown" was excluded
+# from `degraded` — so a wedged balance_refresher sat invisible in production
+# for four days behind ready:true and degraded:[].
+_PROCESS_STARTED_AT = time.time()
+
 
 # ---------------------------------------------------------------------------
 # Build fingerprint
@@ -999,6 +1105,27 @@ def _compute_source_fingerprint() -> str:
 
 
 SOURCE_FINGERPRINT = _compute_source_fingerprint()
+
+
+@app.get("/admin/activation-funnel", tags=["Admin"], summary="Activation funnel")
+async def admin_activation_funnel(_: str = Depends(get_admin_key)):
+    """Where new users stop: signup -> wallet -> quote -> swap.
+
+    Built because the product had 43 users, 77 wallets and zero completed swaps,
+    and nothing could say WHICH step they stopped at. `biggest_drop` names the
+    worst step by retention against the one before it.
+
+    `not_instrumented` lists stages that cannot be measured at all — currently
+    "funded", because no table persists a balance. That is reported explicitly
+    so a missing stage is never read as a stage with zero users.
+    """
+    from bot.services.activation_funnel import activation_funnel
+
+    try:
+        return activation_funnel.compute()
+    except Exception as e:
+        logger.error(f"activation funnel failed: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="Funnel unavailable")
 
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")
@@ -1070,12 +1197,24 @@ async def health_ready():
         settings, "hl_whale_alerts_enabled", False
     ):
         watched_services.append("hl_ws_alerts")
+    never_beat: list[str] = []
+    uptime = now - _PROCESS_STARTED_AT
     for svc in watched_services:
+        threshold = SERVICE_STALENESS_SECONDS.get(svc, DEFAULT_STALENESS_SECONDS)
         last = await redis_cache.get(f"service:{svc}:heartbeat")
         if last is None:
-            svc_heartbeats[svc] = "unknown"
-        elif now - float(last) > SERVICE_STALENESS_SECONDS.get(svc, DEFAULT_STALENESS_SECONDS):
+            # A missing key past the service's own threshold is not "unknown",
+            # it is dead: the loop has had a full window to beat and has not.
+            # Reporting it as unknown made a service that never started look
+            # exactly like a healthy one.
+            if uptime > threshold:
+                svc_heartbeats[svc] = "dead"
+                never_beat.append(svc)
+            else:
+                svc_heartbeats[svc] = "starting"
+        elif now - float(last) > threshold:
             svc_heartbeats[svc] = "dead"
+            never_beat.append(svc)
         else:
             svc_heartbeats[svc] = "alive"
 
@@ -1109,17 +1248,45 @@ async def health_ready():
                 "redis": "connected" if redis_ok else "memory-fallback",
                 "bot": bot_status,
                 "background_services": svc_heartbeats,
-                # Drift alarm: python-worker has no GitHub auto-deploy, so it
-                # can silently fall behind python-api for days (it ran
-                # 3-day-old code in Aug 2026 with nothing surfacing it). False
-                # means the two services are on different builds — deploy the
-                # worker ("unknown" worker fingerprint also reads as drift).
-                # Inside "checks" so scripts/status.py's subsystem walker
-                # flags it automatically; deliberately NOT part of readiness.
-                "worker_code_matches_api": worker_fingerprint == SOURCE_FINGERPRINT,
             },
+            # Optional non-critical services that failed to start (or, for
+            # periodic tasks, most recently failed) — never affects
+            # ready/status_code, purely visibility. Empty when all healthy.
+            "degraded": [{"service": name, "error": err} for name, err in DEGRADED_SERVICES.items()]
+            # A watched background loop that is not beating belongs here. It was
+            # previously visible ONLY as a word inside checks.background_services
+            # that nothing alerted on.
+            + [
+                {"service": name, "error": "no heartbeat past staleness threshold"}
+                for name in never_beat
+            ],
         },
     )
+
+
+@app.get("/probe/wallet", tags=["Health"], summary="Wallet capability probe (static)")
+async def wallet_probe():
+    """Serve the Robinhood Wallet capability probe.
+
+    Answers the one question the USDG mint path depends on and that cannot be
+    settled by reasoning: will Robinhood Wallet sign an EIP-3009
+    ReceiveWithAuthorization? It has to be opened on a PHONE, inside the wallet's
+    in-app browser, so it needs a real URL — hence a route rather than a file
+    somebody has to host.
+
+    Lives in api/static/ deliberately. api/Dockerfile.railway copies only api/,
+    bot/ and database/, so the same file under nft/ would 404 in the container
+    while working perfectly on a laptop.
+
+    Static, read-only, no secrets, no state. Safe to leave exposed.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "wallet-probe.html")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            body = fh.read()
+    except OSError:
+        raise HTTPException(status_code=404, detail="probe not bundled in this image")
+    return Response(content=body, media_type="text/html; charset=utf-8")
 
 
 @app.get("/health", tags=["Health"], summary="Health check (legacy)")
@@ -1131,21 +1298,43 @@ async def health_check():
 # ============ Turnkey Web Authentication ============
 
 
+def _wallet_auth_origin(request: Request) -> tuple[str, str]:
+    """Return the trusted authority + URI that wallets should display.
+
+    Browser wallet signatures must describe the site the user is actually on.
+    The old hard-coded ``app.suwappu.com`` domain made every Terminal prompt look
+    unrelated to the requesting origin. Only Suwappu HTTPS origins (plus local
+    HTTP development) may influence the signed message.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return "terminal.suwappu.bot", "https://terminal.suwappu.bot"
+
+    parsed = urlsplit(origin)
+    host = (parsed.hostname or "").lower()
+    is_suwappu = parsed.scheme == "https" and (
+        host == "suwappu.bot" or host.endswith(".suwappu.bot")
+    )
+    is_local = parsed.scheme == "http" and host in {"localhost", "127.0.0.1"}
+    if not (is_suwappu or is_local) or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Untrusted wallet sign-in origin")
+    return parsed.netloc, f"{parsed.scheme}://{parsed.netloc}"
+
+
 @app.post("/auth/turnkey/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
-async def auth_challenge(request: AuthChallengeRequest):
+async def auth_challenge(body: AuthChallengeRequest, request: Request):
     """
     Generate a challenge message for wallet-based authentication.
     The user signs this message with their wallet to prove ownership.
     """
     from bot.services.turnkey_client import generate_auth_challenge
 
-    address = request.address.strip()
+    address = body.address.strip()
     if not address.startswith("0x") or len(address) != 42:
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
 
-    # generate_auth_challenge returns a dict (challenge/nonce/expiresAt); unpacking
-    # it into two vars raised "too many values to unpack" -> 500 on every challenge.
-    result = generate_auth_challenge(address)
+    domain, uri = _wallet_auth_origin(request)
+    result = generate_auth_challenge(address, domain=domain, uri=uri)
 
     return AuthChallengeResponse(
         challenge=result["challenge"],
@@ -1218,7 +1407,7 @@ async def auth_verify(
         db.commit()
 
     # Create JWT token
-    token = create_jwt_token(address, user.id)
+    token = create_jwt_token(address, user.id, src="siwe")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     # Set secure HTTP-only cookie
@@ -1252,17 +1441,18 @@ def _is_valid_solana_address(address: str) -> bool:
 
 
 @app.post("/auth/solana/challenge", response_model=AuthChallengeResponse, tags=["Auth"])
-async def auth_solana_challenge(request: AuthChallengeRequest):
+async def auth_solana_challenge(body: AuthChallengeRequest, request: Request):
     """
     Generate a Sign-In-With-Solana challenge for a Phantom/Solana wallet to sign.
     """
     from bot.services.turnkey_client import generate_solana_auth_challenge
 
-    address = request.address.strip()
+    address = body.address.strip()
     if not _is_valid_solana_address(address):
         raise HTTPException(status_code=400, detail="Invalid Solana address format")
 
-    result = generate_solana_auth_challenge(address)
+    domain, uri = _wallet_auth_origin(request)
+    result = generate_solana_auth_challenge(address, domain=domain, uri=uri)
 
     return AuthChallengeResponse(
         challenge=result["challenge"],
@@ -1317,7 +1507,7 @@ async def auth_solana_verify(
         db.add(wallet)
         db.commit()
 
-    token = create_jwt_token(address, user.id)
+    token = create_jwt_token(address, user.id, src="siwe")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     response.set_cookie(
@@ -1358,7 +1548,16 @@ async def auth_me(
     address = current_user.get("address")
     wallet_provider = None
     if address:
-        wallet = db.query(Wallet).filter(Wallet.address.ilike(address)).first()
+        wallet_query = db.query(Wallet).filter(
+            Wallet.user_id == user.id,
+            Wallet.is_active == True,
+        )
+        if address.startswith("0x"):
+            wallet_query = wallet_query.filter(Wallet.address.ilike(address))
+        else:
+            # Solana base58 keys are case-sensitive.
+            wallet_query = wallet_query.filter(Wallet.address == address)
+        wallet = wallet_query.first()
         if wallet:
             wallet_provider = wallet.wallet_provider
 
@@ -1368,6 +1567,7 @@ async def auth_me(
         userId=user.id,
         createdAt=user.created_at,
         walletProvider=wallet_provider,
+        sessionSource=current_user.get("src"),
     )
 
 
@@ -1458,7 +1658,7 @@ async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, 
 
     # Mint the same session JWT the passkey/oauth flows mint.
     session_address = wallet_address or f"telegram:{telegram_id}"
-    token = create_jwt_token(address=session_address, user_id=user.id)
+    token = create_jwt_token(address=session_address, user_id=user.id, src="telegram")
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
     response.set_cookie(
@@ -1649,7 +1849,7 @@ async def auth_refresh(request: Request, response: Response, body: Optional[Refr
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     user_id, address, new_refresh, _expires = rotated
-    access_token = create_jwt_token(address or "", user_id)
+    access_token = create_jwt_token(address or "", user_id, src="weak")
     _set_session_cookies(response, access_token, new_refresh)
     return {"success": True, "token": access_token, "refresh_token": new_refresh}
 
@@ -1933,6 +2133,7 @@ async def passkey_register_complete(
         token = create_jwt_token(
             address=wallet_address or f"passkey:{request.credentialId[:16]}",
             user_id=existing_user.id,
+            src="passkey",
         )
         expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
         response.set_cookie(
@@ -1990,6 +2191,7 @@ async def passkey_register_complete(
     token = create_jwt_token(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
+        src="passkey",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 
@@ -2091,6 +2293,7 @@ async def passkey_auth_complete(
     token = create_jwt_token(
         address=wallet_address or f"passkey:{request.credentialId[:16]}",
         user_id=user.id,
+        src="passkey",
     )
     expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS)
 

@@ -62,6 +62,11 @@ class HLOrderResult:
     status: str  # "filled", "open", "cancelled"
     fill_price: Optional[float] = None
     filled_size: Optional[float] = None
+    # Set when protection was attached to this entry in the same signed action.
+    # A level is only real if the exchange came back with an id for it, so
+    # callers must read these rather than assume the request implied the order.
+    tp_order_id: Optional[str] = None
+    sl_order_id: Optional[str] = None
 
 
 class HyperLiquidClient:
@@ -113,6 +118,28 @@ class HyperLiquidClient:
                 headers={"Content-Type": "application/json"},
             )
         return self._client
+
+    async def get_meta_and_asset_ctxs(self) -> Optional[list]:
+        """Raw ``metaAndAssetCtxs`` info response: ``[meta, assetCtxs]``.
+
+        ``meta["universe"][i]`` pairs positionally with ``assetCtxs[i]`` —
+        one entry per perp market, carrying funding rate, open interest,
+        mark/oracle price, and 24h notional volume in a single request.
+        Feeds the venue data capture service's perp metrics loop
+        (bot/services/venue_data.py). Returns ``None`` on any failure.
+        """
+        try:
+            client = await self._get_client()
+            response = await client.post(
+                self.INFO_URL,
+                json={"type": "metaAndAssetCtxs"},
+            )
+            if response.status_code != 200:
+                return None
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get HyperLiquid metaAndAssetCtxs: {e}")
+            return None
 
     async def get_markets(self) -> list[HLMarketInfo]:
         """Get all available markets."""
@@ -325,14 +352,41 @@ class HyperLiquidClient:
                     tpsl="tp" if order_type == "take_profit" else "sl",
                 )
 
+            # Attach protection to the entry itself. HyperLiquid's "normalTpsl"
+            # grouping carries the entry and its reduce-only triggers in a single
+            # signed action, so a filled position is never briefly unprotected —
+            # which placing the triggers afterwards cannot guarantee.
+            #
+            # Only for an opening order: a reduce-only close or a trigger order
+            # has nothing to protect.
+            orders = [order]
+            protective = []
+            if not reduce_only and order_type in ("market", "limit"):
+                for level, kind in ((tp_price, "tp"), (sl_price, "sl")):
+                    if not level:
+                        continue
+                    orders.append(
+                        self._order_wire(
+                            asset_id,
+                            not is_buy,  # protection closes the position
+                            float(level),
+                            size,
+                            sz_dec,
+                            False,
+                            reduce_only=True,
+                            tpsl=kind,
+                        )
+                    )
+                    protective.append(kind)
+
             # Set leverage
             await self._set_leverage(client, address, api_key, api_secret, asset, leverage)
 
             # Build and sign the action
             action = {
                 "type": "order",
-                "orders": [order],
-                "grouping": "na",
+                "orders": orders,
+                "grouping": "normalTpsl" if protective else "na",
             }
 
             # Attach builder fee so Suwappu earns on the order. The builder
@@ -363,11 +417,44 @@ class HyperLiquidClient:
                 statuses = status_data.get("statuses", [{}])
 
                 if statuses:
+                    # statuses comes back parallel to the orders we sent, and
+                    # nothing in a leg identifies which order it belongs to. So
+                    # attribute by position only when the arity matches exactly.
+                    #
+                    # Fail closed if it does not: reporting no protection makes a
+                    # caller re-place a stop it already has, which is recoverable.
+                    # Guessing could pin the take-profit's id to the stop-loss and
+                    # cancel the wrong order later, which is not.
+                    attached = {}
+                    if protective and len(statuses) != len(orders):
+                        logger.error(
+                            "HyperLiquid returned %d statuses for %d orders on %s; "
+                            "cannot safely attribute the protective legs",
+                            len(statuses),
+                            len(orders),
+                            market,
+                        )
+                    else:
+                        for offset, kind in enumerate(protective, start=1):
+                            leg = statuses[offset]
+                            oid = (leg.get("resting") or leg.get("filled") or {}).get("oid")
+                            if oid:
+                                attached[kind] = str(oid)
+                            else:
+                                logger.warning(
+                                    "HyperLiquid did not accept the %s leg for %s: %s",
+                                    kind,
+                                    market,
+                                    leg,
+                                )
+
                     order_status = statuses[0]
                     if "resting" in order_status:
                         return HLOrderResult(
                             order_id=str(order_status["resting"]["oid"]),
                             status="open",
+                            tp_order_id=attached.get("tp"),
+                            sl_order_id=attached.get("sl"),
                         )
                     elif "filled" in order_status:
                         return HLOrderResult(
@@ -375,6 +462,8 @@ class HyperLiquidClient:
                             status="filled",
                             fill_price=float(order_status["filled"].get("avgPx", 0)),
                             filled_size=float(order_status["filled"].get("totalSz", 0)),
+                            tp_order_id=attached.get("tp"),
+                            sl_order_id=attached.get("sl"),
                         )
 
                 logger.warning(f"Unexpected order response: {data}")

@@ -33,7 +33,8 @@ exact parameters when you need them.
 | `GET /tokens?chain=base&search=USD` | — | `chain` required (or `solana`); `search` filters by symbol substring. |
 | `GET /prices?symbols=ETH,SOL,USDC&chain=base` | — | 1-20 comma-separated symbols; 60s cache. `chain` optional/unused for pricing scope. |
 | `POST /quote` | `{from_token, to_token, amount, chain?, from_chain?, to_chain?, wallet_address?, slippage?}` | `amount` is human units (e.g. `"0.5"`), not wei. `slippage` is a fraction (0-0.5), default 0.03. Solana detected via chain name. Returns `quote_id`, valid 60s. |
-| `POST /swap` | `{quote_id, wallet_address}` | Self-signed path. Returns unsigned `transaction` (EVM) or base64 `serialized_transaction` (Solana). **`wallet_address` is required** and, for EVM, must equal your managed wallet address if you have one provisioned (403 otherwise) — pass your own signing address if you don't. |
+| `POST /swap/simulate` | `{quote_id, wallet_address?}` or `{from_token, to_token, amount, ...}` | Dry-run only. Returns `would_execute`, checks, warnings, expected output and fees; never signs or broadcasts. |
+| `POST /swap` | `{quote_id, wallet_address}` | Self-custody path. `wallet_address` is the address that will sign. Returns an unsigned EVM transaction or base64 serialized Solana transaction; Suwappu does not broadcast it. |
 | `GET /swap/status/{swapId}` | — | Only for swaps executed via `/swap/execute` (managed path). |
 | `GET /swaps?status=&limit=20&offset=0` | — | Paginated history, `limit` capped at 100. |
 | `POST /execute` | `{command, wallet_address?}` | Natural-language shim: parses `"swap 0.5 ETH to USDC on base"` etc. into a quote. Prefer `/quote` directly for anything programmatic. |
@@ -44,13 +45,13 @@ exact parameters when you need them.
 |---|---|---|
 | `POST /wallets` | — | Provisions a Turnkey-secured EVM wallet for this agent. One-time. |
 | `GET /wallets` | — | List managed wallets. |
-| `POST /swap/execute` | `{quote_id}` | Requires a wallet from `/wallets` first. Server signs + broadcasts. Returns `swap_id`, `status`, `tx_hash`. |
+| `POST /swap/execute` | `{quote_id}` | Requires a wallet from `/wallets` first. Server signs + broadcasts. Send a stable `Idempotency-Key` header (1–64 chars, `A-Za-z0-9_.:-`) and reconcile before retrying an unknown outcome. |
 
 ## Portfolio & webhooks
 
 | Method & path | Query / body | Notes |
 |---|---|---|
-| `GET /portfolio?wallet_address=0x...&chain=base` | — | Only your own managed wallet address is queryable (403 otherwise) unless you're checking an address you control off-platform — pass it anyway; ownership is enforced server-side for managed wallets. |
+| `GET /portfolio?wallet_address=0x...&chain=base` | — | Only the authenticated agent's managed EVM wallet is queryable; another address is rejected with 403. |
 | `GET /webhooks` | — | Delivery log for your `callback_url`. |
 | `POST /webhooks/test` | — | Fire a test delivery. |
 
@@ -63,9 +64,10 @@ exact parameters when you need them.
 | `POST /billing/subscribe` | `{txHash, chain, amount, tier}` | Prepaid unmetered access window (no auto-renew); re-POST before expiry to extend. |
 | `POST /billing/recurring` | — | True auto-renew via Base Spend Permissions (EIP-based), for agents that want it. |
 
-Metered endpoints (only charged when `AGENT_METERING_ENABLED` and you're on the free tier with no
-credits): `quote` (1 credit), `swap`/`execute`/`swap/execute` (5), `portfolio` (1), `prices` (1),
-`tokens` (1). A metered call with no credits returns `402` with an x402 payment challenge instead
+Metered endpoints (only charged when `AGENT_METERING_ENABLED` and the caller is on the metered
+free tier): `quote`/`swap/simulate` (1 credit), `swap`/`execute`/`swap/execute` (5),
+`portfolio`/`prices` (1), and `tokens` (0). `chains` is public. A metered call with no credits
+returns `402` with an x402 payment challenge instead
 of failing outright — see SKILL.md §6.
 
 ## Perps (Hyperliquid)
@@ -73,7 +75,7 @@ of failing outright — see SKILL.md §6.
 | Method & path | Body / query | Notes |
 |---|---|---|
 | `GET /perps/markets` | — | No auth-gated fields; still send the bearer token. |
-| `POST /perps/quote` | `{market, side: "long"\|"short", size, leverage}` | Returns entry price, margin, liquidation price, funding rate, fee. |
+| `POST /perps/quote` | `{market, side: "long"\|"short", size, leverage}` | Indicative research quote: entry, margin, liquidation estimate and fee. The current Agent API has no perps open/close endpoint; current funding can be a placeholder. |
 | `GET /perps/positions?address=` | — | Open positions for an address. |
 
 ## Predictions (Polymarket)
@@ -89,7 +91,7 @@ of failing outright — see SKILL.md §6.
 | `GET /predict/positions` | — | Your open positions. |
 | `GET /predict/orders?status=` | — | Your order history. |
 
-## Lending (Morpho)
+## Lending (Morpho, read-only market research)
 
 | Method & path | Query | Notes |
 |---|---|---|
@@ -109,8 +111,8 @@ of failing outright — see SKILL.md §6.
 Headers on every response: `X-RateLimit-Limit`, `X-RateLimit-Remaining`; on 429 also
 `Retry-After` (seconds) and `X-RateLimit-Reset` (unix timestamp).
 
-## Supported chains (EVM chain ids)
+## Supported chains
 
-Ethereum (1), Optimism (10), BSC (56), Polygon (137), Arbitrum (42161), Base (8453), Avalanche
-(43114) — plus Solana, Sui, and TON as non-EVM chain keys. Pass the chain **key** (e.g. `"base"`,
-`"solana"`), not the numeric id, in request bodies; `GET /chains` is the source of truth.
+Do not copy a static chain list into production code. Call public `GET /chains` and use the
+returned chain **key** (for example `"base"` or `"solana"`) in request bodies; that response is
+the source of truth for the deployed API.

@@ -1,7 +1,12 @@
 name: Deploy to Railway
 
+# Manual recovery/operations deploy only. Normal main/dev deploys are created by
+# Railway's native GitHub integration, which applies per-service watch paths and can
+# wait for GitHub status checks. Keeping a second push-triggered `railway up` path
+# would duplicate deployments (and notifications) for the same commit.
+#
 # Replaces the AWS ECS workflows (deploy-api.yml / deploy-frontend.yml, kept for
-# reversibility but now manual-only). Deploys the four services to Railway.
+# reversibility but now manual-only).
 #
 # Auth: each GitHub Environment (production, development) holds a RAILWAY_TOKEN secret =
 # a Railway PROJECT token, which is scoped to one Railway project + environment. So
@@ -14,15 +19,13 @@ name: Deploy to Railway
 # The matrix `service` values MUST match the service names in the Railway dashboard.
 
 on:
-  push:
-    branches: [main, dev]
   workflow_dispatch:
     inputs:
       service:
         description: Which service(s) to deploy
         type: choice
         default: all
-        options: [all, python-api, python-worker, api-ts, terminal, webapp, showcase]
+        options: [all, python-api, api-ts, terminal, webapp, showcase]
       environment:
         description: Target environment (auto = from branch)
         type: choice
@@ -67,7 +70,7 @@ jobs:
           echo "gh_env=${ENV}" >> "$GITHUB_OUTPUT"
 
           # ---- services ----
-          ALL='["python-api","python-worker","api-ts","terminal","webapp","showcase"]'
+          ALL='["python-api","api-ts","terminal","webapp","showcase"]'
           if [ "${EVENT}" = "workflow_dispatch" ]; then
             if [ "${INPUT_SVC:-all}" = "all" ]; then
               SVCS="${ALL}"
@@ -82,10 +85,6 @@ jobs:
               CHANGED="$(git diff --name-only "${BEFORE}" "${SHA}" 2>/dev/null || git diff --name-only HEAD~1 HEAD)"
               sel=()
               echo "${CHANGED}" | grep -qE '^(api/|bot/|database/|requirements\.txt)' && sel+=('"python-api"') || true
-              # python-worker runs the same image/code as python-api (api/Dockerfile.railway)
-              # but has NO native Railway GitHub connection — without this line it silently
-              # falls behind main (it ran 3-day-old code in Aug 2026).
-              echo "${CHANGED}" | grep -qE '^(api/|bot/|database/|requirements\.txt)' && sel+=('"python-worker"') || true
               echo "${CHANGED}" | grep -qE '^api-ts/'                                && sel+=('"api-ts"')     || true
               echo "${CHANGED}" | grep -qE '^(terminal/|packages/design-tokens/)'    && sel+=('"terminal"')   || true
               echo "${CHANGED}" | grep -qE '^(webapp/|packages/design-tokens/)'      && sel+=('"webapp"')     || true

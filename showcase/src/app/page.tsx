@@ -1,306 +1,306 @@
 import type { Metadata } from 'next';
+import { getTranslations } from 'next-intl/server';
 import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import ProofShot from '@/components/ProofShot';
-import ChainSphereGL from '@/components/ChainSphereGL';
-import RouteStages from '@/components/RouteStages';
 import Reveal from '@/components/Reveal';
-import AgentHandoff from '@/components/AgentHandoff';
-import { getTranslations } from 'next-intl/server';
+import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
-import { TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
-import './hero-e/hero-e.css';
+import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
+import './hero-d/hero-d.css';
 import './site.css';
 
 export const metadata: Metadata = {
-  title: 'Suwappu | Cross-chain execution for agents and humans',
+  title: 'Suwappu | The execution layer between intent and markets',
   description:
-    `Best-price routing across ${productStats.platformChains} chains, HyperLiquid perps, and gasless swaps. Non-custodial, with an MCP server and REST API built for agents.`,
+    `Execution infrastructure with ${productStats.platformChains} platform chains, ` +
+    `${productStats.routerCount} integrated routing venues, and route-specific availability ` +
+    'through trading and programmatic interfaces.',
 };
 
 export const revalidate = 60;
 
-/* ── Verified facts. Numbers come from stats.generated.json, never inline. ── */
-
-const RAIL = [
-  { v: String(productStats.platformChains), l: 'chains' },
-  { v: String(productStats.routerCount), l: 'routing providers' },
-  { v: '22', l: 'MCP tools' },
-  { v: 'Sub-second', l: 'quote latency' },
-];
-
-const ENGINE = [
-  {
-    k: 'Quote',
-    d: `Every provider that supports your route races to quote it. ${productStats.routerCount} are integrated, including Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across and Wormhole.`,
-  },
-  {
-    k: 'Simulate',
-    d: 'The winning path is simulated before you confirm. Bad fills, sandwich exposure and excess slippage surface while they are still avoidable.',
-  },
-  {
-    k: 'Sign',
-    d: 'You sign. MPC keys with KMS envelope encryption, non-custodial end to end. Bring your own keys through the agent API for full self-custody.',
-  },
-];
-
-const SURFACES = [
-  {
-    name: 'Terminal',
-    href: TERMINAL_URL,
-    d: 'A dockable trading desk. Charts, order books, perps, prediction markets, lending, discovery and a wallet rail in one surface.',
-    meta: '22 panels',
-  },
-  {
-    name: 'Telegram bot',
-    href: TELEGRAM_URL,
-    d: 'The fast lane. Quote, swap, snipe, run perps, stake, set DCA, copy traders or watch a wallet without leaving the chat.',
-    meta: '@suwappu_bot',
-  },
-  {
-    name: 'Mini App',
-    href: MINI_APP_URL,
-    d: 'The full swap engine inside Telegram, with portfolio, send and receive on a touch surface.',
-    meta: 'app.suwappu.bot',
-  },
-];
-
-const PERPS = [
-  { c: '/perps', d: 'Long or short BTC, ETH and SOL up to 20x, with take-profit, stop-loss and live PnL.' },
-  { c: '/fund', d: 'Deposit USDC via Across, or native BTC, ETH and SOL via HyperUnit, from any chain.' },
-  { c: '/stake', d: 'Delegate HYPE to a ranked validator with APR and commission visible, auto-compounding.' },
-  { c: '/vault', d: 'Deposit to HLP and user vaults with live APR, TVL and PnL surfaced in the flow.' },
-  { c: '/twap', d: 'Split a large order evenly over time with randomisation, monitored in the background.' },
-  { c: '/spot', d: 'Trade HyperLiquid spot and move USDC between spot and perp wallets instantly.' },
-];
-
-/** Mirrors the TOOLS registry in api-ts/src/routes/mcp.ts. */
-const MCP_TOOLS = [
-  'get_quote', 'simulate_swap', 'execute_swap', 'get_swap_status', 'get_swap_history',
-  'get_portfolio', 'get_prices', 'list_chains', 'list_tokens', 'get_tempo_tokens',
-  'list_wallet_policies', 'browse_mpp_directory', 'perps_markets', 'perps_quote',
-  'perps_positions', 'predict_markets', 'predict_market', 'predict_book',
-  'predict_price', 'predict_trades', 'lend_markets', 'lend_market',
-];
-
-const SDK = `import { Suwappu } from "@suwappu/sdk";
-
-const client = new Suwappu({ apiKey: process.env.SUWAPPU_API_KEY });
-
-const quote = await client.getQuote({
-  from: "USDC", to: "ETH", chain: "base", amount: "1000",
-});
-const tx = await client.swap(quote);`;
-
 export default async function Home() {
-  const t = await getTranslations('hero');
+  const h = await getTranslations('home');
+
+  const proofLinks = [
+    { label: h('evidence.status'), meta: h('evidence.statusMeta'), href: '/status', external: false },
+    {
+      label: h('evidence.openapi'),
+      meta: h('evidence.openapiMeta'),
+      href: 'https://api.suwappu.bot/v1/agent/openapi',
+      external: true,
+    },
+    { label: 'GitHub', meta: h('evidence.githubMeta'), href: GITHUB_URL, external: true },
+    { label: h('evidence.changelog'), meta: h('evidence.changelogMeta'), href: '/changelog', external: false },
+  ];
+
+  const executionSteps = [
+    { number: '01', title: h('execution.intentTitle'), body: h('execution.intentBody') },
+    { number: '02', title: h('execution.quoteTitle'), body: h('execution.quoteBody') },
+    { number: '03', title: h('execution.simulateTitle'), body: h('execution.simulateBody') },
+    { number: '04', title: h('execution.authorizeTitle'), body: h('execution.authorizeBody') },
+  ];
+
+  const capabilities = [
+    {
+      id: 'cross-chain',
+      kicker: h('markets.crossChainKicker'),
+      title: h('markets.crossChainTitle'),
+      body: h('markets.crossChainBody', {
+        platformChains: productStats.platformChains,
+        agentApiChains: productStats.agentApiChains,
+      }),
+    },
+    {
+      id: 'hyperliquid',
+      kicker: 'HyperLiquid',
+      title: h('markets.hyperliquidTitle'),
+      body: h('markets.hyperliquidBody'),
+    },
+    {
+      id: 'tempo',
+      kicker: 'Tempo',
+      title: h('markets.tempoTitle'),
+      body: h('markets.tempoBody'),
+    },
+  ];
+
+  const security = [
+    { title: h('security.selfCustodyTitle'), body: h('security.selfCustodyBody') },
+    { title: h('security.managedTitle'), body: h('security.managedBody') },
+    { title: h('security.policiesTitle'), body: h('security.policiesBody') },
+  ];
+
+  const faq = [
+    {
+      q: h('faq.coverageQuestion'),
+      a: h('faq.coverageAnswer', {
+        platformChains: productStats.platformChains,
+        routerCount: productStats.routerCount,
+        agentApiChains: productStats.agentApiChains,
+      }),
+    },
+    {
+      q: h('faq.venuesQuestion', { routerCount: productStats.routerCount }),
+      a: h('faq.venuesAnswer'),
+    },
+    { q: h('faq.authorityQuestion'), a: h('faq.authorityAnswer') },
+    { q: h('faq.interfacesQuestion'), a: h('faq.interfacesAnswer') },
+  ];
+
   return (
     <>
       <StructuredData />
-      <main id="main-content" className="hd he sw">
+      <div className="hd sw sw-dark">
         <SummerNav />
 
-        {/* ── Hero ─────────────────────────────────────────────── */}
-        <section className="hd__hero hd__hero--split">
-          <div className="he__grid" aria-hidden="true" />
-          <div className="hd__copy">
-          <p className="hd__eyebrow">{t('eyebrow')}</p>
-          <h1 className="hd__h1">{t('h1')}</h1>
-          <p className="hd__lead">
-            {t('lead', { chains: productStats.platformChains })}
-          </p>
-          <div className="hd__cta">
-            <a className="hd__btn" href={TELEGRAM_URL}>{t('cta_bot')}</a>
-            <a className="hd__btn hd__btn--ghost" href={TERMINAL_URL}>{t('cta_terminal')}</a>
-          </div>
+        <main id="main-content">
+          <section className="home-hero" aria-labelledby="home-hero-title">
+            <div className="home-hero__copy">
+              <p className="home-eyebrow">{h('hero.eyebrow')}</p>
+              <h1 id="home-hero-title">{h('hero.h1')}</h1>
+              <p className="home-hero__lead">{h('hero.lead')}</p>
 
-          <Reveal className="hd__stage"><LiveQuote variant="dark" /></Reveal>
-          </div>
-
-          <div className="hd__object">
-            <ChainSphereGL className="sw__field--sphere" />
-            <RouteStages />
-          </div>
-
-          <Reveal className="hd__rail" delay={120}>
-            {RAIL.map((s) => (
-              <div className="hd__stat" key={s.l}>
-                <span className="hd__stat-v">{s.v}</span>
-                <span className="hd__stat-l">{s.l}</span>
+              <div className="home-actions">
+                <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
+                <a className="hd__btn hd__btn--ghost" href="/docs/api-reference/overview">
+                  {h('hero.ctaApi')}
+                </a>
               </div>
-            ))}
-          </Reveal>
-        </section>
+              <a
+                className="home-hero__telegram"
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {h('hero.ctaTelegram')} <span aria-hidden="true">→</span>
+              </a>
+            </div>
 
-        {/* ── Integrations ─────────────────────────────────────── */}
-        <section className="sw__sec sw__strip" aria-label="Integrated networks and providers">
-          <Reveal>
-            <p className="sw__strip-h">
-              Routing across {productStats.platformChains} chains and{' '}
-              {productStats.routerCount} liquidity providers
-            </p>
-            <ul className="sw__chips">
-              {productStats.routers.map((r) => <li key={r}>{r}</li>)}
-            </ul>
-            <p className="sw__note">
-              Providers are chain-gated. Any single swap races the subset that supports its route.
-            </p>
-          </Reveal>
-        </section>
+            <div className="home-hero__product">
+              <p className="home-product-label">
+                <span>{h('hero.ticketLabel')}</span>
+                <span>{h('hero.ticketStatus')}</span>
+              </p>
+              <LiveQuote variant="dark" />
+              <p className="home-product-note">{h('hero.ticketNote')}</p>
+            </div>
+          </section>
 
-        {/* ── Engine ───────────────────────────────────────────── */}
-        <section id="engine" className="sw__sec sw__sec--wide" aria-label="How the engine works">
-          <Reveal>
-            <h2 className="sw__h2">Three steps, every trade.</h2>
-            <ol className="sw__steps sw__steps--cols">
-              {ENGINE.map((s, i) => (
-                <li key={s.k}>
-                  <span className="sw__step-n">{String(i + 1).padStart(2, '0')}</span>
-                  <div>
-                    <h3>{s.k}</h3>
-                    <p>{s.d}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <ProofShot
-              src="/proof/spot-desk.png"
-              width={3160}
-              height={940}
-              alt="The Suwappu terminal: an ETH/USDC candlestick chart, a live order book with bid and ask depth, and the swap ticket showing a 90/100 token trust score from GoPlus."
-              caption="Live Suwappu Terminal · captured 31 Jul 2026"
-            />
-          </Reveal>
-        </section>
-
-        {/* ── Surfaces ─────────────────────────────────────────── */}
-        <section id="terminal" className="sw__sec" aria-label="Product surfaces">
-          <Reveal>
-            <h2 className="sw__h2">One engine, three ways in.</h2>
-            <div className="sw__surfaces">
-              {SURFACES.map((s, i) => (
+          <section className="home-proofbar" aria-label={h('evidence.ariaLabel')}>
+            <div className="home-proofbar__intro">
+              <strong>{productStats.platformChains}</strong> {h('evidence.platformChains')}
+              <span aria-hidden="true">·</span>
+              <strong>{productStats.routerCount}</strong> {h('evidence.routingVenues')}
+              <span aria-hidden="true">·</span>
+              <strong>{productStats.agentApiChains}</strong> {h('evidence.agentApiChains')}
+              <small>{h('evidence.routeNote')}</small>
+            </div>
+            <div className="home-proofbar__links">
+              {proofLinks.map((item) => (
                 <a
-                  key={s.name}
-                  className={`sw__surface${i === 0 ? ' sw__surface--lead' : ''}`}
-                  href={s.href}
+                  key={item.label}
+                  href={item.href}
+                  {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
-                  <span className="sw__surface-meta">{s.meta}</span>
-                  <h3>{s.name}</h3>
-                  <p>{s.d}</p>
-                  <span className="sw__arrow" aria-hidden="true">→</span>
+                  <span>{item.label}</span>
+                  <small>{item.meta}</small>
+                  <b aria-hidden="true">{item.external ? '↗' : '→'}</b>
                 </a>
               ))}
             </div>
-          </Reveal>
-        </section>
+          </section>
 
-        {/* ── Perps ────────────────────────────────────────────── */}
-        <section id="hyperliquid" className="sw__sec" aria-label="HyperLiquid perps">
-          <Reveal>
-            <h2 className="sw__h2">HyperLiquid, managed from chat.</h2>
-            <p className="sw__lead">
-              The full ecosystem from inside the bot. Fund from any chain, trade up to 20x,
-              stake HYPE and earn in vaults. No bridging tabs, no address pasting.
-            </p>
-            <ProofShot
-              src="/proof/perps-desk.png"
-              width={3160}
-              height={720}
-              alt="The perps desk: a markets table listing BTC, ETH, SOL and more with mark price, open interest, funding and max leverage, beside the order ticket with cross or isolated margin, leverage and take-profit and stop-loss fields."
-              caption="Live perps desk, via HyperLiquid · captured 31 Jul 2026"
-            />
-            <dl className="sw__cmds">
-              {PERPS.map((p) => (
-                <div key={p.c}>
-                  <dt>{p.c}</dt>
-                  <dd>{p.d}</dd>
+          <section id="terminal" className="home-section" aria-labelledby="interfaces-title">
+            <Reveal>
+              <div className="home-section__head home-section__head--split">
+                <div>
+                  <p className="home-eyebrow">{h('interfaces.eyebrow')}</p>
+                  <h2 id="interfaces-title">{h('interfaces.title')}</h2>
                 </div>
-              ))}
-            </dl>
-          </Reveal>
-        </section>
-
-        {/* ── Tempo ────────────────────────────────────────────── */}
-        <section id="tempo" className="sw__sec sw__sec--quiet" aria-label="Gasless swaps on Tempo">
-          <Reveal>
-            <h2 className="sw__h2">Trade without holding gas tokens.</h2>
-            <p className="sw__lead">
-              Suwappu sponsors transaction fees on Tempo chains, so you swap TIP-20 stablecoins
-              for about a tenth of a cent while we cover the rest. It falls back to a normal
-              swap if sponsorship is unavailable, so nothing ever blocks.
-            </p>
-          </Reveal>
-        </section>
-
-        {/* ── Agents ───────────────────────────────────────────── */}
-        <section id="agents" className="sw__sec" aria-label="Built for agents">
-          <Reveal>
-            <p className="sw__eyebrow">Built for the agentic era</p>
-            <h2 className="sw__h2">Hand your trading layer to an agent.</h2>
-            <p className="sw__lead">
-              A remote MCP server, a REST API and typed SDKs, discoverable through llms.txt and
-              an agent manifest, with per-key spend caps and slippage limits so autonomous agents
-              stay inside rails you define.
-            </p>
-            <AgentHandoff />
-          </Reveal>
-        </section>
-
-        {/* ── MCP registry ─────────────────────────────────────── */}
-        <section id="api" className="sw__sec" aria-label="MCP tool registry">
-          <Reveal>
-            <div className="sw__panel">
-              <div className="sw__panel-bar">
-                <span>Tool registry</span>
-                <span className="sw__panel-meta">
-                  {MCP_TOOLS.length} tools, 3 workflow prompts, streamable HTTP
-                </span>
+                <p>{h('interfaces.lead')}</p>
               </div>
-              <ul className="sw__tools">
-                {MCP_TOOLS.map((t, i) => (
-                  <li key={t}>
-                    <span>{String(i + 1).padStart(2, '0')}</span>
-                    {t}
+
+              <div
+                className="home-interface-register"
+                role="group"
+                aria-label={h('interfaces.ariaLabel')}
+              >
+                <a href={TERMINAL_URL}>
+                  <span>01</span><strong>{h('interfaces.terminal')}</strong><small>{h('interfaces.terminalMeta')}</small><b aria-hidden="true">→</b>
+                </a>
+                <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
+                  <span>02</span><strong>Telegram</strong><small>{h('interfaces.telegramMeta')}</small><b aria-hidden="true">↗</b>
+                </a>
+                <a id="agents" href="/docs">
+                  <span>03</span><strong>{h('interfaces.programmatic')}</strong><small>{h('interfaces.programmaticMeta')}</small><b aria-hidden="true">→</b>
+                </a>
+              </div>
+              <p className="home-interface-note">{h('interfaces.boundary')}</p>
+            </Reveal>
+          </section>
+
+          <section id="engine" className="home-section home-section--execution" aria-labelledby="execution-title">
+            <Reveal>
+              <div className="home-section__head home-section__head--split">
+                <div>
+                  <p className="home-eyebrow">{h('execution.eyebrow')}</p>
+                  <h2 id="execution-title">{h('execution.title')}</h2>
+                </div>
+                <p>{h('execution.lead')}</p>
+              </div>
+
+              <ol className="home-steps">
+                {executionSteps.map((step) => (
+                  <li key={step.number}>
+                    <span className="home-step__number">{step.number}</span>
+                    <h3>{step.title}</h3>
+                    <p>{step.body}</p>
                   </li>
                 ))}
-              </ul>
-            </div>
-          </Reveal>
-        </section>
+              </ol>
 
-        {/* ── SDK ──────────────────────────────────────────────── */}
-        <section id="build" className="sw__sec sw__split" aria-label="SDKs">
-          <Reveal>
-            <div>
-              <h2 className="sw__h2">Ship in TypeScript or Python.</h2>
-              <p className="sw__lead">
-                The same execution layer the terminal runs on. Swap, perps, predict and lending
-                through one typed client across {productStats.agentApiChains} agent-ready chains.
-              </p>
-              <a className="hd__btn hd__btn--ghost" href="/docs">Read the docs</a>
-            </div>
-            <pre className="sw__code"><code>{SDK}</code></pre>
-          </Reveal>
-        </section>
+              <ProofShot
+                src="/proof/spot-desk.png"
+                width={3160}
+                height={940}
+                alt={h('execution.screenshotAlt')}
+                caption={h('execution.screenshotCaption')}
+                mobileHint={h('proof.mobileHint')}
+              />
+            </Reveal>
+          </section>
 
-        {/* ── Close ────────────────────────────────────────────── */}
-        <section className="sw__sec sw__close" aria-label="Get started">
-          <Reveal>
-            <h2 className="sw__h2">Start in thirty seconds.</h2>
-            <p className="sw__lead">
-              Free to start, no card. Non-custodial, and no KYC for basic swaps.
-            </p>
-            <div className="hd__cta">
-              <a className="hd__btn" href={TELEGRAM_URL}>Start trading free</a>
-              <a className="hd__btn hd__btn--ghost" href={ENTERPRISE_CONTACT_PATH}>Talk to sales</a>
-            </div>
-          </Reveal>
-        </section>
+          <section className="home-section" aria-labelledby="markets-title">
+            <Reveal>
+              <div className="home-section__head">
+                <p className="home-eyebrow">{h('markets.eyebrow')}</p>
+                <h2 id="markets-title">{h('markets.title')}</h2>
+              </div>
+
+              <div className="home-capabilities">
+                {capabilities.map((capability) => (
+                  <article key={capability.id} id={capability.id}>
+                    <p>{capability.kicker}</p>
+                    <h3>{capability.title}</h3>
+                    <span>{capability.body}</span>
+                  </article>
+                ))}
+              </div>
+
+              <ProofShot
+                src="/proof/perps-desk.png"
+                width={3160}
+                height={720}
+                alt={h('markets.screenshotAlt')}
+                caption={h('markets.screenshotCaption')}
+                mobileHint={h('proof.mobileHint')}
+              />
+            </Reveal>
+          </section>
+
+          <section className="home-section home-section--security" aria-labelledby="security-title">
+            <Reveal>
+              <div className="home-security">
+                <div className="home-security__intro">
+                  <p className="home-eyebrow">{h('security.eyebrow')}</p>
+                  <h2 id="security-title">{h('security.title')}</h2>
+                  <p>{h('security.lead')}</p>
+                  <a className="hd__btn hd__btn--ghost" href="/security">{h('security.cta')}</a>
+                </div>
+
+                <div className="home-security__facts">
+                  {security.map((item) => (
+                    <article key={item.title}>
+                      <h3>{item.title}</h3>
+                      <p>{item.body}</p>
+                    </article>
+                  ))}
+                  <aside>
+                    <strong>{h('security.boundaryTitle')}</strong>
+                    <p>{h('security.boundaryBody')}</p>
+                  </aside>
+                </div>
+              </div>
+            </Reveal>
+          </section>
+
+          <section className="home-section home-section--finish" aria-labelledby="faq-title">
+            <Reveal>
+              <div className="home-faq">
+                <div className="home-section__head">
+                  <p className="home-eyebrow">{h('faq.eyebrow')}</p>
+                  <h2 id="faq-title">{h('faq.title')}</h2>
+                </div>
+                <FaqAccordion items={faq} />
+              </div>
+
+              <div className="home-close">
+                <p className="home-eyebrow">{h('close.eyebrow')}</p>
+                <h2>{h('close.title')}</h2>
+                <p>{h('close.lead')}</p>
+                <div className="home-actions">
+                  <a className="hd__btn" href={TERMINAL_URL}>{h('hero.ctaTerminal')}</a>
+                  <a className="hd__btn hd__btn--ghost" href="/docs">{h('hero.ctaApi')}</a>
+                </div>
+                <a
+                  className="home-close__telegram"
+                  href={TELEGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {h('close.telegram')} <span aria-hidden="true">→</span>
+                </a>
+              </div>
+            </Reveal>
+          </section>
+        </main>
 
         <SummerFooter />
-      </main>
+      </div>
     </>
   );
 }

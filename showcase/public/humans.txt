@@ -9,4 +9,4 @@
 
 /* STACK */
   standards: RFC 9116 security.txt, llms.txt, OpenAPI 3.1, A2A agent card
-  api: https://api.suwappu.bot   ·   docs: https://docs.suwappu.bot
+  api: https://api.suwappu.bot   ·   docs: https://suwappu.bot/docs

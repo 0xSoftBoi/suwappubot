@@ -16,14 +16,16 @@ import uuid
 from urllib.parse import parse_qs, unquote
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie, Query
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 import jwt
 import httpx
 
+from api.authz import require_proof_of_possession
 from bot.config.chains import CHAINS, ChainType
 from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_decimals
 from bot.config.settings import settings
@@ -159,11 +161,10 @@ async def get_terminal_auth_payload(
     request: Request,
     auth_token: Optional[str] = Cookie(default=None, alias="suwappu_auth"),
 ) -> Optional[Dict]:
-    token = auth_token
-    if not token:
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
+    # Match /auth/me, /terminal/* and api-ts: an explicit bearer token wins
+    # over a potentially stale OAuth cookie so every surface acts as one user.
+    auth_header = request.headers.get("Authorization")
+    token = auth_header[7:] if auth_header and auth_header.startswith("Bearer ") else auth_token
     return _decode_terminal_auth_token(token)
 
 
@@ -233,6 +234,62 @@ class NewsletterSignupRequest(BaseModel):
 class NewsletterSignupResponse(BaseModel):
     ok: bool
     error: Optional[str] = None
+
+
+class WaitlistAvailabilityResponse(BaseModel):
+    ok: bool
+    handle: str
+    available: bool
+    reason: Optional[str] = None  # null | "taken" | "invalid" | "reserved"
+
+
+class WaitlistReserveRequest(BaseModel):
+    """Inbound handle reservation for the waitlist referral leaderboard.
+
+    Public (no auth). ``website`` is the honeypot (same pattern as
+    MobileWaitlistRequest). ``ref`` is an optional inviter referral code.
+    """
+
+    handle: str
+    email: str
+    telegram: Optional[str] = None
+    ref: Optional[str] = None
+    website: Optional[str] = None  # honeypot — must stay empty
+    attribution: Optional[dict] = None
+
+
+class WaitlistReserveResponse(BaseModel):
+    ok: bool
+    handle: Optional[str] = None
+    position: Optional[int] = None
+    referral_code: Optional[str] = None
+    referral_url: Optional[str] = None
+    referral_count: Optional[int] = None
+    total_signups: Optional[int] = None
+    seed: Optional[int] = None
+    already: Optional[bool] = None
+
+
+class WaitlistStatusResponse(BaseModel):
+    ok: bool
+    handle: str
+    position: int
+    referral_count: int
+    total_signups: int
+    referrals_to_next_rank: int
+    seed: int
+
+
+class WaitlistLeaderboardEntry(BaseModel):
+    rank: int
+    handle: str
+    referral_count: int
+
+
+class WaitlistLeaderboardResponse(BaseModel):
+    ok: bool
+    total_signups: int
+    entries: List[WaitlistLeaderboardEntry]
 
 
 class TelegramUser(BaseModel):
@@ -440,8 +497,8 @@ class WebAppSwapQuoteResponse(BaseModel):
     toToken: WebAppSwapToken
     fromAmount: str
     toAmount: str
-    fromAmountUsd: float
-    toAmountUsd: float
+    fromAmountUsd: Optional[float] = None
+    toAmountUsd: Optional[float] = None
     exchangeRate: float
     priceImpact: float
     estimatedGas: str
@@ -451,6 +508,12 @@ class WebAppSwapQuoteResponse(BaseModel):
     minReceived: str
     slippage: float
     estimatedDuration: Optional[int] = None
+    # Execution-savings receipt: USD edge of the winning route over the
+    # race runner-up, estimated at quote time (see swap_engine's
+    # _compute_price_improvement_usd). Null when nothing honest to show:
+    # single-quote race, or ranking had no trusted USD price.
+    priceImprovementUsd: Optional[float] = None
+    runnerUpProvider: Optional[str] = None
 
 
 class WebAppSwapExecuteRequest(BaseModel):
@@ -548,16 +611,41 @@ class WebAppSwapRecordResponse(BaseModel):
 
 
 class WebAppFollowSettings(BaseModel):
-    copyMode: str = "notify"
-    fixedAmount: Optional[float] = None
-    percentageAmount: Optional[float] = None
-    maxPerTrade: Optional[float] = None
-    dailyLimit: Optional[float] = None
+    copyMode: Literal["notify", "fixed", "percentage"] = "notify"
+    fixedAmount: Optional[float] = Field(default=None, gt=0, le=1_000_000)
+    percentageAmount: Optional[float] = Field(default=None, gt=0, le=100)
+    maxPerTrade: Optional[float] = Field(default=None, gt=0, le=1_000_000)
+    dailyLimit: Optional[float] = Field(default=None, gt=0, le=10_000_000)
     autoSellEnabled: Optional[bool] = None
     stopLossPercent: Optional[float] = None
     takeProfitPercent: Optional[float] = None
-    chainFilter: Optional[List[str]] = None
-    maxSlippage: Optional[float] = None
+    chainFilter: Optional[
+        List[
+            Literal[
+                "ethereum",
+                "arbitrum",
+                "base",
+                "optimism",
+                "polygon",
+                "bsc",
+                "avalanche",
+                "solana",
+            ]
+        ]
+    ] = Field(default=None, max_length=8)
+    maxSlippage: Optional[float] = Field(default=None, gt=0, le=10)
+
+    @model_validator(mode="after")
+    def validate_automatic_copy_settings(self):
+        if self.copyMode == "notify":
+            return self
+        if not self.chainFilter:
+            raise ValueError("Automatic copy requires at least one chain")
+        if self.copyMode == "fixed" and self.fixedAmount is None:
+            raise ValueError("Fixed auto-copy requires a fixed amount")
+        if self.copyMode == "percentage" and self.percentageAmount is None:
+            raise ValueError("Percentage auto-copy requires a percentage amount")
+        return self
 
 
 class WebAppCreateAlertRequest(BaseModel):
@@ -901,6 +989,95 @@ def _default_terminal_wallet(db: Session, user_id: int) -> Optional[Wallet]:
     )
 
 
+def _terminal_chain_type(chain: str) -> str:
+    normalized = (chain or "").strip().lower()
+    if normalized in {"solana", "tron", "starknet"}:
+        return normalized
+    return "evm"
+
+
+def _reject_cross_family_terminal_swap(from_chain: str, to_chain: str) -> None:
+    """Fail closed until Terminal can bind an explicit destination wallet.
+
+    The current Terminal swap request only carries a source wallet address. An
+    EVM address is not a valid Solana recipient (and vice versa), so reusing the
+    source address for a cross-family quote can produce provider calldata for
+    the wrong recipient. Same-family cross-chain swaps (for example Base to
+    Arbitrum) remain supported.
+    """
+    if _terminal_chain_type(from_chain) != _terminal_chain_type(to_chain):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cross-family swaps need an explicit destination wallet. "
+                "Choose chains using the same wallet family for now."
+            ),
+        )
+
+
+def _terminal_wallet_for_chain(db: Session, user_id: int, chain: str) -> Optional[Wallet]:
+    """Select the user's active wallet for the quote source chain."""
+    return (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id == user_id,
+            Wallet.is_active == True,
+            Wallet.chain_type == _terminal_chain_type(chain),
+        )
+        .order_by(Wallet.is_default.desc(), Wallet.id.asc())
+        .first()
+    )
+
+
+def _wallet_address_matches(wallet: Wallet, address: str) -> bool:
+    if wallet.chain_type == "evm":
+        return wallet.address.lower() == address.lower()
+    return wallet.address == address
+
+
+def _require_server_signing_wallet(wallet: Wallet) -> None:
+    """Fail closed unless Python actually has a signing capability for this wallet."""
+    if wallet.can_server_sign:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail="This wallet signs in the browser. Reconnect it and request a fresh quote.",
+    )
+
+
+def _require_session_wallet_address(
+    db: Session,
+    auth_payload: Optional[Dict],
+    address: str,
+    chain: str,
+) -> Wallet:
+    """Bind a client-signing request to the wallet that proved this session."""
+    user_id = require_proof_of_possession(auth_payload)
+    session_address = str((auth_payload or {}).get("address") or "")
+    chain_type = _terminal_chain_type(chain)
+    address_matches_session = (
+        session_address.lower() == address.lower()
+        if chain_type == "evm"
+        else session_address == address
+    )
+    if not session_address or not address_matches_session:
+        raise HTTPException(status_code=403, detail="Reconnect the wallet you are trading from")
+
+    wallet_query = db.query(Wallet).filter(
+        Wallet.user_id == user_id,
+        Wallet.is_active == True,
+        Wallet.chain_type == chain_type,
+    )
+    if chain_type == "evm":
+        wallet_query = wallet_query.filter(Wallet.address.ilike(address))
+    else:
+        wallet_query = wallet_query.filter(Wallet.address == address)
+    wallet = wallet_query.first()
+    if not wallet or not _wallet_address_matches(wallet, address):
+        raise HTTPException(status_code=403, detail="Trading wallet is not bound to this session")
+    return wallet
+
+
 def _require_terminal_user(auth_payload: Optional[Dict]) -> int:
     if not auth_payload or not auth_payload.get("user_id"):
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1009,6 +1186,46 @@ def _copy_settings_response(follow) -> Dict[str, Any]:
     }
 
 
+async def _require_automatic_copy_access(
+    db: Session, auth_payload: Optional[Dict], user_id: int
+) -> None:
+    """Fail closed before persisting settings that can move funds later.
+
+    Notify-only follows are social state and may use any authenticated session.
+    Automatic copy is different: it authorizes a future server-side swap without
+    another browser signature, so it requires both a possession-backed session,
+    a wallet the server can actually sign with, and the existing Pro entitlement.
+    """
+    proven_user_id = require_proof_of_possession(auth_payload)
+    if proven_user_id != user_id:
+        raise HTTPException(status_code=403, detail="Copy-trading session mismatch")
+
+    wallet = _default_terminal_wallet(db, user_id)
+    if not wallet:
+        raise HTTPException(status_code=409, detail="Create a Suwappu signing wallet first")
+    try:
+        _require_server_signing_wallet(wallet)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Automatic copy needs a Suwappu signing wallet. External wallets can "
+                "follow signals and review each trade before signing."
+            ),
+        ) from exc
+
+    from bot.models.subscription import SubscriptionTier
+    from bot.services.x402_service import x402_service
+
+    tier = await x402_service.get_tier(user_id)
+    if tier not in {
+        SubscriptionTier.PRO,
+        SubscriptionTier.PREMIUM,
+        SubscriptionTier.ENTERPRISE,
+    }:
+        raise HTTPException(status_code=403, detail="Automatic copy trading requires Pro")
+
+
 def _trader_address(db: Session, user_id: int) -> str:
     wallet = _default_terminal_wallet(db, user_id)
     if wallet and wallet.address:
@@ -1016,8 +1233,127 @@ def _trader_address(db: Session, user_id: int) -> str:
     return f"user:{user_id}"
 
 
+def _trader_addresses_by_user(db: Session, user_ids: List[int]) -> Dict[int, str]:
+    """Resolve public trader display addresses without an N+1 wallet query."""
+    if not user_ids:
+        return {}
+    wallets = (
+        db.query(Wallet)
+        .filter(
+            Wallet.user_id.in_(set(user_ids)),
+            Wallet.is_active == True,
+        )
+        .order_by(Wallet.user_id.asc(), Wallet.is_default.desc(), Wallet.id.asc())
+        .all()
+    )
+    addresses: Dict[int, str] = {}
+    for wallet in wallets:
+        if wallet.address and wallet.user_id not in addresses:
+            addresses[wallet.user_id] = wallet.address
+    return {user_id: addresses.get(user_id, f"user:{user_id}") for user_id in user_ids}
+
+
 def _trader_name(profile, user: Optional[User] = None) -> Optional[str]:
     return profile.display_name or (user.username if user else None)
+
+
+def _jelly_claims_by_user(db: Session, user_ids: List[int]) -> Dict[int, Any]:
+    """Load public Jelly linkage in one query for trader discovery.
+
+    A claim proves control of a Jelly account with a wallet-backed Suwappu
+    session; it is not a legal-identity/KYC assertion.  The API therefore calls
+    this relationship ``jellyLinked`` and always links back to JellyJelly's
+    canonical watch page instead of proxying media.
+    """
+    if not user_ids:
+        return {}
+    from bot.models.social import JellyAccountClaim
+
+    claims = db.query(JellyAccountClaim).filter(JellyAccountClaim.user_id.in_(user_ids)).all()
+    return {claim.user_id: claim for claim in claims}
+
+
+def _jelly_claim_response(claim) -> Dict[str, Any]:
+    if not claim:
+        return {
+            "jellyLinked": False,
+            "jellyUsername": None,
+            "jellyWatchUrl": None,
+        }
+    return {
+        "jellyLinked": True,
+        "jellyUsername": claim.jelly_username,
+        "jellyWatchUrl": f"https://jellyjelly.com/watch/{claim.claim_jelly_id}",
+    }
+
+
+def _trader_track_record_days_by_user(db: Session, user_ids: List[int]) -> Dict[int, int]:
+    """Age of each trader's first observed Suwappu trade, without N+1 queries."""
+    if not user_ids:
+        return {}
+    from sqlalchemy import func
+
+    from bot.models.copy_trading import TraderTrade
+
+    rows = (
+        db.query(TraderTrade.trader_id, func.min(TraderTrade.created_at).label("first_trade_at"))
+        .filter(TraderTrade.trader_id.in_(set(user_ids)))
+        .group_by(TraderTrade.trader_id)
+        .all()
+    )
+    now = datetime.utcnow()
+    return {
+        row.trader_id: max(0, (now - row.first_trade_at.replace(tzinfo=None)).days)
+        for row in rows
+        if row.first_trade_at is not None
+    }
+
+
+def _public_trader_trade(trade) -> Dict[str, Any]:
+    stablecoins = {"USDC", "USDT", "DAI", "USDS", "USDG"}
+    funding_assets = {
+        "ETH",
+        "WETH",
+        "SOL",
+        "WSOL",
+        "BNB",
+        "POL",
+        "MATIC",
+        "AVAX",
+        "TRX",
+        "BTC",
+        "WBTC",
+    }
+    from_symbol = trade.from_token.upper()
+    to_symbol = trade.to_token.upper()
+    # Stable/native assets are common funding legs for on-chain buys. In
+    # particular, pump-style Solana trades are SOL -> MEME, not USDC -> MEME;
+    # treating every non-stable source as a sell hid the token the trader was
+    # actually buying. Prefer stablecoin direction first, then native funding.
+    if from_symbol in stablecoins and to_symbol not in stablecoins:
+        is_buy = True
+    elif to_symbol in stablecoins and from_symbol not in stablecoins:
+        is_buy = False
+    elif from_symbol in funding_assets and to_symbol not in funding_assets:
+        is_buy = True
+    else:
+        is_buy = False
+    token = trade.to_token if is_buy else trade.from_token
+    chain = trade.to_chain if is_buy else trade.from_chain
+    return {
+        "id": str(trade.id),
+        "action": "buy" if is_buy else "sell",
+        "token": token,
+        "tokenPair": f"{trade.from_token}/{trade.to_token}",
+        "chain": chain,
+        "fromToken": trade.from_token,
+        "toToken": trade.to_token,
+        "fromChain": trade.from_chain,
+        "toChain": trade.to_chain,
+        "amountUsd": float(trade.amount_usd or 0),
+        "pnlUsd": float(trade.pnl_usd or 0),
+        "timestamp": trade.created_at.isoformat() if trade.created_at else "",
+    }
 
 
 def _alert_response(alert) -> Dict[str, Any]:
@@ -1359,6 +1695,249 @@ async def submit_mobile_waitlist(payload: MobileWaitlistRequest):
         logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
 
     return MobileWaitlistResponse(ok=True, id=waitlist_id, position=position)
+
+
+# ---------------------------------------------------------------------------
+# Handle-reservation waitlist + referral leaderboard.
+#
+# A DIFFERENT feature from /mobile-waitlist above: visitors reserve a handle
+# pre-launch, get a referral code, and climb a live-ranked leaderboard by
+# inviting friends. Backed by the dedicated `waitlist_signups` table (see
+# bot/models/waitlist.py + bot/services/waitlist_service.py), not
+# SupportTicket. API contract is fixed — field names/status codes/ranking
+# rule must not change without updating the frontend in lockstep.
+# ---------------------------------------------------------------------------
+
+
+async def _waitlist_rate_limit(
+    endpoint_func, request: Request, max_requests: int, window_seconds: int
+):
+    """Per-IP rate limit for a waitlist route. Same UserRateLimiter pattern as
+    terminal_token_intel (api/routes/terminal.py) — lazy-inits one limiter
+    per endpoint function and keys it by client IP."""
+    from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
+
+    limiter = getattr(endpoint_func, "_limiter", None)
+    if limiter is None:
+        limiter = UserRateLimiter(max_requests=max_requests, window_seconds=window_seconds)
+        endpoint_func._limiter = limiter
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        await limiter.check(client_ip)
+    except RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded, try again shortly",
+            headers={"Retry-After": str(max(1, int(getattr(e, "retry_after", 60))))},
+        )
+
+
+@router.get("/waitlist/availability", response_model=WaitlistAvailabilityResponse)
+async def waitlist_availability(request: Request, handle: str = Query(...)):
+    """Live handle-availability check for the reservation waitlist's keystroke
+    debounce. Public, no auth. Rate-limited per IP (called on every keystroke,
+    must respond fast) — see contract at /webapp/waitlist/availability."""
+    # 60/min per IP: generous enough for keystroke debounce, still bounds abuse.
+    await _waitlist_rate_limit(waitlist_availability, request, 60, 60)
+
+    from bot.models.waitlist import WaitlistSignup
+    from bot.services.waitlist_service import normalize_handle, validate_handle_format
+
+    norm = normalize_handle(handle)
+    reason = validate_handle_format(norm)
+    if reason is not None:
+        return WaitlistAvailabilityResponse(ok=True, handle=norm, available=False, reason=reason)
+
+    with get_session() as session:
+        taken = (
+            session.query(WaitlistSignup.id).filter(WaitlistSignup.handle == norm).first()
+            is not None
+        )
+
+    if taken:
+        return WaitlistAvailabilityResponse(ok=True, handle=norm, available=False, reason="taken")
+    return WaitlistAvailabilityResponse(ok=True, handle=norm, available=True, reason=None)
+
+
+@router.post("/waitlist/reserve", response_model=WaitlistReserveResponse)
+async def waitlist_reserve(payload: WaitlistReserveRequest, request: Request):
+    """Reserve a handle on the waitlist referral leaderboard.
+
+    Public, no auth. One reservation per email — a repeat submission from
+    the same email returns the existing record with ``already: true``
+    instead of erroring or creating a second row. ``website`` is the
+    honeypot (same pattern as /mobile-waitlist): a non-empty value returns a
+    fake success and persists nothing.
+    """
+    await _waitlist_rate_limit(waitlist_reserve, request, 10, 60)
+
+    if (payload.website or "").strip():
+        return WaitlistReserveResponse(ok=True)
+
+    from bot.models.waitlist import WaitlistSignup
+    from bot.services.waitlist_service import (
+        derive_seed,
+        generate_referral_code,
+        get_ranked_row,
+        get_total_signups,
+        hash_ip,
+        normalize_handle,
+        referral_url as build_referral_url,
+        validate_handle_format,
+    )
+
+    email = (payload.email or "").strip().lower()
+    if not email or "@" not in email or "." not in email.split("@")[-1] or len(email) > 254:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_email"})
+
+    handle = normalize_handle(payload.handle)
+    reason = validate_handle_format(handle)
+    if reason is not None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_handle"})
+
+    telegram = (payload.telegram or "").strip()[:64] or None
+    attribution_json = (
+        json.dumps(payload.attribution) if isinstance(payload.attribution, dict) else None
+    )
+    client_ip = request.client.host if request.client else None
+    ip_hash_val = hash_ip(client_ip)
+
+    try:
+        with get_session() as session:
+            existing = session.query(WaitlistSignup).filter(WaitlistSignup.email == email).first()
+            already = existing is not None
+
+            if not already:
+                taken = (
+                    session.query(WaitlistSignup.id).filter(WaitlistSignup.handle == handle).first()
+                )
+                if taken is not None:
+                    return JSONResponse(
+                        status_code=409, content={"ok": False, "error": "handle_taken"}
+                    )
+
+                # Referral credit rules: unknown ref code -> ignore silently;
+                # self-referral (same email as the inviter) -> ignore, no credit.
+                referred_by_id = None
+                ref_code = (payload.ref or "").strip()
+                if ref_code:
+                    ref_row = (
+                        session.query(WaitlistSignup)
+                        .filter(WaitlistSignup.referral_code == ref_code)
+                        .first()
+                    )
+                    if ref_row is not None and ref_row.email != email:
+                        referred_by_id = ref_row.id
+
+                existing = WaitlistSignup(
+                    handle=handle,
+                    email=email,
+                    telegram=telegram,
+                    referral_code=generate_referral_code(session, handle),
+                    referred_by_id=referred_by_id,
+                    seed=derive_seed(handle),
+                    attribution_json=attribution_json,
+                    ip_hash=ip_hash_val,
+                )
+                session.add(existing)
+                session.flush()
+
+            signup_id = existing.id
+            result_handle = existing.handle
+            result_referral_code = existing.referral_code
+            result_seed = existing.seed
+        # `with` block above has committed (get_session commits on exit).
+
+        with get_session() as session2:
+            ranked = get_ranked_row(session2, signup_id)
+            total = get_total_signups(session2)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to persist waitlist reservation")
+        raise HTTPException(
+            status_code=500, detail="Could not reserve right now. Please try again."
+        )
+
+    if not already:
+        logger.info("Waitlist reservation #%s captured: handle=%s", signup_id, result_handle)
+        try:
+            from bot.services.waitlist_email import send_waitlist_confirmation
+
+            await send_waitlist_confirmation(email, ranked.position if ranked else 0, None)
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to trigger waitlist confirmation email", exc_info=True)
+
+    return WaitlistReserveResponse(
+        ok=True,
+        handle=result_handle,
+        position=ranked.position if ranked else None,
+        referral_code=result_referral_code,
+        referral_url=build_referral_url(result_referral_code),
+        referral_count=ranked.referral_count if ranked else 0,
+        total_signups=total,
+        seed=result_seed,
+        already=already,
+    )
+
+
+@router.get("/waitlist/status", response_model=WaitlistStatusResponse)
+async def waitlist_status(request: Request, code: str = Query(...)):
+    """Look up a waitlist signup's live rank/referral stats by referral code.
+
+    Public, no auth. Never exposes email/telegram/attribution/ip_hash.
+    """
+    await _waitlist_rate_limit(waitlist_status, request, 30, 60)
+
+    from bot.models.waitlist import WaitlistSignup
+    from bot.services.waitlist_service import (
+        get_ranked_row,
+        get_row_above,
+        get_total_signups,
+        referrals_to_next_rank,
+    )
+
+    code = (code or "").strip()
+    with get_session() as session:
+        row = session.query(WaitlistSignup).filter(WaitlistSignup.referral_code == code).first()
+        if row is None:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "not_found"})
+
+        ranked = get_ranked_row(session, row.id)
+        if ranked is None:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "not_found"})
+
+        above = get_row_above(session, ranked.position)
+        total = get_total_signups(session)
+        to_next = referrals_to_next_rank(ranked, above)
+
+    return WaitlistStatusResponse(
+        ok=True,
+        handle=row.handle,
+        position=ranked.position,
+        referral_count=ranked.referral_count,
+        total_signups=total,
+        referrals_to_next_rank=to_next,
+        seed=row.seed,
+    )
+
+
+@router.get("/waitlist/leaderboard", response_model=WaitlistLeaderboardResponse)
+async def waitlist_leaderboard(request: Request, limit: int = Query(10)):
+    """Public referral leaderboard. Only ever exposes rank/handle/referral_count
+    — never email, telegram, or attribution."""
+    await _waitlist_rate_limit(waitlist_leaderboard, request, 30, 60)
+
+    from bot.services.waitlist_service import get_leaderboard, get_total_signups
+
+    clamped_limit = max(1, min(50, limit))
+    with get_session() as session:
+        rows = get_leaderboard(session, clamped_limit)
+        total = get_total_signups(session)
+
+    entries = [
+        WaitlistLeaderboardEntry(rank=r.position, handle=r.handle, referral_count=r.referral_count)
+        for r in rows
+    ]
+    return WaitlistLeaderboardResponse(ok=True, total_signups=total, entries=entries)
 
 
 @router.post("/newsletter", response_model=NewsletterSignupResponse)
@@ -1751,43 +2330,94 @@ def _windowed_trader_pnl(db, trader_user_ids):
 @router.get("/copy-trading/top-traders")
 async def get_terminal_top_traders(
     timeframe: Optional[str] = None,
+    q: Optional[str] = Query(default=None, max_length=80),
     limit: int = Query(default=50, ge=1, le=100),
-    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
     db: Session = Depends(get_db),
 ):
-    """Return real public trader profiles for the terminal copy-trading surface."""
-    _require_terminal_user(auth_payload)
-    from bot.models.copy_trading import TraderProfile
+    """Return opted-in trader profiles for public Terminal discovery.
 
-    # Pull a generous pool by all-time rank, then (if a timeframe is selected) re-rank
-    # by real windowed PnL so the 7d/30d toggle actually changes the order.
-    profiles = (
+    This is intentionally read-only and does not require a session.  Following,
+    copy settings, and copy history remain behind authenticated routes below.
+    """
+    from sqlalchemy import func, or_
+
+    from bot.models.copy_trading import TraderProfile, TraderTrade
+    from bot.models.social import JellyAccountClaim
+
+    # Rank the full public population in SQL. Re-ranking an all-time top-N pool
+    # would permanently hide a breakout 7d/30d trader who sat outside that
+    # cohort before the selected window.
+    profile_query = (
         db.query(TraderProfile, User)
         .join(User, TraderProfile.user_id == User.id)
         .filter(
             TraderProfile.is_public == True,
         )
-        .order_by(
+    )
+    search_term = (q or "").strip()
+    if search_term:
+        pattern = f"%{search_term}%"
+        matching_jelly_users = (
+            db.query(JellyAccountClaim.user_id)
+            .filter(JellyAccountClaim.jelly_username.ilike(pattern))
+            .scalar_subquery()
+        )
+        matching_wallet_users = (
+            db.query(Wallet.user_id)
+            .filter(
+                Wallet.is_active == True,
+                Wallet.is_default == True,
+                Wallet.address.ilike(pattern),
+            )
+            .scalar_subquery()
+        )
+        profile_query = profile_query.filter(
+            or_(
+                TraderProfile.display_name.ilike(pattern),
+                User.username.ilike(pattern),
+                TraderProfile.user_id.in_(matching_jelly_users),
+                TraderProfile.user_id.in_(matching_wallet_users),
+            )
+        )
+
+    tf = (timeframe or "").lower()
+    if tf in ("7d", "30d"):
+        window_start = datetime.utcnow() - timedelta(days=7 if tf == "7d" else 30)
+        window_pnl = (
+            db.query(
+                TraderTrade.trader_id.label("trader_id"),
+                func.sum(TraderTrade.pnl_usd).label("window_pnl"),
+            )
+            .filter(TraderTrade.created_at >= window_start)
+            .group_by(TraderTrade.trader_id)
+            .subquery()
+        )
+        profile_query = profile_query.outerjoin(
+            window_pnl, window_pnl.c.trader_id == TraderProfile.user_id
+        ).order_by(
+            func.coalesce(window_pnl.c.window_pnl, 0.0).desc(),
             TraderProfile.rank_score.desc(),
             TraderProfile.total_pnl_usd.desc(),
             TraderProfile.total_trades.desc(),
         )
-        .limit(max(limit, 100))
-        .all()
-    )
+    else:
+        profile_query = profile_query.order_by(
+            TraderProfile.rank_score.desc(),
+            TraderProfile.total_pnl_usd.desc(),
+            TraderProfile.total_trades.desc(),
+        )
+
+    profiles = profile_query.limit(limit).all()
 
     pnl_windows = _windowed_trader_pnl(db, [p.user_id for p, _u in profiles])
-
-    tf = (timeframe or "").lower()
-    if tf in ("7d", "30d"):
-        idx = 0 if tf == "7d" else 1
-        profiles.sort(key=lambda pu: pnl_windows.get(pu[0].user_id, (0.0, 0.0))[idx], reverse=True)
-    profiles = profiles[:limit]
+    jelly_claims = _jelly_claims_by_user(db, [p.user_id for p, _u in profiles])
+    trader_addresses = _trader_addresses_by_user(db, [p.user_id for p, _u in profiles])
+    track_record_days = _trader_track_record_days_by_user(db, [p.user_id for p, _u in profiles])
 
     return [
         {
             "id": str(profile.id),
-            "address": _trader_address(db, profile.user_id),
+            "address": trader_addresses[profile.user_id],
             "name": _trader_name(profile, user),
             "pnl7d": pnl_windows.get(profile.user_id, (0.0, 0.0))[0],
             "pnl30d": pnl_windows.get(profile.user_id, (0.0, 0.0))[1],
@@ -1795,6 +2425,8 @@ async def get_terminal_top_traders(
             "followers": int(profile.follower_count or 0),
             "copiers": int(profile.times_copied or 0),
             "totalTrades": int(profile.total_trades or 0),
+            "trackRecordDays": track_record_days.get(profile.user_id, 0),
+            **_jelly_claim_response(jelly_claims.get(profile.user_id)),
         }
         for profile, user in profiles
     ]
@@ -1806,8 +2438,7 @@ async def get_terminal_trader_profile(
     auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
     db: Session = Depends(get_db),
 ):
-    user_id = _require_terminal_user(auth_payload)
-    from bot.models.copy_trading import CopyFollow, TraderProfile
+    from bot.models.copy_trading import CopyFollow, TraderProfile, TraderTrade
 
     profile = (
         db.query(TraderProfile)
@@ -1820,21 +2451,40 @@ async def get_terminal_trader_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
 
-    follow = (
-        db.query(CopyFollow)
-        .filter(
-            CopyFollow.follower_id == user_id,
-            CopyFollow.trader_id == profile.user_id,
-            CopyFollow.is_active == True,
+    viewer_user_id = (
+        int(auth_payload["user_id"]) if auth_payload and auth_payload.get("user_id") else None
+    )
+    follow = None
+    if viewer_user_id is not None:
+        follow = (
+            db.query(CopyFollow)
+            .filter(
+                CopyFollow.follower_id == viewer_user_id,
+                CopyFollow.trader_id == profile.user_id,
+                CopyFollow.is_active == True,
+            )
+            .first()
         )
-        .first()
+
+    user = db.query(User).filter(User.id == profile.user_id).first()
+    jelly_claim = _jelly_claims_by_user(db, [profile.user_id]).get(profile.user_id)
+    recent_trades = (
+        db.query(TraderTrade)
+        .filter(TraderTrade.trader_id == profile.user_id)
+        .order_by(TraderTrade.created_at.desc())
+        .limit(12)
+        .all()
+    )
+    track_record_days = _trader_track_record_days_by_user(db, [profile.user_id]).get(
+        profile.user_id, 0
     )
 
     _pw = _windowed_trader_pnl(db, [profile.user_id]).get(profile.user_id, (0.0, 0.0))
     return {
         "id": str(profile.id),
         "address": _trader_address(db, profile.user_id),
-        "name": _trader_name(profile),
+        "name": _trader_name(profile, user),
+        "bio": profile.bio,
         "pnl7d": _pw[0],
         "pnl30d": _pw[1],
         "winRate": float(profile.win_rate or 0),
@@ -1844,7 +2494,49 @@ async def get_terminal_trader_profile(
         "worstTrade": float(profile.worst_trade_pnl_usd or 0),
         "avgTradeSize": float(profile.avg_trade_size_usd or 0),
         "isFollowing": bool(follow),
+        "trackRecordDays": track_record_days,
+        "recentTrades": [_public_trader_trade(trade) for trade in recent_trades],
+        **_jelly_claim_response(jelly_claim),
     }
+
+
+@router.get("/copy-trading/feed")
+async def get_terminal_trader_feed(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Recent real trades from opted-in public trader profiles.
+
+    This is the social discovery tape: public/read-only like the leaderboard,
+    sourced only from Suwappu-recorded trades. It contains no copier state and
+    cannot authorize an execution.
+    """
+    from bot.models.copy_trading import TraderProfile, TraderTrade
+
+    rows = (
+        db.query(TraderTrade, TraderProfile, User)
+        .join(TraderProfile, TraderTrade.trader_id == TraderProfile.user_id)
+        .join(User, TraderTrade.trader_id == User.id)
+        .filter(TraderProfile.is_public == True)
+        .order_by(TraderTrade.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    trader_user_ids = [profile.user_id for _trade, profile, _user in rows]
+    jelly_claims = _jelly_claims_by_user(db, trader_user_ids)
+    trader_addresses = _trader_addresses_by_user(db, trader_user_ids)
+
+    return [
+        {
+            **_public_trader_trade(trade),
+            "traderId": str(profile.id),
+            "traderName": _trader_name(profile, user),
+            "traderAddress": trader_addresses[profile.user_id],
+            "winRate": float(profile.win_rate or 0),
+            **_jelly_claim_response(jelly_claims.get(profile.user_id)),
+        }
+        for trade, profile, user in rows
+    ]
 
 
 @router.post("/copy-trading/follow/{trader_id}")
@@ -1869,6 +2561,8 @@ async def follow_terminal_trader(
         raise HTTPException(status_code=404, detail="Trader not found")
     if profile.user_id == user_id:
         raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    if settings.copyMode != "notify":
+        await _require_automatic_copy_access(db, auth_payload, user_id)
 
     follow = (
         db.query(CopyFollow)
@@ -2004,6 +2698,8 @@ async def update_terminal_follow_settings(
     profile = db.query(TraderProfile).filter(TraderProfile.id == trader_id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Trader not found")
+    if settings.copyMode != "notify":
+        await _require_automatic_copy_access(db, auth_payload, user_id)
 
     follow = (
         db.query(CopyFollow)
@@ -3287,11 +3983,13 @@ async def create_terminal_swap_quote(
 
     from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
     to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
+    _reject_cross_family_terminal_swap(body.fromChain, body.toChain)
 
     from_address = "0x0000000000000000000000000000000000000001"
     user_id = auth_payload.get("user_id") if auth_payload else None
+    wallet = None
     if user_id:
-        wallet = _default_terminal_wallet(db, int(user_id))
+        wallet = _terminal_wallet_for_chain(db, int(user_id), body.fromChain)
         if wallet and wallet.address:
             from_address = wallet.address
 
@@ -3317,6 +4015,11 @@ async def create_terminal_swap_quote(
         "created_at": time.time(),
         "quote": quote,
         "user_id": user_id,
+        # Provider calldata is built for this exact sender/recipient. Execution
+        # must never silently switch to a newly-selected default wallet while the
+        # quote is still live.
+        "wallet_id": wallet.id if wallet else None,
+        "wallet_address": wallet.address if wallet else None,
     }
 
     from_token = _webapp_swap_token(from_symbol, body.fromChain)
@@ -3325,19 +4028,48 @@ async def create_terminal_swap_quote(
         seconds=getattr(quote, "expires_in", _QUOTE_TTL_SECONDS)
     )
 
+    # Real USD values (was: `float(quote.to_amount_human)` — a TOKEN amount
+    # reported as if it were USD, e.g. quoting 1000 PEPE would have shown
+    # "$1000"). Priced via the same cached price service used for balances/
+    # portfolio; None (never 0, never the old lie) when a price genuinely
+    # isn't available — the webapp is expected to omit the "~$X" line
+    # rather than render a wrong number.
+    from_amount_usd = None
+    to_amount_usd = None
+    try:
+        from bot.services.price_service import price_service
+
+        from_price, to_price = None, None
+        try:
+            from_price = await price_service.get_price(from_symbol)
+        except Exception:
+            from_price = None
+        try:
+            to_price = await price_service.get_price(to_symbol)
+        except Exception:
+            to_price = None
+        if from_price:
+            from_amount_usd = quote.from_amount_human * from_price
+        if to_price:
+            to_amount_usd = quote.to_amount_human * to_price
+    except Exception as exc:
+        logger.debug(f"Terminal quote USD pricing unavailable (non-fatal): {exc}")
+
     return WebAppSwapQuoteResponse(
         id=quote_id,
         fromToken=from_token,
         toToken=to_token,
         fromAmount=str(quote.from_amount_human),
         toAmount=str(quote.to_amount_human),
-        fromAmountUsd=float(quote.from_amount_human),
-        toAmountUsd=float(quote.to_amount_human),
+        fromAmountUsd=from_amount_usd,
+        toAmountUsd=to_amount_usd,
         exchangeRate=float(quote.exchange_rate),
         priceImpact=float(quote.price_impact),
         estimatedGas=str(quote.gas_cost_usd),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
+        priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
+        runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
         minReceived=str(quote.to_amount_min),
         slippage=body.slippage or 0.5,
@@ -3356,24 +4088,40 @@ async def execute_terminal_swap(
     """
     from bot.services.swap_engine import SwapEngine, SwapError
 
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = require_proof_of_possession(auth_payload)
 
     _cleanup_terminal_quote_cache()
     cached = _terminal_quote_cache.get(body.quoteId)
     if not cached:
         raise HTTPException(status_code=404, detail="Quote expired or not found")
 
-    user_id = int(auth_payload["user_id"])
     quote_user_id = cached.get("user_id")
     if quote_user_id and int(quote_user_id) != user_id:
         raise HTTPException(status_code=403, detail="Quote does not belong to this user")
 
-    wallet = _default_terminal_wallet(db, user_id)
-    if not wallet:
-        raise HTTPException(status_code=400, detail="No active wallet found")
-
     quote = cached["quote"]
+    wallet_id = cached.get("wallet_id")
+    wallet_address = cached.get("wallet_address")
+    if not wallet_id or not wallet_address:
+        raise HTTPException(status_code=409, detail="Quote is not bound to a trading wallet")
+
+    wallet = (
+        db.query(Wallet)
+        .filter(
+            Wallet.id == int(wallet_id),
+            Wallet.user_id == user_id,
+            Wallet.is_active == True,
+            Wallet.chain_type == _terminal_chain_type(quote.from_chain),
+        )
+        .first()
+    )
+    if not wallet or not _wallet_address_matches(wallet, str(wallet_address)):
+        raise HTTPException(
+            status_code=409,
+            detail="Trading wallet changed after this quote. Request a fresh quote.",
+        )
+    _require_server_signing_wallet(wallet)
+
     try:
         swap = await SwapEngine().execute_swap(
             quote=quote,
@@ -3418,9 +4166,6 @@ async def build_terminal_swap(
     """
     from bot.services.swap_engine import SwapEngine, SwapError
 
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     try:
         amount = float(body.amount)
     except ValueError:
@@ -3432,6 +4177,8 @@ async def build_terminal_swap(
     is_solana = body.fromChain.lower() == "solana"
     if not is_solana and not (address.startswith("0x") and len(address) == 42):
         raise HTTPException(status_code=400, detail="Invalid wallet address")
+    _reject_cross_family_terminal_swap(body.fromChain, body.toChain)
+    _require_session_wallet_address(db, auth_payload, address, body.fromChain)
 
     from_symbol = _token_symbol_for_address(body.fromChain, body.fromToken)
     to_symbol = _token_symbol_for_address(body.toChain, body.toToken)
@@ -3498,6 +4245,8 @@ async def build_terminal_swap(
         priceImpact=float(quote.price_impact),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
+        priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
+        runnerUpProvider=getattr(quote, "runner_up_provider", None),
         expiresAt=expires_at.isoformat(),
     )
 
@@ -3536,8 +4285,7 @@ async def submit_jito_swap(
     block engine so it lands as a bundle (the server never holds the key). Returns
     the transaction signature for /swap/record.
     """
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    require_proof_of_possession(auth_payload)
 
     from bot.services.jito_api import jito_api, JitoError
 
@@ -3568,8 +4316,7 @@ async def record_terminal_swap(
     from bot.config.chains import get_chain_by_name
     from bot.models.swap import SwapTransaction, SwapStatus
 
-    if not auth_payload or not auth_payload.get("user_id"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = require_proof_of_possession(auth_payload)
 
     tx_hash = body.txHash.strip()
     # EVM tx hash: 0x + 64 hex. Solana signature: base58, ~64–90 chars (no 0x).
@@ -3583,7 +4330,6 @@ async def record_terminal_swap(
     if not cached:
         raise HTTPException(status_code=404, detail="Quote expired or not found")
 
-    user_id = int(auth_payload["user_id"])
     quote_user_id = cached.get("user_id")
     if quote_user_id and int(quote_user_id) != user_id:
         raise HTTPException(status_code=403, detail="Quote does not belong to this user")
@@ -4422,3 +5168,40 @@ async def get_execution_benchmark(
     except Exception as e:
         logger.error(f"[execution_benchmark] failed: {e}")
         raise HTTPException(status_code=503, detail="Benchmark temporarily unavailable")
+
+
+@router.get("/execution/receipt/{swap_id}")
+async def get_execution_receipt(
+    swap_id: int,
+    tg_user: TelegramUser = Depends(get_telegram_user),
+    db: Session = Depends(get_db),
+):
+    """What actually happened to one fill, and whether it was us or the market.
+
+    EXECUTION INTELLIGENCE (phase 4). The scoring pipeline has been marking
+    every completed swap in production since phase 2; this is the first surface
+    that shows a user their own numbers.
+
+    OWNERSHIP: the swap lookup is scoped by user_id inside the service, and a
+    swap belonging to someone else returns the same 404 as one that does not
+    exist — a distinguishable response would let a caller enumerate swap ids.
+
+    PRIVACY: the cohort percentile is delegated to ExecutionBenchmark, which
+    enforces the k-anonymity floor in its query layer. This route never touches
+    cohort rows directly and so cannot bypass it.
+    """
+    from bot.services.execution_receipt import execution_receipt
+
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        receipt = execution_receipt.build(user_id=user.id, swap_id=swap_id)
+    except Exception as e:
+        logger.error(f"[execution_receipt] failed for swap {swap_id}: {e}")
+        raise HTTPException(status_code=503, detail="Receipt temporarily unavailable")
+
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="Swap not found")
+    return receipt

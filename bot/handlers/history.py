@@ -127,6 +127,19 @@ async def history_command(
                 ]
             )
 
+        # Execution receipts for the completed swaps on this page. The scorer
+        # has been marking these in production since phase 2 with nothing
+        # reading them back — this is the surface that closes that loop.
+        for i in range(0, len(recent_completed), 2):
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"🧾 Receipt {s.to_token}", callback_data=f"exec_receipt_{s.id}"
+                    )
+                    for s in recent_completed[i : i + 2]
+                ]
+            )
+
         keyboard.append(
             [
                 InlineKeyboardButton("🔄 New Swap", callback_data="swap_start"),
@@ -366,11 +379,214 @@ async def share_pnl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(card_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
+def _cost_lines(receipt: dict) -> list[str]:
+    """What the trade cost to cross. Never a verdict on our execution."""
+    lines = [
+        "",
+        "*What this trade cost*",
+        f"Quoted cost: `{_fmt_bps(receipt['quoted_cost_bps'])}`",
+    ]
+    cost = receipt["verdict"].get("cost")
+    return lines + [f"_{cost}_"] if cost else lines
+
+
+def _fill_lines(receipt: dict) -> list[str]:
+    """The one section that grades us — and only when a fill was observed.
+
+    Absence must not read as "no shortfall", so this renders nothing at all
+    rather than a zero when no settled amount was reported.
+    """
+    if receipt.get("fill_vs_quote_bps") is None:
+        return []
+    lines = [
+        "",
+        "*Did we deliver the quote*",
+        f"Quote vs fill: `{_fmt_bps(receipt['fill_vs_quote_bps'])}`",
+    ]
+    fill = receipt["verdict"].get("fill")
+    return lines + [f"_{fill}_"] if fill else lines
+
+
+def _market_lines(receipt: dict) -> list[str]:
+    """Post-fill drift — the market's doing, kept apart from the cost line."""
+    market = receipt["verdict"].get("market")
+    return ["", "*What the market did*", f"_{market}_"] if market else []
+
+
+def _drift_lines(receipt: dict) -> list[str]:
+    """Per-horizon markout, for the horizons that actually have one."""
+    marks = [m for m in receipt["marks"] if m["markout_bps"] is not None]
+    if not marks:
+        return []
+    drift = "  ".join(f"{m['horizon']}: `{_fmt_bps(m['markout_bps'])}`" for m in marks)
+    return ["", f"Price drift after fill — {drift}"]
+
+
+def _benchmark_lines(receipt: dict) -> list[str]:
+    """Cohort comparison block, or nothing when there is no cohort."""
+    bench = receipt.get("benchmark")
+    if not bench:
+        return []
+    if bench.get("suppressed"):
+        # Say why, rather than implying the user has no peers.
+        return ["", "_Too few traders on this pair to compare without identifying them._"]
+    if not bench.get("has_user_data"):
+        return []
+
+    lines = [
+        "",
+        "*Versus everyone trading this pair*",
+        f"You rank in the top {100 - bench['percentile']:.0f}% "
+        f"({bench['cohort']['cohort_users']} traders)",
+    ]
+    if bench.get("remedy"):
+        lines.append(f"_{bench['remedy']}_")
+    return lines
+
+
+def _counterfactual_lines(receipt: dict) -> list[str]:
+    """Routing comparison block.
+
+    Reported both ways. Showing only the cases where an alternative quoted
+    better would be honest-looking and still selective; showing only the wins
+    would be marketing.
+    """
+    cf = receipt.get("counterfactual")
+    if not cf:
+        return []
+    if cf["delta_usd"] > 0:
+        detail = (
+            f"{cf['best_alternative_provider']} quoted ${cf['delta_usd']:.2f} better "
+            f"than {cf['selected_provider']}"
+        )
+    else:
+        detail = f"{cf['selected_provider']} had the best quote"
+    return [
+        "",
+        f"_Routing: {cf['selected_provider']} ranked #{cf['selected_rank']} of "
+        f"{cf['priced_candidates']} quoted routes — {detail}. Modeled from quotes, "
+        f"not observed fills._",
+    ]
+
+
+def _caveat_lines(receipt: dict) -> list[str]:
+    """Always last, and always present — the receipt states its own limits."""
+    return ["", "\n".join(f"⚠️ _{c}_" for c in receipt["caveats"])]
+
+
+# Render order. Each section owns its own "should I appear at all" test, so
+# adding one is appending here rather than threading another conditional
+# through the callback.
+_RECEIPT_SECTIONS = (
+    _cost_lines,
+    _fill_lines,
+    _market_lines,
+    _drift_lines,
+    _benchmark_lines,
+    _counterfactual_lines,
+    _caveat_lines,
+)
+
+
+def _fmt_bps(value: Optional[float]) -> str:
+    """Signed bps, so a gain never reads like a loss."""
+    if value is None:
+        return "—"
+    return f"{value:+.0f} bps"
+
+
+@enforce_tos
+async def execution_receipt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the per-fill execution receipt for one swap.
+
+    EXECUTION INTELLIGENCE (phase 4). The scorer has been marking every
+    completed swap since phase 2 and nothing ever showed a user their own
+    numbers. This is that surface.
+
+    The cost/market split from ExecutionReceipt is preserved verbatim here:
+    what the trade cost to cross (quoted spread + impact + fees) is rendered
+    apart from what the market did afterwards (markout). Merging them into one
+    "execution score" would let a routing regression hide behind a volatile day.
+
+    Note the cost line makes no claim about fill accuracy — the realized output
+    amount is not recorded yet, so that is not measurable. See the
+    ExecutionReceipt module docstring before relabelling anything here.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    swap_id = int(query.data.rsplit("_", 1)[1])
+
+    with get_session() as session:
+        db_user = session.query(User).filter(User.telegram_id == update.effective_user.id).first()
+        user_id = db_user.id if db_user else None
+
+    if user_id is None:
+        await query.edit_message_text("❌ Please use /start first to set up your account.")
+        return
+
+    from bot.services.execution_receipt import execution_receipt
+
+    try:
+        receipt = execution_receipt.build(user_id=user_id, swap_id=swap_id)
+    except Exception:
+        logger.warning("execution_receipt_callback: build failed", exc_info=True)
+        receipt = None
+        error = True
+    else:
+        error = False
+
+    back = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("« Back to history", callback_data="history")]]
+    )
+
+    if error:
+        await query.edit_message_text(
+            "⚠️ Couldn't load that receipt right now. Try again in a moment.",
+            reply_markup=back,
+        )
+        return
+
+    # None covers both "not yours" and "does not exist" — same message, so the
+    # keyboard cannot be used to probe for other people's swap ids.
+    if receipt is None:
+        await query.edit_message_text("❌ Swap not found.", reply_markup=back)
+        return
+
+    lines = [
+        "🧾 *Execution Receipt*",
+        "",
+        f"`{receipt['from_token']} → {receipt['to_token']}`",
+    ]
+
+    if not receipt["marks"]:
+        lines += [
+            "",
+            "_Not scored yet._ Marks land a few minutes after a swap completes —",
+            "check back shortly.",
+        ]
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown", reply_markup=back)
+        return
+
+    for section in _RECEIPT_SECTIONS:
+        lines += section(receipt)
+
+    await query.edit_message_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=back,
+        disable_web_page_preview=True,
+    )
+
+
 # Individual callbacks
 history_callback = CallbackQueryHandler(history_command, pattern="^history$")
 history_menu_callback = CallbackQueryHandler(history_command, pattern="^history_menu$")
 history_page_handler = CallbackQueryHandler(history_page_callback, pattern="^history_page_")
 share_pnl_handler = CallbackQueryHandler(share_pnl_callback, pattern=r"^pnl_share_\d+$")
+execution_receipt_handler = CallbackQueryHandler(
+    execution_receipt_callback, pattern=r"^exec_receipt_\d+$"
+)
 
 # Create handlers
 history_handler = CommandHandler("hx", history_command)

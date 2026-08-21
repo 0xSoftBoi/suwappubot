@@ -159,12 +159,19 @@ def _format_address(addr: str | None) -> str:
     return f"`{addr[:6]}...{addr[-4:]}`"
 
 
-def _build_wallet_info(wallets: dict, show_deposit_hint: bool) -> str:
-    """Build the '👛 Your Wallets' block for the welcome message."""
+def _build_wallet_info(wallets: dict, show_deposit_hint: bool, lang: str = "en") -> str:
+    """Build the '👛 Your Wallets' block for the welcome message.
+
+    Leads with an explicit "Wallets ready" confirmation so the background
+    provisioning result is unambiguous — the user was just looking at a
+    "Creating your wallets…" message and needs to see it clearly resolved,
+    not just have addresses silently appear.
+    """
     wallet_info = ""
     if wallets["evm"] or wallets["solana"] or wallets["tron"]:
         wallet_info = (
-            "\n\n👛 *Your Wallets*\n"
+            "\n\n" + get_text("wallet_ready", lang) + "\n"
+            "👛 *Your Wallets*\n"
             f"  EVM: {_format_address(wallets['evm'])}\n"
             f"  SOL: {_format_address(wallets['solana'])}\n"
             f"  TRX: {_format_address(wallets['tron'])}"
@@ -188,7 +195,7 @@ async def _provision_wallets_and_update(
     """
     try:
         wallets = await _ensure_wallets(user_id)
-        wallet_info = _build_wallet_info(wallets, show_deposit_hint=True)
+        wallet_info = _build_wallet_info(wallets, show_deposit_hint=True, lang=lang)
         if not wallet_info:
             wallet_info = "\n\n" + get_text("wallet_failed", lang)
         await message.edit_text(
@@ -371,7 +378,18 @@ async def tos_decline_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text(
         "❌ *Terms Declined*\n\nYou must accept the Terms of Service to use Suwappu Bot\\. If you change your mind, use /start to try again\\.",
         parse_mode="MarkdownV2",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("📄 Review Terms Again", callback_data="tos_review")]]
+        ),
     )
+
+
+async def tos_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Re-show the TOS accept/decline screen after a decline — no dead end."""
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text(TOS_TEXT, parse_mode="Markdown", reply_markup=TOS_KEYBOARD)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -401,7 +419,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             InlineKeyboardButton("🔄 Start Swap", callback_data="swap_start"),
             InlineKeyboardButton("👛 Wallets", callback_data="wallet_menu"),
         ],
-        [InlineKeyboardButton("« Back", callback_data="main_menu")],
+        [InlineKeyboardButton("« Back to Main", callback_data="main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 

@@ -14,8 +14,44 @@ import type { SimulationResult } from '../types/simulation'
 import type { SnipeRequest, SnipeResult, LaunchToken } from '../types/snipe'
 import type { PredictionMarket, PredictionMarketDetail, PredictionEvent, PredictionTrade, MarketPrice, PredictionPosition, PredictionOrderRequest, PredictionOrderResult } from '../types/prediction'
 import type { P2POffersQuery, P2POffersResponse, P2PTradesResponse, P2PMyOffersResponse, P2PStartTradeRequest, P2PStartTradeResult, P2PCreateOfferRequest, P2PCreateOfferResult } from '../types/p2p'
+import type { MarketDataStatus, OhlcvResponse, PerpMarketsResponse, PerpHistoryResponse, PredictionMarketsResponse, PredictionHistoryResponse, LendMarketsResponse } from '../types/marketData'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
+
+export interface JellyCard {
+  id: string
+  title: string
+  summary: string
+  username: string
+  thumbnailUrl: string | null
+  watchUrl: string | null
+  likesCount: number
+  viewsCount: number
+  createdAt: string | null
+}
+
+export interface JellyClaimChallenge {
+  challengeId: string
+  phrase: string
+  expiresAt: string
+  instructions: string
+}
+
+export interface JellyClaim {
+  username: string
+  claimJellyId: string
+  watchUrl: string
+  walletAddress: string
+  walletProof: 'siwe-session'
+  claimedAt: string
+}
+
+export interface WalletAuthResult {
+  success: boolean
+  token: string
+  expiresAt: string
+  user?: { id?: number; address?: string; username?: string }
+}
 
 class ApiClient {
   private baseUrl: string
@@ -135,11 +171,66 @@ class ApiClient {
 
   // === Auth ===
 
+  /** Request the nonce-bound message used to prove an external wallet. */
+  async requestExternalWalletChallenge(address: string, chain: 'evm' | 'solana'): Promise<{ challenge: string; nonce: string; expiresAt: string }> {
+    const endpoint = chain === 'solana' ? '/auth/solana/challenge' : '/auth/turnkey/challenge'
+    return this.fetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    })
+  }
+
+  /** Exchange an EVM SIWE or Solana SIWS signature for a normal Suwappu session. */
+  async verifyExternalWallet(address: string, signature: string, nonce: string, chain: 'evm' | 'solana'): Promise<WalletAuthResult> {
+    const endpoint = chain === 'solana' ? '/auth/solana/verify' : '/auth/turnkey/verify'
+    return this.fetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ address, signature, nonce }),
+    })
+  }
+
   /**
    * Validate Telegram init data (for testing auth)
    */
   async validateAuth(): Promise<{ valid: boolean; user?: unknown }> {
     return this.fetch('/webapp/validate', { method: 'POST' })
+  }
+
+  // === Social discovery ===
+
+  /** Search public JellyJelly content via Suwappu's privacy-preserving proxy. */
+  async searchJellies(query: string): Promise<{ items: JellyCard[]; page: number }> {
+    return this.fetch(`/webapp/social/jellies?q=${encodeURIComponent(query)}`)
+  }
+
+  /** Start a wallet-backed, Jelly-native creator-account claim. */
+  async createJellyClaimChallenge(walletProofToken: string): Promise<JellyClaimChallenge> {
+    return this.fetch('/webapp/social/jelly/claims/challenge', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+    })
+  }
+
+  /** Verify one public canonical Jelly as the account-control proof. */
+  async verifyJellyClaim(challengeId: string, jellyUrl: string, walletProofToken: string): Promise<{ claim: JellyClaim }> {
+    return this.fetch('/webapp/social/jelly/claims/verify', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+      body: JSON.stringify({ challengeId, jellyUrl }),
+    })
+  }
+
+  async getMyJellyClaim(walletProofToken: string): Promise<{ claim: JellyClaim | null }> {
+    return this.fetch('/webapp/social/me/jelly', {
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+    })
+  }
+
+  async removeMyJellyClaim(walletProofToken: string): Promise<{ removed: boolean }> {
+    return this.fetch('/webapp/social/me/jelly', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${walletProofToken}` },
+    })
   }
 
   /**
@@ -696,6 +787,53 @@ class ApiClient {
 
   async getPerpsMarkets(): Promise<{ markets: Array<{ name: string; asset: string; szDecimals: number; maxLeverage: number; markPrice: number; fundingRate: number }> }> {
     return this.fetch('/v1/agent/perps/markets')
+  }
+
+  // === Market Data (candles, perps, predictions, lend) ===
+
+  /** Coverage/freshness summary for every dataset in the market-data store. */
+  async getMarketDataStatus(): Promise<MarketDataStatus> {
+    return this.fetch<MarketDataStatus>('/webapp/data/status')
+  }
+
+  /** OHLCV candles for a symbol/timeframe. */
+  async getMarketDataOhlcv(params: { symbol: string; chain: string; timeframe: string; limit?: number }): Promise<OhlcvResponse> {
+    const qs = new URLSearchParams({
+      symbol: params.symbol,
+      chain: params.chain,
+      timeframe: params.timeframe,
+      limit: String(params.limit ?? 200),
+    })
+    return this.fetch<OhlcvResponse>(`/webapp/data/ohlcv?${qs}`)
+  }
+
+  /** Latest snapshot (funding, OI, mark price) across perp venues/symbols. */
+  async getMarketDataPerpMarkets(limit = 100): Promise<PerpMarketsResponse> {
+    return this.fetch<PerpMarketsResponse>(`/webapp/data/perps/markets?limit=${limit}`)
+  }
+
+  /** Funding/OI history for a single perp symbol. */
+  async getMarketDataPerpHistory(symbol: string, venue: string, limit = 200): Promise<PerpHistoryResponse> {
+    const qs = new URLSearchParams({ symbol, venue, limit: String(limit) })
+    return this.fetch<PerpHistoryResponse>(`/webapp/data/perps/history?${qs}`)
+  }
+
+  /** Prediction-market list, optionally filtered by a search query. */
+  async getMarketDataPredictionMarkets(q = '', limit = 50): Promise<PredictionMarketsResponse> {
+    const qs = new URLSearchParams({ limit: String(limit) })
+    if (q) qs.set('q', q)
+    return this.fetch<PredictionMarketsResponse>(`/webapp/data/predictions/markets?${qs}`)
+  }
+
+  /** Odds history for a prediction-market outcome. */
+  async getMarketDataPredictionHistory(marketId: string, outcome: string, limit = 200): Promise<PredictionHistoryResponse> {
+    const qs = new URLSearchParams({ market_id: marketId, outcome, limit: String(limit) })
+    return this.fetch<PredictionHistoryResponse>(`/webapp/data/predictions/history?${qs}`)
+  }
+
+  /** Lending-market rates (supply/borrow APY, TVL, utilization). */
+  async getMarketDataLendMarkets(limit = 50): Promise<LendMarketsResponse> {
+    return this.fetch<LendMarketsResponse>(`/webapp/data/lend/markets?limit=${limit}`)
   }
 
   // === P2P Marketplace ===
@@ -1390,4 +1528,3 @@ export const api = new ApiClient(API_BASE)
 
 // Export for testing with different base URLs
 export { ApiClient }
-

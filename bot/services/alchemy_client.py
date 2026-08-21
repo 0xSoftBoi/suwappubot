@@ -17,6 +17,7 @@ from decimal import Decimal
 import aiohttp
 
 from bot.config.settings import settings
+from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ ALCHEMY_NETWORKS = {
     "arbitrum": "arb-mainnet",
     "optimism": "opt-mainnet",
     "base": "base-mainnet",
+    # Official Alchemy network slug for Robinhood Chain mainnet (chain 4663).
+    "robinhood": "robinhood-mainnet",
     # Testnets
     "ethereum-sepolia": "eth-sepolia",
     "polygon-amoy": "polygon-amoy",
@@ -148,7 +151,6 @@ class AlchemyClient:
             api_key: Alchemy API key (uses settings if not provided)
         """
         self._api_key = api_key or settings.alchemy_api_key
-        self._http_session: Optional[aiohttp.ClientSession] = None
 
         if not self._api_key:
             logger.warning("Alchemy API key not configured - using fallback RPCs")
@@ -159,15 +161,13 @@ class AlchemyClient:
         return bool(self._api_key)
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session."""
-        if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
-        return self._http_session
+        """Get the shared, pooled HTTP session (see bot/utils/http_client.py)."""
+        return await get_http_session()
 
     async def close(self):
-        """Close HTTP session."""
-        if self._http_session and not self._http_session.closed:
-            await self._http_session.close()
+        """No-op: the underlying session is shared/global and closed centrally
+        on app shutdown (bot.utils.http_client.close_session), not per-instance."""
+        pass
 
     def _get_base_url(self, chain: str) -> Optional[str]:
         """Get Alchemy base URL for a chain."""

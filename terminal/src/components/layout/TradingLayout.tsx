@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { PriceChart } from '../chart/PriceChart'
@@ -6,21 +6,6 @@ import { OrderBookPanel } from '../orderbook/OrderBookPanel'
 import { RecentTradesPanel } from '../orderbook/RecentTradesPanel'
 import { SwapPanel } from '../trade/SwapPanel'
 import { PortfolioPanel } from '../portfolio/PortfolioPanel'
-import { SignalsFeed } from '../signals/SignalsFeed'
-import { DiscoveryPanel } from '../discover/DiscoveryPanel'
-import { CopyTradingDashboard } from '../copy/CopyTradingDashboard'
-import { CopilotPanel } from '../copilot/CopilotPanel'
-import { AlertsPanel } from '../alerts/AlertsPanel'
-import { DCAManager } from '../dca/DCAManager'
-import { LendingPanel } from '../lending/LendingPanel'
-import { WalletTrackerPanel } from '../tracker/WalletTrackerPanel'
-import { TweetMonitorPanel } from '../tweets/TweetMonitorPanel'
-import { WatchlistPanel } from '../watchlist/WatchlistPanel'
-import { IntelPanel } from '../intel/IntelPanel'
-import { PerpsWorkspace } from '../perps/PerpsWorkspace'
-import { PredictWorkspace } from '../predict/PredictWorkspace'
-import { ReferralsPanel } from '../referrals/ReferralsPanel'
-import { RewardsPanel } from '../rewards/RewardsPanel'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { useLayoutSizes } from '../../hooks/useLayoutSizes'
 import { useBottomTab, type BottomTab } from '../../contexts/BottomTabContext'
@@ -28,12 +13,80 @@ import { useTrading } from '../../contexts/TradingContext'
 import { MarketInfoBar } from './MarketInfoBar'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
+// Chart + book + tape + swap stay eager: they are the default spot desk and
+// should render as soon as the entry chunk executes. Everything below the fold
+// or behind a mode/tab becomes an on-demand chunk.
+const SignalsFeed = lazy(() =>
+  import('../signals/SignalsFeed').then((m) => ({ default: m.SignalsFeed })),
+)
+const DiscoveryPanel = lazy(() =>
+  import('../discover/DiscoveryPanel').then((m) => ({ default: m.DiscoveryPanel })),
+)
+const CopyTradingDashboard = lazy(() =>
+  import('../copy/CopyTradingDashboard').then((m) => ({ default: m.CopyTradingDashboard })),
+)
+const CopilotPanel = lazy(() =>
+  import('../copilot/CopilotPanel').then((m) => ({ default: m.CopilotPanel })),
+)
+const AlertsPanel = lazy(() =>
+  import('../alerts/AlertsPanel').then((m) => ({ default: m.AlertsPanel })),
+)
+const DCAManager = lazy(() =>
+  import('../dca/DCAManager').then((m) => ({ default: m.DCAManager })),
+)
+const LendingPanel = lazy(() =>
+  import('../lending/LendingPanel').then((m) => ({ default: m.LendingPanel })),
+)
+const WalletTrackerPanel = lazy(() =>
+  import('../tracker/WalletTrackerPanel').then((m) => ({ default: m.WalletTrackerPanel })),
+)
+const TweetMonitorPanel = lazy(() =>
+  import('../tweets/TweetMonitorPanel').then((m) => ({ default: m.TweetMonitorPanel })),
+)
+const WatchlistPanel = lazy(() =>
+  import('../watchlist/WatchlistPanel').then((m) => ({ default: m.WatchlistPanel })),
+)
+const IntelPanel = lazy(() =>
+  import('../intel/IntelPanel').then((m) => ({ default: m.IntelPanel })),
+)
+const BridgeRoute = lazy(() =>
+  import('../../routes/BridgeRoute').then((m) => ({ default: m.BridgeRoute })),
+)
+const PerpsWorkspace = lazy(() =>
+  import('../perps/PerpsWorkspace').then((m) => ({ default: m.PerpsWorkspace })),
+)
+const PredictWorkspace = lazy(() =>
+  import('../predict/PredictWorkspace').then((m) => ({ default: m.PredictWorkspace })),
+)
+const ReferralsPanel = lazy(() =>
+  import('../referrals/ReferralsPanel').then((m) => ({ default: m.ReferralsPanel })),
+)
+const RewardsPanel = lazy(() =>
+  import('../rewards/RewardsPanel').then((m) => ({ default: m.RewardsPanel })),
+)
+const PendingApprovalsPanel = lazy(() =>
+  import('../agent-control/PendingApprovalsPanel').then((m) => ({
+    default: m.PendingApprovalsPanel,
+  })),
+)
+const AuditLogPanel = lazy(() =>
+  import('../agent-control/AuditLogPanel').then((m) => ({ default: m.AuditLogPanel })),
+)
+const MarketDataPanel = lazy(() =>
+  import('../market-data/MarketDataPanel').then((m) => ({ default: m.MarketDataPanel })),
+)
+
+function DeferredPanel({ children }: { children: ReactNode }) {
+  return <Suspense fallback={null}>{children}</Suspense>
+}
+
 const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'portfolio', label: 'Portfolio' },
   { id: 'signals', label: 'Signals' },
   { id: 'discovery', label: 'Discovery' },
   { id: 'watchlist', label: 'Watchlist' },
   { id: 'intel', label: 'Token Intel' },
+  { id: 'data', label: 'Data' },
   { id: 'copy-trading', label: 'Copy Trading' },
   { id: 'wallet-tracker', label: 'Wallet Tracker' },
   { id: 'tweets', label: 'Tweets' },
@@ -41,6 +94,8 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
+  { id: 'approvals', label: 'Agent Approvals' },
+  { id: 'audit', label: 'Agent Audit' },
 ]
 
 type MobileTab = 'chart' | 'swap' | 'more'
@@ -98,10 +153,10 @@ function MobileLayout() {
   }, [])
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 flex-col">
       <MarketInfoBar />
       {/* Main content area */}
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {mobileTab === 'chart' && (
           <div className="h-full terminal-panel">
             <ErrorBoundary label="Chart">
@@ -111,20 +166,20 @@ function MobileLayout() {
         )}
 
         {mobileTab === 'swap' && (
-          <div className="h-full terminal-panel overflow-y-auto">
+          <div className="terminal-mobile-scroll h-full min-h-0 overflow-y-auto terminal-panel">
             <SwapPanel />
           </div>
         )}
 
         {mobileTab === 'more' && (
-          <div className="h-full flex flex-col terminal-panel">
+          <div className="h-full min-h-0 flex flex-col terminal-panel">
             {/* Bottom tab bar — scrollable horizontally on mobile */}
             <div className="flex items-center border-b border-terminal-border px-1 shrink-0 overflow-x-auto" data-testid="bottom-tabs">
               {BOTTOM_TABS.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setBottomTab(tab.id)}
-                  className={`terminal-tab whitespace-nowrap text-xs ${bottomTab === tab.id ? 'terminal-tab-active' : ''}`}
+                  className={`terminal-tab min-h-11 whitespace-nowrap text-xs ${bottomTab === tab.id ? 'terminal-tab-active' : ''}`}
                 >
                   {tab.label}
                 </button>
@@ -132,49 +187,68 @@ function MobileLayout() {
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-hidden">
-              {bottomTab === 'portfolio' && (
-                <ErrorBoundary label="Portfolio">
-                  <PortfolioPanel />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'signals' && <SignalsFeed />}
-              {bottomTab === 'discovery' && (
-                <ErrorBoundary label="Discovery">
-                  <DiscoveryPanel />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'watchlist' && <WatchlistPanel />}
-              {bottomTab === 'intel' && (
-                <ErrorBoundary label="Token Intel">
-                  <IntelPanel />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
-              {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
-              {bottomTab === 'tweets' && <TweetMonitorPanel />}
-              {bottomTab === 'defi' && (
-                <div className="h-full flex flex-col divide-y divide-terminal-border overflow-y-auto">
-                  <div className="min-h-[200px]"><AlertsPanel /></div>
-                  <div className="min-h-[200px]"><DCAManager /></div>
-                  <div className="min-h-[200px]"><LendingPanel /></div>
-                </div>
-              )}
-              {bottomTab === 'copilot' && <CopilotPanel />}
-              {bottomTab === 'referrals' && <ReferralsPanel />}
-              {bottomTab === 'rewards' && <RewardsPanel />}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <DeferredPanel>
+                {bottomTab === 'portfolio' && (
+                  <ErrorBoundary label="Portfolio">
+                    <PortfolioPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'signals' && <SignalsFeed />}
+                {bottomTab === 'discovery' && (
+                  <ErrorBoundary label="Discovery">
+                    <DiscoveryPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'watchlist' && <WatchlistPanel />}
+                {bottomTab === 'intel' && (
+                  <ErrorBoundary label="Token Intel">
+                    <IntelPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
+                {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
+                {bottomTab === 'tweets' && <TweetMonitorPanel />}
+                {bottomTab === 'defi' && (
+                  <div className="h-full flex flex-col divide-y divide-terminal-border overflow-y-auto">
+                    <div className="min-h-[200px]"><AlertsPanel /></div>
+                    <div className="min-h-[200px]"><DCAManager /></div>
+                    <div className="min-h-[200px]"><LendingPanel /></div>
+                  </div>
+                )}
+                {bottomTab === 'copilot' && <CopilotPanel />}
+                {bottomTab === 'referrals' && <ReferralsPanel />}
+                {bottomTab === 'rewards' && <RewardsPanel />}
+                {bottomTab === 'approvals' && (
+                  <ErrorBoundary label="Agent Approvals">
+                    <PendingApprovalsPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'audit' && (
+                  <ErrorBoundary label="Agent Audit">
+                    <AuditLogPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'data' && (
+                  <ErrorBoundary label="Market Data">
+                    <MarketDataPanel />
+                  </ErrorBoundary>
+                )}
+              </DeferredPanel>
             </div>
           </div>
         )}
       </div>
 
       {/* Fixed bottom navigation bar */}
-      <nav className="flex items-center justify-around h-14 border-t border-terminal-border bg-terminal-panel shrink-0 px-2">
+      <nav className="terminal-mobile-nav flex min-h-14 shrink-0 items-center justify-around border-t border-terminal-border bg-terminal-panel px-1">
         {MOBILE_NAV_TABS.map(tab => (
           <button
             key={tab.id}
+            type="button"
             onClick={() => setMobileTab(tab.id)}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors
+            aria-current={mobileTab === tab.id ? 'page' : undefined}
+            className={`flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1 transition-colors
               ${mobileTab === tab.id
                 ? 'text-sakura-400'
                 : 'text-terminal-text-muted hover:text-terminal-text-secondary'
@@ -279,36 +353,53 @@ function DesktopLayout() {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
-            {bottomTab === 'portfolio' && (
-              <ErrorBoundary label="Portfolio">
-                <PortfolioPanel />
-              </ErrorBoundary>
-            )}
-              {bottomTab === 'signals' && <SignalsFeed />}
-            {bottomTab === 'discovery' && (
-              <ErrorBoundary label="Discovery">
-                <DiscoveryPanel />
-              </ErrorBoundary>
-            )}
-            {bottomTab === 'watchlist' && <WatchlistPanel />}
-            {bottomTab === 'intel' && (
-              <ErrorBoundary label="Token Intel">
-                <IntelPanel />
-              </ErrorBoundary>
-            )}
-            {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
-            {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
-            {bottomTab === 'tweets' && <TweetMonitorPanel />}
-            {bottomTab === 'defi' && (
-              <div className="h-full grid grid-cols-3 divide-x divide-terminal-border">
-                <AlertsPanel />
-                <DCAManager />
-                <LendingPanel />
-              </div>
-            )}
-            {bottomTab === 'copilot' && <CopilotPanel />}
-            {bottomTab === 'referrals' && <ReferralsPanel />}
-            {bottomTab === 'rewards' && <RewardsPanel />}
+            <DeferredPanel>
+              {bottomTab === 'portfolio' && (
+                <ErrorBoundary label="Portfolio">
+                  <PortfolioPanel />
+                </ErrorBoundary>
+              )}
+                {bottomTab === 'signals' && <SignalsFeed />}
+              {bottomTab === 'discovery' && (
+                <ErrorBoundary label="Discovery">
+                  <DiscoveryPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'watchlist' && <WatchlistPanel />}
+              {bottomTab === 'intel' && (
+                <ErrorBoundary label="Token Intel">
+                  <IntelPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'copy-trading' && <CopyTradingDashboard />}
+              {bottomTab === 'wallet-tracker' && <WalletTrackerPanel />}
+              {bottomTab === 'tweets' && <TweetMonitorPanel />}
+              {bottomTab === 'defi' && (
+                <div className="h-full grid grid-cols-3 divide-x divide-terminal-border">
+                  <AlertsPanel />
+                  <DCAManager />
+                  <LendingPanel />
+                </div>
+              )}
+              {bottomTab === 'copilot' && <CopilotPanel />}
+              {bottomTab === 'referrals' && <ReferralsPanel />}
+              {bottomTab === 'rewards' && <RewardsPanel />}
+              {bottomTab === 'approvals' && (
+                <ErrorBoundary label="Agent Approvals">
+                  <PendingApprovalsPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'audit' && (
+                <ErrorBoundary label="Agent Audit">
+                  <AuditLogPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'data' && (
+                <ErrorBoundary label="Market Data">
+                  <MarketDataPanel />
+                </ErrorBoundary>
+              )}
+            </DeferredPanel>
           </div>
         </div>
       </Allotment.Pane>
@@ -328,7 +419,20 @@ export function TradingLayout() {
     return (
       <div className="h-full">
         <ErrorBoundary label="Perps">
-          <PerpsWorkspace />
+          <DeferredPanel>
+            <PerpsWorkspace />
+          </DeferredPanel>
+        </ErrorBoundary>
+      </div>
+    )
+  }
+  if (tradingMode === 'bridge') {
+    return (
+      <div className="h-full">
+        <ErrorBoundary label="Bridge">
+          <DeferredPanel>
+            <BridgeRoute />
+          </DeferredPanel>
         </ErrorBoundary>
       </div>
     )
@@ -337,7 +441,9 @@ export function TradingLayout() {
     return (
       <div className="h-full">
         <ErrorBoundary label="Predict">
-          <PredictWorkspace />
+          <DeferredPanel>
+            <PredictWorkspace />
+          </DeferredPanel>
         </ErrorBoundary>
       </div>
     )

@@ -603,7 +603,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
  */
 publicSwapRoutes.get('/status/:swapId', flexAuth(), async (c) => {
 	const authUser = c.get('authUser') as AuthUser
-	const swapId = parseInt(c.req.param('swapId'), 10)
+	const swapId = parseInt(c.req.param('swapId') ?? '', 10)
 
 	if (isNaN(swapId)) {
 		return c.json({ error: 'Validation Error', message: 'Invalid swap ID' }, 400)

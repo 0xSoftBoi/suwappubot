@@ -43,15 +43,37 @@ class SwapTransaction(Base):
 
     # Source details
     from_chain = Column(String(50), nullable=False)
-    from_token = Column(String(20), nullable=False)
+    # C1 fix: widened from String(20) -> String(64). This column carries a
+    # token SYMBOL in the common case ("SOL", "USDC") but rug_service's panic
+    # sell (a MONEY-PATH auto-sell) passes a raw base58 Solana MINT address
+    # (43-44 chars) as `from_token`/`to_token` — a String(20) column silently
+    # truncates on SQLite (tests) but raises psycopg2.errors.StringDataRightTruncation
+    # on Postgres (prod), so the panic sell's own SwapTransaction write dies
+    # before the sell can execute. 64 comfortably fits any real mint/symbol.
+    # See `database/db.py::_widen_swap_token_columns` for the additive,
+    # idempotent Postgres ALTER COLUMN migration.
+    from_token = Column(String(64), nullable=False)
     from_amount = Column(String(78), nullable=False)  # Store as string for precision
     from_amount_usd = Column(Float, nullable=True)
 
     # Destination details
     to_chain = Column(String(50), nullable=False)
-    to_token = Column(String(20), nullable=False)
+    to_token = Column(String(64), nullable=False)
     to_amount = Column(String(78), nullable=True)  # Estimated/actual amount out
     to_amount_usd = Column(Float, nullable=True)
+
+    # REALIZED output — what actually landed, not what the quote projected.
+    #
+    # Every other amount on this row (including to_amount_usd) is written once
+    # at execution time from the quote's estimate, so nothing here could
+    # answer "did we deliver what we promised". These two columns are the only
+    # post-fill observation, and they are what makes fill-vs-quote measurable.
+    #
+    # Nullable and expected to stay NULL on most rows for now: only the Li.Fi
+    # path reports a settled receive amount today. A NULL means "not observed",
+    # never "zero received" — do not coalesce it in any comparison.
+    realized_to_amount = Column(String(78), nullable=True)
+    realized_to_amount_usd = Column(Float, nullable=True)
 
     # Transaction details
     status = Column(String(30), default=SwapStatus.PENDING.value)
@@ -66,6 +88,15 @@ class SwapTransaction(Base):
     # Route info
     route_provider = Column(String(50), nullable=True)  # "lifi" or "jupiter"
     route_data = Column(Text, nullable=True)  # JSON route data
+
+    # Execution-savings receipt: how much better the winning quote was than
+    # the runner-up in the race (see swap_engine._select_runner_up /
+    # SwapEngine._compute_price_improvement_usd). NULL means "not measured"
+    # (e.g. single-quote race), never "zero savings" — price_improvement_usd
+    # is clamped to >=0 before being written, so a populated 0.0 means the
+    # winner and runner-up were priced equal.
+    price_improvement_usd = Column(Float, nullable=True)
+    runner_up_provider = Column(String(50), nullable=True)
 
     # Fees
     gas_fee = Column(Float, nullable=True)
@@ -192,8 +223,13 @@ class SwapExecutionMark(Base):
     happened after it. This records the destination-token price at fixed
     horizons past completion so execution quality can be separated into:
 
-      * ``realized_vs_quoted_bps`` — did we deliver what the quote promised?
-        (our routing / slippage accuracy, known immediately)
+      * ``realized_vs_quoted_bps`` — MISNAMED, and the name is load-bearing
+        enough to be worth the warning. It holds the quoted round-trip COST of
+        the trade (spread + price impact + platform fee), computed from the
+        quote's own amounts on both sides; no realized fill data reaches it.
+        It cannot answer "did we deliver the quote". True fill accuracy comes
+        from ``realized_to_amount`` above. See ``execution_scorer``'s module
+        docstring before trusting or renaming this column.
       * ``markout_bps`` — did the price move against the taker after the fill?
         (adverse selection / toxicity, only knowable later)
 

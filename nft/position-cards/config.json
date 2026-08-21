@@ -1,0 +1,216 @@
+{
+ "collection": {
+  "name": "Suwappu Positions",
+  "symbol": "POS",
+  "supply": 10000,
+  "external_url": "https://suwappu.bot/positions",
+  "tagline": "Pick one of the 35 tokenized equities with a live Chainlink feed on Robinhood Chain. Your entry price is stamped on-chain forever.",
+  "chain": {
+   "name": "Robinhood Chain",
+   "chain_id": 4663,
+   "testnet_chain_id": 46630,
+   "explorer": "https://robinhoodchain.blockscout.com",
+   "anchor_stable": "USDG",
+   "lifi_diamond": "0xB477751B76CF82d00a686A1232f5fCD772414Af3"
+  },
+  "compliance": "Collectible position card. It records a price observed on a DEX at mint time and displays a notional return against it. It is NOT equity, NOT a security, NOT a derivative or a claim of any kind, confers no shareholder or voting rights, pays nothing out, and gives no economic exposure to any issuer or to the referenced ERC-20."
+ },
+ "economics": {
+  "_comment": "Fee discount for holding any Position, PROPORTIONAL to whatever rate the holder is already on — not a flat number of bps off the swap. 0.40 = 40% off your rate. A flat bps subtraction was tried first and collapsed the tier ladder: 40 bps off unevenly-spaced tiers (FREE 100 / PRO 50 / PREMIUM 30 / ENTERPRISE 10) floored PRO and PREMIUM to the same rate as ENTERPRISE, so a card made a $29.99 plan worth exactly what a $9.99 one was. Proportional keeps them apart: FREE 100->60, PRO 50->30, PREMIUM 30->18. NOT OFFERED ON ENTERPRISE — that tier is contracted pricing, negotiated per customer, and a card anyone can buy on the secondary market must not move a rate that was agreed in a contract. Self-serve tiers are additionally floored at the ENTERPRISE rate, so a perk can match contracted pricing but never beat it. On FREE this is unchanged from the original flat-40-bps design: $4 saved per $1,000 swapped, so an active trader recoups a mint in ~$4k of volume. REVENUE TRADEOFF: deliberately material — a 5% token is not worth minting. Mirrored on-chain by holdDiscountFractionBps (basis points OF THE TIER RATE, 4000 = 40%) and clamped by MAX_CARD_DISCOUNT_FRACTION in bot/services/position_cards_service.py; tests/test_position_cards.py pins all three together, and tests/test_fee_service.py pins the ENTERPRISE exclusion.",
+  "hold_discount_fraction": 0.4,
+  "max_discount_fraction": 0.4,
+  "early_mint_badge_ranks": {
+   "Founder": 500,
+   "Early": 2000
+  }
+ },
+ "sectors": {
+  "Semiconductors": [
+   "AMD",
+   "ASML",
+   "INTC",
+   "MU",
+   "NVDA",
+   "SNDK",
+   "TSM"
+  ],
+  "AI Infrastructure": [
+   "CRWV",
+   "DELL",
+   "NBIS"
+  ],
+  "Software": [
+   "MSFT",
+   "ORCL",
+   "PLTR"
+  ],
+  "Internet & Media": [
+   "AMZN",
+   "BABA",
+   "GOOGL",
+   "META"
+  ],
+  "Crypto & Fintech": [
+   "CLSK",
+   "COIN",
+   "CRCL",
+   "MSTR"
+  ],
+  "Space & Defense": [
+   "RKLB",
+   "SPCX"
+  ],
+  "Quantum": [
+   "IONQ",
+   "RGTI"
+  ],
+  "Energy & Materials": [
+   "USAR"
+  ],
+  "Consumer": [
+   "AAPL",
+   "GME",
+   "TSLA"
+  ],
+  "Index & Commodity": [
+   "EWY",
+   "QQQ",
+   "SGOV",
+   "SLV",
+   "SPY",
+   "USO"
+  ]
+ },
+ "_sector_colors_comment": "Muted jewel tones, not pastels. Each is anodised into the matte charcoal ground at 6% and lightened for type, so it must read as a tinted metal — steel, bronze, gunmetal — never as candy. Retuned for the luxury plate (Centurion / Robinhood Gold lineage).",
+ "sector_colors": {
+  "Semiconductors": "#6ea8c9",
+  "AI Infrastructure": "#9a8fc7",
+  "Software": "#5fb3a1",
+  "Internet & Media": "#c98a86",
+  "Crypto & Fintech": "#d4b46a",
+  "Space & Defense": "#7d9cc9",
+  "Quantum": "#b78ec2",
+  "Energy & Materials": "#c99a6b",
+  "Consumer": "#86b894",
+  "Index & Commodity": "#a8a8ad"
+ },
+ "ticker_caps": {
+  "AAPL": 510,
+  "AMD": 255,
+  "AMZN": 509,
+  "ASML": 255,
+  "BABA": 136,
+  "CLSK": 138,
+  "COIN": 509,
+  "CRCL": 255,
+  "CRWV": 255,
+  "DELL": 138,
+  "EWY": 136,
+  "GME": 255,
+  "GOOGL": 509,
+  "INTC": 255,
+  "IONQ": 255,
+  "META": 509,
+  "MSFT": 509,
+  "MSTR": 509,
+  "MU": 255,
+  "NBIS": 138,
+  "NVDA": 509,
+  "ORCL": 255,
+  "PLTR": 509,
+  "QQQ": 509,
+  "RGTI": 67,
+  "RKLB": 67,
+  "SGOV": 136,
+  "SLV": 136,
+  "SNDK": 67,
+  "SPCX": 23,
+  "SPY": 509,
+  "TSLA": 509,
+  "TSM": 255,
+  "USAR": 23,
+  "USO": 136
+ },
+ "grades": [
+  {
+   "name": "Underwater",
+   "min_return_bps": -1000000,
+   "accent": "#b0666c"
+  },
+  {
+   "name": "Flat",
+   "min_return_bps": -200,
+   "accent": "#a09c93"
+  },
+  {
+   "name": "In Profit",
+   "min_return_bps": 200,
+   "accent": "#5da97f"
+  },
+  {
+   "name": "Runner",
+   "min_return_bps": 2500,
+   "accent": "#59c19a"
+  },
+  {
+   "name": "Multiple",
+   "min_return_bps": 10000,
+   "accent": "#c3bf95"
+  },
+  {
+   "name": "Moonshot",
+   "min_return_bps": 50000,
+   "accent": "#d4af6e"
+  }
+ ],
+ "mint": {
+  "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it — the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
+  "phases": {
+   "Founder": {
+    "index": 1,
+    "allocation": 1500,
+    "wallet_cap": 3,
+    "who": "Earned: XP level gold/platinum, >= $50k lifetime volume, or >= 5 referrals",
+    "note": "Free. These are the users who already built the product's volume.",
+    "price_usd_cents": 0,
+    "free": true
+   },
+   "Allowlist": {
+    "index": 2,
+    "allocation": 4000,
+    "wallet_cap": 2,
+    "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral",
+    "price_usd_cents": 2000,
+    "free": false
+   },
+   "Public": {
+    "index": 3,
+    "allocation": 4300,
+    "wallet_cap": 5,
+    "who": "Anyone",
+    "price_usd_cents": 4000,
+    "free": false
+   }
+  },
+  "team_reserve": 200,
+  "_price_comment": "USD CENTS, not ETH. SuwappuPositions prices in cents (uint96) and converts to wei at mint time through the ETH/USD Chainlink feed, so a card costs the same $20 whether ETH is at $2k or $4k. The previous price_eth fields were the wrong unit: fed to configurePhase() they would truncate to 0 cents, and 0 now reverts with PriceZero. A deliberately free phase (Founder) goes through configureFreePhase() instead."
+ },
+ "brand": {
+  "_comment": "Lifted from packages/design-tokens/src/tokens.ts -> designTokens.brand, which is now the single canonical source for every Suwappu surface (previously this read showcase/tailwind.config.ts, one of two live and disagreeing systems). tests/test_brand_tokens.py re-reads the package and fails if these drift.",
+  "bg": "#faf8f4",
+  "surface": "#ffffff",
+  "surface-2": "#f5f0ea",
+  "border": "#e5e0d8",
+  "border-2": "#d4cec4",
+  "text": "#1a1a1a",
+  "text-2": "#6b6560",
+  "text-3": "#9a9590",
+  "accent": "#f472b6",
+  "accent-hover": "#ec4899",
+  "accent-light": "#fdf2f8",
+  "green": "#1a5c38",
+  "green-light": "#e8f5ee",
+  "dark": "#1a1a1a",
+  "dark-surface": "#222222"
+ }
+}

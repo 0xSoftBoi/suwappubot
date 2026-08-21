@@ -12,8 +12,8 @@
 # transitive past its parent's constraint (see the #459 breakage).
 
 # ---- Web framework / server ----
-fastapi==0.140.6
-uvicorn[standard]>=0.51.0,<1.0          # ASGI server — entrypoint
+fastapi==0.141.1
+uvicorn[standard]>=0.52.1,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Error tracking (optional; no-op unless SENTRY_DSN is set) ----
@@ -25,6 +25,8 @@ python-telegram-bot[rate-limiter]==22.8
 # ---- HTTP clients ----
 httpx==0.28.1
 httpx2                                # required by starlette>=1.x TestClient; test-only, app clients still use httpx
+# Security floor: CVE-2026-71554 is fixed in h2 4.4.1.
+h2>=4.4.1
 requests==2.34.2
 aiohttp==3.14.3
 websockets==15.0.1
@@ -37,7 +39,7 @@ urllib3>=2.7.0
 
 # ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
 anthropic
-openai==2.48.0
+openai==2.53.0
 
 # ---- Agent immune system (AEGIS scanner, observe mode — docs/plans/aegis-fork-extend.md) ----
 # Pinned to an immutable upstream commit; repoint to the 0xsoftboi/aegis fork once created.
@@ -52,9 +54,11 @@ psycopg2-binary>=2.9,<3.0             # PostgreSQL driver
 # ---- Pydantic / settings ----
 pydantic==2.13.4
 pydantic-settings==2.14.2
+# Security floor: PYSEC-2026-2270 is fixed in python-dotenv 1.2.2.
+python-dotenv>=1.2.2
 
 # ---- Crypto / encryption ----
-cryptography==49.0.0
+cryptography==50.0.0
 dnspython==2.8.0                      # DKIM TXT lookup for email social recovery
 PyJWT==2.13.0
 pyotp==2.10.0
@@ -90,7 +94,7 @@ qrcode>=7.4,<9.0
 Pillow>=12.3.0                          # imported as PIL
 
 # ---- Cache ----
-redis==8.0.1
+redis==8.1.0
 
 # ---- Serialization / misc ----
 orjson>=3.10

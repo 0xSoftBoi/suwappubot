@@ -58,9 +58,12 @@ function parseSummary() {
 }
 
 const { data, missing } = parseSummary();
-writeFileSync(OUTPUT_FILE, JSON.stringify(data, null, 2));
 const total = data.sections.reduce((n, s) => n + s.pages.length, 0);
 console.log(`Built docs.json: ${data.sections.length} sections, ${total} pages`);
 console.log('Per section:', data.sections.map(s => `${s.title}=${s.pages.length}`).join(', '));
-if (missing.length) console.log('\nSTILL MISSING (skipped, no file):\n - ' + missing.join('\n - '));
-else console.log('\nAll SUMMARY entries resolved to files.');
+if (missing.length) {
+  console.error('\nMissing SUMMARY targets:\n - ' + missing.join('\n - '));
+  process.exit(1);
+}
+writeFileSync(OUTPUT_FILE, JSON.stringify(data, null, 2));
+console.log('\nAll SUMMARY entries resolved to files.');

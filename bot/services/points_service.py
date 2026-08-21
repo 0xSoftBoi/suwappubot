@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from bot.models.user import User
@@ -36,6 +37,57 @@ logger = logging.getLogger(__name__)
 
 class PointsService:
     """Service for managing user points, XP, and rewards."""
+
+    def _get_locked_points_account(
+        self, session: Session, user_id: int, create: bool = False
+    ) -> Optional[UserPoints]:
+        """Fetch a user's UserPoints row with ``SELECT ... FOR UPDATE`` held
+        for the rest of the caller's transaction.
+
+        MONEY-PATH LOCK RATIONALE: every method in this file that reads a
+        balance field (current_points / total_points_earned / xp /
+        total_swaps / total_volume_usd / daily_streak / longest_streak /
+        last_checkin / last_swap_date) and then writes it back MUST hold this
+        lock for the lifetime of its ``with get_session()`` block. Without
+        it, two concurrent calls for the same user — e.g. spend_points racing
+        award_points, or two redeem taps racing each other — can both read
+        the same pre-write balance, both pass their own check, and one
+        silently clobbers the other's update once its UPDATE lands (a lost
+        update / double-spend). ``.with_for_update()`` is a no-op on SQLite
+        (the engine already serializes writes via its single-writer file
+        lock) and a real row lock on Postgres in prod. This exact bug class
+        (H6, NEW-8, and the award_points BLOCKER) was previously reintroduced
+        because each method hand-rolled its own lock query and a new
+        read-modify-write site could be added without anyone remembering to
+        add the lock — see tests/test_points_concurrency.py for the full
+        history. Centralizing the query here makes forgetting harder.
+
+        Args:
+            session: the caller's active session. The lock is scoped to this
+                session's transaction — never pass a different/new session.
+            user_id: the user whose UserPoints row to lock.
+            create: when True and no row exists yet, create + flush a fresh
+                ``UserPoints(user_id=user_id)`` (still inside the caller's
+                transaction) and return it. When False (default), returns
+                None if no row exists — use this for callers that treat "no
+                account yet" as a distinct outcome (e.g. spend_points's "No
+                points account found").
+
+        Returns:
+            The locked UserPoints row, a newly created one (create=True), or
+            None (create=False, no existing row).
+        """
+        account = (
+            session.query(UserPoints)
+            .filter(UserPoints.user_id == user_id)
+            .with_for_update()
+            .first()
+        )
+        if not account and create:
+            account = UserPoints(user_id=user_id)
+            session.add(account)
+            session.flush()
+        return account
 
     def get_or_create_points_account(self, user_id: int) -> UserPoints:
         """Get or create a points account for a user."""
@@ -104,21 +156,16 @@ class PointsService:
             active_season_id = None
 
         with get_session() as session:
-            # Get or create account. Lock the row for the duration of this
-            # transaction (with_for_update) so two concurrent awards to the
-            # same account can't both read the same pre-credit balance and
-            # both apply their delta on top of it (lost update).
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
-
-            if not account:
-                account = UserPoints(user_id=user_id)
-                session.add(account)
-                session.flush()
+            # BLOCKER fix: this was a plain (unlocked) SELECT, so a concurrent
+            # spend_points/redeem_* call (which DOES hold the lock) could read
+            # the still-committed pre-spend balance here, compute its new
+            # total off that stale value, and then overwrite the spend's
+            # debit once its own UPDATE finally lands — a lost update that
+            # hands the user back the points they just spent. See
+            # `_get_locked_points_account`'s docstring for the full rationale
+            # (this is the same lock, applied on the earn side so the two
+            # paths can never race each other).
+            account = self._get_locked_points_account(session, user_id, create=True)
 
             # Update points
             account.total_points_earned += points
@@ -163,12 +210,19 @@ class PointsService:
 
         return points, new_level
 
+    # Ceiling on the Position-card XP multiplier, as a hard backstop independent
+    # of whatever the contract reports. House desk is 3500 bps (+35%); anything
+    # above means a bad read or a wrong contract, and XP feeds season standings,
+    # so it is clamped rather than trusted.
+    MAX_TICKER_BOOST_BPS = 3500
+
     def award_swap_points(
         self,
         user_id: int,
         swap_amount_usd: float,
         swap_id: int,
         fee_usd: Optional[float] = None,
+        ticker_boost_bps: int = 0,
     ) -> Tuple[int, bool, Optional[str]]:
         """
         Award points for completing a swap.
@@ -178,6 +232,14 @@ class PointsService:
         denominated in fees paid (wash-proof), not raw volume. Default None
         keeps the legacy volume-based behavior.
 
+        ``ticker_boost_bps`` is the Suwappu Position-card bonus for swapping a
+        ticker the user holds a card on (see position_cards_service). It is
+        resolved by the ASYNC caller and passed in, because this method must not
+        do I/O — the same split the fee path uses. It multiplies the BASE volume
+        points only, never the daily-streak bonus, so the boost scales with
+        trading rather than with logging in. Clamped to MAX_TICKER_BOOST_BPS and
+        floored at 0, so a bad read can never mint XP.
+
         Returns:
             Tuple of (points_awarded, is_first_swap_today, new_level)
         """
@@ -186,16 +248,21 @@ class PointsService:
         if base_points < 1:
             base_points = 1  # Minimum 1 point
 
+        # Position-card ticker boost applies to the volume component only.
+        boost = max(0, min(int(ticker_boost_bps or 0), self.MAX_TICKER_BOOST_BPS))
+        if boost:
+            base_points += (base_points * boost) // 10_000
+
         total_points = base_points
         is_first_today = False
 
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
-
-            if not account:
-                account = UserPoints(user_id=user_id)
-                session.add(account)
-                session.flush()
+            # Audit fix (same class as the award_points blocker): this method
+            # reads-then-writes UserPoints.total_swaps/total_volume_usd/
+            # last_swap_date. Lock it too (see `_get_locked_points_account`)
+            # so two concurrent swaps for the same user (e.g. Telegram +
+            # mobile racing) can't lose one's stat update.
+            account = self._get_locked_points_account(session, user_id, create=True)
 
             # Check if first swap of the day
             today = datetime.now(timezone.utc).date()
@@ -220,6 +287,7 @@ class PointsService:
                 "amount_usd": swap_amount_usd,
                 "first_today": is_first_today,
                 "fee_usd": fee_usd,
+                "ticker_boost_bps": boost,
             },
         )
 
@@ -246,22 +314,16 @@ class PointsService:
             active_season_id = None
 
         with get_session() as session:
-            # Lock the row for the duration of this transaction so two
-            # concurrent check-ins can't both pass the "already checked in
-            # today" guard and both mint points. The credit below happens in
-            # this SAME locked transaction (not via a second award_points
-            # session) so the guard and the credit are atomic together.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
-            )
-
-            if not account:
-                account = UserPoints(user_id=user_id)
-                session.add(account)
-                session.flush()
+            # NEW-8 fix: lock the row for the "already checked in today" guard.
+            # Without this, two concurrent taps on POST /v1/mobile/points/checkin
+            # (now reachable — the previous bug awaited a sync method and 400'd
+            # every call) could both read `last_checkin` before either commits,
+            # both pass the date-equality guard, and both award + bump the
+            # streak (double award + inflated streak). The row lock (see
+            # `_get_locked_points_account`) makes the second call block until
+            # the first commits, then re-read the now-updated `last_checkin`
+            # and correctly no-op.
+            account = self._get_locked_points_account(session, user_id, create=True)
 
             today = datetime.now(timezone.utc).date()
             yesterday = today - timedelta(days=1)
@@ -366,6 +428,7 @@ class PointsService:
         reward_type: str,
         reward_value: str,
         duration_days: Optional[int] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Spend points on a reward.
@@ -375,62 +438,144 @@ class PointsService:
         time-bound rewards actually expire — otherwise ``get_active_fee_discount``
         treats a NULL ``expires_at`` as "never expires".
 
+        ``idempotency_key``, when provided, is stamped on the PointRedemption
+        row. A UNIQUE(user_id, idempotency_key) partial index (see
+        database/db.py `_add_point_redemption_idempotency_key`) makes a
+        retried call with the SAME key conflict at commit time instead of
+        double-charging points — caught below and replayed as the original
+        success (H6 durable guard; the in-process cache in mobile.py is the
+        fast path, this is the durable one that survives worker restarts).
+
         Returns:
             Tuple of (success, message)
         """
         if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
             return False, "That reward isn't available — partner redemptions aren't live yet."
 
-        with get_session() as session:
-            # Lock the row for the duration of this transaction so two concurrent
-            # redemptions on the same account can't both read the same pre-debit
-            # balance and both succeed (double-spend). SQLite (tests) ignores
-            # FOR UPDATE harmlessly.
-            account = (
-                session.query(UserPoints)
-                .filter(UserPoints.user_id == user_id)
-                .with_for_update()
-                .first()
+        try:
+            with get_session() as session:
+                # H6 fix: lock the row for the lifetime of this transaction so two
+                # concurrent spend_points calls for the same user CANNOT both read
+                # the same current_points and both pass the balance check (double
+                # spend). See `_get_locked_points_account` for the full rationale
+                # — same no-guard pattern already used by community_service /
+                # battle_service / airdrop_campaign_service.
+                account = self._get_locked_points_account(session, user_id, create=False)
+
+                if not account:
+                    return False, "No points account found"
+
+                if account.current_points < amount:
+                    return (
+                        False,
+                        f"Not enough points. You have {account.current_points}, need {amount}",
+                    )
+
+                # Deduct points
+                account.current_points -= amount
+                account.points_spent += amount
+
+                expires_at = None
+                if duration_days is not None:
+                    expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
+
+                # Record redemption
+                redemption = PointRedemption(
+                    user_id=user_id,
+                    points_spent=amount,
+                    reward_type=reward_type,
+                    reward_value=reward_value,
+                    status="completed",
+                    completed_at=datetime.now(timezone.utc),
+                    expires_at=expires_at,
+                    idempotency_key=idempotency_key,
+                )
+                session.add(redemption)
+
+                # Record transaction (negative)
+                tx = PointTransaction(
+                    user_id=user_id,
+                    amount=-amount,
+                    action="redemption",
+                    description=f"Redeemed: {reward_type}",
+                    extra_data={"reward_type": reward_type, "reward_value": reward_value},
+                )
+                session.add(tx)
+        except IntegrityError:
+            success, message, _redemption = self._replay_idempotent_redemption(
+                user_id, idempotency_key, amount
             )
-
-            if not account:
-                return False, "No points account found"
-
-            if account.current_points < amount:
-                return False, f"Not enough points. You have {account.current_points}, need {amount}"
-
-            # Deduct points
-            account.current_points -= amount
-            account.points_spent += amount
-
-            expires_at = None
-            if duration_days is not None:
-                expires_at = datetime.now(timezone.utc) + timedelta(days=duration_days)
-
-            # Record redemption
-            redemption = PointRedemption(
-                user_id=user_id,
-                points_spent=amount,
-                reward_type=reward_type,
-                reward_value=reward_value,
-                status="completed",
-                completed_at=datetime.now(timezone.utc),
-                expires_at=expires_at,
-            )
-            session.add(redemption)
-
-            # Record transaction (negative)
-            tx = PointTransaction(
-                user_id=user_id,
-                amount=-amount,
-                action="redemption",
-                description=f"Redeemed: {reward_type}",
-                extra_data={"reward_type": reward_type, "reward_value": reward_value},
-            )
-            session.add(tx)
+            return success, message
 
         logger.info(f"User {user_id} spent {amount} points on {reward_type}")
         return True, f"Successfully redeemed {reward_type}!"
+
+    def _replay_idempotent_redemption(
+        self, user_id: int, idempotency_key: Optional[str], expected_amount: Optional[int] = None
+    ) -> Tuple[bool, str, Optional[PointRedemption]]:
+        """Look up the original PointRedemption for a (user_id, idempotency_key)
+        that just conflicted on the durable UNIQUE index, and replay ITS
+        outcome instead of re-charging points.
+
+        A conflict with no key (idempotency_key is None — the index is
+        partial and never matches NULLs) is a genuine unexpected integrity
+        error, not a replay; surface it as a failure rather than mask it.
+
+        Returns ``(success, message, matched_redemption_or_None)`` so callers
+        that need more than a bool/message (marketplace order id, subscription
+        expiry) can resolve the ORIGINAL outcome instead of returning a
+        fabricated/None value on replay.
+
+        ``expected_amount``, when given, is cross-checked against the matched
+        row's ``points_spent``. A mismatch means the conflicting key was
+        (implausibly) reused for a different-cost redemption — refuse rather
+        than replay the wrong outcome.
+        """
+        if not idempotency_key:
+            logger.error(
+                f"spend_points IntegrityError for user {user_id} with no idempotency_key "
+                "(not a replay) — surfacing as failure"
+            )
+            return False, "Redemption failed — your points were not spent.", None
+        try:
+            with get_session() as session:
+                existing = (
+                    session.query(PointRedemption)
+                    .filter(
+                        PointRedemption.user_id == user_id,
+                        PointRedemption.idempotency_key == idempotency_key,
+                    )
+                    .order_by(PointRedemption.id.desc())
+                    .first()
+                )
+        except Exception as e:
+            logger.error(f"Idempotent replay lookup failed for user {user_id}: {e}")
+            return False, "Redemption failed — your points were not spent.", None
+
+        if not existing:
+            # Should be unreachable (the conflict means a row with this key
+            # exists) but never fabricate a success if it somehow isn't there.
+            logger.error(
+                f"spend_points IntegrityError for user {user_id} key={idempotency_key} "
+                "but no matching row found on replay lookup"
+            )
+            return False, "Redemption failed — your points were not spent.", None
+
+        if expected_amount is not None and existing.points_spent != expected_amount:
+            logger.error(
+                f"Idempotent replay mismatch for user {user_id} key={idempotency_key}: "
+                f"expected {expected_amount} points but matched redemption spent "
+                f"{existing.points_spent} — refusing to replay a mismatched outcome"
+            )
+            return (
+                False,
+                "Redemption failed — a conflicting redemption already used this request.",
+                None,
+            )
+
+        if existing.status == "completed":
+            return True, f"Successfully redeemed {existing.reward_type}! (replayed)", existing
+        return False, "Redemption failed — your points were not spent.", existing
 
     # ------------------------------------------------------------------
     # Redemption EFFECTS (money path) — applied at swap time.
@@ -552,7 +697,7 @@ class PointsService:
             return 0.0
 
     def redeem_subscription_reward(
-        self, user_id: int, reward_id: int
+        self, user_id: int, reward_id: int, idempotency_key: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """Atomically redeem current_points for a subscription tier grant/extension.
 
@@ -601,14 +746,9 @@ class PointsService:
                 if target_tier is None or target_tier == SubscriptionTier.FREE:
                     return False, "Unknown subscription tier.", None
 
-                # Lock the row so a concurrent redemption on the same account can't
-                # read the same pre-debit balance (double-spend race).
-                account = (
-                    session.query(UserPoints)
-                    .filter(UserPoints.user_id == user_id)
-                    .with_for_update()
-                    .first()
-                )
+                # H6 fix: FOR UPDATE — see `_get_locked_points_account` for the
+                # full rationale.
+                account = self._get_locked_points_account(session, user_id, create=False)
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
@@ -659,6 +799,7 @@ class PointsService:
                         reward_value=reward_value,
                         status="completed",
                         completed_at=now,
+                        idempotency_key=idempotency_key,
                     )
                 )
                 session.add(
@@ -675,12 +816,38 @@ class PointsService:
                 f"User {user_id} redeemed {reward_cost} pts -> {granted_tier} until {expiry_iso}"
             )
             return True, f"{granted_tier} active until {expiry_iso}", expiry_iso
+        except IntegrityError:
+            # H6 durable replay: the retried INSERT conflicted on
+            # UNIQUE(user_id, idempotency_key) — replay the original outcome
+            # instead of surfacing a spurious failure or double-granting.
+            success, message, redemption = self._replay_idempotent_redemption(
+                user_id, idempotency_key, expected_amount=None
+            )
+            expiry_iso = None
+            if success and redemption is not None:
+                # Finding 5: resolve the REAL expiry instead of returning None.
+                # The subscription row is per-user (not per-redemption), so on
+                # replay we read its current expires_at — that reflects the
+                # grant the original (already-committed) redemption made. Best
+                # effort only: never fabricate a value if the lookup fails.
+                try:
+                    with get_session() as session:
+                        sub = (
+                            session.query(Subscription)
+                            .filter(Subscription.user_id == user_id)
+                            .first()
+                        )
+                        if sub is not None and sub.expires_at is not None:
+                            expiry_iso = sub.expires_at.date().isoformat()
+                except Exception as e:
+                    logger.error(f"Idempotent replay expiry lookup failed for user {user_id}: {e}")
+            return success, message, expiry_iso
         except Exception as e:
             logger.error(f"redeem_subscription_reward failed for user {user_id}: {e}")
             return False, "Redemption failed — your points were not spent.", None
 
     def redeem_marketplace_reward(
-        self, user_id: int, reward_id: int
+        self, user_id: int, reward_id: int, idempotency_key: Optional[str] = None
     ) -> Tuple[bool, str, Optional[int]]:
         """Atomically redeem points for an ASYNC marketplace reward (gift card, travel,
         merch, donation, experience).
@@ -735,14 +902,9 @@ class PointsService:
                 reward_name = reward.name
                 reward_value = reward.reward_value
 
-                # Lock the row so a concurrent redemption on the same account can't
-                # read the same pre-debit balance (double-spend race).
-                account = (
-                    session.query(UserPoints)
-                    .filter(UserPoints.user_id == user_id)
-                    .with_for_update()
-                    .first()
-                )
+                # H6 fix: FOR UPDATE — see `_get_locked_points_account` for the
+                # full rationale.
+                account = self._get_locked_points_account(session, user_id, create=False)
                 if not account or account.current_points < reward_cost:
                     have = account.current_points if account else 0
                     return (
@@ -764,6 +926,7 @@ class PointsService:
                     reward_value=reward_value,
                     status="completed",
                     completed_at=now,
+                    idempotency_key=idempotency_key,
                 )
                 session.add(redemption)
 
@@ -786,6 +949,13 @@ class PointsService:
                     status="pending",
                     provider=provider.name,
                     payload={"reward_name": reward_name, "reward_value": reward_value},
+                    # Finding 5: stamp the SAME idempotency_key used on the
+                    # PointRedemption row so a replay can resolve THIS
+                    # specific order precisely (unique index enforces it),
+                    # instead of guessing "most recent order for this user
+                    # + reward" which breaks if the user redeems the same
+                    # reward again legitimately.
+                    idempotency_key=idempotency_key,
                 )
                 session.add(order)
                 # Materialize order.id so the provider (and provider_ref) can use it,
@@ -794,6 +964,10 @@ class PointsService:
                 order_id = order.id
 
                 # --- (4) call the provider ---
+                # TODO(redemption): move fulfill outside the debit txn — a slow/
+                # blocking provider.fulfill() call currently holds the points-debit
+                # row lock (and the whole DB transaction) open for its duration.
+                # Pre-existing behavior, out of scope for this fix.
                 try:
                     status, provider_ref, error = provider.fulfill(order, order.payload)
                 except Exception as pe:  # treat any provider crash as a failure -> refund
@@ -843,6 +1017,34 @@ class PointsService:
                     f"(order {order_id}, {reward_cost} pts, reason={order.error})"
                 )
                 return False, refund_message, order_id
+        except IntegrityError:
+            # H6 durable replay: the retried INSERT/flush conflicted on
+            # UNIQUE(user_id, idempotency_key) — replay the original outcome
+            # instead of surfacing a spurious failure or double-fulfilling.
+            success, message, redemption = self._replay_idempotent_redemption(
+                user_id, idempotency_key, expected_amount=None
+            )
+            order_id = None
+            if redemption is not None:
+                # Finding 5: resolve the REAL order_id via the idempotency_key
+                # we now stamp on RedemptionOrder too (unique index), instead
+                # of always returning None on replay.
+                try:
+                    with get_session() as session:
+                        order = (
+                            session.query(RedemptionOrder)
+                            .filter(RedemptionOrder.idempotency_key == idempotency_key)
+                            .first()
+                        )
+                        if order is not None:
+                            order_id = order.id
+                            if success and order.status not in ("fulfilled", "refunded"):
+                                # Order row hasn't reached a terminal state yet
+                                # (rare race) — never fabricate certainty.
+                                message = f"{message} (order #{order_id} pending)"
+                except Exception as e:
+                    logger.error(f"Idempotent replay order lookup failed for user {user_id}: {e}")
+            return success, message, order_id
         except Exception as e:
             # Any unexpected error rolls the whole transaction back (no debit persisted).
             logger.error(f"redeem_marketplace_reward failed for user {user_id}: {e}")
@@ -922,7 +1124,11 @@ class PointsService:
         achieved = []
 
         with get_session() as session:
-            account = session.query(UserPoints).filter(UserPoints.user_id == user_id).first()
+            # Audit fix: this method reads-then-writes total_points_earned/
+            # current_points/xp when a milestone is achieved — same balance
+            # fields the spend paths lock. Lock it too (see
+            # `_get_locked_points_account`).
+            account = self._get_locked_points_account(session, user_id, create=False)
 
             if not account:
                 return achieved
@@ -1149,6 +1355,19 @@ class PointsService:
                 if not existing:
                     reward = Reward(**r)
                     session.add(reward)
+                elif existing.description != r["description"]:
+                    # Seeding is insert-only, so a corrected DESCRIPTION would
+                    # never reach a row that already exists — every production
+                    # user would keep reading the old copy forever. That bit us:
+                    # "0.5% fee for 24 hours" described a discount that is now
+                    # proportional, and was already wrong for anyone on PREMIUM
+                    # (0.3%), for whom "0.5% fee" reads as an increase.
+                    #
+                    # Deliberately description ONLY. points_cost and
+                    # reward_value are economics — silently repricing a live
+                    # reward on every boot is exactly the kind of change that
+                    # should require a migration and a decision, not a redeploy.
+                    existing.description = r["description"]
 
         logger.info("Seeded default milestones and rewards")
 

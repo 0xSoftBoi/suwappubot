@@ -25,6 +25,24 @@ export const auditLogs = pgTable(
 		details: text('details'),
 		ipAddress: varchar('ip_address', { length: 45 }),
 		createdAt: timestamp('created_at').defaultNow(),
+		// Hash-chain (tamper evidence). Chained per-org ('global' chain for
+		// org-less entries). Nullable so pre-existing rows (written before this
+		// migration) don't need backfill — the chain simply starts fresh from the
+		// first row that has these populated. See services/audit.ts for the
+		// hashing + locking scheme.
+		prevHash: varchar('prev_hash', { length: 64 }),
+		entryHash: varchar('entry_hash', { length: 64 }),
+		// Exact ISO-8601 string that was hashed into entryHash at insert time,
+		// stored verbatim so verification never has to round-trip `createdAt`
+		// (a `timestamp` WITHOUT time zone column) back through `new Date(...)`.
+		// That round-trip is process-TZ-dependent — driver + Date construction
+		// interpret the tz-less value using process.env.TZ — so a TZ change
+		// between insert and verify would recompute a different ISO string and
+		// flag every historical row as tampered. Nullable: rows written before
+		// this migration have no value here and fall back to the old (TZ-risky)
+		// recomputation in services/audit.ts, same as the pre-existing
+		// pre-hash-chain-migration null-hash rows.
+		tsRaw: varchar('ts_raw', { length: 40 }),
 	},
 	(t) => ({
 		orgCreatedIdx: index('audit_logs_org_created_idx').on(t.orgId, t.createdAt),

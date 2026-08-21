@@ -1,19 +1,20 @@
 ---
 name: suwappu
-description: "Execute cross-chain token swaps, get quotes, check portfolio balances and prices, and trade Hyperliquid perps, Polymarket predictions, and Morpho lending markets via the Suwappu REST API. Use this skill whenever a user asks to swap/bridge/trade tokens across chains, quote a price, check wallet balances or token prices, open/check a perp position, browse or trade prediction markets, or look up lending market rates — for any of the 15+ chains Suwappu supports (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, Solana, and more)."
+description: "Build with the Suwappu REST API: cross-chain quotes, simulation, self-custody or managed swaps, managed-wallet portfolio/prices, Polymarket research and orders, Hyperliquid market research, and Morpho lending-market research."
 license: MIT
 ---
 
 # Suwappu — Cross-Chain DEX API
 
-Suwappu is a non-custodial cross-chain DEX API for AI agents: best-price swaps (routed across
-Li.Fi, Jupiter, and more), Hyperliquid perps, Polymarket prediction markets, and Morpho lending —
+Suwappu is a cross-chain DeFi API for AI agents: routed swaps,
+Hyperliquid market research, Polymarket prediction markets, and Morpho lending-market data —
 all over plain REST (curl/fetch), with optional TypeScript/Python SDKs and an MCP server for
 deeper tool integration.
 
 This skill is **API-first**: every example is a `curl` call. Use it directly, or reach for the
-SDKs (`@suwappu/sdk`, `suwappu` on PyPI) when you're already writing TS/Python and want typed
-methods instead of raw HTTP — they wrap the same endpoints 1:1.
+SDKs when you're already writing TS/Python and want typed methods instead of raw HTTP. Check the
+published registry version before relying on a source-only method; the repository can be ahead of
+npm/PyPI. REST + the live OpenAPI spec remain the compatibility baseline.
 
 **Non-custodial by design**: Suwappu never holds signing authority over a self-custodied wallet
 end-to-end. Swap endpoints return an **unsigned** transaction; you sign and broadcast it with your
@@ -61,7 +62,8 @@ export SUWAPPU_API_KEY=suwappu_sk_...
 curl https://api.suwappu.bot/v1/agent/me -H "Authorization: Bearer $SUWAPPU_API_KEY"
 ```
 
-`GET /chains` and `POST /register` are the only endpoints that don't require auth.
+Most application calls require auth. `POST /register`, `GET /chains`, and `GET /openapi` are
+public; MCP has a few additional public discovery tools.
 
 ## 3. Get a quote
 
@@ -80,7 +82,21 @@ uses Jupiter under the hood; EVM chains use Li.Fi. Both return the same shape.
 Add `wallet_address` to the quote request to get back ready-to-sign `transaction` data in the same
 call (skips the separate `POST /swap` round trip below).
 
-## 4. Execute a swap: self-signed vs managed
+## 4. Simulate before execution
+
+Dry-run the cached quote before you request a signable transaction or a managed broadcast:
+
+```bash
+curl -X POST https://api.suwappu.bot/v1/agent/swap/simulate \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"quote_id":"<from step 3>","wallet_address":"0xYourWallet"}'
+```
+
+Inspect `would_execute`, `checks`, `warnings`, expected output, price impact, and fee/gas
+estimates. Simulation moves no funds and never signs or broadcasts.
+
+## 5. Execute a swap: self-signed vs managed
 
 Suwappu supports two execution models. Pick one per agent, not per call — mixing them per swap
 adds no value.
@@ -102,8 +118,8 @@ Returns `status: "ready"`, a swap summary, and:
 - **Solana**: `transaction: {serialized_transaction}` (base64) — deserialize, sign, and
   `sendTransaction`.
 
-Then track the swap on-chain yourself (Suwappu never sees the broadcast). If you registered a
-`callback_url` (via `PATCH /v1/agent/me`), Suwappu can also poll and notify you.
+Then track the swap on-chain yourself. Suwappu never sees a self-custody broadcast, so managed
+swap status/history must not be used as proof that this transaction landed.
 
 ### B. Managed wallet (server-side signing)
 
@@ -117,6 +133,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/wallets -H "Authorization: Bearer 
 # Then, per swap:
 curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: my-strategy-2026-08-06-001" \
   -d '{"quote_id":"<from step 3>"}'
 ```
 
@@ -127,7 +144,11 @@ to *you* (Turnkey enclave, exportable anytime) but is custodial *to the agent pr
 **Always show the user the quote (route, price impact, fee) and get explicit confirmation before
 calling either swap endpoint.** Preserve `quote_id` end-to-end for audit.
 
-## 5. Check status
+If a managed execution times out or returns a network/5xx error, its on-chain outcome can be
+unknown. Reuse the same `Idempotency-Key` (1–64 chars from `A-Za-z0-9_.:-`) and reconcile swap
+status/history before deciding whether to submit again. Never blind-retry a money-moving POST.
+
+## 6. Check status
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/swap/status/<swapId> -H "Authorization: Bearer $SUWAPPU_API_KEY"
@@ -139,7 +160,7 @@ curl "https://api.suwappu.bot/v1/agent/portfolio?wallet_address=0x..." -H "Autho
 swaps, poll the transaction hash on-chain (or a block explorer / Blockscout MCP) — Suwappu has no
 visibility into a transaction it didn't broadcast.
 
-## 6. Handle 402 Payment Required (x402)
+## 7. Handle 402 Payment Required (x402)
 
 Suwappu meters some tiers per-call using prepaid credits, with on-chain top-up via the
 [x402](https://x402.org) protocol. A metered call with no credits returns:
@@ -160,17 +181,18 @@ Two ways to resolve it:
    no code change needed beyond swapping your fetch client.
 
 Check your standing any time: `GET /v1/agent/billing` (balance, tier, whether you're currently
-metered, cost per endpoint). Free-tier and subscription tiers (`agent`/`pro`/`premium`/
-`enterprise`) bypass metering entirely — see `bypass_tiers` in that response.
+metered, cost per endpoint). The `agent`/`pro`/`premium`/`enterprise` tiers bypass per-call
+metering; `free` is the metered tier when server-side metering is enabled. See `bypass_tiers` in
+the live response rather than hardcoding this policy.
 
-## 7. Handle rate limits
+## 8. Handle rate limits
 
 Every response carries `X-RateLimit-Limit` / `X-RateLimit-Remaining`. A 429 adds `Retry-After`
 (seconds). Limits are per-agent, sliding 1-minute window: `free` 30/min, `agent` 100/min, `pro`
 500/min, `premium` 2000/min, `enterprise` 10000/min. Back off using `Retry-After`, don't hardcode a
 delay — the window resets continuously, not on a fixed clock tick.
 
-## 8. Error recovery
+## 9. Error recovery
 
 All errors share one shape:
 
@@ -187,11 +209,11 @@ fix. Common cases:
 |---|---|---|
 | 400 | Bad token/chain name, expired `quote_id`, missing `wallet_address` | Re-check `fields`; quotes expire in 60s — re-quote |
 | 401 | Missing/invalid `Authorization` header | Confirm `Bearer suwappu_sk_...`, not a stale/rotated key |
-| 402 | Metered endpoint, no credits | See §6 |
-| 403 | `wallet_address` doesn't match your managed wallet, or org policy blocked the trade | Only use *your* wallet address; check policy `reason` in the body |
+| 402 | Metered endpoint, no credits | See §7 |
+| 403 | Wallet-scoped read/command failed ownership, or org policy blocked the trade | Check the endpoint's wallet requirements and policy `reason` in the body |
 | 404 | Unknown swap id / market id | Re-check the id came from a real prior response |
 | 429 | Rate limited | Back off `Retry-After` seconds |
-| 500/502 | Suwappu-side or upstream (Li.Fi/Jupiter/Hyperliquid/Polymarket) failure | Safe to retry with backoff; not your input |
+| 500/502 | Suwappu-side or upstream failure | Retry read-only calls with backoff. For execution POSTs, reconcile first and reuse the same idempotency key; the outcome can be unknown. |
 
 Cross-agent quote hijacking is blocked server-side (a `quote_id` only redeems for the agent that
 created it) — a 400 "Quote expired or not found" on a fresh quote usually means a typo in the id,
@@ -200,7 +222,7 @@ not a real hijack attempt.
 ## Other markets (same auth, same error shape)
 
 ```bash
-# Perps (Hyperliquid)
+# Perps research (Hyperliquid — no Agent API open/close endpoint)
 curl https://api.suwappu.bot/v1/agent/perps/markets
 curl -X POST https://api.suwappu.bot/v1/agent/perps/quote -H "Authorization: Bearer $SUWAPPU_API_KEY" \
   -H "Content-Type: application/json" -d '{"market":"ETH","side":"long","size":0.5,"leverage":10}'
@@ -209,7 +231,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/perps/quote -H "Authorization: Bea
 curl "https://api.suwappu.bot/v1/agent/predict/markets?query=election&limit=20"
 curl https://api.suwappu.bot/v1/agent/predict/market/<id>
 
-# Lending (Morpho)
+# Lending research (Morpho — read-only market data)
 curl https://api.suwappu.bot/v1/agent/lend/markets
 ```
 
@@ -220,14 +242,14 @@ lean — read it on demand, not up front).
 
 - **llms.txt** (machine-readable endpoint index): `https://api.suwappu.bot/llms.txt`
 - **OpenAPI 3.1 spec**: `GET https://api.suwappu.bot/v1/agent/openapi`
-- **MCP server** (JSON-RPC 2.0 tool-calling instead of raw REST): `POST https://api.suwappu.bot/mcp`
-  — tools: `get_quote`, `execute_swap`, `get_portfolio`, `get_prices`, `list_chains`,
-  `list_tokens`, `perps_markets`, `perps_quote`, `perps_positions`, `predict_markets`,
-  `predict_market`, `lend_markets`, `lend_market`. Same auth header, same credits/rate limits.
+- **MCP server** (JSON-RPC 2.0 tool-calling instead of raw REST): `POST https://api.suwappu.bot/mcp`.
+  Source 0.6 advertises 22 tools; call `tools/list` at runtime for the canonical deployed set.
+  Its historical `execute_swap` tool prepares an unsigned self-custody transaction and never
+  signs/broadcasts. Perps and lending MCP tools are research/read-only surfaces.
 - **Agent Card** (A2A discovery): `GET https://api.suwappu.bot/.well-known/agent.json`
 - **TypeScript SDK**: `@suwappu/sdk` (npm) — typed client + `suwappu` CLI (`suwappu --help`).
-- **Python SDK**: `suwappu` (PyPI) — typed client, `from suwappu import Suwappu`.
-- **Full docs**: https://docs.suwappu.bot
+- **Python SDK source**: `packages/sdk-python`; verify the current PyPI version before installing.
+- **Full docs**: https://suwappu.bot/docs
 
 ## Safety checklist
 
@@ -237,4 +259,5 @@ lean — read it on demand, not up front).
   server-side regardless (2FA + per-swap/hourly/daily caps + tx simulation).
 - Always show quote details (route, price impact, fee, `expires_in_seconds`) and get user
   confirmation before calling `/swap`, `/swap/execute`, or any order-placing endpoint.
-- Fees: 0.3% per swap, gas from wallet balance, no subscription required for the free tier.
+- Do not hardcode swap fees into an agent. EVM and Solana agent-surface fee configuration can
+  differ, and pricing can change; use the quote/live pricing docs in the economic decision.

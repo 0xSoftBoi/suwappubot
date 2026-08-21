@@ -636,7 +636,6 @@ async def test_mark_fiat_sent_cannot_unfreeze_dispute(tmp_db):
 
 async def test_dispute_resolve_reverts_on_onchain_failure(tmp_db):
     """A transient on-chain failure leaves the trade DISPUTED (retryable), not stranded."""
-    from bot.services.p2p_service import P2PError
 
     svc = P2PService()
     fail = {"release": True}

@@ -49,6 +49,7 @@ from bot.services.morpho_api import (
     morpho_api,
 )
 from bot.services.wallet import WalletService
+from bot.services.error_guidance import user_facing_error
 from bot.utils.formatters import format_tx_link
 from bot.utils.validators import validate_amount
 from bot.utils.tos_utils import enforce_tos
@@ -290,8 +291,9 @@ async def _render_menu(update, context, *, is_callback):
     try:
         position = await asyncio.to_thread(morpho_api.get_position, wallet.address)
     except MorphoError as e:
+        logger.error("Borrow position fetch failed for user %s: %s", user_id, e, exc_info=True)
         await _send(
-            f"❌ {e}",
+            user_facing_error(e, safe_exceptions=(MorphoError,), escape_for_markdown=True),
             [
                 [InlineKeyboardButton("🔄 Try Again", callback_data="borrow_menu")],
                 [InlineKeyboardButton("« Main Menu", callback_data="main_menu")],
@@ -513,7 +515,11 @@ async def borrow_enter_collateral(update: Update, context: ContextTypes.DEFAULT_
     try:
         state = await asyncio.to_thread(morpho_api.get_market_state)
     except MorphoError as e:
-        await update.message.reply_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+        logger.error("Borrow market state fetch failed: %s", e, exc_info=True)
+        await update.message.reply_text(
+            user_facing_error(e, safe_exceptions=(MorphoError,)),
+            reply_markup=_RETRY_KEYBOARD,
+        )
         return ConversationHandler.END
 
     borrow["collateral_raw"] = amount_raw
@@ -573,7 +579,11 @@ async def borrow_ltv_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             morpho_api.preview_borrow, borrow["wallet_address"], collateral_raw, borrow_raw
         )
     except MorphoError as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+        logger.error("Borrow preview failed: %s", e, exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(MorphoError,)),
+            reply_markup=_RETRY_KEYBOARD,
+        )
         return ConversationHandler.END
 
     apy_text = "—"
@@ -646,7 +656,11 @@ async def borrow_execute_callback(update: Update, context: ContextTypes.DEFAULT_
             disable_web_page_preview=True,
         )
     except MorphoError as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+        logger.error(f"borrow open failed for user {user_id}: {e}", exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(MorphoError,)),
+            reply_markup=_RETRY_KEYBOARD,
+        )
     except Exception as e:
         logger.error(f"borrow open unexpected error for user {user_id}: {e}", exc_info=True)
         await query.edit_message_text(
@@ -807,7 +821,16 @@ async def borrow_manage_enter_amount(update: Update, context: ContextTypes.DEFAU
         try:
             position = await _refresh_position(borrow)
         except MorphoError as e:
-            await update.message.reply_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+            logger.error(
+                "Borrow position refresh failed for user %s: %s",
+                update.effective_user.id if update.effective_user else "?",
+                e,
+                exc_info=True,
+            )
+            await update.message.reply_text(
+                user_facing_error(e, safe_exceptions=(MorphoError,)),
+                reply_markup=_RETRY_KEYBOARD,
+            )
             return BORROW_MANAGE_AMOUNT
     if action == "withdraw" and int(position["debt_usdc_raw"]) > 0:
         remaining = int(position["collateral_raw"]) - amount_raw
@@ -847,7 +870,8 @@ async def _show_manage_confirm(update, context, *, is_callback) -> int:
     try:
         position = await _refresh_position(borrow)
     except MorphoError as e:
-        text = f"❌ {e}"
+        logger.error("Borrow manage-confirm position refresh failed: %s", e, exc_info=True)
+        text = user_facing_error(e, safe_exceptions=(MorphoError,))
         if is_callback:
             await update.callback_query.edit_message_text(text, reply_markup=_RETRY_KEYBOARD)
         else:
@@ -1011,7 +1035,11 @@ async def borrow_manage_execute_callback(update: Update, context: ContextTypes.D
             disable_web_page_preview=True,
         )
     except MorphoError as e:
-        await query.edit_message_text(f"❌ {e}", reply_markup=_RETRY_KEYBOARD)
+        logger.error(f"borrow {action} failed for user {user_id}: {e}", exc_info=True)
+        await query.edit_message_text(
+            user_facing_error(e, safe_exceptions=(MorphoError,)),
+            reply_markup=_RETRY_KEYBOARD,
+        )
     except Exception as e:
         logger.error(f"borrow {action} unexpected error for user {user_id}: {e}", exc_info=True)
         await query.edit_message_text(
