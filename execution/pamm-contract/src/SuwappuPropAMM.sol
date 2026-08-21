@@ -53,7 +53,8 @@ contract SuwappuPropAMM {
 
     address public immutable baseToken;
     address public immutable quoteToken;
-    bytes32 public immutable DOMAIN_SEPARATOR;
+    uint256 private immutable INITIAL_CHAIN_ID;
+    bytes32 private immutable INITIAL_DOMAIN_SEPARATOR;
 
     address public owner;
     address public quoteSigner;
@@ -113,9 +114,8 @@ contract SuwappuPropAMM {
         quoteToken = quoteToken_;
         quoteSigner = quoteSigner_;
         owner = msg.sender;
-        DOMAIN_SEPARATOR = keccak256(
-            abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this))
-        );
+        INITIAL_CHAIN_ID = block.chainid;
+        INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
         emit OwnershipTransferred(address(0), msg.sender);
         emit QuoteSignerUpdated(quoteSigner_);
     }
@@ -151,9 +151,13 @@ contract SuwappuPropAMM {
     {
         if (!paused) revert QuoteNotLive();
         if (token != baseToken && token != quoteToken) revert InvalidTokenPair();
-        if (recipient == address(0)) revert InvalidRecipient();
-        _safeTransfer(token, recipient, amount);
+        if (recipient == address(0) || recipient == address(this)) revert InvalidRecipient();
+        _pushExact(token, recipient, amount);
         emit InventoryWithdrawn(token, recipient, amount);
+    }
+
+    function domainSeparator() public view returns (bytes32) {
+        return block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : _computeDomainSeparator();
     }
 
     function quoteStructHash(Quote calldata quote) public pure returns (bytes32) {
@@ -175,7 +179,7 @@ contract SuwappuPropAMM {
     }
 
     function quoteDigest(Quote calldata quote) public view returns (bytes32) {
-        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, quoteStructHash(quote)));
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), quoteStructHash(quote)));
     }
 
     /// @notice Anyone may relay a valid maker-signed quote. A builder can therefore include
@@ -244,7 +248,7 @@ contract SuwappuPropAMM {
         address recipient
     ) external nonReentrant returns (uint256 quoteOut) {
         if (baseIn == 0) revert ZeroAmount();
-        if (recipient == address(0)) revert InvalidRecipient();
+        if (recipient == address(0) || recipient == address(this)) revert InvalidRecipient();
         _requireLive(expectedQuoteHash);
 
         uint256 nextConsumed = uint256(consumedBaseIn) + baseIn;
@@ -255,7 +259,7 @@ contract SuwappuPropAMM {
 
         consumedBaseIn = uint96(nextConsumed);
         _pullExact(baseToken, msg.sender, baseIn);
-        _safeTransfer(quoteToken, recipient, quoteOut);
+        _pushExact(quoteToken, recipient, quoteOut);
         emit BaseSold(msg.sender, recipient, baseIn, quoteOut);
     }
 
@@ -267,7 +271,7 @@ contract SuwappuPropAMM {
         address recipient
     ) external nonReentrant returns (uint256 quoteIn) {
         if (baseOut == 0) revert ZeroAmount();
-        if (recipient == address(0)) revert InvalidRecipient();
+        if (recipient == address(0) || recipient == address(this)) revert InvalidRecipient();
         _requireLive(expectedQuoteHash);
 
         uint256 nextConsumed = uint256(consumedBaseOut) + baseOut;
@@ -279,7 +283,7 @@ contract SuwappuPropAMM {
 
         consumedBaseOut = uint96(nextConsumed);
         _pullExact(quoteToken, msg.sender, quoteIn);
-        _safeTransfer(baseToken, recipient, baseOut);
+        _pushExact(baseToken, recipient, baseOut);
         emit BaseBought(msg.sender, recipient, baseOut, quoteIn);
     }
 
@@ -317,6 +321,12 @@ contract SuwappuPropAMM {
         consumedBaseOut = 0;
     }
 
+    function _computeDomainSeparator() internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this))
+        );
+    }
+
     function _recover(bytes32 digest, bytes calldata signature) internal pure returns (address signer) {
         if (signature.length != 65) revert InvalidSignature();
         bytes32 r;
@@ -336,6 +346,15 @@ contract SuwappuPropAMM {
         uint256 beforeBalance = _balanceOf(token, address(this));
         _safeTransferFrom(token, from, address(this), amount);
         uint256 afterBalance = _balanceOf(token, address(this));
+        if (afterBalance < beforeBalance || afterBalance - beforeBalance != amount) {
+            revert UnsupportedTransferSemantics();
+        }
+    }
+
+    function _pushExact(address token, address recipient, uint256 amount) internal {
+        uint256 beforeBalance = _balanceOf(token, recipient);
+        _safeTransfer(token, recipient, amount);
+        uint256 afterBalance = _balanceOf(token, recipient);
         if (afterBalance < beforeBalance || afterBalance - beforeBalance != amount) {
             revert UnsupportedTransferSemantics();
         }
