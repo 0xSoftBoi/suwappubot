@@ -32,7 +32,10 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      # Full history is required because the freshness check hashes files from origin/main.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Probe health endpoints
         env:
@@ -41,5 +44,32 @@ jobs:
           MONITOR_HEARTBEAT_URL: ${{ secrets.MONITOR_HEARTBEAT_URL }}
           MONITOR_HEARTBEAT_TOKEN: ${{ secrets.MONITOR_HEARTBEAT_TOKEN }}
           PROBE_SOURCE: github-actions
-        # stdlib only — no pip install, no dependency on the repo's requirements.
         run: python3 scripts/uptime_probe.py --env prod
+
+      - name: Deployed code matches main
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+        run: |
+          if ! python3 scripts/check_deploy_freshness.py --ref origin/main; then
+            python3 - <<'PY'
+          import os, urllib.parse, urllib.request
+          tok = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat = os.environ.get("TELEGRAM_ALERT_CHAT_ID")
+          if tok and chat:
+              msg = ("Suwappu: production is NOT running main.\n"
+                     "A green deploy is not proof the new code is live.")
+              data = urllib.parse.urlencode({"chat_id": chat, "text": msg}).encode()
+              try:
+                  urllib.request.urlopen(
+                      urllib.request.Request(
+                          f"https://api.telegram.org/bot{tok}/sendMessage", data=data
+                      ),
+                      timeout=15,
+                  )
+              except Exception as e:
+                  print(f"stale-deploy alert failed: {type(e).__name__}")
+          PY
+            exit 1
+          fi
