@@ -27,7 +27,9 @@ contract ExecutorGasTest {
     MockVenue internal venueA;
     MockVenue internal venueB;
 
-    event GasBaseline(string scenario, uint256 gasUsed, uint256 calldataBytes, uint256 externalCalls);
+    event GasBaseline(
+        string scenario, uint256 gasUsed, uint256 calldataBytes, uint256 externalCalls
+    );
 
     function setUp() public {
         executor = new BaselineExecutor();
@@ -40,15 +42,12 @@ contract ExecutorGasTest {
     function testGasBaselineOneCall() public {
         BaselineExecutor.Call[] memory calls = new BaselineExecutor.Call[](1);
         calls[0] = BaselineExecutor.Call({
-            target: address(venueA),
-            value: 0,
-            data: abi.encodeCall(MockVenue.noop, (hex"01020304"))
+            target: address(venueA), value: 0, data: abi.encodeCall(MockVenue.noop, (hex"01020304"))
         });
 
         uint256 beforeGas = gasleft();
         uint256 balance = executor.execute(
-            calls,
-            BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_000e6})
+            calls, BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_000e6})
         );
         uint256 used = beforeGas - gasleft();
 
@@ -59,9 +58,7 @@ contract ExecutorGasTest {
     function testGasBaselineTwoCalls() public {
         BaselineExecutor.Call[] memory calls = new BaselineExecutor.Call[](2);
         calls[0] = BaselineExecutor.Call({
-            target: address(venueA),
-            value: 0,
-            data: abi.encodeCall(MockVenue.noop, (hex"01020304"))
+            target: address(venueA), value: 0, data: abi.encodeCall(MockVenue.noop, (hex"01020304"))
         });
         calls[1] = BaselineExecutor.Call({
             target: address(venueB),
@@ -71,8 +68,7 @@ contract ExecutorGasTest {
 
         uint256 beforeGas = gasleft();
         uint256 balance = executor.execute(
-            calls,
-            BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_000e6})
+            calls, BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_000e6})
         );
         uint256 used = beforeGas - gasleft();
 
@@ -82,29 +78,35 @@ contract ExecutorGasTest {
 
     function testRevertsWhenFinalEconomicPostconditionFails() public {
         BaselineExecutor.Call[] memory calls = new BaselineExecutor.Call[](0);
-        (bool ok,) = address(executor).call(
-            abi.encodeCall(
-                BaselineExecutor.execute,
-                (calls, BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_001e6}))
-            )
-        );
+        (bool ok,) = address(executor)
+            .call(
+                abi.encodeCall(
+                    BaselineExecutor.execute,
+                    (
+                        calls,
+                        BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_001e6})
+                    )
+                )
+            );
         require(!ok, "must fail closed");
     }
 
     function testRevertsWhenVenueCallFails() public {
         BaselineExecutor.Call[] memory calls = new BaselineExecutor.Call[](1);
         calls[0] = BaselineExecutor.Call({
-            target: address(venueA),
-            value: 0,
-            data: abi.encodeCall(MockVenue.revertAlways, ())
+            target: address(venueA), value: 0, data: abi.encodeCall(MockVenue.revertAlways, ())
         });
 
-        (bool ok,) = address(executor).call(
-            abi.encodeCall(
-                BaselineExecutor.execute,
-                (calls, BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_000e6}))
-            )
-        );
+        (bool ok,) = address(executor)
+            .call(
+                abi.encodeCall(
+                    BaselineExecutor.execute,
+                    (
+                        calls,
+                        BaselineExecutor.BalanceCheck({token: address(token), minimum: 1_000_000e6})
+                    )
+                )
+            );
         require(!ok, "failed venue call must revert route");
     }
 }
