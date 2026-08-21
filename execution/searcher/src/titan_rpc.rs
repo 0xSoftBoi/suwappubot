@@ -59,7 +59,7 @@ impl<S: JsonRpcSender> BuilderTransport for TitanBuilderTransport<S> {
             "id": self.next_id(),
             "method": "eth_sendBundle",
             "params": [{
-                "txs": request.signed_transactions,
+                "txs": request.signed_transactions.clone(),
                 "blockNumber": format!("0x{block_number:x}"),
                 "replacementUuid": replacement_uuid
             }]
@@ -92,7 +92,8 @@ impl<S> TitanBuilderTransport<S> {
 #[must_use]
 pub fn replacement_uuid(builder: &str, opportunity_id: &str) -> String {
     let digest = blake3::hash(format!("suwappu:{builder}:{opportunity_id}").as_bytes());
-    digest.to_hex()[..32].to_owned()
+    let hex = digest.to_hex().to_string();
+    hex[..32].to_owned()
 }
 
 fn parse_submit_response(response: Value) -> Result<TransportAck, TitanRpcError> {
