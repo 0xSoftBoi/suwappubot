@@ -1,4 +1,4 @@
-use crate::events::{BlockNumber, EventEnvelope, EventId, MarketEvent, SourceId};
+use crate::events::{EventEnvelope, EventId, MarketEvent, SourceId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -96,7 +96,10 @@ pub fn normalize_relay_trace(
         source: SourceId(source.into()),
         exchange_ts_ns,
         receive_ts_ns,
-        sequence: Some(slot),
+        // A relay may accept many builder submissions for one slot. Slot is not a
+        // monotonic per-message sequence number, so inventing a sequence here would
+        // create false replay regressions.
+        sequence: None,
         clock_uncertainty_ns: receive_ts_ns.abs_diff(exchange_ts_ns),
         chain: block_number.map(|block_number| crate::events::ChainContext {
             chain_id: 1,
@@ -139,7 +142,7 @@ pub fn normalize_titan_top_bid(
         source: SourceId(source.into()),
         exchange_ts_ns,
         receive_ts_ns,
-        sequence: Some(update.slot),
+        sequence: None,
         clock_uncertainty_ns: receive_ts_ns.abs_diff(exchange_ts_ns),
         chain: None,
         payload: MarketEvent::BuilderTrace {
@@ -204,6 +207,7 @@ mod tests {
         .unwrap();
         assert_eq!(event.exchange_ts_ns, 1_770_000_000_123_000_000);
         assert_eq!(event.clock_uncertainty_ns, 1_000_000);
+        assert_eq!(event.sequence, None);
         match event.payload {
             MarketEvent::BuilderTrace { included, bid_wei, .. } => {
                 assert!(included);
