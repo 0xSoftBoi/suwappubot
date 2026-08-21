@@ -56,12 +56,11 @@ jobs:
       - name: Mixed-yield unit, adapter and adversarial tests
         run: forge test --match-path 'test/MixYield*Test.t.sol' --no-match-path 'test/MixYieldMainnetFork.t.sol' -vvv
 
-      - name: Ethereum mainnet fork integration
+      - name: Ethereum live mainnet fork integration
         run: |
           forge test \
             --match-path 'test/MixYieldMainnetFork.t.sol' \
             --fork-url 'https://ethereum-rpc.publicnode.com' \
-            --fork-block-number 25475347 \
             -vvv
 
       - name: Mixed-yield invariant stress run
