@@ -70,11 +70,12 @@ def main() -> None:
         [route("late", "lifi", 40, 1000.0, True), route("late", "across", 40, 999.5, False)],
     ]
     result = walk.run_walk_forward(races, history, min_provider_evidence=20)
-    assert result.walk_forward if hasattr(result, "walk_forward") else True
-    # The early race cannot use future evidence; the later race can.
+    # The early race cannot use future evidence; the later race can use all
+    # observations because every synthetic execution predates minute 40.
     assert result.skipped_no_prior_evidence >= 1
-    assert result.folds >= 1
-    assert all(f.training_observations < len(history) for f in result.results)
+    assert result.folds == 1
+    assert result.results[0].quote_id == "late"
+    assert result.results[0].training_observations == len(history)
     payload = result.to_dict()
     assert payload["walk_forward"] is True
     assert "before" in payload["caveat"]
