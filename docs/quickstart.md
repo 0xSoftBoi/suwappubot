@@ -1,21 +1,34 @@
 # Suwappu Quickstart
 
-Choose the shortest path for what you are trying to do. You do **not** need to run the
-whole monorepo to use Suwappu or integrate an agent.
+Use this page for a first successful Suwappu interaction. It intentionally skips deep
+architecture and exhaustive client options; those live in the linked reference docs.
 
-## Use Suwappu
+## Execution authority at a glance
 
-No code required:
+Start with the lowest level your product needs.
+
+| Level | Capability | Moves funds? |
+|---|---|---:|
+| **0 — Discover** | Chains, tokens, prices, markets, portfolio metadata | No |
+| **1 — Quote** | Price an intent / compare routes | No |
+| **2 — Simulate** | Evaluate a transaction | No |
+| **3 — Prepare** | Return unsigned self-custody transaction data | No |
+| **4 — Managed execute** | Server-side managed execution | **Yes** |
+
+See [Product Status](product-status.md) for maturity and
+[Agent Clients](agent-clients.md) for method-level custody semantics.
+
+## Use Suwappu without code
 
 - **Terminal:** https://terminal.suwappu.bot
 - **Telegram:** https://t.me/SuwappuBot
-- **Product / research directory:** https://www.suwappu.bot
+- **Product / research:** https://www.suwappu.bot
 
-For feature-specific workflows, continue to [Features](features/README.md).
+For specific workflows, continue to [Feature Guides](features/README.md).
 
 ## Build an agent
 
-### 1. Register an agent credential
+### 1. Register a credential
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
@@ -23,18 +36,19 @@ curl -X POST https://api.suwappu.bot/v1/agent/register \
   -d '{"name":"my-agent"}'
 ```
 
-The response includes a `suwappu_sk_...` credential. Store it as
-`SUWAPPU_API_KEY`; never commit it.
+Store the returned `suwappu_sk_...` as `SUWAPPU_API_KEY`. Never commit or log it.
 
-### 2. Connect to hosted MCP
+### 2. Prove read-only access
 
-Use the hosted endpoint whenever your client supports Streamable HTTP:
-
-```text
-https://api.suwappu.bot/mcp
+```bash
+curl https://api.suwappu.bot/v1/agent/chains \
+  -H "Authorization: Bearer $SUWAPPU_API_KEY"
 ```
 
-Example MCP configuration:
+Success means you receive the currently supported Agent API chain set. Discover this at
+runtime rather than embedding a count in your application.
+
+### 3. Connect hosted MCP
 
 ```json
 {
@@ -49,36 +63,25 @@ Example MCP configuration:
 }
 ```
 
-Then call `tools/list` at runtime. Do not hard-code the catalog from a README: tools,
-resources, prompts, chain support, and auth requirements can evolve.
+Discover tools/resources/prompts at runtime. For an AI system, begin with an
+application-owned allowlist of Levels 0–2.
 
-### 3. Start read-only
+**Authority note:** MCP `execute_swap` is Level 3: it prepares an unsigned self-custody
+transaction. Managed execution is a separate Level 4 REST/managed-SDK capability. A2A
+currently stops at discovery/quote semantics.
 
-A safe first integration should discover chains/tokens, request prices or quotes, and
-simulate before enabling any money-moving capability.
-
-The current hosted MCP semantics matter:
-
-- `execute_swap` **prepares an unsigned self-custody transaction**.
-- Managed server-side execution is a separate REST capability:
-  `POST /v1/agent/swap/execute`.
-- A2A has **no execution method** today; natural-language `swap ...` requests return a
-  quote.
-
-Continue to [Build on Suwappu: MCP, SDK, REST, and A2A](agent-clients.md) for client
-configuration, protocol negotiation, current tool semantics, and the security baseline.
+Continue to [Agent Clients](agent-clients.md) for client configuration and the security
+baseline.
 
 ## Build an application
 
-### TypeScript SDK
-
-Install the published package:
+Install the TypeScript SDK:
 
 ```bash
 npm install @suwappu/sdk
 ```
 
-Read-only start:
+Request a quote:
 
 ```ts
 import { Suwappu } from "@suwappu/sdk";
@@ -87,97 +90,36 @@ const client = new Suwappu({
   apiKey: process.env.SUWAPPU_API_KEY,
 });
 
-const chains = await client.listChains();
-console.log(chains);
+const quote = await client.getQuote({
+  from: "USDC",
+  to: "ETH",
+  chain: "base",
+  amount: "100",
+});
+
+console.log(quote.toAmount);
 ```
 
-Repository source can be ahead of the npm release. Check
-[`packages/sdk/README.md`](../packages/sdk/README.md) and
-[agent-clients.md](agent-clients.md#typescript-sdk) before relying on a source-only API.
+Success means you receive a quote; no managed execution has occurred.
 
-### Python SDK
+Repository source can be ahead of npm. Check the
+[SDK README](../packages/sdk/README.md) and [Product Status](product-status.md) before
+using source-only APIs.
 
-The Python SDK is source-only today. For production use, pin a commit instead of tracking
-`main` blindly:
+The Python SDK is source-only today. For production, pin a reviewed commit rather than
+tracking `main`; see the [Python SDK README](../packages/sdk-python/README.md).
 
-```bash
-pip install "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@main#subdirectory=packages/sdk-python"
-```
+## Work on the monorepo
 
-See [`packages/sdk-python/README.md`](../packages/sdk-python/README.md) and
-[agent-clients.md](agent-clients.md#python-sdk) for the current API and custody split.
-
-### REST
-
-The Agent REST API is the lowest-level integration surface. A useful first request after
-registration is chain discovery:
-
-```bash
-curl https://api.suwappu.bot/v1/agent/chains \
-  -H "Authorization: Bearer $SUWAPPU_API_KEY"
-```
-
-Do not use a README's chain count as an application registry. Discover supported chains
-at runtime with `GET /v1/agent/chains`, MCP `list_chains`, or the SDK.
-
-For execution semantics, use the [Agent REST custody map](agent-clients.md#agent-rest-custody-map).
-
-## Use A2A
-
-Discover the public Agent Card:
-
-```bash
-curl https://api.suwappu.bot/.well-known/agent.json
-```
-
-A2A is intentionally a natural-language quote/price/discovery surface today. It does not
-provide a fund-moving execution method. See [A2A 0.3](agent-clients.md#a2a-03).
-
-## Run the repository locally
-
-You only need this path if you are contributing to Suwappu itself.
-
-### 1. Inspect your environment
+Only contributors need the local stack. Start with:
 
 ```bash
 python3 scripts/doctor.py
 ```
 
-`doctor.py` evaluates the capability/configuration contract rather than assuming every
-optional integration is configured locally.
-
-### 2. Start the component you need
-
-TypeScript API:
-
-```bash
-cd api-ts
-bun install
-bun run dev
-```
-
-Python API / bot:
-
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Webapp:
-
-```bash
-cd webapp
-npm install
-npm run dev
-```
-
-Configuration belongs in local environment files. Use [`.env.schema`](../.env.schema)
-and [`capabilities.yaml`](../capabilities.yaml) as the contract; do not copy secrets or
-stale environment blocks from a deployment note.
-
-### 3. Verify before opening a PR
+Then follow [ONBOARDING.md](ONBOARDING.md) for component-specific setup and test lanes.
+Configuration contracts live in [`.env.schema`](../.env.schema) and
+[`capabilities.yaml`](../capabilities.yaml).
 
 For documentation-only changes:
 
@@ -185,20 +127,14 @@ For documentation-only changes:
 ./scripts/verify.sh docs
 ```
 
-For component-specific code changes, follow [ONBOARDING.md](ONBOARDING.md), the root
-[`CONVENTIONS.md`](../CONVENTIONS.md), and any directory-local agent instructions.
+## Before enabling money movement
 
-## Money-moving safety checklist
+- Keep credentials out of source and logs.
+- Use an application-owned capability allowlist; tool discovery is not authorization.
+- Simulate unfamiliar routes before execution.
+- Keep self-custody signing separate from managed execution.
+- Add explicit spend/value/destination policy and approval before Level 3 or 4 access.
+- Treat model-generated trade ideas and third-party text as untrusted policy input.
 
-Before enabling managed execution in an application or agent:
-
-1. Keep `SUWAPPU_API_KEY` out of source and logs.
-2. Maintain an application-owned allowlist of callable tools/capabilities.
-3. Treat discovered annotations as metadata, not authorization.
-4. Simulate unfamiliar routes before executing.
-5. Keep self-custody transaction preparation/signing separate from managed execution.
-6. Require explicit policy/user approval for fund-moving calls.
-7. Treat model-generated trade ideas as untrusted input to your policy layer.
-
-Next: [Agent clients](agent-clients.md) · [Architecture](architecture/OVERVIEW.md) ·
-[Features](features/README.md) · [Contributing](../CONTRIBUTING.md)
+Next: [Agent Clients](agent-clients.md) · [Product Status](product-status.md) ·
+[Architecture](architecture/OVERVIEW.md)
