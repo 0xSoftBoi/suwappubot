@@ -146,7 +146,11 @@ impl BuilderInclusionModel {
             }
 
             for index in 0..FEATURE_COUNT {
-                let regularizer = if index == 0 { 0.0 } else { config.l2 * weights[index] };
+                let regularizer = if index == 0 {
+                    0.0
+                } else {
+                    config.l2 * weights[index]
+                };
                 weights[index] -= config.learning_rate * (gradient[index] / n + regularizer);
             }
         }
@@ -193,7 +197,9 @@ pub fn evaluate(model: &BuilderInclusionModel, rows: &[BuilderTrainingRow]) -> P
     let mut positives = 0usize;
     let mut predicted_sum = 0.0;
     for row in rows {
-        let p = model.predict(row).clamp(MIN_PROBABILITY, 1.0 - MIN_PROBABILITY);
+        let p = model
+            .predict(row)
+            .clamp(MIN_PROBABILITY, 1.0 - MIN_PROBABILITY);
         let y = if row.included { 1.0 } else { 0.0 };
         let error = p - y;
         brier += error * error;

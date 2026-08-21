@@ -53,7 +53,8 @@ where
         let input = input_at(search, points, index)?;
         if let Some(net) = evaluate(input) {
             let replace = best.as_ref().is_none_or(|current| {
-                net > current.net_pnl_quote || (net == current.net_pnl_quote && input < current.input)
+                net > current.net_pnl_quote
+                    || (net == current.net_pnl_quote && input < current.input)
             });
             if replace {
                 best = Some(SizeOptimum {
@@ -263,14 +264,11 @@ mod tests {
             max_input: 1_000,
             step: 1,
         };
-        let oracle = optimize_grid(search, 1_001, |x| {
-            Some(1_000_000 - (x - 613) * (x - 613))
-        })
-        .unwrap();
-        let refined = optimize_unimodal_grid(search, 100, |x| {
-            Some(1_000_000 - (x - 613) * (x - 613))
-        })
-        .unwrap();
+        let oracle =
+            optimize_grid(search, 1_001, |x| Some(1_000_000 - (x - 613) * (x - 613))).unwrap();
+        let refined =
+            optimize_unimodal_grid(search, 100, |x| Some(1_000_000 - (x - 613) * (x - 613)))
+                .unwrap();
         assert_eq!(refined.input, oracle.input);
         assert_eq!(refined.net_pnl_quote, oracle.net_pnl_quote);
         assert!(refined.evaluations < oracle.evaluations);

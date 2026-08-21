@@ -52,7 +52,12 @@ impl<S: JsonRpcSender> BuilderTransport for TitanBuilderTransport<S> {
             .target_block_by_slot
             .get(&request.slot)
             .copied()
-            .ok_or_else(|| TitanRpcError(format!("missing target execution block for slot {}", request.slot)))?;
+            .ok_or_else(|| {
+                TitanRpcError(format!(
+                    "missing target execution block for slot {}",
+                    request.slot
+                ))
+            })?;
         let replacement_uuid = replacement_uuid(&request.builder, &request.opportunity_id);
         let rpc = json!({
             "jsonrpc": "2.0",
@@ -98,7 +103,9 @@ pub fn replacement_uuid(builder: &str, opportunity_id: &str) -> String {
 
 fn parse_submit_response(response: Value) -> Result<TransportAck, TitanRpcError> {
     if let Some(error) = response.get("error").filter(|value| !value.is_null()) {
-        return Err(TitanRpcError(format!("Titan eth_sendBundle error: {error}")));
+        return Err(TitanRpcError(format!(
+            "Titan eth_sendBundle error: {error}"
+        )));
     }
     let result = response
         .get("result")
@@ -112,10 +119,14 @@ fn parse_submit_response(response: Value) -> Result<TransportAck, TitanRpcError>
 
 fn parse_cancel_response(response: Value) -> Result<(), TitanRpcError> {
     if let Some(error) = response.get("error").filter(|value| !value.is_null()) {
-        return Err(TitanRpcError(format!("Titan eth_cancelBundle error: {error}")));
+        return Err(TitanRpcError(format!(
+            "Titan eth_cancelBundle error: {error}"
+        )));
     }
     if response.get("result").is_none() {
-        return Err(TitanRpcError("Titan eth_cancelBundle response missing result".into()));
+        return Err(TitanRpcError(
+            "Titan eth_cancelBundle response missing result".into(),
+        ));
     }
     Ok(())
 }

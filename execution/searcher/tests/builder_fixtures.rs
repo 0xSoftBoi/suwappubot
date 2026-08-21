@@ -17,7 +17,9 @@ fn frozen_live_titan_deliveries_normalize_as_included() {
         .unwrap();
 
         match event.payload {
-            MarketEvent::BuilderTrace { included, bid_wei, .. } => {
+            MarketEvent::BuilderTrace {
+                included, bid_wei, ..
+            } => {
                 assert!(included);
                 assert!(bid_wei > 0);
             }

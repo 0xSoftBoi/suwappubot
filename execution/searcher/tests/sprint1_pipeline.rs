@@ -35,7 +35,11 @@ fn gas_aware_sizing_prefers_realized_ev_not_gross_edge() {
     // Expensive route has better gross edge at every size, but worse realized EV after
     // execution resources. This is the core Sprint 1 routing invariant.
     let cheap = optimize_profitable_grid(
-        SizeSearch { min_input: 1, max_input: 10, step: 1 },
+        SizeSearch {
+            min_input: 1,
+            max_input: 10,
+            step: 1,
+        },
         10,
         |x| {
             RouteEconomics {
@@ -51,7 +55,11 @@ fn gas_aware_sizing_prefers_realized_ev_not_gross_edge() {
     .unwrap();
 
     let expensive = optimize_profitable_grid(
-        SizeSearch { min_input: 1, max_input: 10, step: 1 },
+        SizeSearch {
+            min_input: 1,
+            max_input: 10,
+            step: 1,
+        },
         10,
         |x| {
             RouteEconomics {

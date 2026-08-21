@@ -57,7 +57,10 @@ pub fn label_markout(
     if fill_price <= 0 {
         return Err(MarkoutError::InvalidFillPrice);
     }
-    if series.windows(2).any(|window| window[0].ts_ns > window[1].ts_ns) {
+    if series
+        .windows(2)
+        .any(|window| window[0].ts_ns > window[1].ts_ns)
+    {
         return Err(MarkoutError::UnsortedSeries);
     }
 

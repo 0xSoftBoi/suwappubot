@@ -56,7 +56,9 @@ pub fn replay_jsonl(input: &str) -> Result<ReplayReport, ReplayError> {
     replay(parse_jsonl(input)?)
 }
 
-pub fn replay(events: impl IntoIterator<Item = EventEnvelope>) -> Result<ReplayReport, ReplayError> {
+pub fn replay(
+    events: impl IntoIterator<Item = EventEnvelope>,
+) -> Result<ReplayReport, ReplayError> {
     let mut unique: HashMap<EventId, EventEnvelope> = HashMap::new();
     let mut duplicate_count = 0usize;
 
@@ -198,6 +200,9 @@ mod tests {
     #[test]
     fn malformed_jsonl_records_the_source_line() {
         let error = parse_jsonl("\n{not-json}\n").unwrap_err();
-        assert!(matches!(error, ReplayError::Deserialization { line: 2, .. }));
+        assert!(matches!(
+            error,
+            ReplayError::Deserialization { line: 2, .. }
+        ));
     }
 }

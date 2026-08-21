@@ -103,14 +103,7 @@ impl RouteGraph {
         let mut routes = Vec::new();
         let mut path = Vec::new();
         let mut visited = BTreeSet::from([start.clone()]);
-        self.walk_paths(
-            start,
-            goal,
-            max_hops,
-            &mut visited,
-            &mut path,
-            &mut routes,
-        );
+        self.walk_paths(start, goal, max_hops, &mut visited, &mut path, &mut routes);
         Ok(routes)
     }
 
@@ -213,8 +206,14 @@ mod tests {
     fn stale_edge_versions_fail_closed() {
         let mut graph = RouteGraph::default();
         graph.upsert_edge(edge(2)).unwrap();
-        assert_eq!(graph.upsert_edge(edge(2)).unwrap_err(), GraphError::StaleVersion);
-        assert_eq!(graph.upsert_edge(edge(1)).unwrap_err(), GraphError::StaleVersion);
+        assert_eq!(
+            graph.upsert_edge(edge(2)).unwrap_err(),
+            GraphError::StaleVersion
+        );
+        assert_eq!(
+            graph.upsert_edge(edge(1)).unwrap_err(),
+            GraphError::StaleVersion
+        );
     }
 
     #[test]

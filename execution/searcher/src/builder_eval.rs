@@ -1,4 +1,7 @@
-use crate::builder_model::{optimize_bid, BidContext, BidSearch, BuilderInclusionModel, BuilderModelError, BuilderTrainingRow};
+use crate::builder_model::{
+    optimize_bid, BidContext, BidSearch, BuilderInclusionModel, BuilderModelError,
+    BuilderTrainingRow,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ReliabilityBucket {
@@ -130,7 +133,10 @@ mod tests {
         let rows = rows();
         let model = BuilderInclusionModel::fit("titan", &rows, LogisticConfig::default()).unwrap();
         let buckets = reliability_buckets(&model, &rows, 10);
-        assert_eq!(buckets.iter().map(|bucket| bucket.rows).sum::<usize>(), rows.len());
+        assert_eq!(
+            buckets.iter().map(|bucket| bucket.rows).sum::<usize>(),
+            rows.len()
+        );
         assert_eq!(buckets.len(), 10);
     }
 

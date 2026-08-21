@@ -88,9 +88,11 @@ impl RouteEconomics {
             return Err(CostError::NegativeRouteCost);
         }
 
-        costs.into_iter().try_fold(self.gross_pnl_quote, |net, cost| {
-            net.checked_sub(cost).ok_or(CostError::Overflow)
-        })
+        costs
+            .into_iter()
+            .try_fold(self.gross_pnl_quote, |net, cost| {
+                net.checked_sub(cost).ok_or(CostError::Overflow)
+            })
     }
 }
 
@@ -142,6 +144,9 @@ mod tests {
             variable_fees_quote: -1,
             ..RouteEconomics::default()
         };
-        assert_eq!(economics.net_pnl_quote().unwrap_err(), CostError::NegativeRouteCost);
+        assert_eq!(
+            economics.net_pnl_quote().unwrap_err(),
+            CostError::NegativeRouteCost
+        );
     }
 }

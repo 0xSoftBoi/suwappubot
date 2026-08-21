@@ -19,7 +19,10 @@ pub enum OrderState {
 impl OrderState {
     #[must_use]
     pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::Landed | Self::Reverted | Self::Expired | Self::Dropped)
+        matches!(
+            self,
+            Self::Landed | Self::Reverted | Self::Expired | Self::Dropped
+        )
     }
 }
 
@@ -418,10 +421,22 @@ mod tests {
         let outcome = oms
             .observe_outcome("titan", "opp-1", 123, true, None, 3_000_000)
             .unwrap();
-        assert!(matches!(first.payload, MarketEvent::BuilderSubmission { .. }));
-        assert!(matches!(second.payload, MarketEvent::BuilderSubmission { .. }));
-        assert!(matches!(outcome.payload, MarketEvent::BuilderOutcome { included: true, .. }));
-        assert_eq!(oms.order("titan", "opp-1").unwrap().state, OrderState::Landed);
+        assert!(matches!(
+            first.payload,
+            MarketEvent::BuilderSubmission { .. }
+        ));
+        assert!(matches!(
+            second.payload,
+            MarketEvent::BuilderSubmission { .. }
+        ));
+        assert!(matches!(
+            outcome.payload,
+            MarketEvent::BuilderOutcome { included: true, .. }
+        ));
+        assert_eq!(
+            oms.order("titan", "opp-1").unwrap().state,
+            OrderState::Landed
+        );
         assert_eq!(transport.submissions.len(), 2);
     }
 
@@ -478,7 +493,10 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(oms.order("titan", "opp-1").unwrap().state, OrderState::Expired);
+        assert_eq!(
+            oms.order("titan", "opp-1").unwrap().state,
+            OrderState::Expired
+        );
     }
 
     #[test]
@@ -487,7 +505,10 @@ mod tests {
         let mut transport = MockTransport::default();
         let mut bad = request(1, 1_001);
         bad.profit_before_bid_wei = 1_000;
-        assert_eq!(oms.submit(&mut transport, bad).unwrap_err(), OmsError::PaymentExceedsProfit);
+        assert_eq!(
+            oms.submit(&mut transport, bad).unwrap_err(),
+            OmsError::PaymentExceedsProfit
+        );
         assert!(transport.submissions.is_empty());
     }
 }
