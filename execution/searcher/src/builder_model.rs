@@ -138,7 +138,7 @@ impl BuilderInclusionModel {
             for row in &selected {
                 let x = features(row);
                 let prediction = sigmoid(dot(&weights, &x));
-                let target = f64::from(row.included);
+                let target = if row.included { 1.0 } else { 0.0 };
                 let error = prediction - target;
                 for (index, value) in x.iter().enumerate() {
                     gradient[index] += error * value;
@@ -194,11 +194,13 @@ pub fn evaluate(model: &BuilderInclusionModel, rows: &[BuilderTrainingRow]) -> P
     let mut predicted_sum = 0.0;
     for row in rows {
         let p = model.predict(row).clamp(MIN_PROBABILITY, 1.0 - MIN_PROBABILITY);
-        let y = f64::from(row.included);
+        let y = if row.included { 1.0 } else { 0.0 };
         let error = p - y;
         brier += error * error;
         log_loss -= y * p.ln() + (1.0 - y) * (1.0 - p).ln();
-        positives += usize::from(row.included);
+        if row.included {
+            positives += 1;
+        }
         predicted_sum += p;
     }
     let n = rows.len() as f64;
@@ -273,10 +275,12 @@ pub fn optimize_bid(
         let probability = model.predict_context(bid, context);
         let retained = (context.profit_before_bid_wei - bid) as f64;
         let expected = probability * retained;
-        let replace = best.as_ref().is_none_or(|current| match expected.total_cmp(&current.expected_retained_wei) {
-            Ordering::Greater => true,
-            Ordering::Equal => bid < current.bid_wei,
-            Ordering::Less => false,
+        let replace = best.as_ref().is_none_or(|current| {
+            match expected.total_cmp(&current.expected_retained_wei) {
+                Ordering::Greater => true,
+                Ordering::Equal => bid < current.bid_wei,
+                Ordering::Less => false,
+            }
         });
         if replace {
             best = Some(BidOptimum {
