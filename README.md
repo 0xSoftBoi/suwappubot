@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>Cross-chain execution infrastructure for humans, apps, and AI agents.</b><br>
-  Route, simulate, and execute across chains from chat, a trading terminal, SDKs, REST, MCP, or A2A.
+  Trade across chains from chat or terminal; integrate the same execution layer through SDKs, REST, MCP, or A2A.
 </p>
 
 <div align="center">
@@ -22,7 +22,6 @@
 [![Platform chains](https://img.shields.io/badge/Platform_chains-45-green)](showcase/src/data/stats.generated.json)
 [![Agent API chains](https://img.shields.io/badge/Agent_API_chains-18-0f766e)](showcase/src/data/stats.generated.json)
 [![Routers](https://img.shields.io/badge/Routers-21-orange)](showcase/src/data/stats.generated.json)
-[![MCP tools](https://img.shields.io/badge/MCP_tools-22-blueviolet)](docs/agent-clients.md)
 
 </div>
 
