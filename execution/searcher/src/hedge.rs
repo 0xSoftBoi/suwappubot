@@ -49,7 +49,10 @@ pub enum HedgeError {
     Overflow,
 }
 
-pub fn decide_hedge(config: HedgeConfig, state: HedgeState) -> Result<Option<HedgeDecision>, HedgeError> {
+pub fn decide_hedge(
+    config: HedgeConfig,
+    state: HedgeState,
+) -> Result<Option<HedgeDecision>, HedgeError> {
     validate_config(config)?;
     if state.risk_capacity_notional <= 0 {
         return Err(HedgeError::InvalidCapacity);
@@ -58,20 +61,26 @@ pub fn decide_hedge(config: HedgeConfig, state: HedgeState) -> Result<Option<Hed
         return Ok(None);
     }
 
-    let abs_inventory = state.inventory_notional.checked_abs().ok_or(HedgeError::Overflow)?;
+    let abs_inventory = state
+        .inventory_notional
+        .checked_abs()
+        .ok_or(HedgeError::Overflow)?;
     let utilization = abs_inventory
         .checked_mul(BPS_SCALE)
         .and_then(|value| value.checked_div(state.risk_capacity_notional))
         .ok_or(HedgeError::Overflow)?;
-    let utilization_bps = u32::try_from(utilization.min(BPS_SCALE)).map_err(|_| HedgeError::Overflow)?;
+    let utilization_bps =
+        u32::try_from(utilization.min(BPS_SCALE)).map_err(|_| HedgeError::Overflow)?;
 
     let hard_limit = utilization_bps >= config.hard_inventory_limit_bps;
-    let urgency = if hard_limit {
-        config.max_hedge_fraction_bps
+    let urgency: u128 = if hard_limit {
+        u128::from(config.max_hedge_fraction_bps)
     } else {
         let positive = u128::from(config.base_urgency_bps)
             .checked_add(weighted(utilization_bps, config.inventory_weight_bps)?)
-            .and_then(|value| value.checked_add(weighted(state.volatility_bps, config.volatility_weight_bps).ok()?))
+            .and_then(|value| {
+                value.checked_add(weighted(state.volatility_bps, config.volatility_weight_bps).ok()?)
+            })
             .ok_or(HedgeError::Overflow)?;
         let penalty = weighted(state.expected_impact_bps, config.impact_penalty_weight_bps)?
             .checked_add(weighted(
@@ -79,8 +88,11 @@ pub fn decide_hedge(config: HedgeConfig, state: HedgeState) -> Result<Option<Hed
                 config.offsetting_flow_penalty_weight_bps,
             )?)
             .ok_or(HedgeError::Overflow)?;
-        positive.saturating_sub(penalty).min(u128::from(config.max_hedge_fraction_bps))
+        positive
+            .saturating_sub(penalty)
+            .min(u128::from(config.max_hedge_fraction_bps))
     };
+
     let hedge_fraction_bps = u32::try_from(urgency).map_err(|_| HedgeError::Overflow)?;
     if hedge_fraction_bps == 0 {
         return Ok(None);
