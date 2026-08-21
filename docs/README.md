@@ -16,6 +16,7 @@ monorepo directory-by-directory unless you are maintaining it.
 | **Integrate an app** | [Quickstart](quickstart.md#build-an-application) | [`@suwappu/sdk`](../packages/sdk/README.md) · [Python SDK](../packages/sdk-python/README.md) |
 | **Check maturity / execution authority** | [Product status](product-status.md) | [Agent clients](agent-clients.md) |
 | **Check compatibility / upgrade policy** | [API lifecycle](api-lifecycle.md) | [SDK support](sdk-support.md) |
+| **Measure infrastructure parity** | [Parity scorecard](research/infrastructure-parity-scorecard-2026-08.md) | [Benchmark](research/infrastructure-parity-2026-08.md) · [Financial APIs](research/infrastructure-parity-financial-apis-2026-08.md) |
 | **Review security responsibility** | [Shared responsibility](security/shared-responsibility.md) | [`SECURITY.md`](../SECURITY.md) |
 | **Understand the system** | [Architecture overview](architecture/OVERVIEW.md) | [`ARCHITECTURE.md`](../ARCHITECTURE.md) · [ADRs](adr/README.md) |
 | **Contribute** | [Onboarding](ONBOARDING.md) | [`CONVENTIONS.md`](../CONVENTIONS.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
@@ -42,9 +43,15 @@ monorepo directory-by-directory unless you are maintaining it.
   compatibility, support stages, release gates, and source-only package rules.
 - [Security shared responsibility](security/shared-responsibility.md) — what Suwappu,
   integrators, and both parties must protect at each execution-authority level.
-- [Infrastructure parity benchmark](research/infrastructure-parity-2026-08.md) — the verified
-  point-in-time benchmark against top developer/onchain infrastructure and the P0/P1/P2 gap
-  analysis. Research is evidence for priorities, not a statement that all parity work has shipped.
+- [Infrastructure parity scorecard](research/infrastructure-parity-scorecard-2026-08.md) —
+  the evidence-weighted acceptance gate. It scores shipped/testable behavior only and prevents
+  a high aggregate score from hiding an unsafe money-path P0.
+- [Infrastructure parity benchmark](research/infrastructure-parity-2026-08.md) — verified
+  general/onchain infrastructure evidence and the P0/P1/P2 gap analysis.
+- [Financial API parity benchmark](research/infrastructure-parity-financial-apis-2026-08.md) —
+  sandbox, idempotency, webhook recovery and request-debugging evidence from financial APIs.
+
+Research is evidence for priorities, not a statement that all parity work has shipped.
 
 ### Feature guides
 
@@ -146,6 +153,7 @@ non-authoritative by definition.
 | MCP catalog | runtime MCP discovery |
 | REST compatibility/deprecation policy | [api-lifecycle.md](api-lifecycle.md) |
 | SDK support / registry-source semantics | [sdk-support.md](sdk-support.md) |
+| Infrastructure parity acceptance | [parity scorecard](research/infrastructure-parity-scorecard-2026-08.md) |
 | Environment requirements | `.env.schema` + `capabilities.yaml` |
 | Product maturity / execution authority | [product-status.md](product-status.md) |
 | Production service membership/source | Railway + [production inventory](deployment/production-inventory.md) |
