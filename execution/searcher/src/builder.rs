@@ -145,7 +145,8 @@ pub fn normalize_titan_top_bid(
     Ok(EventEnvelope {
         schema_version: 1,
         event_id: EventId(format!(
-            "top_bid:{}:{}:{}:{bid_wei}", update.slot, update.block_hash, update.builder_pubkey
+            "top_bid:{}:{}:{}:{bid_wei}",
+            update.slot, update.block_hash, update.builder_pubkey
         )),
         source: SourceId(source.into()),
         exchange_ts_ns,
@@ -237,7 +238,9 @@ mod tests {
         assert_eq!(event.clock_uncertainty_ns, 1_000_000);
         assert_eq!(event.sequence, None);
         match event.payload {
-            MarketEvent::BuilderTrace { included, bid_wei, .. } => {
+            MarketEvent::BuilderTrace {
+                included, bid_wei, ..
+            } => {
                 assert!(included);
                 assert_eq!(bid_wei, 123_456_789_000_000_000);
             }
