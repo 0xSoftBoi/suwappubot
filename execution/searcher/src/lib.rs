@@ -13,6 +13,7 @@ pub mod cost;
 pub mod economics;
 pub mod events;
 pub mod graph;
+pub mod labels;
 pub mod markout;
 pub mod oms;
 pub mod replay;
