@@ -3,6 +3,7 @@ import developerContract from '../../developer-contract.json'
 import { API_CHANGELOG, buildApiChangelogAtom } from '../lib/apiChangelog'
 import { API_LIFECYCLE_REGISTRY } from '../lib/apiLifecycle'
 import { PUBLIC_AGENT_OPENAPI } from '../lib/publicOpenApi'
+import { RETRY_CONTRACTS, retryContractSummary } from '../lib/retryContracts'
 
 const apiContractRoutes = new Hono()
 
@@ -30,6 +31,14 @@ apiContractRoutes.get('/v1/api-changelog.atom', (c) => {
 	c.header('Cache-Control', 'public, max-age=300')
 	c.header('Content-Type', 'application/atom+xml; charset=utf-8')
 	return c.body(buildApiChangelogAtom())
+})
+
+apiContractRoutes.get('/v1/retry-contracts', (c) => {
+	c.header('Cache-Control', 'public, max-age=300')
+	return c.json({
+		...RETRY_CONTRACTS,
+		summary: retryContractSummary(),
+	})
 })
 
 export { apiContractRoutes }
