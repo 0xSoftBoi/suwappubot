@@ -54,9 +54,11 @@ contract MixStrategyMock is ISuwappuYieldStrategy {
     {
         uint256 cap = token.balanceOf(address(this));
         if (cap > liquidityCap) cap = liquidityCap;
-        assetsOut = assets < cap ? assets : cap;
-        assetsOut = assetsOut * (10_000 - withdrawalHaircutBps) / 10_000;
+        uint256 gross = assets < cap ? assets : cap;
+        assetsOut = gross * (10_000 - withdrawalHaircutBps) / 10_000;
         require(assetsOut >= minAssetsOut, "slippage");
+        uint256 realizedLoss = gross - assetsOut;
+        if (realizedLoss != 0) token.burn(address(this), realizedLoss);
         token.transfer(vault, assetsOut);
     }
 
