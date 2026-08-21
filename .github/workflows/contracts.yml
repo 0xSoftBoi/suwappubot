@@ -5,13 +5,13 @@ on:
     branches: [main, dev]
     paths:
       - "contracts/primitives/**"
-      - "contracts/test/MixYieldVault*.t.sol"
+      - "contracts/test/MixYield*.t.sol"
       - ".github/workflows/contracts.yml"
   push:
     branches: [main, dev]
     paths:
       - "contracts/primitives/**"
-      - "contracts/test/MixYieldVault*.t.sol"
+      - "contracts/test/MixYield*.t.sol"
       - ".github/workflows/contracts.yml"
 
 concurrency:
@@ -53,8 +53,8 @@ jobs:
       - name: Compile primitive library
         run: forge build --sizes --skip test
 
-      - name: Mixed-yield unit and fuzz tests
-        run: forge test --match-path 'test/MixYieldVaultTest.t.sol' -vvv
+      - name: Mixed-yield unit, adapter and adversarial tests
+        run: forge test --match-path 'test/MixYield*Test.t.sol' -vvv
 
       - name: Mixed-yield invariant stress run
         env:
