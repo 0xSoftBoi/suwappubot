@@ -76,9 +76,12 @@ pub fn estimate_toxicity(
     };
 
     Ok(ToxicityEstimate {
-        toxic_probability_bps: u16::try_from(toxic_probability).map_err(|_| ToxicityError::Overflow)?,
-        mean_adverse_markout_bps: u32::try_from(mean_adverse).map_err(|_| ToxicityError::Overflow)?,
-        conditional_toxic_loss_bps: u32::try_from(conditional).map_err(|_| ToxicityError::Overflow)?,
+        toxic_probability_bps: u16::try_from(toxic_probability)
+            .map_err(|_| ToxicityError::Overflow)?,
+        mean_adverse_markout_bps: u32::try_from(mean_adverse)
+            .map_err(|_| ToxicityError::Overflow)?,
+        conditional_toxic_loss_bps: u32::try_from(conditional)
+            .map_err(|_| ToxicityError::Overflow)?,
         observations,
         toxic_observations: toxic,
     })
@@ -101,11 +104,8 @@ mod tests {
 
     #[test]
     fn toxicity_probability_and_losses_are_separated() {
-        let estimate = estimate_toxicity(
-            &[markout(5), markout(-5), markout(-20), markout(-40)],
-            10,
-        )
-        .unwrap();
+        let estimate =
+            estimate_toxicity(&[markout(5), markout(-5), markout(-20), markout(-40)], 10).unwrap();
         assert_eq!(estimate.toxic_probability_bps, 5_000);
         assert_eq!(estimate.mean_adverse_markout_bps, 16);
         assert_eq!(estimate.conditional_toxic_loss_bps, 30);

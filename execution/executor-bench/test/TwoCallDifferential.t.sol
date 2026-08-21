@@ -118,16 +118,7 @@ contract TwoCallDifferentialTest {
         );
         bytes memory specializedPayload = abi.encodeCall(
             TwoCallExecutor.executeTwo,
-            (
-                address(venueA),
-                0,
-                data0,
-                address(venueB),
-                0,
-                data1,
-                address(token),
-                minimum
-            )
+            (address(venueA), 0, data0, address(venueB), 0, data1, address(token), minimum)
         );
 
         uint256 beforeBaseline = gasleft();

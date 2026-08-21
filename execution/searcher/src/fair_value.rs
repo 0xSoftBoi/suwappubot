@@ -109,10 +109,19 @@ pub fn estimate(
     let mut adjustment = i128::from(coefficients.intercept_bps);
     for (feature, weight) in [
         (features.microprice_bps, coefficients.microprice_weight_bps),
-        (features.book_imbalance_bps, coefficients.imbalance_weight_bps),
-        (features.signed_flow_bps, coefficients.signed_flow_weight_bps),
+        (
+            features.book_imbalance_bps,
+            coefficients.imbalance_weight_bps,
+        ),
+        (
+            features.signed_flow_bps,
+            coefficients.signed_flow_weight_bps,
+        ),
         (features.basis_bps, coefficients.basis_weight_bps),
-        (features.cross_venue_bps, coefficients.cross_venue_weight_bps),
+        (
+            features.cross_venue_bps,
+            coefficients.cross_venue_weight_bps,
+        ),
     ] {
         let term = i128::from(feature)
             .checked_mul(i128::from(weight))

@@ -66,9 +66,7 @@ pub fn chain_quote(
     if epoch == 0 {
         return Err(WireQuoteError::InvalidEpoch);
     }
-    if terms.bid_rate_x96 == 0
-        || terms.ask_rate_x96 == 0
-        || terms.bid_rate_x96 > terms.ask_rate_x96
+    if terms.bid_rate_x96 == 0 || terms.ask_rate_x96 == 0 || terms.bid_rate_x96 > terms.ask_rate_x96
     {
         return Err(WireQuoteError::InvalidRate);
     }

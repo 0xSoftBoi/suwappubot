@@ -195,7 +195,10 @@ mod tests {
             builder_coverage_bps: 5_000,
             ..health()
         };
-        assert_eq!(select_mode(policy(), degraded).unwrap(), PammMode::Protected);
+        assert_eq!(
+            select_mode(policy(), degraded).unwrap(),
+            PammMode::Protected
+        );
     }
 
     #[test]

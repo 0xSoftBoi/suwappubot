@@ -77,12 +77,10 @@ contract SuwappuPropAMMTest {
 
         uint256 expectedQuoteOut = (uint256(baseAmount) * uint256(q.bidRateX96)) >> 96;
         uint256 quoteBefore = quoteToken.balanceOf(address(this));
-        uint256 received =
-            pamm.sellBaseExactIn(baseAmount, expectedQuoteOut, hash, address(this));
+        uint256 received = pamm.sellBaseExactIn(baseAmount, expectedQuoteOut, hash, address(this));
         require(received == expectedQuoteOut, "bid q96 math");
         require(
-            quoteToken.balanceOf(address(this)) == quoteBefore + expectedQuoteOut,
-            "quote received"
+            quoteToken.balanceOf(address(this)) == quoteBefore + expectedQuoteOut, "quote received"
         );
 
         uint256 product = uint256(baseAmount) * uint256(q.askRateX96);
@@ -103,9 +101,8 @@ contract SuwappuPropAMMTest {
         require(pamm.currentSequence() == 1, "sequence");
 
         SuwappuPropAMM.Quote memory replay = _quote(1, 1, parent, 100, 100);
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(SuwappuPropAMM.applyQuote, (replay, _sign(replay, SIGNER_KEY)))
-        );
+        (bool ok,) = address(pamm)
+            .call(abi.encodeCall(SuwappuPropAMM.applyQuote, (replay, _sign(replay, SIGNER_KEY))));
         require(!ok, "replay must fail");
     }
 
@@ -134,12 +131,13 @@ contract SuwappuPropAMMTest {
         SuwappuPropAMM.Quote memory second = _quote(1, 1, staleHash, 100, 100);
         pamm.applyQuote(second, _sign(second, SIGNER_KEY));
 
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(100), uint256(0), staleHash, address(this))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn,
+                    (uint96(100), uint256(0), staleHash, address(this))
+                )
+            );
         require(!ok, "stale expected hash must fail");
     }
 
@@ -148,12 +146,12 @@ contract SuwappuPropAMMTest {
         pamm.applyQuote(q, _sign(q, SIGNER_KEY));
         bytes32 hash = pamm.currentQuoteHash();
         pamm.sellBaseExactIn(60, 0, hash, address(this));
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(41), uint256(0), hash, address(this))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn, (uint96(41), uint256(0), hash, address(this))
+                )
+            );
         require(!ok, "capacity must fail");
         require(pamm.remainingBaseInCapacity() == 40, "remaining capacity");
     }
@@ -163,12 +161,12 @@ contract SuwappuPropAMMTest {
         pamm.applyQuote(q, _sign(q, SIGNER_KEY));
         bytes32 hash = pamm.currentQuoteHash();
         vm.warp(block.timestamp + 101);
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(100), uint256(0), hash, address(this))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn, (uint96(100), uint256(0), hash, address(this))
+                )
+            );
         require(!ok, "expired quote must fail");
     }
 
@@ -201,12 +199,12 @@ contract SuwappuPropAMMTest {
         pamm.applyQuote(q, _sign(q, SIGNER_KEY));
         bytes32 hash = pamm.currentQuoteHash();
         pamm.setPaused(true);
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(100), uint256(0), hash, address(this))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn, (uint96(100), uint256(0), hash, address(this))
+                )
+            );
         require(!ok, "paused fill must fail");
         require(pamm.currentQuoteHash() == hash, "quote preserved");
     }
@@ -220,12 +218,13 @@ contract SuwappuPropAMMTest {
         pamm.setQuoteSigner(vm.addr(newKey));
         require(pamm.currentQuoteHash() == bytes32(0), "quote invalidated");
 
-        (bool oldFill,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(100), uint256(0), oldHash, address(this))
-            )
-        );
+        (bool oldFill,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn,
+                    (uint96(100), uint256(0), oldHash, address(this))
+                )
+            );
         require(!oldFill, "old quote cannot fill");
 
         SuwappuPropAMM.Quote memory next = _quote(2, 0, bytes32(0), 100, 100);
@@ -234,12 +233,12 @@ contract SuwappuPropAMMTest {
     }
 
     function testInventoryWithdrawalRequiresPause() public {
-        (bool live,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.withdrawInventory,
-                (address(base), address(this), uint256(1))
-            )
-        );
+        (bool live,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.withdrawInventory, (address(base), address(this), uint256(1))
+                )
+            );
         require(!live, "live inventory withdrawal must fail");
 
         uint256 before = base.balanceOf(address(this));

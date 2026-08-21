@@ -93,12 +93,13 @@ contract ReentrantToken is StrictToken {
     {
         if (!attempted && address(target) != address(0)) {
             attempted = true;
-            (reentrySucceeded,) = address(target).call(
-                abi.encodeCall(
-                    SuwappuPropAMM.sellBaseExactIn,
-                    (uint96(1), uint256(0), quoteHash, address(this))
-                )
-            );
+            (reentrySucceeded,) = address(target)
+                .call(
+                    abi.encodeCall(
+                        SuwappuPropAMM.sellBaseExactIn,
+                        (uint96(1), uint256(0), quoteHash, address(this))
+                    )
+                );
         }
         uint256 allowed = allowance[from][msg.sender];
         require(allowed >= amount, "allowance");
@@ -126,12 +127,13 @@ contract SuwappuPropAMMAdversarialTest {
 
         SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 500, 500);
         pamm.applyQuote(q, _sign(pamm, q, SIGNER_KEY));
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(100), uint256(0), pamm.currentQuoteHash(), address(this))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn,
+                    (uint96(100), uint256(0), pamm.currentQuoteHash(), address(this))
+                )
+            );
         require(!ok, "fee-on-transfer input must fail");
         require(pamm.consumedBaseIn() == 0, "revert restores capacity");
     }
@@ -148,12 +150,13 @@ contract SuwappuPropAMMAdversarialTest {
         SuwappuPropAMM.Quote memory q = _quote(1, 0, bytes32(0), 500, 500);
         pamm.applyQuote(q, _sign(pamm, q, SIGNER_KEY));
         uint256 beforeBalance = quoteToken.balanceOf(address(this));
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.sellBaseExactIn,
-                (uint96(500), uint256(0), pamm.currentQuoteHash(), address(this))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.sellBaseExactIn,
+                    (uint96(500), uint256(0), pamm.currentQuoteHash(), address(this))
+                )
+            );
         require(!ok, "fee-on-transfer output must fail");
         require(quoteToken.balanceOf(address(this)) == beforeBalance, "output rollback");
         require(pamm.consumedBaseIn() == 0, "capacity rollback");
@@ -190,8 +193,7 @@ contract SuwappuPropAMMAdversarialTest {
         uint8 flippedV = v == 27 ? 28 : 27;
         bytes memory malleable = abi.encodePacked(r, highS, flippedV);
 
-        (bool ok,) =
-            address(pamm).call(abi.encodeCall(SuwappuPropAMM.applyQuote, (q, malleable)));
+        (bool ok,) = address(pamm).call(abi.encodeCall(SuwappuPropAMM.applyQuote, (q, malleable)));
         require(!ok, "high-s signature must fail");
     }
 
@@ -232,21 +234,24 @@ contract SuwappuPropAMMAdversarialTest {
         pamm.invalidateQuote();
 
         SuwappuPropAMM.Quote memory sameEpoch = _quote(7, 0, bytes32(0), 100, 100);
-        (bool ok,) = address(pamm).call(
-            abi.encodeCall(
-                SuwappuPropAMM.applyQuote,
-                (sameEpoch, _sign(pamm, sameEpoch, SIGNER_KEY))
-            )
-        );
+        (bool ok,) = address(pamm)
+            .call(
+                abi.encodeCall(
+                    SuwappuPropAMM.applyQuote, (sameEpoch, _sign(pamm, sameEpoch, SIGNER_KEY))
+                )
+            );
         require(!ok, "invalidated epoch must remain dead");
     }
 
     function testConstructorRejectsEOAToken() public {
         StrictToken quoteToken = new StrictToken();
         address signer = vm.addr(SIGNER_KEY);
-        (bool ok,) = address(this).call(
-            abi.encodeCall(this.deployWithTokens, (address(0xBEEF), address(quoteToken), signer))
-        );
+        (bool ok,) = address(this)
+            .call(
+                abi.encodeCall(
+                    this.deployWithTokens, (address(0xBEEF), address(quoteToken), signer)
+                )
+            );
         require(!ok, "EOA token must fail");
     }
 

@@ -73,7 +73,8 @@ pub fn optimize_funding(
         }
     }
     let aggregate = sources.iter().try_fold(0i128, |sum, source| {
-        sum.checked_add(source.capacity).ok_or(CapitalError::Overflow)
+        sum.checked_add(source.capacity)
+            .ok_or(CapitalError::Overflow)
     })?;
     if aggregate < amount {
         return Err(CapitalError::InsufficientCapacity);

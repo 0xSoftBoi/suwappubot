@@ -1,13 +1,9 @@
-use suwappu_execution_searcher::capital::{
-    optimize_funding, CapitalSource, CapitalSourceKind,
-};
+use suwappu_execution_searcher::capital::{optimize_funding, CapitalSource, CapitalSourceKind};
 use suwappu_execution_searcher::fair_value::{
     FairValueCoefficients, FairValueFeatures, FairValueHorizon, MultiHorizonFairValue,
 };
 use suwappu_execution_searcher::hedge::{decide_hedge, HedgeConfig, HedgeSide, HedgeState};
-use suwappu_execution_searcher::maker::{
-    admit_quote, MakerEdge, MakerHealth, MakerRiskPolicy,
-};
+use suwappu_execution_searcher::maker::{admit_quote, MakerEdge, MakerHealth, MakerRiskPolicy};
 use suwappu_execution_searcher::markout::{Horizon, Markout};
 use suwappu_execution_searcher::pamm::{
     control_quote, PammControllerConfig, PammMode, PammState, QuoteDecision,

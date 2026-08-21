@@ -124,33 +124,58 @@ pub fn control_quote(
         return Ok(QuoteDecision::Close);
     }
 
-    let inventory_skew_bps = scaled_signed(
-        state.inventory_ratio_bps,
-        config.inventory_skew_weight_bps,
-    )?
-    .clamp(
-        -(config.max_inventory_skew_bps as i32),
-        config.max_inventory_skew_bps as i32,
-    );
+    let inventory_skew_bps =
+        scaled_signed(state.inventory_ratio_bps, config.inventory_skew_weight_bps)?.clamp(
+            -(config.max_inventory_skew_bps as i32),
+            config.max_inventory_skew_bps as i32,
+        );
     let reservation_price = apply_signed_bps(state.fair_value, -inventory_skew_bps)?;
 
     let raw_half_spread = u128::from(config.base_half_spread_bps)
-        .checked_add(weighted(state.volatility_bps, config.volatility_weight_bps)?)
+        .checked_add(weighted(
+            state.volatility_bps,
+            config.volatility_weight_bps,
+        )?)
         .and_then(|value| {
-            value.checked_add(weighted(
-                u32::from(state.toxicity_probability_bps),
-                config.toxicity_weight_bps,
-            ).ok()?)
+            value.checked_add(
+                weighted(
+                    u32::from(state.toxicity_probability_bps),
+                    config.toxicity_weight_bps,
+                )
+                .ok()?,
+            )
         })
         .and_then(|value| {
-            value.checked_add(weighted(
-                u32::from(state.builder_uncertainty_bps),
-                config.builder_risk_weight_bps,
-            ).ok()?)
+            value.checked_add(
+                weighted(
+                    u32::from(state.builder_uncertainty_bps),
+                    config.builder_risk_weight_bps,
+                )
+                .ok()?,
+            )
         })
-        .and_then(|value| value.checked_add(weighted(state.hedge_impact_bps, config.hedge_impact_weight_bps).ok()?))
-        .and_then(|value| value.checked_add(weighted(state.inventory_ratio_bps.unsigned_abs(), config.inventory_spread_weight_bps).ok()?))
-        .and_then(|value| value.checked_add(weighted(u32::from(state.size_ratio_bps), config.size_linear_weight_bps).ok()?))
+        .and_then(|value| {
+            value
+                .checked_add(weighted(state.hedge_impact_bps, config.hedge_impact_weight_bps).ok()?)
+        })
+        .and_then(|value| {
+            value.checked_add(
+                weighted(
+                    state.inventory_ratio_bps.unsigned_abs(),
+                    config.inventory_spread_weight_bps,
+                )
+                .ok()?,
+            )
+        })
+        .and_then(|value| {
+            value.checked_add(
+                weighted(
+                    u32::from(state.size_ratio_bps),
+                    config.size_linear_weight_bps,
+                )
+                .ok()?,
+            )
+        })
         .and_then(|value| {
             let size = u128::from(state.size_ratio_bps);
             let squared = size.checked_mul(size)?.checked_div(BPS_SCALE as u128)?;
@@ -201,8 +226,10 @@ pub fn control_quote(
         if !force_refresh
             && price_change_bps(previous.bid, bid)? < config.min_quote_change_bps
             && price_change_bps(previous.ask, ask)? < config.min_quote_change_bps
-            && quantity_change_bps(previous.max_bid_quantity, max_bid_quantity)? < config.min_quote_change_bps
-            && quantity_change_bps(previous.max_ask_quantity, max_ask_quantity)? < config.min_quote_change_bps
+            && quantity_change_bps(previous.max_bid_quantity, max_bid_quantity)?
+                < config.min_quote_change_bps
+            && quantity_change_bps(previous.max_ask_quantity, max_ask_quantity)?
+                < config.min_quote_change_bps
         {
             return Ok(QuoteDecision::Keep);
         }
@@ -210,7 +237,10 @@ pub fn control_quote(
 
     let (sequence, previous_hash) = match previous.filter(|quote| quote.epoch == epoch) {
         Some(previous) => (
-            previous.sequence.checked_add(1).ok_or(PammError::Overflow)?,
+            previous
+                .sequence
+                .checked_add(1)
+                .ok_or(PammError::Overflow)?,
             previous.hash,
         ),
         None => (0, [0u8; 32]),
@@ -295,7 +325,11 @@ fn scaled_signed(value_bps: i32, weight_bps: u32) -> Result<i32, PammError> {
 
 fn apply_signed_bps(value: Fixed, adjustment_bps: i32) -> Result<Fixed, PammError> {
     value
-        .checked_mul(BPS_SCALE.checked_add(i128::from(adjustment_bps)).ok_or(PammError::Overflow)?)
+        .checked_mul(
+            BPS_SCALE
+                .checked_add(i128::from(adjustment_bps))
+                .ok_or(PammError::Overflow)?,
+        )
         .and_then(|value| value.checked_div(BPS_SCALE))
         .ok_or(PammError::Overflow)
 }
@@ -406,7 +440,8 @@ mod tests {
     #[test]
     fn protected_mode_widens_and_reduces_size() {
         let strict = quote(control_quote(config(), PammMode::Strict, 1, state(), None).unwrap());
-        let protected = quote(control_quote(config(), PammMode::Protected, 1, state(), None).unwrap());
+        let protected =
+            quote(control_quote(config(), PammMode::Protected, 1, state(), None).unwrap());
         assert!(protected.half_spread_bps > strict.half_spread_bps);
         assert!(protected.max_bid_quantity < strict.max_bid_quantity);
     }
@@ -428,7 +463,8 @@ mod tests {
         let first = quote(control_quote(config(), PammMode::Strict, 7, state(), None).unwrap());
         let mut next_state = state();
         next_state.now_ns = first.valid_until_ns - config().refresh_before_expiry_ns;
-        let second = quote(control_quote(config(), PammMode::Strict, 7, next_state, Some(&first)).unwrap());
+        let second =
+            quote(control_quote(config(), PammMode::Strict, 7, next_state, Some(&first)).unwrap());
         assert_eq!(second.sequence, first.sequence + 1);
         assert_eq!(second.previous_hash, first.hash);
         assert_eq!(second.hash, quote_hash(&second));
@@ -437,7 +473,8 @@ mod tests {
     #[test]
     fn new_epoch_resets_sequence_and_hash_parent() {
         let first = quote(control_quote(config(), PammMode::Strict, 7, state(), None).unwrap());
-        let second = quote(control_quote(config(), PammMode::Strict, 8, state(), Some(&first)).unwrap());
+        let second =
+            quote(control_quote(config(), PammMode::Strict, 8, state(), Some(&first)).unwrap());
         assert_eq!(second.sequence, 0);
         assert_eq!(second.previous_hash, [0u8; 32]);
     }

@@ -79,7 +79,8 @@ pub fn decide_hedge(
         let positive = u128::from(config.base_urgency_bps)
             .checked_add(weighted(utilization_bps, config.inventory_weight_bps)?)
             .and_then(|value| {
-                value.checked_add(weighted(state.volatility_bps, config.volatility_weight_bps).ok()?)
+                value
+                    .checked_add(weighted(state.volatility_bps, config.volatility_weight_bps).ok()?)
             })
             .ok_or(HedgeError::Overflow)?;
         let penalty = weighted(state.expected_impact_bps, config.impact_penalty_weight_bps)?

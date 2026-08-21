@@ -33,21 +33,13 @@ contract SuwappuPropAMM {
         uint64 validUntil
     );
     event QuoteInvalidated(
-        uint64 indexed epoch,
-        uint64 indexed sequence,
-        bytes32 indexed quoteHash
+        uint64 indexed epoch, uint64 indexed sequence, bytes32 indexed quoteHash
     );
     event BaseSold(
-        address indexed taker,
-        address indexed recipient,
-        uint96 baseIn,
-        uint256 quoteOut
+        address indexed taker, address indexed recipient, uint96 baseIn, uint256 quoteOut
     );
     event BaseBought(
-        address indexed taker,
-        address indexed recipient,
-        uint96 baseOut,
-        uint256 quoteIn
+        address indexed taker, address indexed recipient, uint96 baseOut, uint256 quoteIn
     );
     event InventoryWithdrawn(address indexed token, address indexed recipient, uint256 amount);
     event QuoteSignerUpdated(address indexed signer);
@@ -174,9 +166,8 @@ contract SuwappuPropAMM {
     }
 
     function domainSeparator() public view returns (bytes32) {
-        return block.chainid == INITIAL_CHAIN_ID
-            ? INITIAL_DOMAIN_SEPARATOR
-            : _computeDomainSeparator();
+        return
+            block.chainid == INITIAL_CHAIN_ID ? INITIAL_DOMAIN_SEPARATOR : _computeDomainSeparator();
     }
 
     function quoteStructHash(Quote calldata quote) public pure returns (bytes32) {
