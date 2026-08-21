@@ -3,10 +3,11 @@
 //! The dependency order is intentional:
 //! normalized events -> deterministic replay -> markouts/economics -> execution costs
 //! -> versioned venue graph -> deterministic route sizing -> builder dataset -> inclusion/bid model
-//! -> builder order-management lifecycle -> builder transport adapters.
+//! -> builder order-management lifecycle -> builder transport adapters -> policy evaluation.
 
 pub mod builder;
 pub mod builder_dataset;
+pub mod builder_eval;
 pub mod builder_model;
 pub mod cost;
 pub mod economics;
