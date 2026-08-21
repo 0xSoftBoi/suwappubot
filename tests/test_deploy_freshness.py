@@ -59,14 +59,24 @@ def test_expected_fingerprint_matches_a_direct_hash_of_the_same_ref():
         pytest.skip("not a git checkout")
     from_git = mod.expected_fingerprint("HEAD")
     listing = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", "HEAD"], cwd=REPO, capture_output=True, text=True, check=True
+        ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.splitlines()
     paths = sorted(
-        p for p in listing if p.endswith(".py") and p.split("/", 1)[0] in ("api", "bot", "database") and "__pycache__" not in p.split("/")
+        p
+        for p in listing
+        if p.endswith(".py")
+        and p.split("/", 1)[0] in ("api", "bot", "database")
+        and "__pycache__" not in p.split("/")
     )
     digest = hashlib.sha256()
     for p in paths:
-        blob = subprocess.run(["git", "show", f"HEAD:{p}"], cwd=REPO, capture_output=True, check=True).stdout
+        blob = subprocess.run(
+            ["git", "show", f"HEAD:{p}"], cwd=REPO, capture_output=True, check=True
+        ).stdout
         digest.update(p.encode())
         digest.update(blob)
     assert from_git == digest.hexdigest()[:12]
