@@ -133,8 +133,11 @@ The Python SDK is source-only today. Pin a commit for production instead of trac
 `main` blindly:
 
 ```bash
-pip install "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@main#subdirectory=packages/sdk-python"
+pip install "suwappu @ git+https://github.com/0xSoftBoi/suwappubot.git@<COMMIT_SHA>#subdirectory=packages/sdk-python"
 ```
+
+Replace `<COMMIT_SHA>` with a reviewed Suwappu commit and record that revision in your
+application lock/release metadata.
 
 See [`packages/sdk-python/README.md`](../packages/sdk-python/README.md) and
 [agent-clients.md](agent-clients.md) for the current API and custody split.
