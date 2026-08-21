@@ -57,8 +57,8 @@ jobs:
       - name: Mixed-yield unit, adapter and adversarial tests
         run: forge test --match-path 'test/MixYield*Test.t.sol' --no-match-path 'test/MixYieldMainnetFork.t.sol' -vvv
 
-      - name: Fork - Aave V3 USDC round trip
-        run: forge test --match-path 'test/MixYieldMainnetFork.t.sol' --match-test 'testFork_AaveV3SupplyWithdrawRoundTrip' --fork-url "$ETHEREUM_RPC_URL" -vvv
+      - name: Fork - Aave V3 USDC integration and utilization
+        run: forge test --match-path 'test/MixYieldMainnetFork.t.sol' --match-test 'testFork_Aave.*' --fork-url "$ETHEREUM_RPC_URL" -vvv
 
       - name: Fork - Morpho USDC round trip
         run: forge test --match-path 'test/MixYieldMainnetFork.t.sol' --match-test 'testFork_MorphoERC4626DepositWithdrawRoundTrip' --fork-url "$ETHEREUM_RPC_URL" -vvv
