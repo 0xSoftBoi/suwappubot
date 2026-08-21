@@ -4,17 +4,19 @@
 //! normalized events -> deterministic replay -> markouts/economics -> execution costs
 //! -> versioned venue graph -> deterministic route sizing -> builder dataset -> inclusion/bid model
 //! -> builder order-management lifecycle -> builder transport adapters -> policy evaluation
-//! -> shared fair value -> toxicity -> pAMM quote control.
+//! -> shared fair value -> toxicity -> pAMM quote control -> capital + hedge control.
 
 pub mod builder;
 pub mod builder_dataset;
 pub mod builder_eval;
 pub mod builder_model;
+pub mod capital;
 pub mod cost;
 pub mod economics;
 pub mod events;
 pub mod fair_value;
 pub mod graph;
+pub mod hedge;
 pub mod labels;
 pub mod markout;
 pub mod oms;
