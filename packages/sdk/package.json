@@ -5,6 +5,14 @@
     "access": "public",
     "provenance": true
   },
+  "suwappu": {
+    "supportStage": "active",
+    "compatibleApiMajors": [
+      "v1"
+    ],
+    "apiBasePath": "/v1/agent",
+    "compatibilityPolicy": "https://github.com/0xSoftBoi/suwappubot/blob/main/docs/sdk-support.md"
+  },
   "description": "TypeScript client for the Suwappu cross-chain DEX API",
   "homepage": "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk#readme",
   "repository": {
