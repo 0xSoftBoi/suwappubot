@@ -1,5 +1,6 @@
 name: Execution Searcher
 
+# Research-only gate: formatting, semantics, and gas evidence must pass before landing.
 on:
   pull_request:
     branches: [main, dev]
