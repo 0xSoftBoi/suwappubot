@@ -8,6 +8,7 @@
  * The wildcard scope '*' grants all access.
  */
 import type { Context, Next } from 'hono'
+import { documentationUrlForAgentError } from '../lib/agentError'
 
 export function requireScope(scope: string) {
 	return async (c: Context, next: Next) => {
@@ -20,7 +21,15 @@ export function requireScope(scope: string) {
 
 		const { scopes } = apiKeyCtx
 		if (!scopes.includes(scope) && !scopes.includes('*')) {
-			return c.json({ error: `Missing required scope: ${scope}` }, 403)
+			return c.json(
+				{
+					error: `Missing required scope: ${scope}`,
+					error_code: 'INSUFFICIENT_SCOPE',
+					required_scope: scope,
+					documentation_url: documentationUrlForAgentError('INSUFFICIENT_SCOPE'),
+				},
+				403,
+			)
 		}
 
 		return next()
