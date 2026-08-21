@@ -32,8 +32,8 @@ Use this page to avoid turning “code exists” into an incorrect production cl
 | Agent REST | **Hosted** | Explicit application API. Self-custody preparation and managed execution are separate endpoints. |
 | Hosted MCP | **Hosted** | Structured tools/resources/prompts. Discover the catalog at runtime. MCP `execute_swap` prepares an unsigned transaction; it is not managed execution. |
 | A2A | **Hosted** | Natural-language quote/price/discovery surface. No fund-moving execution method today. |
-| `@suwappu/sdk` | **Published + source** | TypeScript client. Monorepo source may be ahead of npm; check registry + package README before relying on a source-only API. |
-| `@suwappu/mcp-server` | **Published/source boundary** | Stdio bridge to hosted MCP. Prefer hosted MCP when package/source versions diverge. |
+| `@suwappu/sdk` | **Published + source** | TypeScript client. Monorepo source may be ahead of npm; check registry + package README before relying on source-only APIs. |
+| `@suwappu/mcp-server` | **Published + source** | Stdio bridge to hosted MCP. Prefer hosted MCP when registry/source versions diverge. |
 | Python SDK | **Source-only** | Pin a repository revision for production integration. |
 | `bot/services/execution_sync*.py` | **Shadow** | Calibration, receipts, historical/walk-forward replay and modeled counterfactual evidence. Production route selection remains authoritative. |
 | `contracts/primitives/` | **Experimental / readiness-gated** | Solidity protocol primitives with tests/readiness material. Repo presence is not deployment evidence. |
