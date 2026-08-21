@@ -17,6 +17,7 @@ detail lives in `docs/deployment/`; the working code is ground truth when docs d
 | `packages/shared` | TypeScript | Types shared by api-ts, webapp, mobile |
 | `packages/design-tokens` | TypeScript | Tokens, Tailwind preset, CSS vars, RN mapping |
 | `packages/sdk`, `packages/sdk-python`, `packages/openclaw` | TS / Python | Client SDKs kept in sync with the API |
+| Execution research (`execution/searcher/`) | Rust | Deterministic market-event replay, markouts, LVR/economic labels, and later pAMM/searcher route optimization. Isolated research subsystem; not a deployed service until explicitly promoted. |
 
 Deploy target is **Railway** (`main` → prod, `dev` → dev). The `infra/` AWS CDK tree is
 legacy and unused for app deploys.
