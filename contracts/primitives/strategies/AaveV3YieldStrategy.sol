@@ -6,6 +6,7 @@ import {ISuwappuYieldStrategy} from "../interfaces/ISuwappuYieldStrategy.sol";
 interface IAaveAsset {
     function balanceOf(address account) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
 }
 
 interface IAaveAToken {
@@ -18,9 +19,6 @@ interface IAaveV3Pool {
     function withdraw(address asset, uint256 amount, address to) external returns (uint256);
 }
 
-/// @title AaveV3YieldStrategy
-/// @notice Narrow Aave V3 supply adapter for Suwappu mixed-yield vaults.
-/// @dev No borrow, flash-loan, collateral toggling, arbitrary call, or reward-swap surface exists here.
 contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
     IAaveAsset public immutable underlying;
     IAaveAToken public immutable aToken;
@@ -32,6 +30,7 @@ contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
     error Unauthorized();
     error BadParams();
     error ApprovalFailed();
+    error TransferFailed();
     error SlippageExceeded();
     error AccountingMismatch();
 
@@ -56,30 +55,26 @@ contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
         return address(underlying);
     }
 
-    /// @notice Aave aToken balances are underlying-denominated and accrue supply interest.
     function totalAssets() public view override returns (uint256) {
-        return aToken.balanceOf(address(this));
+        return underlying.balanceOf(address(this)) + aToken.balanceOf(address(this));
     }
 
-    /// @notice Conservative synchronous liquidity bound.
-    /// @dev Aave reserve cash is held at the aToken address. We cap the strategy claim by that cash
-    ///      so ERC-4626 maxWithdraw does not assume the entire supplied position can always exit at once.
     function liquidAssets() external view override returns (uint256) {
-        uint256 claim = totalAssets();
+        uint256 idle = underlying.balanceOf(address(this));
+        uint256 claim = aToken.balanceOf(address(this));
         uint256 reserveCash = underlying.balanceOf(address(aToken));
-        return claim < reserveCash ? claim : reserveCash;
+        return idle + (claim < reserveCash ? claim : reserveCash);
     }
 
     function deposit(uint256 assets, bytes calldata) external override onlyVault returns (uint256 deployed) {
         if (assets == 0 || underlying.balanceOf(address(this)) < assets) revert AccountingMismatch();
-        uint256 beforeClaim = totalAssets();
+        uint256 beforeAssets = totalAssets();
         _forceApprove(address(pool), assets);
         pool.supply(address(underlying), assets, address(this), 0);
         _forceApprove(address(pool), 0);
-        uint256 afterClaim = totalAssets();
-        if (afterClaim < beforeClaim) revert AccountingMismatch();
-        deployed = afterClaim - beforeClaim;
-        if (deployed > assets) deployed = assets;
+        uint256 afterAssets = totalAssets();
+        if (afterAssets < beforeAssets) revert AccountingMismatch();
+        deployed = assets;
     }
 
     function withdraw(uint256 assets, uint256 minAssetsOut, bytes calldata)
@@ -89,7 +84,11 @@ contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
         returns (uint256 assetsOut)
     {
         uint256 beforeBal = underlying.balanceOf(vault);
-        pool.withdraw(address(underlying), assets, vault);
+        uint256 idle = underlying.balanceOf(address(this));
+        uint256 fromIdle = idle < assets ? idle : assets;
+        if (fromIdle != 0 && !underlying.transfer(vault, fromIdle)) revert TransferFailed();
+        uint256 remaining = assets - fromIdle;
+        if (remaining != 0) pool.withdraw(address(underlying), remaining, vault);
         uint256 afterBal = underlying.balanceOf(vault);
         if (afterBal < beforeBal) revert AccountingMismatch();
         assetsOut = afterBal - beforeBal;
@@ -103,7 +102,11 @@ contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
         returns (uint256 assetsOut)
     {
         uint256 beforeBal = underlying.balanceOf(vault);
-        pool.withdraw(address(underlying), type(uint256).max, vault);
+        uint256 idle = underlying.balanceOf(address(this));
+        if (idle != 0 && !underlying.transfer(vault, idle)) revert TransferFailed();
+        if (aToken.balanceOf(address(this)) != 0) {
+            pool.withdraw(address(underlying), type(uint256).max, vault);
+        }
         uint256 afterBal = underlying.balanceOf(vault);
         if (afterBal < beforeBal) revert AccountingMismatch();
         assetsOut = afterBal - beforeBal;
