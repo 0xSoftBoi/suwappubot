@@ -3,6 +3,7 @@ import { Effect, Option } from 'effect'
 import { Hono } from 'hono'
 import { logger } from '../lib/logger'
 import packageJson from '../../package.json'
+import developerContract from '../../developer-contract.json'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
@@ -16,6 +17,13 @@ const healthRoutes = new Hono()
 // wallet and internal-service middleware. The sandbox module itself has a tested
 // no-production-dependencies boundary. See #874.
 healthRoutes.route('/v1/sandbox', sandboxRoutes)
+
+// Public machine-readable developer contract. This is the same file CI validates;
+// serving it directly avoids another hand-maintained API/SDK/sandbox metadata copy.
+healthRoutes.get('/v1/developer-contract', (c) => {
+	c.header('Cache-Control', 'public, max-age=300')
+	return c.json(developerContract)
+})
 
 let cachedDbStatus: { status: string; checkedAt: number } | null = null
 const DB_HEALTH_TTL = 30_000
