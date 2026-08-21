@@ -12,10 +12,9 @@ interface IERC20Fork {
     function decimals() external view returns (uint8);
 }
 
-/// @notice Fixed-block Ethereum integration tests against live deployed protocols.
-/// @dev CI forks block 25,475,347 so behavior is reproducible. Addresses are protocol deployments,
-///      not mocks. USDC and Aave addresses are Ethereum mainnet; the Morpho target is the V1 USDC
-///      vault used by Morpho's own API documentation examples.
+/// @notice Ethereum live-head integration tests against deployed protocols.
+/// @dev These are intentionally run against current mainnet state in CI. A historical archive RPC can
+///      additionally pin replay blocks later; protocol fixture assertions make migrations fail loudly.
 contract MixYieldMainnetForkTest is Test {
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant AAVE_V3_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
@@ -66,9 +65,9 @@ contract MixYieldMainnetForkTest is Test {
         vm.prank(allocator);
         vault.allocate(address(strategy), 600_000e6, "");
 
-        assertApproxEqAbs(strategy.totalAssets(), 600_000e6, 2, "aUSDC claim");
+        assertApproxEqAbs(strategy.totalAssets(), 600_000e6, 1, "aUSDC supply rounding");
         assertGt(strategy.liquidAssets(), 0, "Aave reserve should expose cash");
-        assertEq(vault.totalAssets(), 1_000_000e6);
+        assertApproxEqAbs(vault.totalAssets(), 1_000_000e6, 1, "Aave rounding must hit NAV");
 
         uint256 aliceBefore = IERC20Fork(USDC).balanceOf(alice);
         vm.prank(allocator);
@@ -84,7 +83,6 @@ contract MixYieldMainnetForkTest is Test {
 
     function testFork_MorphoERC4626DepositWithdrawRoundTrip() public {
         assertEq(block.chainid, 1, "ethereum fork required");
-
         assertEq(IERC4626Target(MORPHO_USDC_VAULT).asset(), USDC, "Morpho fixture asset changed");
 
         SuwappuMixYieldVault vault = _newVault();
