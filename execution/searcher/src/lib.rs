@@ -3,7 +3,7 @@
 //! The dependency order is intentional:
 //! normalized events -> deterministic replay -> markouts/economics -> execution costs
 //! -> versioned venue graph -> deterministic route sizing -> builder dataset -> inclusion/bid model
-//! -> builder order-management lifecycle.
+//! -> builder order-management lifecycle -> builder transport adapters.
 
 pub mod builder;
 pub mod builder_dataset;
@@ -16,6 +16,7 @@ pub mod markout;
 pub mod oms;
 pub mod replay;
 pub mod sizing;
+pub mod titan_rpc;
 
 pub const FIXED_SCALE: i128 = 1_000_000_000;
 pub const BPS_SCALE: i128 = 10_000;
