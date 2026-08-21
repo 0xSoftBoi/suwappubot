@@ -45,7 +45,11 @@ def test_reverted_without_reason_does_not_count_as_endpoint_failure():
 def test_generic_rpc_error_still_counts_as_endpoint_failure():
     manager, endpoint, url = _manager_with_endpoint()
 
-    manager.report_failure("ethereum", url, "rpc_error: {'code': -32000, 'message': 'upstream unavailable'}")
+    manager.report_failure(
+        "ethereum",
+        url,
+        "rpc_error: {'code': -32000, 'message': 'upstream unavailable'}",
+    )
 
     assert endpoint.total_requests == 1
     assert endpoint.consecutive_failures == 1
