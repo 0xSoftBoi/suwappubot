@@ -6,8 +6,8 @@ migration plan, and source directories are no longer a reliable proxy for deploy
 services.
 
 **Snapshot verified against the Railway production environment on 2026-08-21.** Service
-membership and health are operational state and can change independently of this file;
-use Railway itself for the live answer during an incident.
+membership, source revisions, and health are operational state and can change
+independently of this file; use Railway itself for the live answer during an incident.
 
 ## Production runtime
 
@@ -47,6 +47,25 @@ At the time of the 2026-08-21 verification, Railway reported a successful latest
 production deployment for each service above. **Do not encode that health result into
 automation or assume it remains true later.**
 
+## Source-branch exceptions
+
+Production provenance is part of the runtime contract. A service name ending in `-prod`
+does not prove it is sourced from `main`.
+
+At the 2026-08-21 snapshot:
+
+- `python-worker` is connected to `0xSoftBoi/suwappubot` on `main`.
+- `signal-lab-prod` is connected to `0xSoftBoi/suwappubot` on
+  `feat/pump-onchain-ingest` and starts `python /app/signal_lab.py` from
+  `ingest/Dockerfile`.
+- `pump-onchain-ingest-prod` is connected to the same
+  `feat/pump-onchain-ingest` branch and starts the live pump ingestion/research signer
+  processes from `ingest/Dockerfile`.
+
+Treat the two feature-branch production sources as explicit operational exceptions until
+they are intentionally promoted, pinned, or retired. Do not silently rewrite this file
+to say `main` unless Railway source configuration has actually changed.
+
 ## Environments
 
 The Railway project currently has:
@@ -62,7 +81,8 @@ environments. Always scope operational checks to the environment you are investi
 | Question | Source of truth |
 |---|---|
 | What services exist right now? | Railway project/environment service inventory |
-| What commit/config builds a service? | Service source + committed Railway/Docker config |
+| What branch/revision builds a service? | Railway service source configuration |
+| What build/start config does it use? | Railway service config + committed Docker/Railway config |
 | What URLs/domains point at it? | Railway networking/domain configuration |
 | What variables are required by code? | `.env.schema` + `capabilities.yaml` |
 | What variables are actually set? | Railway environment/service variables — never copy secrets into docs |
@@ -84,14 +104,16 @@ current inventory; the long migration runbook should not be used as a service ca
 
 1. **Do not infer deployment from directory names.** A source directory can be unused,
    shared by multiple services, or deployed under a different service name.
-2. **Do not put secret values in docs.** Document variable names/contracts only.
-3. **Separate request serving from background health.** A healthy API does not prove a
+2. **Do not infer provenance from a service name.** Verify branch/revision before a
+   release, incident, or rollback.
+3. **Do not put secret values in docs.** Document variable names/contracts only.
+4. **Separate request serving from background health.** A healthy API does not prove a
    worker, relayer, or ingestion pipeline is healthy.
-4. **Check dependencies during incidents.** Postgres/Redis and upstream RPC/provider
+5. **Check dependencies during incidents.** Postgres/Redis and upstream RPC/provider
    failures can make application replicas look healthy while user workflows fail.
-5. **Update this catalog when adding/removing a production service.** The change should
+6. **Update this catalog when adding/removing a production service.** The change should
    land with the service/config change, not weeks later.
-6. **Keep historical migration notes labeled as history.** They are useful evidence but
+7. **Keep historical migration notes labeled as history.** They are useful evidence but
    should never masquerade as the current runtime.
 
 See also: [Monitoring](monitoring.md) · [Railway runbook](railway.md) ·
