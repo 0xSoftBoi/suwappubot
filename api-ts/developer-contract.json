@@ -6,6 +6,7 @@
     "openapiRevision": "0.5.0",
     "lifecycle": "ga",
     "discovery": {
+      "developerContract": "GET /v1/developer-contract",
       "chains": "GET /v1/agent/chains",
       "openapi": "GET /v1/agent/openapi"
     }
