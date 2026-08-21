@@ -48,7 +48,7 @@ jobs:
         run: cargo test --all-targets
 
   executor-gas:
-    name: Generic executor gas baseline
+    name: Executor semantic + gas comparison
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -63,7 +63,7 @@ jobs:
         run: forge fmt --check
       - name: Build
         run: forge build --sizes
-      - name: Test and gas report
+      - name: Differential tests and gas report
         run: |
           set -o pipefail
           forge test -vv --gas-report | tee gas-report.txt
