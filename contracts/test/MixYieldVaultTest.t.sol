@@ -230,7 +230,7 @@ contract MixYieldVaultTest is Test {
         vault.executeStrategyConfig(address(fresh));
         vm.warp(block.timestamp + 1 hours);
         vault.executeStrategyConfig(address(fresh));
-        (bool enabled,,,,) = vault.strategyConfig(address(fresh));
+        (bool enabled,,,,,) = vault.strategyConfig(address(fresh));
         assertTrue(enabled);
     }
 
