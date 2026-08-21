@@ -1,5 +1,7 @@
 use crate::events::{BlockNumber, Fixed, Side, TimestampNs};
-use crate::markout::{label_markout, FairValuePoint, Horizon, Markout, MarkoutError, SamplingPolicy};
+use crate::markout::{
+    label_markout, FairValuePoint, Horizon, Markout, MarkoutError, SamplingPolicy,
+};
 
 pub const NS_PER_MS: u64 = 1_000_000;
 pub const NS_PER_SECOND: u64 = 1_000_000_000;
