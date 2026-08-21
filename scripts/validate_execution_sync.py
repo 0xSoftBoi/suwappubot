@@ -87,6 +87,7 @@ def _route(
     gas: float = 0.0,
     fee: float = 0.0,
     duration: int = 20,
+    observed_usd: float | None = None,
 ):
     return SimpleNamespace(
         quote_id=quote_id,
@@ -102,6 +103,7 @@ def _route(
         quoted_duration_s=duration,
         was_selected=selected,
         created_at=datetime(2026, 8, 20, 14, 0, tzinfo=timezone.utc),
+        observed_to_amount_usd=observed_usd if selected else None,
     )
 
 
@@ -190,14 +192,22 @@ def main() -> None:
     ]
     calibrations = replay.build_calibrations(replay_history)
     race_rows = [
-        _route("q-1", "lifi", 1000.0, selected=True, gas=2.0, fee=0.5, duration=40),
+        _route(
+            "q-1", "lifi", 1000.0, selected=True, gas=2.0, fee=0.5,
+            duration=40, observed_usd=997.5,
+        ),
         _route("q-1", "across", 999.5, selected=False, gas=0.2, fee=0.0, duration=12),
     ]
     replayed = replay.replay_race(race_rows, calibrations, min_provider_evidence=20)
     assert replayed.modeled is True
     assert replayed.eligible_candidate_count == 2
     assert replayed.shadow_provider == "across"
+    assert replayed.production_observed_output_usd == 997.5
+    assert replayed.production_modeled_output_usd is not None
     assert replayed.modeled_delta_usd is not None
+    # The replay delta must use modeled production, not the observed fill.
+    expected_delta = replayed.shadow_modeled_output_usd - replayed.production_modeled_output_usd
+    assert abs(replayed.modeled_delta_usd - expected_delta) < 1e-9
 
     # Evidence gate: a provider with only a handful of observations must not
     # become a seemingly precise historical counterfactual.
@@ -221,7 +231,8 @@ def main() -> None:
     summary = replay.summarize_replay([replayed, thin_race], calibrations)
     payload = summary.to_dict()
     assert payload["modeled"] is True
-    assert "counterfactual" in payload["caveat"]
+    assert "not executed" in payload["caveat"]
+    assert summary.observed_production_fill_races == 1
     assert summary.races == 2
 
     print("execution-sync validation: PASS")
