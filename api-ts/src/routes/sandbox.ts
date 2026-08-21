@@ -1,5 +1,5 @@
-import { createHash, createHmac } from 'node:crypto'
-import { Hono } from 'hono'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { Hono, type Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 
 /**
@@ -113,7 +113,7 @@ const SCENARIOS: Record<
 	},
 }
 
-function setSandboxHeaders(c: Parameters<(typeof sandboxRoutes)['get']>[1] extends never ? never : any) {
+function setSandboxHeaders(c: Context) {
 	c.header('X-Suwappu-Environment', 'sandbox')
 	c.header('Cache-Control', 'no-store')
 }
@@ -130,7 +130,7 @@ function canonicalFingerprint(input: SandboxIntent): string {
 }
 
 function operationIdFor(fingerprint: string, idempotencyKey?: string): string {
-	const seed = `${idempotencyKey ?? crypto.randomUUID()}|${fingerprint}`
+	const seed = `${idempotencyKey ?? randomUUID()}|${fingerprint}`
 	return `sbx_${createHash('sha256').update(seed).digest('hex').slice(0, 24)}`
 }
 
@@ -305,14 +305,14 @@ sandboxRoutes.get('/operations/:id', (c) => {
 	const operation = operations.get(c.req.param('id'))
 	if (!operation) {
 		return c.json(
-		{
-			environment: 'sandbox',
-			error_code: 'NOT_FOUND',
-			detail: 'Sandbox operation not found or expired.',
-			real_funds: false,
-			broadcast: false,
-		},
-		404,
+			{
+				environment: 'sandbox',
+				error_code: 'NOT_FOUND',
+				detail: 'Sandbox operation not found or expired.',
+				real_funds: false,
+				broadcast: false,
+			},
+			404,
 		)
 	}
 	return c.json({ ...operation.body, inspected: true })
@@ -327,13 +327,13 @@ sandboxRoutes.post('/operations/:id/resolve', async (c) => {
 	}
 	if (operation.body.outcome !== 'unknown') {
 		return c.json(
-		{
-			environment: 'sandbox',
-			error_code: 'VALIDATION_ERROR',
-			detail: 'Only unknown-outcome simulations can be manually resolved.',
-			operation_id: operation.id,
-		},
-		409,
+			{
+				environment: 'sandbox',
+				error_code: 'VALIDATION_ERROR',
+				detail: 'Only unknown-outcome simulations can be manually resolved.',
+				operation_id: operation.id,
+			},
+			409,
 		)
 	}
 
@@ -345,12 +345,12 @@ sandboxRoutes.post('/operations/:id/resolve', async (c) => {
 	}
 	if (requested.resolution !== 'simulated_success' && requested.resolution !== 'simulated_failure') {
 		return c.json(
-		{
-			environment: 'sandbox',
-			error_code: 'VALIDATION_ERROR',
-			detail: 'resolution must be simulated_success or simulated_failure',
-		},
-		400,
+			{
+				environment: 'sandbox',
+				error_code: 'VALIDATION_ERROR',
+				detail: 'resolution must be simulated_success or simulated_failure',
+			},
+			400,
 		)
 	}
 
@@ -422,12 +422,12 @@ sandboxRoutes.post('/clock/advance', async (c) => {
 	const seconds = input.seconds ?? 3600
 	if (!Number.isFinite(base.getTime()) || !Number.isFinite(seconds) || seconds < 0 || seconds > 31 * 24 * 60 * 60) {
 		return c.json(
-		{
-			environment: 'sandbox',
-			error_code: 'VALIDATION_ERROR',
-			detail: 'Provide a valid ISO timestamp and seconds between 0 and 2678400 (31 days).',
-		},
-		400,
+			{
+				environment: 'sandbox',
+				error_code: 'VALIDATION_ERROR',
+				detail: 'Provide a valid ISO timestamp and seconds between 0 and 2678400 (31 days).',
+			},
+			400,
 		)
 	}
 	const advanced = new Date(base.getTime() + seconds * 1000)
