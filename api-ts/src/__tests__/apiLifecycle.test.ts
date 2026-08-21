@@ -33,6 +33,20 @@ describe('API lifecycle contract', () => {
 		expect(body.broadcast).toBe(false)
 	})
 
+	it('publishes matching OpenAPI lifecycle metadata for the fixture', async () => {
+		const res = await app().request('/v1/sandbox/openapi')
+		expect(res.status).toBe(200)
+		const body = (await res.json()) as Record<string, any>
+		const operation = body.paths['/deprecated-fixture'].get
+		const record = API_LIFECYCLE_REGISTRY.resources['sandbox.deprecation-fixture']
+		expect(operation.deprecated).toBe(true)
+		expect(operation['x-suwappu-lifecycle']).toBe('deprecated')
+		expect(operation['x-suwappu-deprecation-at']).toBe(record.deprecationAt)
+		expect(operation['x-suwappu-sunset-at']).toBe(record.sunsetAt)
+		expect(operation['x-suwappu-deprecation-docs']).toBe(record.documentationUrl)
+		expect(operation['x-suwappu-replacement']).toBe('/v1/sandbox')
+	})
+
 	it('publishes the lifecycle registry for machine discovery', async () => {
 		const res = await app().request('/v1/api-lifecycle')
 		expect(res.status).toBe(200)
@@ -40,6 +54,23 @@ describe('API lifecycle contract', () => {
 		expect(body.standards.deprecation).toBe('RFC 9745')
 		expect(body.standards.sunset).toBe('RFC 8594')
 		expect(body.resources['sandbox.deprecation-fixture'].status).toBe('deprecated')
+	})
+
+	it('publishes categorized API changes as JSON and Atom', async () => {
+		const json = await app().request('/v1/api-changelog')
+		expect(json.status).toBe(200)
+		const body = (await json.json()) as Record<string, any>
+		expect(body.categories).toEqual(['Breaking', 'Deprecated', 'Security', 'Added', 'Changed', 'Fixed'])
+		expect(body.entries[0].category).toBe('Deprecated')
+		expect(body.entries[0].affected).toContain('GET /v1/sandbox/deprecated-fixture')
+
+		const atom = await app().request('/v1/api-changelog.atom')
+		expect(atom.status).toBe(200)
+		expect(atom.headers.get('Content-Type')).toContain('application/atom+xml')
+		const xml = await atom.text()
+		expect(xml).toContain('<feed xmlns="http://www.w3.org/2005/Atom">')
+		expect(xml).toContain('[Deprecated] Sandbox deprecation lifecycle fixture')
+		expect(xml).toContain('2026-08-21-sandbox-deprecation-fixture')
 	})
 
 	it('serves normalized OpenAPI with no stale chain count or unverified devapi server', async () => {
