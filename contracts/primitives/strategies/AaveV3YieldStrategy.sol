@@ -20,6 +20,8 @@ interface IAaveV3Pool {
 }
 
 contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
+    uint256 internal constant MAX_SUPPLY_ROUNDING_LOSS = 1;
+
     IAaveAsset public immutable underlying;
     IAaveAToken public immutable aToken;
     IAaveV3Pool public immutable pool;
@@ -73,8 +75,18 @@ contract AaveV3YieldStrategy is ISuwappuYieldStrategy {
         pool.supply(address(underlying), assets, address(this), 0);
         _forceApprove(address(pool), 0);
         uint256 afterAssets = totalAssets();
-        if (afterAssets < beforeAssets) revert AccountingMismatch();
-        deployed = assets;
+
+        // Aave's scaled-balance conversion can round a supply down by one unit of the
+        // underlying token. Treat exactly that protocol rounding as realized loss and
+        // let the parent vault's immediate-loss sync account for it. Anything larger
+        // is unexpected and remains a hard failure.
+        if (afterAssets < beforeAssets) {
+            uint256 loss = beforeAssets - afterAssets;
+            if (loss > MAX_SUPPLY_ROUNDING_LOSS) revert AccountingMismatch();
+            deployed = assets - loss;
+        } else {
+            deployed = assets;
+        }
     }
 
     function withdraw(uint256 assets, uint256 minAssetsOut, bytes calldata)
