@@ -3,17 +3,20 @@ import { Effect, Option } from 'effect'
 import { Hono } from 'hono'
 import { logger } from '../lib/logger'
 import packageJson from '../../package.json'
-import developerContract from '../../developer-contract.json'
-import { API_LIFECYCLE_REGISTRY } from '../lib/apiLifecycle'
-import { PUBLIC_AGENT_OPENAPI } from '../lib/publicOpenApi'
 import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
 import { sourceFingerprint } from '../lib/sourceFingerprint'
+import { apiContractRoutes } from './apiContract'
 import { lifecycleFixtureRoutes } from './lifecycleFixture'
 import { sandboxRoutes } from './sandbox'
 
 const healthRoutes = new Hono()
+
+// Public developer-contract/OpenAPI/lifecycle/changelog discovery. Kept in a
+// dedicated router so developer-platform work cannot accidentally mutate health,
+// token, or other unrelated public behavior.
+healthRoutes.route('/', apiContractRoutes)
 
 // Public deterministic contract sandbox. This route is mounted through the root
 // public route group so it can remain isolated from agent auth, billing, provider,
@@ -21,29 +24,6 @@ const healthRoutes = new Hono()
 // no-production-dependencies boundary. See #874.
 healthRoutes.route('/v1/sandbox', sandboxRoutes)
 healthRoutes.route('/v1/sandbox', lifecycleFixtureRoutes)
-
-// Serve the normalized contract BEFORE the legacy /v1/agent router mount in
-// createApp(). The checked-in JSON is a prose/schema template; this served form
-// derives version, server authority, lifecycle metadata and discovery links from
-// machine-readable contracts so stale template copy cannot become public truth.
-healthRoutes.get('/v1/agent/openapi', (c) => {
-	c.header('Cache-Control', 'public, max-age=300')
-	return c.json(PUBLIC_AGENT_OPENAPI)
-})
-
-// Public machine-readable developer contract. This is the same file CI validates;
-// serving it directly avoids another hand-maintained API/SDK/sandbox metadata copy.
-healthRoutes.get('/v1/developer-contract', (c) => {
-	c.header('Cache-Control', 'public, max-age=300')
-	return c.json(developerContract)
-})
-
-// Public machine-readable lifecycle registry. Deprecated/sunset resources are
-// declared once here and consumed by both runtime header middleware and CI.
-healthRoutes.get('/v1/api-lifecycle', (c) => {
-	c.header('Cache-Control', 'public, max-age=300')
-	return c.json(API_LIFECYCLE_REGISTRY)
-})
 
 let cachedDbStatus: { status: string; checkedAt: number } | null = null
 const DB_HEALTH_TTL = 30_000
