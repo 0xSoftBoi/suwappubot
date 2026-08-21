@@ -7,6 +7,7 @@ on:
     paths:
       - "execution/searcher/**"
       - "execution/executor-bench/**"
+      - "execution/pamm-contract/**"
       - ".github/workflows/execution-searcher.yml"
   push:
     branches:
@@ -16,6 +17,7 @@ on:
     paths:
       - "execution/searcher/**"
       - "execution/executor-bench/**"
+      - "execution/pamm-contract/**"
       - ".github/workflows/execution-searcher.yml"
 
 concurrency:
@@ -27,7 +29,7 @@ permissions:
 
 jobs:
   rust:
-    name: Deterministic measurement engine
+    name: Deterministic measurement + control engine
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -73,4 +75,31 @@ jobs:
         with:
           name: executor-gas-report
           path: execution/executor-bench/gas-report.txt
+          if-no-files-found: error
+
+  pamm-contract:
+    name: Signed PropAMM contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: execution/pamm-contract
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Format
+        run: forge fmt --check
+      - name: Build
+        run: forge build --sizes
+      - name: Quote sequencing + fill tests
+        run: |
+          set -o pipefail
+          forge test -vv --gas-report | tee pamm-gas-report.txt
+      - name: Upload pAMM gas report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pamm-gas-report
+          path: execution/pamm-contract/pamm-gas-report.txt
           if-no-files-found: error
