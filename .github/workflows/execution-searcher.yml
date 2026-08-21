@@ -1,0 +1,76 @@
+name: Execution Searcher
+
+# Research-only gate: formatting, semantics, and gas evidence must pass before landing.
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "execution/searcher/**"
+      - "execution/executor-bench/**"
+      - ".github/workflows/execution-searcher.yml"
+  push:
+    branches:
+      - main
+      - dev
+      - "execution/**"
+    paths:
+      - "execution/searcher/**"
+      - "execution/executor-bench/**"
+      - ".github/workflows/execution-searcher.yml"
+
+concurrency:
+  group: execution-searcher-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Deterministic measurement engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: execution/searcher
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: execution/searcher
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all-targets
+
+  executor-gas:
+    name: Executor semantic + gas comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: execution/executor-bench
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Format
+        run: forge fmt --check
+      - name: Build
+        run: forge build --sizes
+      - name: Differential tests and gas report
+        run: |
+          set -o pipefail
+          forge test -vv --gas-report | tee gas-report.txt
+      - name: Upload gas report
+        uses: actions/upload-artifact@v4
+        with:
+          name: executor-gas-report
+          path: execution/executor-bench/gas-report.txt
+          if-no-files-found: error
