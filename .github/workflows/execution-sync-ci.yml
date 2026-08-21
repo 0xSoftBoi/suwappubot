@@ -1,0 +1,44 @@
+name: Execution Sync CI
+
+on:
+  pull_request:
+    paths:
+      - 'bot/services/execution_sync*.py'
+      - 'scripts/validate_execution_sync.py'
+      - 'scripts/validate_execution_sync_walkforward.py'
+      - 'scripts/replay_execution_sync.py'
+      - '.github/workflows/execution-sync-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Parse execution-sync Python
+        run: |
+          python -m py_compile \
+            bot/services/execution_sync.py \
+            bot/services/execution_sync_receipt.py \
+            bot/services/execution_sync_calibration.py \
+            bot/services/execution_sync_replay.py \
+            bot/services/execution_sync_walkforward.py \
+            scripts/validate_execution_sync.py \
+            scripts/validate_execution_sync_walkforward.py \
+            scripts/replay_execution_sync.py
+
+      - name: Validate optimizer, receipts, calibration, and replay
+        run: python scripts/validate_execution_sync.py
+
+      - name: Validate walk-forward replay
+        run: python scripts/validate_execution_sync_walkforward.py
