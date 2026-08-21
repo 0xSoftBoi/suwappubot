@@ -1,0 +1,55 @@
+name: Solidity Contracts
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contracts.yml"
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  foundry:
+    name: Foundry build, tests & invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Forge version
+        run: forge --version
+
+      - name: Format check
+        run: forge fmt --check
+
+      - name: Compile contracts
+        run: forge build --sizes
+
+      - name: Unit and fuzz tests
+        run: forge test -vvv
+
+      - name: Primitive invariant stress run
+        env:
+          FOUNDRY_INVARIANT_RUNS: "512"
+          FOUNDRY_INVARIANT_DEPTH: "64"
+        run: forge test --match-path 'test/*Invariant*.t.sol' -vv
