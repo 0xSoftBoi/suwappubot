@@ -2,9 +2,10 @@
 //!
 //! The dependency order is intentional:
 //! normalized events -> deterministic replay -> markouts/economics -> execution costs
-//! -> versioned venue graph -> deterministic route sizing.
+//! -> versioned venue graph -> deterministic route sizing -> builder inclusion/bid model.
 
 pub mod builder;
+pub mod builder_model;
 pub mod cost;
 pub mod economics;
 pub mod events;
