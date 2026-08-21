@@ -48,7 +48,10 @@ def _latency_seconds(created_at: Any, completed_at: Any) -> Optional[float]:
     return max(0.0, (end - start).total_seconds())
 
 
-def execution_welfare_bps(realized_output: Optional[float], baseline_output: Optional[float]) -> Optional[float]:
+def execution_welfare_bps(
+    realized_output: Optional[float], baseline_output: Optional[float]
+) -> Optional[float]:
+    """Realized improvement vs a contemporaneous comparable baseline."""
     if realized_output is None or baseline_output is None or baseline_output <= 0:
         return None
     return ((realized_output / baseline_output) - 1.0) * 10_000.0
@@ -60,10 +63,21 @@ def receipt_from_swap_transaction(
     realized_output: Optional[float] = None,
     baseline_output: Optional[float] = None,
 ) -> ExecutionReceipt:
-    """Build terminal telemetry without treating quote-time output as realized."""
+    """Normalize persisted execution evidence into an auditable receipt.
+
+    `to_amount_usd` is quote-time expected output. `realized_to_amount_usd` is
+    the post-settlement observation populated by providers that can report the
+    destination fill. Never substitute the quote for a missing realized value.
+    """
     quoted_output = getattr(tx, "to_amount_usd", None)
     if quoted_output is not None:
         quoted_output = float(quoted_output)
+
+    if realized_output is None:
+        observed = getattr(tx, "realized_to_amount_usd", None)
+        if observed is not None:
+            realized_output = float(observed)
+
     created_at = getattr(tx, "created_at", None)
     completed_at = getattr(tx, "completed_at", None)
     return ExecutionReceipt(
