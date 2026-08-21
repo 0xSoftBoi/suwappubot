@@ -3,10 +3,10 @@ set -e
 MODE=${1:-all}
 
 case "$MODE" in
-  all|python|api|agent|env|health|onchain|docs) ;;
+  all|python|api|agent|env|health|onchain|docs|deployed) ;;
   *)
     echo "✗ Unknown verify lane: '$MODE'" >&2
-    echo "  Valid lanes: all python api agent env health onchain docs" >&2
+    echo "  Valid lanes: all python api agent env health onchain docs deployed" >&2
     exit 2
     ;;
 esac
@@ -80,6 +80,15 @@ if [[ "$MODE" == "onchain" ]]; then
   echo "=== On-chain constants ==="
   python3.12 scripts/verify_onchain_constants.py
   echo "✓ On-chain constants verified"
+fi
+
+# Opt-in, not part of "all": this probes deployed services, so it can fail for
+# a healthy branch that simply has not shipped yet. Run after a deploy to answer
+# "is the expected code actually live?" rather than relying on build status alone.
+if [[ "$MODE" == "deployed" ]]; then
+  echo "=== Deployed code matches main ==="
+  python3 scripts/check_deploy_freshness.py --ref origin/main
+  echo "✓ Deployed fingerprints match main"
 fi
 
 echo "All checks passed ✓"
