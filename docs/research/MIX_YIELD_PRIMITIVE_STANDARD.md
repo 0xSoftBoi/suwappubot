@@ -122,11 +122,11 @@ CI currently runs the stateful invariant suite with 512 runs and depth 64.
 
 ## Live-protocol validation
 
-The current Ethereum fork suite covers:
+The current Ethereum fork suite covers live deployed contracts for:
 
-- Aave V3 USDC supply, deallocation, and user withdrawal;
+- Aave V3 Ethereum USDC supply, deallocation, and user withdrawal;
 - Aave reserve-cash utilization stress after a real supply;
-- production Morpho USDC ERC-4626 deposit and withdrawal;
+- a production Morpho USDC ERC-4626 vault deposit and withdrawal;
 - portfolio withdrawal bounds derived from the Morpho target's live `maxWithdraw`.
 
 The integrated Solidity gate has passed all of the above together with the local unit, adapter, adversarial, compile, and 512-run / 64-depth invariant suites.
