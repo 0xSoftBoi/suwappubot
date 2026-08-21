@@ -92,9 +92,10 @@ contract MixYieldMainnetForkTest is Test {
         vm.prank(allocator);
         vault.allocate(address(strategy), 600_000e6, "");
 
-        // Simulate a highly utilized reserve after a real Aave supply by shrinking
-        // the underlying cash sitting behind aUSDC. The strategy claim remains,
-        // but synchronous liquidity must contract to reserve cash.
+        // Fork-only state stress: after a real Aave supply, shrink the USDC cash
+        // backing aUSDC to model a highly utilized reserve. This does not simulate
+        // the borrow transaction path; it tests the liquidity state the adapter
+        // must handle once reserve cash is scarce.
         deal(USDC, AAVE_V3_AUSDC, 50_000e6, true);
 
         assertEq(strategy.liquidAssets(), 50_000e6, "Aave cash bound");
