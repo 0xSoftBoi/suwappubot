@@ -3,6 +3,7 @@ import { Turnkey } from '@turnkey/sdk-server'
 import { eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import jwt from 'jsonwebtoken'
 import { keccak256 } from 'viem'
 import { EnvService } from '../config/EnvService'
@@ -513,9 +514,6 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			if (claim.kind === 'replay') return publicSwapReplayEnvelope(claim.record)
 
 			const swapRecord = claim.record
-			// Persist the pre-signing phase before external authority is invoked.
-			// A concurrent/HTTP retry now observes an existing operation and returns
-			// for reconciliation rather than reaching Turnkey a second time.
 			yield* swapService.updateSwapStatus(swapRecord.id, 'signing')
 
 			if (
@@ -592,10 +590,8 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				return yield* Effect.fail(signAttempt.left)
 			}
 
-			const signedTransaction = signAttempt.right
+			const signedTransaction = signAttempt.right.signedTransaction
 			const expectedTxHash = keccak256(signedTransaction as `0x${string}`)
-			// Persist only the safe transaction hash, never signed bytes. A retry
-			// can now reconcile the exact transaction identity without re-signing.
 			yield* swapService.updateSwapStatus(swapRecord.id, 'signed', expectedTxHash)
 
 			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
@@ -719,7 +715,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 		)
 	}
 
-	return c.json(result.right.body, result.right.httpStatus)
+	return c.json(result.right.body, result.right.httpStatus as ContentfulStatusCode)
 })
 
 /**
