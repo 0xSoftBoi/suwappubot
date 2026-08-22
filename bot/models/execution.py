@@ -41,11 +41,13 @@ class ExecutionIntent(Base):
 
     intent_type = Column(String(40), nullable=False)
     side = Column(String(12), nullable=True)
+    amount_mode = Column(String(24), nullable=True)
     from_chain = Column(String(50), nullable=True)
     to_chain = Column(String(50), nullable=True)
     from_asset = Column(String(128), nullable=True)
     to_asset = Column(String(128), nullable=True)
     requested_quantity = Column(String(78), nullable=True)
+    quantity_asset = Column(String(128), nullable=True)
     requested_notional = Column(String(78), nullable=True)
     constraints_json = Column(JSON, nullable=True)
     metadata_json = Column(JSON, nullable=True)
@@ -114,11 +116,18 @@ class ExecutionParentOrder(Base):
         String(36), ForeignKey("execution_parent_orders.id"), nullable=True, index=True
     )
 
+    # Stable bridge to a legacy execution record while adapters migrate. This
+    # is intentionally generic so swaps, limits, perps, and future systems can
+    # coexist without adding one foreign-key column per legacy table.
+    source_type = Column(String(40), nullable=True)
+    source_ref = Column(String(160), nullable=True)
+
     state = Column(String(24), nullable=False, default="draft", server_default=text("'draft'"))
     state_version = Column(Integer, nullable=False, default=0, server_default=text("0"))
     strategy = Column(String(80), nullable=True)
     authorization_method = Column(String(40), nullable=True)
     requested_quantity = Column(String(78), nullable=True)
+    quantity_asset = Column(String(128), nullable=True)
     filled_quantity = Column(String(78), nullable=False, default="0", server_default=text("'0'"))
     average_fill_price = Column(String(78), nullable=True)
 
@@ -144,6 +153,7 @@ class ExecutionParentOrder(Base):
             "submit_idempotency_key",
             name="uq_exec_parent_intent_submit_key",
         ),
+        UniqueConstraint("source_type", "source_ref", name="uq_exec_parent_source_ref"),
         Index("ix_exec_parent_state_updated", "state", "updated_at"),
     )
 
@@ -164,6 +174,7 @@ class ExecutionChildPlacement(Base):
     chain = Column(String(50), nullable=True)
     side = Column(String(12), nullable=True)
     requested_quantity = Column(String(78), nullable=True)
+    quantity_asset = Column(String(128), nullable=True)
     limit_price = Column(String(78), nullable=True)
     state = Column(String(32), nullable=False, default="created", server_default=text("'created'"))
 
@@ -197,7 +208,13 @@ class ExecutionChildPlacement(Base):
 
 
 class ExecutionFill(Base):
-    """Authoritative external fill observed for a parent/child."""
+    """Authoritative external fill observed for a parent/child.
+
+    ``quantity``/``price`` are the normalized execution view used by parent
+    trajectory/TCA. ``input_*``/``output_*`` retain exact swap economics for
+    AMM, bridge, and solver fills where a single order-book base/quote pair is
+    not enough to describe what settled.
+    """
 
     __tablename__ = "execution_fills"
 
@@ -210,8 +227,17 @@ class ExecutionFill(Base):
     )
     external_source = Column(String(80), nullable=False)
     external_fill_id = Column(String(255), nullable=True)
+
     quantity = Column(String(78), nullable=False)
+    quantity_asset = Column(String(128), nullable=True)
     price = Column(String(78), nullable=False)
+    price_asset = Column(String(128), nullable=True)
+
+    input_asset = Column(String(128), nullable=True)
+    input_amount = Column(String(78), nullable=True)
+    output_asset = Column(String(128), nullable=True)
+    output_amount = Column(String(78), nullable=True)
+
     fee_amount = Column(String(78), nullable=True)
     fee_asset = Column(String(128), nullable=True)
     liquidity_role = Column(String(16), nullable=True)
