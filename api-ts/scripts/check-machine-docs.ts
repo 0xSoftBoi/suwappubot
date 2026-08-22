@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
 import developerContract from '../developer-contract.json'
 import rawOpenApi from '../openapi-agent.json'
@@ -37,8 +38,6 @@ invariant(!appSource.includes("app.get('/llms.txt'"), 'app.ts must not own a sec
 invariant(!appSource.includes("app.get('/llms-full.txt'"), 'app.ts must not own a second llms-full.txt route')
 invariant(!appSource.includes('MCP_TOOLS'), 'app.ts must not rebuild the MCP inventory for machine docs')
 
-// The committed OpenAPI artifact is now canonicalized by gen-openapi.ts, not
-// merely cleaned at serve time. This catches stale root prose/environment data.
 const rawDescription = String((rawOpenApi as any).info?.description ?? '')
 for (const [pattern, label] of forbiddenStaticClaims) {
 	invariant(!pattern.test(rawDescription), `openapi-agent.json description contains ${label}`)
@@ -54,8 +53,6 @@ invariant(
 	'raw OpenAPI revision must equal developer-contract.json',
 )
 
-// Generated full machine docs must be a lossless REST inventory of the served
-// OpenAPI: exactly one generated line per HTTP operation.
 for (const operation of operations) {
 	const needle = `- ${operation.method} ${operation.absolutePath} —`
 	const occurrences = fullDoc.split(needle).length - 1
@@ -69,8 +66,6 @@ invariant(
 	`llms-full REST operation count ${generatedRestLines.length} != OpenAPI operation count ${operations.length}`,
 )
 
-// Discovery URLs in the AI catalog must resolve to canonical machine-contract
-// endpoints and must not contain static topology totals.
 const catalogText = JSON.stringify(aiCatalog)
 for (const [pattern, label] of forbiddenStaticClaims) {
 	invariant(!pattern.test(catalogText), `ai-catalog.json contains ${label}`)
@@ -80,9 +75,47 @@ invariant(resourceUrls.has('https://api.suwappu.bot/v1/agent/openapi'), 'AI cata
 invariant(resourceUrls.has('https://api.suwappu.bot/v1/developer-contract'), 'AI catalog missing developer contract')
 invariant(resourceUrls.has('https://api.suwappu.bot/llms.txt'), 'AI catalog missing generated llms.txt')
 invariant(resourceUrls.has('https://api.suwappu.bot/llms-full.txt'), 'AI catalog missing generated llms-full.txt')
+invariant(
+	resourceUrls.has(developerContract.hostedProtocols.a2a.agentCard),
+	'AI catalog A2A discovery URL differs from developer contract',
+)
+invariant(
+	resourceUrls.has(developerContract.hostedProtocols.mcp.endpoint),
+	'AI catalog MCP endpoint differs from developer contract',
+)
 
-// Served public OpenAPI must agree with the contract and never reintroduce a
-// second environment or static topology claim.
+// A2A capabilities are intentionally not duplicated into llms/OpenAPI. The
+// Agent Card is the authority, but its cross-links and execution boundary must
+// agree with the developer contract.
+invariant(
+	agentCard.openApiUrl === 'https://api.suwappu.bot/v1/agent/openapi',
+	'Agent Card OpenAPI URL is not canonical',
+)
+invariant(
+	agentCard.interfaces?.some((entry: any) => entry.baseUrl === 'https://api.suwappu.bot/a2a'),
+	'Agent Card does not advertise the hosted A2A JSON-RPC endpoint',
+)
+invariant(
+	String(agentCard.description).includes('A2A does not execute swaps'),
+	'Agent Card must preserve the no-execution authority boundary',
+)
+invariant(
+	developerContract.hostedProtocols.a2a.capabilityAuthority === 'agent-card',
+	'developer contract must keep the Agent Card authoritative for A2A capabilities',
+)
+invariant(
+	developerContract.hostedProtocols.mcp.catalogAuthority === 'runtime-discovery',
+	'developer contract must keep hosted MCP runtime discovery authoritative',
+)
+invariant(
+	appSource.includes("app.route('/mcp', mcpRoutes)"),
+	'app.ts must mount the MCP endpoint named by the developer contract',
+)
+invariant(
+	appSource.includes("app.route('/a2a', a2aRoutes)"),
+	'app.ts must mount the A2A endpoint represented by the Agent Card',
+)
+
 invariant(PUBLIC_AGENT_OPENAPI.servers.length === 1, 'served OpenAPI must expose one verified server')
 invariant(
 	PUBLIC_AGENT_OPENAPI.servers[0]?.url === `https://api.suwappu.bot${developerContract.agentRest.basePath}`,
@@ -102,5 +135,5 @@ invariant(
 )
 
 console.log(
-	`✓ Machine docs derive from public contracts: ${operations.length} REST operations, no static chain/package/environment drift.`,
+	`✓ Machine docs derive from public contracts: ${operations.length} REST operations; REST/MCP/A2A discovery has one authority each.`,
 )
