@@ -2,18 +2,15 @@
 /**
  * gen-openapi.ts — MERGE-IN-PLACE OpenAPI generator.
  *
- * The hand-authored `openapi-agent.json` is the source of truth for all prose,
- * examples, response schemas, paths, and `components.responses`. This generator's
- * ONLY job is to (re)derive the REQUEST-schema bodies under `components.schemas`
- * from the Zod validators in `src/routes/validators.ts`, so the documented request
- * shapes can never drift from runtime validation.
+ * The checked-in `openapi-agent.json` remains the source for operation prose,
+ * examples, response schemas, paths, and `components.responses`. Root contract
+ * identity is NOT hand-authored: this generator derives the public production
+ * server, compatibility wording and document revision from
+ * `developer-contract.json`, then (re)derives request schemas from the runtime
+ * Zod validators.
  *
- * It reads the existing spec, overwrites the mapped request schemas with output
- * from `z.toJSONSchema(...)` (plus deterministic manual overrides for constraints
- * that Zod's JSON-Schema export drops, e.g. `.refine()`), preserves any
- * human-written descriptions/examples the generator can't derive, applies the
- * OpenAPI document revision from `developer-contract.json`, and writes the result
- * back with stable key ordering.
+ * This split prevents stale chain counts / development hosts from becoming a
+ * competing machine-readable contract while preserving reviewed endpoint prose.
  *
  * Modes:
  *   (default)  write openapi-agent.json
@@ -49,6 +46,7 @@ type DeveloperContract = {
 		basePath: string
 		openapiRevision: string
 		lifecycle: string
+		discovery?: Record<string, string>
 	}
 }
 
@@ -74,6 +72,13 @@ function loadDeveloperContract(): DeveloperContract {
 
 const DEVELOPER_CONTRACT = loadDeveloperContract()
 const SPEC_VERSION = DEVELOPER_CONTRACT.agentRest.openapiRevision
+const PRODUCTION_SERVER = `https://api.suwappu.bot${DEVELOPER_CONTRACT.agentRest.basePath}`
+const CONTRACT_DESCRIPTION = [
+	'Cross-chain execution API for AI agents.',
+	'Current chain support is runtime-discovered at GET /v1/agent/chains; do not embed a static chain count or list.',
+	'Use quote and simulation before unsigned preparation, and treat managed execution as an explicit fund-moving authority escalation.',
+	`REST compatibility major: ${DEVELOPER_CONTRACT.agentRest.compatibilityMajor}. OpenAPI document revision: ${SPEC_VERSION}.`,
+].join(' ')
 
 import { deepMerge, toJsonSchema as toSchema, type Json } from '../src/lib/zodJsonSchema'
 
@@ -137,7 +142,6 @@ const SCHEMA_MAP: Record<
 		manualOverrides: {
 			properties: {
 				metadata: { additionalProperties: true },
-				// callbackUrlSchema .refine() dropped — re-state the SSRF constraint.
 				callback_url: {
 					format: 'uri',
 					description:
@@ -149,12 +153,9 @@ const SCHEMA_MAP: Record<
 	UpdateAgentRequest: {
 		schema: UpdateAgentSchema,
 		manualOverrides: {
-			// .refine() (at-least-one-field) dropped — re-state it.
 			description: 'At least one field must be provided.',
 			properties: {
 				metadata: { additionalProperties: true },
-				// .nullish() generates an `anyOf` of [string, null]; collapse it back to the
-				// hand-authored nullable-string + uri format (drop the generated `anyOf`).
 				callback_url: {
 					$dropKeys: ['anyOf'],
 					type: 'string',
@@ -170,11 +171,7 @@ const SCHEMA_MAP: Record<
 		schema: QuoteRequestSchema,
 		manualOverrides: {
 			properties: {
-				// tokenAmountSchema .refine() dropped.
-				amount: {
-					description: 'Positive decimal string, max 1,000,000 units.',
-				},
-				// evmAddressSchema .refine() (zero-address) dropped — re-state pattern + note.
+				amount: { description: 'Positive decimal string, max 1,000,000 units.' },
 				wallet_address: {
 					pattern: '^0x[0-9a-fA-F]{40}$',
 					description:
@@ -187,23 +184,23 @@ const SCHEMA_MAP: Record<
 		schema: SwapRequestSchema,
 		manualOverrides: {
 			properties: {
-				quote_id: {
-					description: 'A quote_id from POST /quote.',
-				},
-				wallet_address: {
-					description: "Must be the agent's own managed wallet.",
-				},
+				quote_id: { description: 'A quote_id from POST /quote.' },
+				wallet_address: { description: "Must be the agent's own managed wallet." },
 			},
 		},
 	},
 	SimulateSwapRequest: {
 		schema: SimulateSwapSchema,
 		manualOverrides: {
-			// .refine() (quote_id OR from/to/amount) dropped — re-state it.
-			description: 'Provide quote_id to simulate a cached quote, or from_token + to_token + amount to fetch and simulate a fresh one.',
+			description:
+				'Provide quote_id to simulate a cached quote, or from_token + to_token + amount to fetch and simulate a fresh one.',
 			properties: {
-				quote_id: { description: 'A quote_id from POST /quote. Overrides from_token/to_token/amount if provided.' },
-				amount: { description: 'Positive decimal string, max 1,000,000 units. Required unless quote_id is provided.' },
+				quote_id: {
+					description: 'A quote_id from POST /quote. Overrides from_token/to_token/amount if provided.',
+				},
+				amount: {
+					description: 'Positive decimal string, max 1,000,000 units. Required unless quote_id is provided.',
+				},
 				wallet_address: {
 					pattern: '^0x[0-9a-fA-F]{40}$',
 					description:
@@ -215,9 +212,7 @@ const SCHEMA_MAP: Record<
 	ExecuteSwapRequest: {
 		schema: ExecuteSwapSchema,
 		manualOverrides: {
-			properties: {
-				quote_id: { description: 'A quote_id from POST /quote.' },
-			},
+			properties: { quote_id: { description: 'A quote_id from POST /quote.' } },
 		},
 	},
 	ExecuteCommandRequest: {
@@ -225,12 +220,9 @@ const SCHEMA_MAP: Record<
 		manualOverrides: {
 			properties: {
 				command: {
-					description:
-						'Natural language command (e.g. "swap 0.5 ETH to USDC on Base").',
+					description: 'Natural language command (e.g. "swap 0.5 ETH to USDC on Base").',
 				},
-				wallet_address: {
-					description: "When provided, must be the agent's own managed wallet.",
-				},
+				wallet_address: { description: "When provided, must be the agent's own managed wallet." },
 			},
 		},
 	},
@@ -240,15 +232,9 @@ const SCHEMA_MAP: Record<
 			properties: {
 				params: {
 					properties: {
-						maxAmountWei: {
-							description: 'Required for spending_limit. Max value in wei.',
-						},
-						timeWindowSeconds: {
-							description: 'Time window for spending_limit.',
-						},
-						allowedAddresses: {
-							description: 'Required for whitelist.',
-						},
+						maxAmountWei: { description: 'Required for spending_limit. Max value in wei.' },
+						timeWindowSeconds: { description: 'Time window for spending_limit.' },
+						allowedAddresses: { description: 'Required for whitelist.' },
 					},
 				},
 			},
@@ -258,20 +244,12 @@ const SCHEMA_MAP: Record<
 		schema: TopupSchema,
 		manualOverrides: {
 			properties: {
-				txHash: {
-					description: 'On-chain USDC payment tx hash.',
-				},
-				chain: {
-					default: 'base',
-					description: 'Chain the payment was made on.',
-				},
-				// .transform(Number) dropped on input side — present as oneOf and note coercion.
-				// `dropKeys` strips the generated `anyOf` so we don't carry a duplicate union.
+				txHash: { description: 'On-chain USDC payment tx hash.' },
+				chain: { default: 'base', description: 'Chain the payment was made on.' },
 				amount: {
 					$dropKeys: ['anyOf'],
 					oneOf: [{ type: 'string' }, { type: 'number' }],
-					description:
-						'USDC amount paid (string or number; coerced to a number).',
+					description: 'USDC amount paid (string or number; coerced to a number).',
 				},
 			},
 		},
@@ -300,10 +278,7 @@ const SCHEMA_MAP: Record<
 		manualOverrides: {
 			description: 'Prediction-market limit order (Polymarket CLOB).',
 			properties: {
-				tokenId: {
-					description: 'CLOB token id for the outcome. See GET /predict/market/{id}.',
-				},
-				// .refine() dropped on price/size.
+				tokenId: { description: 'CLOB token id for the outcome. See GET /predict/market/{id}.' },
 				price: { description: 'Decimal string between 0 and 1.', example: '0.62' },
 				size: { description: 'Positive decimal string (number of shares).', example: '10' },
 				side: { description: 'Order direction.' },
@@ -314,29 +289,34 @@ const SCHEMA_MAP: Record<
 		schema: CancelOrderSchema,
 		manualOverrides: {
 			description: 'Cancel a prediction-market order by id.',
-			properties: {
-				orderId: { description: 'The CLOB order id to cancel.' },
-			},
+			properties: { orderId: { description: 'The CLOB order id to cancel.' } },
 		},
 	},
 }
 
 /** Build the regenerated spec object from the existing one (pure; no IO besides the passed-in spec). */
 export function buildSpec(existing: Json): Json {
-	// Deep clone so we never mutate the parsed input.
 	const spec: Json = JSON.parse(JSON.stringify(existing))
 
+	// Root machine-contract identity is derived. This deliberately overwrites
+	// stale human prose / environment lists from older artifacts.
+	spec.openapi = '3.1.0'
 	spec.info = spec.info ?? {}
+	spec.info.title = 'Suwappu Agent API'
+	spec.info.description = CONTRACT_DESCRIPTION
 	spec.info.version = SPEC_VERSION
+	spec.servers = [{ url: PRODUCTION_SERVER, description: 'Production' }]
+	spec['x-suwappu-rest-compatibility-major'] = DEVELOPER_CONTRACT.agentRest.compatibilityMajor
+	spec['x-suwappu-lifecycle'] = DEVELOPER_CONTRACT.agentRest.lifecycle
+	spec['x-suwappu-chain-discovery'] = 'GET /v1/agent/chains'
+	spec['x-suwappu-developer-contract'] = 'GET /v1/developer-contract'
 
 	spec.components = spec.components ?? {}
 	spec.components.schemas = spec.components.schemas ?? {}
 
 	for (const [name, { schema, manualOverrides }] of Object.entries(SCHEMA_MAP)) {
 		const generated = toSchema(schema)
-		const merged = manualOverrides
-			? deepMerge(generated, manualOverrides)
-			: generated
+		const merged = manualOverrides ? deepMerge(generated, manualOverrides) : generated
 		const withProse = preserveProse(merged, spec.components.schemas[name])
 		spec.components.schemas[name] = withProse
 	}
@@ -374,8 +354,6 @@ function main(): void {
 	)
 }
 
-// Only run when executed directly (`bun run scripts/gen-openapi.ts`), not when
-// imported by other tooling (e.g. scripts/check-openapi.ts) for its exports.
 if (import.meta.main) {
 	main()
 }
