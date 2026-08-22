@@ -178,7 +178,14 @@ def test_duplicate_event_id_does_not_append_second_outbox_row():
         substrate="direct_tx",
     )
 
-    first = _change(store, session, parent, ParentState.DRAFT, ParentState.QUOTING, "fixed-event")
+    first = _change(
+        store,
+        session,
+        parent,
+        ParentState.DRAFT,
+        ParentState.QUOTING,
+        "fixed-event",
+    )
     second = store.append_event(
         session,
         parent_order_id=parent.id,
