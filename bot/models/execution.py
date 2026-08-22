@@ -295,7 +295,7 @@ class ExecutionOutbox(Base):
     __tablename__ = "execution_outbox"
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
-    event_id = Column(String(36), ForeignKey("execution_events.id"), nullable=False, unique=True)
+    event_id = Column(String(36), ForeignKey("execution_events.id"), nullable=False)
     topic = Column(String(128), nullable=False)
     payload_json = Column(JSON, nullable=True)
     attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
@@ -304,4 +304,7 @@ class ExecutionOutbox(Base):
     last_error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
 
-    __table_args__ = (Index("ix_exec_outbox_publish", "published_at", "next_attempt_at"),)
+    __table_args__ = (
+        UniqueConstraint("event_id", name="uq_execution_outbox_event_id"),
+        Index("ix_exec_outbox_publish", "published_at", "next_attempt_at"),
+    )
