@@ -9,7 +9,6 @@ model with the shared SQLAlchemy Base.
 import bot.models  # noqa: F401
 from database.db import Base
 
-
 EXPECTED_EXECUTION_TABLES = {
     "execution_intents",
     "execution_candidate_plans",
