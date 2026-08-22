@@ -7,7 +7,6 @@ model with the shared SQLAlchemy Base.
 """
 
 import bot.models  # noqa: F401
-
 from database.db import Base
 
 
