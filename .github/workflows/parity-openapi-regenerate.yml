@@ -1,0 +1,55 @@
+name: Parity OpenAPI Regeneration
+
+on:
+  push:
+    branches: [infra/developer-platform-parity]
+    paths:
+      - api-ts/scripts/gen-openapi.ts
+      - api-ts/developer-contract.json
+      - .github/workflows/parity-openapi-regenerate.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: parity-openapi-regenerate
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    if: github.repository == '0xSoftBoi/suwappubot'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-ts
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: infra/developer-platform-parity
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Regenerate canonical OpenAPI artifact
+        run: bun run generate:openapi
+
+      - name: Verify generated contract
+        run: bun run check:openapi
+
+      - name: Commit deterministic artifact if changed
+        working-directory: .
+        run: |
+          if git diff --quiet -- api-ts/openapi-agent.json; then
+            echo 'OpenAPI artifact already canonical.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add api-ts/openapi-agent.json
+          git commit -m 'chore(api): regenerate canonical OpenAPI contract'
+          git push origin HEAD:infra/developer-platform-parity
