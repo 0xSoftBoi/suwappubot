@@ -41,14 +41,14 @@ function DeferredRoute({ children }: { children: ReactNode }) {
 
 function isTerminalHost() {
   if (typeof window === 'undefined') return false
-  if (window.location.hostname === 'terminal.suwappu.bot') return true
+  const hostname = window.location.hostname.toLowerCase()
+  if (hostname === 'terminal.suwappu.bot' || hostname === 'www.terminal.suwappu.bot') return true
   // In local dev the terminal is otherwise unreachable: `/` is host-gated to the
   // marketing site and `/terminal` is proxied to the Python API. Treat localhost
   // as the terminal host while developing so the workspace (and its E2E tests)
   // render at `/`. Stripped in production builds where import.meta.env.DEV=false,
   // so the live marketing site at suwappu.bot is unaffected.
   if (import.meta.env.DEV) {
-    const { hostname } = window.location
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0'
   }
   return false
