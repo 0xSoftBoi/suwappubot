@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import developerContract from '../../developer-contract.json'
 import { API_CHANGELOG, buildApiChangelogAtom } from '../lib/apiChangelog'
 import { API_LIFECYCLE_REGISTRY } from '../lib/apiLifecycle'
+import { buildLlmsFullTxt, buildLlmsTxt } from '../lib/machineDocs'
 import { PUBLIC_AGENT_OPENAPI } from '../lib/publicOpenApi'
 import { RETRY_CONTRACTS, retryContractSummary } from '../lib/retryContracts'
 
@@ -39,6 +40,21 @@ apiContractRoutes.get('/v1/retry-contracts', (c) => {
 		...RETRY_CONTRACTS,
 		summary: retryContractSummary(),
 	})
+})
+
+// LLM discovery is generated from the same served OpenAPI and developer
+// contract as every other machine-facing surface. Keep these routes in this
+// router so the endpoint inventory cannot become an independent authority.
+apiContractRoutes.get('/llms.txt', (c) => {
+	c.header('Cache-Control', 'public, max-age=300')
+	c.header('Content-Type', 'text/markdown; charset=utf-8')
+	return c.body(buildLlmsTxt())
+})
+
+apiContractRoutes.get('/llms-full.txt', (c) => {
+	c.header('Cache-Control', 'public, max-age=300')
+	c.header('Content-Type', 'text/markdown; charset=utf-8')
+	return c.body(buildLlmsFullTxt())
 })
 
 export { apiContractRoutes }
