@@ -33,10 +33,14 @@ TABLES = [
 ]
 
 
-def _session():
+def _session_factory():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine, tables=TABLES)
-    return sessionmaker(bind=engine, expire_on_commit=False)()
+    return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def _session():
+    return _session_factory()()
 
 
 def _swap(*, swap_id: int, status: str, tx_hash=None, realized=None):
@@ -98,7 +102,7 @@ def test_completed_with_realized_output_becomes_fill_without_using_quote_amount(
     assert fill.metadata_json["legacy_gas_fee_usd_estimate"] == 1.25
     assert fill.metadata_json["legacy_bridge_fee_usd_estimate"] == 0.4
 
-    # Restart/retry projection is exactly-once for parent, events, fill and outbox.
+    # Retry projection is exactly-once for parent, events, fill and outbox.
     event_count = session.query(ExecutionEvent).count()
     outbox_count = session.query(ExecutionOutbox).count()
     same_parent = project_legacy_swap(session, swap)
@@ -176,26 +180,61 @@ def test_definitive_prebroadcast_failure_can_be_terminal_failed():
 
 
 def test_submitted_then_completed_after_restart_reuses_parent_and_records_realized_fill():
-    session = _session()
+    SessionLocal = _session_factory()
+    first_session = SessionLocal()
     swap = _swap(
         swap_id=5,
         status=SwapStatus.SUBMITTED.value,
         tx_hash="0xbeef",
         realized=None,
     )
+    first_session.add(swap)
+    first_session.flush()
+
+    parent = project_legacy_swap(first_session, swap)
+    first_parent_id = parent.id
+    assert parent.state == ParentState.ACTIVE.value
+    first_session.commit()
+    first_session.close()
+
+    # Simulate a worker/API restart: a fresh ORM session sees the legacy row
+    # after the poller observed authoritative completion and realized receive.
+    second_session = SessionLocal()
+    swap = second_session.get(SwapTransaction, 5)
+    swap.status = SwapStatus.COMPLETED.value
+    swap.realized_to_amount = "0.048"
+    swap.completed_at = datetime(2026, 8, 22, 12, 0, 30)
+    second_session.flush()
+
+    parent = project_legacy_swap(second_session, swap)
+    second_session.commit()
+
+    assert parent.id == first_parent_id
+    assert parent.state == ParentState.FILLED.value
+    assert second_session.query(ExecutionParentOrder).count() == 1
+    assert second_session.query(ExecutionFill).count() == 1
+    fill = second_session.query(ExecutionFill).one()
+    assert fill.output_amount == "0.048"
+
+
+def test_child_tx_identity_cannot_silently_change_after_projection():
+    session = _session()
+    swap = _swap(
+        swap_id=6,
+        status=SwapStatus.SUBMITTED.value,
+        tx_hash="0xfirst",
+        realized=None,
+    )
     session.add(swap)
     session.flush()
-
-    parent = project_legacy_swap(session, swap)
-    first_parent_id = parent.id
+    project_legacy_swap(session, swap)
     session.commit()
-    session.close()
 
-    # Simulate a worker/API restart: a fresh session sees the legacy row after
-    # the poller has observed authoritative completion + realized receive amount.
-    Session = sessionmaker(bind=Base.metadata.bind) if Base.metadata.bind else None
-    # SQLAlchemy 2.x does not bind metadata here; recover the engine from the
-    # persisted object's session-independent table bind through a fresh helper
-    # below by retaining the original engine is intentionally avoided. This
-    # branch is exercised via the equivalent expunge/reload boundary instead.
-    assert Session is None
+    swap.tx_hash = "0xsecond"
+
+    try:
+        project_legacy_swap(session, swap)
+    except Exception as exc:
+        assert "external tx identity changed" in str(exc)
+    else:
+        raise AssertionError("changed money-moving identity must fail closed")
