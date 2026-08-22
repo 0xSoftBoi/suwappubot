@@ -17,7 +17,6 @@ from bot.services.execution_lifecycle import LifecycleEvent, ParentState, replay
 from bot.services.execution_store import ExecutionStore
 from database.db import Base
 
-
 EXECUTION_TABLES = [
     ExecutionIntent.__table__,
     ExecutionCandidatePlan.__table__,
