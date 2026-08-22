@@ -1,15 +1,18 @@
+import { createHash } from 'node:crypto'
 import { Turnkey } from '@turnkey/sdk-server'
 import { eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import jwt from 'jsonwebtoken'
+import { keccak256 } from 'viem'
 import { EnvService } from '../config/EnvService'
 import { DEFAULT_SLIPPAGE } from '../config/constants'
 import { logger } from '../lib/logger'
-import { DrizzleService, requireDb, wallets } from '../db'
+import { DrizzleService, requireDb, type SwapTransaction, wallets } from '../db'
 import { mapErrorToResponse, NotFoundError, UnauthorizedError, ValidationError } from '../errors'
 import { fetchWithRetry } from '../lib/retry'
 import { withSigningFallback } from '../services/FallbackSigningService'
+import { claimSwapExecution } from '../services/swapExecutionClaim'
 import { type AuthUser, flexAuth } from '../middleware/flexAuth'
 import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
@@ -115,8 +118,7 @@ const deleteCachedQuote = (
  * /execute signs that calldata VERBATIM later. If the receiver the quote was
  * built for doesn't match the wallet we're about to sign with, signing would
  * send the swap's output to the wrong address. Exported so it's unit-testable
- * without spinning up the Effect/DB/Turnkey stack (same pattern as
- * resolveSwapExecuteDecimals in routes/agent.ts).
+ * without spinning up the Effect/DB/Turnkey stack.
  */
 export function assertQuoteReceiverMatchesWallet(
 	quote: { _rawQuote?: { action?: { toAddress?: string } } },
@@ -130,6 +132,48 @@ export function assertQuoteReceiverMatchesWallet(
 		}
 	}
 	return { ok: true }
+}
+
+/**
+ * Public-swap idempotency keys are scoped to the authenticated principal and
+ * endpoint. Raw caller keys are hashed before persistence so two users can use
+ * the same client key without colliding on the global DB uniqueness index.
+ * When a client omits a key, the quote ID becomes the durable operation
+ * identity so an HTTP retry cannot silently become a second signing attempt.
+ */
+export function derivePublicSwapIdempotencyKey(
+	userId: number,
+	quoteId: string,
+	clientKey?: string,
+): string {
+	const supplied = clientKey?.trim()
+	const kind = supplied ? 'key' : 'quote'
+	const material = supplied || quoteId
+	const digest = createHash('sha256').update(material).digest('hex')
+	return `public-swap:${userId}:${kind}:${digest}`
+}
+
+export function publicSwapReplayEnvelope(record: SwapTransaction) {
+	const status = record.status ?? 'pending'
+	const successful = status === 'submitted' || status === 'completed'
+	const terminalFailure = status === 'failed' || status === 'cancelled'
+	return {
+		httpStatus: successful ? 200 : terminalFailure ? 409 : 202,
+		body: {
+			success: !terminalFailure,
+			idempotentReplay: true,
+			swapId: record.id,
+			status,
+			txHash: record.txHash,
+			reconcileRequired: !successful && !terminalFailure,
+			statusUrl: `/public/swap/status/${record.id}`,
+			message: successful
+				? 'This operation was already submitted; returning the durable execution record.'
+				: terminalFailure
+					? 'This idempotency key belongs to a failed terminal operation. Use a new key and new quote for a new execution.'
+					: 'This operation is already claimed. Do not create a new execution; reconcile the existing swap status.',
+		},
+	}
 }
 
 // ─── Public Routes (IP rate-limited, no auth) ───
@@ -275,7 +319,7 @@ publicSwapRoutes.get('/tokens', ipRateLimit(), async (c) => {
 					name: t.name,
 					logoURI: t.logoURI,
 					priceUSD: t.priceUSD,
-				})),
+			})),
 			}
 
 			yield* Effect.either(redis.set(cacheKey, tokenListResponse, TOKEN_LIST_TTL))
@@ -317,7 +361,6 @@ publicSwapRoutes.get('/quote', flexAuth(), async (c) => {
 			const swapService = yield* SwapService
 			const redis = yield* RedisService
 
-			// Use auth user's wallet or vitalik.eth placeholder
 			const walletAddress = authUser.walletAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
 
 			if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
@@ -395,13 +438,6 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			const swapService = yield* SwapService
 			const redis = yield* RedisService
 
-			// Get user's wallet. Select the wallet the quote was built for — the
-			// JWT's walletAddress — not just the first active row. Otherwise a
-			// multi-wallet user's receiver check (below) compares against the wrong
-			// wallet and their swap is wrongly blocked, and we could sign from a
-			// wallet the quote wasn't built for. EVM addresses compare
-			// case-insensitively; a JWT without walletAddress (non-showcase flows)
-			// keeps the prior first-wallet behavior.
 			const wallets = yield* walletService.getActiveWallets(authUser.userId)
 			const wallet = authUser.walletAddress
 				? wallets.find(
@@ -416,9 +452,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 
 			if (wallet.walletProvider !== 'turnkey' || !wallet.turnkeySubOrgId) {
 				return yield* Effect.fail(
-					new ValidationError({
-						message: 'Wallet does not support server-side signing.',
-					}),
+					new ValidationError({ message: 'Wallet does not support server-side signing.' }),
 				)
 			}
 
@@ -431,14 +465,17 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				)
 			}
 
-			// MONEY-PATH (H5 fix): refuse to sign a quote whose baked-in receiver
-			// isn't this wallet — see assertQuoteReceiverMatchesWallet above.
 			const receiverCheck = assertQuoteReceiverMatchesWallet(quote, wallet.address)
 			if (!receiverCheck.ok) {
 				return yield* Effect.fail(new ValidationError({ message: receiverCheck.reason }))
 			}
 
-			const swapRecord = yield* swapService.createSwapRecord({
+			const effectiveIdempotencyKey = derivePublicSwapIdempotencyKey(
+				authUser.userId,
+				quoteId,
+				idempotencyKey,
+			)
+			const executionInput = {
 				userId: authUser.userId,
 				fromChain: quote.fromChain,
 				toChain: quote.toChain,
@@ -454,8 +491,32 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 				slippage: Math.round(quote.slippage * 10000),
 				gasFee: parseFloat(quote.estimatedGasUsd) || null,
 				bridgeFee: parseFloat(quote.bridgeFeeUsd) || null,
-				idempotencyKey,
-			})
+				idempotencyKey: effectiveIdempotencyKey,
+			}
+
+			const claim = yield* claimSwapExecution(executionInput)
+			if (claim.kind === 'conflict') {
+				return {
+					httpStatus: 409 as const,
+					body: {
+						success: false,
+						error: 'Idempotency Conflict',
+						error_code: 'IDEMPOTENCY_CONFLICT',
+						message: 'This idempotency key was already used for different swap terms.',
+						swapId: claim.record.id,
+						status: claim.record.status,
+						differingFields: claim.differingFields,
+						statusUrl: `/public/swap/status/${claim.record.id}`,
+					},
+				}
+			}
+			if (claim.kind === 'replay') return publicSwapReplayEnvelope(claim.record)
+
+			const swapRecord = claim.record
+			// Persist the pre-signing phase before external authority is invoked.
+			// A concurrent/HTTP retry now observes an existing operation and returns
+			// for reconciliation rather than reaching Turnkey a second time.
+			yield* swapService.updateSwapStatus(swapRecord.id, 'signing')
 
 			if (
 				!env.TURNKEY_API_PUBLIC_KEY ||
@@ -490,93 +551,156 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 			}, '[PublicSwap] Signing transaction')
 
 			const publicSwapUnsignedTx = {
-							type: '0x2',
-							chainId: `0x${txRequest.chainId.toString(16)}`,
-							to: txRequest.to,
-							value: txRequest.value,
-							data: txRequest.data,
-							...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
-							maxPriorityFeePerGas: '0x0',
-							gas: txRequest.gasLimit || '0x0',
-						}
-			const signResult = yield* Effect.tryPromise({
-				try: async () => {
-					return await withSigningFallback(
-						async () => {
-							const result = await turnkeyClient.apiClient().signTransaction({
-								organizationId: wallet.turnkeySubOrgId!,
-								signWith: wallet.address,
-								type: 'TRANSACTION_TYPE_ETHEREUM',
-								unsignedTransaction: JSON.stringify(publicSwapUnsignedTx),
-							})
-							return result.signedTransaction
-						},
-						wallet.id,
-						// wallet.userId === authUser.userId (getActiveWallets filters by it)
-						// and maps to Python wallets.user_id — required for ownership check.
-						authUser.userId,
-						publicSwapUnsignedTx,
-					)
-				},
-				catch: (e) => new Error(`Failed to sign transaction: ${e}`),
-			})
+				type: '0x2',
+				chainId: `0x${txRequest.chainId.toString(16)}`,
+				to: txRequest.to,
+				value: txRequest.value,
+				data: txRequest.data,
+				...(txRequest.gasPrice ? { maxFeePerGas: txRequest.gasPrice } : {}),
+				maxPriorityFeePerGas: '0x0',
+				gas: txRequest.gasLimit || '0x0',
+			}
 
-			const signedTransaction = signResult.signedTransaction
+			const signAttempt = yield* Effect.either(
+				Effect.tryPromise({
+					try: async () => {
+						return await withSigningFallback(
+							async () => {
+								const signed = await turnkeyClient.apiClient().signTransaction({
+									organizationId: wallet.turnkeySubOrgId!,
+									signWith: wallet.address,
+									type: 'TRANSACTION_TYPE_ETHEREUM',
+									unsignedTransaction: JSON.stringify(publicSwapUnsignedTx),
+								})
+								return signed.signedTransaction
+							},
+							wallet.id,
+							authUser.userId,
+							publicSwapUnsignedTx,
+						)
+					},
+					catch: (e) => new Error(`Failed to sign transaction: ${e}`),
+				}),
+			)
+			if (Either.isLeft(signAttempt)) {
+				yield* swapService.updateSwapStatus(
+					swapRecord.id,
+					'failed',
+					undefined,
+					signAttempt.left.message,
+				)
+				return yield* Effect.fail(signAttempt.left)
+			}
+
+			const signedTransaction = signAttempt.right
+			const expectedTxHash = keccak256(signedTransaction as `0x${string}`)
+			// Persist only the safe transaction hash, never signed bytes. A retry
+			// can now reconcile the exact transaction identity without re-signing.
+			yield* swapService.updateSwapStatus(swapRecord.id, 'signed', expectedTxHash)
 
 			const rpcUrl = CHAIN_RPC_ENDPOINTS[txRequest.chainId]
 			let txHash: string | null = null
 
 			if (rpcUrl) {
-				const broadcastResult = yield* Effect.tryPromise({
-					try: async () => {
-						const res = await fetchWithRetry(rpcUrl, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								jsonrpc: '2.0',
-								method: 'eth_sendRawTransaction',
-								params: [signedTransaction],
-								id: 1,
-							}),
-						})
-						const data = (await res.json()) as {
-							result?: string
-							error?: { message: string; code: number }
-						}
-						if (data.error) {
-							throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
-						}
-						return data.result as string
-					},
-					catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
-				})
-				txHash = broadcastResult
+				const broadcastAttempt = yield* Effect.either(
+					Effect.tryPromise({
+						try: async () => {
+							const res = await fetchWithRetry(rpcUrl, {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({
+									jsonrpc: '2.0',
+									method: 'eth_sendRawTransaction',
+									params: [signedTransaction],
+									id: 1,
+								}),
+							})
+							const data = (await res.json()) as {
+								result?: string
+								error?: { message: string; code: number }
+							}
+							if (data.error) {
+								throw new Error(`RPC error: ${data.error.message} (code ${data.error.code})`)
+							}
+							if (!data.result) throw new Error('RPC returned no transaction hash')
+							return data.result
+						},
+						catch: (e) => new Error(`Failed to broadcast transaction: ${e}`),
+					}),
+				)
+
+				if (Either.isLeft(broadcastAttempt)) {
+					logger.error(
+						{ err: broadcastAttempt.left, swapId: swapRecord.id, expectedTxHash },
+						'[PublicSwap] Broadcast outcome unknown; preserving signed identity',
+					)
+					return {
+						httpStatus: 502 as const,
+						body: {
+							success: false,
+							error: 'Broadcast Outcome Unknown',
+							error_code: 'UPSTREAM_ERROR',
+							message:
+								'RPC broadcast did not return a confirmed outcome. Do not request a new execution. Reconcile or rebroadcast these exact signed bytes.',
+							swapId: swapRecord.id,
+							status: 'signed',
+							txHash: expectedTxHash,
+							signedTransaction,
+							reconcileRequired: true,
+							statusUrl: `/public/swap/status/${swapRecord.id}`,
+						},
+					}
+				}
+
+				txHash = broadcastAttempt.right
+				if (txHash.toLowerCase() !== expectedTxHash.toLowerCase()) {
+					logger.error(
+						{ swapId: swapRecord.id, expectedTxHash, rpcTxHash: txHash },
+						'[PublicSwap] RPC returned transaction hash different from signed payload hash',
+					)
+					return {
+						httpStatus: 502 as const,
+						body: {
+							success: false,
+							error: 'Transaction Identity Mismatch',
+							error_code: 'UPSTREAM_ERROR',
+							message: 'RPC transaction identity did not match the signed payload. Reconcile by the locally computed transaction hash.',
+							swapId: swapRecord.id,
+							status: 'signed',
+							txHash: expectedTxHash,
+							reconcileRequired: true,
+							statusUrl: `/public/swap/status/${swapRecord.id}`,
+						},
+					}
+				}
+
 				logger.info('[PublicSwap] Transaction broadcast, txHash: %s', txHash)
+				yield* swapService.updateSwapStatus(swapRecord.id, 'submitted', txHash)
 			}
 
-			const newStatus = txHash ? 'submitted' : 'signed'
-			// SECURITY: Never persist the raw signed tx into tx_hash — a signed,
-			// un-broadcast tx is replayable. Store null on broadcast failure and
-			// keep the non-terminal 'signed' status.
-			yield* swapService.updateSwapStatus(swapRecord.id, newStatus, txHash ?? undefined)
 			yield* deleteCachedQuote(redis, quoteId)
-
+			const newStatus = txHash ? 'submitted' : 'signed'
 			return {
-				success: true,
-				swapId: swapRecord.id,
-				status: newStatus,
-				txHash,
-				signedTransaction: txHash ? undefined : signedTransaction,
-				message: txHash
-					? 'Transaction submitted to the network.'
-					: 'Transaction signed but no RPC available for broadcast.',
-				swap: {
-					fromChain: quote.fromChain,
-					toChain: quote.toChain,
-					fromToken: quote.fromToken.symbol,
-					toToken: quote.toToken.symbol,
-					fromAmount: quote.fromAmount,
-					expectedToAmount: quote.toAmount,
+				httpStatus: 200 as const,
+				body: {
+					success: true,
+					swapId: swapRecord.id,
+					status: newStatus,
+					txHash: txHash ?? expectedTxHash,
+					signedTransaction: txHash ? undefined : signedTransaction,
+					reconcileRequired: !txHash,
+					statusUrl: `/public/swap/status/${swapRecord.id}`,
+					message: txHash
+						? 'Transaction submitted to the network.'
+						: 'Transaction signed but no RPC is configured. Broadcast these exact signed bytes; do not request a new execution.',
+					swap: {
+						fromChain: quote.fromChain,
+						toChain: quote.toChain,
+						fromToken: quote.fromToken.symbol,
+						toToken: quote.toToken.symbol,
+						fromAmount: quote.fromAmount,
+						expectedToAmount: quote.toAmount,
+					},
 				},
 			}
 		}),
@@ -595,7 +719,7 @@ publicSwapRoutes.post('/execute', flexAuth(), async (c) => {
 		)
 	}
 
-	return c.json(result.right)
+	return c.json(result.right.body, result.right.httpStatus)
 })
 
 /**
@@ -639,6 +763,7 @@ publicSwapRoutes.get('/status/:swapId', flexAuth(), async (c) => {
 				bridgeTxHash: swap.bridgeTxHash,
 				destinationTxHash: swap.destinationTxHash,
 				errorMessage: swap.errorMessage,
+				reconcileRequired: swap.status === 'signing' || swap.status === 'signed',
 				createdAt: swap.createdAt?.toISOString(),
 				completedAt: swap.completedAt?.toISOString(),
 			}
@@ -699,7 +824,6 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 		return c.json({ error: 'subOrgId and walletAddress are required' }, 400)
 	}
 
-	// MONEY-PATH / SECURITY: no verifiable ownership proof, no JWT. Fail closed.
 	const whoamiUrl = stampedWhoami?.url
 	const whoamiBody = stampedWhoami?.body
 	const stampHeaderName = stampedWhoami?.stamp?.stampHeaderName
@@ -726,8 +850,6 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 			const turnkeyBase = env.TURNKEY_BASE_URL || 'https://api.turnkey.com'
 			const expectedWhoamiUrl = `${turnkeyBase}/public/v1/query/whoami`
 
-			// SSRF / mix-up guard: only ever forward the stamp to Turnkey's real
-			// whoami endpoint, never wherever the caller points us.
 			if (whoamiUrl !== expectedWhoamiUrl) {
 				return yield* Effect.fail(
 					new UnauthorizedError({
@@ -736,10 +858,6 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 				)
 			}
 
-			// Forward the caller's stamped request to Turnkey verbatim. Turnkey
-			// verifies the signature against the credential registered on the
-			// claimed sub-org and tells us which org it actually belongs to — this
-			// IS the proof of control; we never see or need the private key.
 			const whoamiResponse = yield* Effect.tryPromise({
 				try: async () => {
 					const res = await fetch(expectedWhoamiUrl, {
@@ -771,8 +889,6 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 				)
 			}
 
-			// Independently confirm walletAddress is actually an account under the
-			// now-verified subOrgId (not just any address the caller typed in).
 			const turnkeyClient = new Turnkey({
 				apiBaseUrl: turnkeyBase,
 				apiPublicKey: env.TURNKEY_API_PUBLIC_KEY,
@@ -792,7 +908,6 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 				)
 			}
 
-			// Find existing wallet by address
 			const db = yield* requireDb
 			const existingWallet = yield* Effect.tryPromise({
 				try: () => db.select().from(wallets).where(eq(wallets.address, walletAddress)).limit(1),
@@ -800,11 +915,8 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 			})
 
 			let userId: number
-
 			const existingWalletRow = existingWallet[0]
 			if (existingWalletRow) {
-				// Defense in depth: the DB row's own subOrgId must agree with the
-				// one we just proved control of.
 				if (existingWalletRow.turnkeySubOrgId !== subOrgId) {
 					return yield* Effect.fail(
 						new UnauthorizedError({
@@ -814,16 +926,14 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 				}
 				userId = existingWalletRow.userId
 			} else {
-				// Create new user for showcase passkey auth
 				const { user } = yield* userService.getOrCreateUser({
-					telegramId: -(Date.now() % 2147483647), // Unique negative ID for passkey users (no telegram ID)
+					telegramId: -(Date.now() % 2147483647),
 					username: `passkey_${walletAddress.slice(0, 8)}`,
 					firstName: 'Passkey',
 					lastName: 'User',
 				})
 				userId = user.id
 
-				// Create wallet record
 				yield* walletService.createTurnkeyWallet({
 					userId,
 					address: walletAddress,
@@ -833,12 +943,10 @@ publicSwapRoutes.post('/auth', ipRateLimit(), async (c) => {
 				})
 			}
 
-			// Generate JWT — only reachable once ownership is verified above.
 			if (!env.JWT_SECRET) {
 				return yield* Effect.fail(new Error('JWT_SECRET not configured'))
 			}
-			const jwtSecret = env.JWT_SECRET
-			const token = jwt.sign({ userId, walletAddress }, jwtSecret, { expiresIn: '7d' })
+			const token = jwt.sign({ userId, walletAddress }, env.JWT_SECRET, { expiresIn: '7d' })
 
 			return {
 				jwt: token,
