@@ -10,7 +10,9 @@
       "lifecycle": "GET /v1/api-lifecycle",
       "retryContracts": "GET /v1/retry-contracts",
       "chains": "GET /v1/agent/chains",
-      "openapi": "GET /v1/agent/openapi"
+      "openapi": "GET /v1/agent/openapi",
+      "llms": "GET /llms.txt",
+      "llmsFull": "GET /llms-full.txt"
     }
   },
   "sandbox": {
