@@ -3,7 +3,7 @@
   "version": "0.9",
   "id": "bot.suwappu",
   "name": "Suwappu",
-  "description": "Cross-chain DEX and DeFi infrastructure for AI agents — swaps, perps, prediction markets, and lending across 14+ chains.",
+  "description": "Cross-chain execution and DeFi infrastructure for AI agents — discover current chains and capabilities from the runtime contracts instead of embedding a static inventory.",
   "homepage": "https://suwappu.bot",
   "provider": {
     "name": "Suwappu",
@@ -21,7 +21,7 @@
       "type": "mcp-server",
       "mediaType": "application/mcp-server-card+json",
       "name": "Suwappu MCP Server",
-      "description": "Model Context Protocol server (JSON-RPC 2.0 over Streamable HTTP). Exposes swap, portfolio, price, perps, prediction-market, and lending tools.",
+      "description": "Model Context Protocol server (JSON-RPC 2.0 over Streamable HTTP). Discover the hosted tool and resource catalog at runtime.",
       "url": "https://api.suwappu.bot/mcp",
       "authentication": {
         "type": "bearer",
@@ -32,21 +32,28 @@
       "type": "openapi",
       "mediaType": "application/vnd.oai.openapi+json;version=3.1",
       "name": "Suwappu OpenAPI Specification",
-      "description": "OpenAPI 3.1 spec for the full Suwappu REST agent API.",
+      "description": "OpenAPI 3.1 contract for the Suwappu REST Agent API. Chain support is runtime-discovered at GET /v1/agent/chains.",
       "url": "https://api.suwappu.bot/v1/agent/openapi"
+    },
+    {
+      "type": "developer-contract",
+      "mediaType": "application/json",
+      "name": "Suwappu Developer Contract",
+      "description": "Machine-readable API compatibility, package publication, protocol authority, sandbox and discovery contract.",
+      "url": "https://api.suwappu.bot/v1/developer-contract"
     },
     {
       "type": "llms-txt",
       "mediaType": "text/markdown",
       "name": "llms.txt",
-      "description": "Machine-readable, short-form API summary for LLM/agent bootstrapping.",
+      "description": "Generated machine-readable short-form API summary derived from the public OpenAPI and developer contract.",
       "url": "https://api.suwappu.bot/llms.txt"
     },
     {
       "type": "llms-txt",
       "mediaType": "text/markdown",
       "name": "llms-full.txt",
-      "description": "Exhaustive machine-readable endpoint reference (full variant of llms.txt).",
+      "description": "Generated exhaustive REST endpoint reference derived from the public OpenAPI contract.",
       "url": "https://api.suwappu.bot/llms-full.txt"
     },
     {
