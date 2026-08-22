@@ -37,7 +37,7 @@
     },
     "a2a": {
       "capabilityAuthority": "agent-card",
-      "agentCard": "https://api.suwappu.bot/.well-known/agent.json"
+      "agentCard": "https://api.suwappu.bot/.well-known/agent-card.json"
     }
   },
   "packages": {
