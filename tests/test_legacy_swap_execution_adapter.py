@@ -65,9 +65,7 @@ def _swap(*, swap_id: int, status: str, tx_hash=None, realized=None):
         created_at=datetime(2026, 8, 22, 12, 0, 0),
         updated_at=datetime(2026, 8, 22, 12, 0, 5),
         completed_at=(
-            datetime(2026, 8, 22, 12, 0, 20)
-            if status == SwapStatus.COMPLETED.value
-            else None
+            datetime(2026, 8, 22, 12, 0, 20) if status == SwapStatus.COMPLETED.value else None
         ),
     )
 
