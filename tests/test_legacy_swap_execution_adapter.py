@@ -19,7 +19,6 @@ from bot.services.execution_lifecycle import ParentState
 from bot.services.legacy_swap_execution_adapter import project_legacy_swap
 from database.db import Base
 
-
 TABLES = [
     SwapTransaction.__table__,
     ExecutionIntent.__table__,
