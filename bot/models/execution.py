@@ -50,7 +50,9 @@ class ExecutionIntent(Base):
     constraints_json = Column(JSON, nullable=True)
     metadata_json = Column(JSON, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,
@@ -88,7 +90,9 @@ class ExecutionCandidatePlan(Base):
     cost_json = Column(JSON, nullable=True)
     selected = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     quote_expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint("intent_id", "ordinal", name="uq_exec_candidate_intent_ordinal"),
@@ -123,7 +127,9 @@ class ExecutionParentOrder(Base):
 
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,
@@ -168,7 +174,9 @@ class ExecutionChildPlacement(Base):
     external_intent_id = Column(String(255), nullable=True)
 
     submitted_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,
@@ -209,7 +217,9 @@ class ExecutionFill(Base):
     liquidity_role = Column(String(16), nullable=True)
     metadata_json = Column(JSON, nullable=True)
     occurred_at = Column(DateTime, nullable=False)
-    observed_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    observed_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -243,7 +253,9 @@ class ExecutionSettlement(Base):
     confirmations = Column(Integer, nullable=True)
     finality_target = Column(Integer, nullable=True)
     recovery_json = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
     updated_at = Column(
         DateTime,
         default=datetime.utcnow,
@@ -281,7 +293,9 @@ class ExecutionEvent(Base):
     actor_id = Column(String(160), nullable=True)
     correlation_id = Column(String(128), nullable=True, index=True)
     causation_id = Column(String(128), nullable=True)
-    occurred_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    occurred_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint("parent_order_id", "sequence", name="uq_exec_event_parent_sequence"),
@@ -302,7 +316,9 @@ class ExecutionOutbox(Base):
     published_at = Column(DateTime, nullable=True)
     next_attempt_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.utcnow, server_default=func.now(), nullable=False
+    )
 
     __table_args__ = (
         UniqueConstraint("event_id", name="uq_execution_outbox_event_id"),
