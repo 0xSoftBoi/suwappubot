@@ -12,11 +12,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from bot.models.execution import (
     ExecutionCandidatePlan,
-    ExecutionChildPlacement,
     ExecutionEvent,
     ExecutionFill,
     ExecutionIntent,
@@ -94,6 +94,9 @@ class ExecutionStore:
 
         ``(source_type, source_ref)`` is the migration identity. Adapters can
         safely call this after restart/replay without creating a second parent.
+        A savepoint contains the rare concurrent-creator race so the caller's
+        surrounding transaction is still usable after the unique constraint
+        chooses the winner.
         """
 
         source_type = source_type.strip()
@@ -155,8 +158,23 @@ class ExecutionStore:
             filled_quantity="0",
             submit_idempotency_key=idempotency_key,
         )
-        session.add_all([intent, candidate, parent])
-        session.flush()
+
+        try:
+            with session.begin_nested():
+                session.add_all([intent, candidate, parent])
+                session.flush()
+        except IntegrityError:
+            existing = (
+                session.query(ExecutionParentOrder)
+                .filter(
+                    ExecutionParentOrder.source_type == source_type,
+                    ExecutionParentOrder.source_ref == source_ref,
+                )
+                .first()
+            )
+            if existing:
+                return existing
+            raise
         return parent
 
     def append_event(
@@ -178,16 +196,13 @@ class ExecutionStore:
     ) -> ExecutionEvent:
         """Append one event and materialize its parent snapshot atomically.
 
-        The parent row is locked before assigning the next sequence. A caller
-        may supply a deterministic event ID; retrying the same event then
-        returns the already-persisted row rather than advancing sequence again.
+        The parent row is locked before assigning the next sequence *and*
+        before the retry-ID check. That ordering makes two concurrent retries
+        serialize on the parent rather than racing into a duplicate primary
+        key after assigning different event sequences.
         """
 
         event_id = event_id or _uuid()
-        duplicate = session.query(ExecutionEvent).filter(ExecutionEvent.id == event_id).first()
-        if duplicate:
-            return duplicate
-
         parent = (
             session.query(ExecutionParentOrder)
             .filter(ExecutionParentOrder.id == parent_order_id)
@@ -196,6 +211,15 @@ class ExecutionStore:
         )
         if not parent:
             raise ParentNotFoundError(parent_order_id)
+
+        duplicate = session.query(ExecutionEvent).filter(ExecutionEvent.id == event_id).first()
+        if duplicate:
+            if duplicate.parent_order_id != parent.id:
+                raise ExecutionStoreError(
+                    f"event identity {event_id} already belongs to parent "
+                    f"{duplicate.parent_order_id}, not {parent.id}"
+                )
+            return duplicate
 
         current = _snapshot_from_parent(parent)
         lifecycle_event = LifecycleEvent(
@@ -312,6 +336,11 @@ class ExecutionStore:
             .first()
         )
         if existing:
+            if existing.parent_order_id != parent.id:
+                raise ExecutionStoreError(
+                    f"fill identity {external_source}:{external_fill_id} already belongs "
+                    f"to parent {existing.parent_order_id}, not {parent.id}"
+                )
             return existing
 
         fill = ExecutionFill(
