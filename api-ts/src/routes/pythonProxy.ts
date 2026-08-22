@@ -3,11 +3,12 @@ import { Hono, type Context } from 'hono'
 /**
  * Browser-facing routes that still live in the Python service.
  *
- * Keep this list deliberately explicit. api.suwappu.bot is the production
- * origin used by Terminal, so this gateway only bridges reviewed compatibility
- * routes that do not yet have an api-ts implementation. Money-changing routes
- * are opt-in exact paths below; a broad /terminal or /webapp prefix is never
- * enough to make a new Python endpoint browser-reachable.
+ * Keep this list deliberately explicit. api-ts is Terminal's backend gateway
+ * (reached through the Terminal same-origin Railway proxy in production), so
+ * this compatibility layer only bridges reviewed routes that do not yet have
+ * an api-ts implementation. Money-changing routes are opt-in exact paths below;
+ * a broad /terminal or /webapp prefix is never enough to make a new Python
+ * endpoint browser-reachable.
  */
 const AUTH_ROUTES = new Set([
 	'POST /auth/turnkey/challenge',
