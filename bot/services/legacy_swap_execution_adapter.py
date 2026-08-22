@@ -36,6 +36,14 @@ _STATUS_TARGET = {
     SwapStatus.CANCELLED.value: ParentState.CANCELLED,
 }
 
+_FORWARD_PATH = [
+    ParentState.DRAFT,
+    ParentState.QUOTING,
+    ParentState.READY,
+    ParentState.AUTHORIZING,
+    ParentState.ACTIVE,
+]
+
 
 def _stable_event_id(swap_id: int, fact: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"suwappu:legacy-swap:{swap_id}:{fact}"))
@@ -52,30 +60,30 @@ def _decimal(value: Optional[str], field: str) -> Decimal:
 
 
 def _status_path(current: ParentState, target: ParentState) -> list[ParentState]:
-    """Return a conservative canonical path for a legacy coarse-grained status."""
+    """Return a conservative canonical path for a legacy coarse-grained status.
+
+    A broadcast/settlement ambiguity is evidence that the order reached the
+    external execution phase. If a legacy row is first observed only after that
+    ambiguity, synthesize the missing coarse lifecycle states through ``active``
+    before entering ``reconciling`` rather than attempting an illegal
+    ``draft -> reconciling`` transition.
+    """
 
     if current == target:
         return []
 
-    forward = [
-        ParentState.DRAFT,
-        ParentState.QUOTING,
-        ParentState.READY,
-        ParentState.AUTHORIZING,
-        ParentState.ACTIVE,
-    ]
-    if current in forward and target in forward:
-        start = forward.index(current)
-        end = forward.index(target)
+    if current in _FORWARD_PATH and target in _FORWARD_PATH:
+        start = _FORWARD_PATH.index(current)
+        end = _FORWARD_PATH.index(target)
         if end >= start:
-            return forward[start + 1 : end + 1]
+            return _FORWARD_PATH[start + 1 : end + 1]
 
-    if target in {
-        ParentState.CANCELLED,
-        ParentState.FAILED,
-        ParentState.RECONCILING,
-        ParentState.FILLED,
-    }:
+    if target == ParentState.RECONCILING and current in _FORWARD_PATH:
+        start = _FORWARD_PATH.index(current)
+        through_active = _FORWARD_PATH[start + 1 :]
+        return through_active + [ParentState.RECONCILING]
+
+    if target in {ParentState.CANCELLED, ParentState.FAILED}:
         return [target]
 
     raise LegacySwapProjectionError(
@@ -83,7 +91,11 @@ def _status_path(current: ParentState, target: ParentState) -> list[ParentState]
     )
 
 
-def _ensure_child(session: Session, parent: ExecutionParentOrder, swap: SwapTransaction):
+def _ensure_child(
+    session: Session,
+    parent: ExecutionParentOrder,
+    swap: SwapTransaction,
+) -> ExecutionChildPlacement:
     child = (
         session.query(ExecutionChildPlacement)
         .filter(
@@ -103,10 +115,10 @@ def _ensure_child(session: Session, parent: ExecutionParentOrder, swap: SwapTran
             side=None,
             requested_quantity=swap.from_amount,
             quantity_asset=swap.from_token,
-            state="created",
+            state="submitted" if swap.tx_hash else "created",
             idempotency_key=swap.idempotency_key,
             external_tx_hash=swap.tx_hash,
-            submitted_at=swap.updated_at if swap.tx_hash else None,
+            submitted_at=(swap.updated_at or datetime.utcnow()) if swap.tx_hash else None,
         )
         session.add(child)
         session.flush()
@@ -115,6 +127,11 @@ def _ensure_child(session: Session, parent: ExecutionParentOrder, swap: SwapTran
         child.submitted_at = child.submitted_at or swap.updated_at or datetime.utcnow()
         child.state = "submitted"
         session.flush()
+    elif swap.tx_hash and child.external_tx_hash != swap.tx_hash:
+        raise LegacySwapProjectionError(
+            "legacy swap external tx identity changed after canonical child creation: "
+            f"{child.external_tx_hash} -> {swap.tx_hash}"
+        )
     return child
 
 
@@ -164,12 +181,16 @@ def _record_realized_fill(
         quantity=str(input_amount),
         quantity_asset=swap.from_token,
         price=str(execution_rate),
-        price_asset=f"{swap.to_token}/{swap.from_token}",
+        price_asset=swap.to_token,
         input_asset=swap.from_token,
         input_amount=str(input_amount),
         output_asset=swap.to_token,
         output_amount=str(output_amount),
-        fee_amount=str(swap.gas_fee) if swap.gas_fee is not None else None,
+        # Legacy gas/bridge values are quote-time USD estimates, not
+        # authoritative realized fees denominated in an asset. Keep them in
+        # metadata so #908/#898 can reconcile them later instead of pretending
+        # they are fill fees.
+        fee_amount=None,
         fee_asset=None,
         occurred_at=swap.completed_at or swap.updated_at or datetime.utcnow(),
         metadata={
@@ -177,6 +198,9 @@ def _record_realized_fill(
             "tx_hash": swap.tx_hash,
             "destination_tx_hash": swap.destination_tx_hash,
             "quote_to_amount": swap.to_amount,
+            "rate_convention": "output_per_input",
+            "legacy_gas_fee_usd_estimate": swap.gas_fee,
+            "legacy_bridge_fee_usd_estimate": swap.bridge_fee,
         },
     )
 
@@ -221,7 +245,8 @@ def project_legacy_swap(
     child = _ensure_child(session, parent, swap)
 
     # Persist the legacy observation even when it does not change canonical
-    # state. This gives support/reconciliation an auditable correlation trail.
+    # state. Status is intentionally the stable dedupe boundary: changes in
+    # tx-hash identity are handled by the child-placement invariant above.
     store.append_event(
         session,
         parent_order_id=parent.id,
