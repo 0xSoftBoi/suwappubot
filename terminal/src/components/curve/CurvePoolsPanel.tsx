@@ -77,6 +77,23 @@ function coinToSwapToken(coin: CurvePool['coins'][number], chain: string): SwapT
 
 export function CurvePoolsPanel() {
   const [chainName, setChainName] = useState<string>('ethereum')
+  // electric-router's solver+EVM wasm module, loaded lazily: the footer badge
+  // is the live proof the physics router core ships and instantiates in this
+  // build (route search wiring comes next; the quoting layer is already live
+  // in lib/erouter/quoter.ts).
+  const [erouterVersion, setErouterVersion] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    import('../../lib/erouter')
+      .then((m) => m.erouterVersion())
+      .then((v) => {
+        if (!cancelled) setErouterVersion(v)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [sortBy, setSortBy] = useState<CurveSortBy>('volume')
   const [sortDirection, setSortDirection] = useState<CurveSortDirection>('desc')
   const [search, setSearch] = useState('')
@@ -448,6 +465,9 @@ export function CurvePoolsPanel() {
             flet-curve
           </a>{' '}
           by @newmichwill · Powered by Curve Prices API
+          {erouterVersion ? (
+            <span data-testid="erouter-badge"> · electric-router v{erouterVersion} loaded</span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="text-terminal-text-muted">
