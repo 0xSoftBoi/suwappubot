@@ -99,6 +99,27 @@ export interface ScreenParams {
 	minLiquidityUsd: number
 	minVolume24hUsd?: number
 	limit?: number
+	/** Token addresses the agent must never be offered — chiefly its own quote asset. */
+	excludeTokens?: string[]
+}
+
+/**
+ * Quote assets are never candidates.
+ *
+ * Searching DexScreener for "WETH" returns pairs whose BASE token is WETH, so
+ * the search surface hands back the very assets it was asked to quote against.
+ * Observed live: a Base agent's first screen returned exactly [USDC, WETH] —
+ * an agent proposing to buy the currency it already holds.
+ */
+export const QUOTE_SYMBOLS = new Set(
+	['WETH', 'ETH', 'USDC', 'USDT', 'DAI', 'SOL', 'WSOL', 'WBNB', 'BNB', 'WMATIC', 'WAVAX'].map((s) =>
+		s.toLowerCase(),
+	),
+)
+
+/** True for the assets an agent quotes against, which are never candidates. */
+export function isQuoteAsset(symbol: string): boolean {
+	return QUOTE_SYMBOLS.has(symbol.trim().toLowerCase())
 }
 
 /**
@@ -157,12 +178,16 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 	const queries = [...new Set([...chains].flatMap((c) => CHAIN_QUOTE_QUERIES[c] ?? []))]
 	const searched = (await Promise.all(queries.map(searchPairs))).flat()
 
+	const excluded = new Set((params.excludeTokens ?? []).map((t) => t.trim().toLowerCase()))
+
 	return dedupeByToken(
 		[...batches.flatMap((b) => (Array.isArray(b) ? b : (b?.pairs ?? []))), ...searched]
 			.map(pairToCandidate)
 			.filter((c): c is Candidate => c !== null),
 	)
 		.filter((c) => chains.has(c.chain))
+		.filter((c) => !isQuoteAsset(c.symbol))
+		.filter((c) => !excluded.has(c.tokenAddress.toLowerCase()))
 		.filter((c) => c.liquidityUsd >= params.minLiquidityUsd)
 		.filter((c) => c.volume24hUsd >= (params.minVolume24hUsd ?? 0))
 		.sort((a, b) => b.volume24hUsd - a.volume24hUsd)

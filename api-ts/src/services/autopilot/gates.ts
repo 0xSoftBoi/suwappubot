@@ -85,6 +85,19 @@ function entryGates(
 		),
 	)
 
+	// Defence in depth: the screener already drops quote assets, but a regression
+	// there must not be able to spend the book's own currency on itself.
+	const isBaseToken = portfolio.baseToken !== undefined && norm(portfolio.baseToken) === token
+	results.push(
+		check(
+			'not_base_token',
+			!isBaseToken,
+			isBaseToken
+				? `${thesis.symbol} is the agent's own quote asset`
+				: `${thesis.symbol} is not the quote asset`,
+		),
+	)
+
 	const alreadyOpen = portfolio.openPositions.some((p) => norm(p.tokenAddress) === token)
 	results.push(
 		check(

@@ -184,6 +184,22 @@ describe('evaluateGates — refusals', () => {
 		expect(failedRules(v)).toContain('token_not_denied')
 	})
 
+	it("refuses to buy the book's own quote asset", () => {
+		// Observed live: the screener handed back USDC and WETH as candidates for a
+		// USDC-denominated agent. The screener is fixed; this is the backstop.
+		const p = portfolio({ baseToken: TOKEN })
+		expect(failedRules(evaluateGates(thesis(), candidate(), p, DEFAULT_RULES, NOW))).toContain(
+			'not_base_token',
+		)
+	})
+
+	it('allows a normal token when a base token is known', () => {
+		const p = portfolio({ baseToken: '0xUSDC000000000000000000000000000000000001' })
+		expect(failedRules(evaluateGates(thesis(), candidate(), p, DEFAULT_RULES, NOW))).not.toContain(
+			'not_base_token',
+		)
+	})
+
 	it('refuses a second position in a token it already holds', () => {
 		const p = portfolio({
 			openPositions: [

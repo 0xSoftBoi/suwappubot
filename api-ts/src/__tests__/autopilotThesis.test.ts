@@ -136,3 +136,18 @@ describe('PaperExecutor', () => {
 		expect(r.ok).toBe(false)
 	})
 })
+
+describe('screening excludes quote assets', () => {
+	it('treats the quote assets as never-candidates', async () => {
+		const { isQuoteAsset } = await import('../services/autopilot/market')
+		// Observed live: a USDC-denominated Base agent's first screen returned
+		// exactly [USDC, WETH] — the search surface hands back the assets it was
+		// asked to quote against.
+		for (const s of ['USDC', 'usdc', ' WETH ', 'ETH', 'SOL', 'USDT', 'DAI', 'WBNB']) {
+			expect(isQuoteAsset(s)).toBe(true)
+		}
+		for (const s of ['CATE', 'DEEP', 'BRETT', 'wethereal']) {
+			expect(isQuoteAsset(s)).toBe(false)
+		}
+	})
+})
