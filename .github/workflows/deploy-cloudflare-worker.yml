@@ -1,0 +1,48 @@
+name: Deploy Cloudflare Worker
+
+# Deploys the api.suwappu.bot edge router (cloudflare/suwappu-router.worker.js) whenever
+# its source changes on main, so a merged routing fix goes live without an operator
+# running `wrangler deploy` by hand. See cloudflare/README.md for what this Worker does
+# and why it exists (free path-routing replacement for the deleted AWS ALB).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-cloudflare-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare
+          command: deploy
+
+      - name: Verify routing
+        run: |
+          set -euo pipefail
+          # /webapp/data is api-ts-native; python-api 404s it. A non-404 body here means
+          # the deployed Worker is routing it to api-ts, i.e. this workflow's own change
+          # (or any prior manual deploy) actually took effect at the edge.
+          body=$(curl -fsS https://api.suwappu.bot/webapp/data/status)
+          if echo "$body" | grep -q '"detail":"Not Found"'; then
+            echo "::error::api.suwappu.bot/webapp/data/status still 404s — Worker deploy didn't take effect"
+            exit 1
+          fi
+          echo "OK: $body"
