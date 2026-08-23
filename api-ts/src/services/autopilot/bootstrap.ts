@@ -91,16 +91,27 @@ export function parseBootstrapConfig(raw: string): ParseResult {
 }
 
 /**
- * Seed the declared agent if it is missing. Never throws: a bootstrap failure
- * must not stop the API from serving.
+ * Seed the declared agent if it is missing.
+ *
+ * Returns true once the environment is in its declared state (agent present, or
+ * nothing declared). Never throws: a bootstrap failure must not stop the API
+ * from serving.
+ *
+ * This can legitimately fail on the first attempt. The autopilot tables are
+ * dual-owned (ADR 0003) — on an environment that skips the boot-time schema
+ * sync, they are created by the Python stack's _ensure_schema() moments later,
+ * which is after this runs. A one-shot seed loses the race and leaves the
+ * environment permanently empty, so the caller is expected to retry until this
+ * returns true; the work is idempotent.
  */
-export async function runAutopilotBootstrap(raw: string | undefined): Promise<void> {
-	if (!raw || raw.trim().length === 0) return
+export async function runAutopilotBootstrap(raw: string | undefined): Promise<boolean> {
+	if (!raw || raw.trim().length === 0) return true
 
 	const parsed = parseBootstrapConfig(raw)
 	if (!parsed.ok) {
+		// A malformed declaration will never become valid by retrying.
 		logger.error({ reason: parsed.error }, 'autopilot: bootstrap config refused')
-		return
+		return true
 	}
 	const { config } = parsed
 
@@ -112,11 +123,11 @@ export async function runAutopilotBootstrap(raw: string | undefined): Promise<vo
 			}),
 		)
 		if (existing.some((a) => a.slug === config.slug)) {
-			logger.info(
+			logger.debug(
 				{ slug: config.slug },
 				'autopilot: bootstrap agent already exists, leaving it alone',
 			)
-			return
+			return true
 		}
 
 		await runEffect(
@@ -144,7 +155,12 @@ export async function runAutopilotBootstrap(raw: string | undefined): Promise<vo
 			{ slug: config.slug, active: config.active === true },
 			'autopilot: bootstrapped paper agent',
 		)
+		return true
 	} catch (err) {
-		logger.error({ err: String(err), slug: config.slug }, 'autopilot: bootstrap failed')
+		logger.warn(
+			{ err: String(err), slug: config.slug },
+			'autopilot: bootstrap could not run yet, will retry on the next cycle',
+		)
+		return false
 	}
 }

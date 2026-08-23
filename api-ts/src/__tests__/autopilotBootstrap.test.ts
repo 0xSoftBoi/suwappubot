@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseBootstrapConfig } from '../services/autopilot/bootstrap'
+import { parseBootstrapConfig, runAutopilotBootstrap } from '../services/autopilot/bootstrap'
 
 const valid = {
 	slug: 'suwappu-alpha',
@@ -69,5 +69,24 @@ describe('parseBootstrapConfig', () => {
 		const r = parse({ ...valid, active: 'yes' })
 		expect(r.ok).toBe(true)
 		if (r.ok) expect(r.config.active).toBeUndefined()
+	})
+})
+
+describe('runAutopilotBootstrap', () => {
+	it('is a no-op, and reports done, when nothing is declared', async () => {
+		expect(await runAutopilotBootstrap(undefined)).toBe(true)
+		expect(await runAutopilotBootstrap('')).toBe(true)
+		expect(await runAutopilotBootstrap('   ')).toBe(true)
+	})
+
+	it('reports done for a config that can never become valid, so it is not retried forever', async () => {
+		expect(await runAutopilotBootstrap('not json')).toBe(true)
+		expect(await runAutopilotBootstrap(JSON.stringify({ ...valid, mode: 'live' }))).toBe(true)
+	})
+
+	it('reports not-done when the database is unreachable, so the scheduler retries', async () => {
+		// No DATABASE_URL in tests: listAgents fails, which is exactly the
+		// schema-not-up-yet case this must survive.
+		expect(await runAutopilotBootstrap(JSON.stringify(valid))).toBe(false)
 	})
 })

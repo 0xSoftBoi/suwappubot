@@ -59,13 +59,14 @@ async function main() {
 	logger.info(`Database: ${env.DATABASE_URL ? 'configured' : 'not configured'}`)
 
 	// Seed the paper agent this environment declares, if it is missing. Paper
-	// only, and never modifies an agent that already exists.
-	await runAutopilotBootstrap(env.AUTOPILOT_BOOTSTRAP)
+	// only, and never modifies an agent that already exists. If the schema is not
+	// up yet (dual-owned tables — see ADR 0003), the scheduler retries it.
+	const seeded = await runAutopilotBootstrap(env.AUTOPILOT_BOOTSTRAP)
 
 	// Autopilot — periodic autonomous trading cycles. Disabled unless
 	// AUTOPILOT_CYCLE_MINUTES is set, and each agent still has to be `active`
 	// and (for real money) explicitly in live mode.
-	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES)
+	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES, seeded ? undefined : env.AUTOPILOT_BOOTSTRAP)
 
 	// Graceful shutdown
 	const shutdown = async () => {
