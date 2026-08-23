@@ -344,3 +344,75 @@ describe('autopilot cycle — the time stop', () => {
 		expect(stats.closed_trades).toBe(1)
 	})
 })
+
+describe('autopilot cycle — an unresolved execution halts the agent', () => {
+	let liveish: AutopilotAgent
+
+	beforeAll(async () => {
+		const [row] = await db
+			.insert(autopilotAgents)
+			.values({
+				slug: 'halt-agent',
+				name: 'Halt Agent',
+				chain: 'base',
+				baseToken: 'USDC',
+				mode: 'paper',
+				status: 'active',
+				startingEquityUsd: 1000,
+				rules: { allowedChains: ['base'], maxPositionUsd: 100, tokenCooldownMinutes: 0 },
+			})
+			.returning()
+		liveish = row as AutopilotAgent
+	})
+
+	/** An executor whose order was sent and whose outcome never came back. */
+	const unresolved = {
+		mode: 'paper' as const,
+		execute: async () => ({
+			ok: false,
+			paper: false,
+			mayHaveBroadcast: true,
+			error: 'execute outcome unknown (may have broadcast): timeout',
+		}),
+	}
+
+	it('pauses the agent rather than opening no position and moving on', async () => {
+		// The money-losing sequence this prevents: the swap may be on chain, we
+		// book nothing, our accounting still shows the cash, and the next cycle
+		// spends it again. Pausing costs missed cycles; not pausing costs the
+		// wallet.
+		await runCycleImpl(db, liveish, unresolved, new RulesThesisEngine(), deps, marketAt(1))
+
+		const [after] = await db
+			.select()
+			.from(autopilotAgents)
+			.where(eq(autopilotAgents.id, liveish.id))
+		expect(after.status).toBe('paused')
+
+		const positions = await db
+			.select()
+			.from(autopilotPositions)
+			.where(eq(autopilotPositions.agentId, liveish.id))
+		expect(positions).toHaveLength(0)
+	})
+
+	it('records the decision as unknown, not as failed', async () => {
+		// `failed` means "did not happen" and is safe to ignore. This did not
+		// mean that, and the feed must not claim it did.
+		const [d] = await db
+			.select()
+			.from(autopilotDecisions)
+			.where(eq(autopilotDecisions.agentId, liveish.id))
+		expect(d.status).toBe('unknown')
+		expect(d.executionError).toContain('unknown')
+	})
+
+	it('refuses to run again while paused', async () => {
+		// The halt is only worth anything if the scheduler respects it.
+		const [paused] = await db
+			.select()
+			.from(autopilotAgents)
+			.where(eq(autopilotAgents.id, liveish.id))
+		expect(paused.status).toBe('paused')
+	})
+})

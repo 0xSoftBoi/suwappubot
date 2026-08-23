@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { evaluateGates, shouldExit } from '../services/autopilot/gates'
+import { evaluateGates, shouldExit, exitSlippageBps } from '../services/autopilot/gates'
 import {
 	type AutopilotRules,
 	type Candidate,
@@ -52,6 +52,7 @@ const portfolio = (over: Partial<PortfolioState> = {}): PortfolioState => ({
 	openPositions: [],
 	spentTodayUsd: 0,
 	realizedPnlTodayUsd: 0,
+	unrealizedPnlUsd: 0,
 	lastTradeAtByToken: {},
 	...over,
 })
@@ -204,7 +205,8 @@ describe('evaluateGates — refusals', () => {
 		const p = portfolio({
 			openPositions: [
 				{
-					chain: 'base',
+					id: 1,
+				chain: 'base',
 					tokenAddress: TOKEN.toLowerCase(),
 					symbol: 'CATE',
 					amount: '1',
@@ -284,6 +286,7 @@ describe('evaluateGates — exits are never blocked by risk rules', () => {
 		realizedPnlTodayUsd: -10_000,
 		openPositions: [
 			{
+				id: 1,
 				chain: 'base',
 				tokenAddress: TOKEN.toLowerCase(),
 				symbol: 'CATE',
@@ -356,5 +359,51 @@ describe('shouldExit', () => {
 	it('is inert on garbage prices', () => {
 		expect(shouldExit({ ...pos, avgEntryPriceUsd: 0 }, 10, undefined, NOW).exit).toBe(false)
 		expect(shouldExit(pos, 0, undefined, NOW).exit).toBe(false)
+	})
+})
+
+describe('exitSlippageBps', () => {
+	it('starts at the normal allowance and doubles per failure', () => {
+		expect(exitSlippageBps(0, DEFAULT_RULES)).toBe(DEFAULT_RULES.maxSlippageBps)
+		expect(exitSlippageBps(1, DEFAULT_RULES)).toBe(300)
+		expect(exitSlippageBps(2, DEFAULT_RULES)).toBe(600)
+	})
+
+	it('never exceeds the ceiling however many times it has failed', () => {
+		// Escalation is a way out of a position, not a blank cheque.
+		expect(exitSlippageBps(50, DEFAULT_RULES)).toBe(DEFAULT_RULES.exitSlippageCeilingBps)
+	})
+
+	it('treats a missing or negative attempt count as none', () => {
+		expect(exitSlippageBps(-3, DEFAULT_RULES)).toBe(DEFAULT_RULES.maxSlippageBps)
+	})
+})
+
+describe('the daily loss halt counts the open book', () => {
+	it('halts on unrealized losses alone', () => {
+		// The blow-up shape: nothing closed, so realized P&L is zero and a halt
+		// reading only realized lets the agent keep buying while the book bleeds.
+		// Unrealized losses are losses.
+		const verdict = evaluateGates(
+			thesis(),
+			candidate(),
+			portfolio({ realizedPnlTodayUsd: 0, unrealizedPnlUsd: -250 }),
+			{ ...DEFAULT_RULES, dailyLossHaltUsd: 200 },
+			NOW,
+		)
+		const halt = verdict.results.find((r) => r.rule === 'daily_loss_halt')
+		expect(halt?.passed).toBe(false)
+		expect(halt?.detail).toContain('unrealized')
+	})
+
+	it('nets an unrealized gain against a realized loss', () => {
+		const verdict = evaluateGates(
+			thesis(),
+			candidate(),
+			portfolio({ realizedPnlTodayUsd: -150, unrealizedPnlUsd: 120 }),
+			{ ...DEFAULT_RULES, dailyLossHaltUsd: 200 },
+			NOW,
+		)
+		expect(verdict.results.find((r) => r.rule === 'daily_loss_halt')?.passed).toBe(true)
 	})
 })

@@ -87,7 +87,8 @@ describe('RulesThesisEngine.formEntry', () => {
 
 describe('RulesThesisEngine.formExit', () => {
 	const position: OpenPositionSummary = {
-		chain: 'base',
+		id: 1,
+				chain: 'base',
 		tokenAddress: '0x1111111111111111111111111111111111111111',
 		symbol: 'GOOD',
 		amount: '1000',

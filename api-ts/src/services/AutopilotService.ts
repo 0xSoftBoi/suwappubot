@@ -37,7 +37,7 @@ import {
 } from '../lib/seal'
 import { type Anchor, createAnchor, NullAnchor } from './autopilot/anchor'
 import { type Executor, ManagedExecutor, PaperExecutor } from './autopilot/executor'
-import { evaluateGates, shouldExit } from './autopilot/gates'
+import { evaluateGates, exitSlippageBps, shouldExit } from './autopilot/gates'
 import {
 	benchmarkComparison,
 	type BenchmarkComparison,
@@ -802,6 +802,7 @@ async function loadPortfolio(db: DbClient, agentId: number): Promise<PortfolioSt
 		chain: p.chain,
 		tokenAddress: p.tokenAddress,
 		symbol: p.tokenSymbol,
+		id: p.id,
 		amount: p.amount,
 		costBasisUsd: p.costBasisUsd,
 		avgEntryPriceUsd: p.avgEntryPriceUsd ?? 0,
@@ -809,6 +810,7 @@ async function loadPortfolio(db: DbClient, agentId: number): Promise<PortfolioSt
 		maxHoldMinutes: p.maxHoldMinutes ?? undefined,
 		stopLossPct: p.stopLossPct ?? undefined,
 		invalidation: p.invalidation ?? undefined,
+		exitAttempts: p.exitAttempts ?? 0,
 		openedAt: p.openedAt ? new Date(p.openedAt).getTime() : Date.now(),
 	}))
 
@@ -820,11 +822,12 @@ async function loadPortfolio(db: DbClient, agentId: number): Promise<PortfolioSt
 				: p.costBasisUsd,
 	}))
 
-	const { equityUsd, deployedUsd } = computeEquity(
+	const { equityUsd, deployedUsd, marketValueUsd } = computeEquity(
 		agentRow?.startingEquityUsd ?? 0,
 		marked,
 		realizedPnlUsd,
 	)
+	const unrealizedPnlUsd = marketValueUsd - deployedUsd
 
 	const lastDecisions = await db
 		.select()
@@ -850,6 +853,7 @@ async function loadPortfolio(db: DbClient, agentId: number): Promise<PortfolioSt
 		openPositions,
 		spentTodayUsd,
 		realizedPnlTodayUsd,
+		unrealizedPnlUsd,
 		lastTradeAtByToken,
 	}
 }
@@ -1083,13 +1087,14 @@ export async function runCycleImpl(
 				fromToken: position.tokenAddress,
 				toToken: agent.baseToken,
 				amountUsd: thesis.sizeUsd,
-				slippageBps: rules.maxSlippageBps,
+				// Widened by each previous failure to close this position.
+				slippageBps: exitSlippageBps(position.exitAttempts ?? 0, rules),
 				feeBps: rules.paperFeeBps,
 				idempotencyKey: decision.commitment,
 				referencePriceUsd: price,
 				liquidityUsd: undefined,
 				...(agent.walletAddress ? { walletAddress: agent.walletAddress } : {}),
-			} as never)
+			})
 
 			await settleDecision(db, agent.id, cycleId, decision, thesis, result, price)
 			if (result.ok) {
@@ -1098,8 +1103,45 @@ export async function runCycleImpl(
 				// mid credits the position with a sale it never got and quietly
 				// overstates every realized return.
 				await closePosition(db, agent.id, position, result.fillPriceUsd ?? price, decision.id)
+			} else if (result.mayHaveBroadcast) {
+				errors.push(`exit ${position.symbol}: UNRESOLVED — ${result.error}`)
+				await reveal(db, decision.id, thesis)
+				await haltOnUnresolvedExecution(
+					db,
+					agent.id,
+					cycleId,
+					decision.id,
+					position.symbol,
+					result.error,
+				)
+				break
 			} else {
-				errors.push(`exit ${position.symbol}: ${result.error}`)
+				// Record the failure so the next attempt is allowed more room. A
+				// silent retry at the same allowance fails the same way forever.
+				const attempts = (position.exitAttempts ?? 0) + 1
+				await db
+					.update(autopilotPositions)
+					.set({ exitAttempts: attempts, updatedAt: new Date() })
+					.where(eq(autopilotPositions.id, position.id))
+				errors.push(
+					`exit ${position.symbol}: ${result.error} (attempt ${attempts}, next allowance ${exitSlippageBps(attempts, rules)}bps)`,
+				)
+				if (attempts >= 3) {
+					logger.error(
+						{ agentId: agent.id, symbol: position.symbol, attempts },
+						'autopilot: position has failed to close repeatedly',
+					)
+					await journal(
+						db,
+						agent.id,
+						cycleId,
+						decision.id,
+						'exit',
+						`${position.symbol} has failed to close ${attempts} times. It is past its exit plan and still open.`,
+						{ attempts, slippageBps: exitSlippageBps(attempts, rules) },
+						'error',
+					)
+				}
 			}
 			await reveal(db, decision.id, thesis)
 		}
@@ -1197,7 +1239,7 @@ export async function runCycleImpl(
 				referencePriceUsd: candidate.priceUsd,
 				liquidityUsd: candidate.liquidityUsd,
 				...(agent.walletAddress ? { walletAddress: agent.walletAddress } : {}),
-			} as never)
+			})
 
 			await settleDecision(db, agent.id, cycleId, decision, draft, result, candidate.priceUsd)
 			await reveal(db, decision.id, draft)
@@ -1206,6 +1248,17 @@ export async function runCycleImpl(
 				decisionsExecuted++
 				await openPosition(db, agent.id, draft, result, decision.id)
 				portfolio = await loadPortfolio(db, agent.id)
+			} else if (result.mayHaveBroadcast) {
+				errors.push(`entry ${draft.symbol}: UNRESOLVED — ${result.error}`)
+				await haltOnUnresolvedExecution(
+					db,
+					agent.id,
+					cycleId,
+					decision.id,
+					draft.symbol,
+					result.error,
+				)
+				break
 			} else {
 				errors.push(`entry ${draft.symbol}: ${result.error}`)
 			}
@@ -1290,6 +1343,43 @@ async function markPositionsToMarket(
 	}
 }
 
+/**
+ * An execution whose outcome we never learned stops the agent.
+ *
+ * There is no safe way to keep trading past this. Our own accounting still
+ * shows the cash the swap may already have spent, so the very next cycle would
+ * happily spend it again. Pausing costs us some missed cycles; not pausing
+ * costs whatever is in the wallet. A human reconciles the decision against the
+ * chain and re-activates.
+ */
+async function haltOnUnresolvedExecution(
+	db: DbClient,
+	agentId: number,
+	cycleId: number,
+	decisionId: number,
+	symbol: string,
+	error: string | undefined,
+): Promise<void> {
+	await db
+		.update(autopilotAgents)
+		.set({ status: 'paused', updatedAt: new Date() })
+		.where(eq(autopilotAgents.id, agentId))
+	logger.error(
+		{ agentId, decisionId, symbol, error },
+		'autopilot: HALTED — execution outcome unknown, agent paused pending reconciliation',
+	)
+	await journal(
+		db,
+		agentId,
+		cycleId,
+		decisionId,
+		'halt',
+		`Halted: the ${symbol} order was sent and never acknowledged, so it may be on chain. The agent is paused until someone reconciles decision #${decisionId} against the wallet.`,
+		{ decisionId, symbol, error },
+		'error',
+	)
+}
+
 async function settleDecision(
 	db: DbClient,
 	agentId: number,
@@ -1304,13 +1394,16 @@ async function settleDecision(
 		fillAmount?: string
 		realizedSlippageBps?: number
 		error?: string
+		mayHaveBroadcast?: boolean
 	},
 	referencePriceUsd: number,
 ): Promise<void> {
 	await db
 		.update(autopilotDecisions)
 		.set({
-			status: result.ok ? 'filled' : 'failed',
+			// `unknown` is a third terminal state, not a shade of failure. The order
+			// was sent and no answer came back, so the swap may be on chain.
+			status: result.ok ? 'filled' : result.mayHaveBroadcast ? 'unknown' : 'failed',
 			txHash: result.txHash ?? null,
 			quoteId: result.quoteId ?? null,
 			executedAt: new Date(),

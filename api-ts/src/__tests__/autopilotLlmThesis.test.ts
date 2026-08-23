@@ -117,6 +117,7 @@ describe('LlmThesisEngine — the model judges, the code trades', () => {
 		})
 		const exit = await engine.formExit(
 			{
+				id: 1,
 				chain: 'base',
 				tokenAddress: '0xREAL0000000000000000000000000000000000001',
 				symbol: 'REAL',
