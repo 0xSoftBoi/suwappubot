@@ -183,6 +183,25 @@ sane, then create a *separate* live agent with a funded managed wallet. Do not
 flip a paper agent's mode: its equity history is paper history, and mixing the
 two makes the published P&L a lie.
 
+## The canonical form is a spec, not an implementation detail
+
+Object keys sort lexicographically, no whitespace, and **strings are raw UTF-8
+with only JSON-required escapes** — non-ASCII is *not* `\uXXXX`-escaped.
+
+That last clause is load-bearing. Python's `json.dumps` escapes non-ASCII by
+default and Go's `encoding/json` escapes HTML characters, so an idiomatic
+verifier in either language computes a different digest from identical data —
+and a single em dash in a thesis is enough to trigger it. Verifying a live
+decision with a naive Python checker returned MISMATCH on honest data, which is
+the worst failure a transparency claim can have: it is indistinguishable from a
+forgery. Python needs `json.dumps(..., ensure_ascii=False)`; Go needs an Encoder
+with `SetEscapeHTML(false)`.
+
+`GET /v1/autopilot/decisions/:id/verify` therefore publishes `preimage` — the
+exact byte string that was hashed — so a verifier whose digest differs can diff
+the bytes instead of concluding the worst. `sha256(preimage)` must equal the
+commitment, in any language, with no canonicalisation of your own.
+
 ## Dry run
 
 `bun run scripts/autopilot-dryrun.ts` exercises read → think → gate → seal
@@ -211,9 +230,20 @@ which is why discovery does not rely on it.
   honeypot round-trip on Solana only; on EVM the tax fields come back unset,
   which is why an EVM agent's published rules should set `requireLpLocked: false`
   explicitly rather than pretending we checked.
-- **No live-money run.** Every cycle in this repo has executed against the paper
-  executor or an ephemeral test database. The managed execution path is wired to
-  our own agent API and covered by tests, but it has not moved real funds.
+- **No live-money run.** Every cycle so far has executed against the paper
+  executor. The managed execution path is wired to our own agent API and covered
+  by tests, but it has not moved real funds.
+- **Holder concentration can read above 100%.** The Base scan reported `top
+  holders 101.5%` for one token, because a "holder" in that list can be the pool
+  or router and balances get double-counted. The gate refuses on it, which is
+  the safe direction, but the number itself should be treated as a smell rather
+  than a measurement until the Python side excludes contract holders.
+
+## Running on dev
+
+Deployed and live: `https://api-ts-dev.up.railway.app/v1/autopilot`. The agent
+`suwappu-alpha` is a paper agent on Base with $1,000 of paper capital, seeded by
+`AUTOPILOT_BOOTSTRAP` and running a cycle every five minutes.
 
 ## Watching it
 

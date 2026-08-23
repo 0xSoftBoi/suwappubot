@@ -9,6 +9,11 @@
  * MUST stay byte-identical to api-ts/src/lib/seal.ts — same key ordering, same
  * separators, same algo tag inside the pre-image. Its test suite pins the
  * canonical form; if that changes, this changes with it.
+ *
+ * String encoding is part of that spec: raw UTF-8, only JSON-required escapes,
+ * no \uXXXX escaping of non-ASCII. `JSON.stringify` gives us that for free —
+ * which is exactly why implementers in languages that escape by default (Python,
+ * Go) get a mismatch on honest data unless they opt out.
  */
 
 export const SEAL_ALGO = 'sha256-canonical-v1';
