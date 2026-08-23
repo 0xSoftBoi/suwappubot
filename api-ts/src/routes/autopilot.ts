@@ -183,6 +183,22 @@ autopilotRoutes.get('/:slug/journal', async (c) => {
 	return c.json({ success: true, entries: result.right })
 })
 
+// GET /v1/autopilot/:slug/stats — what this record does and does not prove
+autopilotRoutes.get('/:slug/stats', async (c) => {
+	const slug = c.req.param('slug')
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const svc = yield* AutopilotService
+			return yield* svc.getStats(slug)
+		}),
+	)
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json({ success: true, stats: result.right })
+})
+
 // GET /v1/autopilot/decisions/:id
 autopilotRoutes.get('/decisions/:id', async (c) => {
 	const id = Number.parseInt(c.req.param('id'), 10)

@@ -17,7 +17,7 @@ import {
 	autopilotPositions,
 } from '../db/schema/autopilot'
 import { verifySeal } from '../lib/seal'
-import { type MarketDeps, runCycleImpl } from '../services/AutopilotService'
+import { loadAgentStats, type MarketDeps, runCycleImpl } from '../services/AutopilotService'
 import { PaperExecutor } from '../services/autopilot/executor'
 import { RulesThesisEngine } from '../services/autopilot/thesis'
 import type { Candidate, TokenSecurity } from '../services/autopilot/types'
@@ -230,5 +230,42 @@ describe('autopilot cycle — exit', () => {
 	it('marks equity down after the realized loss', async () => {
 		const [a] = await db.select().from(autopilotAgents).where(eq(autopilotAgents.id, agent.id))
 		expect(a.lastCycleAt).not.toBeNull()
+	})
+})
+
+describe('autopilot stats — through the shipped DDL', () => {
+	it('scores the closed trade and refuses to call one trade evidence', async () => {
+		const stats = (await loadAgentStats(db, 'test-agent'))!
+		expect(stats).not.toBeNull()
+		expect(stats.closed_trades).toBe(1)
+		// One observation. Every statistic that needs a distribution must decline
+		// to produce one rather than emit a confident-looking number.
+		expect(stats.track_record.sharpe).toBeNull()
+		expect(stats.track_record.significant).toBe(false)
+		expect(stats.track_record.summary).toContain('too few')
+	})
+
+	it('joins the entry decision to the outcome for the reliability curve', async () => {
+		const stats = (await loadAgentStats(db, 'test-agent'))!
+		// The position lost, so whatever confidence the entry claimed is now a
+		// scored miss. This join is the whole point: it is the only place the
+		// model's stated confidence ever meets a result.
+		expect(stats.calibration.samples).toBe(1)
+		expect(stats.calibration.buckets).toHaveLength(1)
+		expect(stats.calibration.buckets[0]!.realizedWinRate).toBe(0)
+	})
+
+	it('publishes the friction and shows the book behind a flat base asset', async () => {
+		const stats = (await loadAgentStats(db, 'test-agent'))!
+		expect(stats.costs.paper_fee_bps_per_side).toBe(30)
+		expect(stats.benchmark).not.toBeNull()
+		expect(stats.benchmark!.benchmarkReturnPct).toBe(0)
+		expect(stats.benchmark!.strategyReturnPct).toBeLessThan(0)
+		expect(stats.benchmark!.beatsBenchmark).toBe(false)
+		expect(stats.benchmark!.summary).toContain('doing nothing would have done better')
+	})
+
+	it('returns null for an agent that does not exist', async () => {
+		expect(await loadAgentStats(db, 'no-such-agent')).toBeNull()
 	})
 })

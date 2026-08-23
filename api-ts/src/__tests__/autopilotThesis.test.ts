@@ -126,6 +126,36 @@ describe('PaperExecutor', () => {
 		expect(r.txHash).toStartWith('paper:')
 	})
 
+	it('prices impact against the quote-side reserve, not total TVL', async () => {
+		// Reported depth counts BOTH sides of the pool, so the reserve we actually
+		// trade against is half of it. Dividing by the full number models half the
+		// slippage — the failure is silent, and every paper trade reads better
+		// than it was. A trade worth 1% of TVL is 2% of the quote reserve.
+		const r = await executor.execute({
+			...base,
+			amountUsd: 10_000,
+			slippageBps: 10_000,
+			referencePriceUsd: 1,
+			liquidityUsd: 1_000_000,
+		})
+		expect(r.realizedSlippageBps).toBe(200)
+	})
+
+	it('lets impact run away rather than asymptote when the trade dwarfs the pool', async () => {
+		// The old `s / (L + s)` form capped at 100% no matter how absurd the size.
+		// On a constant-product curve you cannot buy out the reserve, so a trade
+		// far larger than the pool must price as impossible, not as merely bad.
+		const r = await executor.execute({
+			...base,
+			amountUsd: 1_000_000,
+			slippageBps: 10_000,
+			referencePriceUsd: 1,
+			liquidityUsd: 100_000,
+		})
+		expect(r.ok).toBe(false)
+		expect(r.error).toContain('exceeds')
+	})
+
 	it('fills a sell BELOW mid and a buy ABOVE it', async () => {
 		// The bug this pins: a sell modelled with `1 + impact` gets a better price
 		// than the market would give, and every closed trade reads better than it

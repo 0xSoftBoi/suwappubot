@@ -84,3 +84,51 @@ export type AutopilotCycle = {
   finished_at: string | null;
   error: string | null;
 };
+
+/** GET /v1/autopilot/:slug/stats — the honesty panel. */
+export type TrackRecordVerdict = {
+  trades: number;
+  sharpe: number | null;
+  psr: number | null;
+  minTrackRecordLength: number | null;
+  tradesRemaining: number | null;
+  significant: boolean;
+  skew: number | null;
+  kurtosis: number | null;
+  summary: string;
+};
+
+export type ReliabilityBucket = {
+  from: number;
+  to: number;
+  count: number;
+  statedConfidence: number;
+  realizedWinRate: number;
+  gap: number;
+};
+
+export type CalibrationReport = {
+  samples: number;
+  buckets: ReliabilityBucket[];
+  brierScore: number | null;
+  expectedCalibrationError: number | null;
+  bias: number | null;
+  summary: string;
+};
+
+export type BenchmarkComparison = {
+  strategyReturnPct: number;
+  benchmarkReturnPct: number;
+  excessReturnPct: number;
+  beatsBenchmark: boolean;
+  label: string;
+  summary: string;
+};
+
+export type AgentStats = {
+  closed_trades: number;
+  track_record: TrackRecordVerdict;
+  calibration: CalibrationReport;
+  benchmark: BenchmarkComparison | null;
+  costs: { paper_fee_bps_per_side: number; impact_model: string };
+};
