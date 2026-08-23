@@ -164,3 +164,117 @@ describe('pagination and min_tvl constraints', () => {
     expect(params.get('pagination')).toBe('50')
   })
 })
+
+describe('parseCurveCandles', () => {
+  const { parseCurveCandles } = require('./curve') as typeof import('./curve')
+
+  test('parses, sorts ascending, and fills volume', () => {
+    const payload = {
+      data: [
+        { time: 200, open: 1.1, high: 1.2, low: 1.0, close: 1.15 },
+        { time: 100, open: 1.0, high: 1.1, low: 0.9, close: 1.1, volume: 5 },
+      ],
+    }
+    expect(parseCurveCandles(payload)).toEqual([
+      { time: 100, open: 1.0, high: 1.1, low: 0.9, close: 1.1, volume: 5 },
+      { time: 200, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 0 },
+    ])
+  })
+
+  test('drops rows without a usable time and non-finite fields', () => {
+    const payload = { data: [{ open: 1 }, { time: 0, open: 1 }, { time: 10, open: 'x' }, null] }
+    expect(parseCurveCandles(payload)).toEqual([])
+  })
+
+  test('rejection payloads and junk yield empty', () => {
+    expect(parseCurveCandles({ detail: 'nope' })).toEqual([])
+    expect(parseCurveCandles(null)).toEqual([])
+    expect(parseCurveCandles({})).toEqual([])
+  })
+})
+
+describe('parseCurvePoolDetail', () => {
+  const { parseCurvePoolDetail } = require('./curve') as typeof import('./curve')
+
+  test('parses coins, balances and figures', () => {
+    const detail = parseCurvePoolDetail({
+      name: '3pool',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usd_price: 1, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usd_price: 1, decimals: 6 },
+      ],
+      balances_usd: [100, '200'],
+      tvl_usd: 300,
+      trading_volume_24h: 50,
+      trading_fee_24h: 0.5,
+      liquidity_volume_24h: 10,
+      lp_token_address: '0xlp',
+    })
+    expect(detail).toEqual({
+      name: '3pool',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usdPrice: 1, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usdPrice: 1, decimals: 6 },
+      ],
+      balancesUsd: [100, 200],
+      tvlUsd: 300,
+      volume24h: 50,
+      tradingFee24h: 0.5,
+      liquidityVolume24h: 10,
+      lpTokenAddress: '0xlp',
+    })
+  })
+
+  test('is defensive: rejection and junk yield null, missing fields zero', () => {
+    expect(parseCurvePoolDetail({ detail: 'not found' })).toBeNull()
+    expect(parseCurvePoolDetail(null)).toBeNull()
+    const bare = parseCurvePoolDetail({})
+    expect(bare?.coins).toEqual([])
+    expect(bare?.balancesUsd).toEqual([])
+    expect(bare?.tvlUsd).toBe(0)
+  })
+})
+
+describe('parseCurveTrades', () => {
+  const { parseCurveTrades, explorerTxUrl } = require('./curve') as typeof import('./curve')
+
+  test('maps sold/bought ids to symbols via pool_index and parses UTC time', () => {
+    const payload = {
+      main_token: { symbol: 'USDC', pool_index: 1 },
+      reference_token: { symbol: 'DAI', pool_index: 0 },
+      data: [
+        {
+          sold_id: 0,
+          bought_id: 1,
+          tokens_sold: 256.47,
+          tokens_bought: 256.43,
+          tokens_sold_usd: 256.44,
+          time: '2026-08-23T21:58:35',
+          transaction_hash: '0xtx',
+          buyer: '0xbuyer',
+        },
+      ],
+    }
+    const trades = parseCurveTrades(payload)
+    expect(trades).toHaveLength(1)
+    expect(trades[0].soldSymbol).toBe('DAI')
+    expect(trades[0].boughtSymbol).toBe('USDC')
+    expect(trades[0].time).toBe(Math.floor(Date.parse('2026-08-23T21:58:35Z') / 1000))
+    expect(trades[0].txHash).toBe('0xtx')
+  })
+
+  test('drops rows without a parseable time; rejection/junk yield empty', () => {
+    expect(
+      parseCurveTrades({ main_token: {}, reference_token: {}, data: [{ sold_id: 0 }] }),
+    ).toEqual([])
+    expect(parseCurveTrades({ detail: 'nope' })).toEqual([])
+    expect(parseCurveTrades(null)).toEqual([])
+  })
+
+  test('explorerTxUrl maps known chains and falls back to blockscan', () => {
+    expect(explorerTxUrl(1, '0xabc')).toBe('https://etherscan.io/tx/0xabc')
+    expect(explorerTxUrl(42161, '0xabc')).toBe('https://arbiscan.io/tx/0xabc')
+    expect(explorerTxUrl(146, '0xabc')).toBe('https://blockscan.com/tx/0xabc')
+    expect(explorerTxUrl(1, '')).toBe('')
+  })
+})

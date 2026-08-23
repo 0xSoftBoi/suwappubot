@@ -1,0 +1,18 @@
+{
+ "chain_id": 42220,
+ "fingerprint": "8105012d58ca2413",
+ "unquotable": {},
+ "verdicts": {
+  "0x28f209844029755fc563c1bd4fd21f42dc7ce0e4": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x32fd7e563c6521ab4d59ce3277bcfbe3317cfd63": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "plain"
+  }
+ },
+ "version": 1
+}

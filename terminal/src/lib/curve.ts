@@ -186,6 +186,247 @@ export function parseCurvePools(payload: unknown, chainId: number, chainName = '
   return { pools, count: Number.isFinite(count) ? count : pools.length }
 }
 
+// ---- candles (v1 — v2 has no OHLC endpoints at all) ----
+
+// One entry of the candle-size picker and its API aggregation, mirroring
+// flet-curve's CANDLE_SIZES (a subset: the picker sizes the video UI leads
+// with). `seconds * count` is how far back to ask.
+export interface CurveCandleSize {
+  label: string
+  aggNumber: number
+  aggUnits: 'minute' | 'hour' | 'day' | 'week'
+  seconds: number
+}
+
+export const CURVE_CANDLE_SIZES: CurveCandleSize[] = [
+  { label: '15m', aggNumber: 15, aggUnits: 'minute', seconds: 900 },
+  { label: '1h', aggNumber: 1, aggUnits: 'hour', seconds: 3600 },
+  { label: '4h', aggNumber: 4, aggUnits: 'hour', seconds: 14400 },
+  { label: '1d', aggNumber: 1, aggUnits: 'day', seconds: 86400 },
+  { label: '7d', aggNumber: 7, aggUnits: 'day', seconds: 604800 },
+]
+
+// How many candles to ask for, whatever their size (flet-curve CANDLE_COUNT).
+export const CURVE_CANDLE_COUNT = 200
+
+export interface CurveCandle {
+  time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export function parseCurveCandles(payload: unknown): CurveCandle[] {
+  if (isRejection(payload)) return []
+  if (!payload || typeof payload !== 'object') return []
+  const data = (payload as { data?: unknown }).data
+  if (!Array.isArray(data)) return []
+  const out: CurveCandle[] = []
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const time = Number(row.time ?? 0)
+    if (!Number.isFinite(time) || time <= 0) continue
+    const open = Number(row.open ?? 0)
+    const high = Number(row.high ?? 0)
+    const low = Number(row.low ?? 0)
+    const close = Number(row.close ?? 0)
+    if (![open, high, low, close].every(Number.isFinite)) continue
+    // The lp_ohlc payload carries no volume; lightweight-charts wants the
+    // field present, so it is zero rather than absent.
+    out.push({ time, open, high, low, close, volume: Number(row.volume ?? 0) || 0 })
+  }
+  out.sort((a, b) => a.time - b.time)
+  return out
+}
+
+export interface FetchLpCandlesOptions {
+  chain: string
+  pool: string
+  size: CurveCandleSize
+  count?: number
+  now?: number
+}
+
+// Candles for the pool's LP token price — the chart flet-curve opens every
+// pool onto. `GET /v1/lp_ohlc/{chain}/{pool}?start&end&agg_number&agg_units`.
+export async function fetchLpCandles(options: FetchLpCandlesOptions): Promise<CurveCandle[]> {
+  const { chain, pool, size, count = CURVE_CANDLE_COUNT } = options
+  const end = Math.floor(options.now ?? Date.now() / 1000)
+  const payload = await getJson(
+    buildUrl(PRICES_V1, `/lp_ohlc/${chain}/${pool}`, {
+      start: end - size.seconds * count,
+      end,
+      agg_number: size.aggNumber,
+      agg_units: size.aggUnits,
+    }),
+  )
+  return parseCurveCandles(payload)
+}
+
+// ---- pool detail (v2 /pools/{chain_id}/{address}) ----
+
+export interface CurvePoolDetail {
+  name: string
+  coins: CurveCoin[]
+  // USD value each coin contributes, aligned with `coins` by index.
+  balancesUsd: number[]
+  tvlUsd: number
+  volume24h: number
+  tradingFee24h: number
+  liquidityVolume24h: number
+  lpTokenAddress: string
+}
+
+export function parseCurvePoolDetail(payload: unknown): CurvePoolDetail | null {
+  if (isRejection(payload)) return null
+  if (!payload || typeof payload !== 'object') return null
+  const row = payload as Record<string, unknown>
+  const coinsRaw = Array.isArray(row.coins) ? row.coins : []
+  const coins = coinsRaw.map(parseCoin).filter((c): c is CurveCoin => c !== null)
+  const balancesRaw = Array.isArray(row.balances_usd) ? row.balances_usd : []
+  const balancesUsd = balancesRaw.map((v) => {
+    const n = Number(v ?? 0)
+    return Number.isFinite(n) ? n : 0
+  })
+  const num = (v: unknown) => {
+    const n = Number(v ?? 0)
+    return Number.isFinite(n) ? n : 0
+  }
+  return {
+    name: typeof row.name === 'string' ? row.name : '',
+    coins,
+    balancesUsd,
+    tvlUsd: num(row.tvl_usd),
+    volume24h: num(row.trading_volume_24h),
+    tradingFee24h: num(row.trading_fee_24h),
+    liquidityVolume24h: num(row.liquidity_volume_24h),
+    lpTokenAddress: typeof row.lp_token_address === 'string' ? row.lp_token_address : '',
+  }
+}
+
+export async function fetchCurvePoolDetail(
+  chainId: number,
+  address: string,
+): Promise<CurvePoolDetail | null> {
+  const payload = await getJson(buildUrl(PRICES_V2, `/pools/${chainId}/${address}`))
+  return parseCurvePoolDetail(payload)
+}
+
+// ---- trades (v1 /trades/{chain}/{pool}, one pair per request) ----
+
+// Per-chain explorers, from flet-curve/src/curve/explorers.py (the chains our
+// TRADABLE set covers, plus a multi-chain fallback for the rest).
+const CURVE_EXPLORERS: Record<number, string> = {
+  1: 'https://etherscan.io',
+  10: 'https://optimistic.etherscan.io',
+  56: 'https://bscscan.com',
+  137: 'https://polygonscan.com',
+  8453: 'https://basescan.org',
+  42161: 'https://arbiscan.io',
+}
+
+export function explorerTxUrl(chainId: number, txHash: string): string {
+  if (!txHash) return ''
+  const base = CURVE_EXPLORERS[chainId]
+  return base ? `${base}/tx/${txHash}` : `https://blockscan.com/tx/${txHash}`
+}
+
+export interface CurveTrade {
+  time: number
+  soldSymbol: string
+  boughtSymbol: string
+  soldAmount: number
+  boughtAmount: number
+  soldUsd: number
+  txHash: string
+  buyer: string
+}
+
+// One pair's swaps, both directions. `sold_id`/`bought_id` are pool_index
+// values; the payload's main_token/reference_token blocks map them back to
+// symbols. `time` is an ISO string in UTC without a zone suffix.
+export function parseCurveTrades(payload: unknown): CurveTrade[] {
+  if (isRejection(payload)) return []
+  if (!payload || typeof payload !== 'object') return []
+  const obj = payload as Record<string, unknown>
+  const data = Array.isArray(obj.data) ? obj.data : []
+  const symbolByIndex = new Map<number, string>()
+  for (const side of [obj.main_token, obj.reference_token]) {
+    if (side && typeof side === 'object') {
+      const row = side as Record<string, unknown>
+      const index = Number(row.pool_index)
+      if (Number.isFinite(index) && typeof row.symbol === 'string') {
+        symbolByIndex.set(index, row.symbol)
+      }
+    }
+  }
+  const out: CurveTrade[] = []
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const iso = typeof row.time === 'string' ? row.time : ''
+    const time = iso ? Math.floor(Date.parse(iso.endsWith('Z') ? iso : `${iso}Z`) / 1000) : 0
+    if (!Number.isFinite(time) || time <= 0) continue
+    const num = (v: unknown) => {
+      const n = Number(v ?? 0)
+      return Number.isFinite(n) ? n : 0
+    }
+    out.push({
+      time,
+      soldSymbol: symbolByIndex.get(Number(row.sold_id)) ?? '?',
+      boughtSymbol: symbolByIndex.get(Number(row.bought_id)) ?? '?',
+      soldAmount: num(row.tokens_sold),
+      boughtAmount: num(row.tokens_bought),
+      soldUsd: num(row.tokens_sold_usd),
+      txHash: typeof row.transaction_hash === 'string' ? row.transaction_hash : '',
+      buyer: typeof row.buyer === 'string' ? row.buyer : '',
+    })
+  }
+  return out
+}
+
+// The newest swaps through a pool across every pair it holds — flet-curve's
+// `trades()` does the same merge; the API answers one pair per request, so a
+// 3-coin pool is 3 requests. Pairs are capped so a many-coin pool cannot fan
+// out unboundedly; failures on one pair drop that pair, not the feed.
+export async function fetchPoolTrades(
+  chain: string,
+  pool: string,
+  coins: CurveCoin[],
+  perPage = 20,
+): Promise<CurveTrade[]> {
+  const pairs: [CurveCoin, CurveCoin][] = []
+  for (let i = 0; i < coins.length && pairs.length < 6; i++) {
+    for (let j = i + 1; j < coins.length && pairs.length < 6; j++) {
+      if (coins[i].address && coins[j].address) pairs.push([coins[i], coins[j]])
+    }
+  }
+  const pages = await Promise.all(
+    pairs.map(async ([a, b]) => {
+      try {
+        const payload = await getJson(
+          buildUrl(PRICES_V1, `/trades/${chain}/${pool}`, {
+            main_token: a.address,
+            reference_token: b.address,
+            page: 1,
+            per_page: perPage,
+          }),
+        )
+        return parseCurveTrades(payload)
+      } catch {
+        return []
+      }
+    }),
+  )
+  return pages
+    .flat()
+    .sort((a, b) => b.time - a.time)
+    .slice(0, perPage)
+}
+
 // ---- fetchers ----
 
 export async function fetchCurveChains(): Promise<CurveChain[]> {

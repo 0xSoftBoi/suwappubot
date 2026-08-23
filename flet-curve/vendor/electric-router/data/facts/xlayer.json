@@ -1,0 +1,265 @@
+{
+ "block": 68073293,
+ "breach": {
+  "0x000a74ec65e33154bc859d23c497376d386f5a2d:0>1": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x000a74ec65e33154bc859d23c497376d386f5a2d:1>0": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x03771e24b7c9172d163bf447490b142a15be3485:1>0": {
+   "active": 0.0217,
+   "bound_bp": 6.0,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x31f066aa0a687d4f383f96a514984af727eb8e38:0>1": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x31f066aa0a687d4f383f96a514984af727eb8e38:1>0": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x43d5a16c5b82cac707f6bc6cf104f166e0bd23e6:0>1": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x43d5a16c5b82cac707f6bc6cf104f166e0bd23e6:1>0": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x5b3f7f05b79f3ccbe8f33374a578e14dbbb28478:0>1": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x5b3f7f05b79f3ccbe8f33374a578e14dbbb28478:1>0": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x7ec81ef12057008c0bb6b540127f88f917b4fc6c:0>1": {
+   "active": 0.3478,
+   "bound_bp": 5.0,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0x7ec81ef12057008c0bb6b540127f88f917b4fc6c:1>0": {
+   "active": 0.4348,
+   "bound_bp": 5.0,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0xd1b30ba128573fcd7d141c8a987961b40e047bb6:0>1": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  },
+  "0xd1b30ba128573fcd7d141c8a987961b40e047bb6:1>0": {
+   "active": 0.0217,
+   "bound_bp": 0.2,
+   "n": 23,
+   "p": 1e-05,
+   "scale_bp": 0.005
+  }
+ },
+ "broken": {},
+ "chain_id": 196,
+ "class_of": {
+  "0x000a74ec65e33154bc859d23c497376d386f5a2d": "factory-stable-ng",
+  "0x012051e0be94709affc55426e3cf4c7f91b12cd0": "factory-stable-ng",
+  "0x03771e24b7c9172d163bf447490b142a15be3485": "factory-stable-ng",
+  "0x05fa06d4fb883f67f1cfea0889edbff9e8358101": "factory-stable-ng",
+  "0x08e62c769baaf147c1945154df42d579a2f37963": "factory-twocrypto",
+  "0x0932faa6e179bef9c14f64f1a1cb27b067331423": "factory-tricrypto",
+  "0x0b291062807ed6bbdf8a6bb656aa55aff428069a": "factory-tricrypto",
+  "0x1aee22826c48ebbdd081e248e7a3239d34def9e1": "factory-tricrypto",
+  "0x2c0a4d49d77aa5fb16780cec70c0afe6d5644a34": "factory-stable-ng",
+  "0x2d3ccd937fe28ce9a8fb0236ea36f52a5b671f1b": "factory-stable-ng",
+  "0x2ebd3f70aa2f29092f759418e4f9489d14ac403e": "factory-stable-ng",
+  "0x31f066aa0a687d4f383f96a514984af727eb8e38": "factory-stable-ng",
+  "0x34de948b2a1499474819f83751115e2f517bb838": "factory-stable-ng",
+  "0x414185d0378d0a2d0adb403d228d13bc9050dc5f": "factory-stable-ng",
+  "0x42c8807be946cff6b34bae0b866f2a3ef4f69fd7": "factory-twocrypto",
+  "0x43d5a16c5b82cac707f6bc6cf104f166e0bd23e6": "factory-stable-ng",
+  "0x555aea44f348c4f53a0160335658a8619006c5b0": "factory-stable-ng",
+  "0x56771e7a9df6e977164b48e07aa3f5dadf448402": "factory-stable-ng",
+  "0x56fc84bfa907b6ced228ed14a8489c88f7f3ec2a": "factory-stable-ng",
+  "0x5850dda4235b04765b09710eb4dcdc10c395e650": "factory-stable-ng",
+  "0x5b3f7f05b79f3ccbe8f33374a578e14dbbb28478": "factory-stable-ng",
+  "0x70a8e2a80bdde71b2c5709bc2d2f74c37872eff6": "factory-twocrypto",
+  "0x75af64e1dd0b858e7fffb9ef93adde0ce89b4e47": "factory-twocrypto",
+  "0x7ec81ef12057008c0bb6b540127f88f917b4fc6c": "factory-stable-ng",
+  "0x819a981a9d62a08a673100183fcfe0197d7c127f": "factory-twocrypto",
+  "0x8d674a6a791c7a760e8c5a283d3d93776d0dd293": "factory-stable-ng",
+  "0x8f63ccd329d4ba07a3c6703d94d3137a9cfbfc6c": "factory-stable-ng",
+  "0xaae01f06fd253a77fb60828aed06ace0bc388049": "factory-twocrypto",
+  "0xafb88131c463eccc6f540b5b21d573275bc9964a": "factory-twocrypto",
+  "0xb52c9213d318956bfa26df2656b161e3cacbb64d": "factory-stable-ng",
+  "0xc20ca6f2dcd0680a76896095512243e29c674d4f": "factory-tricrypto",
+  "0xc5ae2e3f5e003d3844ce4200c5004f3098f944bd": "factory-twocrypto",
+  "0xd1b30ba128573fcd7d141c8a987961b40e047bb6": "factory-stable-ng",
+  "0xd57a8c3ba7b23774b077a4371f5b5063eb76eb32": "factory-twocrypto",
+  "0xd8fdbe6cf24697ef6b477dbf0370b2c607f00ec0": "factory-twocrypto",
+  "0xde7afca2667f378de10d40b4ae223eb890550b88": "factory-twocrypto",
+  "0xecddb2d292edb06d620d0c792fd3345481bdf3a8": "factory-tricrypto",
+  "0xef354c6db070b8bc0f59c938eff2db7030dbf704": "factory-twocrypto",
+  "0xf8418fe1fed71073cf3016fd7f88024042ab6375": "factory-twocrypto"
+ },
+ "classes": {
+  "factory-stable-ng:0": 139795
+ },
+ "kinds": {
+  "0": 139795
+ },
+ "legs": {
+  "0x43d5a16c5b82cac707f6bc6cf104f166e0bd23e6:0:0>1": 143328,
+  "0x7ec81ef12057008c0bb6b540127f88f917b4fc6c:0:0>1": 136263
+ },
+ "prices": {
+  "0x1e4a5963abfd975d8c9021ce480b42188849d41d|0x74b7f16337b8972027f6196a17a631ac6de26d22@0xd1b30ba128573fcd7d141c8a987961b40e047bb6": [
+   0.998542274052,
+   0.998542274052,
+   0.998542274052,
+   0.998542274052,
+   0.998542274052,
+   0.998542274052
+  ],
+  "0x1e4a5963abfd975d8c9021ce480b42188849d41d|0x779ded0c9e1022225f8e0630b35a9b54be713736@0x7ec81ef12057008c0bb6b540127f88f917b4fc6c": [
+   1.000445270912,
+   1.000444806604,
+   1.000440627837,
+   1.000439234914,
+   1.000440163529,
+   1.000446663834
+  ],
+  "0x1e4a5963abfd975d8c9021ce480b42188849d41d|0xe538905cf8410324e03a5a23c1c177a474d59b2b@0x03771e24b7c9172d163bf447490b142a15be3485": [
+   13246725219.0,
+   13246725219.0,
+   13246725219.0,
+   13246725219.0,
+   13246725219.0,
+   13246725219.0
+  ],
+  "0x4ae46a509f6b1d9056937ba4500cb143933d2dc8|0x779ded0c9e1022225f8e0630b35a9b54be713736@0x31f066aa0a687d4f383f96a514984af727eb8e38": [
+   1.000961499534,
+   1.000961499534,
+   1.000961499534,
+   1.000961499534,
+   1.000961499534,
+   1.000961499534
+  ],
+  "0x74b7f16337b8972027f6196a17a631ac6de26d22|0x1e4a5963abfd975d8c9021ce480b42188849d41d@0xd1b30ba128573fcd7d141c8a987961b40e047bb6": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ],
+  "0x74b7f16337b8972027f6196a17a631ac6de26d22|0x779ded0c9e1022225f8e0630b35a9b54be713736@0x43d5a16c5b82cac707f6bc6cf104f166e0bd23e6": [
+   1.000604977517,
+   1.000604977517,
+   1.000604977517,
+   1.000604977517,
+   1.000604977517,
+   1.000604977517
+  ],
+  "0x779ded0c9e1022225f8e0630b35a9b54be713736|0x1e4a5963abfd975d8c9021ce480b42188849d41d@0x7ec81ef12057008c0bb6b540127f88f917b4fc6c": [
+   0.999526484676,
+   0.999526751746,
+   0.999531024868,
+   0.999532493754,
+   0.999531692544,
+   0.999524882255
+  ],
+  "0x779ded0c9e1022225f8e0630b35a9b54be713736|0x4ae46a509f6b1d9056937ba4500cb143933d2dc8@0x31f066aa0a687d4f383f96a514984af727eb8e38": [
+   0.99876674533,
+   0.99876674533,
+   0.99876674533,
+   0.99876674533,
+   0.99876674533,
+   0.99876674533
+  ],
+  "0x779ded0c9e1022225f8e0630b35a9b54be713736|0x74b7f16337b8972027f6196a17a631ac6de26d22@0x43d5a16c5b82cac707f6bc6cf104f166e0bd23e6": [
+   0.999149179514,
+   0.999149179514,
+   0.999149179514,
+   0.999149179514,
+   0.999149179514,
+   0.999149179514
+  ],
+  "0x779ded0c9e1022225f8e0630b35a9b54be713736|0xb6ceceab302e2e4948951ee7843fc24e92933061@0x5b3f7f05b79f3ccbe8f33374a578e14dbbb28478": [
+   0.998845406514,
+   0.998845406514,
+   0.998845406514,
+   0.998845406514,
+   0.998845406514,
+   0.998845406514
+  ],
+  "0x779ded0c9e1022225f8e0630b35a9b54be713736|0xbb2add40ab96bbff5372b698e74c3318fecde31f@0x000a74ec65e33154bc859d23c497376d386f5a2d": [
+   977249.4,
+   977249.4,
+   977249.4,
+   977249.4,
+   977249.4,
+   977249.4
+  ],
+  "0xb6ceceab302e2e4948951ee7843fc24e92933061|0x779ded0c9e1022225f8e0630b35a9b54be713736@0x5b3f7f05b79f3ccbe8f33374a578e14dbbb28478": [
+   1.000887024783,
+   1.000887024783,
+   1.000887024783,
+   1.000887024783,
+   1.000887024783,
+   1.000887024783
+  ],
+  "0xbb2add40ab96bbff5372b698e74c3318fecde31f|0x779ded0c9e1022225f8e0630b35a9b54be713736@0x000a74ec65e33154bc859d23c497376d386f5a2d": [
+   1.017489e-06,
+   1.017489e-06,
+   1.017489e-06,
+   1.017489e-06,
+   1.017489e-06,
+   1.017489e-06
+  ]
+ },
+ "version": 1,
+ "wide_bounds": {
+  "0x7ec81ef12057008c0bb6b540127f88f917b4fc6c": {
+   "drift_bp": 0.0681,
+   "fee_bp": 0.1,
+   "pair": "0x779ded0c9e1022225f8e0630b35a9b54be713736|0x1e4a5963abfd975d8c9021ce480b42188849d41d",
+   "tight_p": 0.086957
+  }
+ },
+ "wrappers": {}
+}

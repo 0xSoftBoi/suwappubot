@@ -1,0 +1,28 @@
+{
+ "chain_id": 9745,
+ "fingerprint": "8105012d58ca2413",
+ "unquotable": {},
+ "verdicts": {
+  "0x085bad2c28bdd4a40396072d3eb2636bf7afa39c": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x1e8d78e9b3f0152d54d32904b7933f1cfe439df1": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x2d84d79c852f6842abe0304b70bbaa1506add457": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xec1ea912c9f048d4814934e83678f86c83fdbd62": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  }
+ },
+ "version": 1
+}
