@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import bot.services.balance_refresher as br
 from bot.services.balance_refresher import BalanceRefresher
 from bot.services.rpc_manager import TRUSTED_RPC_DOMAINS, _is_trusted_rpc_url
 
@@ -20,56 +21,67 @@ from bot.services.rpc_manager import TRUSTED_RPC_DOMAINS, _is_trusted_rpc_url
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_written_before_refresh_and_outlives_a_cycle():
-    """The heartbeat must be set before the work, with a TTL > one full cycle.
+async def test_the_beat_does_not_wait_on_the_refresh_pass():
+    """The heartbeat must not be downstream of the work in any way.
 
-    Writing it after `_refresh_all()` with a 60s TTL meant the key expired
-    during the very next sleep, so /health saw no key and said "unknown".
+    First it was written *after* `_refresh_all()` with a TTL shorter than one
+    cycle, so the key expired between beats and /health said "unknown". The
+    replacement wrote it first but still awaited the pass — so a pass that
+    would not die took the beat down with it. Liveness now belongs to the
+    supervisor: it beats, then decides what to do about the pass.
     """
-    refresher = BalanceRefresher(refresh_interval=60)
+    refresher = BalanceRefresher(refresh_interval=0)
     order: list[str] = []
     captured: dict = {}
 
     async def fake_set(key, value, ttl_seconds=None):
-        order.append("heartbeat")
-        captured["key"] = key
-        captured["ttl"] = ttl_seconds
+        if key.endswith(":heartbeat"):
+            order.append("heartbeat")
+            captured["key"] = key
+            captured["ttl"] = ttl_seconds
 
     async def fake_refresh_all():
         order.append("refresh")
-        refresher._running = False  # one iteration only
 
     cache = AsyncMock()
     cache.set = AsyncMock(side_effect=fake_set)
 
     with (
         patch("bot.utils.redis_cache.redis_cache", cache),
+        patch.object(br, "_WARMUP_SECONDS", 0),
+        patch.object(br, "_HEARTBEAT_INTERVAL_SECONDS", 0.01),
         patch.object(refresher, "_refresh_all", side_effect=fake_refresh_all),
-        patch("asyncio.sleep", new=AsyncMock()),
     ):
         refresher._running = True
-        await refresher._refresh_loop()
+        task = asyncio.create_task(refresher._refresh_loop())
+        await asyncio.sleep(0.1)
+        refresher._running = False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
-    assert order == ["heartbeat", "refresh"], f"heartbeat must precede work, got {order}"
+    assert order and order[0] == "heartbeat", f"heartbeat must precede work, got {order}"
+    assert "refresh" in order, "the supervisor never ran a pass"
     assert captured["key"] == "service:balance_refresher:heartbeat"
-    # /health marks a service dead past 90s; the TTL must exceed both that and
-    # one refresh cycle, otherwise the key vanishes and reads as "unknown".
-    assert captured["ttl"] >= 180
-    assert captured["ttl"] > 60 + 90
+    # The TTL must outlive the staleness threshold in api/main.py, or the key
+    # is evicted before /health can ever see it as stale.
+    assert captured["ttl"] >= 300
 
 
 @pytest.mark.asyncio
 async def test_heartbeat_still_written_when_refresh_raises():
     """A failing refresh pass must not silence the liveness signal."""
-    refresher = BalanceRefresher(refresh_interval=60)
+    refresher = BalanceRefresher(refresh_interval=0)
     beats = 0
 
     async def fake_set(key, value, ttl_seconds=None):
         nonlocal beats
-        beats += 1
+        if key.endswith(":heartbeat"):
+            beats += 1
 
     async def boom():
-        refresher._running = False
         raise RuntimeError("alchemy exploded")
 
     cache = AsyncMock()
@@ -77,13 +89,21 @@ async def test_heartbeat_still_written_when_refresh_raises():
 
     with (
         patch("bot.utils.redis_cache.redis_cache", cache),
+        patch.object(br, "_WARMUP_SECONDS", 0),
+        patch.object(br, "_HEARTBEAT_INTERVAL_SECONDS", 0.01),
         patch.object(refresher, "_refresh_all", side_effect=boom),
-        patch("asyncio.sleep", new=AsyncMock()),
     ):
         refresher._running = True
-        await refresher._refresh_loop()
+        task = asyncio.create_task(refresher._refresh_loop())
+        await asyncio.sleep(0.1)
+        refresher._running = False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
-    assert beats == 1, "loop is alive even though the refresh failed"
+    assert beats >= 2, f"only {beats} beats — a failing pass still silences the loop"
 
 
 # --------------------------------------------------------------------------

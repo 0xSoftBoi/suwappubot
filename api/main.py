@@ -1058,6 +1058,39 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
 }
 DEFAULT_STALENESS_SECONDS = 90
 
+# A supervised loop can beat while the work it supervises is wedged. That is
+# the price of decoupling the heartbeat from the pass (see
+# bot/services/balance_refresher.py) and it must not become a new blind spot,
+# so services that publish a "last completed pass" marker get a second check.
+# The result is reported as the service's own status word rather than pushed
+# only into `degraded`, because the uptime probe walks `checks` and would never
+# see a top-level-only signal — which is how the previous wedge went unnoticed.
+# Each value must exceed that service's pass budget plus its interval, or a
+# healthy-but-slow pass reads as stalled.
+SERVICE_PASS_STALL_SECONDS: dict[str, int] = {
+    # budget 600s + interval 60s; 1800s leaves room for two bad passes.
+    "balance_refresher": 1800,
+}
+
+
+async def _pass_progress_status(svc: str, now: float) -> str:
+    """ "alive", or "stalled" when the loop beats but its work is not landing."""
+    from bot.utils.redis_cache import redis_cache
+
+    stall = SERVICE_PASS_STALL_SECONDS.get(svc)
+    if stall is None:
+        return "alive"
+    last_pass = await redis_cache.get(f"service:{svc}:last_pass")
+    if last_pass is None:
+        # No marker yet is only damning once a pass has had time to finish;
+        # before that it is an ordinary fresh boot.
+        return "stalled" if (now - _PROCESS_STARTED_AT) > stall else "alive"
+    try:
+        return "stalled" if now - float(last_pass) > stall else "alive"
+    except (TypeError, ValueError):
+        return "stalled"
+
+
 # When this process came up. Needed to distinguish a service that has NOT YET
 # written its first heartbeat (normal, for a few seconds after boot) from one
 # that never will. Without it both read "unknown", and "unknown" was excluded
@@ -1216,7 +1249,7 @@ async def health_ready():
             svc_heartbeats[svc] = "dead"
             never_beat.append(svc)
         else:
-            svc_heartbeats[svc] = "alive"
+            svc_heartbeats[svc] = await _pass_progress_status(svc, now)
 
     # The worker publishes its own fingerprint to Redis at startup (it has no
     # public URL of its own). Reporting it here is the only way to verify a
@@ -1259,6 +1292,14 @@ async def health_ready():
             + [
                 {"service": name, "error": "no heartbeat past staleness threshold"}
                 for name in never_beat
+            ]
+            # Beating, but its work is not completing. A different fault from a
+            # dead loop and it needs a different message, or the operator reads
+            # "dead" and goes looking for a crash that never happened.
+            + [
+                {"service": name, "error": "loop alive but refresh passes are not completing"}
+                for name, state in svc_heartbeats.items()
+                if state == "stalled"
             ],
         },
     )
