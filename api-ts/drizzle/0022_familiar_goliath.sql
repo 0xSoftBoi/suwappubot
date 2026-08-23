@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS "autopilot_positions" (
 	"realized_pnl_usd" real DEFAULT 0 NOT NULL,
 	"take_profit_pct" real,
 	"stop_loss_pct" real,
+	"max_hold_minutes" integer,
 	"invalidation" text,
 	"entry_decision_id" integer,
 	"exit_decision_id" integer,

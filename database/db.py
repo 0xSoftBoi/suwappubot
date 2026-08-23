@@ -4644,6 +4644,7 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     realized_pnl_usd {real} NOT NULL DEFAULT 0,
                     take_profit_pct {real},
                     stop_loss_pct {real},
+                    max_hold_minutes INTEGER,
                     invalidation TEXT,
                     entry_decision_id INTEGER,
                     exit_decision_id INTEGER,
@@ -4679,5 +4680,9 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
             "ON autopilot_positions(agent_id, status)",
             "CREATE INDEX IF NOT EXISTS autopilot_journal_agent_idx "
             "ON autopilot_journal(agent_id, created_at)",
+            # Additive: databases created before the time stop existed. Without
+            # it the exit check never receives a hold limit and nothing closes.
+            "ALTER TABLE autopilot_positions "
+            "ADD COLUMN IF NOT EXISTS max_hold_minutes INTEGER",
         ):
             conn.execute(text(stmt))

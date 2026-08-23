@@ -137,6 +137,7 @@ export interface PublicPosition {
 	unrealized_pnl_usd: number | null
 	realized_pnl_usd: number
 	take_profit_pct: number | null
+	max_hold_minutes: number | null
 	stop_loss_pct: number | null
 	invalidation: string | null
 	entry_decision_id: number | null
@@ -159,6 +160,7 @@ export function toPublicPosition(row: AutopilotPosition): PublicPosition {
 		unrealized_pnl_usd: row.unrealizedPnlUsd,
 		realized_pnl_usd: row.realizedPnlUsd,
 		take_profit_pct: row.takeProfitPct,
+		max_hold_minutes: row.maxHoldMinutes,
 		stop_loss_pct: row.stopLossPct,
 		invalidation: row.invalidation,
 		entry_decision_id: row.entryDecisionId,
@@ -804,6 +806,7 @@ async function loadPortfolio(db: DbClient, agentId: number): Promise<PortfolioSt
 		costBasisUsd: p.costBasisUsd,
 		avgEntryPriceUsd: p.avgEntryPriceUsd ?? 0,
 		takeProfitPct: p.takeProfitPct ?? undefined,
+		maxHoldMinutes: p.maxHoldMinutes ?? undefined,
 		stopLossPct: p.stopLossPct ?? undefined,
 		invalidation: p.invalidation ?? undefined,
 		openedAt: p.openedAt ? new Date(p.openedAt).getTime() : Date.now(),
@@ -1032,7 +1035,10 @@ export async function runCycleImpl(
 					openedAt: position.openedAt,
 				},
 				price,
-				undefined,
+				// The tighter of what this thesis committed to and the agent-wide
+				// backstop. Passing `undefined` here — as this call did — quietly
+				// disabled the time stop for every position ever opened.
+				Math.min(position.maxHoldMinutes ?? Number.POSITIVE_INFINITY, rules.maxHoldMinutes),
 			)
 			if (!verdict.exit) continue
 
@@ -1348,6 +1354,7 @@ async function openPosition(
 		lastPriceUsd: result.fillPriceUsd ?? null,
 		takeProfitPct: thesis.exit.takeProfitPct ?? null,
 		stopLossPct: thesis.exit.stopLossPct ?? null,
+		maxHoldMinutes: thesis.exit.maxHoldMinutes ?? null,
 		invalidation: thesis.exit.invalidation,
 		entryDecisionId: decisionId,
 	})
