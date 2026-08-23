@@ -10,7 +10,7 @@ and configuration contracts, and standing decisions. This file is the **descript
 map: what the major components do and how they interact.
 
 Production deployment has grown beyond the original four-app Railway migration. Use
-[`deployment/production-inventory.md`](../deployment/production-inventory.md) for the
+[`docs/deployment/production-inventory.md`](../deployment/production-inventory.md) for the
 current service-catalog view rather than inferring runtime topology from this source map.
 
 ## Major code surfaces

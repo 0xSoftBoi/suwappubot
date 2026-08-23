@@ -32,7 +32,7 @@ showing you half the data.
 | read | `services/autopilot/market.ts` | Screen two surfaces — DexScreener's boosted feed (re-read as real pair data) and a search over each chain's quote assets, which surfaces deep pairs nobody paid to promote. Deduped to the deepest pair per token. Mark open positions to market. |
 | think | `services/autopilot/thesis.ts` | A `ThesisEngine` turns a candidate into an action, size, confidence, evidence and a committed exit plan. |
 | gate | `services/autopilot/gates.ts` | Pure risk rules. Every rule runs (so the verdict is complete), and exits are never blocked by entry rules. |
-| seal | `lib/seal.ts` | Canonical-JSON SHA-256 commitment with a blinding nonce, written before execution. |
+| seal | `lib/seal.ts`, `autopilot/anchor.ts` | Canonical-JSON SHA-256 commitment with a blinding nonce, written before execution and — when anchoring is on — published on-chain as a memo before the trade. |
 | execute | `services/autopilot/executor.ts` | Paper fill, or a live fill routed through our own agent API. |
 | journal | `AutopilotService` | Append-only narrative log of every stage, including the failures. |
 | reveal | `AutopilotService` | Thesis and nonce published, making the commitment checkable. |
@@ -46,9 +46,23 @@ someone else's exit. Its output is fully reproducible from the candidate
 snapshot, so a reader can re-derive the decision rather than take the narrative
 on faith.
 
-An LLM engine can be dropped in behind the same interface. Everything
-downstream — gates, sealing, execution, publication — is unchanged by that
-choice, which is the point of putting the boundary there.
+`LlmThesisEngine` puts Claude behind the same interface, with the split kept
+explicit: **the model writes the argument, the code writes the trade.** It
+receives measured facts and returns only judgement — direction, conviction,
+reasoning, invalidation. Which token, which chain and how much are set from the
+screened candidate and the caller's budget, so a model that hallucinated a
+ticker or a $10,000 size could not express it through this interface. Its
+structured output is re-validated on arrival: a malformed answer produces no
+thesis rather than half of one, and an API failure degrades the agent to
+"forms no theses", never to trading on a partial parse.
+
+Every LLM thesis also publishes the deterministic scorer's breakdown in its
+evidence, including whether the rules engine agreed — so a reader can see when
+the narrative overrode the numbers. Cost is bounded by a free pre-screen, a
+cached system prompt, low effort, and a per-cycle call cap.
+
+An agent whose published `thesis_engine` is `llm` refuses to run without
+`ANTHROPIC_API_KEY` rather than silently falling back and mislabelling the feed.
 
 ## The gate
 
@@ -90,6 +104,20 @@ same API our external agents use.
 The decision's commitment doubles as the `Idempotency-Key`, so a retried cycle
 cannot double-fill a decision.
 
+## Anchoring
+
+`anchor.ts` writes `suwappu-autopilot:v1:<algo>:<commitment>` as calldata on a
+zero-value self-send before the trade, so a block — not our database — witnesses
+the ordering. The anchor key is deliberately separate from every trading and fee
+key: it signs nothing but ~80 bytes of memo, so compromising it buys an attacker
+the ability to publish junk and nothing else.
+
+A failed anchor **blocks an entry** — the decision is marked failed, revealed and
+never executed, because half-anchored history invites a claim the data cannot
+support. It does **not** block an exit; nothing, including our own transparency
+machinery, may stand between the agent and the door, and the unanchored exit is
+journalled as such. Anchoring is off until `AUTOPILOT_ANCHOR_PRIVATE_KEY` is set.
+
 ## Public API
 
 Everything under `/v1/autopilot` is unauthenticated — the transparency is the
@@ -119,6 +147,10 @@ Admin control needs `X-Admin-Key`:
 | Env var | Default | Meaning |
 |---|---|---|
 | `AUTOPILOT_CYCLE_MINUTES` | `0` | Minutes between scheduled cycles. `0` disables the scheduler entirely. |
+| `AUTOPILOT_ANCHOR_PRIVATE_KEY` | unset | Anchoring key. Unset = commitments are stored but not witnessed on-chain. |
+| `AUTOPILOT_ANCHOR_CHAIN` | `base` | `base`, `arbitrum` or `optimism`. |
+| `ANTHROPIC_API_KEY` | unset | Required for agents whose `thesis_engine` is `llm`. |
+| `AUTOPILOT_LLM_MODEL` / `_EFFORT` / `_MAX_CALLS` | `claude-opus-5` / `low` / `8` | Model, reasoning depth, and the per-cycle call ceiling. |
 | `AUTOPILOT_API_BASE_URL` | `https://api.suwappu.bot` | Where `ManagedExecutor` sends live quotes and executions. |
 | `AUTOPILOT_AGENT_API_KEY` | unset | Agent API key for live execution. Without it, live mode refuses to run. |
 | `INTERNAL_API_URL` / `INTERNAL_API_KEY` | — | Used for `POST /internal/token-security`. Without them, every entry fails `security_scan_present`. |
@@ -173,12 +205,27 @@ which is why discovery does not rely on it.
 
 ## What is deliberately not here yet
 
-- **On-chain anchoring of the commitment.** The memo format
-  (`suwappu-autopilot:v1:<algo>:<hash>`) and the `seal_tx_hash` / `seal_chain`
-  columns exist, but nothing writes the memo to a chain yet. Until it does, the
-  commitment's ordering guarantee rests on our database, not on a block. That is
-  a real limitation and should be closed before any "provably pre-committed"
-  claim is made in public.
+- **Solana anchoring.** The EVM memo path is implemented; a Solana Memo-program
+  anchor is not. A Solana-chain agent runs unanchored today.
 - **EVM buy/sell tax simulation.** `POST /internal/token-security` runs the
-  honeypot round-trip on Solana only; on EVM the tax fields come back unset.
-- **LLM thesis engine.** The interface is there; no engine is wired.
+  honeypot round-trip on Solana only; on EVM the tax fields come back unset,
+  which is why an EVM agent's published rules should set `requireLpLocked: false`
+  explicitly rather than pretending we checked.
+- **No live-money run.** Every cycle in this repo has executed against the paper
+  executor or an ephemeral test database. The managed execution path is wired to
+  our own agent API and covered by tests, but it has not moved real funds.
+
+## Watching it
+
+`/autopilot` on the showcase site renders the live agent: equity, P&L, positions
+and the decision feed, refusals included, each expandable to its thesis, its
+rule-by-rule gate verdict, its commitment and its anchor. It reads the same
+public API anyone else can.
+
+## Local development
+
+`bun run scripts/autopilot-demo-server.ts` runs the real cycle against an
+ephemeral in-process Postgres and serves the public read API from it — no
+database, no API key, no wallet. Nothing it serves is fixture data. Point the
+showcase at it with `NEXT_PUBLIC_API_URL=http://localhost:3200` to develop the
+dashboard against decisions the real loop produced.
