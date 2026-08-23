@@ -124,7 +124,11 @@ export function parseChainTvls(payload: unknown): CurveChainTvl[] {
 
 function poolUrlFor(chainName: string, address: string): string {
   if (!chainName || !address) return ''
-  return `https://curve.finance/dex/#/${chainName}/pools/${address}/deposit`
+  // Path routing, not the legacy hash route: the hash URL lands on the dex
+  // root and the SPA ignores the fragment, which is why Deposit/Withdraw
+  // "did nothing". The path form serves the pool page directly (verified 200
+  // for both /deposit and /withdraw).
+  return `https://www.curve.finance/dex/${chainName}/pools/${address}/deposit`
 }
 
 function parseCoin(raw: unknown): CurveCoin | null {

@@ -79,7 +79,7 @@ describe('parseCurvePool', () => {
         { symbol: 'USDC', address: '0xusdc', usdPrice: 1.001, decimals: 6 },
       ],
       registry: 'main',
-      poolUrl: 'https://curve.finance/dex/#/ethereum/pools/0xabc/deposit',
+      poolUrl: 'https://www.curve.finance/dex/ethereum/pools/0xabc/deposit',
     })
   })
 
@@ -94,7 +94,7 @@ describe('parseCurvePool', () => {
       baseApr: 0,
       coins: [],
       registry: '',
-      poolUrl: 'https://curve.finance/dex/#/ethereum/pools/0xdef/deposit',
+      poolUrl: 'https://www.curve.finance/dex/ethereum/pools/0xdef/deposit',
     })
   })
 

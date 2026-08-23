@@ -3623,13 +3623,37 @@ async def list_terminal_bridge_routes(
     if body.fromChain == body.toChain:
         raise HTTPException(status_code=400, detail="Bridging requires two different chains")
 
+    # Quote-only sentinel sender. Providers validate from_address against the
+    # destination chain's format and reject an empty one, so a routes request
+    # made before a wallet is connected returned [] for everyone — the
+    # terminal's bridge looked permanently empty. Listing routes is
+    # informational; the /bridge/build step still requires the real connected
+    # address, so the sentinel can never end up in a transaction.
+    quote_sender = body.fromAddress or "0x000000000000000000000000000000000000dEaD"
+
+    # The terminal sends the amount as typed — human units ("250", "0.5") —
+    # while every provider's normalize_amount() takes raw base units and
+    # rejects decimal points outright. Convert here, where token decimals are
+    # known, so the second reason every quote came back empty is gone too.
+    # (/bridge/build is unaffected: it receives the raw fromAmount echoed from
+    # a quote in this response.)
+    from decimal import Decimal, InvalidOperation
+
+    src_decimals = get_token_decimals(body.token, body.fromChain) or 6
+    try:
+        raw_amount = int(Decimal(body.amount) * (10**src_decimals))
+    except (InvalidOperation, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if raw_amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be above zero")
+
     try:
         quotes = await get_bridge_quotes(
             from_chain=body.fromChain,
             to_chain=body.toChain,
             from_token=body.token,
-            from_amount=body.amount,
-            from_address=body.fromAddress or "",
+            from_amount=str(raw_amount),
+            from_address=quote_sender,
             to_address=body.toAddress,
             slippage_bps=body.slippageBps or 50,
         )
