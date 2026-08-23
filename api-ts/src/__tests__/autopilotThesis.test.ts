@@ -151,3 +151,44 @@ describe('screening excludes quote assets', () => {
 		}
 	})
 })
+
+describe('geckoPoolToCandidate', () => {
+	const pool = {
+		attributes: {
+			name: 'VELVET / USDC 0.01%',
+			base_token_price_usd: '0.667224557054967',
+			reserve_in_usd: '4321848.1',
+			volume_usd: { h24: '2476575.3' },
+			market_cap_usd: '9000000',
+			pool_created_at: '2026-08-22T23:44:37Z',
+			price_change_percentage: { m5: '0.542', h1: '-0.701', h24: '-6.484' },
+		},
+		relationships: {
+			base_token: { data: { id: 'base_0xbf927b841994731c573bdf09ceb0c6b0aa887cdd' } },
+		},
+	}
+
+	it('reads the base token out of the pool name and the prefixed id', async () => {
+		const { geckoPoolToCandidate } = await import('../services/autopilot/market')
+		const c = geckoPoolToCandidate(pool as never, 'base')
+		expect(c?.symbol).toBe('VELVET')
+		expect(c?.tokenAddress).toBe('0xbf927b841994731c573bdf09ceb0c6b0aa887cdd')
+		expect(c?.priceUsd).toBeCloseTo(0.667, 3)
+		expect(c?.liquidityUsd).toBeCloseTo(4_321_848.1, 1)
+		expect(c?.volume24hUsd).toBeCloseTo(2_476_575.3, 1)
+		expect(c?.priceChange1hPct).toBe(-0.701)
+		expect(c?.ageMinutes).toBeGreaterThan(0)
+	})
+
+	it('refuses a pool it cannot read rather than inventing fields', async () => {
+		const { geckoPoolToCandidate } = await import('../services/autopilot/market')
+		expect(geckoPoolToCandidate({} as never, 'base')).toBeNull()
+		expect(geckoPoolToCandidate({ ...pool, relationships: {} } as never, 'base')).toBeNull()
+		expect(
+			geckoPoolToCandidate(
+				{ ...pool, attributes: { ...pool.attributes, base_token_price_usd: '0' } } as never,
+				'base',
+			),
+		).toBeNull()
+	})
+})

@@ -8,6 +8,7 @@ import { logger } from '../../lib/logger'
 import type { Candidate, TokenSecurity } from './types'
 
 const DEXSCREENER = 'https://api.dexscreener.com'
+const GECKOTERMINAL = 'https://api.geckoterminal.com/api/v2'
 const FETCH_TIMEOUT_MS = 8_000
 
 interface DexPair {
@@ -94,6 +95,96 @@ export function dedupeByToken(candidates: Candidate[]): Candidate[] {
 	return [...best.values()]
 }
 
+/**
+ * GeckoTerminal network ids, keyed by our chain names.
+ *
+ * This is the per-chain discovery surface. DexScreener has no "top pools on
+ * chain X" endpoint — its search ranks globally (a Base screen came back as the
+ * quote assets themselves) and token-pairs returns only one token's own pairs.
+ * GeckoTerminal ranks pools within a network by 24h volume, which is the
+ * question a chain-scoped agent is actually asking.
+ */
+const GECKO_NETWORKS: Record<string, string> = {
+	base: 'base',
+	solana: 'solana',
+	arbitrum: 'arbitrum',
+	ethereum: 'eth',
+	bsc: 'bsc',
+	polygon: 'polygon_pos',
+	optimism: 'optimism',
+	avalanche: 'avax',
+}
+
+interface GeckoPool {
+	attributes?: {
+		name?: string
+		base_token_price_usd?: string
+		reserve_in_usd?: string
+		fdv_usd?: string
+		market_cap_usd?: string
+		pool_created_at?: string
+		volume_usd?: { h24?: string }
+		price_change_percentage?: { m5?: string; h1?: string; h24?: string }
+	}
+	relationships?: { base_token?: { data?: { id?: string } } }
+}
+
+function num(v: string | undefined): number | undefined {
+	if (v === undefined || v === null) return undefined
+	const n = Number(v)
+	return Number.isFinite(n) ? n : undefined
+}
+
+export function geckoPoolToCandidate(pool: GeckoPool, chain: string): Candidate | null {
+	const a = pool.attributes
+	if (!a) return null
+
+	// "VELVET / USDC 0.01%" — the base token is the half before the slash.
+	const symbol = (a.name ?? '').split('/')[0]?.trim()
+	// "base_0xabc…" — the network prefix is redundant, we already know the chain.
+	const rawId = pool.relationships?.base_token?.data?.id ?? ''
+	const address = rawId.includes('_') ? rawId.slice(rawId.indexOf('_') + 1) : rawId
+	const priceUsd = num(a.base_token_price_usd)
+
+	if (!symbol || !address || priceUsd === undefined || priceUsd <= 0) return null
+
+	const candidate: Candidate = {
+		chain,
+		tokenAddress: address,
+		symbol,
+		priceUsd,
+		liquidityUsd: num(a.reserve_in_usd) ?? 0,
+		volume24hUsd: num(a.volume_usd?.h24) ?? 0,
+	}
+	const mcap = num(a.market_cap_usd) ?? num(a.fdv_usd)
+	if (mcap !== undefined) candidate.marketCapUsd = mcap
+	const m5 = num(a.price_change_percentage?.m5)
+	if (m5 !== undefined) candidate.priceChange5mPct = m5
+	const h1 = num(a.price_change_percentage?.h1)
+	if (h1 !== undefined) candidate.priceChange1hPct = h1
+	const h24 = num(a.price_change_percentage?.h24)
+	if (h24 !== undefined) candidate.priceChange24hPct = h24
+	if (a.pool_created_at) {
+		const created = Date.parse(a.pool_created_at)
+		if (Number.isFinite(created)) {
+			candidate.ageMinutes = Math.max(0, Math.round((Date.now() - created) / 60_000))
+		}
+	}
+	return candidate
+}
+
+/** Top pools on one chain, ranked by 24h volume. */
+async function fetchChainPools(chain: string): Promise<Candidate[]> {
+	const network = GECKO_NETWORKS[chain]
+	if (!network) return []
+	const data = await getJson<{ data?: GeckoPool[] }>(
+		`${GECKOTERMINAL}/networks/${network}/pools?page=1`,
+	)
+	return (data?.data ?? [])
+		.map((pool) => geckoPoolToCandidate(pool, chain))
+		.filter((c): c is Candidate => c !== null)
+}
+
 export interface ScreenParams {
 	chains: string[]
 	minLiquidityUsd: number
@@ -120,30 +211,6 @@ export const QUOTE_SYMBOLS = new Set(
 /** True for the assets an agent quotes against, which are never candidates. */
 export function isQuoteAsset(symbol: string): boolean {
 	return QUOTE_SYMBOLS.has(symbol.trim().toLowerCase())
-}
-
-/**
- * Quote assets we search per chain to build a non-promotional universe. The
- * boosted feed alone is a paid-placement list — screening only that is adverse
- * selection dressed up as discovery.
- */
-const CHAIN_QUOTE_QUERIES: Record<string, string[]> = {
-	base: ['WETH', 'USDC'],
-	solana: ['SOL', 'USDC'],
-	arbitrum: ['WETH', 'USDC'],
-	ethereum: ['WETH', 'USDC'],
-	bsc: ['WBNB', 'USDT'],
-	polygon: ['WMATIC', 'USDC'],
-	optimism: ['WETH', 'USDC'],
-	avalanche: ['WAVAX', 'USDC'],
-}
-
-/** DexScreener search — returns the deepest pairs quoted against `query`. */
-async function searchPairs(query: string): Promise<DexPair[]> {
-	const data = await getJson<{ pairs?: DexPair[] }>(
-		`${DEXSCREENER}/latest/dex/search?q=${encodeURIComponent(query)}`,
-	)
-	return data?.pairs ?? []
 }
 
 /**
@@ -175,16 +242,18 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 		),
 	)
 
-	const queries = [...new Set([...chains].flatMap((c) => CHAIN_QUOTE_QUERIES[c] ?? []))]
-	const searched = (await Promise.all(queries.map(searchPairs))).flat()
+	// Primary surface: what is actually trading on each requested chain.
+	const chainPools = (await Promise.all([...chains].map(fetchChainPools))).flat()
 
 	const excluded = new Set((params.excludeTokens ?? []).map((t) => t.trim().toLowerCase()))
 
-	return dedupeByToken(
-		[...batches.flatMap((b) => (Array.isArray(b) ? b : (b?.pairs ?? []))), ...searched]
+	return dedupeByToken([
+		...batches
+			.flatMap((b) => (Array.isArray(b) ? b : (b?.pairs ?? [])))
 			.map(pairToCandidate)
 			.filter((c): c is Candidate => c !== null),
-	)
+		...chainPools,
+	])
 		.filter((c) => chains.has(c.chain))
 		.filter((c) => !isQuoteAsset(c.symbol))
 		.filter((c) => !excluded.has(c.tokenAddress.toLowerCase()))
