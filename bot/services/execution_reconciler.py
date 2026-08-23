@@ -124,9 +124,7 @@ class ExecutionReconciler:
                         [SwapStatus.COMPLETED.value, SwapStatus.FAILED.value]
                     ),
                 )
-                .order_by(
-                    ExecutionParentOrder.updated_at.asc(), ExecutionParentOrder.id.asc()
-                )
+                .order_by(ExecutionParentOrder.updated_at.asc(), ExecutionParentOrder.id.asc())
                 .limit(self._batch_size)
                 .all()
             )
@@ -253,9 +251,7 @@ class ExecutionReconciler:
         )
 
     @classmethod
-    def _provider_sending_identity_matches(
-        cls, expected: str, observed: Optional[str]
-    ) -> bool:
+    def _provider_sending_identity_matches(cls, expected: str, observed: Optional[str]) -> bool:
         """Li.Fi may omit sending.txHash; a present value must match exactly."""
 
         if observed in (None, ""):
@@ -277,9 +273,7 @@ class ExecutionReconciler:
                 )
                 if parent is None or parent.state != "reconciling":
                     return False
-                if parent.source_type != "swap" or parent.source_ref != str(
-                    candidate["swap_id"]
-                ):
+                if parent.source_type != "swap" or parent.source_ref != str(candidate["swap_id"]):
                     logger.error(
                         "Execution reconciler source identity changed parent=%s",
                         candidate["parent_id"],
@@ -294,9 +288,7 @@ class ExecutionReconciler:
                 )
                 if not self._eligible_swap(swap):
                     return False
-                if not self._same_persisted_tx_identity(
-                    candidate["tx_hash"], swap.tx_hash
-                ):
+                if not self._same_persisted_tx_identity(candidate["tx_hash"], swap.tx_hash):
                     logger.error(
                         "Execution reconciler legacy tx identity changed parent=%s swap=%s",
                         candidate["parent_id"],
