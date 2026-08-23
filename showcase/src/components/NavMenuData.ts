@@ -24,7 +24,7 @@ export const MENU_PANELS: MenuPanel[] = [
         { key: 'swaps', href: '/#engine' },
         { key: 'perps', href: '/#hyperliquid' },
         { key: 'tempo', href: '/#tempo' },
-        { key: 'curve', href: TERMINAL_URL, external: true },
+        { key: 'curve', href: '/#curve' },
         { key: 'signals', href: '/signals' },
       ]},
     ],

@@ -66,6 +66,12 @@ export default async function Home() {
       title: h('markets.tempoTitle'),
       body: h('markets.tempoBody'),
     },
+    {
+      id: 'curve',
+      kicker: 'Curve Finance',
+      title: h('markets.curveTitle'),
+      body: h('markets.curveBody'),
+    },
   ];
 
   const security = [
