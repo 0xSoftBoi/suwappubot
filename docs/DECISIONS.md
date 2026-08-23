@@ -161,5 +161,25 @@ ADRs 0001–0005.
   a live check on the deployed URL. Parse/boot/CI prove code *loads*, not that
   a feature *works* — integrations need one real end-to-end exercise.
 
+### A new column must be deployed before the code that reads it
+- **What**: Under the dual-owned schema (ADR 0003) the additive `ALTER` lives in
+  Python's `_ensure_schema()`, which runs on **python-api boot**. api-ts builds
+  with Railpack and deploys minutes sooner than python-api's Docker build.
+- **Consequence**: Merging a Drizzle read of a new column together with its
+  Python `ALTER` puts api-ts in production reading a column that does not exist
+  yet. `/v1/autopilot/:slug/positions` 500'd on dev for exactly this window.
+- **Instead**: Ship the column first (schema-only commit, let python-api boot),
+  then ship the code that selects it. If they must go together, expect a 500
+  window and watch python-api's boot, not api-ts's health check.
+
+### A readiness poll must not match its own failure message
+- **What**: Polled for `max_hold_minutes` in the response body to confirm a
+  deploy. The 500's error text names the missing column, so the check passed on
+  the failure it was meant to catch. An earlier poll in the same session used
+  `/health`, which the *old* deployment also serves.
+- **Instead**: Assert on a success-only signal — `"success": true`, an HTTP 200
+  on a route that did not previously exist, a changed build fingerprint. Ask of
+  every readiness check: would this still pass if the deploy were broken?
+
 ---
 *Add new entries via PR. Keep each entry under ~8 lines.*
