@@ -62,7 +62,7 @@ describe('parseBootstrapConfig', () => {
 		expect(r.config.description).toBe('paper agent')
 		expect(r.config.rules).toEqual({ maxPositionUsd: 25 })
 		expect(r.config.active).toBe(true)
-		expect((r.config as Record<string, unknown>).somethingElse).toBeUndefined()
+		expect((r.config as unknown as Record<string, unknown>).somethingElse).toBeUndefined()
 	})
 
 	it('treats a non-true active flag as not active', () => {
