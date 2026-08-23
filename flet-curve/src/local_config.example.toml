@@ -1,0 +1,39 @@
+# Local configuration. Copy to `local_config.toml` (same directory, which is
+# gitignored) and fill in your own values:
+#
+#     cp src/local_config.example.toml src/local_config.toml
+#     .venv/bin/flet publish
+#
+# Every value can also come from an environment variable, which takes
+# precedence and is usually what you want in CI:
+#
+#     FLET_PAY_WALLETCONNECT_PROJECT_ID=... .venv/bin/flet publish
+#
+# NOTHING HERE IS A SECRET. This file sits under src/, so `flet publish`
+# bundles it into the app archive and it is served to every visitor. That is
+# deliberate -- it is the only way a static build can be configured without a
+# post-processing step you have to remember. Do not put real credentials in
+# it. A WalletConnect projectId is public by design; keeping it out of the
+# repo is about ownership (a clone must not spend your quota), not secrecy.
+
+[walletconnect]
+# Free, from https://dashboard.reown.com -> Projects -> + Project -> "App".
+# Leave unset and the WalletConnect connector simply does not appear;
+# injected wallets (MetaMask, Rabby, Frame, qeth) are unaffected.
+project_id = ""
+
+# Optional. Point at a vendored copy for a build with no runtime CDN
+# dependency, e.g. a file you place in src/assets/.
+# module_url = "https://esm.sh/@walletconnect/ethereum-provider@2"
+
+# Optional. Chains offered to the wallet as `optionalChains`; keep in step
+# with src/wallet/chains.py.
+# chains = [1, 10, 137, 8453, 42161]
+
+# Optional. "data:image/svg+xml;base64,..." to override the bundled
+# WalletConnect mark in the picker.
+# icon = ""
+
+# The desktop build needs none of this -- it talks to Frame/qeth on
+# 127.0.0.1:1248. Override that endpoint with the FLET_PAY_RPC environment
+# variable at run time.
