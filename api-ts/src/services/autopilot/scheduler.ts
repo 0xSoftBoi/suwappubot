@@ -10,9 +10,12 @@ import { Effect } from 'effect'
 import { logger } from '../../lib/logger'
 import { runEffect } from '../../runtime'
 import { AutopilotService } from '../AutopilotService'
+import { runAutopilotBootstrap } from './bootstrap'
 
 let timer: ReturnType<typeof setInterval> | null = null
 let running = false
+/** Declared agent config, retried on each tick until it lands. */
+let pendingBootstrap: string | undefined
 
 export async function runAllActiveAgents(): Promise<void> {
 	// A cycle can outlive its interval on a slow market fetch; skip rather than
@@ -23,6 +26,13 @@ export async function runAllActiveAgents(): Promise<void> {
 	}
 	running = true
 	try {
+		// The schema can arrive after boot on environments where the Python stack
+		// owns it, so a seed that lost that race is retried here. Idempotent.
+		if (pendingBootstrap !== undefined) {
+			const seeded = await runAutopilotBootstrap(pendingBootstrap)
+			if (seeded) pendingBootstrap = undefined
+		}
+
 		const agents = await runEffect(
 			Effect.gen(function* () {
 				const svc = yield* AutopilotService
@@ -61,8 +71,9 @@ export async function runAllActiveAgents(): Promise<void> {
 	}
 }
 
-export function startAutopilotScheduler(cycleMinutes: number): void {
+export function startAutopilotScheduler(cycleMinutes: number, bootstrap?: string): void {
 	if (timer) return
+	pendingBootstrap = bootstrap
 	if (!Number.isFinite(cycleMinutes) || cycleMinutes <= 0) {
 		logger.info('autopilot: scheduler disabled (AUTOPILOT_CYCLE_MINUTES is 0)')
 		return
@@ -75,6 +86,7 @@ export function startAutopilotScheduler(cycleMinutes: number): void {
 }
 
 export function stopAutopilotScheduler(): void {
+	pendingBootstrap = undefined
 	if (timer) {
 		clearInterval(timer)
 		timer = null
