@@ -11,7 +11,6 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
 from bot.services.hyperliquid_client import HyperLiquidClient
 
-
 PK = "0x0123456789012345678901234567890123456789012345678901234567890123"
 
 
