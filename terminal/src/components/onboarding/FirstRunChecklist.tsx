@@ -44,7 +44,7 @@ export function FirstRunChecklist() {
   const goToPortfolio = () => {
     setTradingMode('spot')
     setActiveTab('portfolio')
-    if (isMobile) requestMobileTab('more')
+    if (isMobile) requestMobileTab('portfolio')
   }
 
   const goToSwap = () => {

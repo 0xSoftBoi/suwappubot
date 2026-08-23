@@ -100,7 +100,12 @@ export function CurvePoolsPanel() {
     toast.success(`${base.symbol}/${quote.symbol} loaded into swap`)
   }
 
-  const { data: chains, isLoading: chainsLoading } = useQuery({
+  const {
+    data: chains,
+    isLoading: chainsLoading,
+    isError: chainsError,
+    refetch: refetchChains,
+  } = useQuery({
     queryKey: ['curve', 'chains'],
     queryFn: fetchCurveChains,
     staleTime: 5 * 60_000,
@@ -190,7 +195,7 @@ export function CurvePoolsPanel() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search pools, coins, address…"
-            className="w-56"
+            className="w-full sm:w-56"
             data-testid="curve-search-input"
           />
 
@@ -213,7 +218,22 @@ export function CurvePoolsPanel() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {isError ? (
+        {chainsError ? (
+          <TerminalEmptyState
+            kicker="Load failed"
+            title="Couldn't reach the Curve Prices API"
+            description="The chain list didn't load, so no pools can be shown."
+            action={
+              <button className="terminal-button px-3 py-1.5 text-xs" onClick={() => refetchChains()}>
+                Retry
+              </button>
+            }
+          />
+        ) : chainsLoading && !activeChain ? (
+          <div className="p-3">
+            <TerminalSkeletonRows rows={8} />
+          </div>
+        ) : isError ? (
           <TerminalEmptyState
             kicker="Load failed"
             title="Couldn't load Curve pools"
@@ -237,6 +257,69 @@ export function CurvePoolsPanel() {
                 : `No Curve pools with sufficient TVL found on ${activeChain?.name ?? 'this chain'}.`
             }
           />
+        ) : isMobile ? (
+          <ul className="divide-y divide-terminal-border/50" data-testid="curve-pools-cards">
+            {pools.map((pool) => {
+              const chain = activeChain?.name ?? ''
+              const tradable = TRADABLE_CHAINS.has(chain) && pool.coins.length >= 2
+              return (
+                <li key={pool.address} className="px-3 py-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-terminal-text">{pool.name}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {pool.coins.map((c, i) => (
+                          <span
+                            key={`${c.address}-${i}`}
+                            className="rounded-full border border-terminal-border bg-terminal-bg-secondary px-1.5 py-0.5 text-[10px] leading-none text-terminal-text-secondary"
+                          >
+                            {c.symbol}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    {pool.poolUrl ? (
+                      <a
+                        href={pool.poolUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 p-1 text-terminal-accent"
+                        aria-label={`Open ${pool.name} on curve.finance`}
+                      >
+                        ↗
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="flex gap-4 text-[11px]">
+                      <div>
+                        <div className="text-terminal-text-muted">TVL</div>
+                        <div className="tnum text-terminal-text">{compactUsd(pool.tvlUsd)}</div>
+                      </div>
+                      <div>
+                        <div className="text-terminal-text-muted">24h Vol</div>
+                        <div className="tnum text-terminal-text">{compactUsd(pool.volume24h)}</div>
+                      </div>
+                      <div>
+                        <div className="text-terminal-text-muted">Base APR</div>
+                        <div className="tnum text-terminal-text">{percent(pool.baseApr)}</div>
+                      </div>
+                    </div>
+                    {tradable && (
+                      <button
+                        onClick={() => tradePool(pool, chain)}
+                        className="terminal-button min-h-9 shrink-0 px-3 text-xs"
+                        aria-label={`Trade ${pool.name} in the swap panel`}
+                        data-testid="curve-trade-button"
+                      >
+                        Trade
+                      </button>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         ) : (
           <table className="w-full border-collapse text-xs" data-testid="curve-pools-table">
             <thead>
