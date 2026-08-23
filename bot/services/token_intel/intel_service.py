@@ -116,8 +116,19 @@ class TokenIntelService:
         return f"{chain.lower()}:{token_address.lower()}"
 
     async def analyze(
-        self, token_address: str, chain: str, force_refresh: bool = False
+        self,
+        token_address: str,
+        chain: str,
+        force_refresh: bool = False,
+        quick: bool = False,
     ) -> TokenIntelReport:
+        """Build a token intel report.
+
+        quick=True asks the source modules for only the fields a risk gate
+        needs, skipping the transfer-walking enrichments that dominate latency.
+        Quick and full reports share a cache key deliberately: a full report is
+        a superset, so a cached one satisfies a quick caller.
+        """
         chain = (chain or "ethereum").lower()
         cache_key = self._cache_key(token_address, chain)
 
@@ -138,7 +149,7 @@ class TokenIntelService:
             else:
                 from bot.services.token_intel import evm_source
 
-                await evm_source.enrich_report(report, chain)
+                await evm_source.enrich_report(report, chain, quick=quick)
         except Exception as e:
             # Belt-and-suspenders: source modules are already defensive, but a
             # single report must never fail the whole /intel command.

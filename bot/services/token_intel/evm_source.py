@@ -52,18 +52,30 @@ async def _get_json(url: str, params: Optional[dict] = None) -> Optional[dict]:
         return None
 
 
-async def enrich_report(report, chain: str) -> None:
-    """Populate an EVM TokenIntelReport in place. Never raises."""
+async def enrich_report(report, chain: str, quick: bool = False) -> None:
+    """Populate an EVM TokenIntelReport in place. Never raises.
+
+    quick=True runs only the enrichments a risk gate needs — token info and
+    holder distribution — and skips deployer history, bundle/snipe detection and
+    cluster hints. Those walk many pages of transfers and dominate the latency:
+    the full report legitimately takes tens of seconds on a cold token, which is
+    fine for an on-demand /intel command and far too slow for a trading loop
+    that must decide before its quote goes stale.
+    """
     base = _base_url(chain)
     if not base:
         report.notes.append(f"no_blockscout_instance_for_{chain}")
         return
 
     await _enrich_token_info(report, base)
-    await _enrich_deployer(report, base)
-    if report.deployer:
-        await _enrich_deployer_stats(report, base)
+    if not quick:
+        await _enrich_deployer(report, base)
+        if report.deployer:
+            await _enrich_deployer_stats(report, base)
     await _enrich_holders(report, base)
+    if quick:
+        report.notes.append("quick_scan")
+        return
     await _enrich_bundle_and_snipe(report, base)
     if report.top_holders:
         await _enrich_cluster_hints(report, base)

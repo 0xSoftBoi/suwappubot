@@ -530,7 +530,9 @@ async def token_security(
     try:
         from bot.services.token_intel.intel_service import token_intel_service
 
-        report = await token_intel_service.analyze(token, chain)
+        # quick=True: the gate needs holder distribution and token info, not the
+        # deployer-history walk that makes a full report take tens of seconds.
+        report = await token_intel_service.analyze(token, chain, quick=True)
         if report.top10_pct is not None:
             out.top_holder_pct = float(report.top10_pct)
         if chain == "solana" and report.mint_authority is not None:
