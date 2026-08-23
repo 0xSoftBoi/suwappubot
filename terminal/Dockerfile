@@ -37,11 +37,10 @@ COPY terminal/nginx.conf /etc/nginx/templates/default.conf.template
 ENV PORT=8080
 ENV API_TS_PORT=8000
 
-# The image's 15-local-resolvers.envsh only exports NGINX_LOCAL_RESOLVERS when
-# this gate variable is set. Without it, envsubst leaves the literal
-# "${NGINX_LOCAL_RESOLVERS}" in the rendered config and nginx refuses to boot
-# ('host not found in resolver'), which failed the #925 healthcheck and kept
-# the stale-DNS build serving 502/504 for every proxied API path.
+# Gate for the image's 15-local-resolvers.envsh: without it the script exits
+# before exporting NGINX_LOCAL_RESOLVERS, envsubst leaves the literal
+# "${NGINX_LOCAL_RESOLVERS}" in the rendered config, and nginx refuses to boot
+# ("host not found in resolver") — which is exactly how the #925 deploy failed.
 ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
 
 # Copy built files from builder
