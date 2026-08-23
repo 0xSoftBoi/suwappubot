@@ -102,19 +102,43 @@ export interface ScreenParams {
 }
 
 /**
- * Screen the market for tradeable candidates. Uses DexScreener's boosted-token
- * feed as the discovery surface, then re-reads each token's real pairs so the
- * numbers we score on are pair data, not promo metadata.
+ * Quote assets we search per chain to build a non-promotional universe. The
+ * boosted feed alone is a paid-placement list — screening only that is adverse
+ * selection dressed up as discovery.
+ */
+const CHAIN_QUOTE_QUERIES: Record<string, string[]> = {
+	base: ['WETH', 'USDC'],
+	solana: ['SOL', 'USDC'],
+	arbitrum: ['WETH', 'USDC'],
+	ethereum: ['WETH', 'USDC'],
+	bsc: ['WBNB', 'USDT'],
+	polygon: ['WMATIC', 'USDC'],
+	optimism: ['WETH', 'USDC'],
+	avalanche: ['WAVAX', 'USDC'],
+}
+
+/** DexScreener search — returns the deepest pairs quoted against `query`. */
+async function searchPairs(query: string): Promise<DexPair[]> {
+	const data = await getJson<{ pairs?: DexPair[] }>(
+		`${DEXSCREENER}/latest/dex/search?q=${encodeURIComponent(query)}`,
+	)
+	return data?.pairs ?? []
+}
+
+/**
+ * Screen the market for tradeable candidates from two surfaces: DexScreener's
+ * boosted feed (re-read as real pair data, never promo metadata) and a search
+ * over each chain's quote assets, which surfaces deep pairs nobody paid to
+ * promote. Both are merged and deduped to the deepest pair per token.
  */
 export async function screenCandidates(params: ScreenParams): Promise<Candidate[]> {
 	const chains = new Set(params.chains.map((c) => c.toLowerCase()))
 	const boosts = await getJson<Array<{ chainId?: string; tokenAddress?: string }>>(
 		`${DEXSCREENER}/token-boosts/top/v1`,
 	)
-	if (!boosts || !Array.isArray(boosts)) return []
 
 	const byChain = new Map<string, string[]>()
-	for (const b of boosts) {
+	for (const b of Array.isArray(boosts) ? boosts : []) {
 		const chain = normalizeChain(b.chainId)
 		if (!chain || !chains.has(chain) || !b.tokenAddress) continue
 		const list = byChain.get(b.chainId as string) ?? []
@@ -130,9 +154,11 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 		),
 	)
 
+	const queries = [...new Set([...chains].flatMap((c) => CHAIN_QUOTE_QUERIES[c] ?? []))]
+	const searched = (await Promise.all(queries.map(searchPairs))).flat()
+
 	return dedupeByToken(
-		batches
-			.flatMap((b) => (Array.isArray(b) ? b : (b?.pairs ?? [])))
+		[...batches.flatMap((b) => (Array.isArray(b) ? b : (b?.pairs ?? []))), ...searched]
 			.map(pairToCandidate)
 			.filter((c): c is Candidate => c !== null),
 	)

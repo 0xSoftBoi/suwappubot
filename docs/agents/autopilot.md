@@ -29,7 +29,7 @@ showing you half the data.
 
 | Stage | Where | What happens |
 |---|---|---|
-| read | `services/autopilot/market.ts` | Screen DexScreener's boosted feed, re-read each token's real pairs, keep the deepest pair per token. Mark open positions to market. |
+| read | `services/autopilot/market.ts` | Screen two surfaces — DexScreener's boosted feed (re-read as real pair data) and a search over each chain's quote assets, which surfaces deep pairs nobody paid to promote. Deduped to the deepest pair per token. Mark open positions to market. |
 | think | `services/autopilot/thesis.ts` | A `ThesisEngine` turns a candidate into an action, size, confidence, evidence and a committed exit plan. |
 | gate | `services/autopilot/gates.ts` | Pure risk rules. Every rule runs (so the verdict is complete), and exits are never blocked by entry rules. |
 | seal | `lib/seal.ts` | Canonical-JSON SHA-256 commitment with a blinding nonce, written before execution. |
@@ -150,6 +150,26 @@ Go live only after a paper agent has run long enough to show its refusals are
 sane, then create a *separate* live agent with a funded managed wallet. Do not
 flip a paper agent's mode: its equity history is paper history, and mixing the
 two makes the published P&L a lie.
+
+## Dry run
+
+`bun run scripts/autopilot-dryrun.ts` exercises read → think → gate → seal
+against the live market, touching no database and executing nothing. It prints
+every thesis, every refusal with the rule that caused it, and whether the seal
+verifies. `--pairs snapshot.json` replays a saved DexScreener pair array
+instead, which makes a run reproducible and works without outbound access to
+the screener.
+
+A representative run on a live snapshot: 15 candidates read, 1 thesis formed
+(wrapped SOL on Base, turnover 5.03x on $876k depth, confidence 0.638, size
+$63.75), refused at `security_scan_present` because `INTERNAL_API_KEY` was
+unset. That refusal is the system working — the scan was unavailable, so the
+trade did not happen.
+
+Note what the same run says about the boosted feed alone: every boosted token in
+that snapshot scored below the floor, mostly on 20–90x daily turnover against
+$20–100k of depth. Paid placement and tradeable depth are not the same thing,
+which is why discovery does not rely on it.
 
 ## What is deliberately not here yet
 
