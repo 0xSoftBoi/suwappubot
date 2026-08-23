@@ -7,8 +7,23 @@ import { DrizzleService } from '../db'
 import { runEffectEither } from '../runtime'
 
 import { sourceFingerprint } from '../lib/sourceFingerprint'
+import { apiContractRoutes } from './apiContract'
+import { lifecycleFixtureRoutes } from './lifecycleFixture'
+import { sandboxRoutes } from './sandbox'
 
 const healthRoutes = new Hono()
+
+// Public developer-contract/OpenAPI/lifecycle/changelog discovery. Kept in a
+// dedicated router so developer-platform work cannot accidentally mutate health,
+// token, or other unrelated public behavior.
+healthRoutes.route('/', apiContractRoutes)
+
+// Public deterministic contract sandbox. This route is mounted through the root
+// public route group so it can remain isolated from agent auth, billing, provider,
+// wallet and internal-service middleware. The sandbox module itself has a tested
+// no-production-dependencies boundary. See #874.
+healthRoutes.route('/v1/sandbox', sandboxRoutes)
+healthRoutes.route('/v1/sandbox', lifecycleFixtureRoutes)
 
 let cachedDbStatus: { status: string; checkedAt: number } | null = null
 const DB_HEALTH_TTL = 30_000
@@ -151,8 +166,7 @@ healthRoutes.get('/tokens', async (c) => {
 		return c.json(responseData)
 	} catch (error) {
 		logger.error({ err: error }, '[Tokens] Failed to fetch')
-		return c.json({
- error: 'Failed to fetch tokens' }, 500)
+		return c.json({ error: 'Failed to fetch tokens' }, 500)
 	}
 })
 

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "agentRest": {
+    "compatibilityMajor": "v1",
+    "basePath": "/v1/agent",
+    "openapiRevision": "0.5.0",
+    "lifecycle": "ga",
+    "discovery": {
+      "developerContract": "GET /v1/developer-contract",
+      "lifecycle": "GET /v1/api-lifecycle",
+      "retryContracts": "GET /v1/retry-contracts",
+      "chains": "GET /v1/agent/chains",
+      "openapi": "GET /v1/agent/openapi",
+      "llms": "GET /llms.txt",
+      "llmsFull": "GET /llms-full.txt"
+    }
+  },
+  "sandbox": {
+    "kind": "deterministic-contract-simulator",
+    "endpoint": "https://api.suwappu.bot/v1/sandbox",
+    "realFunds": false,
+    "liveQuotes": false,
+    "providerCalls": false,
+    "rpcCalls": false,
+    "signing": false,
+    "broadcast": false,
+    "billing": false,
+    "productionDatabase": false,
+    "persistence": "ephemeral-in-memory",
+    "devapiCustomerSandboxStatus": "unverified-do-not-assume-isolated",
+    "policy": "../docs/sandbox.md"
+  },
+  "hostedProtocols": {
+    "mcp": {
+      "catalogAuthority": "runtime-discovery",
+      "endpoint": "https://api.suwappu.bot/mcp"
+    },
+    "a2a": {
+      "capabilityAuthority": "agent-card",
+      "agentCard": "https://api.suwappu.bot/.well-known/agent-card.json"
+    }
+  },
+  "packages": {
+    "typescriptSdk": {
+      "name": "@suwappu/sdk",
+      "publication": "registry-and-source",
+      "compatibleApiMajors": ["v1"]
+    },
+    "mcpBridge": {
+      "name": "@suwappu/mcp-server",
+      "publication": "registry-and-source",
+      "catalogAuthority": "hosted-mcp-runtime"
+    },
+    "pythonSdk": {
+      "name": "suwappu-python-source",
+      "publication": "source-only",
+      "productionInstall": "pin-full-commit-sha",
+      "compatibleApiMajors": ["v1"]
+    }
+  },
+  "policies": {
+    "apiLifecycle": "../docs/api-lifecycle.md",
+    "sdkSupport": "../docs/sdk-support.md",
+    "sharedResponsibility": "../docs/security/shared-responsibility.md",
+    "sandbox": "../docs/sandbox.md",
+    "idempotency": "../docs/idempotency.md"
+  }
+}

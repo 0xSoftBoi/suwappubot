@@ -2,6 +2,13 @@
   "name": "@suwappu/mcp-server",
   "mcpName": "bot.suwappu/mcp",
   "version": "0.6.0",
+  "suwappu": {
+    "supportStage": "active",
+    "bridgeType": "stdio-to-hosted-runtime",
+    "catalogAuthority": "hosted-mcp-runtime",
+    "hostedEndpoint": "https://api.suwappu.bot/mcp",
+    "compatibilityPolicy": "https://github.com/0xSoftBoi/suwappubot/blob/main/docs/sdk-support.md"
+  },
   "description": "Stdio bridge to Suwappu's hosted MCP tools, resources, and prompts",
   "type": "module",
   "main": "./dist/index.js",

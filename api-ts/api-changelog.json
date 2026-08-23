@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "categories": ["Breaking", "Deprecated", "Security", "Added", "Changed", "Fixed"],
+  "entries": [
+    {
+      "id": "2026-08-21-sandbox-deprecation-fixture",
+      "category": "Deprecated",
+      "publishedAt": "2026-08-21T00:00:00.000Z",
+      "title": "Sandbox deprecation lifecycle fixture",
+      "summary": "Adds a sandbox-only deprecated endpoint to verify RFC 9745 Deprecation, RFC 8594 Sunset, migration links, and SDK lifecycle handling without deprecating a production API.",
+      "affected": ["GET /v1/sandbox/deprecated-fixture"],
+      "documentationUrl": "https://github.com/0xSoftBoi/suwappubot/blob/main/docs/migrations/sandbox-deprecation-fixture.md"
+    }
+  ]
+}
