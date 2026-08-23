@@ -134,6 +134,8 @@ export const DEFAULT_RULES: AutopilotRules = {
 
 /** Portfolio facts the gate needs. Supplied by the service, kept out of the pure rules. */
 export interface PortfolioState {
+	/** The asset the book is denominated in. Never a valid thing to buy. */
+	baseToken?: string | undefined
 	equityUsd: number
 	deployedUsd: number
 	openPositions: OpenPositionSummary[]

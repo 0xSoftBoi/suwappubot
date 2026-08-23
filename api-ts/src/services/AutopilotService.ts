@@ -683,6 +683,7 @@ async function loadPortfolio(db: DbClient, agentId: number): Promise<PortfolioSt
 	}
 
 	return {
+		baseToken: agentRow?.baseToken,
 		equityUsd,
 		deployedUsd,
 		openPositions,
@@ -942,6 +943,7 @@ export async function runCycleImpl(
 			chains: rules.allowedChains,
 			minLiquidityUsd: rules.minLiquidityUsd,
 			limit: 25,
+			excludeTokens: [agent.baseToken],
 		})
 		candidatesScanned = candidates.length
 		await journal(db, agent.id, cycleId, null, 'read', `Screened ${candidates.length} candidates`, {
