@@ -109,6 +109,7 @@ describe('PaperExecutor', () => {
 	const executor = new PaperExecutor()
 	const base = {
 		chain: 'base',
+		side: 'buy' as const,
 		fromToken: 'USDC',
 		toToken: 'GOOD',
 		amountUsd: 100,
@@ -123,6 +124,70 @@ describe('PaperExecutor', () => {
 		expect(r.fillPriceUsd).toBeGreaterThan(1)
 		expect(r.realizedSlippageBps).toBeLessThan(10)
 		expect(r.txHash).toStartWith('paper:')
+	})
+
+	it('fills a sell BELOW mid and a buy ABOVE it', async () => {
+		// The bug this pins: a sell modelled with `1 + impact` gets a better price
+		// than the market would give, and every closed trade reads better than it
+		// was. Both sides must be worse than mid.
+		const buy = await executor.execute({ ...base, referencePriceUsd: 100, liquidityUsd: 1_000_000 })
+		const sell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+		})
+		expect(buy.fillPriceUsd).toBeGreaterThan(100)
+		expect(sell.fillPriceUsd).toBeLessThan(100)
+	})
+
+	it('charges the per-side fee on top of impact, in the costly direction each way', async () => {
+		const free = await executor.execute({
+			...base,
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+		})
+		const paid = await executor.execute({
+			...base,
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		expect(paid.fillPriceUsd).toBeGreaterThan(free.fillPriceUsd as number)
+
+		const freeSell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+		})
+		const paidSell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		expect(paidSell.fillPriceUsd).toBeLessThan(freeSell.fillPriceUsd as number)
+	})
+
+	it('makes an instant round trip lose money, never make it', async () => {
+		// Buy and immediately sell at an unchanged mid. Any paper book where this
+		// is not a loss is quietly manufacturing returns.
+		const buy = await executor.execute({
+			...base,
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		const sell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		expect(sell.fillPriceUsd as number).toBeLessThan(buy.fillPriceUsd as number)
 	})
 
 	it('refuses a fill that would blow through the slippage limit', async () => {

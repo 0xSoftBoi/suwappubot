@@ -210,6 +210,23 @@ describe('autopilot cycle — exit', () => {
 		expect(verifySeal(sells[0].thesis, sells[0].nonce, sells[0].commitment)).toBe(true)
 	})
 
+	it('books the exit at the fill it got, not at the mid it saw', async () => {
+		const [pos] = await db.select().from(autopilotPositions)
+		const [sell] = (await db.select().from(autopilotDecisions)).filter(
+			(d: { action: string }) => d.action === 'sell',
+		)
+
+		// What a naive mid-marking would have booked: cost * (mid / entry) - cost.
+		const mid = 0.75
+		const naive = pos.costBasisUsd * (mid / pos.avgEntryPriceUsd) - pos.costBasisUsd
+
+		// The real fill is below mid (sell side + fee), so the booked loss must be
+		// strictly worse. If these ever match, exits are being marked at a price
+		// the position never got.
+		expect(Number(pos.realizedPnlUsd)).toBeLessThan(naive)
+		expect(Number(sell.fillPriceUsd)).toBeLessThan(mid)
+	})
+
 	it('marks equity down after the realized loss', async () => {
 		const [a] = await db.select().from(autopilotAgents).where(eq(autopilotAgents.id, agent.id))
 		expect(a.lastCycleAt).not.toBeNull()

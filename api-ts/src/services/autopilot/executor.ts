@@ -31,7 +31,11 @@ export class PaperExecutor implements Executor {
 	readonly mode = 'paper' as const
 
 	async execute(
-		req: ExecutionRequest & { referencePriceUsd?: number; liquidityUsd?: number },
+		req: ExecutionRequest & {
+			referencePriceUsd?: number
+			liquidityUsd?: number
+			feeBps?: number
+		},
 	): Promise<ExecutionResult> {
 		const price = req.referencePriceUsd
 		if (!price || price <= 0) {
@@ -41,6 +45,8 @@ export class PaperExecutor implements Executor {
 		const liquidity = req.liquidityUsd ?? 0
 		// x*y=k impact for a trade of size s against depth L: s / (L + s).
 		const impact = liquidity > 0 ? req.amountUsd / (liquidity + req.amountUsd) : 0.01
+		const feeBps = req.feeBps ?? 0
+		const cost = impact + feeBps / 10_000
 		const slippageBps = Math.round(impact * 10_000)
 
 		if (slippageBps > req.slippageBps) {
@@ -51,7 +57,11 @@ export class PaperExecutor implements Executor {
 			}
 		}
 
-		const fillPriceUsd = price * (1 + impact)
+		// Direction matters. A buy lifts the offer and fills ABOVE mid; a sell hits
+		// the bid and fills BELOW it. Both are worse than mid — modelling a sell
+		// with `1 + impact` hands the paper book a better price than the market
+		// would give, and every closed trade then reads better than it was.
+		const fillPriceUsd = req.side === 'sell' ? price * (1 - cost) : price * (1 + cost)
 		return {
 			ok: true,
 			paper: true,
