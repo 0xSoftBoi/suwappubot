@@ -226,13 +226,13 @@ autopilotRoutes.get('/decisions/:id/verify', async (c) => {
 		how_to_verify: {
 			step_1: 'GET /v1/autopilot/decisions/:id and take `thesis`, `nonce` and `commitment`.',
 			step_2:
-				'Canonicalise the thesis: JSON with object keys sorted lexicographically, no whitespace.',
+				'Canonicalise the thesis: JSON with object keys sorted lexicographically and no whitespace. Strings are raw UTF-8 with only JSON-required escapes — non-ASCII is NOT \\uXXXX-escaped (Python needs json.dumps(..., ensure_ascii=False); Go needs SetEscapeHTML(false)).',
 			step_3:
 				'sha256("sha256-canonical-v1|" + nonce + "|" + canonical_thesis) must equal `commitment`.',
 			step_4: result.right.anchor
 				? 'Fetch the anchor tx on its chain, decode the calldata as UTF-8, and check it equals `memo`. That block timestamp is when the commitment became public, and it precedes the fill.'
 				: 'This decision was not anchored on-chain: step 3 proves the thesis matches the commitment, but the ordering rests on our records rather than on a block.',
-			note: 'The commitment row is written before any execution attempt, so a matching hash proves the thesis predates the trade.',
+			note: 'The commitment row is written before any execution attempt, so a matching hash proves the thesis predates the trade. `preimage` in the verification block is the exact byte string we hashed — if your digest differs, diff against that rather than assuming the worst.',
 		},
 	})
 })

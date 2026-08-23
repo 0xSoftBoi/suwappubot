@@ -84,6 +84,39 @@ describe('commit-reveal', () => {
 	})
 })
 
+describe('string encoding is part of the spec', () => {
+	// A live thesis reads "… (score 0.68) — the engine fades parabolic moves …".
+	// Python's json.dumps would render that em dash as \u2014 and compute a
+	// different digest from identical data, which looks like a forged commitment
+	// rather than a library default. Pin the raw-UTF-8 behaviour.
+	const emDash = { reasoning: 'depth is rising — the move is not vertical' }
+
+	it('emits non-ASCII raw, not \\uXXXX-escaped', () => {
+		const c = canonicalize(emDash)
+		expect(c).toContain('—')
+		expect(c).not.toContain('\\u2014')
+	})
+
+	it('still verifies a thesis carrying non-ASCII text', () => {
+		const s = seal(emDash)
+		expect(verifySeal(emDash, s.nonce, s.commitment)).toBe(true)
+	})
+
+	it('an escaped rendering of the same data is a different pre-image', () => {
+		// What an ensure_ascii=True implementation would hash.
+		const escaped = '{"reasoning":"depth is rising \\u2014 the move is not vertical"}'
+		expect(canonicalize(emDash)).not.toBe(escaped)
+	})
+
+	it('handles the other characters a thesis picks up', () => {
+		for (const text of ['naïve', 'ドル', '🚀 up', 'a\tb', 'quote " inside']) {
+			const value = { reasoning: text }
+			const s = seal(value)
+			expect(verifySeal(value, s.nonce, s.commitment)).toBe(true)
+		}
+	})
+})
+
 describe('on-chain memo', () => {
 	it('round-trips', () => {
 		const s = seal(thesis)
