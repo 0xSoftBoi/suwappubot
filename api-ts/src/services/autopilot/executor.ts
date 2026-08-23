@@ -23,9 +23,16 @@ export interface Executor {
 }
 
 /**
- * Simulated fill. Price impact is modelled as size/liquidity against a constant
- * product curve, which is pessimistic enough to keep paper P&L honest rather
- * than flattering.
+ * Simulated fill against a constant-product curve.
+ *
+ * For reserves X (quote) and Y (token), spending dx returns dy = Y*dx/(X+dx),
+ * so the effective price is (X+dx)/Y against a mid of X/Y — an impact of
+ * exactly dx/X. Note both what X is and what it is not: it is the QUOTE-side
+ * reserve, which is half the pool. Every depth number we ingest —
+ * GeckoTerminal's `reserve_in_usd`, DexScreener's `liquidity.usd` — reports
+ * TOTAL TVL across both sides, so dividing by it directly models half the
+ * slippage we would really pay. That understatement is invisible in the
+ * output; it just makes every paper trade look better than it was.
  */
 export class PaperExecutor implements Executor {
 	readonly mode = 'paper' as const
@@ -43,8 +50,12 @@ export class PaperExecutor implements Executor {
 		}
 
 		const liquidity = req.liquidityUsd ?? 0
-		// x*y=k impact for a trade of size s against depth L: s / (L + s).
-		const impact = liquidity > 0 ? req.amountUsd / (liquidity + req.amountUsd) : 0.01
+		// Half the reported TVL is the side we trade against. Impact is dx/X, and
+		// it is deliberately unbounded: on a constant-product curve you cannot buy
+		// out the reserve, so a trade that dwarfs the pool must price as absurd
+		// rather than asymptote to a comfortable-looking 100%.
+		const quoteReserveUsd = liquidity / 2
+		const impact = quoteReserveUsd > 0 ? req.amountUsd / quoteReserveUsd : 0.01
 		const feeBps = req.feeBps ?? 0
 		const cost = impact + feeBps / 10_000
 		const slippageBps = Math.round(impact * 10_000)
