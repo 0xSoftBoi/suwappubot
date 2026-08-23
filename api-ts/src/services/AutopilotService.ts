@@ -41,6 +41,18 @@ import {
 	type Thesis,
 } from './autopilot/types'
 
+/**
+ * The market I/O the cycle depends on, injected so the loop can be exercised
+ * end-to-end against a deterministic market instead of the live one.
+ */
+export interface MarketDeps {
+	screenCandidates: typeof screenCandidates
+	getTokenPriceUsd: typeof getTokenPriceUsd
+	fetchTokenSecurity: typeof fetchTokenSecurity
+}
+
+export const LIVE_MARKET: MarketDeps = { screenCandidates, getTokenPriceUsd, fetchTokenSecurity }
+
 export interface CycleReport {
 	cycleId: number
 	agentSlug: string
@@ -625,12 +637,13 @@ async function reveal(db: DbClient, decisionId: number, thesis: Thesis): Promise
 		.where(eq(autopilotDecisions.id, decisionId))
 }
 
-async function runCycleImpl(
+export async function runCycleImpl(
 	db: DbClient,
 	agent: AutopilotAgent,
 	executor: Executor,
 	engine: ThesisEngine,
 	deps: { internalApiUrl: string; internalApiKey: string },
+	market: MarketDeps = LIVE_MARKET,
 ): Promise<CycleReport> {
 	const rules = resolveRules(agent.rules)
 	const errors: string[] = []
@@ -650,13 +663,13 @@ async function runCycleImpl(
 	try {
 		// --- read -------------------------------------------------------------
 		let portfolio = await loadPortfolio(db, agent.id)
-		await markPositionsToMarket(db, agent.id, portfolio.openPositions)
+		await markPositionsToMarket(db, agent.id, portfolio.openPositions, market)
 		portfolio = await loadPortfolio(db, agent.id)
 
 		// --- exits first: never let a new entry compete with an open risk ------
 		await db.update(autopilotCycles).set({ stage: 'exit' }).where(eq(autopilotCycles.id, cycleId))
 		for (const position of portfolio.openPositions) {
-			const price = await getTokenPriceUsd(position.chain, position.tokenAddress)
+			const price = await market.getTokenPriceUsd(position.chain, position.tokenAddress)
 			if (price === null) {
 				await journal(
 					db,
@@ -741,7 +754,7 @@ async function runCycleImpl(
 		await db.update(autopilotCycles).set({ stage: 'think' }).where(eq(autopilotCycles.id, cycleId))
 		portfolio = await loadPortfolio(db, agent.id)
 
-		const candidates = await screenCandidates({
+		const candidates = await market.screenCandidates({
 			chains: rules.allowedChains,
 			minLiquidityUsd: rules.minLiquidityUsd,
 			limit: 25,
@@ -765,7 +778,7 @@ async function runCycleImpl(
 			// Security scan happens only for tokens that already earned a thesis —
 			// no point paying for a scan on something we would not buy anyway.
 			const enriched: Candidate = { ...candidate }
-			const security = await fetchTokenSecurity(
+			const security = await market.fetchTokenSecurity(
 				deps.internalApiUrl,
 				deps.internalApiKey,
 				candidate.chain,
@@ -884,9 +897,10 @@ async function markPositionsToMarket(
 	db: DbClient,
 	agentId: number,
 	positions: OpenPositionSummary[],
+	market: MarketDeps,
 ): Promise<void> {
 	for (const p of positions) {
-		const price = await getTokenPriceUsd(p.chain, p.tokenAddress)
+		const price = await market.getTokenPriceUsd(p.chain, p.tokenAddress)
 		if (price === null) continue
 		const marketValue =
 			p.avgEntryPriceUsd > 0 ? p.costBasisUsd * (price / p.avgEntryPriceUsd) : p.costBasisUsd
