@@ -105,6 +105,12 @@ export interface AutopilotRules {
 	dailyLossHaltUsd: number
 	/** Refuse a re-entry into the same token within this window. */
 	tokenCooldownMinutes: number
+	/**
+	 * Hard ceiling on how long ANY position may be held, whatever its thesis
+	 * committed to. The effective stop is the tighter of the two. A book with no
+	 * time stop never closes anything, and a track record needs closed trades.
+	 */
+	maxHoldMinutes: number
 	maxSlippageBps: number
 	/**
 	 * Round-trip cost charged per side in paper mode: DEX fee plus our own.
@@ -131,6 +137,7 @@ export const DEFAULT_RULES: AutopilotRules = {
 	dailySpendCapUsd: 500,
 	dailyLossHaltUsd: 200,
 	tokenCooldownMinutes: 240,
+	maxHoldMinutes: 2880,
 	maxSlippageBps: 150,
 	paperFeeBps: 30,
 	allowedChains: ['base', 'arbitrum', 'solana'],
@@ -161,6 +168,7 @@ export interface OpenPositionSummary {
 	takeProfitPct?: number | undefined
 	stopLossPct?: number | undefined
 	invalidation?: string | undefined
+	maxHoldMinutes?: number | undefined
 	openedAt: number
 }
 

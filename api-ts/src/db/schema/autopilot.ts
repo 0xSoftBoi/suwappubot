@@ -190,6 +190,13 @@ export const autopilotPositions = pgTable(
 		/** Exit plan committed at entry — checked on every later cycle. */
 		takeProfitPct: real('take_profit_pct'),
 		stopLossPct: real('stop_loss_pct'),
+		/**
+		 * Hard time stop committed at entry. Without this column the thesis's
+		 * time stop was dropped at persistence and the exit check received
+		 * `undefined` forever, so positions were held until TP or SL fired —
+		 * which for a memecoin book means "held".
+		 */
+		maxHoldMinutes: integer('max_hold_minutes'),
 		invalidation: text('invalidation'),
 
 		entryDecisionId: integer('entry_decision_id'),

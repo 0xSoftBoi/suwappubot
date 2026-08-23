@@ -269,3 +269,78 @@ describe('autopilot stats — through the shipped DDL', () => {
 		expect(await loadAgentStats(db, 'no-such-agent')).toBeNull()
 	})
 })
+
+describe('autopilot cycle — the time stop', () => {
+	let staleAgent: AutopilotAgent
+
+	beforeAll(async () => {
+		const [row] = await db
+			.insert(autopilotAgents)
+			.values({
+				slug: 'timestop-agent',
+				name: 'Time Stop Agent',
+				chain: 'base',
+				baseToken: 'USDC',
+				mode: 'paper',
+				status: 'active',
+				startingEquityUsd: 1000,
+				rules: { allowedChains: ['base'], maxHoldMinutes: 2880 },
+			})
+			.returning()
+		staleAgent = row as AutopilotAgent
+
+		// Exactly the live situation this test exists for: a position opened three
+		// days ago, sitting flat inside its take-profit and stop-loss bands, with
+		// max_hold_minutes NULL because it predates the column.
+		await db.insert(autopilotPositions).values({
+			agentId: staleAgent.id,
+			chain: 'base',
+			tokenAddress: TOKEN,
+			tokenSymbol: 'STALE',
+			status: 'open',
+			amount: '100',
+			costBasisUsd: 100,
+			avgEntryPriceUsd: 1,
+			lastPriceUsd: 1,
+			takeProfitPct: 60,
+			stopLossPct: 20,
+			maxHoldMinutes: null,
+			invalidation: 'held too long',
+			openedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+		})
+	})
+
+	it('closes a position that is flat but past its hold limit', async () => {
+		// The bug this pins: the exit check was called with a hardcoded
+		// `undefined` hold limit, so this branch was dead and a position inside
+		// its bands was held forever. A book that never closes anything produces
+		// no closed trades, and a track record is counted in closed trades.
+		const report = await runCycleImpl(
+			db,
+			staleAgent,
+			new PaperExecutor(),
+			new RulesThesisEngine(),
+			deps,
+			marketAt(1, []),
+		)
+		expect(report.decisionsExecuted).toBe(1)
+
+		const [pos] = await db
+			.select()
+			.from(autopilotPositions)
+			.where(eq(autopilotPositions.agentId, staleAgent.id))
+		expect(pos.status).toBe('closed')
+
+		const sells = (await db
+			.select()
+			.from(autopilotDecisions)
+			.where(eq(autopilotDecisions.agentId, staleAgent.id))) as { headline: string }[]
+		expect(sells).toHaveLength(1)
+		expect(sells[0]!.headline).toContain('time stop')
+	})
+
+	it('now has a closed trade to score', async () => {
+		const stats = (await loadAgentStats(db, 'timestop-agent'))!
+		expect(stats.closed_trades).toBe(1)
+	})
+})
