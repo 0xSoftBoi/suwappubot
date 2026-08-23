@@ -5,7 +5,9 @@ import { API_BASE_URL } from '@/lib/links';
 import AutopilotFeed from './AutopilotFeed';
 import EquitySparkline from './EquitySparkline';
 import PositionsTable from './PositionsTable';
+import TrackRecordPanel from './TrackRecordPanel';
 import type {
+  AgentStats,
   AutopilotAgentSummary,
   AutopilotCycle,
   AutopilotDecision,
@@ -45,7 +47,7 @@ export default async function AutopilotPage() {
   const agents = list?.agents ?? [];
   const agent = agents[0];
 
-  const [decisionsPayload, detail] = agent
+  const [decisionsPayload, detail, statsPayload] = agent
     ? await Promise.all([
         getJson<{ decisions?: AutopilotDecision[] }>(
           `/v1/autopilot/${agent.slug}/decisions?limit=40`,
@@ -54,11 +56,13 @@ export default async function AutopilotPage() {
           portfolio?: { open_positions?: AutopilotPosition[] };
           recent_cycles?: AutopilotCycle[];
         }>(`/v1/autopilot/${agent.slug}`),
+        getJson<{ stats?: AgentStats }>(`/v1/autopilot/${agent.slug}/stats`),
       ])
-    : [null, null];
+    : [null, null, null];
   const decisions = decisionsPayload?.decisions ?? [];
   const positions = detail?.portfolio?.open_positions ?? [];
   const cycles = detail?.recent_cycles ?? [];
+  const stats = statsPayload?.stats ?? null;
 
   const refusals = decisions.filter((d) => !d.gate_passed).length;
   const pnlClass = agent && agent.pnl_usd >= 0 ? styles.up : styles.down;
@@ -126,6 +130,8 @@ export default async function AutopilotPage() {
                 cycles={cycles}
                 startingEquityUsd={agent.starting_equity_usd}
               />
+
+              {stats ? <TrackRecordPanel stats={stats} /> : null}
 
               <div className={styles.sectionHead}>
                 <h2 className={styles.sectionTitle}>Positions</h2>
