@@ -1,0 +1,245 @@
+[project]
+name = "flet-curve"
+version = "0.1.0"
+description = "An alternative Curve Finance UI built with Flet"
+requires-python = ">=3.12"
+
+# Installed by micropip inside Pyodide on `flet publish`. Keep this list
+# pure-Python: the ABI encoding is hand-rolled in wallet/erc20.py and
+# curve/abi.py precisely so no wheel has to exist for wasm32.
+#
+# numpy is the exception, and it is not a wheel this project builds: Pyodide
+# ships one, and `erouter.core` needs it -- the solve is a dense linear
+# algebra problem and the router's own purity test allows numpy for exactly
+# that reason. A *range* rather than an exact pin, because the version that
+# gets installed is the one in Pyodide's lock (2.4.3 today) and pinning the
+# dev group's 2.5.2 here would make micropip fail to resolve it at boot.
+dependencies = ["flet==0.86.5", "flet-charts==0.86.5", "numpy>=2,<3"]
+
+# Everything needed to build the assets, run the tests and check the types.
+# None of it ships: `flet publish` reads `project.dependencies` above and
+# writes its own requirements.txt into the archive micropip installs from,
+# and a dependency *group* is not part of the package's metadata at all --
+# which is why these are a group rather than an optional-dependencies
+# extra. An extra would need a build backend to install, and this project
+# has none: it is an app, not a package.
+#
+# `uv pip install --group dev`
+#
+# The one that bites if it is missing is Pillow. `tools/build_assets.py`
+# catches its ImportError and copies the art through verbatim, so the build
+# *succeeds* and quietly ships 200px marks where the app draws 38 -- the
+# tenfold reduction `ui.assets.MARK_PIXELS` exists to avoid, and 29 MB of
+# assets instead of 19. Only `tests/test_assets.py` notices.
+[dependency-groups]
+dev = [
+    # `flet` on its own is the library. The CLI that runs and publishes the
+    # app, the desktop client and the web bundle are *extras*, so a plain
+    # `flet==0.86.5` gives you an app you cannot start -- and the icon-font
+    # tests, which read the Material font out of the web bundle, cannot run
+    # either. They belong here rather than in `project.dependencies`
+    # because that list is installed inside Pyodide, where a CLI and a
+    # desktop binary are nonsense.
+    "flet[all]==0.86.5",
+    # tools/build_assets.py resamples every mark and cuts the disc into its
+    # alpha: Pillow for both, numpy for the resampler's averaging.
+    "pillow==12.3.0",
+    "numpy==2.5.2",
+    # tools/subset_icons.py, exercised by tests/test_ipfs.py.
+    "fonttools==4.63.0",
+    # pytest.ini sets asyncio_mode=auto, so pytest-asyncio is not optional.
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    # tests/test_stateful.py
+    "hypothesis==6.165.2",
+    # `flet.testing`, which tests/integration/conftest.py imports at
+    # collection time -- so without it a plain `pytest` cannot even collect,
+    # though those tests are deselected by the `flet_ui` marker. Pulls scipy.
+    "scikit-image==0.26.0",
+    # Both configured further down this file.
+    "ruff==0.16.2",
+    "mypy==2.3.0",
+]
+
+[tool.flet]
+org = "com.example"
+product = "Curve Finance"
+company = "Example"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.web]
+# Routes live in the fragment: /#/ethereum/0xC09e… rather than
+# /ethereum/0xC09e….
+#
+# Because an IPFS gateway is a filesystem, not a server. It resolves the
+# request path inside the published directory and 404s when there is no
+# such file, and there is no file called `ethereum` -- so every deep link
+# this app hands out, the kind you paste to somebody, died on arrival at
+# the gateway while working perfectly against the local dev server, which
+# falls back to index.html the way a normal SPA host does.
+#
+# A fragment is never sent to the server at all. The gateway is asked for
+# `/`, serves index.html, and the app reads the route from the fragment --
+# so this needs nothing from the gateway and works the same on a path
+# gateway, a subdomain gateway and an ENS name through eth.limo.
+#
+# The IPFS-native alternative is a `_redirects` file, and it does not work
+# here: it would serve index.html *at* /ethereum/0x…, where the relative
+# `<base href="./">` that `tools/publish_ipfs.py` writes for gateway
+# sub-paths then resolves main.dart.js to /ethereum/main.dart.js. Fixing
+# that means an absolute base, which breaks path gateways -- the problem
+# the relative base exists to solve.
+#
+# `ui/routing.py` is unaffected: Flet reports the same `page.route` either
+# way, so the app never learns which side of the `#` it is on.
+#
+# **Flet does not read this key, so setting it here is not enough.**
+# `flet publish` declares `--route-url-strategy` with `default="path"`
+# instead of `default=None`, so `options.route_url_strategy` is always
+# truthy and the `or get_pyproject("tool.flet.web.route_url_strategy")`
+# beside it is unreachable. Left here because it is the documented way to
+# say this and will start working if that default is fixed -- but the flag
+# is what does the job today:
+#
+#     flet publish --route-url-strategy hash
+#
+# `tools/publish_ipfs.py` passes it and then checks the built index.html,
+# so the deployed build cannot go out wrong. A plain `flet publish` for
+# local testing needs the flag by hand, or localhost will disagree with
+# production about what a link looks like.
+route_url_strategy = "hash"
+
+# What a browser paints around an installed PWA. The theme colour is the
+# app bar's own surface in the light theme, sampled from the running app;
+# the manifest holds one value, so index.html carries the dark one too.
+pwa_theme_color = "#E4E1E8"
+pwa_background_color = "#FFFFFF"
+
+# -- checks ------------------------------------------------------------------
+#
+# Both tools are pinned here rather than left to defaults, so a run on this
+# machine and a run anywhere else agree. `python tools/check.py` runs them
+# together with the tests.
+
+[tool.ruff]
+line-length = 90
+target-version = "py312"
+# `src/erouter` is a copy of another repo, put there by
+# `tools/build_router.py`; it is linted where it lives.
+extend-exclude = ["vendor", "dist", "build", "src/erouter"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",     # pycodestyle
+    "F",          # pyflakes -- the one that found a `NameError` waiting to happen
+    "I",          # import order
+    "UP",         # pyupgrade: this targets 3.12+, so old spellings are noise
+    "B",          # bugbear
+    "SIM",        # simplify
+    "RUF",        # ruff's own
+    "C4",         # comprehensions
+    "PIE",
+    "RET",
+    "PLC", "PLE", "PLW",
+]
+ignore = [
+    # Long lines are the exception here, not the rule, and the ones that
+    # remain are URLs and tables in docstrings that read worse when wrapped.
+    "E501",
+    # A deliberate pattern in this codebase: browser-only imports
+    # (`pyodide`, `js`) and heavy ones are imported inside the function
+    # that needs them, because the desktop build must not import them at
+    # all. Every site says so in a comment.
+    "PLC0415",
+    # `zip()` without `strict=` is used where the lists are known to match
+    # -- coins against their amounts, built one from the other.
+    "B905",
+    # `__all__` in `wallet/__init__.py` is grouped by comment (app-facing
+    # API, then the transports); alphabetising it would lose that.
+    "RUF022",
+    # An empty method on the provider base class is an optional hook with
+    # a working default -- `on` and `close` mean "this transport has
+    # nothing to do here", which is different from "must implement".
+    "B027",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import inside test bodies on purpose: it keeps each test's
+# dependencies visible at the point of use, and several import the same
+# module under different fakes.
+"tests/*" = ["PLC0415", "PLW2901"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["curve", "router", "ui", "wallet", "tests"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tools", "tests"]
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+
+# `src/erouter` is a *copy* of the electric-router package, put there by
+# `tools/build_router.py` so `flet publish` can tar it. It is checked in its
+# own repo, against its own settings, and re-checking it here would report
+# somebody else's code on every run of this one's checks.
+exclude = "^src/erouter/"
+
+# The point of this repo's type hints is catching wiring mistakes, so the
+# checks that matter are the ones about *disagreements*: a `None` where a
+# value is expected, a call that cannot work. Full strictness is not the
+# goal -- `disallow_any_generics` and friends would mostly produce noise
+# against Flet's own signatures.
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+no_implicit_optional = true
+strict_equality = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+
+# flet_charts ships no `py.typed`, so its symbols are `Any` and there is
+# nothing to check against. Flet itself is typed and is checked.
+[[tool.mypy.overrides]]
+# `fontTools` and `flet_web` are build-time only -- neither ships a
+# py.typed marker, and neither is imported by anything the app runs.
+#
+# `erouter` is excluded above and so has no stubs to check against here;
+# `erouter_evm` and `erouter_solve` are compiled extensions built from
+# `vendor/electric-router/rust`, present only after
+# `tools/build_router.py --native`.
+module = [
+    "flet_charts.*", "pyodide.*", "js", "fontTools.*", "flet_web",
+    "erouter.*", "erouter_evm", "erouter_solve",
+]
+ignore_missing_imports = true
+
+# The copy is followed through `src/router`'s imports whatever `exclude`
+# says, so its errors are silenced by name rather than by path. It is
+# checked in the repo it comes from.
+[[tool.mypy.overrides]]
+module = ["erouter.*"]
+ignore_errors = true
+
+# Tests are checked, but not for the things a test double *is*. A fake API
+# passed where `CurveApi` is declared, a stub that grows an attribute mid
+# test, a monkeypatched method -- those are the point of the file, not
+# mistakes in it. What stays switched on is the half that still catches
+# real errors here: undefined names, unreachable code, bad returns.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disable_error_code = [
+    "arg-type",
+    "attr-defined",
+    "union-attr",
+    "assignment",
+    "method-assign",
+    "call-arg",
+    "misc",
+    "comparison-overlap",
+    "list-item",
+    "type-var",
+    "unused-ignore",
+]

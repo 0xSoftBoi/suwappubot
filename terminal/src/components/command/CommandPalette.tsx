@@ -124,6 +124,7 @@ export function CommandPalette() {
       tab('copy-trading', 'Copy Trading', 'Follow top traders', '🔁'),
       tab('wallet-tracker', 'Wallet Tracker', 'Track on-chain wallets', '🔍'),
       tab('defi', 'DeFi Center', 'Lending, alerts, DCA', '🏦'),
+      tab('curve', 'Curve', 'Curve Finance pools, TVL & APR', '🌀'),
       tab('copilot', 'AI Co-Pilot', 'Ask the trading assistant', '🤖'),
     ]
   }, [setTradingMode, goSpotTab])
