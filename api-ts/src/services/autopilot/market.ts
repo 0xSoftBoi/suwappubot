@@ -10,6 +10,15 @@ import type { Candidate, TokenSecurity } from './types'
 const DEXSCREENER = 'https://api.dexscreener.com'
 const GECKOTERMINAL = 'https://api.geckoterminal.com/api/v2'
 const FETCH_TIMEOUT_MS = 8_000
+/**
+ * Token security gets its own, much larger budget. It is not a price lookup:
+ * the Python stack walks the deployer's history, holder distribution and
+ * bundle/snipe clustering, and on a cold token that legitimately takes tens of
+ * seconds. Observed on dev: every scan hit the 8s market-fetch timeout, so every
+ * entry was refused at `security_scan_present` — the gate behaving correctly on
+ * a budget that was simply too small for the work.
+ */
+const SECURITY_TIMEOUT_MS = 30_000
 
 interface DexPair {
 	chainId?: string
@@ -299,9 +308,18 @@ export async function fetchTokenSecurity(
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json', 'X-Internal-Key': internalApiKey },
 			body: JSON.stringify({ chain, token_address: tokenAddress }),
-			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+			signal: AbortSignal.timeout(SECURITY_TIMEOUT_MS),
 		})
-		if (!res.ok) return undefined
+		if (!res.ok) {
+			// A refused entry should be traceable to *why* the scan was missing —
+			// a 401 is a misconfiguration, a 404 is a service without the endpoint,
+			// and both look identical in the journal without this.
+			logger.warn(
+				{ chain, tokenAddress, status: res.status },
+				'autopilot: security scan rejected the request',
+			)
+			return undefined
+		}
 		const data = (await res.json()) as {
 			is_honeypot?: boolean
 			buy_tax_bps?: number
@@ -323,7 +341,10 @@ export async function fetchTokenSecurity(
 		if (typeof data.verified === 'boolean') out.verified = data.verified
 		return out
 	} catch (err) {
-		logger.warn({ chain, tokenAddress, err: String(err) }, 'autopilot: security scan failed')
+		logger.warn(
+			{ chain, tokenAddress, err: String(err), timeoutMs: SECURITY_TIMEOUT_MS },
+			'autopilot: security scan failed',
+		)
 		return undefined
 	}
 }
