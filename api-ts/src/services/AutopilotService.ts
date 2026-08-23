@@ -928,10 +928,12 @@ export async function runCycleImpl(
 
 			const result = await executor.execute({
 				chain: position.chain,
+				side: 'sell',
 				fromToken: position.tokenAddress,
 				toToken: agent.baseToken,
 				amountUsd: thesis.sizeUsd,
 				slippageBps: rules.maxSlippageBps,
+				feeBps: rules.paperFeeBps,
 				idempotencyKey: decision.commitment,
 				referencePriceUsd: price,
 				liquidityUsd: undefined,
@@ -941,7 +943,10 @@ export async function runCycleImpl(
 			await settleDecision(db, agent.id, cycleId, decision, thesis, result, price)
 			if (result.ok) {
 				decisionsExecuted++
-				await closePosition(db, agent.id, position, price, decision.id)
+				// Book the exit at the price it actually filled at. Marking it at the
+				// mid credits the position with a sale it never got and quietly
+				// overstates every realized return.
+				await closePosition(db, agent.id, position, result.fillPriceUsd ?? price, decision.id)
 			} else {
 				errors.push(`exit ${position.symbol}: ${result.error}`)
 			}
@@ -956,7 +961,12 @@ export async function runCycleImpl(
 			chains: rules.allowedChains,
 			minLiquidityUsd: rules.minLiquidityUsd,
 			limit: 25,
-			excludeTokens: [agent.baseToken],
+			// Held tokens are excluded at the source, not just refused at the gate.
+			// Observed on dev: with the book full, every cycle re-proposed the same
+			// two tokens and produced nothing but `no_duplicate_position` refusals —
+			// 40 in a row — so the agent spent its whole attention re-deciding what
+			// it had already decided. The gate keeps the rule as a backstop.
+			excludeTokens: [agent.baseToken, ...portfolio.openPositions.map((p) => p.tokenAddress)],
 		})
 		candidatesScanned = candidates.length
 		await journal(db, agent.id, cycleId, null, 'read', `Screened ${candidates.length} candidates`, {
@@ -1026,10 +1036,12 @@ export async function runCycleImpl(
 
 			const result = await executor.execute({
 				chain: draft.chain,
+				side: 'buy',
 				fromToken: agent.baseToken,
 				toToken: draft.tokenAddress,
 				amountUsd: draft.sizeUsd,
 				slippageBps: rules.maxSlippageBps,
+				feeBps: rules.paperFeeBps,
 				idempotencyKey: decision.commitment,
 				referencePriceUsd: candidate.priceUsd,
 				liquidityUsd: candidate.liquidityUsd,

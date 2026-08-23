@@ -106,6 +106,11 @@ export interface AutopilotRules {
 	/** Refuse a re-entry into the same token within this window. */
 	tokenCooldownMinutes: number
 	maxSlippageBps: number
+	/**
+	 * Round-trip cost charged per side in paper mode: DEX fee plus our own.
+	 * A paper record that trades for free is not a forecast of a live one.
+	 */
+	paperFeeBps: number
 	allowedChains: string[]
 	deniedTokens: string[]
 	requireExitPlan: boolean
@@ -127,6 +132,7 @@ export const DEFAULT_RULES: AutopilotRules = {
 	dailyLossHaltUsd: 200,
 	tokenCooldownMinutes: 240,
 	maxSlippageBps: 150,
+	paperFeeBps: 30,
 	allowedChains: ['base', 'arbitrum', 'solana'],
 	deniedTokens: [],
 	requireExitPlan: true,
@@ -161,6 +167,12 @@ export interface OpenPositionSummary {
 /** Stage 5 (execute). */
 export interface ExecutionRequest {
 	chain: string
+	/**
+	 * Which way the trade goes. Slippage is directional — a buy fills above mid,
+	 * a sell below it — so an executor that ignores side systematically flatters
+	 * one of them.
+	 */
+	side: 'buy' | 'sell'
 	fromToken: string
 	toToken: string
 	amountUsd: number
