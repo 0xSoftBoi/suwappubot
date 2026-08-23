@@ -19,6 +19,9 @@ export interface Candidate {
 	ageMinutes?: number
 	/** Token-security verdict, from the existing token_security pipeline. */
 	security?: TokenSecurity
+	/** Which discovery list surfaced this, and where it placed in that list. */
+	source?: 'trending' | 'new'
+	sourceRank?: number
 	/** Free-form extras the thesis engine may cite. */
 	signals?: Record<string, number | string | boolean>
 }

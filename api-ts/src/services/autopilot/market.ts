@@ -182,15 +182,45 @@ export function geckoPoolToCandidate(pool: GeckoPool, chain: string): Candidate 
 	return candidate
 }
 
-/** Top pools on one chain, ranked by 24h volume. */
-async function fetchChainPools(chain: string): Promise<Candidate[]> {
+/**
+ * Which GeckoTerminal list a candidate came off, in the order we trust them.
+ *
+ * This choice IS the strategy. `/pools` — the endpoint this screener used
+ * originally — returns a chain's largest pools by 24h volume, which on Base is
+ * WETH/USDC and cbBTC. It cannot surface a memecoin, because a memecoin is by
+ * definition not one of the biggest pools on its chain. An agent pointed at it
+ * is not a memecoin agent; it is a very slow blue-chip agent.
+ */
+export const DISCOVERY_SOURCES = ['trending', 'new'] as const
+export type DiscoverySource = (typeof DISCOVERY_SOURCES)[number]
+
+const GECKO_ENDPOINT: Record<DiscoverySource, string> = {
+	// Where tradeable memecoins actually live: real volume against modest depth,
+	// hours to days old. GeckoTerminal ranks this list itself, and its ranking is
+	// better than anything we would invent — so we preserve its order.
+	trending: 'trending_pools',
+	// The firehose. Minutes old, often a few thousand dollars of depth, and by
+	// published measurement ~84% of launches are high-risk. Included so the agent
+	// can see early, gated hard so it rarely acts.
+	new: 'new_pools',
+}
+
+async function fetchGeckoPools(chain: string, source: DiscoverySource): Promise<Candidate[]> {
 	const network = GECKO_NETWORKS[chain]
 	if (!network) return []
 	const data = await getJson<{ data?: GeckoPool[] }>(
-		`${GECKOTERMINAL}/networks/${network}/pools?page=1`,
+		`${GECKOTERMINAL}/networks/${network}/${GECKO_ENDPOINT[source]}`,
 	)
 	return (data?.data ?? [])
-		.map((pool) => geckoPoolToCandidate(pool, chain))
+		.map((pool, index) => {
+			const c = geckoPoolToCandidate(pool, chain)
+			if (!c) return null
+			c.source = source
+			// Position within its own list. Trending rank is signal; discarding it
+			// and re-sorting by absolute volume just rebuilds the blue-chip list.
+			c.sourceRank = index
+			return c
+		})
 		.filter((c): c is Candidate => c !== null)
 }
 
@@ -228,6 +258,16 @@ export function isQuoteAsset(symbol: string): boolean {
  * over each chain's quote assets, which surfaces deep pairs nobody paid to
  * promote. Both are merged and deduped to the deepest pair per token.
  */
+/**
+ * Sort key: source tier first, then position within that source's own list.
+ * A candidate with no source (DexScreener boosts) sorts last — someone paid
+ * for it to be there, which is the weakest reason to look at it.
+ */
+export function discoveryOrder(c: Candidate): number {
+	const tier = c.source === 'trending' ? 0 : c.source === 'new' ? 1 : 2
+	return tier * 1000 + (c.sourceRank ?? 999)
+}
+
 export async function screenCandidates(params: ScreenParams): Promise<Candidate[]> {
 	const chains = new Set(params.chains.map((c) => c.toLowerCase()))
 	const boosts = await getJson<Array<{ chainId?: string; tokenAddress?: string }>>(
@@ -251,8 +291,12 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 		),
 	)
 
-	// Primary surface: what is actually trading on each requested chain.
-	const chainPools = (await Promise.all([...chains].map(fetchChainPools))).flat()
+	// Primary surface: what is actually trending, and what has just launched.
+	const chainPools = (
+		await Promise.all(
+			[...chains].flatMap((chain) => DISCOVERY_SOURCES.map((src) => fetchGeckoPools(chain, src))),
+		)
+	).flat()
 
 	const excluded = new Set((params.excludeTokens ?? []).map((t) => t.trim().toLowerCase()))
 
@@ -268,7 +312,12 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 		.filter((c) => !excluded.has(c.tokenAddress.toLowerCase()))
 		.filter((c) => c.liquidityUsd >= params.minLiquidityUsd)
 		.filter((c) => c.volume24hUsd >= (params.minVolume24hUsd ?? 0))
-		.sort((a, b) => b.volume24hUsd - a.volume24hUsd)
+		// Rank by where each candidate placed in its own source list, trending
+		// before new, boosted last. Sorting by absolute 24h volume — as this did —
+		// puts the deepest pool on the chain at the top no matter which endpoint
+		// found it, which quietly undoes the whole point of asking for trending
+		// pools in the first place.
+		.sort((a, b) => discoveryOrder(a) - discoveryOrder(b))
 		.slice(0, params.limit ?? 25)
 }
 
