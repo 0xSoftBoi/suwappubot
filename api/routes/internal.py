@@ -478,3 +478,87 @@ async def audit_internal_wallets(
     except Exception as e:
         logger.error(f"Internal wallet audit failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class TokenSecurityRequest(BaseModel):
+    chain: str
+    token_address: str
+
+
+class TokenSecurityResponse(BaseModel):
+    """
+    Token-security verdict for the autopilot's `security_scan_present` gate.
+
+    Every field is optional and only set when we actually determined it. The
+    caller treats a missing field as "unknown" and refuses the trade rather than
+    assuming safe, so reporting a value we did not measure would be worse than
+    reporting nothing.
+    """
+
+    chain: str
+    token_address: str
+    is_honeypot: Optional[bool] = None
+    buy_tax_bps: Optional[int] = None
+    sell_tax_bps: Optional[int] = None
+    top_holder_pct: Optional[float] = None
+    lp_locked: Optional[bool] = None
+    mintable: Optional[bool] = None
+    freezable: Optional[bool] = None
+    verified: Optional[bool] = None
+    flags: list = []
+    sources: list = []
+
+
+@router.post("/token-security", response_model=TokenSecurityResponse)
+async def token_security(
+    request: TokenSecurityRequest,
+    x_internal_key: str = Header(None, alias="X-Internal-Key"),
+):
+    """Run the token-security stack for one token. Called by the api-ts autopilot."""
+    _verify_internal_key(x_internal_key)
+
+    chain = (request.chain or "").lower().strip()
+    token = (request.token_address or "").strip()
+    if not chain or not token:
+        raise HTTPException(status_code=400, detail="chain and token_address are required")
+
+    out = TokenSecurityResponse(chain=chain, token_address=token)
+    sources = []
+    flags = []
+
+    # Holder concentration, deployer history and cluster/bundle flags — both stacks.
+    try:
+        from bot.services.token_intel.intel_service import token_intel_service
+
+        report = await token_intel_service.analyze(token, chain)
+        if report.top10_pct is not None:
+            out.top_holder_pct = float(report.top10_pct)
+        if chain == "solana" and report.mint_authority is not None:
+            # A live mint authority means supply can still be inflated.
+            out.mintable = bool(report.mint_authority)
+        flags.extend(report.flags or [])
+        sources.append("token_intel")
+    except Exception as e:
+        logger.warning("token-security: intel failed for %s/%s: %s", chain, token, e)
+
+    # Buy/sell simulation is Solana-only today (Jupiter round-trip). On EVM we
+    # leave the tax fields unset rather than guessing.
+    if chain == "solana":
+        try:
+            from bot.services.token_security.honeypot_detector import HoneypotDetector
+
+            result = await HoneypotDetector().quick_check(token)
+            out.is_honeypot = bool(result.is_honeypot)
+            if result.buy_tax is not None:
+                out.buy_tax_bps = int(round(float(result.buy_tax) * 100))
+            if result.sell_tax is not None:
+                out.sell_tax_bps = int(round(float(result.sell_tax) * 100))
+            if result.reason is not None:
+                flags.append(str(result.reason.value))
+            sources.append("honeypot_detector")
+        except Exception as e:
+            logger.warning("token-security: honeypot check failed for %s: %s", token, e)
+
+    out.flags = sorted(set(flags))
+    out.sources = sources
+    return out
