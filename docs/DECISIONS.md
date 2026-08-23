@@ -13,6 +13,44 @@ ADRs 0001–0005.
 
 ## Deployment & Operations
 
+### Railway: a service's source config is not a GitHub connection (2026-08)
+- **What**: `serviceInstanceUpdate` writes `repo`/`branch` onto a service;
+  `serviceConnect` performs the GitHub authorization and webhook handshake.
+  They are separate mutations and only the second makes pushes deploy.
+- **Why**: `showcase` in the dev environment showed
+  `source: {repo, branch}` in its config and never built. The Railway MCP's
+  `update-service` cannot change source, `railway-agent` has no `serviceConnect`
+  tool (it says so when asked), `redeploy` explicitly cannot produce a first
+  deployment, and `create-deployment` builds a *new* service. The dashboard's
+  "Connect repo" is the only one-step path.
+- **Also**: `serviceInstanceDeployV2` without a `commitSha` deploys "the commit
+  currently associated with the service" — on a never-deployed service that is a
+  well-formed no-op that reports success.
+- **Consequence if ignored**: hours spent re-triggering a build that was never
+  going to fire. Diagnose it by comparing against a sibling service on the same
+  repo, branch and watch patterns: if the sibling builds and yours does not, the
+  trigger is missing, not the config.
+
+### Boot-time seeding must survive a schema that arrives late (2026-08)
+- **What**: anything that writes to dual-owned tables (ADR 0003) at startup has
+  to retry, not assume the schema exists.
+- **Why**: the autopilot's agent bootstrap ran at boot, failed because
+  `autopilot_agents` did not exist yet, and never tried again — leaving the
+  environment permanently empty while the API served happily. The tables
+  appeared about a minute later, created by the Python stack's
+  `_ensure_schema()`, because that environment skips the boot-time drizzle sync.
+- **Consequence if ignored**: a one-shot seed loses a race it does not know it
+  is in, and the failure looks like "the feature is just empty".
+
+### `NEXT_PUBLIC_*` must be a build arg, not only a runtime variable (2026-08)
+- **What**: `showcase/Dockerfile` declares each `NEXT_PUBLIC_*` as an `ARG` and
+  threads it into the build environment.
+- **Why**: Next inlines these into the client bundle at build time. Setting one
+  only as a platform service variable reaches server components at runtime and
+  silently misses everything running in the browser.
+- **Consequence if ignored**: a page that server-renders correctly and then
+  polls the wrong origin forever — right on load, quietly stale after.
+
 ### Deploy target is Railway, not AWS
 - **What**: All production services deploy to Railway. The `infra/` AWS CDK
   directory is legacy and unused for app deploys.
@@ -59,6 +97,40 @@ ADRs 0001–0005.
   adversarial review before merge.
 
 ## Engineering practice
+
+### Public API shapes are mapped explicitly, never serialised ORM rows (2026-08)
+- **What**: every field a route returns is written by a `toPublicX()` mapper in
+  snake_case. Returning a Drizzle row, or an internal type like
+  `OpenPositionSummary`, is not allowed even when the fields happen to look right.
+- **Why**: the autopilot shipped twice with camelCase leaking onto the wire. The
+  first time, a consumer read `gate_passed` as `undefined` and rendered **every
+  fill as a refusal** — the dashboard looked plausible and was completely wrong.
+  The second was the same bug in the positions route, found only because the UI
+  was built. Neither was caught by types or tests: both sides compiled fine.
+- **Consequence if ignored**: a silently wrong client, and column names become
+  API surface that breaks the moment the schema is renamed. Pin the casing with
+  a test that iterates `Object.keys()` — that is what now catches it.
+
+### A canonical form is a spec, and string encoding is part of it (2026-08)
+- **What**: `sha256-canonical-v1` is keys sorted lexicographically, no
+  whitespace, and **strings as raw UTF-8** — non-ASCII is not `\uXXXX`-escaped.
+- **Why**: verifying a live autopilot commitment with an idiomatic Python
+  checker returned MISMATCH on honest data, because `json.dumps` escapes
+  non-ASCII by default and every generated thesis contains an em dash. Go's
+  `encoding/json` escapes HTML characters for the same class of reason.
+- **Consequence if ignored**: for anything published as verifiable, a
+  library default silently produces the exact signal of a forgery. Publish the
+  pre-image alongside the hash so a mismatch is a diff, not an accusation.
+
+### A paper record must be pessimistic by construction (2026-08)
+- **What**: simulated fills are directional (buys above mid, sells below), are
+  booked at the fill the executor returned rather than the mid it saw, and pay a
+  per-side fee. An instant round trip at an unchanged price must lose money.
+- **Why**: the autopilot's paper book had all three wrong at once, each biased
+  upward — sells modelled with `1 + impact`, exits marked at the mid, no fees.
+- **Consequence if ignored**: the P&L you show people is manufactured, and the
+  error is invisible because every individual number looks reasonable. Test the
+  invariant ("a round trip loses"), not the arithmetic.
 
 ### Shared TS types live in `packages/sdk`, not `packages/shared` (2026-08)
 - **What**: the old `packages/shared` directory was removed; the shared-type home for api-ts,
