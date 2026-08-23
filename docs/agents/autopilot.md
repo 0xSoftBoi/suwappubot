@@ -68,13 +68,20 @@ An agent whose published `thesis_engine` is `llm` refuses to run without
 
 Entries run every one of these; a single failure refuses the trade:
 
-`chain_allowed`, `token_not_denied`, `max_position_size`, `positive_size`,
+`chain_allowed`, `token_not_denied`, `not_base_token`, `max_position_size`, `positive_size`,
 `no_duplicate_position`, `max_open_positions`, `max_portfolio_exposure`,
 `sufficient_dry_powder`, `daily_spend_cap`, `daily_loss_halt`,
 `token_cooldown`, `min_confidence`, `exit_plan_committed`,
 `market_data_present`, `min_liquidity`, `max_pool_share`, `min_token_age`,
 `security_scan_present`, `not_honeypot`, `max_buy_tax`, `max_sell_tax`,
 `holder_concentration`, `lp_locked`.
+
+On `holder_concentration` specifically: it measures the top ten **wallets**.
+Contracts — pools, vesting escrows, Safes, proxies — are excluded, because the
+question the rule exists to answer is "could a few holders dump on me", and a
+liquidity pool holding supply is the opposite of that risk. Counting them
+refused a token at 101.5% concentration whose real wallet concentration was
+34.9%. Supply held in contracts is reported separately as `contract_held_pct`.
 
 Two design decisions worth knowing:
 
@@ -233,11 +240,12 @@ which is why discovery does not rely on it.
 - **No live-money run.** Every cycle so far has executed against the paper
   executor. The managed execution path is wired to our own agent API and covered
   by tests, but it has not moved real funds.
-- **Holder concentration can read above 100%.** The Base scan reported `top
-  holders 101.5%` for one token, because a "holder" in that list can be the pool
-  or router and balances get double-counted. The gate refuses on it, which is
-  the safe direction, but the number itself should be treated as a smell rather
-  than a measurement until the Python side excludes contract holders.
+- **Some tokens report a supply that does not match their balances.** When the
+  balances Blockscout returns exceed the reported total supply, no concentration
+  ratio is published at all and the gate refuses on `holder distribution
+  unknown`. That is the correct outcome, but it means such tokens are
+  permanently untradeable by the agent until the supply figure can be sourced
+  more reliably (e.g. read on-chain rather than from the indexer).
 
 ## Running on dev
 
