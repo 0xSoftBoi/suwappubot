@@ -181,6 +181,8 @@
       "hyperliquidBody": "HyperLiquid trading is available through Suwappu product surfaces; programmatic capabilities depend on the specific Agent API or MCP tool.",
       "tempoTitle": "Surface-specific support",
       "tempoBody": "Tempo support is not uniform across interfaces. The current Agent API exposes Tempo token discovery, but Agent API swap execution on Tempo is not enabled.",
+      "curveTitle": "Every Curve pool, natively",
+      "curveBody": "The terminal's Curve venue lists every pool on 20+ chains straight from the Curve Prices API — sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026"
     },

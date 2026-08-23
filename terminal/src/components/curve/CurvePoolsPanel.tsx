@@ -1,14 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   fetchChainTvls,
   fetchCurveChains,
   fetchCurvePools,
   MAX_PAGE_SIZE,
+  type CurvePool,
   type CurveSortBy,
   type CurveSortDirection,
 } from '../../lib/curve'
+import type { SwapToken } from '../../types/api'
+import { usePair } from '../../contexts/PairContext'
+import { useAuth } from '../../contexts/AuthContext'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows, TerminalTextField } from '../foundation'
+
+// Chains where the terminal's swap desk can actually quote and execute —
+// the intersection of ChainSelector's list and Curve's chain names (which
+// happen to agree on these ids). Pools on other Curve chains still list;
+// they just link out to curve.finance instead of offering in-desk Trade.
+const TRADABLE_CHAINS = new Set([
+  'ethereum',
+  'arbitrum',
+  'base',
+  'optimism',
+  'polygon',
+  'bsc',
+  'avalanche',
+])
 
 // Server-side sort keys the v2 `/pools/` endpoint accepts, confirmed from
 // `flet-curve/src/curve/sort.py` (`SortOption.field`): "tvl", "volume",
@@ -43,6 +64,16 @@ function percent(value: number): string {
   return `${value.toFixed(2)}%`
 }
 
+function coinToSwapToken(coin: CurvePool['coins'][number], chain: string): SwapToken {
+  return {
+    symbol: coin.symbol,
+    name: coin.symbol,
+    address: coin.address,
+    chain,
+    decimals: coin.decimals,
+  }
+}
+
 export function CurvePoolsPanel() {
   const [chainName, setChainName] = useState<string>('ethereum')
   const [sortBy, setSortBy] = useState<CurveSortBy>('volume')
@@ -51,6 +82,23 @@ export function CurvePoolsPanel() {
   const [page, setPage] = useState(1)
 
   const debouncedSearch = useDebouncedValue(search)
+  const { setSelectedPair } = usePair()
+  const { isAuthenticated, signInWithWallet, signInWithGoogle } = useAuth()
+  const isMobile = useIsMobile()
+
+  // Load a pool's first two coins into the swap desk as base/quote — the same
+  // pre-fill gesture DiscoveryPanel's quick-buy uses. Only offered on chains
+  // the desk can execute on (see TRADABLE_CHAINS).
+  function tradePool(pool: CurvePool, chain: string) {
+    const [base, quote] = pool.coins
+    if (!base || !quote) return
+    setSelectedPair({
+      base: coinToSwapToken(base, chain),
+      quote: coinToSwapToken(quote, chain),
+    })
+    if (isMobile) requestMobileTab('swap')
+    toast.success(`${base.symbol}/${quote.symbol} loaded into swap`)
+  }
 
   const { data: chains, isLoading: chainsLoading } = useQuery({
     queryKey: ['curve', 'chains'],
@@ -202,35 +250,85 @@ export function CurvePoolsPanel() {
               </tr>
             </thead>
             <tbody>
-              {pools.map((pool) => (
-                <tr key={pool.address} className="border-b border-terminal-border/50 text-terminal-text hover:bg-terminal-bg-secondary">
-                  <td className="px-2 py-1.5 font-medium">{pool.name}</td>
-                  <td className="px-2 py-1.5 text-terminal-text-secondary">
-                    {pool.coins.map((c) => c.symbol).join(' / ') || '—'}
-                  </td>
-                  <td className="tnum px-2 py-1.5 text-right">{compactUsd(pool.tvlUsd)}</td>
-                  <td className="tnum px-2 py-1.5 text-right">{compactUsd(pool.volume24h)}</td>
-                  <td className="tnum px-2 py-1.5 text-right">{percent(pool.baseApr)}</td>
-                  <td className="px-2 py-1.5 text-right">
-                    {pool.poolUrl ? (
-                      <a
-                        href={pool.poolUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-terminal-accent hover:underline"
-                        aria-label={`Open ${pool.name} on curve.finance`}
-                      >
-                        ↗
-                      </a>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
+              {pools.map((pool) => {
+                const chain = activeChain?.name ?? ''
+                const tradable = TRADABLE_CHAINS.has(chain) && pool.coins.length >= 2
+                return (
+                  <tr key={pool.address} className="group border-b border-terminal-border/50 text-terminal-text hover:bg-terminal-bg-secondary">
+                    <td className="px-2 py-1.5 font-medium">{pool.name}</td>
+                    <td className="px-2 py-1.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {pool.coins.length === 0
+                          ? '—'
+                          : pool.coins.map((c, i) => (
+                              <span
+                                key={`${c.address}-${i}`}
+                                className="rounded-full border border-terminal-border bg-terminal-bg-secondary px-1.5 py-0.5 text-[10px] leading-none text-terminal-text-secondary"
+                                title={c.address}
+                              >
+                                {c.symbol}
+                              </span>
+                            ))}
+                      </div>
+                    </td>
+                    <td className="tnum px-2 py-1.5 text-right">{compactUsd(pool.tvlUsd)}</td>
+                    <td className="tnum px-2 py-1.5 text-right">{compactUsd(pool.volume24h)}</td>
+                    <td className="tnum px-2 py-1.5 text-right">{percent(pool.baseApr)}</td>
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      {tradable && (
+                        <button
+                          onClick={() => tradePool(pool, chain)}
+                          className="terminal-button-secondary mr-2 px-2 py-0.5 text-[10px] transition-opacity sm:opacity-0 sm:focus:opacity-100 sm:group-hover:opacity-100"
+                          aria-label={`Trade ${pool.name} in the swap panel`}
+                          data-testid="curve-trade-button"
+                        >
+                          Trade
+                        </button>
+                      )}
+                      {pool.poolUrl ? (
+                        <a
+                          href={pool.poolUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-terminal-accent hover:underline"
+                          aria-label={`Open ${pool.name} on curve.finance`}
+                        >
+                          ↗
+                        </a>
+                      ) : null}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
       </div>
 
+      {!isAuthenticated && (
+        <div
+          className="flex shrink-0 flex-wrap items-center gap-2 border-t border-terminal-border bg-terminal-bg-secondary/50 px-2 py-1.5"
+          data-testid="curve-connect-cta"
+        >
+          <span className="text-xs text-terminal-text-secondary">
+            Sign in to trade Curve pools from the swap desk:
+          </span>
+          <button
+            onClick={() => void signInWithWallet()}
+            className="terminal-button px-2.5 py-1 text-xs"
+            data-testid="curve-connect-wallet"
+          >
+            Connect wallet
+          </button>
+          <button
+            onClick={() => signInWithGoogle()}
+            className="terminal-button-secondary px-2.5 py-1 text-xs"
+            data-testid="curve-connect-google"
+          >
+            Continue with Google
+          </button>
+        </div>
+      )}
       <div className="flex shrink-0 items-center justify-between gap-2 border-t border-terminal-border px-2 py-1.5">
         <div className="text-[10px] text-terminal-text-muted">
           Powered by Curve Prices API · fork: flet-curve

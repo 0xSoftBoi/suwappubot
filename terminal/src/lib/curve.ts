@@ -34,6 +34,7 @@ export interface CurveCoin {
   symbol: string
   address: string
   usdPrice: number
+  decimals: number
 }
 
 export interface CurvePool {
@@ -132,7 +133,14 @@ function parseCoin(raw: unknown): CurveCoin | null {
   const symbol = typeof row.symbol === 'string' && row.symbol ? row.symbol : '?'
   const address = typeof row.address === 'string' ? row.address : ''
   const price = Number(row.usd_price ?? 0)
-  return { symbol, address, usdPrice: Number.isFinite(price) ? price : 0 }
+  // Same default as flet-curve's `Coin.from_v2` when the payload omits it.
+  const decimals = Number(row.decimals ?? 18)
+  return {
+    symbol,
+    address,
+    usdPrice: Number.isFinite(price) ? price : 0,
+    decimals: Number.isInteger(decimals) && decimals >= 0 ? decimals : 18,
+  }
 }
 
 export function parseCurvePool(raw: unknown, chainId: number, chainName = ''): CurvePool | null {
