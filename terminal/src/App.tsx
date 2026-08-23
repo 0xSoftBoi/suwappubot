@@ -67,7 +67,17 @@ function TradingWorkspace() {
 
     const root = document.documentElement
     const syncViewport = () => {
-      const visualHeight = Math.max(1, Math.round(viewport.height))
+      // Min of the three height signals, not visualViewport alone: wallet
+      // in-app webviews (Base app, etc.) extend the page under their native
+      // bottom bar with viewport-fit=cover and report the full span in
+      // visualViewport.height, which pushed the mobile bottom nav into the
+      // covered strip. innerHeight/clientHeight are the layout viewport and
+      // track the truly visible area in those webviews; in real browsers the
+      // three agree (keyboard open: visualViewport is the smallest), so the
+      // min never regresses Chrome/Safari.
+      const candidates = [viewport.height, window.innerHeight, document.documentElement.clientHeight]
+        .filter((v) => Number.isFinite(v) && v > 0)
+      const visualHeight = Math.max(1, Math.round(Math.min(...candidates)))
       const occludedBottom =
         viewport.scale === 1
           ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
