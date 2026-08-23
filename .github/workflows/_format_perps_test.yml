@@ -1,0 +1,33 @@
+name: Format perps regression test
+
+on:
+  push:
+    branches:
+      - fix/perps-margin-mode-leverage-20260822
+    paths:
+      - tests/test_perps_margin_mode.py
+      - .github/workflows/_format_perps_test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install black==26.5.1
+      - name: Format exactly as repository CI
+        run: black --line-length=100 tests/test_perps_margin_mode.py
+      - name: Commit formatting and remove temporary workflow
+        run: |
+          rm .github/workflows/_format_perps_test.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/test_perps_margin_mode.py .github/workflows/_format_perps_test.yml
+          git commit -m "style(perps): format margin mode regression tests"
+          git push origin HEAD:fix/perps-margin-mode-leverage-20260822
