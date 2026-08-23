@@ -78,9 +78,7 @@ def _swap(*, swap_id=1, status=SwapStatus.COMPLETED.value):
         created_at=datetime(2026, 8, 22, 12, 0, 0),
         updated_at=datetime(2026, 8, 22, 12, 0, 5),
         completed_at=(
-            datetime(2026, 8, 22, 12, 0, 20)
-            if status == SwapStatus.COMPLETED.value
-            else None
+            datetime(2026, 8, 22, 12, 0, 20) if status == SwapStatus.COMPLETED.value else None
         ),
     )
 
@@ -219,9 +217,7 @@ def test_zero_or_fractional_smallest_unit_amount_is_not_fill_evidence():
 
         assert asyncio.run(reconciler._reconcile_once()) == 0
         session = SessionLocal()
-        assert (
-            session.get(ExecutionParentOrder, parent_id).state == ParentState.RECONCILING.value
-        )
+        assert session.get(ExecutionParentOrder, parent_id).state == ParentState.RECONCILING.value
         assert session.get(SwapTransaction, 1).realized_to_amount is None
         assert session.query(ExecutionFill).count() == 0
         session.close()
@@ -231,15 +227,11 @@ def test_provider_failure_or_exception_does_not_invent_terminal_outcome():
     for result in (_status(status="FAILED", amount=None), RuntimeError("provider unavailable")):
         SessionLocal = _session_factory()
         parent_id = _seed_reconciling(SessionLocal)
-        reconciler = ExecutionReconciler(
-            lifi=_FakeLiFi(result), session_scope=_scope(SessionLocal)
-        )
+        reconciler = ExecutionReconciler(lifi=_FakeLiFi(result), session_scope=_scope(SessionLocal))
 
         assert asyncio.run(reconciler._reconcile_once()) == 0
         session = SessionLocal()
-        assert (
-            session.get(ExecutionParentOrder, parent_id).state == ParentState.RECONCILING.value
-        )
+        assert session.get(ExecutionParentOrder, parent_id).state == ParentState.RECONCILING.value
         assert session.get(SwapTransaction, 1).realized_to_amount is None
         assert session.query(ExecutionFill).count() == 0
         session.close()
