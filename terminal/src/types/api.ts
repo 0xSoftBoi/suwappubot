@@ -507,6 +507,7 @@ export interface PerpsExecuteParams {
   side: 'long' | 'short'
   size: number
   leverage: number
+  marginMode?: 'cross' | 'isolated'
   orderType?: PerpsOrderType
   limitPrice?: number // required when orderType === 'limit'
   tpPrice?: number // market only

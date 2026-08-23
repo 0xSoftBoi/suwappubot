@@ -117,6 +117,7 @@ class PerpsService:
         leverage: int = 1,
         tp_price: Optional[float] = None,
         sl_price: Optional[float] = None,
+        margin_mode: str = "cross",
     ) -> Optional[PerpPosition]:
         """Open a new perpetual position."""
         # Resolve per-market max leverage from HyperLiquid's meta endpoint.
@@ -129,6 +130,9 @@ class PerpsService:
             raise ValueError("Minimum leverage is 1x")
         if side not in ("long", "short"):
             raise ValueError("Side must be 'long' or 'short'")
+        margin_mode = (margin_mode or "cross").strip().lower()
+        if margin_mode not in ("cross", "isolated"):
+            raise ValueError("Margin mode must be 'cross' or 'isolated'")
 
         # Get account
         account = self.get_account(user_id)
@@ -155,6 +159,7 @@ class PerpsService:
             size=size,
             leverage=leverage,
             order_type="market",
+            is_cross=margin_mode == "cross",
             tp_price=tp_price,
             sl_price=sl_price,
             builder_address=builder_address,
@@ -316,6 +321,7 @@ class PerpsService:
         size: float,
         limit_price: float,
         leverage: int = 1,
+        margin_mode: str = "cross",
     ) -> Optional[PerpOrder]:
         """Place a resting GTC limit entry order on HyperLiquid.
 
@@ -336,6 +342,9 @@ class PerpsService:
             raise ValueError("Minimum leverage is 1x")
         if side not in ("long", "short"):
             raise ValueError("Side must be 'long' or 'short'")
+        margin_mode = (margin_mode or "cross").strip().lower()
+        if margin_mode not in ("cross", "isolated"):
+            raise ValueError("Margin mode must be 'cross' or 'isolated'")
         if not size or size <= 0:
             raise ValueError("Size must be greater than zero")
         if not limit_price or limit_price <= 0:
@@ -363,6 +372,7 @@ class PerpsService:
             price=limit_price,
             leverage=leverage,
             order_type="limit",
+            is_cross=margin_mode == "cross",
             builder_address=builder_address,
             builder_fee_tenths_bps=builder_fee if builder_address else None,
         )
