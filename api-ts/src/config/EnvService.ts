@@ -60,6 +60,13 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://api.suwappu.bot',
 	}),
 	AUTOPILOT_AGENT_API_KEY: Schema.optional(Schema.String),
+	/**
+	 * Anchoring key for decision commitments. Separate from every trading and
+	 * fee key by design — it only ever signs zero-value self-sends carrying the
+	 * commitment memo. Unset = no anchoring.
+	 */
+	AUTOPILOT_ANCHOR_PRIVATE_KEY: Schema.optional(Schema.String),
+	AUTOPILOT_ANCHOR_CHAIN: Schema.optionalWith(Schema.String, { default: () => 'base' }),
 	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
 	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
 

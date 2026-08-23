@@ -240,6 +240,9 @@ autopilotRoutes.get('/decisions/:id/verify', async (c) => {
 				'Canonicalise the thesis: JSON with object keys sorted lexicographically, no whitespace.',
 			step_3:
 				'sha256("sha256-canonical-v1|" + nonce + "|" + canonical_thesis) must equal `commitment`.',
+			step_4: result.right.anchor
+				? 'Fetch the anchor tx on its chain, decode the calldata as UTF-8, and check it equals `memo`. That block timestamp is when the commitment became public, and it precedes the fill.'
+				: 'This decision was not anchored on-chain: step 3 proves the thesis matches the commitment, but the ordering rests on our records rather than on a block.',
 			note: 'The commitment row is written before any execution attempt, so a matching hash proves the thesis predates the trade.',
 		},
 	})

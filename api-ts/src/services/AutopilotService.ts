@@ -28,6 +28,7 @@ import {
 import { DatabaseError, NotFoundError, ValidationError } from '../errors'
 import { logger } from '../lib/logger'
 import { computeCommitment, generateNonce, sealMemo, verifySeal } from '../lib/seal'
+import { type Anchor, createAnchor, NullAnchor } from './autopilot/anchor'
 import { type Executor, ManagedExecutor, PaperExecutor } from './autopilot/executor'
 import { evaluateGates, shouldExit } from './autopilot/gates'
 import { fetchTokenSecurity, getTokenPriceUsd, screenCandidates } from './autopilot/market'
@@ -95,6 +96,8 @@ export interface VerificationResult {
 	decisionId: number
 	commitment: string
 	algo: string
+	memo: string
+	anchor: { chain: string; txHash: string } | null
 	revealed: boolean
 	verified: boolean
 	detail: string
@@ -386,6 +389,9 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 				decisionId: row.id,
 				commitment: row.commitment,
 				algo: row.sealAlgo,
+				memo: sealMemo(row.commitment),
+				anchor:
+					row.sealTxHash && row.sealChain ? { chain: row.sealChain, txHash: row.sealTxHash } : null,
 				sealedAt: row.sealedAt.toISOString(),
 				executedAt: row.executedAt ? row.executedAt.toISOString() : null,
 			}
@@ -458,10 +464,18 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 
 			return yield* Effect.tryPromise({
 				try: () =>
-					runCycleImpl(db, agent, executor, new RulesThesisEngine(), {
-						internalApiUrl: env.INTERNAL_API_URL,
-						internalApiKey: env.INTERNAL_API_KEY ?? '',
-					}),
+					runCycleImpl(
+						db,
+						agent,
+						executor,
+						new RulesThesisEngine(),
+						{
+							internalApiUrl: env.INTERNAL_API_URL,
+							internalApiKey: env.INTERNAL_API_KEY ?? '',
+						},
+						LIVE_MARKET,
+						createAnchor(env),
+					),
 				catch: (e) => new DatabaseError({ message: String(e) }),
 			})
 		}),
@@ -637,6 +651,60 @@ async function reveal(db: DbClient, decisionId: number, thesis: Thesis): Promise
 		.where(eq(autopilotDecisions.id, decisionId))
 }
 
+/**
+ * Publish the commitment on-chain before the trade.
+ *
+ * `blockOnFailure` is true for entries: an entry whose commitment was never
+ * witnessed would quietly weaken every claim we make about the feed, so it is
+ * refused instead. It is false for exits — nothing, including our own
+ * transparency machinery, may stand between the agent and the door. An
+ * unanchored exit is journalled as such.
+ */
+async function anchorCommitment(
+	db: DbClient,
+	agentId: number,
+	cycleId: number,
+	decision: AutopilotDecision,
+	anchor: Anchor,
+	blockOnFailure: boolean,
+): Promise<boolean> {
+	if (!anchor.enabled) return true
+
+	const result = await anchor.anchor(decision.commitment)
+	if (result.ok) {
+		await db
+			.update(autopilotDecisions)
+			.set({ sealTxHash: result.txHash, sealChain: result.chain })
+			.where(eq(autopilotDecisions.id, decision.id))
+		await journal(db, agentId, cycleId, decision.id, 'seal', `Anchored on ${result.chain}`, {
+			txHash: result.txHash,
+			memo: sealMemo(decision.commitment),
+		})
+		return true
+	}
+
+	await journal(
+		db,
+		agentId,
+		cycleId,
+		decision.id,
+		'seal',
+		blockOnFailure
+			? `Anchor failed, refusing to execute: ${result.error}`
+			: `Anchor failed, proceeding with the exit anyway: ${result.error}`,
+		result,
+		blockOnFailure ? 'error' : 'warn',
+	)
+
+	if (blockOnFailure) {
+		await db
+			.update(autopilotDecisions)
+			.set({ status: 'failed', executionError: `anchor failed: ${result.error}` })
+			.where(eq(autopilotDecisions.id, decision.id))
+	}
+	return !blockOnFailure
+}
+
 export async function runCycleImpl(
 	db: DbClient,
 	agent: AutopilotAgent,
@@ -644,6 +712,7 @@ export async function runCycleImpl(
 	engine: ThesisEngine,
 	deps: { internalApiUrl: string; internalApiKey: string },
 	market: MarketDeps = LIVE_MARKET,
+	anchor: Anchor = new NullAnchor(),
 ): Promise<CycleReport> {
 	const rules = resolveRules(agent.rules)
 	const errors: string[] = []
@@ -727,6 +796,8 @@ export async function runCycleImpl(
 				)
 				continue
 			}
+
+			await anchorCommitment(db, agent.id, cycleId, decision, anchor, false)
 
 			const result = await executor.execute({
 				chain: position.chain,
@@ -815,6 +886,13 @@ export async function runCycleImpl(
 					gate.results,
 					'warn',
 				)
+				continue
+			}
+
+			const anchored = await anchorCommitment(db, agent.id, cycleId, decision, anchor, true)
+			if (!anchored) {
+				await reveal(db, decision.id, draft)
+				errors.push(`entry ${draft.symbol}: commitment could not be anchored`)
 				continue
 			}
 
