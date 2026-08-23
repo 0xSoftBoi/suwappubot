@@ -39,6 +39,8 @@
       "perpsDesc": "HyperLiquid, hasta 20x",
       "tempoTitle": "Sin gas en Tempo",
       "tempoDesc": "Nosotros pagamos el gas",
+      "curveTitle": "Pools de Curve",
+      "curveDesc": "Cada pool en más de 20 redes, por TVL, volumen o APR",
       "agentApiTitle": "API para agentes",
       "agentApiDesc": "REST hecha para agentes",
       "mcpTitle": "Servidor MCP",

@@ -39,6 +39,8 @@
       "perpsDesc": "HyperLiquid, up to 20x",
       "tempoTitle": "Gasless on Tempo",
       "tempoDesc": "We sponsor the gas",
+      "curveTitle": "Curve pools",
+      "curveDesc": "Every pool on 20+ chains, by TVL, volume, or APR",
       "agentApiTitle": "Agent API",
       "agentApiDesc": "REST built for agents",
       "mcpTitle": "MCP server",

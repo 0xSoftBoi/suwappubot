@@ -39,6 +39,8 @@
       "perpsDesc": "HyperLiquid，最高 20 倍",
       "tempoTitle": "Tempo 免 Gas",
       "tempoDesc": "Gas 费由我们承担",
+      "curveTitle": "Curve 资金池",
+      "curveDesc": "覆盖 20 多条链的所有资金池，按 TVL、交易量或 APR 排序",
       "agentApiTitle": "Agent API",
       "agentApiDesc": "为智能体打造的 REST 接口",
       "mcpTitle": "MCP 服务器",
