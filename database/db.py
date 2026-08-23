@@ -4531,6 +4531,40 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
         )
 
 
+# Columns added to the autopilot tables after they first shipped. Additive only:
+# api-ts declares the same column in Drizzle, and whichever service reaches the
+# database first must not leave the other reading a column that is not there.
+_AUTOPILOT_ADDITIVE_COLUMNS = {
+    "autopilot_positions": {
+        # Hard time stop committed at entry. Without it the exit check receives
+        # no hold limit and positions are held until TP/SL fires, i.e. forever.
+        "max_hold_minutes": "INTEGER",
+    },
+}
+
+
+def _add_autopilot_columns(db_engine, inspector, tables: set) -> None:
+    """Apply additive autopilot columns to tables that already exist.
+
+    Checks the live column list rather than using ADD COLUMN IF NOT EXISTS,
+    which SQLite does not support.
+    """
+    for table, columns in _AUTOPILOT_ADDITIVE_COLUMNS.items():
+        if table not in tables:
+            continue
+        try:
+            existing = {c["name"] for c in inspector.get_columns(table)}
+        except Exception:
+            continue
+        missing = {name: ddl for name, ddl in columns.items() if name not in existing}
+        if not missing:
+            continue
+        with db_engine.begin() as conn:
+            for name, ddl in missing.items():
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        logger.info(f"Added autopilot columns to {table}: {sorted(missing)}")
+
+
 def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the autopilot tables idempotently.
 
@@ -4546,6 +4580,11 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
         tables = set(inspector.get_table_names())
     except Exception:
         return
+
+    # Additive columns must run BEFORE the early return below. Everything after
+    # it is create-if-absent, so a migration placed there is dead on every
+    # database that already has these tables — i.e. every existing one.
+    _add_autopilot_columns(db_engine, inspector, tables)
 
     if "autopilot_agents" in tables:
         return
@@ -4680,9 +4719,5 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
             "ON autopilot_positions(agent_id, status)",
             "CREATE INDEX IF NOT EXISTS autopilot_journal_agent_idx "
             "ON autopilot_journal(agent_id, created_at)",
-            # Additive: databases created before the time stop existed. Without
-            # it the exit check never receives a hold limit and nothing closes.
-            "ALTER TABLE autopilot_positions "
-            "ADD COLUMN IF NOT EXISTS max_hold_minutes INTEGER",
         ):
             conn.execute(text(stmt))
