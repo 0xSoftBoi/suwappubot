@@ -27,7 +27,12 @@
  * to generate a per-request JWT (via `@coinbase/cdp-sdk/auth` under the hood)
  * instead of a static bearer token, and default the facilitator URL to CDP's
  * hosted endpoint unless X402_FACILITATOR_URL was explicitly overridden away
- * from its default. See resolveFacilitatorConfig below.
+ * from its default. CDP auth headers carry a JWT scoped to CDP's own API — they
+ * are ONLY ever attached when the resolved URL's host is CDP's facilitator
+ * host. An operator pointing X402_FACILITATOR_URL at a self-hosted or testnet
+ * facilitator still works, but gets NO auth headers (that facilitator isn't
+ * CDP and has no use for a CDP-scoped JWT) rather than leaking CDP credentials
+ * to an arbitrary third-party host. See resolveFacilitatorConfig below.
  *
  * NOTE: code-complete but NOT yet exercised against a live facilitator with a
  * real signed payment — see the monetization rollout notes. Keep it gated off
@@ -86,15 +91,27 @@ export function isFacilitatorEnabled(env: FacilitatorEnv): boolean {
  * Resolve the {@link FacilitatorConfig} passed to HTTPFacilitatorClient.
  *
  * Precedence:
- *  1. CDP_API_KEY_ID + CDP_API_KEY_SECRET both set → CDP JWT auth
- *     (@coinbase/x402's createFacilitatorConfig, which generates a fresh JWT
- *     per verify/settle/supported call). The facilitator URL defaults to
- *     CDP's hosted endpoint UNLESS the operator explicitly pointed
- *     X402_FACILITATOR_URL somewhere other than its default — an explicit
- *     override always wins, so self-hosted/testnet facilitators still work
- *     even with CDP creds configured.
+ *  1. CDP_API_KEY_ID + CDP_API_KEY_SECRET both set → resolve the facilitator
+ *     URL (CDP's hosted endpoint by default, or an explicit non-empty
+ *     X402_FACILITATOR_URL override), then attach CDP JWT auth headers
+ *     (@coinbase/x402's createFacilitatorConfig) ONLY if that resolved URL's
+ *     *host* actually is CDP's facilitator host. A CDP JWT is scoped to CDP's
+ *     own API and must never be sent to a different host, so an operator who
+ *     overrides X402_FACILITATOR_URL to a self-hosted/testnet facilitator
+ *     while CDP creds happen to be set gets NO auth headers there, not a
+ *     leaked credential.
  *  2. Otherwise, fall back to the existing behavior: a static bearer token
  *     from X402_FACILITATOR_API_KEY if set, or no auth at all.
+ *
+ * X402_FACILITATOR_URL is trimmed and an empty/whitespace-only string is
+ * treated as unset (Schema.optionalWith only applies its default when the key
+ * is absent, so "" would otherwise count as an "explicit override" to the
+ * empty string and silently disable CDP auth while HTTPFacilitatorClient
+ * falls back to x402.org).
+ *
+ * Never throws: `new URL()` on a malformed override is caught and treated as
+ * "not CDP's host" (no auth attached, worst case is an unauthenticated call
+ * that the facilitator itself will then reject).
  *
  * Exported as a pure function so the selection logic is unit-testable without
  * a live facilitator or real CDP credentials.
@@ -102,11 +119,20 @@ export function isFacilitatorEnabled(env: FacilitatorEnv): boolean {
 export function resolveFacilitatorConfig(env: FacilitatorEnv): FacilitatorConfig {
 	if (env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET) {
 		const cdp = createFacilitatorConfig(env.CDP_API_KEY_ID, env.CDP_API_KEY_SECRET)
-		const urlOverridden = env.X402_FACILITATOR_URL !== DEFAULT_X402_FACILITATOR_URL
-		return {
-			url: urlOverridden ? env.X402_FACILITATOR_URL : (cdp.url ?? env.X402_FACILITATOR_URL),
-			createAuthHeaders: cdp.createAuthHeaders,
+		const raw = env.X402_FACILITATOR_URL?.trim()
+		const overridden = !!raw && raw !== DEFAULT_X402_FACILITATOR_URL
+		const url = overridden ? (raw as string) : (cdp.url ?? DEFAULT_X402_FACILITATOR_URL)
+
+		let isCdpHost = false
+		try {
+			isCdpHost = !!cdp.url && new URL(url).host === new URL(cdp.url).host
+		} catch {
+			isCdpHost = false
 		}
+
+		return isCdpHost
+			? { url, createAuthHeaders: cdp.createAuthHeaders }
+			: { url, createAuthHeaders: undefined }
 	}
 
 	const createAuthHeaders = env.X402_FACILITATOR_API_KEY
@@ -230,9 +256,9 @@ export async function facilitatorVerifyAndSettle(
 	const check = crossCheckSignedRequirements(accepted, requirements)
 	if (!check.ok) return check
 
-	const client = new HTTPFacilitatorClient(resolveFacilitatorConfig(env))
-
 	try {
+		const client = new HTTPFacilitatorClient(resolveFacilitatorConfig(env))
+
 		const v = await client.verify(payload, accepted)
 		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid' }
 

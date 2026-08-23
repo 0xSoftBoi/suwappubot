@@ -95,15 +95,17 @@ async function main() {
 		chain: NETWORK === 'base-sepolia' ? 'base' : NETWORK,
 	})
 
-	const plainFetch: typeof fetch = (input, init) =>
-		fetch(input, {
-			...init,
-			headers: {
-				...(init?.headers ?? {}),
-				Authorization: `Bearer ${API_KEY}`,
-				'Content-Type': 'application/json',
-			},
-		})
+	// wrapFetchWithPayment calls this fetch a SECOND time on retry with a Request
+	// object that already carries the signed X-PAYMENT header and no separate
+	// `init`. Passing `init.headers` in that call would REPLACE the Request's
+	// headers wholesale and silently drop X-PAYMENT, so the retry would always
+	// 402 again. Build a Request first and mutate its headers in place instead.
+	const plainFetch: typeof fetch = (input, init) => {
+		const req = new Request(input, init)
+		req.headers.set('Authorization', `Bearer ${API_KEY}`)
+		if (!req.headers.has('Content-Type')) req.headers.set('Content-Type', 'application/json')
+		return fetch(req)
+	}
 
 	if (BURN_CREDITS) {
 		console.log('[x402-e2e] BURN_CREDITS=true — spending down credits until a 402 shows up...')

@@ -225,6 +225,22 @@ export const EnvServiceLive = Layer.effect(
 				'[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!',
 			)
 		}
+		// CDP facilitator auth (see FacilitatorService.resolveFacilitatorConfig)
+		// requires BOTH vars — one without the other is almost certainly a
+		// misconfiguration (partial copy-paste from the CDP Portal) and silently
+		// falls back to no CDP auth, which then either 401s against CDP's hosted
+		// facilitator or falls through to an unauthenticated call. Empty string
+		// counts as unset, matching the trim-and-treat-empty-as-unset behavior in
+		// resolveFacilitatorConfig.
+		const cdpKeyId = env.CDP_API_KEY_ID?.trim()
+		const cdpKeySecret = env.CDP_API_KEY_SECRET?.trim()
+		if (!!cdpKeyId !== !!cdpKeySecret) {
+			console.error(
+				'[EnvService] ERROR: only one of CDP_API_KEY_ID / CDP_API_KEY_SECRET is set — ' +
+					'CDP facilitator JWT auth requires BOTH. Falling back to no CDP auth for the x402 ' +
+					'facilitator path until both are set correctly.',
+			)
+		}
 		return env
 	}),
 )

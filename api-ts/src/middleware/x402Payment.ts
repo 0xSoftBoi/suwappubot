@@ -269,6 +269,12 @@ export async function chargeAgentForCall(params: {
 			if (settle.ok) {
 				return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }
 			}
+			// Don't silently discard a failed on-chain settle — surface why, so a
+			// misconfigured facilitator (bad CDP creds, wrong URL, etc.) shows up in
+			// logs instead of just looking like "client never paid". Facilitator/
+			// cdp-sdk error strings are short reason codes (e.g. "insufficient_funds",
+			// "invalid_signature") and never carry key material.
+			console.error(`[x402Payment] facilitator settle failed for ${resource}: ${settle.error}`)
 		}
 
 		return { kind: 'insufficient', cost, challenge }
