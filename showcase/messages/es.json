@@ -40,7 +40,7 @@
       "tempoTitle": "Sin gas en Tempo",
       "tempoDesc": "Nosotros pagamos el gas",
       "curveTitle": "Pools de Curve",
-      "curveDesc": "Cada pool en más de 20 redes, por TVL, volumen o APR",
+      "curveDesc": "Cada pool en cada red de Curve, por TVL, volumen o APR",
       "agentApiTitle": "API para agentes",
       "agentApiDesc": "REST hecha para agentes",
       "mcpTitle": "Servidor MCP",
@@ -182,7 +182,7 @@
       "tempoTitle": "Soporte según la interfaz",
       "tempoBody": "Tempo no tiene soporte uniforme entre interfaces. Agent API actualmente permite descubrir tokens de Tempo, pero la ejecución de swaps de Agent API en Tempo no está habilitada.",
       "curveTitle": "Cada pool de Curve, de forma nativa",
-      "curveBody": "El venue de Curve del terminal lista cada pool en más de 20 redes directamente desde la Curve Prices API: ordenable por TVL, volumen de 24h o APR base, con búsqueda y a un clic del panel de swap. Construido sobre nuestro fork de flet-curve.",
+      "curveBody": "El venue de Curve del terminal lista cada pool en cada red donde Curve está desplegado, directamente desde la Curve Prices API: ordenable por TVL, volumen de 24h o APR base, con búsqueda y a un clic del panel de swap. Construido sobre nuestro fork de flet-curve.",
       "screenshotAlt": "Mesa de perpetuos de Suwappu con mercados de HyperLiquid, datos de mercado y ticket de orden.",
       "screenshotCaption": "Perpetuos de HyperLiquid en Suwappu · captura del producto · 31 jul 2026"
     },

@@ -40,7 +40,7 @@
       "tempoTitle": "Tempo 免 Gas",
       "tempoDesc": "Gas 费由我们承担",
       "curveTitle": "Curve 资金池",
-      "curveDesc": "覆盖 20 多条链的所有资金池，按 TVL、交易量或 APR 排序",
+      "curveDesc": "覆盖 Curve 部署的每条链的所有资金池，按 TVL、交易量或 APR 排序",
       "agentApiTitle": "Agent API",
       "agentApiDesc": "为智能体打造的 REST 接口",
       "mcpTitle": "MCP 服务器",
@@ -182,7 +182,7 @@
       "tempoTitle": "按接口区分的支持",
       "tempoBody": "Tempo 并非在所有接口上具备相同能力。当前 Agent API 支持发现 Tempo 代币，但尚未启用 Tempo 的 Agent API 兑换执行。",
       "curveTitle": "原生支持每一个 Curve 资金池",
-      "curveBody": "终端的 Curve 交易区直接从 Curve Prices API 列出 20 多条链上的所有资金池——可按 TVL、24 小时交易量或基础 APR 排序，支持搜索，一键进入兑换面板。基于我们的 flet-curve 分叉构建。",
+      "curveBody": "终端的 Curve 交易区直接从 Curve Prices API 列出 Curve 部署的每条链上的所有资金池——可按 TVL、24 小时交易量或基础 APR 排序，支持搜索，一键进入兑换面板。基于我们的 flet-curve 分叉构建。",
       "screenshotAlt": "Suwappu 永续合约交易台展示 HyperLiquid 市场、行情数据和订单票据。",
       "screenshotCaption": "Suwappu 中的 HyperLiquid 永续合约 · 产品截图 · 2026 年 7 月 31 日"
     },
