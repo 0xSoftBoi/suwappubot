@@ -103,6 +103,55 @@ export interface PublicDecision {
 	revealed_at?: string
 }
 
+/**
+ * The public wire shape of a position — snake_case, like every other autopilot
+ * response, and explicitly mapped rather than a raw row. Serving the ORM row
+ * would leak column naming as API surface and drift the moment the schema does.
+ */
+export interface PublicPosition {
+	id: number
+	chain: string
+	token_address: string
+	symbol: string
+	status: string
+	amount: string
+	cost_basis_usd: number
+	avg_entry_price_usd: number | null
+	last_price_usd: number | null
+	unrealized_pnl_usd: number | null
+	realized_pnl_usd: number
+	take_profit_pct: number | null
+	stop_loss_pct: number | null
+	invalidation: string | null
+	entry_decision_id: number | null
+	exit_decision_id: number | null
+	opened_at: string
+	closed_at: string | null
+}
+
+export function toPublicPosition(row: AutopilotPosition): PublicPosition {
+	return {
+		id: row.id,
+		chain: row.chain,
+		token_address: row.tokenAddress,
+		symbol: row.tokenSymbol,
+		status: row.status,
+		amount: row.amount,
+		cost_basis_usd: row.costBasisUsd,
+		avg_entry_price_usd: row.avgEntryPriceUsd,
+		last_price_usd: row.lastPriceUsd,
+		unrealized_pnl_usd: row.unrealizedPnlUsd,
+		realized_pnl_usd: row.realizedPnlUsd,
+		take_profit_pct: row.takeProfitPct,
+		stop_loss_pct: row.stopLossPct,
+		invalidation: row.invalidation,
+		entry_decision_id: row.entryDecisionId,
+		exit_decision_id: row.exitDecisionId,
+		opened_at: row.openedAt.toISOString(),
+		closed_at: row.closedAt ? row.closedAt.toISOString() : null,
+	}
+}
+
 export interface VerificationResult {
 	decisionId: number
 	commitment: string
@@ -149,6 +198,10 @@ export interface AutopilotServiceInterface {
 	readonly getPortfolio: (
 		agentId: number,
 	) => Effect.Effect<PortfolioState, DatabaseError, DrizzleService>
+	readonly listPositions: (
+		agentId: number,
+		status?: 'open' | 'closed',
+	) => Effect.Effect<PublicPosition[], DatabaseError, DrizzleService>
 	readonly listDecisions: (
 		agentId: number,
 		limit?: number,
@@ -355,6 +408,29 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 				try: () => loadPortfolio(db, agentId),
 				catch: (e) => new DatabaseError({ message: String(e) }),
 			})
+		}),
+
+	listPositions: (agentId: number, status?: 'open' | 'closed') =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(autopilotPositions)
+						.where(
+							status
+								? and(
+										eq(autopilotPositions.agentId, agentId),
+										eq(autopilotPositions.status, status),
+									)
+								: eq(autopilotPositions.agentId, agentId),
+						)
+						.orderBy(desc(autopilotPositions.openedAt))
+						.limit(200),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+			return rows.map(toPublicPosition)
 		}),
 
 	listDecisions: (agentId: number, limit = 50, offset = 0) =>

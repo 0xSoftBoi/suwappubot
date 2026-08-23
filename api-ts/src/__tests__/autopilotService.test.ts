@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import type { AutopilotDecision } from '../db'
-import { computeEquity, resolveRules, toPublicDecision } from '../services/AutopilotService'
+import {
+	computeEquity,
+	resolveRules,
+	toPublicDecision,
+	toPublicPosition,
+} from '../services/AutopilotService'
 import { DEFAULT_RULES } from '../services/autopilot/types'
 
 describe('resolveRules', () => {
@@ -81,6 +86,45 @@ const row = (over: Partial<AutopilotDecision> = {}): AutopilotDecision =>
 		createdAt: new Date('2026-08-01T00:00:00Z'),
 		...over,
 	}) as AutopilotDecision
+
+describe('toPublicPosition', () => {
+	const posRow = {
+		id: 3,
+		agentId: 1,
+		chain: 'base',
+		tokenAddress: '0xabc',
+		tokenSymbol: 'CATE',
+		status: 'open',
+		amount: '1000',
+		costBasisUsd: 50,
+		avgEntryPriceUsd: 0.05,
+		lastPriceUsd: 0.06,
+		unrealizedPnlUsd: 10,
+		realizedPnlUsd: 0,
+		takeProfitPct: 60,
+		stopLossPct: 20,
+		invalidation: 'liquidity halves',
+		entryDecisionId: 9,
+		exitDecisionId: null,
+		openedAt: new Date('2026-08-01T00:00:00Z'),
+		closedAt: null,
+		updatedAt: new Date('2026-08-01T00:00:00Z'),
+	} as never
+
+	it('maps the row rather than serving ORM column names as API surface', () => {
+		const pub = toPublicPosition(posRow)
+		for (const key of Object.keys(pub)) {
+			expect(key).not.toMatch(/[A-Z]/)
+		}
+		expect(pub.token_address).toBe('0xabc')
+		expect(pub.symbol).toBe('CATE')
+		expect(pub.cost_basis_usd).toBe(50)
+		expect(pub.opened_at).toBe('2026-08-01T00:00:00.000Z')
+		expect(pub.closed_at).toBeNull()
+		// updatedAt is internal bookkeeping — it must not appear on the wire.
+		expect(pub).not.toHaveProperty('updated_at')
+	})
+})
 
 describe('toPublicDecision', () => {
 	it('withholds the nonce and the thesis while the decision is still sealed', () => {

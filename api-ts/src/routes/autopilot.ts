@@ -65,6 +65,7 @@ autopilotRoutes.get('/:slug', async (c) => {
 			const svc = yield* AutopilotService
 			const agent = yield* svc.getAgent(slug)
 			const portfolio = yield* svc.getPortfolio(agent.id)
+			const positions = yield* svc.listPositions(agent.id, 'open')
 			const db = yield* requireDb
 			const cycles = yield* Effect.tryPromise({
 				try: () =>
@@ -76,7 +77,7 @@ autopilotRoutes.get('/:slug', async (c) => {
 						.limit(10),
 				catch: (e) => new Error(String(e)),
 			})
-			return { agent, portfolio, cycles }
+			return { agent, portfolio, positions, cycles }
 		}),
 	)
 	if (Either.isLeft(result)) {
@@ -84,7 +85,7 @@ autopilotRoutes.get('/:slug', async (c) => {
 		return c.json(body, status as 200)
 	}
 
-	const { agent, portfolio, cycles } = result.right
+	const { agent, portfolio, positions, cycles } = result.right
 	return c.json({
 		success: true,
 		agent: {
@@ -107,7 +108,7 @@ autopilotRoutes.get('/:slug', async (c) => {
 			pnl_usd: Number((portfolio.equityUsd - agent.startingEquityUsd).toFixed(2)),
 			spent_today_usd: Number(portfolio.spentTodayUsd.toFixed(2)),
 			realized_pnl_today_usd: Number(portfolio.realizedPnlTodayUsd.toFixed(2)),
-			open_positions: portfolio.openPositions,
+			open_positions: positions,
 		},
 		recent_cycles: cycles.map((cy) => ({
 			id: cy.id,
@@ -154,19 +155,7 @@ autopilotRoutes.get('/:slug/positions', async (c) => {
 		Effect.gen(function* () {
 			const svc = yield* AutopilotService
 			const agent = yield* svc.getAgent(slug)
-			const db = yield* requireDb
-			return yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select()
-						.from(autopilotPositions)
-						.where(
-							and(eq(autopilotPositions.agentId, agent.id), eq(autopilotPositions.status, status)),
-						)
-						.orderBy(desc(autopilotPositions.openedAt))
-						.limit(200),
-				catch: (e) => new Error(String(e)),
-			})
+			return yield* svc.listPositions(agent.id, status)
 		}),
 	)
 	if (Either.isLeft(result)) {
