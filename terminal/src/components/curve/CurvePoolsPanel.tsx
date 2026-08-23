@@ -16,6 +16,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows, TerminalTextField } from '../foundation'
+import { CurvePoolDetail } from './CurvePoolDetail'
 
 // Chains where the terminal's swap desk can actually quote and execute —
 // the intersection of ChainSelector's list and Curve's chain names (which
@@ -80,6 +81,8 @@ export function CurvePoolsPanel() {
   const [sortDirection, setSortDirection] = useState<CurveSortDirection>('desc')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  // The pool a row click opened, flet-curve style: list → chart + figures.
+  const [selected, setSelected] = useState<{ pool: CurvePool; chain: string } | null>(null)
 
   const debouncedSearch = useDebouncedValue(search)
   const { setSelectedPair } = usePair()
@@ -164,6 +167,18 @@ export function CurvePoolsPanel() {
       setSortBy(column)
       setSortDirection('desc')
     }
+  }
+
+  if (selected) {
+    return (
+      <CurvePoolDetail
+        pool={selected.pool}
+        chain={selected.chain}
+        tradable={TRADABLE_CHAINS.has(selected.chain) && selected.pool.coins.length >= 2}
+        onBack={() => setSelected(null)}
+        onTrade={(p) => tradePool(p, selected.chain)}
+      />
+    )
   }
 
   return (
@@ -254,7 +269,12 @@ export function CurvePoolsPanel() {
                 const chain = activeChain?.name ?? ''
                 const tradable = TRADABLE_CHAINS.has(chain) && pool.coins.length >= 2
                 return (
-                  <tr key={pool.address} className="group border-b border-terminal-border/50 text-terminal-text hover:bg-terminal-bg-secondary">
+                  <tr
+                    key={pool.address}
+                    className="group cursor-pointer border-b border-terminal-border/50 text-terminal-text hover:bg-terminal-bg-secondary"
+                    onClick={() => setSelected({ pool, chain })}
+                    data-testid="curve-pool-row"
+                  >
                     <td className="px-2 py-1.5 font-medium">{pool.name}</td>
                     <td className="px-2 py-1.5">
                       <div className="flex flex-wrap items-center gap-1">
@@ -277,7 +297,10 @@ export function CurvePoolsPanel() {
                     <td className="px-2 py-1.5 text-right whitespace-nowrap">
                       {tradable && (
                         <button
-                          onClick={() => tradePool(pool, chain)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            tradePool(pool, chain)
+                          }}
                           className="terminal-button-secondary mr-2 px-2 py-0.5 text-[10px] transition-opacity sm:opacity-0 sm:focus:opacity-100 sm:group-hover:opacity-100"
                           aria-label={`Trade ${pool.name} in the swap panel`}
                           data-testid="curve-trade-button"
@@ -290,6 +313,7 @@ export function CurvePoolsPanel() {
                           href={pool.poolUrl}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           className="text-terminal-accent hover:underline"
                           aria-label={`Open ${pool.name} on curve.finance`}
                         >

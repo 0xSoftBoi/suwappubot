@@ -164,3 +164,73 @@ describe('pagination and min_tvl constraints', () => {
     expect(params.get('pagination')).toBe('50')
   })
 })
+
+describe('parseCurveCandles', () => {
+  const { parseCurveCandles } = require('./curve') as typeof import('./curve')
+
+  test('parses, sorts ascending, and fills volume', () => {
+    const payload = {
+      data: [
+        { time: 200, open: 1.1, high: 1.2, low: 1.0, close: 1.15 },
+        { time: 100, open: 1.0, high: 1.1, low: 0.9, close: 1.1, volume: 5 },
+      ],
+    }
+    expect(parseCurveCandles(payload)).toEqual([
+      { time: 100, open: 1.0, high: 1.1, low: 0.9, close: 1.1, volume: 5 },
+      { time: 200, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 0 },
+    ])
+  })
+
+  test('drops rows without a usable time and non-finite fields', () => {
+    const payload = { data: [{ open: 1 }, { time: 0, open: 1 }, { time: 10, open: 'x' }, null] }
+    expect(parseCurveCandles(payload)).toEqual([])
+  })
+
+  test('rejection payloads and junk yield empty', () => {
+    expect(parseCurveCandles({ detail: 'nope' })).toEqual([])
+    expect(parseCurveCandles(null)).toEqual([])
+    expect(parseCurveCandles({})).toEqual([])
+  })
+})
+
+describe('parseCurvePoolDetail', () => {
+  const { parseCurvePoolDetail } = require('./curve') as typeof import('./curve')
+
+  test('parses coins, balances and figures', () => {
+    const detail = parseCurvePoolDetail({
+      name: '3pool',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usd_price: 1, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usd_price: 1, decimals: 6 },
+      ],
+      balances_usd: [100, '200'],
+      tvl_usd: 300,
+      trading_volume_24h: 50,
+      trading_fee_24h: 0.5,
+      liquidity_volume_24h: 10,
+      lp_token_address: '0xlp',
+    })
+    expect(detail).toEqual({
+      name: '3pool',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usdPrice: 1, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usdPrice: 1, decimals: 6 },
+      ],
+      balancesUsd: [100, 200],
+      tvlUsd: 300,
+      volume24h: 50,
+      tradingFee24h: 0.5,
+      liquidityVolume24h: 10,
+      lpTokenAddress: '0xlp',
+    })
+  })
+
+  test('is defensive: rejection and junk yield null, missing fields zero', () => {
+    expect(parseCurvePoolDetail({ detail: 'not found' })).toBeNull()
+    expect(parseCurvePoolDetail(null)).toBeNull()
+    const bare = parseCurvePoolDetail({})
+    expect(bare?.coins).toEqual([])
+    expect(bare?.balancesUsd).toEqual([])
+    expect(bare?.tvlUsd).toBe(0)
+  })
+})

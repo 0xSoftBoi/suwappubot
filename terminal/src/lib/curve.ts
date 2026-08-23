@@ -186,6 +186,135 @@ export function parseCurvePools(payload: unknown, chainId: number, chainName = '
   return { pools, count: Number.isFinite(count) ? count : pools.length }
 }
 
+// ---- candles (v1 — v2 has no OHLC endpoints at all) ----
+
+// One entry of the candle-size picker and its API aggregation, mirroring
+// flet-curve's CANDLE_SIZES (a subset: the picker sizes the video UI leads
+// with). `seconds * count` is how far back to ask.
+export interface CurveCandleSize {
+  label: string
+  aggNumber: number
+  aggUnits: 'minute' | 'hour' | 'day' | 'week'
+  seconds: number
+}
+
+export const CURVE_CANDLE_SIZES: CurveCandleSize[] = [
+  { label: '15m', aggNumber: 15, aggUnits: 'minute', seconds: 900 },
+  { label: '1h', aggNumber: 1, aggUnits: 'hour', seconds: 3600 },
+  { label: '4h', aggNumber: 4, aggUnits: 'hour', seconds: 14400 },
+  { label: '1d', aggNumber: 1, aggUnits: 'day', seconds: 86400 },
+  { label: '7d', aggNumber: 7, aggUnits: 'day', seconds: 604800 },
+]
+
+// How many candles to ask for, whatever their size (flet-curve CANDLE_COUNT).
+export const CURVE_CANDLE_COUNT = 200
+
+export interface CurveCandle {
+  time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export function parseCurveCandles(payload: unknown): CurveCandle[] {
+  if (isRejection(payload)) return []
+  if (!payload || typeof payload !== 'object') return []
+  const data = (payload as { data?: unknown }).data
+  if (!Array.isArray(data)) return []
+  const out: CurveCandle[] = []
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const time = Number(row.time ?? 0)
+    if (!Number.isFinite(time) || time <= 0) continue
+    const open = Number(row.open ?? 0)
+    const high = Number(row.high ?? 0)
+    const low = Number(row.low ?? 0)
+    const close = Number(row.close ?? 0)
+    if (![open, high, low, close].every(Number.isFinite)) continue
+    // The lp_ohlc payload carries no volume; lightweight-charts wants the
+    // field present, so it is zero rather than absent.
+    out.push({ time, open, high, low, close, volume: Number(row.volume ?? 0) || 0 })
+  }
+  out.sort((a, b) => a.time - b.time)
+  return out
+}
+
+export interface FetchLpCandlesOptions {
+  chain: string
+  pool: string
+  size: CurveCandleSize
+  count?: number
+  now?: number
+}
+
+// Candles for the pool's LP token price — the chart flet-curve opens every
+// pool onto. `GET /v1/lp_ohlc/{chain}/{pool}?start&end&agg_number&agg_units`.
+export async function fetchLpCandles(options: FetchLpCandlesOptions): Promise<CurveCandle[]> {
+  const { chain, pool, size, count = CURVE_CANDLE_COUNT } = options
+  const end = Math.floor(options.now ?? Date.now() / 1000)
+  const payload = await getJson(
+    buildUrl(PRICES_V1, `/lp_ohlc/${chain}/${pool}`, {
+      start: end - size.seconds * count,
+      end,
+      agg_number: size.aggNumber,
+      agg_units: size.aggUnits,
+    }),
+  )
+  return parseCurveCandles(payload)
+}
+
+// ---- pool detail (v2 /pools/{chain_id}/{address}) ----
+
+export interface CurvePoolDetail {
+  name: string
+  coins: CurveCoin[]
+  // USD value each coin contributes, aligned with `coins` by index.
+  balancesUsd: number[]
+  tvlUsd: number
+  volume24h: number
+  tradingFee24h: number
+  liquidityVolume24h: number
+  lpTokenAddress: string
+}
+
+export function parseCurvePoolDetail(payload: unknown): CurvePoolDetail | null {
+  if (isRejection(payload)) return null
+  if (!payload || typeof payload !== 'object') return null
+  const row = payload as Record<string, unknown>
+  const coinsRaw = Array.isArray(row.coins) ? row.coins : []
+  const coins = coinsRaw.map(parseCoin).filter((c): c is CurveCoin => c !== null)
+  const balancesRaw = Array.isArray(row.balances_usd) ? row.balances_usd : []
+  const balancesUsd = balancesRaw.map((v) => {
+    const n = Number(v ?? 0)
+    return Number.isFinite(n) ? n : 0
+  })
+  const num = (v: unknown) => {
+    const n = Number(v ?? 0)
+    return Number.isFinite(n) ? n : 0
+  }
+  return {
+    name: typeof row.name === 'string' ? row.name : '',
+    coins,
+    balancesUsd,
+    tvlUsd: num(row.tvl_usd),
+    volume24h: num(row.trading_volume_24h),
+    tradingFee24h: num(row.trading_fee_24h),
+    liquidityVolume24h: num(row.liquidity_volume_24h),
+    lpTokenAddress: typeof row.lp_token_address === 'string' ? row.lp_token_address : '',
+  }
+}
+
+export async function fetchCurvePoolDetail(
+  chainId: number,
+  address: string,
+): Promise<CurvePoolDetail | null> {
+  const payload = await getJson(buildUrl(PRICES_V2, `/pools/${chainId}/${address}`))
+  return parseCurvePoolDetail(payload)
+}
+
 // ---- fetchers ----
 
 export async function fetchCurveChains(): Promise<CurveChain[]> {
