@@ -17,6 +17,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows, TerminalTextField } from '../foundation'
 import { CurvePoolDetail } from './CurvePoolDetail'
+import { CurveRouterTab } from './CurveRouterTab'
 
 // Chains where the terminal's swap desk can actually quote and execute —
 // the intersection of ChainSelector's list and Curve's chain names (which
@@ -100,6 +101,8 @@ export function CurvePoolsPanel() {
   const [page, setPage] = useState(1)
   // The pool a row click opened, flet-curve style: list → chart + figures.
   const [selected, setSelected] = useState<{ pool: CurvePool; chain: string } | null>(null)
+  // Pools = the venue list; Router = electric-router route finder.
+  const [view, setView] = useState<'pools' | 'router'>('pools')
 
   const debouncedSearch = useDebouncedValue(search)
   const { setSelectedPair } = usePair()
@@ -207,6 +210,26 @@ export function CurvePoolsPanel() {
     <div className="flex h-full flex-col overflow-hidden" data-testid="curve-pools-panel">
       <div className="shrink-0 border-b border-terminal-border p-2">
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1" role="tablist" aria-label="Curve views">
+            <button
+              onClick={() => setView('pools')}
+              className={`terminal-tab text-xs ${view === 'pools' ? 'terminal-tab-active' : ''}`}
+              role="tab"
+              aria-selected={view === 'pools'}
+              data-testid="curve-view-pools"
+            >
+              Pools
+            </button>
+            <button
+              onClick={() => setView('router')}
+              className={`terminal-tab text-xs ${view === 'router' ? 'terminal-tab-active' : ''}`}
+              role="tab"
+              aria-selected={view === 'router'}
+              data-testid="curve-view-router"
+            >
+              Router
+            </button>
+          </div>
           <select
             value={activeChain?.name ?? ''}
             onChange={(e) => setChainName(e.target.value)}
@@ -222,17 +245,19 @@ export function CurvePoolsPanel() {
             ))}
           </select>
 
-          <TerminalTextField
-            aria-label="Search Curve pools"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search pools, coins, address…"
-            className="w-full sm:w-56"
-            data-testid="curve-search-input"
-          />
+          {view === 'pools' && (
+            <TerminalTextField
+              aria-label="Search Curve pools"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search pools, coins, address…"
+              className="w-full sm:w-56"
+              data-testid="curve-search-input"
+            />
+          )}
 
           <div className="ml-auto flex items-center gap-1">
-            {SORT_COLUMNS.map((col) => {
+            {view === 'pools' && SORT_COLUMNS.map((col) => {
               const active = sortBy === col.id
               return (
                 <button
@@ -249,6 +274,11 @@ export function CurvePoolsPanel() {
         </div>
       </div>
 
+      {view === 'router' && activeChain ? (
+        <div className="min-h-0 flex-1">
+          <CurveRouterTab chainName={activeChain.name} chainId={activeChain.chainId} />
+        </div>
+      ) : (
       <div className="min-h-0 flex-1 overflow-y-auto">
         {chainsError ? (
           <TerminalEmptyState
@@ -428,6 +458,7 @@ export function CurvePoolsPanel() {
           </table>
         )}
       </div>
+      )}
 
       {!isAuthenticated && (
         <div
@@ -469,6 +500,7 @@ export function CurvePoolsPanel() {
             <span data-testid="erouter-badge"> · electric-router v{erouterVersion} loaded</span>
           ) : null}
         </div>
+        {view === 'pools' && (
         <div className="flex items-center gap-2 text-xs">
           <span className="text-terminal-text-muted">
             Page {page} of {totalPages} · {count} pools
@@ -488,6 +520,7 @@ export function CurvePoolsPanel() {
             Next
           </button>
         </div>
+        )}
       </div>
     </div>
   )
