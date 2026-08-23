@@ -295,3 +295,200 @@
   color: var(--sw-accent-bright);
   word-break: break-all;
 }
+
+/* ── equity sparkline ───────────────────────────────────────────── */
+
+.chartCard {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(6, 10, 20, 0.6);
+  padding: 1.1rem 1.2rem 0.9rem;
+  margin-bottom: 2rem;
+}
+
+.chartHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+}
+
+.chartSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ── positions ──────────────────────────────────────────────────── */
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(6, 10, 20, 0.6);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 640px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sw-cosmic-muted);
+  font-weight: 500;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.table td {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.tableSymbol {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 600;
+}
+
+.tableMuted {
+  color: var(--sw-cosmic-muted);
+  font-size: 0.8rem;
+}
+
+/* ── filters ────────────────────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.filter {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--sw-cosmic-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.filter:hover {
+  border-color: var(--sw-accent);
+  color: var(--sw-cosmic-ink);
+}
+
+.filter:focus-visible {
+  outline: 2px solid var(--sw-accent);
+  outline-offset: 2px;
+}
+
+.filterActive {
+  border-color: var(--sw-accent);
+  color: var(--sw-accent-bright);
+  background: var(--sw-accent-fainter);
+}
+
+/* ── verification badge ─────────────────────────────────────────── */
+
+.verify {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.verifyOk { color: var(--sw-leaf-bright); }
+.verifyBad { color: #E8836F; }
+.verifyIdle { color: var(--sw-cosmic-muted); }
+
+.permalink {
+  color: var(--sw-cosmic-muted);
+  font-size: 0.75rem;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.permalink:hover {
+  color: var(--sw-accent-bright);
+  border-bottom-color: currentColor;
+}
+
+/* ── detail page ────────────────────────────────────────────────── */
+
+.back {
+  display: inline-block;
+  color: var(--sw-cosmic-muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+  margin-bottom: 1.25rem;
+}
+
+.back:hover { color: var(--sw-accent-bright); }
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 1.5rem 0;
+}
+
+.evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.35rem 1.25rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  color: var(--sw-cosmic-muted);
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidence strong {
+  color: var(--sw-cosmic-ink);
+  font-weight: 500;
+}
+
+.chartAxis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--sw-cosmic-muted);
+  margin-top: 0.35rem;
+}
+
+/* Invalidation conditions are sentences; keep the row height honest and put
+   the full text in the title attribute rather than letting one cell wrap
+   three lines and bury the numbers. */
+.clamp {
+  display: inline-block;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}

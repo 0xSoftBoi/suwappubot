@@ -68,7 +68,9 @@
       "statusTitle": "服务状态",
       "statusDesc": "实时服务健康度",
       "autopilotTitle": "Autopilot",
-      "autopilotDesc": "实时观看自主代理交易，并验证它的每个决策"
+      "autopilotDesc": "实时观看自主代理交易，并验证它的每个决策",
+      "signalsTitle": "Signal Intelligence",
+      "signalsDesc": "可解释的链上信号及其证据"
     }
   },
   "hero": {

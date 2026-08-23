@@ -1,19 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '@/lib/links';
 import type { AutopilotDecision } from './types';
+import { type VerifyOutcome, verifyDecision } from './verify';
 import styles from './autopilot.module.css';
 
 const POLL_MS = 20_000;
 
 /** Prices span cents to thousands; significant digits beat a fixed decimal count. */
-function price(n: number): string {
+export function price(n: number): string {
   if (!Number.isFinite(n)) return '—';
   return n >= 1 ? `$${n.toFixed(2)}` : `$${Number(n.toPrecision(4))}`;
 }
 
-function relativeTime(iso: string): string {
+export function relativeTime(iso: string): string {
   const delta = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(delta)) return '';
   const mins = Math.round(delta / 60_000);
@@ -22,6 +23,63 @@ function relativeTime(iso: string): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+type Filter = 'all' | 'trades' | 'refusals';
+
+/**
+ * Verification badge.
+ *
+ * The hash is recomputed here, in the reader's browser, from the revealed
+ * thesis — not read from an API field that says "verified: true". An endpoint
+ * grading its own homework proves nothing; SHA-256 in your own runtime does.
+ */
+export function VerifyBadge({ decision }: { decision: AutopilotDecision }) {
+  const [outcome, setOutcome] = useState<VerifyOutcome | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    verifyDecision({
+      thesis: decision.thesis,
+      nonce: decision.nonce,
+      commitment: decision.commitment,
+      seal_algo: decision.seal_algo,
+    }).then((r) => {
+      if (live) setOutcome(r);
+    });
+    return () => {
+      live = false;
+    };
+  }, [decision.thesis, decision.nonce, decision.commitment, decision.seal_algo]);
+
+  if (!outcome) return <span className={`${styles.verify} ${styles.verifyIdle}`}>checking…</span>;
+
+  switch (outcome.state) {
+    case 'verified':
+      return (
+        <span className={`${styles.verify} ${styles.verifyOk}`} title={outcome.recomputed}>
+          ✓ hash verified in your browser
+        </span>
+      );
+    case 'mismatch':
+      return (
+        <span className={`${styles.verify} ${styles.verifyBad}`} title={outcome.recomputed}>
+          ✗ hash does NOT match the commitment
+        </span>
+      );
+    case 'sealed':
+      return (
+        <span className={`${styles.verify} ${styles.verifyIdle}`}>
+          sealed — thesis not revealed yet
+        </span>
+      );
+    default:
+      return (
+        <span className={`${styles.verify} ${styles.verifyIdle}`}>
+          cannot verify here ({outcome.reason})
+        </span>
+      );
+  }
 }
 
 /**
@@ -41,6 +99,7 @@ export default function AutopilotFeed({
 }) {
   const [decisions, setDecisions] = useState<AutopilotDecision[]>(initial);
   const [stale, setStale] = useState(false);
+  const [filter, setFilter] = useState<Filter>('all');
 
   const refresh = useCallback(async () => {
     try {
@@ -65,6 +124,21 @@ export default function AutopilotFeed({
     return () => clearInterval(timer);
   }, [refresh]);
 
+  const counts = useMemo(
+    () => ({
+      all: decisions.length,
+      trades: decisions.filter((d) => d.gate_passed).length,
+      refusals: decisions.filter((d) => !d.gate_passed).length,
+    }),
+    [decisions],
+  );
+
+  const shown = useMemo(() => {
+    if (filter === 'trades') return decisions.filter((d) => d.gate_passed);
+    if (filter === 'refusals') return decisions.filter((d) => !d.gate_passed);
+    return decisions;
+  }, [decisions, filter]);
+
   if (decisions.length === 0) {
     return (
       <p className={styles.empty}>
@@ -76,13 +150,26 @@ export default function AutopilotFeed({
 
   return (
     <>
+      <div className={styles.filters}>
+        {(['all', 'trades', 'refusals'] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={`${styles.filter} ${filter === f ? styles.filterActive : ''}`}
+            aria-pressed={filter === f}
+            onClick={() => setFilter(f)}
+          >
+            {f} ({counts[f]})
+          </button>
+        ))}
+      </div>
+
       {stale && (
-        <p className={styles.sectionNote}>
-          Live updates paused — showing the last data received.
-        </p>
+        <p className={styles.sectionNote}>Live updates paused — showing the last data received.</p>
       )}
+
       <ul className={styles.feed}>
-        {decisions.map((d) => {
+        {shown.map((d) => {
           const refused = !d.gate_passed;
           const cls = refused
             ? styles.cardRefused
@@ -115,10 +202,9 @@ export default function AutopilotFeed({
               <div className={styles.meta}>
                 {!refused && <span>size ${d.size_usd.toFixed(2)}</span>}
                 {d.confidence !== null && <span>confidence {d.confidence.toFixed(2)}</span>}
-                {d.fill_price_usd !== null && !refused && (
-                  <span>fill {price(d.fill_price_usd)}</span>
-                )}
+                {d.fill_price_usd !== null && !refused && <span>fill {price(d.fill_price_usd)}</span>}
                 <span>status {d.status}</span>
+                <VerifyBadge decision={d} />
               </div>
 
               <details className={styles.details}>
@@ -143,19 +229,25 @@ export default function AutopilotFeed({
                 <p className={styles.meta}>
                   <span className={styles.hash}>commitment {d.commitment}</span>
                 </p>
+                {d.seal_tx_hash && (
+                  <p className={styles.meta}>
+                    <span className={styles.hash}>
+                      anchored on {d.seal_chain}: {d.seal_tx_hash}
+                    </span>
+                  </p>
+                )}
                 <p className={styles.meta}>
+                  <a className={styles.permalink} href={`/autopilot/d/${d.id}`}>
+                    Open this decision →
+                  </a>
                   <a
+                    className={styles.permalink}
                     href={`${API_BASE_URL}/v1/autopilot/decisions/${d.id}/verify`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Verify this hash yourself →
+                    Raw API →
                   </a>
-                  {d.seal_tx_hash && (
-                    <span className={styles.hash}>
-                      anchored on {d.seal_chain}: {d.seal_tx_hash}
-                    </span>
-                  )}
                 </p>
               </details>
             </li>

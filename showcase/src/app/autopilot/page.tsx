@@ -3,7 +3,14 @@ import Navigation from '@/components/Navigation';
 import SummerFooter from '@/components/SummerFooter';
 import { API_BASE_URL } from '@/lib/links';
 import AutopilotFeed from './AutopilotFeed';
-import type { AutopilotAgentSummary, AutopilotDecision } from './types';
+import EquitySparkline from './EquitySparkline';
+import PositionsTable from './PositionsTable';
+import type {
+  AutopilotAgentSummary,
+  AutopilotCycle,
+  AutopilotDecision,
+  AutopilotPosition,
+} from './types';
 import styles from './autopilot.module.css';
 
 export const metadata: Metadata = {
@@ -38,12 +45,20 @@ export default async function AutopilotPage() {
   const agents = list?.agents ?? [];
   const agent = agents[0];
 
-  const decisionsPayload = agent
-    ? await getJson<{ decisions?: AutopilotDecision[] }>(
-        `/v1/autopilot/${agent.slug}/decisions?limit=40`,
-      )
-    : null;
+  const [decisionsPayload, detail] = agent
+    ? await Promise.all([
+        getJson<{ decisions?: AutopilotDecision[] }>(
+          `/v1/autopilot/${agent.slug}/decisions?limit=40`,
+        ),
+        getJson<{
+          portfolio?: { open_positions?: AutopilotPosition[] };
+          recent_cycles?: AutopilotCycle[];
+        }>(`/v1/autopilot/${agent.slug}`),
+      ])
+    : [null, null];
   const decisions = decisionsPayload?.decisions ?? [];
+  const positions = detail?.portfolio?.open_positions ?? [];
+  const cycles = detail?.recent_cycles ?? [];
 
   const refusals = decisions.filter((d) => !d.gate_passed).length;
   const pnlClass = agent && agent.pnl_usd >= 0 ? styles.up : styles.down;
@@ -107,6 +122,19 @@ export default async function AutopilotPage() {
                 </div>
               </section>
 
+              <EquitySparkline
+                cycles={cycles}
+                startingEquityUsd={agent.starting_equity_usd}
+              />
+
+              <div className={styles.sectionHead}>
+                <h2 className={styles.sectionTitle}>Positions</h2>
+                <p className={styles.sectionNote}>
+                  exit plans were committed at entry, not chosen now
+                </p>
+              </div>
+              <PositionsTable positions={positions} />
+
               <div className={styles.sectionHead}>
                 <h2 className={styles.sectionTitle}>Decisions</h2>
                 <p className={styles.sectionNote}>
@@ -131,10 +159,10 @@ export default async function AutopilotPage() {
             <div className={styles.explainItem}>
               <h3>Check it yourself</h3>
               <p>
-                Take <code>thesis</code>, <code>nonce</code> and <code>commitment</code> from any
-                revealed decision and compute{' '}
-                <code>sha256(&quot;sha256-canonical-v1|&quot; + nonce + &quot;|&quot; + canonical_thesis)</code>.
-                It must equal the commitment.
+                Every revealed decision above carries a badge your browser produced: it recomputed{' '}
+                <code>sha256(&quot;sha256-canonical-v1|&quot; + nonce + &quot;|&quot; + canonical_thesis)</code>{' '}
+                with WebCrypto and compared it to the published commitment. No API was asked
+                whether the hash was valid.
               </p>
             </div>
             <div className={styles.explainItem}>

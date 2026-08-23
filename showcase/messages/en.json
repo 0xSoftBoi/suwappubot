@@ -68,7 +68,9 @@
       "statusTitle": "Status",
       "statusDesc": "Live service health",
       "autopilotTitle": "Autopilot",
-      "autopilotDesc": "Watch the autonomous agent trade, and check its calls"
+      "autopilotDesc": "Watch the autonomous agent trade, and check its calls",
+      "signalsTitle": "Signal Intelligence",
+      "signalsDesc": "Explainable on-chain signals and evidence"
     }
   },
   "hero": {

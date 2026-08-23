@@ -49,3 +49,38 @@ export type AutopilotDecision = {
   thesis?: { reasoning?: string; evidence?: Record<string, unknown> } | null;
   revealed_at?: string;
 };
+
+export type AutopilotPosition = {
+  id: number;
+  chain: string;
+  token_address: string;
+  symbol: string;
+  status: string;
+  amount: string;
+  cost_basis_usd: number;
+  avg_entry_price_usd: number | null;
+  last_price_usd: number | null;
+  unrealized_pnl_usd: number | null;
+  realized_pnl_usd: number;
+  take_profit_pct: number | null;
+  stop_loss_pct: number | null;
+  invalidation: string | null;
+  entry_decision_id: number | null;
+  exit_decision_id: number | null;
+  opened_at: string;
+  closed_at: string | null;
+};
+
+export type AutopilotCycle = {
+  id: number;
+  status: string;
+  stage: string;
+  candidates_scanned: number;
+  theses_formed: number;
+  decisions_sealed: number;
+  decisions_executed: number;
+  equity_usd: number | null;
+  started_at: string;
+  finished_at: string | null;
+  error: string | null;
+};

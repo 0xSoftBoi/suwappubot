@@ -68,7 +68,9 @@
       "statusTitle": "Estado",
       "statusDesc": "Salud del servicio en vivo",
       "autopilotTitle": "Autopilot",
-      "autopilotDesc": "Observa al agente autónomo operar y verifica sus decisiones"
+      "autopilotDesc": "Observa al agente autónomo operar y verifica sus decisiones",
+      "signalsTitle": "Signal Intelligence",
+      "signalsDesc": "Señales on-chain explicables, con su evidencia"
     }
   },
   "hero": {

@@ -68,7 +68,9 @@
       "statusTitle": "Statut",
       "statusDesc": "État des services en direct",
       "autopilotTitle": "Autopilot",
-      "autopilotDesc": "Observez l'agent autonome trader et vérifiez ses décisions"
+      "autopilotDesc": "Observez l'agent autonome trader et vérifiez ses décisions",
+      "signalsTitle": "Signal Intelligence",
+      "signalsDesc": "Des signaux on-chain explicables, preuves à l’appui"
     }
   },
   "hero": {
