@@ -1,0 +1,39 @@
+# One workspace, three crates: the solver (this package), the EVM wrapper, and
+# the wasm-bindgen module that carries both into a browser.  `resolver = "2"`
+# so `default-features = false` on a path dependency really excludes pyo3 when
+# the wasm crate is the one being built.
+[workspace]
+members = ["evm", "wasm"]
+resolver = "2"
+
+[package]
+name = "erouter-solve"
+version = "0.1.0"
+edition = "2021"
+description = "The quadratic-flow router's hot path: active-set QP over a graph Laplacian."
+license = "MIT"
+
+[lib]
+name = "erouter_solve"
+# `cdylib` for the Python extension and for a bare wasm module; `rlib` so the
+# core can be unit-tested and linked by a future JS-facing wrapper.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Section timers inside the pivot loop.  Native profiling only: it pulls in
+# a clock, which the wasm/browser build must not have.
+bench = []
+default = []
+# PyO3 is optional so the same core compiles to wasm32 with no Python at all.
+python = ["dep:pyo3"]
+
+[dependencies.pyo3]
+version = "0.23"
+features = ["extension-module", "abi3-py311"]
+optional = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

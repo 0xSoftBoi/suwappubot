@@ -8,9 +8,15 @@ website (WASM) and as a native desktop app.
 - Forked from upstream commit `835259b7bc2cc7f9906bb6299c08552d6ebf9953` (2026-08-23).
 - Vendored into the monorepo (rather than a GitHub fork) so it deploys and
   evolves with the rest of Suwappu; upstream `.git` history is not carried.
-- The `vendor/` submodules (curve-assets, electric-router) are not vendored —
-  run `git submodule` steps from the upstream README against upstream if you
-  need a full local build.
+- `vendor/electric-router` is vendored from
+  [michwill/electric-router](https://github.com/michwill/electric-router) at
+  upstream commit `e194e256954fe30305caa48308952982f2c17d6c` — the
+  physics-based cross-pool router (swaps solved as electric circuits; Rust
+  solver + EVM compiled to WASM for the browser, deployed `RouteQuoter.vy` at
+  `0x9a32418b9fd744efd6820577037529d5ba9de679` on every supported chain). See
+  its `docs/browser-port.md` for the integration seams. The `curve-assets`
+  submodule is not vendored — fetch from upstream if you need a full local
+  flet build.
 
 ## Why it's here
 

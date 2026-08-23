@@ -355,7 +355,16 @@ export function CurvePoolsPanel() {
       )}
       <div className="flex shrink-0 items-center justify-between gap-2 border-t border-terminal-border px-2 py-1.5">
         <div className="text-[10px] text-terminal-text-muted">
-          Powered by Curve Prices API · fork: flet-curve
+          Built on{' '}
+          <a
+            href="https://github.com/michwill/flet-curve-demo"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-terminal-accent hover:underline"
+          >
+            flet-curve
+          </a>{' '}
+          by @newmichwill · Powered by Curve Prices API
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="text-terminal-text-muted">

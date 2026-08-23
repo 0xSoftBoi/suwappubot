@@ -315,6 +315,118 @@ export async function fetchCurvePoolDetail(
   return parseCurvePoolDetail(payload)
 }
 
+// ---- trades (v1 /trades/{chain}/{pool}, one pair per request) ----
+
+// Per-chain explorers, from flet-curve/src/curve/explorers.py (the chains our
+// TRADABLE set covers, plus a multi-chain fallback for the rest).
+const CURVE_EXPLORERS: Record<number, string> = {
+  1: 'https://etherscan.io',
+  10: 'https://optimistic.etherscan.io',
+  56: 'https://bscscan.com',
+  137: 'https://polygonscan.com',
+  8453: 'https://basescan.org',
+  42161: 'https://arbiscan.io',
+}
+
+export function explorerTxUrl(chainId: number, txHash: string): string {
+  if (!txHash) return ''
+  const base = CURVE_EXPLORERS[chainId]
+  return base ? `${base}/tx/${txHash}` : `https://blockscan.com/tx/${txHash}`
+}
+
+export interface CurveTrade {
+  time: number
+  soldSymbol: string
+  boughtSymbol: string
+  soldAmount: number
+  boughtAmount: number
+  soldUsd: number
+  txHash: string
+  buyer: string
+}
+
+// One pair's swaps, both directions. `sold_id`/`bought_id` are pool_index
+// values; the payload's main_token/reference_token blocks map them back to
+// symbols. `time` is an ISO string in UTC without a zone suffix.
+export function parseCurveTrades(payload: unknown): CurveTrade[] {
+  if (isRejection(payload)) return []
+  if (!payload || typeof payload !== 'object') return []
+  const obj = payload as Record<string, unknown>
+  const data = Array.isArray(obj.data) ? obj.data : []
+  const symbolByIndex = new Map<number, string>()
+  for (const side of [obj.main_token, obj.reference_token]) {
+    if (side && typeof side === 'object') {
+      const row = side as Record<string, unknown>
+      const index = Number(row.pool_index)
+      if (Number.isFinite(index) && typeof row.symbol === 'string') {
+        symbolByIndex.set(index, row.symbol)
+      }
+    }
+  }
+  const out: CurveTrade[] = []
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const iso = typeof row.time === 'string' ? row.time : ''
+    const time = iso ? Math.floor(Date.parse(iso.endsWith('Z') ? iso : `${iso}Z`) / 1000) : 0
+    if (!Number.isFinite(time) || time <= 0) continue
+    const num = (v: unknown) => {
+      const n = Number(v ?? 0)
+      return Number.isFinite(n) ? n : 0
+    }
+    out.push({
+      time,
+      soldSymbol: symbolByIndex.get(Number(row.sold_id)) ?? '?',
+      boughtSymbol: symbolByIndex.get(Number(row.bought_id)) ?? '?',
+      soldAmount: num(row.tokens_sold),
+      boughtAmount: num(row.tokens_bought),
+      soldUsd: num(row.tokens_sold_usd),
+      txHash: typeof row.transaction_hash === 'string' ? row.transaction_hash : '',
+      buyer: typeof row.buyer === 'string' ? row.buyer : '',
+    })
+  }
+  return out
+}
+
+// The newest swaps through a pool across every pair it holds — flet-curve's
+// `trades()` does the same merge; the API answers one pair per request, so a
+// 3-coin pool is 3 requests. Pairs are capped so a many-coin pool cannot fan
+// out unboundedly; failures on one pair drop that pair, not the feed.
+export async function fetchPoolTrades(
+  chain: string,
+  pool: string,
+  coins: CurveCoin[],
+  perPage = 20,
+): Promise<CurveTrade[]> {
+  const pairs: [CurveCoin, CurveCoin][] = []
+  for (let i = 0; i < coins.length && pairs.length < 6; i++) {
+    for (let j = i + 1; j < coins.length && pairs.length < 6; j++) {
+      if (coins[i].address && coins[j].address) pairs.push([coins[i], coins[j]])
+    }
+  }
+  const pages = await Promise.all(
+    pairs.map(async ([a, b]) => {
+      try {
+        const payload = await getJson(
+          buildUrl(PRICES_V1, `/trades/${chain}/${pool}`, {
+            main_token: a.address,
+            reference_token: b.address,
+            page: 1,
+            per_page: perPage,
+          }),
+        )
+        return parseCurveTrades(payload)
+      } catch {
+        return []
+      }
+    }),
+  )
+  return pages
+    .flat()
+    .sort((a, b) => b.time - a.time)
+    .slice(0, perPage)
+}
+
 // ---- fetchers ----
 
 export async function fetchCurveChains(): Promise<CurveChain[]> {

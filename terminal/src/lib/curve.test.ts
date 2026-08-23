@@ -234,3 +234,47 @@ describe('parseCurvePoolDetail', () => {
     expect(bare?.tvlUsd).toBe(0)
   })
 })
+
+describe('parseCurveTrades', () => {
+  const { parseCurveTrades, explorerTxUrl } = require('./curve') as typeof import('./curve')
+
+  test('maps sold/bought ids to symbols via pool_index and parses UTC time', () => {
+    const payload = {
+      main_token: { symbol: 'USDC', pool_index: 1 },
+      reference_token: { symbol: 'DAI', pool_index: 0 },
+      data: [
+        {
+          sold_id: 0,
+          bought_id: 1,
+          tokens_sold: 256.47,
+          tokens_bought: 256.43,
+          tokens_sold_usd: 256.44,
+          time: '2026-08-23T21:58:35',
+          transaction_hash: '0xtx',
+          buyer: '0xbuyer',
+        },
+      ],
+    }
+    const trades = parseCurveTrades(payload)
+    expect(trades).toHaveLength(1)
+    expect(trades[0].soldSymbol).toBe('DAI')
+    expect(trades[0].boughtSymbol).toBe('USDC')
+    expect(trades[0].time).toBe(Math.floor(Date.parse('2026-08-23T21:58:35Z') / 1000))
+    expect(trades[0].txHash).toBe('0xtx')
+  })
+
+  test('drops rows without a parseable time; rejection/junk yield empty', () => {
+    expect(
+      parseCurveTrades({ main_token: {}, reference_token: {}, data: [{ sold_id: 0 }] }),
+    ).toEqual([])
+    expect(parseCurveTrades({ detail: 'nope' })).toEqual([])
+    expect(parseCurveTrades(null)).toEqual([])
+  })
+
+  test('explorerTxUrl maps known chains and falls back to blockscan', () => {
+    expect(explorerTxUrl(1, '0xabc')).toBe('https://etherscan.io/tx/0xabc')
+    expect(explorerTxUrl(42161, '0xabc')).toBe('https://arbiscan.io/tx/0xabc')
+    expect(explorerTxUrl(146, '0xabc')).toBe('https://blockscan.com/tx/0xabc')
+    expect(explorerTxUrl(1, '')).toBe('')
+  })
+})

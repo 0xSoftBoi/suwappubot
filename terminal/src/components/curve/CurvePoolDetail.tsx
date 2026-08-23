@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   CURVE_CANDLE_SIZES,
+  explorerTxUrl,
   fetchCurvePoolDetail,
   fetchLpCandles,
+  fetchPoolTrades,
   type CurvePool,
 } from '../../lib/curve'
 import { CandleChartCore } from '../chart/CandleChartCore'
@@ -47,6 +49,14 @@ export function CurvePoolDetail({ pool, chain, tradable, onBack, onTrade }: Prop
   })
 
   const coins = detail?.coins?.length ? detail.coins : pool.coins
+
+  const { data: trades } = useQuery({
+    queryKey: ['curve', 'trades', chain, pool.address],
+    queryFn: () => fetchPoolTrades(chain, pool.address, coins),
+    enabled: coins.length >= 2,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
   const balances = detail?.balancesUsd ?? []
   const balancesTotal = balances.reduce((a, b) => a + b, 0)
 
@@ -145,6 +155,46 @@ export function CurvePoolDetail({ pool, chain, tradable, onBack, onTrade }: Prop
             </span>
           ) : null}
         </div>
+        {trades && trades.length > 0 && (
+          <div className="mb-2" data-testid="curve-detail-trades">
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-terminal-text-muted">
+              Recent trades
+            </div>
+            <div className="max-h-28 overflow-y-auto">
+              {trades.map((t) => {
+                const ago = Math.max(0, Math.floor(Date.now() / 1000) - t.time)
+                const agoLabel =
+                  ago < 60 ? `${ago}s` : ago < 3600 ? `${Math.floor(ago / 60)}m` : `${Math.floor(ago / 3600)}h`
+                const txUrl = explorerTxUrl(pool.chainId, t.txHash)
+                return (
+                  <div
+                    key={`${t.txHash}-${t.time}-${t.soldSymbol}`}
+                    className="flex items-center gap-2 py-0.5 text-xs"
+                  >
+                    <span className="tnum w-10 shrink-0 text-terminal-text-muted">{agoLabel}</span>
+                    <span className="min-w-0 flex-1 truncate text-terminal-text">
+                      {t.soldAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} {t.soldSymbol}
+                      <span className="text-terminal-text-muted"> → </span>
+                      {t.boughtAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} {t.boughtSymbol}
+                    </span>
+                    <span className="tnum shrink-0 text-terminal-text-secondary">{compactUsd(t.soldUsd)}</span>
+                    {txUrl ? (
+                      <a
+                        href={txUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 text-terminal-accent hover:underline"
+                        aria-label="Open transaction in explorer"
+                      >
+                        ↗
+                      </a>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {coins.length > 0 && (
           <div className="flex flex-col gap-1" data-testid="curve-detail-composition">
             {coins.map((coin, i) => {
