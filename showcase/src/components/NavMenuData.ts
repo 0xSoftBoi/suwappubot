@@ -18,6 +18,7 @@ export const MENU_PANELS: MenuPanel[] = [
         { key: 'terminal', href: TERMINAL_URL, external: true },
         { key: 'bot', href: TELEGRAM_URL, external: true },
         { key: 'miniApp', href: MINI_APP_URL, external: true },
+        { key: 'autopilot', href: '/autopilot' },
       ]},
       { key: 'grpMarkets', items: [
         { key: 'swaps', href: '/#engine' },

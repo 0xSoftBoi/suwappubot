@@ -53,6 +53,37 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'http://localhost:8000',
 	}),
 
+	// Autopilot — autonomous trading agent. Live execution is opt-in and goes
+	// through our own agent API, so it needs that API's base URL and an agent
+	// API key. Without the key an agent can only run in paper mode.
+	AUTOPILOT_API_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.suwappu.bot',
+	}),
+	AUTOPILOT_AGENT_API_KEY: Schema.optional(Schema.String),
+	/**
+	 * Anchoring key for decision commitments. Separate from every trading and
+	 * fee key by design — it only ever signs zero-value self-sends carrying the
+	 * commitment memo. Unset = no anchoring.
+	 */
+	AUTOPILOT_ANCHOR_PRIVATE_KEY: Schema.optional(Schema.String),
+	AUTOPILOT_ANCHOR_CHAIN: Schema.optionalWith(Schema.String, { default: () => 'base' }),
+	/** Required only for agents whose thesis_engine is 'llm'. */
+	ANTHROPIC_API_KEY: Schema.optional(Schema.String),
+	AUTOPILOT_LLM_MODEL: Schema.optionalWith(Schema.String, { default: () => 'claude-opus-5' }),
+	AUTOPILOT_LLM_EFFORT: Schema.optionalWith(Schema.Literal('low', 'medium', 'high'), {
+		default: () => 'low' as const,
+	}),
+	/** Model calls per cycle. The cost ceiling for an LLM-driven agent. */
+	AUTOPILOT_LLM_MAX_CALLS: Schema.optionalWith(Schema.NumberFromString, { default: () => 8 }),
+	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
+	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
+	/**
+	 * JSON describing one PAPER agent this environment should have. Seeded on
+	 * boot if missing, never modified if it already exists. Cannot create a live
+	 * agent — see services/autopilot/bootstrap.ts.
+	 */
+	AUTOPILOT_BOOTSTRAP: Schema.optional(Schema.String),
+
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
@@ -177,10 +208,14 @@ export const EnvServiceLive = Layer.effect(
 		}
 		// Warn if using default fee wallet addresses
 		if (!process.env.FEE_WALLET_EVM) {
-			console.warn('[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!')
+			console.warn(
+				'[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!',
+			)
 		}
 		if (!process.env.FEE_WALLET_SOLANA) {
-			console.warn('[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!')
+			console.warn(
+				'[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!',
+			)
 		}
 		return env
 	}),

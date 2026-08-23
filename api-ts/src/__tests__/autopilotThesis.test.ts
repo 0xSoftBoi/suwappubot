@@ -1,0 +1,259 @@
+import { describe, expect, it } from 'bun:test'
+import { PaperExecutor } from '../services/autopilot/executor'
+import { DEFAULT_RULES_ENGINE_CONFIG, RulesThesisEngine } from '../services/autopilot/thesis'
+import type { Candidate, OpenPositionSummary } from '../services/autopilot/types'
+
+const engine = new RulesThesisEngine()
+
+const candidate = (over: Partial<Candidate> = {}): Candidate => ({
+	chain: 'base',
+	tokenAddress: '0x1111111111111111111111111111111111111111',
+	symbol: 'GOOD',
+	priceUsd: 0.01,
+	liquidityUsd: 500_000,
+	volume24hUsd: 1_000_000,
+	priceChange1hPct: 12,
+	priceChange24hPct: 40,
+	ageMinutes: 5_000,
+	...over,
+})
+
+const ctx = { availableUsd: 1000, maxPositionUsd: 100, openPositions: [] }
+
+describe('RulesThesisEngine scoring', () => {
+	it('scores a healthy candidate above the floor', () => {
+		const s = engine.score(candidate())
+		expect(s.composite).toBeGreaterThan(DEFAULT_RULES_ENGINE_CONFIG.minScore)
+	})
+
+	it('fades a parabolic move rather than chasing it', () => {
+		const calm = engine.score(candidate({ priceChange1hPct: 15 }))
+		const parabolic = engine.score(candidate({ priceChange1hPct: 400 }))
+		expect(parabolic.momentumScore).toBeLessThan(calm.momentumScore)
+		expect(parabolic.composite).toBeLessThan(calm.composite)
+	})
+
+	it('gives no momentum credit to a falling token', () => {
+		expect(engine.score(candidate({ priceChange1hPct: -10 })).momentumScore).toBe(0)
+	})
+
+	it('penalises thin depth and dead turnover', () => {
+		expect(engine.score(candidate({ liquidityUsd: 5_000 })).depthScore).toBeLessThan(0.2)
+		expect(engine.score(candidate({ volume24hUsd: 1_000 })).turnoverScore).toBeLessThan(0.2)
+	})
+
+	it('treats suspiciously high turnover as a wash-trade smell', () => {
+		const healthy = engine.score(candidate({ volume24hUsd: 1_000_000 }))
+		const washy = engine.score(candidate({ volume24hUsd: 100_000_000 }))
+		expect(washy.turnoverScore).toBeLessThan(healthy.turnoverScore)
+	})
+
+	it('gives no age credit when pool age is unknown', () => {
+		const unknown = candidate()
+		delete (unknown as { ageMinutes?: unknown }).ageMinutes
+		expect(engine.score(unknown).ageScore).toBe(0)
+	})
+})
+
+describe('RulesThesisEngine.formEntry', () => {
+	it('produces a complete, committed thesis', async () => {
+		const t = await engine.formEntry(candidate(), ctx)
+		expect(t).not.toBeNull()
+		expect(t?.action).toBe('buy')
+		expect(t?.sizeUsd).toBeGreaterThan(0)
+		expect(t?.exit.stopLossPct).toBe(DEFAULT_RULES_ENGINE_CONFIG.stopLossPct)
+		expect(t?.exit.invalidation.length).toBeGreaterThan(10)
+		expect(t?.engine).toBe('rules')
+		expect(Object.keys(t?.evidence ?? {})).toContain('turnover')
+	})
+
+	it('refuses a candidate below the score floor', async () => {
+		const weak = candidate({ liquidityUsd: 2_000, volume24hUsd: 100, priceChange1hPct: -50 })
+		expect(await engine.formEntry(weak, ctx)).toBeNull()
+	})
+
+	it('never sizes above the per-position cap or the free capital slice', async () => {
+		const t = await engine.formEntry(candidate(), { ...ctx, availableUsd: 100 })
+		expect(t?.sizeUsd).toBeLessThanOrEqual(10)
+	})
+
+	it('is deterministic — same snapshot, same thesis', async () => {
+		const c = candidate()
+		const a = await engine.formEntry(c, ctx)
+		const b = await engine.formEntry(c, ctx)
+		expect({ ...a, formedAt: '' }).toEqual({ ...b, formedAt: '' } as never)
+	})
+})
+
+describe('RulesThesisEngine.formExit', () => {
+	const position: OpenPositionSummary = {
+		chain: 'base',
+		tokenAddress: '0x1111111111111111111111111111111111111111',
+		symbol: 'GOOD',
+		amount: '1000',
+		costBasisUsd: 100,
+		avgEntryPriceUsd: 0.1,
+		openedAt: Date.now() - 60_000,
+	}
+
+	it('states the trigger and the realized move', async () => {
+		const t = await engine.formExit(position, 0.05, 'stop-loss hit: -50.0% <= -20%')
+		expect(t.action).toBe('sell')
+		expect(t.confidence).toBe(1)
+		expect(t.headline).toContain('Exit GOOD')
+		expect(t.evidence.pnlPct).toBe(-50)
+	})
+})
+
+describe('PaperExecutor', () => {
+	const executor = new PaperExecutor()
+	const base = {
+		chain: 'base',
+		side: 'buy' as const,
+		fromToken: 'USDC',
+		toToken: 'GOOD',
+		amountUsd: 100,
+		slippageBps: 150,
+		idempotencyKey: 'a'.repeat(64),
+	}
+
+	it('fills with depth-derived impact', async () => {
+		const r = await executor.execute({ ...base, referencePriceUsd: 1, liquidityUsd: 1_000_000 })
+		expect(r.ok).toBe(true)
+		expect(r.paper).toBe(true)
+		expect(r.fillPriceUsd).toBeGreaterThan(1)
+		expect(r.realizedSlippageBps).toBeLessThan(10)
+		expect(r.txHash).toStartWith('paper:')
+	})
+
+	it('fills a sell BELOW mid and a buy ABOVE it', async () => {
+		// The bug this pins: a sell modelled with `1 + impact` gets a better price
+		// than the market would give, and every closed trade reads better than it
+		// was. Both sides must be worse than mid.
+		const buy = await executor.execute({ ...base, referencePriceUsd: 100, liquidityUsd: 1_000_000 })
+		const sell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+		})
+		expect(buy.fillPriceUsd).toBeGreaterThan(100)
+		expect(sell.fillPriceUsd).toBeLessThan(100)
+	})
+
+	it('charges the per-side fee on top of impact, in the costly direction each way', async () => {
+		const free = await executor.execute({
+			...base,
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+		})
+		const paid = await executor.execute({
+			...base,
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		expect(paid.fillPriceUsd).toBeGreaterThan(free.fillPriceUsd as number)
+
+		const freeSell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+		})
+		const paidSell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		expect(paidSell.fillPriceUsd).toBeLessThan(freeSell.fillPriceUsd as number)
+	})
+
+	it('makes an instant round trip lose money, never make it', async () => {
+		// Buy and immediately sell at an unchanged mid. Any paper book where this
+		// is not a loss is quietly manufacturing returns.
+		const buy = await executor.execute({
+			...base,
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		const sell = await executor.execute({
+			...base,
+			side: 'sell',
+			referencePriceUsd: 100,
+			liquidityUsd: 1_000_000,
+			feeBps: 30,
+		})
+		expect(sell.fillPriceUsd as number).toBeLessThan(buy.fillPriceUsd as number)
+	})
+
+	it('refuses a fill that would blow through the slippage limit', async () => {
+		const r = await executor.execute({ ...base, referencePriceUsd: 1, liquidityUsd: 500 })
+		expect(r.ok).toBe(false)
+		expect(r.error).toContain('slippage')
+	})
+
+	it('refuses without a reference price instead of inventing one', async () => {
+		const r = await executor.execute({ ...base, liquidityUsd: 1_000_000 })
+		expect(r.ok).toBe(false)
+	})
+})
+
+describe('screening excludes quote assets', () => {
+	it('treats the quote assets as never-candidates', async () => {
+		const { isQuoteAsset } = await import('../services/autopilot/market')
+		// Observed live: a USDC-denominated Base agent's first screen returned
+		// exactly [USDC, WETH] — the search surface hands back the assets it was
+		// asked to quote against.
+		for (const s of ['USDC', 'usdc', ' WETH ', 'ETH', 'SOL', 'USDT', 'DAI', 'WBNB']) {
+			expect(isQuoteAsset(s)).toBe(true)
+		}
+		for (const s of ['CATE', 'DEEP', 'BRETT', 'wethereal']) {
+			expect(isQuoteAsset(s)).toBe(false)
+		}
+	})
+})
+
+describe('geckoPoolToCandidate', () => {
+	const pool = {
+		attributes: {
+			name: 'VELVET / USDC 0.01%',
+			base_token_price_usd: '0.667224557054967',
+			reserve_in_usd: '4321848.1',
+			volume_usd: { h24: '2476575.3' },
+			market_cap_usd: '9000000',
+			pool_created_at: '2026-08-22T23:44:37Z',
+			price_change_percentage: { m5: '0.542', h1: '-0.701', h24: '-6.484' },
+		},
+		relationships: {
+			base_token: { data: { id: 'base_0xbf927b841994731c573bdf09ceb0c6b0aa887cdd' } },
+		},
+	}
+
+	it('reads the base token out of the pool name and the prefixed id', async () => {
+		const { geckoPoolToCandidate } = await import('../services/autopilot/market')
+		const c = geckoPoolToCandidate(pool as never, 'base')
+		expect(c?.symbol).toBe('VELVET')
+		expect(c?.tokenAddress).toBe('0xbf927b841994731c573bdf09ceb0c6b0aa887cdd')
+		expect(c?.priceUsd).toBeCloseTo(0.667, 3)
+		expect(c?.liquidityUsd).toBeCloseTo(4_321_848.1, 1)
+		expect(c?.volume24hUsd).toBeCloseTo(2_476_575.3, 1)
+		expect(c?.priceChange1hPct).toBe(-0.701)
+		expect(c?.ageMinutes).toBeGreaterThan(0)
+	})
+
+	it('refuses a pool it cannot read rather than inventing fields', async () => {
+		const { geckoPoolToCandidate } = await import('../services/autopilot/market')
+		expect(geckoPoolToCandidate({} as never, 'base')).toBeNull()
+		expect(geckoPoolToCandidate({ ...pool, relationships: {} } as never, 'base')).toBeNull()
+		expect(
+			geckoPoolToCandidate(
+				{ ...pool, attributes: { ...pool.attributes, base_token_price_usd: '0' } } as never,
+				'base',
+			),
+		).toBeNull()
+	})
+})

@@ -26,6 +26,33 @@ RUN npm install -g bun@1.3.14
 COPY packages/design-tokens/ /app/packages/design-tokens/
 COPY --from=deps /app/showcase/node_modules ./node_modules
 COPY showcase/ .
+
+# NEXT_PUBLIC_* is inlined into the client bundle at BUILD time, so a value set
+# only as a runtime service variable reaches server components and silently
+# misses everything that runs in the browser. On dev that meant the autopilot
+# dashboard server-rendered from the dev API while its 20s poll and its "raw
+# API" links were baked against the production default — which does not serve
+# those routes at all. Declaring the ARGs is what lets the platform's variables
+# reach the compiler; each falls back to the same default the code uses.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_API_TS_URL
+ARG NEXT_PUBLIC_AUTH_URL
+ARG NEXT_PUBLIC_TELEGRAM_BOT_USERNAME
+ARG NEXT_PUBLIC_TELEGRAM_LOGIN_ENABLED
+ARG NEXT_PUBLIC_ANALYTICS_ID
+ARG NEXT_PUBLIC_POSTHOG_KEY
+ARG NEXT_PUBLIC_REDDIT_PIXEL_ID
+ARG NEXT_PUBLIC_X_PIXEL_ID
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_API_TS_URL=$NEXT_PUBLIC_API_TS_URL \
+    NEXT_PUBLIC_AUTH_URL=$NEXT_PUBLIC_AUTH_URL \
+    NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=$NEXT_PUBLIC_TELEGRAM_BOT_USERNAME \
+    NEXT_PUBLIC_TELEGRAM_LOGIN_ENABLED=$NEXT_PUBLIC_TELEGRAM_LOGIN_ENABLED \
+    NEXT_PUBLIC_ANALYTICS_ID=$NEXT_PUBLIC_ANALYTICS_ID \
+    NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY \
+    NEXT_PUBLIC_REDDIT_PIXEL_ID=$NEXT_PUBLIC_REDDIT_PIXEL_ID \
+    NEXT_PUBLIC_X_PIXEL_ID=$NEXT_PUBLIC_X_PIXEL_ID
+
 RUN mkdir -p public && bun run build
 
 FROM public.ecr.aws/docker/library/node:26-alpine AS runner

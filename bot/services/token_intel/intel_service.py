@@ -38,6 +38,11 @@ class HolderInfo:
     address: str
     balance: float
     pct: Optional[float] = None
+    # Whether this holder is a contract. A liquidity pool, a vesting escrow or a
+    # Safe is not "a wallet that could dump on you", which is the only question
+    # holder concentration is asked to answer.
+    is_contract: bool = False
+    label: Optional[str] = None
 
 
 @dataclass
@@ -56,7 +61,12 @@ class TokenIntelReport:
     mint_authority: Optional[str] = None  # Solana only
 
     top_holders: List[HolderInfo] = field(default_factory=list)
+    # Concentration across the top wallets (contracts excluded). None means we
+    # could not measure it — callers must treat that as unknown, not as safe.
     top10_pct: Optional[float] = None
+    # How much of supply sits in contracts (pools, vesting, bridges). Informative,
+    # deliberately not folded into top10_pct.
+    contract_held_pct: Optional[float] = None
 
     cluster_groups: List[List[str]] = field(default_factory=list)
     bundle_buyer_count: Optional[int] = None
@@ -71,7 +81,13 @@ class TokenIntelReport:
     def set_top_holders(self, holders: List[dict]) -> None:
         """Set top holders from plain dicts and recompute top10 concentration."""
         self.top_holders = [
-            HolderInfo(address=h.get("address"), balance=h.get("balance", 0.0), pct=h.get("pct"))
+            HolderInfo(
+                address=h.get("address"),
+                balance=h.get("balance", 0.0),
+                pct=h.get("pct"),
+                is_contract=bool(h.get("is_contract")),
+                label=h.get("label"),
+            )
             for h in holders
             if h.get("address")
         ]
@@ -116,8 +132,19 @@ class TokenIntelService:
         return f"{chain.lower()}:{token_address.lower()}"
 
     async def analyze(
-        self, token_address: str, chain: str, force_refresh: bool = False
+        self,
+        token_address: str,
+        chain: str,
+        force_refresh: bool = False,
+        quick: bool = False,
     ) -> TokenIntelReport:
+        """Build a token intel report.
+
+        quick=True asks the source modules for only the fields a risk gate
+        needs, skipping the transfer-walking enrichments that dominate latency.
+        Quick and full reports share a cache key deliberately: a full report is
+        a superset, so a cached one satisfies a quick caller.
+        """
         chain = (chain or "ethereum").lower()
         cache_key = self._cache_key(token_address, chain)
 
@@ -138,7 +165,7 @@ class TokenIntelService:
             else:
                 from bot.services.token_intel import evm_source
 
-                await evm_source.enrich_report(report, chain)
+                await evm_source.enrich_report(report, chain, quick=quick)
         except Exception as e:
             # Belt-and-suspenders: source modules are already defensive, but a
             # single report must never fail the whole /intel command.

@@ -13,6 +13,7 @@ monorepo directory-by-directory unless you are maintaining it.
 |---|---|---|
 | **Use Suwappu** | [Quickstart](quickstart.md) | [Feature guides](features/README.md) |
 | **Build an agent** | [Agent clients](agent-clients.md) | [Agent control plane](agents/control-plane.md) |
+| **Autonomous trading agent** | [Autopilot](agents/autopilot.md) | commit-reveal loop, risk gates, public decision feed |
 | **Integrate an app** | [Quickstart](quickstart.md#build-an-application) | [`@suwappu/sdk`](../packages/sdk/README.md) · [Python SDK](../packages/sdk-python/README.md) |
 | **Check maturity / execution authority** | [Product status](product-status.md) | [Agent clients](agent-clients.md) |
 | **Understand the system** | [Architecture overview](architecture/OVERVIEW.md) | [`ARCHITECTURE.md`](../ARCHITECTURE.md) · [ADRs](adr/README.md) |
