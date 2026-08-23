@@ -10,6 +10,7 @@ import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
 import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
+import { runAutopilotBootstrap } from './services/autopilot/bootstrap'
 import { startAutopilotScheduler, stopAutopilotScheduler } from './services/autopilot/scheduler'
 
 async function main() {
@@ -56,6 +57,10 @@ async function main() {
 	logger.info(`Suwappu API (TypeScript) running at http://localhost:${server.port}`)
 	logger.info(`Environment: ${env.NODE_ENV}`)
 	logger.info(`Database: ${env.DATABASE_URL ? 'configured' : 'not configured'}`)
+
+	// Seed the paper agent this environment declares, if it is missing. Paper
+	// only, and never modifies an agent that already exists.
+	await runAutopilotBootstrap(env.AUTOPILOT_BOOTSTRAP)
 
 	// Autopilot — periodic autonomous trading cycles. Disabled unless
 	// AUTOPILOT_CYCLE_MINUTES is set, and each agent still has to be `active`
