@@ -194,9 +194,11 @@ export default async function DecisionPage({ params }: { params: Promise<{ id: s
             <div className={styles.explainItem}>
               <h3>Do it without us</h3>
               <p>
-                Canonical JSON here means object keys sorted lexicographically with no whitespace.
-                Any SHA-256 implementation reproduces the commitment from the thesis and nonce
-                above.
+                Canonical JSON here means object keys sorted lexicographically, no whitespace, and
+                strings as raw UTF-8 — non-ASCII is <em>not</em> <code>\uXXXX</code>-escaped, so
+                Python needs <code>ensure_ascii=False</code> and Go needs{' '}
+                <code>SetEscapeHTML(false)</code>. The verify endpoint publishes the exact
+                pre-image; <code>sha256(preimage)</code> must equal the commitment in any language.
               </p>
             </div>
           </section>
