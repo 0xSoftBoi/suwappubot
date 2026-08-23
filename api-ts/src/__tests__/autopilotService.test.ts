@@ -86,10 +86,10 @@ describe('toPublicDecision', () => {
 	it('withholds the nonce and the thesis while the decision is still sealed', () => {
 		const pub = toPublicDecision(row())
 		expect(pub.commitment).toBe('f'.repeat(64))
-		expect(pub.sealMemo).toBe(`suwappu-autopilot:v1:sha256-canonical-v1:${'f'.repeat(64)}`)
+		expect(pub.seal_memo).toBe(`suwappu-autopilot:v1:sha256-canonical-v1:${'f'.repeat(64)}`)
 		expect(pub.nonce).toBeUndefined()
 		expect(pub.thesis).toBeUndefined()
-		expect(pub.revealedAt).toBeUndefined()
+		expect(pub.revealed_at).toBeUndefined()
 		expect(pub.headline).toBe('depth is rising')
 	})
 
@@ -99,7 +99,23 @@ describe('toPublicDecision', () => {
 		)
 		expect(pub.nonce).toBe('a'.repeat(64))
 		expect(pub.thesis).toEqual({ action: 'buy' })
-		expect(pub.revealedAt).toBe('2026-08-01T00:01:00.000Z')
+		expect(pub.revealed_at).toBe('2026-08-01T00:01:00.000Z')
+	})
+
+	it('is snake_case on the wire, like every other autopilot response', () => {
+		// A mixed-casing feed reads `gate_passed` as undefined on the consumer
+		// side, which silently renders every fill as a refusal. Pin the contract.
+		const pub = toPublicDecision(row({ revealedAt: new Date(), thesis: {} as never }))
+		for (const key of Object.keys(pub)) {
+			expect(key).not.toMatch(/[A-Z]/)
+		}
+		expect(pub).toHaveProperty('gate_passed')
+		expect(pub).toHaveProperty('size_usd')
+		expect(pub).toHaveProperty('sealed_at')
+		expect(pub).toHaveProperty('token_address')
+		expect(pub).toHaveProperty('fill_price_usd')
+		expect(pub).toHaveProperty('rejection_reason')
+		expect(pub).toHaveProperty('seal_memo')
 	})
 
 	it('publishes refusals with their gate verdict', () => {
@@ -111,8 +127,8 @@ describe('toPublicDecision', () => {
 				gates: [{ rule: 'min_liquidity', passed: false, detail: 'too thin' }] as never,
 			}),
 		)
-		expect(pub.gatePassed).toBe(false)
-		expect(pub.rejectionReason).toContain('min_liquidity')
+		expect(pub.gate_passed).toBe(false)
+		expect(pub.rejection_reason).toContain('min_liquidity')
 		expect(pub.gates).toHaveLength(1)
 	})
 })

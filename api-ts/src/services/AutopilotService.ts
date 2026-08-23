@@ -67,30 +67,40 @@ export interface CycleReport {
 	errors: string[]
 }
 
+/**
+ * The public wire shape of a decision.
+ *
+ * snake_case throughout, matching every other autopilot response — the feed is
+ * read by third parties and by our own dashboard, and a surface that mixes
+ * casings silently reads `gate_passed` as undefined on the consumer side, which
+ * makes every fill look like a refusal.
+ */
 export interface PublicDecision {
 	id: number
 	action: string
 	chain: string
 	symbol: string
-	tokenAddress: string
-	sizeUsd: number
+	token_address: string
+	size_usd: number
 	confidence: number | null
 	headline: string | null
 	status: string
-	sealAlgo: string
+	seal_algo: string
 	commitment: string
-	sealMemo: string
-	sealedAt: string
-	gatePassed: boolean
+	seal_memo: string
+	seal_tx_hash: string | null
+	seal_chain: string | null
+	sealed_at: string
+	gate_passed: boolean
 	gates: unknown
-	rejectionReason: string | null
-	txHash: string | null
-	executedAt: string | null
-	fillPriceUsd: number | null
+	rejection_reason: string | null
+	tx_hash: string | null
+	executed_at: string | null
+	fill_price_usd: number | null
 	/** Only present once revealed — that is what makes the commitment mean anything. */
 	nonce?: string
 	thesis?: unknown
-	revealedAt?: string
+	revealed_at?: string
 }
 
 export interface VerificationResult {
@@ -205,26 +215,28 @@ export function toPublicDecision(row: AutopilotDecision): PublicDecision {
 		action: row.action,
 		chain: row.chain,
 		symbol: row.tokenSymbol,
-		tokenAddress: row.tokenAddress,
-		sizeUsd: row.sizeUsd,
+		token_address: row.tokenAddress,
+		size_usd: row.sizeUsd,
 		confidence: row.confidence,
 		headline: row.headline,
 		status: row.status,
-		sealAlgo: row.sealAlgo,
+		seal_algo: row.sealAlgo,
 		commitment: row.commitment,
-		sealMemo: sealMemo(row.commitment),
-		sealedAt: row.sealedAt.toISOString(),
-		gatePassed: row.gatePassed,
+		seal_memo: sealMemo(row.commitment),
+		seal_tx_hash: row.sealTxHash,
+		seal_chain: row.sealChain,
+		sealed_at: row.sealedAt.toISOString(),
+		gate_passed: row.gatePassed,
 		gates: row.gates,
-		rejectionReason: row.rejectionReason,
-		txHash: row.txHash,
-		executedAt: row.executedAt ? row.executedAt.toISOString() : null,
-		fillPriceUsd: row.fillPriceUsd,
+		rejection_reason: row.rejectionReason,
+		tx_hash: row.txHash,
+		executed_at: row.executedAt ? row.executedAt.toISOString() : null,
+		fill_price_usd: row.fillPriceUsd,
 	}
 	if (row.revealedAt) {
 		out.nonce = row.nonce
 		out.thesis = row.thesis
-		out.revealedAt = row.revealedAt.toISOString()
+		out.revealed_at = row.revealedAt.toISOString()
 	}
 	return out
 }
