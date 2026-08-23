@@ -17,7 +17,9 @@ import type { ExecutionRequest, ExecutionResult } from './types'
 
 export interface Executor {
 	readonly mode: 'paper' | 'live'
-	execute(req: ExecutionRequest & { referencePriceUsd?: number; liquidityUsd?: number }): Promise<ExecutionResult>
+	execute(
+		req: ExecutionRequest & { referencePriceUsd?: number; liquidityUsd?: number },
+	): Promise<ExecutionResult>
 }
 
 /**

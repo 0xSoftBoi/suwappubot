@@ -4,25 +4,32 @@ export {
 	type RegisterAgentParams,
 	type UpdateAgentParams,
 } from './AgentService'
-export { type Alert, AlertService, AlertServiceLive, type CreateAlertParams } from './AlertService'
-export {
-	ApprovalService,
-	ApprovalServiceLive,
-	APPROVAL_TTL_MS,
-	type ApprovalServiceInterface,
-	type CreateApprovalInput,
-	hashCoreTerms,
-} from './ApprovalService'
-export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
 	AgentTrustService,
-	AgentTrustServiceLive,
 	type AgentTrustServiceInterface,
+	AgentTrustServiceLive,
 	RECOVERY_INTERVAL_MS,
 	TRUST_DEFAULT,
 	TRUST_MAX,
 	TRUST_MIN,
 } from './AgentTrustService'
+export { type Alert, AlertService, AlertServiceLive, type CreateAlertParams } from './AlertService'
+export {
+	APPROVAL_TTL_MS,
+	ApprovalService,
+	type ApprovalServiceInterface,
+	ApprovalServiceLive,
+	type CreateApprovalInput,
+	hashCoreTerms,
+} from './ApprovalService'
+export {
+	AutopilotService,
+	type AutopilotServiceInterface,
+	AutopilotServiceLive,
+	type CycleReport,
+	type PublicDecision,
+} from './AutopilotService'
+export { BalanceService, BalanceServiceLive, type TokenBalance } from './BalanceService'
 export {
 	CopyTradingService,
 	CopyTradingServiceLive,
@@ -41,6 +48,20 @@ export {
 	type DCAStats,
 } from './DCAService'
 export {
+	EventBus,
+	type EventBusInterface,
+	EventBusLive,
+	type EventEnvelope,
+	type SuwappuEvent,
+} from './EventBus'
+export {
+	type HLMarket,
+	type HLPosition,
+	type HLPositionQuote,
+	HyperliquidService,
+	HyperliquidServiceLive,
+} from './HyperliquidService'
+export {
 	type JupiterQuote,
 	JupiterService,
 	JupiterServiceLive,
@@ -55,12 +76,25 @@ export {
 	type PriceCheckResult,
 } from './LimitOrderService'
 export {
+	type LendingMarket,
+	type LendingMarketDetail,
+	MorphoService,
+	MorphoServiceLive,
+} from './MorphoService'
+export {
 	type CreateOrderParams,
 	type Order,
 	type OrderFill,
 	OrderService,
 	OrderServiceLive,
 } from './OrderService'
+export {
+	type CreateOfferParams,
+	type ListOffersParams,
+	P2PService,
+	type P2PServiceInterface,
+	P2PServiceLive,
+} from './P2PService'
 export {
 	type CheckinResult,
 	type LeaderboardEntry,
@@ -77,19 +111,22 @@ export {
 	type PolicyVerdict,
 } from './PolicyService'
 export {
-	type ClaimPayload,
-	type RewardsEntryView,
-	RewardsService,
-	RewardsServiceLive,
-	type RewardsSummaryView,
-} from './RewardsService'
+	PolymarketCredentialService,
+	PolymarketCredentialServiceLive,
+} from './PolymarketCredentialService'
 export {
-	type SeasonHistoryEntry,
-	type SeasonLeaderboardEntry,
-	type SeasonStanding,
-	SeasonsService,
-	SeasonsServiceLive,
-} from './SeasonsService'
+	buildClobOrderBody,
+	type ClobApiCredentials,
+	type ClobOrder,
+	type ClobOrderType,
+	type ClobPosition,
+	type PlaceOrderParams,
+	PolymarketService,
+	PolymarketServiceLive,
+	type PredictionMarket,
+	type PredictionMarketDetail,
+	type SignedClobOrder,
+} from './PolymarketService'
 export {
 	cacheKeys,
 	QUOTE_TTL,
@@ -105,6 +142,33 @@ export {
 	type ReferralStats,
 	type ReferredUser,
 } from './ReferralService'
+export {
+	type ClaimPayload,
+	type RewardsEntryView,
+	RewardsService,
+	RewardsServiceLive,
+	type RewardsSummaryView,
+} from './RewardsService'
+export {
+	type SeasonHistoryEntry,
+	type SeasonLeaderboardEntry,
+	type SeasonStanding,
+	SeasonsService,
+	SeasonsServiceLive,
+} from './SeasonsService'
+export {
+	type PredictAddressParams,
+	type PredictAddressResult,
+	resolveViemChain,
+	type SendUserOperationParams,
+	type SendUserOperationResult,
+	type SmartAccountCall,
+	type SmartAccountConfig,
+	SmartAccountService,
+	type SmartAccountServiceInterface,
+	SmartAccountServiceLive,
+	SUPPORTED_SMART_ACCOUNT_CHAIN_IDS,
+} from './SmartAccountService'
 export {
 	type ExecuteSwapParams,
 	type ExecuteSwapResult,
@@ -128,63 +192,11 @@ export {
 	TokenService,
 	TokenServiceLive,
 } from './TokenService'
-export { TurnkeyService, TurnkeyServiceLive, type TurnkeyWallet, type RawSignatureResult } from './TurnkeyService'
 export {
-	type PredictAddressParams,
-	type PredictAddressResult,
-	resolveViemChain,
-	type SendUserOperationParams,
-	type SendUserOperationResult,
-	type SmartAccountCall,
-	type SmartAccountConfig,
-	SmartAccountService,
-	type SmartAccountServiceInterface,
-	SmartAccountServiceLive,
-	SUPPORTED_SMART_ACCOUNT_CHAIN_IDS,
-} from './SmartAccountService'
+	type RawSignatureResult,
+	TurnkeyService,
+	TurnkeyServiceLive,
+	type TurnkeyWallet,
+} from './TurnkeyService'
 export { UserService, UserServiceLive } from './UserService'
 export { WalletService, WalletServiceLive } from './WalletService'
-export {
-	type HLMarket,
-	type HLPosition,
-	type HLPositionQuote,
-	HyperliquidService,
-	HyperliquidServiceLive,
-} from './HyperliquidService'
-export {
-	buildClobOrderBody,
-	type ClobApiCredentials,
-	type ClobOrder,
-	type ClobOrderType,
-	type ClobPosition,
-	type PlaceOrderParams,
-	type PredictionMarket,
-	type PredictionMarketDetail,
-	PolymarketService,
-	PolymarketServiceLive,
-	type SignedClobOrder,
-} from './PolymarketService'
-export {
-	PolymarketCredentialService,
-	PolymarketCredentialServiceLive,
-} from './PolymarketCredentialService'
-export {
-	type CreateOfferParams,
-	type ListOffersParams,
-	P2PService,
-	P2PServiceLive,
-	type P2PServiceInterface,
-} from './P2PService'
-export {
-	type LendingMarket,
-	type LendingMarketDetail,
-	MorphoService,
-	MorphoServiceLive,
-} from './MorphoService'
-export {
-	EventBus,
-	EventBusLive,
-	type EventBusInterface,
-	type SuwappuEvent,
-	type EventEnvelope,
-} from './EventBus'

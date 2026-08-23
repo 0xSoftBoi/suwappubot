@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { evaluateGates, shouldExit } from '../services/autopilot/gates'
 import {
-	DEFAULT_RULES,
 	type AutopilotRules,
 	type Candidate,
+	DEFAULT_RULES,
 	type PortfolioState,
 	type Thesis,
 } from '../services/autopilot/types'
@@ -101,7 +101,15 @@ describe('evaluateGates — refusals', () => {
 	it('refuses a honeypot and a high-tax token', () => {
 		const v = evaluateGates(
 			thesis(),
-			candidate({ security: { isHoneypot: true, buyTaxBps: 2000, sellTaxBps: 9000, topHolderPct: 10, lpLocked: true } }),
+			candidate({
+				security: {
+					isHoneypot: true,
+					buyTaxBps: 2000,
+					sellTaxBps: 9000,
+					topHolderPct: 10,
+					lpLocked: true,
+				},
+			}),
 			portfolio(),
 			DEFAULT_RULES,
 			NOW,
@@ -128,7 +136,15 @@ describe('evaluateGates — refusals', () => {
 	it('refuses an unlocked LP when the rule demands one', () => {
 		const v = evaluateGates(
 			thesis(),
-			candidate({ security: { isHoneypot: false, buyTaxBps: 0, sellTaxBps: 0, topHolderPct: 10, lpLocked: false } }),
+			candidate({
+				security: {
+					isHoneypot: false,
+					buyTaxBps: 0,
+					sellTaxBps: 0,
+					topHolderPct: 10,
+					lpLocked: false,
+				},
+			}),
 			portfolio(),
 			DEFAULT_RULES,
 			NOW,
@@ -139,7 +155,15 @@ describe('evaluateGates — refusals', () => {
 	it('refuses concentrated supply', () => {
 		const v = evaluateGates(
 			thesis(),
-			candidate({ security: { isHoneypot: false, buyTaxBps: 0, sellTaxBps: 0, topHolderPct: 88, lpLocked: true } }),
+			candidate({
+				security: {
+					isHoneypot: false,
+					buyTaxBps: 0,
+					sellTaxBps: 0,
+					topHolderPct: 88,
+					lpLocked: true,
+				},
+			}),
 			portfolio(),
 			DEFAULT_RULES,
 			NOW,
@@ -207,9 +231,9 @@ describe('evaluateGates — refusals', () => {
 		const cooled = portfolio({
 			lastTradeAtByToken: { [TOKEN.toLowerCase()]: NOW - 5 * 60 * 60 * 1000 },
 		})
-		expect(failedRules(evaluateGates(thesis(), candidate(), cooled, DEFAULT_RULES, NOW))).not.toContain(
-			'token_cooldown',
-		)
+		expect(
+			failedRules(evaluateGates(thesis(), candidate(), cooled, DEFAULT_RULES, NOW)),
+		).not.toContain('token_cooldown')
 	})
 
 	it('refuses low confidence and a missing exit plan', () => {

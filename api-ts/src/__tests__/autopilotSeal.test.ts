@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import {
-	SEAL_ALGO,
 	canonicalize,
 	computeCommitment,
 	generateNonce,
 	parseSealMemo,
+	SEAL_ALGO,
 	seal,
 	sealMemo,
 	verifySeal,

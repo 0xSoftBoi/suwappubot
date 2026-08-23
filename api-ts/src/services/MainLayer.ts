@@ -5,32 +5,33 @@ import { AgentServiceLive } from './AgentService'
 import { AgentTrustServiceLive } from './AgentTrustService'
 import { AlertServiceLive } from './AlertService'
 import { ApprovalServiceLive } from './ApprovalService'
+import { AutopilotServiceLive } from './AutopilotService'
 import { BalanceServiceLive } from './BalanceService'
 import { CopyTradingServiceLive } from './CopyTradingService'
 import { DCAServiceLive } from './DCAService'
 import { EventBusLive } from './EventBus'
+import { HyperliquidServiceLive } from './HyperliquidService'
 import { JupiterServiceLive } from './JupiterService'
 import { LimitOrderServiceLive } from './LimitOrderService'
+import { MorphoServiceLive } from './MorphoService'
 import { OrderServiceLive } from './OrderService'
+import { P2PServiceLive } from './P2PService'
 import { PointsServiceLive } from './PointsService'
 import { PolicyServiceLive } from './PolicyService'
+import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
+import { PolymarketServiceLive } from './PolymarketService'
 import { RedisServiceLive } from './RedisService'
-import { SeasonsServiceLive } from './SeasonsService'
 import { ReferralServiceLive } from './ReferralService'
 import { RewardsServiceLive } from './RewardsService'
+import { SeasonsServiceLive } from './SeasonsService'
+import { SmartAccountServiceLive } from './SmartAccountService'
+import { StripeServiceLive } from './StripeService'
 import { SwapServiceLive } from './SwapService'
 import { TelegramAuthServiceLive } from './TelegramAuthService'
 import { TokenServiceLive } from './TokenService'
 import { TurnkeyServiceLive } from './TurnkeyService'
 import { UserServiceLive } from './UserService'
-import { HyperliquidServiceLive } from './HyperliquidService'
-import { MorphoServiceLive } from './MorphoService'
-import { PolymarketServiceLive } from './PolymarketService'
-import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
-import { P2PServiceLive } from './P2PService'
 import { WalletServiceLive } from './WalletService'
-import { StripeServiceLive } from './StripeService'
-import { SmartAccountServiceLive } from './SmartAccountService'
 
 // Base configuration layer
 export const ConfigLayer = EnvServiceLive
@@ -75,6 +76,7 @@ export const ServicesLayer = Layer.mergeAll(
 	BalanceServiceLive,
 	AgentServiceLive,
 	AgentTrustServiceLive,
+	AutopilotServiceLive,
 	TokenServiceLive,
 	JupiterServiceLive,
 	LimitOrderServiceLive,

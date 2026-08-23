@@ -144,7 +144,10 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 }
 
 /** Current USD price for a token we already hold — used for mark-to-market and exit checks. */
-export async function getTokenPriceUsd(chain: string, tokenAddress: string): Promise<number | null> {
+export async function getTokenPriceUsd(
+	chain: string,
+	tokenAddress: string,
+): Promise<number | null> {
 	const data = await getJson<{ pairs?: DexPair[] } | DexPair[]>(
 		`${DEXSCREENER}/tokens/v1/${chain}/${tokenAddress}`,
 	)

@@ -35,9 +35,9 @@ const norm = (addr: string) => addr.trim().toLowerCase()
 function universalGates(thesis: Thesis, rules: AutopilotRules): GateResult[] {
 	const token = norm(thesis.tokenAddress)
 	const denied = rules.deniedTokens.map(norm).includes(token)
-	const chainAllowed = rules.allowedChains.map((c) => c.toLowerCase()).includes(
-		thesis.chain.toLowerCase(),
-	)
+	const chainAllowed = rules.allowedChains
+		.map((c) => c.toLowerCase())
+		.includes(thesis.chain.toLowerCase())
 
 	return [
 		check(
@@ -194,9 +194,7 @@ function entryGates(
 
 	// --- market structure (needs the candidate the thesis was formed on) ---
 	if (!candidate) {
-		results.push(
-			check('market_data_present', false, 'no market snapshot backing this thesis'),
-		)
+		results.push(check('market_data_present', false, 'no market snapshot backing this thesis'))
 		return results
 	}
 
@@ -331,7 +329,8 @@ export function evaluateGates(
 
 	const failed = results.filter((r) => !r.passed)
 	const verdict: GateVerdict = { passed: failed.length === 0, results }
-	if (failed.length > 0 && failed[0]) verdict.rejectionReason = `${failed[0].rule}: ${failed[0].detail}`
+	if (failed.length > 0 && failed[0])
+		verdict.rejectionReason = `${failed[0].rule}: ${failed[0].detail}`
 	return verdict
 }
 
@@ -340,7 +339,12 @@ export function evaluateGates(
  * turns a committed exit plan into an actual sell decision.
  */
 export function shouldExit(
-	position: { avgEntryPriceUsd: number; takeProfitPct?: number | undefined; stopLossPct?: number | undefined; openedAt: number },
+	position: {
+		avgEntryPriceUsd: number
+		takeProfitPct?: number | undefined
+		stopLossPct?: number | undefined
+		openedAt: number
+	},
 	currentPriceUsd: number,
 	maxHoldMinutes: number | undefined,
 	nowMs: number = Date.now(),
@@ -349,13 +353,22 @@ export function shouldExit(
 	const pnlPct = ((currentPriceUsd - position.avgEntryPriceUsd) / position.avgEntryPriceUsd) * 100
 
 	if (position.stopLossPct !== undefined && pnlPct <= -Math.abs(position.stopLossPct)) {
-		return { exit: true, reason: `stop-loss hit: ${pnlPct.toFixed(1)}% <= -${Math.abs(position.stopLossPct)}%` }
+		return {
+			exit: true,
+			reason: `stop-loss hit: ${pnlPct.toFixed(1)}% <= -${Math.abs(position.stopLossPct)}%`,
+		}
 	}
 	if (position.takeProfitPct !== undefined && pnlPct >= position.takeProfitPct) {
-		return { exit: true, reason: `take-profit hit: ${pnlPct.toFixed(1)}% >= ${position.takeProfitPct}%` }
+		return {
+			exit: true,
+			reason: `take-profit hit: ${pnlPct.toFixed(1)}% >= ${position.takeProfitPct}%`,
+		}
 	}
 	if (maxHoldMinutes !== undefined && nowMs - position.openedAt >= maxHoldMinutes * 60_000) {
-		return { exit: true, reason: `time stop: held ${Math.round((nowMs - position.openedAt) / 60_000)}m` }
+		return {
+			exit: true,
+			reason: `time stop: held ${Math.round((nowMs - position.openedAt) / 60_000)}m`,
+		}
 	}
 	return { exit: false }
 }

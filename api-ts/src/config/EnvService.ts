@@ -53,6 +53,16 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'http://localhost:8000',
 	}),
 
+	// Autopilot — autonomous trading agent. Live execution is opt-in and goes
+	// through our own agent API, so it needs that API's base URL and an agent
+	// API key. Without the key an agent can only run in paper mode.
+	AUTOPILOT_API_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.suwappu.bot',
+	}),
+	AUTOPILOT_AGENT_API_KEY: Schema.optional(Schema.String),
+	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
+	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
+
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
@@ -177,10 +187,14 @@ export const EnvServiceLive = Layer.effect(
 		}
 		// Warn if using default fee wallet addresses
 		if (!process.env.FEE_WALLET_EVM) {
-			console.warn('[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!')
+			console.warn(
+				'[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!',
+			)
 		}
 		if (!process.env.FEE_WALLET_SOLANA) {
-			console.warn('[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!')
+			console.warn(
+				'[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!',
+			)
 		}
 		return env
 	}),

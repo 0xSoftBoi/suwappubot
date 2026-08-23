@@ -160,7 +160,8 @@ export class RulesThesisEngine implements ThesisEngine {
 		ageScore: number
 		composite: number
 	} {
-		const turnover = candidate.liquidityUsd > 0 ? candidate.volume24hUsd / candidate.liquidityUsd : 0
+		const turnover =
+			candidate.liquidityUsd > 0 ? candidate.volume24hUsd / candidate.liquidityUsd : 0
 
 		// Depth: $50k is thin, $1M is comfortable. Log-scaled.
 		const depthScore = clamp(
