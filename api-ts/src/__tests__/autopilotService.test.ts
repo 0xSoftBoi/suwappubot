@@ -20,7 +20,7 @@ describe('resolveRules', () => {
 	it('ignores nulls and unknown keys rather than corrupting the rule set', () => {
 		const r = resolveRules({ maxPositionUsd: null, somethingElse: 1 } as never)
 		expect(r.maxPositionUsd).toBe(DEFAULT_RULES.maxPositionUsd)
-		expect((r as Record<string, unknown>).somethingElse).toBeUndefined()
+		expect((r as unknown as Record<string, unknown>).somethingElse).toBeUndefined()
 	})
 })
 
