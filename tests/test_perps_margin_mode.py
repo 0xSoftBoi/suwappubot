@@ -67,6 +67,37 @@ def test_rejected_margin_mode_update_fails_closed():
         asyncio.run(hl._set_leverage(http, "0xUser", "k", PK, "ETH", 5, is_cross=False))
 
 
+def test_rejected_margin_mode_update_stops_entry_before_order_post():
+    hl = _client_with_index()
+    http = _HTTP([_Resp({"status": "err", "response": "cannot change margin mode"})])
+
+    async def _get_client():
+        return http
+
+    async def _mid(_market):
+        return 2000.0
+
+    hl._get_client = _get_client
+    hl.get_mark_price = _mid
+
+    result = asyncio.run(
+        hl.place_order(
+            address="0xUser",
+            api_key="k",
+            api_secret=PK,
+            market="ETH-USD",
+            side="long",
+            size=0.1,
+            leverage=7,
+            is_cross=False,
+        )
+    )
+
+    assert result is None
+    assert len(http.calls) == 1
+    assert http.calls[0]["json"]["action"]["type"] == "updateLeverage"
+
+
 def test_reduce_only_close_never_mutates_leverage_or_margin_mode():
     hl = _client_with_index()
     http = _HTTP(
