@@ -48,10 +48,12 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 ## Routing map (keep in sync with the Worker)
 | Path prefix | Backend | Notes |
 |-------------|---------|-------|
+| `/webapp/data/*`, `/webapp/tokens/*`, `/webapp/p2p/*`, `/webapp/rewards/*` | api-ts | api-ts-native namespaces; python 404s them (checked before the `/webapp` rule) |
 | `/auth/*` | python-api | JWT **issuer**; api-ts has no `/auth`, only consumes the token |
 | `/telegram/*`, `/webhook/*` | python-api | Telegram + WhatsApp |
 | `/users/*`, `/tools/*` | python-api | python-only |
-| everything else | api-ts | `/v1/agent/*`, `/mcp`, `/a2a`, `/webapp/*`, `/public/*`, `/staking/*`, `/billing/*`, `/health`, `/.well-known/*`, agent cards, `llms.txt` |
+| `/terminal/*`, `/webapp/*` (rest) | python-api | terminal SPA data layer + Mini App legacy routes, incl. money-path `/webapp/swap`, `/webapp/bridge` |
+| everything else | api-ts | `/v1/agent/*`, `/mcp`, `/a2a`, `/public/*`, `/staking/*`, `/billing/*`, `/health`, `/.well-known/*`, agent cards, `llms.txt` |
 
 ## Caveats / next steps
 - **Free Workers cap: 100,000 requests/day** (~69/min avg). Fine for now. Keep external
