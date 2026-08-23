@@ -52,18 +52,30 @@ async def _get_json(url: str, params: Optional[dict] = None) -> Optional[dict]:
         return None
 
 
-async def enrich_report(report, chain: str) -> None:
-    """Populate an EVM TokenIntelReport in place. Never raises."""
+async def enrich_report(report, chain: str, quick: bool = False) -> None:
+    """Populate an EVM TokenIntelReport in place. Never raises.
+
+    quick=True runs only the enrichments a risk gate needs — token info and
+    holder distribution — and skips deployer history, bundle/snipe detection and
+    cluster hints. Those walk many pages of transfers and dominate the latency:
+    the full report legitimately takes tens of seconds on a cold token, which is
+    fine for an on-demand /intel command and far too slow for a trading loop
+    that must decide before its quote goes stale.
+    """
     base = _base_url(chain)
     if not base:
         report.notes.append(f"no_blockscout_instance_for_{chain}")
         return
 
     await _enrich_token_info(report, base)
-    await _enrich_deployer(report, base)
-    if report.deployer:
-        await _enrich_deployer_stats(report, base)
+    if not quick:
+        await _enrich_deployer(report, base)
+        if report.deployer:
+            await _enrich_deployer_stats(report, base)
     await _enrich_holders(report, base)
+    if quick:
+        report.notes.append("quick_scan")
+        return
     await _enrich_bundle_and_snipe(report, base)
     if report.top_holders:
         await _enrich_cluster_hints(report, base)
@@ -164,28 +176,71 @@ async def _enrich_deployer_stats(report, base: str) -> None:
     report.deployer_dead_deploys = dead_count if checked else None
 
 
+# Sum of returned balances above this multiple of the reported total supply
+# means the denominator is wrong, not that holders own more than everything.
+_SUPPLY_SANITY_MULTIPLE = 1.05
+
+
+def _holder_row(item: dict) -> Optional[dict]:
+    """Normalise one Blockscout holder item, or None if it is unreadable."""
+    addr_field = item.get("address")
+    is_contract = False
+    label = None
+    if isinstance(addr_field, dict):
+        addr = addr_field.get("hash")
+        is_contract = bool(addr_field.get("is_contract"))
+        label = addr_field.get("name")
+    else:
+        addr = addr_field
+    if not addr:
+        return None
+    try:
+        balance = float(item.get("value") or 0)
+    except (TypeError, ValueError):
+        return None
+    return {"address": addr, "balance": balance, "is_contract": is_contract, "label": label}
+
+
 async def _enrich_holders(report, base: str) -> None:
+    """Measure concentration across the top *wallets*.
+
+    Two things this deliberately does not do:
+
+    - It does not count contracts. Observed on Base: a token whose top ten
+      "holders" were seven contracts — an ERC1967Proxy, a Safe, a transparent
+      proxy and unnamed pools — reported 101.5% concentration and was refused.
+      The real wallet concentration was 34.9%. A liquidity pool holding supply
+      is the opposite of the risk this measure exists to catch.
+    - It does not report a number it cannot stand behind. If the balances
+      returned exceed the reported total supply, the supply figure is stale or
+      wrong, and top10_pct is left as None so callers treat it as unknown.
+    """
     data = await _get_json(f"{base}/api/v2/tokens/{report.token_address}/holders")
     if not data:
         report.notes.append("evm_holders_unavailable")
         return
 
-    items = data.get("items", [])
+    rows = [r for r in (_holder_row(i) for i in data.get("items", [])) if r]
     supply = report.total_supply
 
-    holders = []
-    for item in items[:10]:
-        addr_field = item.get("address")
-        addr = addr_field.get("hash") if isinstance(addr_field, dict) else addr_field
-        raw_value = item.get("value")
-        try:
-            balance = float(raw_value or 0)
-        except (TypeError, ValueError):
-            continue
-        pct = (balance / supply * 100) if supply else None
-        holders.append({"address": addr, "balance": balance, "pct": pct})
+    if not supply:
+        report.notes.append("evm_supply_unknown")
+        report.set_top_holders([{**r, "pct": None} for r in rows[:10]])
+        return
 
-    report.set_top_holders(holders)
+    returned_total = sum(r["balance"] for r in rows)
+    if returned_total > supply * _SUPPLY_SANITY_MULTIPLE:
+        # Holders cannot own more than the supply. Refuse to publish a ratio
+        # built on a denominator this clearly wrong.
+        report.notes.append("evm_supply_inconsistent")
+        report.set_top_holders([{**r, "pct": None} for r in rows[:10]])
+        return
+
+    contract_balance = sum(r["balance"] for r in rows if r["is_contract"])
+    report.contract_held_pct = round(contract_balance / supply * 100, 2)
+
+    wallets = [r for r in rows if not r["is_contract"]][:10]
+    report.set_top_holders([{**r, "pct": r["balance"] / supply * 100} for r in wallets])
 
 
 async def _enrich_bundle_and_snipe(report, base: str) -> None:
