@@ -4,6 +4,12 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  // Production API selection is intentionally NOT a Vite build-time concern.
+  // The browser always uses same-origin paths; terminal nginx routes those paths
+  // to api-ts over Railway private networking at runtime.
+  define: {
+    'import.meta.env.VITE_API_URL': JSON.stringify(''),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -12,7 +18,7 @@ export default defineConfig({
   server: {
     port: 5174,
     host: true,
-    allowedHosts: ['terminal.suwappu.bot'],
+    allowedHosts: ['terminal.suwappu.bot', 'www.terminal.suwappu.bot'],
     proxy: {
       '/terminal': {
         target: 'http://localhost:8000',
@@ -28,6 +34,10 @@ export default defineConfig({
       },
       // Passkey/Turnkey auth is python too — without this, /auth/* 404s in local dev.
       '/auth': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/v1': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
@@ -54,6 +64,6 @@ export default defineConfig({
     },
   },
   preview: {
-    allowedHosts: ['terminal.suwappu.bot'],
+    allowedHosts: ['terminal.suwappu.bot', 'www.terminal.suwappu.bot'],
   },
 })
