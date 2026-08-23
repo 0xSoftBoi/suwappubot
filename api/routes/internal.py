@@ -501,6 +501,9 @@ class TokenSecurityResponse(BaseModel):
     buy_tax_bps: Optional[int] = None
     sell_tax_bps: Optional[int] = None
     top_holder_pct: Optional[float] = None
+    # Supply sitting in contracts (pools, vesting, bridges). Reported separately
+    # from wallet concentration on purpose — a deep pool is not a whale.
+    contract_held_pct: Optional[float] = None
     lp_locked: Optional[bool] = None
     mintable: Optional[bool] = None
     freezable: Optional[bool] = None
@@ -535,6 +538,8 @@ async def token_security(
         report = await token_intel_service.analyze(token, chain, quick=True)
         if report.top10_pct is not None:
             out.top_holder_pct = float(report.top10_pct)
+        if getattr(report, "contract_held_pct", None) is not None:
+            out.contract_held_pct = float(report.contract_held_pct)
         if chain == "solana" and report.mint_authority is not None:
             # A live mint authority means supply can still be inflated.
             out.mintable = bool(report.mint_authority)
