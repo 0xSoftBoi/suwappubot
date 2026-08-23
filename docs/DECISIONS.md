@@ -181,5 +181,17 @@ ADRs 0001–0005.
   on a route that did not previously exist, a changed build fingerprint. Ask of
   every readiness check: would this still pass if the deploy were broken?
 
+### A green deploy does not mean the migration ran
+- **What**: `_create_autopilot_tables()` returns early when the tables already
+  exist — it is create-if-absent, not ensure-schema. An additive `ALTER` placed
+  after that return is unreachable on every database that already has the
+  tables. python-api deployed SUCCESS having executed nothing.
+- **Consequence**: dev 500'd indefinitely, not for a deploy window. "It will
+  self-heal once the other service boots" was asserted from reading the code
+  and was wrong for two turns.
+- **Instead**: Additive columns go **before** any early return, in the declared
+  `_AUTOPILOT_ADDITIVE_COLUMNS` map. Prove a migration by running it against a
+  database in the pre-migration state, not by reading it.
+
 ---
 *Add new entries via PR. Keep each entry under ~8 lines.*
