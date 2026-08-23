@@ -90,10 +90,31 @@ export interface VerificationResult {
 	executedAt: string | null
 }
 
+export interface CreateAgentParams {
+	slug: string
+	name: string
+	description?: string | undefined
+	chain: string
+	baseToken: string
+	baseTokenSymbol?: string | undefined
+	mode?: 'paper' | 'live' | undefined
+	startingEquityUsd: number
+	walletAddress?: string | undefined
+	thesisEngine?: string | undefined
+	rules?: Partial<AutopilotRules> | undefined
+}
+
 export interface AutopilotServiceInterface {
 	readonly listAgents: () => Effect.Effect<AutopilotAgent[], DatabaseError, DrizzleService>
 	readonly getAgent: (
 		slug: string,
+	) => Effect.Effect<AutopilotAgent, DatabaseError | NotFoundError, DrizzleService>
+	readonly createAgent: (
+		params: CreateAgentParams,
+	) => Effect.Effect<AutopilotAgent, DatabaseError | ValidationError, DrizzleService>
+	readonly updateRules: (
+		slug: string,
+		rules: Partial<AutopilotRules>,
 	) => Effect.Effect<AutopilotAgent, DatabaseError | NotFoundError, DrizzleService>
 	readonly setStatus: (
 		slug: string,
@@ -162,7 +183,7 @@ function startOfUtcDay(now: Date): Date {
 	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 }
 
-function toPublicDecision(row: AutopilotDecision): PublicDecision {
+export function toPublicDecision(row: AutopilotDecision): PublicDecision {
 	const out: PublicDecision = {
 		id: row.id,
 		action: row.action,
@@ -207,6 +228,74 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
 			const rows = yield* Effect.tryPromise({
 				try: () => db.select().from(autopilotAgents).where(eq(autopilotAgents.slug, slug)).limit(1),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+			const agent = rows[0]
+			if (!agent) return yield* Effect.fail(new NotFoundError({ message: `No agent ${slug}` }))
+			return agent
+		}),
+
+	createAgent: (params: CreateAgentParams) =>
+		Effect.gen(function* () {
+			if (!/^[a-z0-9-]{3,64}$/.test(params.slug)) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'slug must be 3-64 chars of [a-z0-9-]' }),
+				)
+			}
+			if (!(params.startingEquityUsd > 0)) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'startingEquityUsd must be positive' }),
+				)
+			}
+
+			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(autopilotAgents)
+						.values({
+							slug: params.slug,
+							name: params.name,
+							description: params.description ?? null,
+							chain: params.chain,
+							baseToken: params.baseToken,
+							baseTokenSymbol: params.baseTokenSymbol ?? 'USDC',
+							mode: params.mode ?? 'paper',
+							// A new agent is always paused: creating it and starting it
+							// are two decisions, and only one of them can lose money.
+							status: 'paused',
+							startingEquityUsd: params.startingEquityUsd,
+							walletAddress: params.walletAddress ?? null,
+							thesisEngine: params.thesisEngine ?? 'rules',
+							rules: resolveRules(params.rules) as never,
+						})
+						.returning(),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+			const agent = rows[0]
+			if (!agent)
+				return yield* Effect.fail(new DatabaseError({ message: 'insert returned no row' }))
+			return agent
+		}),
+
+	updateRules: (slug: string, rules: Partial<AutopilotRules>) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
+			const existing = yield* Effect.tryPromise({
+				try: () => db.select().from(autopilotAgents).where(eq(autopilotAgents.slug, slug)).limit(1),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+			const current = existing[0]
+			if (!current) return yield* Effect.fail(new NotFoundError({ message: `No agent ${slug}` }))
+
+			const merged = resolveRules({ ...resolveRules(current.rules), ...rules })
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(autopilotAgents)
+						.set({ rules: merged as never, updatedAt: new Date() })
+						.where(eq(autopilotAgents.slug, slug))
+						.returning(),
 				catch: (e) => new DatabaseError({ message: String(e) }),
 			})
 			const agent = rows[0]

@@ -249,6 +249,107 @@ autopilotRoutes.get('/decisions/:id/verify', async (c) => {
 
 const autopilotAdminRoutes = new Hono()
 
+/**
+ * POST /admin/autopilot — create an agent.
+ *
+ * Always lands paused, and `mode: "live"` additionally requires
+ * `confirm_live: true` in the body. Creating an autonomous trader and turning
+ * it loose are two separate decisions.
+ */
+autopilotAdminRoutes.post('/', async (c) => {
+	let body: Record<string, unknown>
+	try {
+		body = (await c.req.json()) as Record<string, unknown>
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const slug = typeof body.slug === 'string' ? body.slug : ''
+	const name = typeof body.name === 'string' ? body.name : ''
+	const chain = typeof body.chain === 'string' ? body.chain : ''
+	const baseToken = typeof body.base_token === 'string' ? body.base_token : ''
+	const startingEquityUsd = Number(body.starting_equity_usd)
+	const mode = body.mode === 'live' ? 'live' : 'paper'
+
+	if (!slug || !name || !chain || !baseToken || !Number.isFinite(startingEquityUsd)) {
+		return c.json(
+			{
+				success: false,
+				error: 'slug, name, chain, base_token and starting_equity_usd are required',
+			},
+			400,
+		)
+	}
+	if (mode === 'live' && body.confirm_live !== true) {
+		return c.json(
+			{
+				success: false,
+				error: 'Refusing to create a live agent without confirm_live: true',
+			},
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const svc = yield* AutopilotService
+			return yield* svc.createAgent({
+				slug,
+				name,
+				chain,
+				baseToken,
+				startingEquityUsd,
+				mode,
+				...(typeof body.description === 'string' ? { description: body.description } : {}),
+				...(typeof body.base_token_symbol === 'string'
+					? { baseTokenSymbol: body.base_token_symbol }
+					: {}),
+				...(typeof body.wallet_address === 'string' ? { walletAddress: body.wallet_address } : {}),
+				...(typeof body.thesis_engine === 'string' ? { thesisEngine: body.thesis_engine } : {}),
+				...(body.rules && typeof body.rules === 'object'
+					? { rules: body.rules as Record<string, never> }
+					: {}),
+			})
+		}),
+	)
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+	return c.json({
+		success: true,
+		agent: {
+			slug: result.right.slug,
+			mode: result.right.mode,
+			status: result.right.status,
+			rules: result.right.rules,
+		},
+	})
+})
+
+// PATCH /admin/autopilot/:slug/rules — tighten or loosen the risk rules
+autopilotAdminRoutes.patch('/:slug/rules', async (c) => {
+	const slug = c.req.param('slug')
+	let body: Record<string, unknown>
+	try {
+		body = (await c.req.json()) as Record<string, unknown>
+	} catch {
+		return c.json({ success: false, error: 'Invalid JSON body' }, 400)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const svc = yield* AutopilotService
+			return yield* svc.updateRules(slug, body as Record<string, never>)
+		}),
+	)
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+	return c.json({ success: true, agent: { slug, rules: result.right.rules } })
+})
+
 // POST /admin/autopilot/:slug/run — run one cycle now
 autopilotAdminRoutes.post('/:slug/run', async (c) => {
 	const slug = c.req.param('slug')
