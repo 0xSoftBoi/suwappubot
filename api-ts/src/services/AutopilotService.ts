@@ -286,6 +286,65 @@ export interface StatsInputs {
 	confidenceByDecisionId: Record<number, number>
 }
 
+/**
+ * Query half of the stats endpoint. Pure-db like `loadPortfolio` and
+ * `runCycleImpl`, so the integration test can drive it against real DDL
+ * without standing up an Effect runtime.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: same structural db handle the
+// rest of this file's pure-db helpers take.
+export async function loadAgentStats(db: any, slug: string): Promise<AgentStats | null> {
+	const agentRows = await db
+		.select()
+		.from(autopilotAgents)
+		.where(eq(autopilotAgents.slug, slug))
+		.limit(1)
+	const agent = agentRows[0]
+	if (!agent) return null
+
+	const closedRows = await db
+		.select()
+		.from(autopilotPositions)
+		.where(and(eq(autopilotPositions.agentId, agent.id), eq(autopilotPositions.status, 'closed')))
+		.orderBy(desc(autopilotPositions.closedAt))
+
+	// Only the entry decisions we actually need. The decision feed is unbounded
+	// and this endpoint is public and uncached.
+	const entryIds = closedRows
+		.map((r: { entryDecisionId: number | null }) => r.entryDecisionId)
+		.filter((id: number | null): id is number => typeof id === 'number')
+
+	const decisionRows =
+		entryIds.length > 0
+			? await db
+					.select({ id: autopilotDecisions.id, confidence: autopilotDecisions.confidence })
+					.from(autopilotDecisions)
+					.where(inArray(autopilotDecisions.id, entryIds))
+			: []
+
+	const confidenceByDecisionId: Record<number, number> = {}
+	for (const d of decisionRows as { id: number; confidence: number | null }[]) {
+		if (typeof d.confidence === 'number') confidenceByDecisionId[d.id] = d.confidence
+	}
+
+	const portfolio = await loadPortfolio(db, agent.id)
+
+	return buildAgentStats({
+		startingEquityUsd: agent.startingEquityUsd,
+		currentEquityUsd: portfolio.equityUsd,
+		baseTokenSymbol: agent.baseTokenSymbol,
+		paperFeeBps: resolveRules(agent.rules).paperFeeBps,
+		closed: closedRows.map(
+			(r: { costBasisUsd: number; realizedPnlUsd: number; entryDecisionId: number | null }) => ({
+				costBasisUsd: r.costBasisUsd,
+				realizedPnlUsd: r.realizedPnlUsd,
+				entryDecisionId: r.entryDecisionId,
+			}),
+		),
+		confidenceByDecisionId,
+	})
+}
+
 export function buildAgentStats(input: StatsInputs): AgentStats {
 	// One observation per closed trade: profit over the capital actually put at
 	// risk. Marking per cycle instead would let an untouched position manufacture
@@ -609,71 +668,12 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 	getStats: (slug: string) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
-
-			const agentRows = yield* Effect.tryPromise({
-				try: () => db.select().from(autopilotAgents).where(eq(autopilotAgents.slug, slug)).limit(1),
+			const stats = yield* Effect.tryPromise({
+				try: () => loadAgentStats(db, slug),
 				catch: (e) => new DatabaseError({ message: String(e) }),
 			})
-			const agent = agentRows[0]
-			if (!agent) return yield* new NotFoundError({ message: `No autopilot agent "${slug}"` })
-
-			const closedRows = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select()
-						.from(autopilotPositions)
-						.where(
-							and(
-								eq(autopilotPositions.agentId, agent.id),
-								eq(autopilotPositions.status, 'closed'),
-							),
-						)
-						.orderBy(desc(autopilotPositions.closedAt)),
-				catch: (e) => new DatabaseError({ message: String(e) }),
-			})
-
-			// Only the entry decisions we actually need, rather than every decision
-			// ever made — the feed is unbounded and this endpoint is public.
-			const entryIds = closedRows
-				.map((r) => r.entryDecisionId)
-				.filter((id): id is number => typeof id === 'number')
-			const decisionRows =
-				entryIds.length > 0
-					? yield* Effect.tryPromise({
-							try: () =>
-								db
-									.select({
-										id: autopilotDecisions.id,
-										confidence: autopilotDecisions.confidence,
-									})
-									.from(autopilotDecisions)
-									.where(inArray(autopilotDecisions.id, entryIds)),
-							catch: (e) => new DatabaseError({ message: String(e) }),
-						})
-					: []
-
-			const confidenceByDecisionId: Record<number, number> = {}
-			for (const d of decisionRows) {
-				if (typeof d.confidence === 'number') confidenceByDecisionId[d.id] = d.confidence
-			}
-
-			const portfolio = yield* Effect.tryPromise({
-				try: () => loadPortfolio(db, agent.id),
-				catch: (e) => new DatabaseError({ message: String(e) }),
-			})
-
-			return buildAgentStats({
-				startingEquityUsd: agent.startingEquityUsd,
-				currentEquityUsd: portfolio.equityUsd,
-				baseTokenSymbol: agent.baseTokenSymbol,
-				paperFeeBps: resolveRules(agent.rules).paperFeeBps,
-				closed: closedRows.map((r) => ({
-					costBasisUsd: r.costBasisUsd,
-					realizedPnlUsd: r.realizedPnlUsd,
-					entryDecisionId: r.entryDecisionId,
-				})),
-				confidenceByDecisionId,
-			})
+			if (!stats) return yield* new NotFoundError({ message: `No autopilot agent "${slug}"` })
+			return stats
 		}),
 
 	runCycle: (slug: string) =>
