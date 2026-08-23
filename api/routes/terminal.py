@@ -1471,6 +1471,7 @@ class PerpsExecuteBody(BaseModel):
     side: str  # "long" | "short"
     size: float
     leverage: int = 1
+    marginMode: str = "cross"  # "cross" | "isolated"
     orderType: str = "market"  # "market" | "limit"
     limitPrice: Optional[float] = None  # required when orderType == "limit"
     tpPrice: Optional[float] = None  # market only
@@ -1736,7 +1737,13 @@ async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
     uid = int(_terminal_user(request)["user_id"])
     from bot.services.perps_service import perps_service
 
-    is_limit = (body.orderType or "market").lower() == "limit"
+    order_type = (body.orderType or "market").strip().lower()
+    if order_type not in ("market", "limit"):
+        raise HTTPException(status_code=400, detail="orderType must be market or limit.")
+    margin_mode = (body.marginMode or "cross").strip().lower()
+    if margin_mode not in ("cross", "isolated"):
+        raise HTTPException(status_code=400, detail="marginMode must be cross or isolated.")
+    is_limit = order_type == "limit"
 
     try:
         if is_limit:
@@ -1749,6 +1756,7 @@ async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
                 size=body.size,
                 limit_price=body.limitPrice,
                 leverage=body.leverage,
+                margin_mode=margin_mode,
             )
             if not order:
                 raise HTTPException(
@@ -1774,6 +1782,7 @@ async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
             size=body.size,
             leverage=body.leverage,
             tp_price=body.tpPrice,
+            margin_mode=margin_mode,
             sl_price=body.slPrice,
         )
     except ValueError as e:
