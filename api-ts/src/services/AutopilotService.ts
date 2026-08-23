@@ -38,6 +38,15 @@ import {
 import { type Anchor, createAnchor, NullAnchor } from './autopilot/anchor'
 import { type Executor, ManagedExecutor, PaperExecutor } from './autopilot/executor'
 import { evaluateGates, shouldExit } from './autopilot/gates'
+import {
+	benchmarkComparison,
+	type BenchmarkComparison,
+	calibration,
+	type CalibrationReport,
+	type ConfidenceOutcome,
+	trackRecord,
+	type TrackRecordVerdict,
+} from './autopilot/stats'
 import { LlmThesisEngine } from './autopilot/llmThesis'
 import { fetchTokenSecurity, getTokenPriceUsd, screenCandidates } from './autopilot/market'
 import { RulesThesisEngine, type ThesisEngine } from './autopilot/thesis'
@@ -226,6 +235,9 @@ export interface AutopilotServiceInterface {
 		agentId: number,
 		limit?: number,
 	) => Effect.Effect<unknown[], DatabaseError, DrizzleService>
+	readonly getStats: (
+		slug: string,
+	) => Effect.Effect<AgentStats, DatabaseError | NotFoundError, DrizzleService>
 	readonly runCycle: (
 		slug: string,
 	) => Effect.Effect<
@@ -241,6 +253,69 @@ export class AutopilotService extends Context.Tag('AutopilotService')<
 >() {}
 
 const dbErr = (e: { message: string }) => new DatabaseError({ message: e.message })
+
+/**
+ * The honesty panel: what this record does and does not prove.
+ *
+ * Kept pure and exported so the statistics can be tested against a fixture
+ * rather than a database. Snake_case on the wire, as everywhere else in this
+ * file — camelCase has leaked to the dashboard twice, and rendered every filled
+ * trade as a refusal both times.
+ */
+export interface AgentStats {
+	closed_trades: number
+	track_record: TrackRecordVerdict
+	calibration: CalibrationReport
+	benchmark: BenchmarkComparison | null
+	/**
+	 * The friction charged on every simulated fill. Transaction-cost neglect is
+	 * the most common way a published trading record gets inflated, so ours is
+	 * a published number rather than a detail buried in the executor.
+	 */
+	costs: { paper_fee_bps_per_side: number; impact_model: string }
+}
+
+export interface StatsInputs {
+	startingEquityUsd: number
+	currentEquityUsd: number
+	baseTokenSymbol?: string | undefined
+	paperFeeBps: number
+	/** Closed positions only. */
+	closed: { costBasisUsd: number; realizedPnlUsd: number; entryDecisionId: number | null }[]
+	/** decisionId -> stated confidence, for the reliability curve. */
+	confidenceByDecisionId: Record<number, number>
+}
+
+export function buildAgentStats(input: StatsInputs): AgentStats {
+	// One observation per closed trade: profit over the capital actually put at
+	// risk. Marking per cycle instead would let an untouched position manufacture
+	// observations, and MinTRL is counted in observations.
+	const returns = input.closed
+		.filter((p) => p.costBasisUsd > 0)
+		.map((p) => p.realizedPnlUsd / p.costBasisUsd)
+
+	const outcomes: ConfidenceOutcome[] = input.closed.flatMap((p) => {
+		if (p.entryDecisionId == null) return []
+		const confidence = input.confidenceByDecisionId[p.entryDecisionId]
+		if (typeof confidence !== 'number') return []
+		return [{ confidence, won: p.realizedPnlUsd > 0 }]
+	})
+
+	return {
+		closed_trades: returns.length,
+		track_record: trackRecord(returns),
+		calibration: calibration(outcomes),
+		benchmark: benchmarkComparison({
+			startingEquityUsd: input.startingEquityUsd,
+			currentEquityUsd: input.currentEquityUsd,
+			baseSymbol: input.baseTokenSymbol,
+		}),
+		costs: {
+			paper_fee_bps_per_side: input.paperFeeBps,
+			impact_model: 'constant-product against the quote-side reserve (half of reported TVL)',
+		},
+	}
+}
 
 export function resolveRules(raw: unknown): AutopilotRules {
 	const patch = (raw ?? {}) as Partial<AutopilotRules>
@@ -528,6 +603,76 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 						.orderBy(desc(autopilotJournal.createdAt))
 						.limit(Math.min(limit, 500)),
 				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+		}),
+
+	getStats: (slug: string) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
+
+			const agentRows = yield* Effect.tryPromise({
+				try: () => db.select().from(autopilotAgents).where(eq(autopilotAgents.slug, slug)).limit(1),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+			const agent = agentRows[0]
+			if (!agent) return yield* new NotFoundError({ message: `No autopilot agent "${slug}"` })
+
+			const closedRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(autopilotPositions)
+						.where(
+							and(
+								eq(autopilotPositions.agentId, agent.id),
+								eq(autopilotPositions.status, 'closed'),
+							),
+						)
+						.orderBy(desc(autopilotPositions.closedAt)),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+
+			// Only the entry decisions we actually need, rather than every decision
+			// ever made — the feed is unbounded and this endpoint is public.
+			const entryIds = closedRows
+				.map((r) => r.entryDecisionId)
+				.filter((id): id is number => typeof id === 'number')
+			const decisionRows =
+				entryIds.length > 0
+					? yield* Effect.tryPromise({
+							try: () =>
+								db
+									.select({
+										id: autopilotDecisions.id,
+										confidence: autopilotDecisions.confidence,
+									})
+									.from(autopilotDecisions)
+									.where(inArray(autopilotDecisions.id, entryIds)),
+							catch: (e) => new DatabaseError({ message: String(e) }),
+						})
+					: []
+
+			const confidenceByDecisionId: Record<number, number> = {}
+			for (const d of decisionRows) {
+				if (typeof d.confidence === 'number') confidenceByDecisionId[d.id] = d.confidence
+			}
+
+			const portfolio = yield* Effect.tryPromise({
+				try: () => loadPortfolio(db, agent.id),
+				catch: (e) => new DatabaseError({ message: String(e) }),
+			})
+
+			return buildAgentStats({
+				startingEquityUsd: agent.startingEquityUsd,
+				currentEquityUsd: portfolio.equityUsd,
+				baseTokenSymbol: agent.baseTokenSymbol,
+				paperFeeBps: resolveRules(agent.rules).paperFeeBps,
+				closed: closedRows.map((r) => ({
+					costBasisUsd: r.costBasisUsd,
+					realizedPnlUsd: r.realizedPnlUsd,
+					entryDecisionId: r.entryDecisionId,
+				})),
+				confidenceByDecisionId,
 			})
 		}),
 
