@@ -37,6 +37,12 @@ COPY terminal/nginx.conf /etc/nginx/templates/default.conf.template
 ENV PORT=8080
 ENV API_TS_PORT=8000
 
+# Gate for the image's 15-local-resolvers.envsh: without it the script exits
+# before exporting NGINX_LOCAL_RESOLVERS, envsubst leaves the literal
+# "${NGINX_LOCAL_RESOLVERS}" in the rendered config, and nginx refuses to boot
+# ("host not found in resolver") — which is exactly how the #925 deploy failed.
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+
 # Copy built files from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 RUN chmod -R 755 /usr/share/nginx/html
