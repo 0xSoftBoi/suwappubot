@@ -67,6 +67,14 @@ export const EnvSchema = Schema.Struct({
 	 */
 	AUTOPILOT_ANCHOR_PRIVATE_KEY: Schema.optional(Schema.String),
 	AUTOPILOT_ANCHOR_CHAIN: Schema.optionalWith(Schema.String, { default: () => 'base' }),
+	/** Required only for agents whose thesis_engine is 'llm'. */
+	ANTHROPIC_API_KEY: Schema.optional(Schema.String),
+	AUTOPILOT_LLM_MODEL: Schema.optionalWith(Schema.String, { default: () => 'claude-opus-5' }),
+	AUTOPILOT_LLM_EFFORT: Schema.optionalWith(Schema.Literal('low', 'medium', 'high'), {
+		default: () => 'low' as const,
+	}),
+	/** Model calls per cycle. The cost ceiling for an LLM-driven agent. */
+	AUTOPILOT_LLM_MAX_CALLS: Schema.optionalWith(Schema.NumberFromString, { default: () => 8 }),
 	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
 	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
 

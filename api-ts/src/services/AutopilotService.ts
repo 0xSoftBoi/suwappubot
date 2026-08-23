@@ -31,6 +31,7 @@ import { computeCommitment, generateNonce, sealMemo, verifySeal } from '../lib/s
 import { type Anchor, createAnchor, NullAnchor } from './autopilot/anchor'
 import { type Executor, ManagedExecutor, PaperExecutor } from './autopilot/executor'
 import { evaluateGates, shouldExit } from './autopilot/gates'
+import { LlmThesisEngine } from './autopilot/llmThesis'
 import { fetchTokenSecurity, getTokenPriceUsd, screenCandidates } from './autopilot/market'
 import { RulesThesisEngine, type ThesisEngine } from './autopilot/thesis'
 import {
@@ -454,6 +455,27 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 						})
 					: new PaperExecutor()
 
+			// An agent whose published thesis_engine is 'llm' must not silently fall
+			// back to the rules engine — the feed would then attribute a
+			// deterministic thesis to a model that never ran.
+			if (agent.thesisEngine === 'llm' && !env.ANTHROPIC_API_KEY) {
+				return yield* Effect.fail(
+					new ValidationError({
+						message: `Agent ${slug} uses the llm thesis engine but ANTHROPIC_API_KEY is not configured`,
+					}),
+				)
+			}
+
+			const engine: ThesisEngine =
+				agent.thesisEngine === 'llm'
+					? new LlmThesisEngine({
+							apiKey: env.ANTHROPIC_API_KEY as string,
+							model: env.AUTOPILOT_LLM_MODEL,
+							effort: env.AUTOPILOT_LLM_EFFORT,
+							maxCallsPerCycle: env.AUTOPILOT_LLM_MAX_CALLS,
+						})
+					: new RulesThesisEngine()
+
 			if (agent.mode === 'live' && !env.AUTOPILOT_AGENT_API_KEY) {
 				return yield* Effect.fail(
 					new ValidationError({
@@ -468,7 +490,7 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 						db,
 						agent,
 						executor,
-						new RulesThesisEngine(),
+						engine,
 						{
 							internalApiUrl: env.INTERNAL_API_URL,
 							internalApiKey: env.INTERNAL_API_KEY ?? '',
@@ -716,6 +738,9 @@ export async function runCycleImpl(
 ): Promise<CycleReport> {
 	const rules = resolveRules(agent.rules)
 	const errors: string[] = []
+
+	// Per-cycle spend caps (e.g. the LLM engine's call budget) reset here.
+	;(engine as { resetCycle?: () => void }).resetCycle?.()
 
 	const [cycle] = await db
 		.insert(autopilotCycles)
