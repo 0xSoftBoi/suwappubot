@@ -66,7 +66,9 @@
       "changelogTitle": "Nouveautés",
       "changelogDesc": "Ce qui vient de sortir",
       "statusTitle": "Statut",
-      "statusDesc": "État des services en direct"
+      "statusDesc": "État des services en direct",
+      "autopilotTitle": "Autopilot",
+      "autopilotDesc": "Observez l'agent autonome trader et vérifiez ses décisions"
     }
   },
   "hero": {

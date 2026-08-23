@@ -66,7 +66,9 @@
       "changelogTitle": "更新日志",
       "changelogDesc": "最近发布的内容",
       "statusTitle": "服务状态",
-      "statusDesc": "实时服务健康度"
+      "statusDesc": "实时服务健康度",
+      "autopilotTitle": "Autopilot",
+      "autopilotDesc": "实时观看自主代理交易，并验证它的每个决策"
     }
   },
   "hero": {

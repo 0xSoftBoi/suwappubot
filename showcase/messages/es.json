@@ -66,7 +66,9 @@
       "changelogTitle": "Novedades",
       "changelogDesc": "Lo último publicado",
       "statusTitle": "Estado",
-      "statusDesc": "Salud del servicio en vivo"
+      "statusDesc": "Salud del servicio en vivo",
+      "autopilotTitle": "Autopilot",
+      "autopilotDesc": "Observa al agente autónomo operar y verifica sus decisiones"
     }
   },
   "hero": {
