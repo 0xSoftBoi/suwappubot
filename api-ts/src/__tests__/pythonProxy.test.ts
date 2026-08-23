@@ -82,11 +82,10 @@ describe('Python Terminal compatibility gateway', () => {
 			'oauth_nonce=abc; Path=/auth/oauth; HttpOnly; Secure',
 			'suwappu_auth=jwt; Path=/; HttpOnly; Secure',
 		])
-		// The api-ts CORS middleware, not the Python service, owns the public CORS policy.
 		expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
 	})
 
-	it('allows only the auth methods and read-only Terminal compatibility paths', () => {
+	it('allows only reviewed auth, read, wallet, perps and bridge compatibility paths', () => {
 		for (const [method, path] of [
 			['POST', '/auth/turnkey/challenge'],
 			['POST', '/auth/solana/verify'],
@@ -100,6 +99,19 @@ describe('Python Terminal compatibility gateway', () => {
 			['GET', '/terminal/intel/health'],
 			['GET', '/terminal/intel/devwatch/hits'],
 			['GET', '/terminal/intel/base/0xabc'],
+			['GET', '/terminal/wallet/summary'],
+			['GET', '/terminal/perps/account'],
+			['POST', '/terminal/perps/connect'],
+			['GET', '/terminal/perps/positions'],
+			['POST', '/terminal/perps/execute'],
+			['POST', '/terminal/perps/close'],
+			['POST', '/terminal/perps/tpsl'],
+			['GET', '/terminal/perps/orders'],
+			['POST', '/terminal/perps/cancel'],
+			['POST', '/webapp/bridge/routes'],
+			['POST', '/webapp/bridge/build'],
+			['POST', '/webapp/bridge/record'],
+			['GET', '/webapp/bridge/transfers/123'],
 		] as const) {
 			expect(isPythonProxyAllowed(method, path)).toBe(true)
 		}
@@ -110,20 +122,59 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/auth/oauth/google/link'],
 			['DELETE', '/auth/oauth/unlink/google'],
 			['POST', '/terminal/wallet/withdraw'],
-			['POST', '/terminal/perps/connect'],
-			['POST', '/terminal/perps/execute'],
 			['POST', '/terminal/predict/order'],
 			['POST', '/terminal/predict/redeem'],
 			['POST', '/terminal/intel/devwatch'],
 			['POST', '/webapp/dca'],
-			['POST', '/webapp/bridge/build'],
+			['DELETE', '/webapp/bridge/transfers/123'],
+			['GET', '/webapp/bridge/transfers/not-a-number'],
 			['POST', '/webapp/points/rewards/1/redeem'],
 		] as const) {
 			expect(isPythonProxyAllowed(method, path)).toBe(false)
 		}
 	})
 
-	it('returns 404 without touching Python for a money-changing Terminal route', async () => {
+	it('proxies the reviewed perps and bridge money paths while forwarding end-user auth', async () => {
+		const seen: Array<{ method: string; path: string; auth: string | null }> = []
+		const routes = createPythonProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async (input, init) => {
+				const headers = new Headers(init?.headers)
+				seen.push({
+					method: init?.method ?? '',
+					path: new URL(String(input)).pathname,
+					auth: headers.get('Authorization'),
+				})
+				return Response.json({ ok: true })
+			},
+		})
+		const app = new Hono().route('/', routes)
+		const requests = [
+			['GET', '/terminal/wallet/summary'],
+			['POST', '/terminal/perps/execute'],
+			['POST', '/webapp/bridge/build'],
+			['GET', '/webapp/bridge/transfers/42'],
+		] as const
+
+		for (const [method, path] of requests) {
+			const response = await app.request(path, {
+				method,
+				headers: { Authorization: 'Bearer browser-session' },
+				...(method === 'POST' ? { body: '{}' } : {}),
+			})
+			expect(response.status).toBe(200)
+		}
+
+		expect(seen).toEqual(
+			requests.map(([method, path]) => ({
+				method,
+				path,
+				auth: 'Bearer browser-session',
+			})),
+		)
+	})
+
+	it('returns 404 without touching Python for an unreviewed money-changing Terminal route', async () => {
 		let calls = 0
 		const routes = createPythonProxyRoutes({
 			baseUrl: PYTHON_URL,
@@ -194,7 +245,6 @@ describe('Python Terminal compatibility gateway', () => {
 				},
 			}),
 		)
-		// Represents swapRoutes, which createApp mounts immediately after the gateway.
 		app.post('/webapp/swap/execute', (c) =>
 			c.json({ source: 'api-ts', initData: c.req.header('X-Telegram-Init-Data') }),
 		)

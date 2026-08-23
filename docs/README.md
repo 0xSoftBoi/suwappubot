@@ -1,98 +1,164 @@
-# Suwappu Docs Index
+# Suwappu Documentation
 
-Map of everything under `docs/`, grouped by what kind of knowledge it holds.
-**Docs drift; code is ground truth** — treat PLAN and RESEARCH docs as
-historical intent, not current behavior. Update this index when adding a doc.
+This is the navigation hub for Suwappu's product, developer, architecture, security, and
+operations documentation. Start with the job you are trying to do; do not browse the
+monorepo directory-by-directory unless you are maintaining it.
 
-## Start here (institutional knowledge)
+> **Code and generated/runtime contracts are ground truth.** Plans and research are context,
+> not current behavior. See [Product Status](product-status.md) when maturity is ambiguous.
 
-Repo-root policy trio (precedence order): [`AGENTS.md`](../AGENTS.md) (agent
-policy) → [`ARCHITECTURE.md`](../ARCHITECTURE.md) (boundaries, decision
-taxonomy, auth/config contracts) → [`CONVENTIONS.md`](../CONVENTIONS.md)
-(day-to-day rules). Then:
+## Start here
 
-| Doc | What it is |
-|-----|-----------|
-| [ONBOARDING.md](ONBOARDING.md) | New-contributor setup: env vars, run/test commands per component, CI gates |
-| [architecture/OVERVIEW.md](architecture/OVERVIEW.md) | Ground-truth system map: services, background tasks, request flows, data layer, chains/providers, key handling |
-| [adr/](adr/README.md) | Architecture Decision Records — append-only, merge-as-acceptance; required link on MONEY-PATH/cross-stack PRs |
-| [DECISIONS.md](DECISIONS.md) | Decision & lessons log — why things are the way they are; add to it when you learn something the hard way |
-| [DATAROOM.md](DATAROOM.md) | Source-of-truth product brief (chains, TVL, fee split, integrations — every claim cited) |
+| Goal | Start | Go deeper |
+|---|---|---|
+| **Use Suwappu** | [Quickstart](quickstart.md) | [Feature guides](features/README.md) |
+| **Build an agent** | [Agent clients](agent-clients.md) | [Agent control plane](agents/control-plane.md) |
+| **Autonomous trading agent** | [Autopilot](agents/autopilot.md) | commit-reveal loop, risk gates, public decision feed |
+| **Integrate an app** | [Quickstart](quickstart.md#build-an-application) | [`@suwappu/sdk`](../packages/sdk/README.md) · [Python SDK](../packages/sdk-python/README.md) |
+| **Check maturity / execution authority** | [Product status](product-status.md) | [Agent clients](agent-clients.md) |
+| **Understand the system** | [Architecture overview](architecture/OVERVIEW.md) | [`ARCHITECTURE.md`](../ARCHITECTURE.md) · [ADRs](adr/README.md) |
+| **Contribute** | [Onboarding](ONBOARDING.md) | [`CONVENTIONS.md`](../CONVENTIONS.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
+| **Operate production** | [Production inventory](deployment/production-inventory.md) | [Railway](deployment/railway.md) · [Monitoring](deployment/monitoring.md) |
+| **Handle an incident** | [Incident docs](incidents/README.md) | [Monitoring](deployment/monitoring.md) |
+| **Write or review docs** | [Documentation content model](content-model.md) | `./scripts/verify.sh docs` |
 
-## Runbooks (operational how-to)
+## Product and developer docs
 
-- [incidents/](incidents/README.md) — COE-format postmortems (blameless, action-item-driven; template inside)
-- [deployment/railway.md](deployment/railway.md) — Railway service build/deploy config per service
-- [deployment/monitoring.md](deployment/monitoring.md) — the five observability layers and what each is blind to
-- [deployment/self-healing-loop.md](deployment/self-healing-loop.md) — bounded auto-recovery for failed deploys
-- [deployment/bridge-rails-runbook.md](deployment/bridge-rails-runbook.md) — enabling/verifying cross-chain rails (CCTP, LayerZero, USDT0)
-- [development/migrations.md](development/migrations.md) — dual-ORM schema changes: the rules, the steps, the multi-phase rename dance
-- [SECRET_ROTATION_RUNBOOK.md](SECRET_ROTATION_RUNBOOK.md) — secret rotation + git-history purge procedure
-- [KMS_AWS_MIGRATION.md](KMS_AWS_MIGRATION.md) — local KEK → AWS KMS migration for key wrapping
+### First success
 
-## Reference (current-state facts)
+- [Quickstart](quickstart.md) — one focused path to a first useful user/agent/app result.
+- [Product status](product-status.md) — production, hosted, published/source, source-only,
+  shadow, experimental, plan, and research semantics.
+- [Agent clients](agent-clients.md) — MCP, SDK, REST, A2A, auth, version and custody
+  boundaries.
 
-**Agent surface**: [agent-clients.md](agent-clients.md) (MCP/SDK/REST/A2A),
-[agents/control-plane.md](agents/control-plane.md) (policy schema for fund-moving calls),
-[research/mcp-state-2026-08.md](research/mcp-state-2026-08.md),
-[distribution/registry-listings.md](distribution/registry-listings.md)
+### Feature guides
 
-**Features**: [features/README.md](features/README.md) (index),
-[features/hyperliquid.md](features/hyperliquid.md),
-[features/tempo.md](features/tempo.md) (gasless),
-[features/openclaw_integration.md](features/openclaw_integration.md),
-[rewards/DESIGN.md](rewards/DESIGN.md) (on-chain cashback, audited distributor),
-[smart-accounts.md](smart-accounts.md) (ZeroDev Kernel),
-[social-recovery.md](social-recovery.md) (DKIM email recovery)
+- [Feature index](features/README.md)
+- [HyperLiquid](features/hyperliquid.md)
+- [Tempo](features/tempo.md)
+- [OpenClaw integration](features/openclaw_integration.md)
+- [Smart accounts](smart-accounts.md)
+- [Social recovery](social-recovery.md)
+- [BTC / Atomiq integration](integrations/atomiq-api.md)
+- [Ledger wallet integration](integrations/ledger-wallet.md)
 
-**Integrations**: [integrations/atomiq-api.md](integrations/atomiq-api.md) (BTC bridge),
-[integrations/ledger-wallet.md](integrations/ledger-wallet.md)
+Feature presence is not proof of universal client/chain availability. Use runtime discovery
+and [Product Status](product-status.md).
 
-**Security/compliance**: [architecture/compliance-screening.md](architecture/compliance-screening.md),
-[security/dependency-exceptions.md](security/dependency-exceptions.md)
+## Execution authority
 
-**Economics (committed designs)**: [economics/SEASONS_TOKENOMICS.md](economics/SEASONS_TOKENOMICS.md),
-[economics/REDEMPTION_AND_PARTNERS.md](economics/REDEMPTION_AND_PARTNERS.md)
+Suwappu separates authority into five levels:
 
-**Design system**: [design/figma.md](design/figma.md), [design/proof-material.md](design/proof-material.md),
-[design/serif-decision.md](design/serif-decision.md)
+1. **Discover** — read-only metadata.
+2. **Quote** — price an intent.
+3. **Simulate** — analyze a transaction.
+4. **Prepare** — return unsigned self-custody transaction data.
+5. **Managed execute** — explicit server-side fund movement.
 
-**Mobile**: [mobile/performance.md](mobile/performance.md)
+Do not infer authority from method names. In particular, MCP `execute_swap` currently maps
+to **Prepare**, not managed execution. See [Product Status](product-status.md).
 
-## Plans (forward-looking — verify against code before relying on them)
+## Architecture and engineering
 
-[NEXT.md](NEXT.md) (queued work),
-[plans/aegis-fork-extend.md](plans/aegis-fork-extend.md),
-[plans/agent-leading-edge-roadmap.md](plans/agent-leading-edge-roadmap.md),
-[plans/mcp-unification.md](plans/mcp-unification.md),
-[plans/robinhood-chain-native.md](plans/robinhood-chain-native.md),
-[plans/starknet-btc-neobank-plan.md](plans/starknet-btc-neobank-plan.md),
-[plans/btcfi-expansion-plan.md](plans/btcfi-expansion-plan.md),
-[support-tickets-plan.md](support-tickets-plan.md),
-[pq-settlement-profile.md](pq-settlement-profile.md) (experimental),
-[economics/COBRAND_CARD_AND_COALITION.md](economics/COBRAND_CARD_AND_COALITION.md),
-[economics/REWARDS_MARKETPLACE.md](economics/REWARDS_MARKETPLACE.md),
-[parity/cozy-card-scoping.md](parity/cozy-card-scoping.md),
-[parity/competitive-improvements.md](parity/competitive-improvements.md),
-[parity/chatdev-feature-parity.md](parity/chatdev-feature-parity.md)
+Use the two architecture layers for different jobs:
 
-## Research (market/competitor studies — point-in-time)
+- [`ARCHITECTURE.md`](../ARCHITECTURE.md) — **normative** boundaries, decision taxonomy,
+  auth/config contracts, standing rules.
+- [architecture/OVERVIEW.md](architecture/OVERVIEW.md) — **descriptive** runtime map,
+  request/data flows, background work, routing and key-handling boundaries.
 
-[research/institutional-knowledge-practices.md](research/institutional-knowledge-practices.md) (how other companies keep institutional knowledge + our adoption plan),
-[NEOBANK_ROADMAP.md](NEOBANK_ROADMAP.md),
-[research/llm-credits/](research/llm-credits/) (00-strategy → 04-metering),
-[research/launch/erc8056-stock-token-interface-risk.md](research/launch/erc8056-stock-token-interface-risk.md),
-[design/visual-study.md](design/visual-study.md),
-[design/reference-breakdown-exa.md](design/reference-breakdown-exa.md),
-[design/reference-breakdown-greptile.md](design/reference-breakdown-greptile.md)
+Supporting institutional knowledge:
 
-## ⚠️ Known-stale
+- [ADRs](adr/README.md) — durable architecture decisions.
+- [Decision log](DECISIONS.md) — operational lessons and smaller decisions.
+- [Onboarding](ONBOARDING.md) — contributor setup and test lanes.
+- [Migrations](development/migrations.md) — shared-schema change procedure.
+- [`AGENTS.md`](../AGENTS.md) — policy for coding agents in this repository.
+- [`CONVENTIONS.md`](../CONVENTIONS.md) — engineering rules.
 
-- [production-site-replacement-audit.md](production-site-replacement-audit.md) —
-  describes AWS ALB/ECS deployment (May 2026). **Deploy target is Railway now**;
-  kept for history only.
+## Security
 
-## Known gaps (want a doc? these are unclaimed)
+Start with [`SECURITY.md`](../SECURITY.md) for vulnerability reporting and repository
+security posture.
 
-Git branching & release flow · DB schema reference · mobile iOS build/deploy
-guide · threat model & audit report links · metrics/KPI dashboard links.
+Money-path and security references:
+
+- [Product status / authority](product-status.md)
+- [Agent security and custody](agent-clients.md)
+- [Compliance screening architecture](architecture/compliance-screening.md)
+- [Dependency exceptions](security/dependency-exceptions.md)
+- [KMS/key-wrapping history](KMS_AWS_MIGRATION.md)
+- [Secret rotation](SECRET_ROTATION_RUNBOOK.md)
+
+Security automation, SBOMs, scanners, and controls are evidence/tooling, **not an audit or
+compliance certification** unless a separate artifact explicitly says otherwise.
+
+## Operations
+
+- [Production inventory](deployment/production-inventory.md) — current service-catalog
+  snapshot and source-branch caveats.
+- [Railway](deployment/railway.md) — deployment configuration and migration history.
+- [Monitoring](deployment/monitoring.md) — observability layers and blind spots.
+- [Self-healing loop](deployment/self-healing-loop.md) — bounded recovery design.
+- [Bridge rails](deployment/bridge-rails-runbook.md) — enable/verify cross-chain rails.
+- [Incidents](incidents/README.md) — postmortems and incident process.
+
+During an incident, verify Railway/monitoring directly. Markdown is never the live health
+source of truth.
+
+## Protocol, economics, plans and research
+
+Protocol/economics work can exist without being production execution authority.
+
+- Protocol contracts: [`../contracts/`](../contracts/) and
+  [`../contracts/MAINNET_READINESS.md`](../contracts/MAINNET_READINESS.md)
+- Economics/rewards: [`economics/`](economics/) · [`rewards/`](rewards/)
+- Forward-looking work: [`plans/`](plans/) · [NEXT.md](NEXT.md)
+- Point-in-time evidence: [`research/`](research/)
+- Design studies/system: [`design/`](design/)
+
+`bot/services/execution_sync*.py` remains **shadow** evidence infrastructure unless
+[Product Status](product-status.md) says otherwise. Research and plan documents are
+non-authoritative by definition.
+
+## Sources of truth
+
+| Question | Source |
+|---|---|
+| Platform/Agent chain + router counts | `showcase/src/data/stats.generated.json` |
+| Agent chain support | runtime discovery / `GET /v1/agent/chains` |
+| MCP catalog | runtime MCP discovery |
+| Environment requirements | `.env.schema` + `capabilities.yaml` |
+| Product maturity / execution authority | [product-status.md](product-status.md) |
+| Production service membership/source | Railway + [production inventory](deployment/production-inventory.md) |
+| Architecture boundaries | root `ARCHITECTURE.md` + ADRs |
+| Published package version | package registry |
+| Source package version | package `package.json` |
+
+## Documentation standard
+
+Read [content-model.md](content-model.md) before adding a substantial new page. Every doc
+should have one primary job and use the appropriate content type: quickstart, how-to,
+reference, concept, runbook, troubleshooting, or plan/research.
+
+For money-moving docs, state custody and authority beside the action. For dynamic facts,
+link the source of truth instead of making another copy.
+
+Verify docs changes with:
+
+```bash
+./scripts/verify.sh docs
+```
+
+## Historical material
+
+Some documents are intentionally retained as history. For example,
+[production-site-replacement-audit.md](production-site-replacement-audit.md) describes an
+older AWS topology, and parts of [deployment/railway.md](deployment/railway.md) preserve the
+original Railway migration session. Historical evidence should stay labeled as history.
+
+## Known documentation gaps
+
+Git branching/release flow · DB schema reference · mobile iOS build/deploy guide ·
+threat-model/audit-report index · canonical metrics/KPI dashboard index.

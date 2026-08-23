@@ -48,8 +48,8 @@ export default function ProductMenu({
                     <p className="nav__panel-heading">{tm(group.key)}</p>
                     {group.items.map((item) => {
                       const active = isActive?.(item.href) ?? false;
-                      const title = item.key === 'signals' ? 'Signal Intelligence' : tm(`${item.key}Title`);
-                      const desc = item.key === 'signals' ? 'Explainable on-chain signals and evidence' : tm(`${item.key}Desc`);
+                      const title = tm(`${item.key}Title`);
+                      const desc = tm(`${item.key}Desc`);
                       return (
                         <a
                           key={item.key}

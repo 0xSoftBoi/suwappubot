@@ -2,19 +2,28 @@ import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
-import { logger } from './lib/logger'
-import type { AgentErrorCode } from './lib/agentError'
-import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
-import { adminKeyAuth, createCorsMiddleware, createMcpOriginGuard, otelRequestTracing } from './middleware'
+import type { AgentErrorCode } from './lib/agentError'
+import { logger } from './lib/logger'
+import { captureServerError } from './lib/sentry'
+import {
+	adminKeyAuth,
+	createCorsMiddleware,
+	createMcpOriginGuard,
+	otelRequestTracing,
+} from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import {
 	a2aRoutes,
 	adminRoutes,
 	agentRoutes,
+	autopilotAdminRoutes,
+	autopilotRoutes,
 	billingRoutes,
+	createPythonProxyRoutes,
+	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseRoutes,
 	healthRoutes,
@@ -24,11 +33,9 @@ import {
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
-	rewardsRoutes,
 	predictRoutes,
-	createPythonProxyRoutes,
-	createTerminalSwapProxyRoutes,
 	publicSwapRoutes,
+	rewardsRoutes,
 	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
@@ -131,7 +138,8 @@ export function createApp(config: AppConfig) {
 			if (isAgentSurface) {
 				body.error_code = httpExceptionCode(err.status, err.message)
 				if (cause?.hint) body.hint = cause.hint
-				else if (err.status === 401) body.hint = 'Register at POST /v1/agent/register to get an API key'
+				else if (err.status === 401)
+					body.hint = 'Register at POST /v1/agent/register to get an API key'
 			}
 
 			return c.json(body, err.status)
@@ -207,6 +215,11 @@ export function createApp(config: AppConfig) {
 	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API
 	// key or agent bearer token via agentFlexAuth), enforced inside dataRoutes.
 	app.route('/v1/data', dataRoutes)
+
+	// Autopilot — the autonomous trading agent's public transparency surface.
+	// Unauthenticated by design: decisions, refusals, positions and P&L are the
+	// product. Control lives on /admin/autopilot behind X-Admin-Key.
+	app.route('/v1/autopilot', autopilotRoutes)
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)
@@ -466,6 +479,7 @@ https://suwappu.bot/docs
 	// Admin API routes - X-Admin-Key required
 	app.use('/admin/*', adminKeyAuth(config.adminApiKey))
 	app.route('/admin', adminRoutes)
+	app.route('/admin/autopilot', autopilotAdminRoutes)
 
 	// Dashboard SPA - static files
 	app.use(

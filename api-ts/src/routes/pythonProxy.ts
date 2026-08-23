@@ -3,11 +3,12 @@ import { Hono, type Context } from 'hono'
 /**
  * Browser-facing routes that still live in the Python service.
  *
- * Keep this list deliberately explicit. api.suwappu.bot is the production
- * origin used by Terminal, so this gateway only bridges the authentication
- * surface and read-only Terminal data that has no api-ts implementation yet.
- * Money-changing routes must be implemented/reviewed separately rather than
- * becoming reachable because a broad prefix was proxied.
+ * Keep this list deliberately explicit. api-ts is Terminal's backend gateway
+ * (reached through the Terminal same-origin Railway proxy in production), so
+ * this compatibility layer only bridges reviewed routes that do not yet have
+ * an api-ts implementation. Money-changing routes are opt-in exact paths below;
+ * a broad /terminal or /webapp prefix is never enough to make a new Python
+ * endpoint browser-reachable.
  */
 const AUTH_ROUTES = new Set([
 	'POST /auth/turnkey/challenge',
@@ -42,8 +43,34 @@ const TERMINAL_READ_ROUTES = new Set([
 	'/terminal/intel/devwatch/hits',
 ])
 
+// Authenticated Terminal routes whose Python implementations are already the
+// canonical trading/wallet services used by the bot. These handlers validate
+// the end-user JWT/cookie themselves; the gateway only preserves the browser
+// transport across the api-ts production origin.
+const TERMINAL_SESSION_ROUTES = new Set([
+	'GET /terminal/wallet/summary',
+	'GET /terminal/perps/account',
+	'POST /terminal/perps/connect',
+	'GET /terminal/perps/positions',
+	'POST /terminal/perps/execute',
+	'POST /terminal/perps/close',
+	'POST /terminal/perps/tpsl',
+	'GET /terminal/perps/orders',
+	'POST /terminal/perps/cancel',
+])
+
+// Cross-chain bridge execution is non-custodial: Python builds unsigned txs,
+// the connected browser wallet signs/broadcasts, and /record starts tracking.
+// Keep every method/path explicit so unrelated /webapp money routes stay shut.
+const TERMINAL_BRIDGE_ROUTES = new Set([
+	'POST /webapp/bridge/routes',
+	'POST /webapp/bridge/build',
+	'POST /webapp/bridge/record',
+])
+
 const OAUTH_ROUTE = /^\/auth\/oauth\/(google|twitter)\/(authorize|callback)$/
 const TERMINAL_TOKEN_INTEL_ROUTE = /^\/terminal\/intel\/[^/]+\/[^/]+$/
+const TERMINAL_BRIDGE_TRANSFER_ROUTE = /^\/webapp\/bridge\/transfers\/\d+$/
 const TERMINAL_SWAP_POST_ROUTES = new Set([
 	'/webapp/swap/quote',
 	'/webapp/swap/build',
@@ -54,8 +81,12 @@ const TERMINAL_SWAP_POST_ROUTES = new Set([
 
 export function isPythonProxyAllowed(method: string, path: string): boolean {
 	const normalizedMethod = method.toUpperCase()
-	if (AUTH_ROUTES.has(`${normalizedMethod} ${path}`)) return true
+	const methodPath = `${normalizedMethod} ${path}`
+	if (AUTH_ROUTES.has(methodPath)) return true
+	if (TERMINAL_SESSION_ROUTES.has(methodPath)) return true
+	if (TERMINAL_BRIDGE_ROUTES.has(methodPath)) return true
 	if (normalizedMethod === 'GET' && OAUTH_ROUTE.test(path)) return true
+	if (normalizedMethod === 'GET' && TERMINAL_BRIDGE_TRANSFER_ROUTE.test(path)) return true
 	return (
 		normalizedMethod === 'GET' &&
 		(TERMINAL_READ_ROUTES.has(path) || TERMINAL_TOKEN_INTEL_ROUTE.test(path))
@@ -198,10 +229,11 @@ export function createPythonProxyRoutes(config: PythonProxyConfig) {
 		return proxyToPython(c, config, fetchImpl)
 	}
 
-	// A prefix catch-all plus the explicit method/path allowlist above means a
-	// newly-added Python money route is 404 here until deliberately reviewed.
+	// Prefix catch-alls plus the exact method/path allowlist above mean a newly
+	// added Python money route is still 404 here until deliberately reviewed.
 	routes.all('/auth/*', proxy)
 	routes.all('/terminal/*', proxy)
+	routes.all('/webapp/bridge/*', proxy)
 	return routes
 }
 

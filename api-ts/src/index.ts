@@ -2,14 +2,16 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
+import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
 import { initSentry } from './lib/sentry'
-import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
 import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
+import { runAutopilotBootstrap } from './services/autopilot/bootstrap'
+import { startAutopilotScheduler, stopAutopilotScheduler } from './services/autopilot/scheduler'
 
 async function main() {
 	// Get environment config
@@ -56,12 +58,22 @@ async function main() {
 	logger.info(`Environment: ${env.NODE_ENV}`)
 	logger.info(`Database: ${env.DATABASE_URL ? 'configured' : 'not configured'}`)
 
+	// Seed the paper agent this environment declares, if it is missing. Paper
+	// only, and never modifies an agent that already exists.
+	await runAutopilotBootstrap(env.AUTOPILOT_BOOTSTRAP)
+
+	// Autopilot — periodic autonomous trading cycles. Disabled unless
+	// AUTOPILOT_CYCLE_MINUTES is set, and each agent still has to be `active`
+	// and (for real money) explicitly in live mode.
+	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES)
+
 	// Graceful shutdown
 	const shutdown = async () => {
 		logger.info('Shutting down...')
 		stopA2aCleanup()
 		stopAgentCleanup()
 		stopDataLiveTicker()
+		stopAutopilotScheduler()
 		// Drain the write-behind usage buffer before stopping the flush timer —
 		// otherwise any unflushed /v1/data/* request counts from the last <30s
 		// are silently dropped on every deploy/restart.
