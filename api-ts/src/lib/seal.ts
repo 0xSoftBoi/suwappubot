@@ -9,6 +9,15 @@
  *
  * Canonicalisation is deterministic (RFC 8785-style key ordering) so the same
  * thesis always hashes identically regardless of property insertion order.
+ *
+ * STRING ENCODING IS PART OF THE SPEC. Strings are serialised exactly as
+ * ECMAScript `JSON.stringify` does: raw UTF-8, with only the escapes JSON
+ * requires. Non-ASCII characters are NOT \uXXXX-escaped. This matters because
+ * several languages escape by default and would compute a different digest from
+ * identical data — Python's `json.dumps` needs `ensure_ascii=False`, and Go's
+ * `encoding/json` needs an Encoder with `SetEscapeHTML(false)`. A thesis
+ * containing an em dash is enough to diverge, which looks to a third-party
+ * verifier exactly like a forged commitment.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 

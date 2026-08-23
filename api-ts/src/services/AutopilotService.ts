@@ -27,7 +27,14 @@ import {
 } from '../db'
 import { DatabaseError, NotFoundError, ValidationError } from '../errors'
 import { logger } from '../lib/logger'
-import { computeCommitment, generateNonce, sealMemo, verifySeal } from '../lib/seal'
+import {
+	canonicalize,
+	computeCommitment,
+	generateNonce,
+	SEAL_ALGO,
+	sealMemo,
+	verifySeal,
+} from '../lib/seal'
 import { type Anchor, createAnchor, NullAnchor } from './autopilot/anchor'
 import { type Executor, ManagedExecutor, PaperExecutor } from './autopilot/executor'
 import { evaluateGates, shouldExit } from './autopilot/gates'
@@ -158,6 +165,8 @@ export interface VerificationResult {
 	algo: string
 	memo: string
 	anchor: { chain: string; txHash: string } | null
+	/** The exact bytes that were hashed. Only present once revealed. */
+	preimage?: string
 	revealed: boolean
 	verified: boolean
 	detail: string
@@ -495,6 +504,10 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 			const ok = verifySeal(row.thesis, row.nonce, row.commitment)
 			return {
 				...base,
+				// Publishing the pre-image turns a verifier's mismatch into a visible
+				// diff. Without it, an implementation that escapes non-ASCII
+				// differently just reports "MISMATCH" and looks like proof of a lie.
+				preimage: `${SEAL_ALGO}|${row.nonce}|${canonicalize(row.thesis)}`,
 				revealed: true,
 				verified: ok,
 				detail: ok
