@@ -62,7 +62,7 @@ describe('parseCurvePool', () => {
       pool_type: 'main',
       coins: [
         { symbol: 'DAI', address: '0xdai', usd_price: 1.0 },
-        { symbol: 'USDC', address: '0xusdc', usd_price: 1.001 },
+        { symbol: 'USDC', address: '0xusdc', usd_price: 1.001, decimals: 6 },
       ],
     }
     const pool = parseCurvePool(raw, 1, 'ethereum')
@@ -74,8 +74,9 @@ describe('parseCurvePool', () => {
       volume24h: 12_345,
       baseApr: 1.27,
       coins: [
-        { symbol: 'DAI', address: '0xdai', usdPrice: 1.0 },
-        { symbol: 'USDC', address: '0xusdc', usdPrice: 1.001 },
+        // decimals falls back to 18 when the payload omits it, same as flet-curve.
+        { symbol: 'DAI', address: '0xdai', usdPrice: 1.0, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usdPrice: 1.001, decimals: 6 },
       ],
       registry: 'main',
       poolUrl: 'https://curve.finance/dex/#/ethereum/pools/0xabc/deposit',
