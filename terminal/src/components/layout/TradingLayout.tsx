@@ -75,6 +75,9 @@ const AuditLogPanel = lazy(() =>
 const MarketDataPanel = lazy(() =>
   import('../market-data/MarketDataPanel').then((m) => ({ default: m.MarketDataPanel })),
 )
+const CurvePoolsPanel = lazy(() =>
+  import('../curve/CurvePoolsPanel').then((m) => ({ default: m.CurvePoolsPanel })),
+)
 
 function DeferredPanel({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -91,6 +94,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'wallet-tracker', label: 'Wallet Tracker' },
   { id: 'tweets', label: 'Tweets' },
   { id: 'defi', label: 'DeFi Center' },
+  { id: 'curve', label: 'Curve' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
@@ -215,6 +219,11 @@ function MobileLayout() {
                     <div className="min-h-[200px]"><DCAManager /></div>
                     <div className="min-h-[200px]"><LendingPanel /></div>
                   </div>
+                )}
+                {bottomTab === 'curve' && (
+                  <ErrorBoundary label="Curve">
+                    <CurvePoolsPanel />
+                  </ErrorBoundary>
                 )}
                 {bottomTab === 'copilot' && <CopilotPanel />}
                 {bottomTab === 'referrals' && <ReferralsPanel />}
@@ -380,6 +389,11 @@ function DesktopLayout() {
                   <DCAManager />
                   <LendingPanel />
                 </div>
+              )}
+              {bottomTab === 'curve' && (
+                <ErrorBoundary label="Curve">
+                  <CurvePoolsPanel />
+                </ErrorBoundary>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
               {bottomTab === 'referrals' && <ReferralsPanel />}
