@@ -1,0 +1,47 @@
+name: Apply perps margin mode patch
+
+on:
+  push:
+    branches:
+      - fix/perps-margin-mode-leverage-20260822
+    paths:
+      - scripts/_apply_perps_margin_mode_patch.py
+      - .github/workflows/_apply_perps_margin_mode_patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded source patch
+        run: python scripts/_apply_perps_margin_mode_patch.py
+
+      - name: Validate patched Python syntax and diff
+        run: |
+          python -m py_compile api/routes/terminal.py bot/services/perps_service.py bot/services/hyperliquid_client.py
+          git diff --check
+
+      - name: Commit patched sources
+        run: |
+          rm scripts/_apply_perps_margin_mode_patch.py
+          rm .github/workflows/_apply_perps_margin_mode_patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/routes/terminal.py \
+                  bot/services/perps_service.py \
+                  bot/services/hyperliquid_client.py \
+                  terminal/src/components/perps/PerpsPanel.tsx \
+                  terminal/src/types/api.ts \
+                  terminal/src/lib/perpsRisk.ts \
+                  terminal/src/lib/perpsRisk.test.ts \
+                  scripts/_apply_perps_margin_mode_patch.py \
+                  .github/workflows/_apply_perps_margin_mode_patch.yml
+          git commit -m "fix(perps): enforce margin mode and leverage bounds"
+          git push origin HEAD:fix/perps-margin-mode-leverage-20260822
