@@ -1,9 +1,9 @@
 """Authoritatively resolve canonical executions stuck in ``reconciling``.
 
 The legacy swap poller can observe a terminal provider status without an actual
-received amount.  In that case ``project_legacy_swap`` deliberately places the
+received amount. In that case ``project_legacy_swap`` deliberately places the
 canonical parent in ``reconciling`` instead of manufacturing a fill from the
-quote.  This worker closes that loop for Li.Fi cross-chain swaps by asking the
+quote. This worker closes that loop for Li.Fi cross-chain swaps by asking the
 provider again for destination-settlement evidence.
 
 Safety invariants:
@@ -28,6 +28,8 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Callable, ContextManager, Optional
+
+from sqlalchemy import String, cast, func
 
 from bot.models.execution import ExecutionChildPlacement, ExecutionParentOrder
 from bot.models.swap import SwapStatus, SwapTransaction
@@ -100,35 +102,33 @@ class ExecutionReconciler:
     async def _reconcile_once(self) -> int:
         """Run one pass and return the number of parents resolved to FILLED."""
 
-        # Phase 1: copy only immutable lookup identity, then close the session
-        # before network I/O.  This mirrors the existing withdrawal reconciler
-        # and avoids tying up a DB connection/row lock while Li.Fi responds.
+        # Phase 1: select only provider rows this worker can actually resolve,
+        # copy immutable lookup identity, then close the session before network
+        # I/O. Filtering before LIMIT prevents unsupported reconciling rows from
+        # starving Li.Fi work at the front of the queue.
         candidates: list[dict] = []
         with self._session_scope() as session:
-            parents = (
-                session.query(ExecutionParentOrder)
+            rows = (
+                session.query(ExecutionParentOrder, SwapTransaction)
+                .join(
+                    SwapTransaction,
+                    ExecutionParentOrder.source_ref == cast(SwapTransaction.id, String),
+                )
                 .filter(
                     ExecutionParentOrder.state == "reconciling",
                     ExecutionParentOrder.source_type == "swap",
+                    func.lower(SwapTransaction.route_provider) == "lifi",
+                    SwapTransaction.tx_hash.isnot(None),
+                    SwapTransaction.from_chain != SwapTransaction.to_chain,
+                    SwapTransaction.status.in_(
+                        [SwapStatus.COMPLETED.value, SwapStatus.FAILED.value]
+                    ),
                 )
                 .order_by(ExecutionParentOrder.updated_at.asc(), ExecutionParentOrder.id.asc())
                 .limit(self._batch_size)
                 .all()
             )
-            for parent in parents:
-                try:
-                    swap_id = int(parent.source_ref)
-                except (TypeError, ValueError):
-                    logger.error(
-                        "Execution reconciler refusing invalid legacy source_ref parent=%s ref=%r",
-                        parent.id,
-                        parent.source_ref,
-                    )
-                    continue
-
-                swap = session.get(SwapTransaction, swap_id)
-                if not self._eligible_swap(swap):
-                    continue
+            for parent, swap in rows:
                 candidates.append(
                     {
                         "parent_id": parent.id,
@@ -179,7 +179,9 @@ class ExecutionReconciler:
                 )
                 continue
 
-            if not self._same_tx_identity(candidate["tx_hash"], status.sending_tx_hash):
+            if not self._provider_sending_identity_matches(
+                candidate["tx_hash"], status.sending_tx_hash
+            ):
                 logger.error(
                     "Execution reconciler rejected LiFi sending tx identity mismatch "
                     "parent=%s swap=%s expected=%s observed=%s",
@@ -212,7 +214,7 @@ class ExecutionReconciler:
 
     @staticmethod
     def _authoritative_amount(status: LiFiStatus) -> Optional[str]:
-        """Return normalized smallest-unit output only when it is unquestionably valid."""
+        """Return normalized smallest-unit output only when unquestionably valid."""
 
         if status.status != "DONE" or status.receiving_amount in (None, ""):
             return None
@@ -237,13 +239,26 @@ class ExecutionReconciler:
         return value.lower() if value.startswith(("0x", "0X")) else value
 
     @classmethod
-    def _same_tx_identity(cls, expected: str, observed: Optional[str]) -> bool:
-        # Li.Fi can omit sending.txHash on otherwise complete historical rows.
-        # Absence is not a contradiction because the query itself was keyed by
-        # expected tx_hash. A present but different identity is a hard stop.
+    def _same_persisted_tx_identity(cls, left: Optional[str], right: Optional[str]) -> bool:
+        """Strict comparison for identities we own in the database."""
+
+        normalized_left = cls._normalize_tx_identity(left)
+        normalized_right = cls._normalize_tx_identity(right)
+        return (
+            normalized_left is not None
+            and normalized_right is not None
+            and normalized_left == normalized_right
+        )
+
+    @classmethod
+    def _provider_sending_identity_matches(cls, expected: str, observed: Optional[str]) -> bool:
+        """Li.Fi may omit sending.txHash; a present value must match exactly."""
+
         if observed in (None, ""):
+            # The status request itself was keyed by expected tx_hash. Omission
+            # is therefore weaker evidence, not contradictory evidence.
             return True
-        return cls._normalize_tx_identity(expected) == cls._normalize_tx_identity(observed)
+        return cls._same_persisted_tx_identity(expected, observed)
 
     def _commit_resolution(self, candidate: dict, status: LiFiStatus, amount: str) -> bool:
         """CAS-like revalidation + canonical projection in one transaction."""
@@ -273,7 +288,7 @@ class ExecutionReconciler:
                 )
                 if not self._eligible_swap(swap):
                     return False
-                if not self._same_tx_identity(candidate["tx_hash"], swap.tx_hash):
+                if not self._same_persisted_tx_identity(candidate["tx_hash"], swap.tx_hash):
                     logger.error(
                         "Execution reconciler legacy tx identity changed parent=%s swap=%s",
                         candidate["parent_id"],
@@ -290,7 +305,9 @@ class ExecutionReconciler:
                     .with_for_update()
                     .first()
                 )
-                if child is None or not self._same_tx_identity(swap.tx_hash, child.external_tx_hash):
+                if child is None or not self._same_persisted_tx_identity(
+                    swap.tx_hash, child.external_tx_hash
+                ):
                     logger.error(
                         "Execution reconciler canonical child identity mismatch parent=%s swap=%s",
                         parent.id,
@@ -319,7 +336,9 @@ class ExecutionReconciler:
                 if (
                     destination_hash
                     and swap.destination_tx_hash
-                    and not self._same_tx_identity(swap.destination_tx_hash, destination_hash)
+                    and not self._same_persisted_tx_identity(
+                        swap.destination_tx_hash, destination_hash
+                    )
                 ):
                     logger.error(
                         "Execution reconciler refused destination tx overwrite parent=%s swap=%s "
