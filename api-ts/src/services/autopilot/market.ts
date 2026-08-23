@@ -60,6 +60,12 @@ const CHAIN_ALIASES: Record<string, string> = {
 	polygon: 'polygon',
 	optimism: 'optimism',
 	avalanche: 'avalanche',
+	// DexScreener uses the same slugs GeckoTerminal does for these two, and
+	// prices tokens on both — verified live, which matters because exits mark to
+	// market through DexScreener and a chain we cannot price is a chain we
+	// cannot sell on.
+	hyperevm: 'hyperevm',
+	robinhood: 'robinhood',
 }
 
 export function normalizeChain(dexChainId: string | undefined): string | null {
@@ -122,6 +128,16 @@ const GECKO_NETWORKS: Record<string, string> = {
 	polygon: 'polygon_pos',
 	optimism: 'optimism',
 	avalanche: 'avax',
+	/**
+	 * Hyperliquid's AMM side. GeckoTerminal also lists a `hyperliquid` network,
+	 * which is HyperCore — the central-limit orderbook. Every pool there reports
+	 * reserve_in_usd of 0 because an orderbook has no reserves, so our liquidity
+	 * gate would reject all of it and our constant-product impact model would be
+	 * meaningless against it. Trading HyperCore needs a different execution and
+	 * impact model; this agent is AMM-shaped, so it goes to HyperEVM.
+	 */
+	hyperevm: 'hyperevm',
+	robinhood: 'robinhood',
 }
 
 interface GeckoPool {

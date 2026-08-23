@@ -107,3 +107,31 @@ describe('dedupeByToken', () => {
 		expect(out[0]!.liquidityUsd).toBe(80_000)
 	})
 })
+
+describe('multi-chain discovery', () => {
+	it('interleaves chains rather than letting the first one monopolise the list', () => {
+		// Non-obvious and load-bearing. Every chain's trending rank 0 shares the
+		// same sort key, so the interleave depends entirely on the sort being
+		// stable and the fetch order being chain-major. If that ever changes,
+		// `base` silently eats the whole candidate budget and the other four
+		// chains stop being traded without anything failing.
+		const chains = ['base', 'solana', 'bsc', 'hyperevm', 'robinhood']
+		const all = chains.flatMap((chain) =>
+			Array.from({ length: 20 }, (_, rank) =>
+				cand({ chain, tokenAddress: `${chain}-${rank}`, source: 'trending', sourceRank: rank }),
+			),
+		)
+		const top = all
+			.sort((a, b) => discoveryOrder(a) - discoveryOrder(b))
+			.slice(0, 10)
+			.map((c) => c.chain)
+		// Ranks 0 and 1 from each of the five chains, in chain order.
+		expect(top).toEqual([...chains, ...chains])
+	})
+
+	it('ranks every chain trending ahead of any chain new pools', () => {
+		const trendingLast = cand({ chain: 'robinhood', source: 'trending', sourceRank: 19 })
+		const newFirst = cand({ chain: 'base', source: 'new', sourceRank: 0 })
+		expect(discoveryOrder(trendingLast)).toBeLessThan(discoveryOrder(newFirst))
+	})
+})

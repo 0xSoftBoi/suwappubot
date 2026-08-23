@@ -267,3 +267,27 @@ ephemeral in-process Postgres and serves the public read API from it — no
 database, no API key, no wallet. Nothing it serves is fixture data. Point the
 showcase at it with `NEXT_PUBLIC_API_URL=http://localhost:3200` to develop the
 dashboard against decisions the real loop produced.
+
+## Chains
+
+Five, and the choice of endpoint per chain is the strategy:
+
+| chain | GeckoTerminal network | swap side | notes |
+|---|---|---|---|
+| Base | `base` | `chains.py` 8453 | |
+| Solana | `solana` | `chains.py` | deepest memecoin universe |
+| BSC | `bsc` | `chains.py` 56 | |
+| Hyperliquid | `hyperevm` | `chains.py` 999, LI.FI 999 | **HyperEVM, not HyperCore** |
+| Robinhood | `robinhood` | `chains.py` 4663, LI.FI 4663 | |
+
+**Hyperliquid is two things.** GeckoTerminal lists both `hyperevm` (the AMM
+side, ~$29M trending TVL) and `hyperliquid` (HyperCore, the central-limit
+orderbook). Every HyperCore pool reports `reserve_in_usd` of 0, because an
+orderbook has no reserves — so our `minLiquidityUsd` gate rejects 100% of it
+and our constant-product impact model has nothing to compute against. Trading
+HyperCore is a different product needing its own execution and impact model.
+This agent is AMM-shaped and goes to HyperEVM.
+
+Exits mark to market through DexScreener, which prices `hyperevm` and
+`robinhood` on the same slugs GeckoTerminal uses — verified against live
+tokens, because a chain we cannot price is a chain we cannot sell on.

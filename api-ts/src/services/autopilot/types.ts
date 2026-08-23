@@ -152,7 +152,7 @@ export const DEFAULT_RULES: AutopilotRules = {
 	maxSlippageBps: 150,
 	exitSlippageCeilingBps: 600,
 	paperFeeBps: 30,
-	allowedChains: ['base', 'arbitrum', 'solana'],
+	allowedChains: ['base', 'solana', 'bsc', 'hyperevm', 'robinhood'],
 	deniedTokens: [],
 	requireExitPlan: true,
 }
