@@ -35,7 +35,15 @@ If the answer is no, the item is not done.
 
 ### Phase 1 — Make the agent capable of trading at all `[small]`
 Goal is one honest fill, not good fills.
-- [ ] 1.1 **Implement LP-lock detection** (EVM). `lp_locked` is declared at
+- [x] 1.1 **DONE** — `bot/services/token_intel/lp_lock.py`, wired through
+      `intel_service.analyze` and `/internal/token-security`. Tri-state, 10 tests.
+      Verified live on Base: KEYCAT 99.98% burned -> True, RUSSELL 100% -> True,
+      TIBBIR 0% -> False, MIGGLES -> None (RC2 bug). **Coverage caveat that
+      reorders this phase**: only ~28% of trending pairs are V2-style with a
+      fungible LP token. ~42% are V3/V4/CLMM (positions are NFTs — undetectable
+      this way) and ~27% are Solana (different model). So 1.1 gives real verdicts
+      for roughly a quarter of the universe, and **1.2 is the load-bearing fix**,
+      not this. Original text: **Implement LP-lock detection** (EVM). `lp_locked` is declared at
       `api/routes/internal.py:507` and assigned nowhere — one grep hit in the whole
       Python codebase. Detect: LP tokens burned to `0x0`/`0xdead`, or held by a known
       locker (Unicrypt, Team Finance, PinkLock). Populate truthfully; leave `null`

@@ -73,6 +73,11 @@ class TokenIntelReport:
     snipe_buyer_count: Optional[int] = None
 
     pair_created_at: Optional[int] = None  # ms epoch, from DexScreener
+    pair_address: Optional[str] = None  # deepest pair, from DexScreener
+    # Tri-state on purpose: True = burned/locked, False = pullable,
+    # None = undetermined. Coercing None to False flags every V3 pool as a rug.
+    lp_locked: Optional[bool] = None
+    lp_lock_reason: Optional[str] = None
 
     flags: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
@@ -174,6 +179,20 @@ class TokenIntelService:
             )
             report.notes.append("source_enrichment_error")
 
+        # LP lock is the gate that decides whether liquidity can be pulled, so it
+        # runs for every report — including quick ones, which is what the risk
+        # gate actually calls. Two cheap explorer reads.
+        if chain != "solana" and report.pair_address:
+            try:
+                from bot.services.token_intel.lp_lock import check_lp_lock
+
+                lock = await check_lp_lock(chain, report.pair_address)
+                report.lp_locked = lock.locked
+                report.lp_lock_reason = lock.reason
+            except Exception as e:
+                logger.warning("lp_lock check failed for %s/%s: %s", chain, token_address, e)
+                report.lp_lock_reason = "lp lock check errored"
+
         self._derive_flags(report)
 
         await self._cache.set(cache_key, report)
@@ -207,6 +226,7 @@ class TokenIntelService:
         report.name = report.name or base.get("name")
         report.symbol = report.symbol or base.get("symbol")
         report.pair_created_at = pair.get("pairCreatedAt")
+        report.pair_address = pair.get("pairAddress")
 
     def _derive_flags(self, report: TokenIntelReport) -> None:
         flags: List[str] = []
