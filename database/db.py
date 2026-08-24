@@ -1810,8 +1810,12 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
                 return
         except Exception as e:
             # Never let the fast path itself block the real migration --
-            # fall through to the full (slower but correct) loop below.
-            logger.debug(f"TOTP backfill fast-path check failed, running full scan: {e}")
+            # fall through to the full (slower but correct) loop below. This
+            # is the one path that can silently regress to the exact stall
+            # this fix exists to prevent (e.g. a `users` table too large for
+            # the probe's own seq scan to finish inside statement_timeout),
+            # so it must be visible at prod's default log level, not DEBUG.
+            logger.warning(f"TOTP backfill fast-path check failed, running full scan: {e}")
 
     key = settings.encryption_key
     try:
