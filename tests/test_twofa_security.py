@@ -215,3 +215,102 @@ class _FakeUser:
 
     def __init__(self, totp_secret):
         self.totp_secret = totp_secret
+
+
+# --- TOTP backfill fast path (readiness incident) --------------------------
+#
+# _encrypt_plaintext_totp_secrets ran unconditionally on every boot: every
+# non-null totp_secret paid a real PBKDF2 key derivation whether or not it
+# needed healing, inside one open transaction, with no logging and no
+# timeout. At enough rows this made the migration step -- and therefore
+# DATABASE_AVAILABLE, which gates /health readiness -- take minutes, past
+# Railway's 5-minute healthcheck window. The fix adds a cheap SQL EXISTS
+# probe (Postgres only) that skips the entire per-row loop once nothing
+# legacy-plaintext-shaped remains. These tests cover that probe in isolation
+# via mocks (no real Postgres available in CI); the sqlite_db-based tests
+# above continue to exercise the actual per-row migration logic unchanged.
+
+
+def test_fast_path_skips_full_scan_when_no_legacy_rows_remain():
+    from unittest.mock import MagicMock
+    from database.db import _encrypt_plaintext_totp_secrets
+
+    engine = MagicMock()
+    probe_conn = MagicMock()
+    probe_conn.execute.return_value.scalar.return_value = False
+    engine.connect.return_value.__enter__.return_value = probe_conn
+
+    _encrypt_plaintext_totp_secrets(engine, is_sqlite=False)
+
+    engine.connect.assert_called_once()
+    # The expensive per-row loop opens its own transaction via begin() --
+    # proving it was never reached is proof the fast path actually skipped it.
+    engine.begin.assert_not_called()
+
+
+def test_fast_path_runs_full_scan_when_legacy_rows_exist():
+    from unittest.mock import MagicMock
+    from database.db import _encrypt_plaintext_totp_secrets
+
+    engine = MagicMock()
+    probe_conn = MagicMock()
+    probe_conn.execute.return_value.scalar.return_value = True
+    engine.connect.return_value.__enter__.return_value = probe_conn
+    scan_conn = MagicMock()
+    scan_conn.execute.return_value.fetchall.return_value = []
+    engine.begin.return_value.__enter__.return_value = scan_conn
+
+    _encrypt_plaintext_totp_secrets(engine, is_sqlite=False)
+
+    engine.begin.assert_called_once()
+
+
+def test_fast_path_falls_through_to_full_scan_on_probe_error():
+    """The probe itself must never be able to block the real migration."""
+    from unittest.mock import MagicMock
+    from database.db import _encrypt_plaintext_totp_secrets
+
+    engine = MagicMock()
+    engine.connect.side_effect = Exception("probe boom")
+    scan_conn = MagicMock()
+    scan_conn.execute.return_value.fetchall.return_value = []
+    engine.begin.return_value.__enter__.return_value = scan_conn
+
+    _encrypt_plaintext_totp_secrets(engine, is_sqlite=False)
+
+    engine.begin.assert_called_once()
+
+
+def test_sqlite_path_never_calls_the_fast_path_probe():
+    """is_sqlite=True must skip the Postgres-only regex probe entirely."""
+    from unittest.mock import MagicMock
+    from database.db import _encrypt_plaintext_totp_secrets
+
+    engine = MagicMock()
+    scan_conn = MagicMock()
+    scan_conn.execute.return_value.fetchall.return_value = []
+    engine.begin.return_value.__enter__.return_value = scan_conn
+
+    _encrypt_plaintext_totp_secrets(engine, is_sqlite=True)
+
+    engine.connect.assert_not_called()
+    engine.begin.assert_called_once()
+
+
+def test_backfill_still_heals_legacy_plaintext_end_to_end(sqlite_db):
+    """Full-loop correctness is unchanged: sqlite_db already ran the real
+    migration via init_db(); confirm a genuinely legacy-plaintext row still
+    gets healed and an already-encrypted row is left alone."""
+    import pyotp
+    from database.db import _encrypt_plaintext_totp_secrets, get_session, engine
+    from bot.models.user import User
+
+    legacy_secret = pyotp.random_base32()
+    with get_session() as session:
+        session.add(User(id=3, telegram_id=333, username="carol", totp_secret=legacy_secret))
+        session.commit()
+
+    _encrypt_plaintext_totp_secrets(engine, is_sqlite=True)
+
+    stored = _stored_secret(3)
+    assert stored != legacy_secret  # healed, not left as plaintext
