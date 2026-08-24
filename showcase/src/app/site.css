@@ -565,7 +565,9 @@
   font-family: var(--font-mono);
   font-size: 0.62rem;
   letter-spacing: 0.04em;
-  color: var(--fg-faint);
+  /* --fg-faint scores 3.58:1 on the dark band — AA fail for caption-size text;
+     --fg-dim scores 7.07:1 (same fix as the surfaces label). */
+  color: var(--fg-dim);
 }
 
 .proof__mobile-hint { display: none; }
@@ -968,7 +970,7 @@
     font-family: var(--font-mono);
     font-size: 0.62rem;
     line-height: 1.5;
-    color: var(--fg-faint);
+    color: var(--fg-dim);
   }
 }
 
