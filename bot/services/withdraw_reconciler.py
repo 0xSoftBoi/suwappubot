@@ -276,4 +276,41 @@ class WithdrawReconciler:
         return None
 
 
-withdraw_reconciler = WithdrawReconciler()
+class _ReconciliationServiceGroup:
+    """Backwards-compatible startup handle for money-path reconcilers.
+
+    ``api.main`` already owns one explicit reconciliation lifecycle hook named
+    ``withdraw_reconciler``. Keep that public handle stable while starting the
+    canonical execution reconciler alongside the withdrawal reconciler. This
+    avoids a second unsynchronized worker lifecycle and preserves existing
+    callers/tests that instantiate ``WithdrawReconciler`` directly.
+    """
+
+    def __init__(self, withdrawals: WithdrawReconciler):
+        self._withdrawals = withdrawals
+
+    async def start(self) -> None:
+        from bot.services.execution_reconciler import execution_reconciler
+
+        await self._withdrawals.start()
+        try:
+            await execution_reconciler.start()
+        except Exception:
+            # Do not leave half of the service group running if startup ever
+            # grows a real failure path beyond task creation.
+            await self._withdrawals.stop()
+            raise
+
+    async def stop(self) -> None:
+        from bot.services.execution_reconciler import execution_reconciler
+
+        await execution_reconciler.stop()
+        await self._withdrawals.stop()
+
+    def __getattr__(self, name):
+        # Preserve the historical module-level object's diagnostic/private
+        # access for existing tests and tooling while api.main uses start/stop.
+        return getattr(self._withdrawals, name)
+
+
+withdraw_reconciler = _ReconciliationServiceGroup(WithdrawReconciler())
