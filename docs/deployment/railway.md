@@ -91,6 +91,11 @@ Core:
 - `NODE_ENV=production` (selects `drizzle-kit migrate` over `push` in `start.sh`)
 - `ALLOWED_ORIGINS` (CORS — include the terminal + showcase domains), `JWT_SECRET`,
   `FEE_WALLET_EVM`, `FEE_WALLET_SOLANA`, `POLYMARKET_CREDENTIAL_KEY` as needed.
+- `DEMO_UNMETERED_AGENT_IDS` (optional) — comma-separated agent UUIDs whose
+  **quote-class reads only** are exempt from x402 metering (the showcase hero's
+  live-quote proxy agent). Frozen at boot: adding or revoking a uuid requires a
+  redeploy, not just an env edit. Exempt calls log once per boot and carry an
+  `X-Metering-Exempt: demo` response header.
 
 ### terminal (build-time)
 - `VITE_API_URL` (build arg), `VITE_WC_PROJECT_ID` (build arg, optional).

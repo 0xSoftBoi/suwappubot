@@ -108,9 +108,24 @@ const DEMO_UNMETERED_RESOURCES = new Set(['/v1/agent/quote', 'mcp://tools/get_qu
 
 /**
  * Parse DEMO_UNMETERED_AGENT_IDS into a case-insensitive set of trimmed UUIDs.
- * Called per-request (cheap: a short comma-split) rather than cached, so an env
- * change takes effect without a restart-triggering code path.
+ * Only the string-splitting happens per-request: the env value itself is frozen
+ * at boot (EnvServiceLive decodes process.env once and the ManagedRuntime
+ * memoizes it), so adding or REVOKING an exempt agent requires a redeploy —
+ * clearing the Railway var alone does nothing until the service restarts.
  */
+/**
+ * First-hit-per-boot log for demo-exempt calls (per uuid×resource), so the
+ * exemption's activity is visible in service logs without per-request noise.
+ */
+const demoExemptSeen = new Set<string>()
+export function noteDemoExemptHit(agentUuid: string, resource: string): void {
+	const key = `${agentUuid}|${resource}`
+	if (demoExemptSeen.has(key)) return
+	demoExemptSeen.add(key)
+	// eslint-disable-next-line no-console
+	console.warn(`[x402Payment] demo metering exemption active: agent ${agentUuid} on ${resource}`)
+}
+
 function parseDemoUnmeteredAgentIds(raw: string | undefined): Set<string> {
 	if (!raw) return new Set()
 	return new Set(
@@ -429,6 +444,13 @@ export function meteredPayment(endpoint: string) {
 			if (result.reason === 'bypass' && result.tier) {
 				c.header('X-Metering-Tier', result.tier)
 				c.header('X-Metering-Bypass', 'true')
+			}
+			if (result.reason === 'demo') {
+				// Make the demo exemption observable: without this there is no header,
+				// log, or counter — a mispasted uuid silently never fires, and a paying
+				// customer's uuid pasted here would be silently free forever.
+				c.header('X-Metering-Exempt', 'demo')
+				noteDemoExemptHit(agent?.uuid ?? 'unknown', c.req.path)
 			}
 			// Expose the charge outcome so route handlers can decide to refund on a
 			// non-execution failure path (mirrors the MCP tool-dispatch refund guard).
