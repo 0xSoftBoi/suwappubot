@@ -6,7 +6,7 @@
 
 import { beforeAll, describe, expect, it } from 'bun:test'
 import { PGlite } from '@electric-sql/pglite'
-import { eq } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from '../db/schema/autopilot'
 import {
@@ -414,5 +414,26 @@ describe('autopilot cycle — an unresolved execution halts the agent', () => {
 			.from(autopilotAgents)
 			.where(eq(autopilotAgents.id, liveish.id))
 		expect(paused.status).toBe('paused')
+	})
+})
+
+describe('agent listing order', () => {
+	it('surfaces a running agent ahead of a retired one, newest first', async () => {
+		// The public dashboard reads agents[0]. Ordering by id alone means a
+		// retired first agent keeps being shown as the current book long after a
+		// replacement has taken over.
+		await db
+			.update(autopilotAgents)
+			.set({ status: 'stopped' })
+			.where(eq(autopilotAgents.slug, 'test-agent'))
+		const rows = await db
+			.select()
+			.from(autopilotAgents)
+			.orderBy(
+				sql`case when ${autopilotAgents.status} = 'active' then 0 else 1 end`,
+				desc(autopilotAgents.id),
+			)
+		expect(rows[0]!.status).toBe('active')
+		expect(rows.at(-1)!.slug).toBe('test-agent')
 	})
 })

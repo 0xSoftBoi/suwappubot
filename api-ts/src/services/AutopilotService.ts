@@ -9,7 +9,7 @@
  * feed and a SHA-256 implementation. Refusals are first-class records too: a
  * gate that stops a trade is published with the same weight as a fill.
  */
-import { and, desc, eq, gte, inArray } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { EnvService } from '../config/EnvService'
 import {
@@ -444,7 +444,18 @@ export const AutopilotServiceLive = Layer.succeed(AutopilotService, {
 		Effect.gen(function* () {
 			const db = yield* requireDb.pipe(Effect.mapError(dbErr))
 			return yield* Effect.tryPromise({
-				try: () => db.select().from(autopilotAgents).orderBy(autopilotAgents.id),
+				// Running agents first, then most recent. Ordering by id alone means the
+				// public dashboard keeps showing whichever agent happened to be
+				// created first, even after it has been retired and a live one has
+				// taken over — a stale book presented as the current one.
+				try: () =>
+					db
+						.select()
+						.from(autopilotAgents)
+						.orderBy(
+							sql`case when ${autopilotAgents.status} = 'active' then 0 else 1 end`,
+							desc(autopilotAgents.id),
+						),
 				catch: (e) => new DatabaseError({ message: String(e) }),
 			})
 		}),
