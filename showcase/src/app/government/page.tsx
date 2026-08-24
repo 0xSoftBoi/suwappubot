@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import styles from './government.module.css';
@@ -191,7 +191,7 @@ const assurance = [
 export default function GovernmentPage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">
           <p className="summer-kicker">Government / Lattice Transfer Protocol</p>

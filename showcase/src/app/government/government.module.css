@@ -178,10 +178,17 @@
 }
 
 .contractLinks {
+  grid-column: 4;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.25rem;
-  margin-top: 0.75rem;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 880px) {
+  .contractLinks {
+    grid-column: auto;
+  }
 }
 
 .contractLinks a {
