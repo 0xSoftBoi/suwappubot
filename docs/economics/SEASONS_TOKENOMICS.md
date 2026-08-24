@@ -5,6 +5,17 @@
 > should change only by a deliberate, announced governance act, never silently. The
 > credibility of the issuance rule is itself part of the token's value
 > (Kydland–Prescott time-consistency; Buchanan constitutional economics).
+>
+> **Genesis funding confirmed (2026-08-24).** SUWP launches with the SUWAPPU
+> DAG chain: the full 1,000,000,000 fixed supply is pre-mined in the mainnet
+> genesis block and distributed as a fair launch (no team/investor/treasury
+> allocation). This program's `A = 300,000,000` (30%) is funded from the
+> reserved genesis Seasons pool address
+> `0xae360caae624555b7fc6a2b7a96def76780d9e43` — see
+> [`suwappu-dag/docs/whitepaper/TOKENOMICS.md`](https://github.com/Suwappu-Labs/suwappu-dag/blob/main/docs/whitepaper/TOKENOMICS.md)
+> and the auditable ledger in `suwappu-dag/scripts/tge/allocations.toml`.
+> Nothing in §4 changes; the pool that was "genesis" by assumption now has a
+> concrete, third-party-verifiable genesis allocation behind it.
 
 This document is grounded in the GMU/public-choice tradition (Tullock rent-seeking,
 Buchanan constitutional economics, Tabarrok/Cowen transfer-seeking) and monetary

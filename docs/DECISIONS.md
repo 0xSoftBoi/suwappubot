@@ -88,6 +88,26 @@ ADRs 0001–0005.
   not just one deploy. Dual-ORM changes must touch both stacks (`db-migrate`
   agent, `docs/development/migrations.md`).
 
+## Economics & Token
+
+### SUWP launches with the chain: genesis pre-mine, fair-launch distribution (2026-08)
+- **What**: Reversed the deferred-token stance
+  (`suwappu-lattice-protocol/docs/economics/DEFERRED_TOKEN_ARCHITECTURE.md`).
+  The full 1B fixed SUWP supply is pre-mined in the SUWAPPU DAG mainnet
+  genesis block into four reserved pools — fair-launch 42%, Seasons 30%,
+  staking rewards 20%, testnet points 8% — with zero team/investor/treasury
+  allocation and no inflation budget. Authority:
+  `suwappu-dag/docs/whitepaper/TOKENOMICS.md`; auditable ledger + address
+  tooling in `suwappu-dag/scripts/tge/`.
+- **Why**: The Seasons program (30%) and testnet points program were both
+  written against a genesis allocation that didn't exist yet; launching the
+  token with the chain makes those commitments concrete and third-party
+  verifiable instead of provisional.
+- **Consequence if ignored**: Copy or code that still describes SUWP as
+  "deferred"/"maybe never" contradicts the published launch commitments; the
+  Seasons pool draws from genesis address
+  `0xae360caae624555b7fc6a2b7a96def76780d9e43`, not from minting.
+
 ## Security & Wallets
 
 ### Envelope encryption via KMS is the default
