@@ -102,6 +102,24 @@ export interface AutopilotRules {
 	maxSellTaxBps: number
 	maxTopHolderPct: number
 	requireLpLocked: boolean
+	/**
+	 * What to do when a safety check cannot reach a verdict.
+	 *
+	 * "Proven dangerous" and "could not be measured" are different facts and the
+	 * gate used to collapse them into one refusal. That is not a strict risk
+	 * posture, it is a broken one: it refuses a token whose LP is verifiably
+	 * burned on the same grounds as one whose deployer holds all of it.
+	 *
+	 * Concretely, ~72% of trending pairs cannot be LP-checked at all — V3/V4
+	 * positions are NFTs, and Solana has no equivalent — so refusing on unknown
+	 * excludes most of the universe for a reason that says nothing about risk.
+	 *
+	 * Default false, because failing closed is the right default for a system
+	 * that moves money. An operator who wants coverage turns it on deliberately
+	 * and the choice is recorded in the agent's rules.
+	 */
+	allowUnknownLpLock: boolean
+	allowUnknownHolders: boolean
 	minConfidence: number
 	dailySpendCapUsd: number
 	/** Halt the agent for the rest of the day after this much realized loss. */
@@ -144,6 +162,8 @@ export const DEFAULT_RULES: AutopilotRules = {
 	maxSellTaxBps: 500,
 	maxTopHolderPct: 40,
 	requireLpLocked: true,
+	allowUnknownLpLock: false,
+	allowUnknownHolders: false,
 	minConfidence: 0.6,
 	dailySpendCapUsd: 500,
 	dailyLossHaltUsd: 200,

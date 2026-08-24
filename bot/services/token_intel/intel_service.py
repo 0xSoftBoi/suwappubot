@@ -73,6 +73,11 @@ class TokenIntelReport:
     snipe_buyer_count: Optional[int] = None
 
     pair_created_at: Optional[int] = None  # ms epoch, from DexScreener
+    pair_address: Optional[str] = None  # deepest pair, from DexScreener
+    # Tri-state on purpose: True = burned/locked, False = pullable,
+    # None = undetermined. Coercing None to False flags every V3 pool as a rug.
+    lp_locked: Optional[bool] = None
+    lp_lock_reason: Optional[str] = None
 
     flags: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
@@ -157,6 +162,41 @@ class TokenIntelService:
 
         await self._enrich_dexscreener(report)
 
+        # GoPlus is the primary LP-lock and holder-concentration source, run
+        # BEFORE the per-chain module so its success can skip the redundant,
+        # proven-unreliable Blockscout /holders call below.
+        #
+        # It correctly resolves V2/V3/V4 AMMs and Solana in one call; the
+        # retired Blockscout heuristic (bot/services/token_intel/lp_lock.py, no
+        # longer called from here) assumed a pair's DexScreener address was
+        # always a fungible ERC-20 LP token, which is false for V4 (liquidity
+        # lives in one shared PoolManager, no per-pool contract) and was PROVEN
+        # wrong on the exact tokens used to validate it: it reported two
+        # Base/V4 pools as "100% burned, locked" when GoPlus shows their
+        # liquidity sitting, unlocked, in the standard position manager. It
+        # never threw or logged — a confident, plausible, wrong safety verdict.
+        #
+        # GoPlus also gives holder concentration in the same call, on Base and
+        # Solana alike, without Blockscout's /holders endpoint, which has been
+        # observed returning HTTP 200 with the body "Internal server error".
+        try:
+            from bot.services.token_intel.goplus_source import fetch as fetch_goplus
+
+            gp = await fetch_goplus(chain, token_address)
+        except Exception as e:
+            logger.warning("goplus lookup failed for %s/%s: %s", chain, token_address, e)
+            gp = None
+
+        goplus_gave_holders = False
+        if gp is not None:
+            report.lp_locked = gp.lp_locked
+            report.lp_lock_reason = gp.lp_lock_reason
+            if gp.top_holder_pct is not None:
+                report.top10_pct = gp.top_holder_pct
+                goplus_gave_holders = True
+            if gp.contract_held_pct is not None:
+                report.contract_held_pct = gp.contract_held_pct
+
         try:
             if chain == "solana":
                 from bot.services.token_intel import solana_source
@@ -165,7 +205,9 @@ class TokenIntelService:
             else:
                 from bot.services.token_intel import evm_source
 
-                await evm_source.enrich_report(report, chain, quick=quick)
+                await evm_source.enrich_report(
+                    report, chain, quick=quick, skip_holders=goplus_gave_holders
+                )
         except Exception as e:
             # Belt-and-suspenders: source modules are already defensive, but a
             # single report must never fail the whole /intel command.
@@ -173,6 +215,12 @@ class TokenIntelService:
                 "token_intel source enrichment failed for %s/%s: %s", chain, token_address, e
             )
             report.notes.append("source_enrichment_error")
+
+        if gp is None and not report.lp_lock_reason:
+            # GoPlus does not cover this chain (HyperEVM today) or the call
+            # failed. Leave lp_locked as None/undetermined rather than guess —
+            # the Blockscout heuristic that used to fill this gap is retired.
+            report.lp_lock_reason = f"no LP security source covers {chain}"
 
         self._derive_flags(report)
 
@@ -207,6 +255,7 @@ class TokenIntelService:
         report.name = report.name or base.get("name")
         report.symbol = report.symbol or base.get("symbol")
         report.pair_created_at = pair.get("pairCreatedAt")
+        report.pair_address = pair.get("pairAddress")
 
     def _derive_flags(self, report: TokenIntelReport) -> None:
         flags: List[str] = []

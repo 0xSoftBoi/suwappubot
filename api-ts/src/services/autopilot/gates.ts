@@ -285,14 +285,20 @@ function entryGates(
 		),
 	)
 
+	// Measured-and-bad, and not-measured, are different facts. A rule that treats
+	// them alike cannot tell a token whose LP is verifiably burned from one whose
+	// deployer holds all of it.
 	const topPct = sec.topHolderPct
-	const concentrationOk = topPct === undefined ? false : topPct <= rules.maxTopHolderPct
+	const concentrationOk =
+		topPct === undefined ? rules.allowUnknownHolders : topPct <= rules.maxTopHolderPct
 	results.push(
 		check(
 			'holder_concentration',
 			concentrationOk,
 			topPct === undefined
-				? 'holder distribution unknown'
+				? rules.allowUnknownHolders
+					? 'holder distribution unknown — allowed by rule'
+					: 'holder distribution unknown — refused (set allowUnknownHolders to permit)'
 				: `top holders ${topPct.toFixed(1)}% vs cap ${rules.maxTopHolderPct}%`,
 			topPct ?? 'unknown',
 			rules.maxTopHolderPct,
@@ -300,11 +306,22 @@ function entryGates(
 	)
 
 	if (rules.requireLpLocked) {
+		// Tri-state. false is a real negative and always refuses; undefined means
+		// the pair has no fungible LP token to inspect (a V3/V4 position is an
+		// NFT), which is a fact about the AMM, not about the token's safety.
+		const lpOk = sec.lpLocked === undefined ? rules.allowUnknownLpLock : sec.lpLocked === true
 		results.push(
 			check(
 				'lp_locked',
-				sec.lpLocked === true,
-				sec.lpLocked === true ? 'LP is locked' : 'LP is not verifiably locked',
+				lpOk,
+				sec.lpLocked === true
+					? 'LP is locked or burned'
+					: sec.lpLocked === false
+						? 'LP is held by ordinary addresses and can be pulled'
+						: rules.allowUnknownLpLock
+							? 'LP lock undetermined — allowed by rule'
+							: 'LP lock undetermined — refused (set allowUnknownLpLock to permit)',
+				sec.lpLocked === undefined ? 'unknown' : sec.lpLocked,
 			),
 		)
 	}
@@ -403,4 +420,43 @@ export function shouldExit(
 export function exitSlippageBps(attempts: number, rules: AutopilotRules): number {
 	const n = Math.max(0, Math.floor(attempts))
 	return Math.min(rules.maxSlippageBps * 2 ** n, rules.exitSlippageCeilingBps)
+}
+
+/**
+ * Is one rule refusing everything?
+ *
+ * `lp_locked` was declared in the security payload and assigned nowhere, so it
+ * refused every token on every chain from the day it shipped. Nothing threw,
+ * nothing logged, and each refusal looked like ordinary caution. It was found
+ * by a human reading a feed, hours later.
+ *
+ * A gate that has refused every single decision for a sustained run is either
+ * measuring something real about a uniformly bad market, or it is broken. Both
+ * are worth saying out loud; only one is worth staying quiet about, and we
+ * cannot tell which from inside. So we say it.
+ */
+export interface RefusalDiagnosis {
+	rule: string
+	count: number
+	message: string
+}
+
+export function diagnoseChronicRefusal(
+	decisions: { gatePassed: boolean; rejectionReason?: string | null }[],
+	minSample = 10,
+): RefusalDiagnosis | null {
+	if (decisions.length < minSample) return null
+	if (decisions.some((d) => d.gatePassed)) return null
+
+	// rejectionReason is "rule: detail" — the rule is the part before the colon.
+	const rules = decisions.map((d) => (d.rejectionReason ?? '').split(':')[0]?.trim() ?? '')
+	const first = rules[0]
+	if (!first) return null
+	if (!rules.every((r) => r === first)) return null
+
+	return {
+		rule: first,
+		count: decisions.length,
+		message: `Gate "${first}" has refused all ${decisions.length} recent decisions. Either the market is uniformly failing this rule, or the rule can no longer be satisfied — check that the data it reads is actually arriving.`,
+	}
 }

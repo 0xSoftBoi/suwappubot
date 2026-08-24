@@ -540,6 +540,14 @@ async def token_security(
             out.top_holder_pct = float(report.top10_pct)
         if getattr(report, "contract_held_pct", None) is not None:
             out.contract_held_pct = float(report.contract_held_pct)
+        # Tri-state. Only assign when the detector reached a verdict — leaving it
+        # None where undetermined is what lets the gate tell "pullable" apart
+        # from "could not tell". Until this line existed the field was declared
+        # and never assigned, so requireLpLocked refused every token forever.
+        if getattr(report, "lp_locked", None) is not None:
+            out.lp_locked = bool(report.lp_locked)
+        if getattr(report, "lp_lock_reason", None):
+            flags.append(f"lp:{report.lp_lock_reason}")
         if chain == "solana" and report.mint_authority is not None:
             # A live mint authority means supply can still be inflated.
             out.mintable = bool(report.mint_authority)

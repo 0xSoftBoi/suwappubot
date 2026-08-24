@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { evaluateGates, shouldExit, exitSlippageBps } from '../services/autopilot/gates'
+import { evaluateGates, shouldExit, exitSlippageBps, diagnoseChronicRefusal } from '../services/autopilot/gates'
 import {
 	type AutopilotRules,
 	type Candidate,
@@ -405,5 +405,108 @@ describe('the daily loss halt counts the open book', () => {
 			NOW,
 		)
 		expect(verdict.results.find((r) => r.rule === 'daily_loss_halt')?.passed).toBe(true)
+	})
+})
+
+describe('unknown is not the same as unsafe', () => {
+	const withSecurity = (sec: Record<string, unknown>) =>
+		candidate({ security: sec as never })
+
+	const verdict = (sec: Record<string, unknown>, over: Partial<typeof DEFAULT_RULES> = {}) =>
+		evaluateGates(thesis(), withSecurity(sec), portfolio(), { ...DEFAULT_RULES, ...over }, NOW)
+
+	const gate = (v: ReturnType<typeof evaluateGates>, rule: string) =>
+		v.results.find((r) => r.rule === rule)
+
+	it('always refuses an LP that is provably pullable, whatever the flag says', () => {
+		// A real negative is a real negative. The permissive flag exists for
+		// missing data, and must never launder a measured danger.
+		for (const allowUnknownLpLock of [true, false]) {
+			const v = verdict({ lpLocked: false, topHolderPct: 10 }, { allowUnknownLpLock })
+			expect(gate(v, 'lp_locked')?.passed).toBe(false)
+			expect(gate(v, 'lp_locked')?.detail).toContain('can be pulled')
+		}
+	})
+
+	it('refuses an undetermined LP by default and permits it by rule', () => {
+		// ~72% of trending pairs cannot be LP-checked at all: V3/V4 positions are
+		// NFTs and Solana has no equivalent. Refusing on that basis excludes most
+		// of the universe for a reason that says nothing about the token.
+		expect(gate(verdict({ topHolderPct: 10 }), 'lp_locked')?.passed).toBe(false)
+		expect(
+			gate(verdict({ topHolderPct: 10 }, { allowUnknownLpLock: true }), 'lp_locked')?.passed,
+		).toBe(true)
+	})
+
+	it('passes a burned or locked LP without needing the flag', () => {
+		expect(gate(verdict({ lpLocked: true, topHolderPct: 10 }), 'lp_locked')?.passed).toBe(true)
+	})
+
+	it('always refuses measured over-concentration, whatever the flag says', () => {
+		for (const allowUnknownHolders of [true, false]) {
+			const v = verdict({ lpLocked: true, topHolderPct: 91 }, { allowUnknownHolders })
+			expect(gate(v, 'holder_concentration')?.passed).toBe(false)
+		}
+	})
+
+	it('refuses unknown holder distribution by default and permits it by rule', () => {
+		expect(gate(verdict({ lpLocked: true }), 'holder_concentration')?.passed).toBe(false)
+		expect(
+			gate(verdict({ lpLocked: true }, { allowUnknownHolders: true }), 'holder_concentration')
+				?.passed,
+		).toBe(true)
+	})
+
+	it('says which flag would permit a refusal, so the operator can act on it', () => {
+		// A refusal that does not name its own remedy is how an agent sits idle
+		// for hours while nobody can tell whether it is being careful or broken.
+		const v = verdict({})
+		expect(gate(v, 'lp_locked')?.detail).toContain('allowUnknownLpLock')
+		expect(gate(v, 'holder_concentration')?.detail).toContain('allowUnknownHolders')
+	})
+
+	it('lets a fully-measured safe token through with both flags off', () => {
+		const v = verdict({ lpLocked: true, topHolderPct: 12, isHoneypot: false })
+		expect(gate(v, 'lp_locked')?.passed).toBe(true)
+		expect(gate(v, 'holder_concentration')?.passed).toBe(true)
+		expect(v.passed).toBe(true)
+	})
+})
+
+describe('diagnoseChronicRefusal', () => {
+	const refused = (rule: string, n: number) =>
+		Array.from({ length: n }, () => ({
+			gatePassed: false,
+			rejectionReason: `${rule}: some detail that varies`,
+		}))
+
+	it('names a gate that has refused everything', () => {
+		// The lp_locked case: declared, never assigned, refused every token on
+		// every chain from the day it shipped. Nothing threw, nothing logged, and
+		// each refusal looked like ordinary caution.
+		const d = diagnoseChronicRefusal(refused('lp_locked', 20))
+		expect(d?.rule).toBe('lp_locked')
+		expect(d?.message).toContain('can no longer be satisfied')
+	})
+
+	it('stays quiet while anything is still passing', () => {
+		const mixed = [...refused('lp_locked', 19), { gatePassed: true, rejectionReason: null }]
+		expect(diagnoseChronicRefusal(mixed)).toBeNull()
+	})
+
+	it('stays quiet when refusals are spread across different rules', () => {
+		// A varied market failing varied rules is the system working.
+		const varied = [...refused('lp_locked', 10), ...refused('min_liquidity', 10)]
+		expect(diagnoseChronicRefusal(varied)).toBeNull()
+	})
+
+	it('will not cry wolf on a small sample', () => {
+		expect(diagnoseChronicRefusal(refused('lp_locked', 3))).toBeNull()
+		expect(diagnoseChronicRefusal(refused('lp_locked', 10))).not.toBeNull()
+	})
+
+	it('ignores decisions with no recorded reason rather than grouping them', () => {
+		const blank = Array.from({ length: 12 }, () => ({ gatePassed: false, rejectionReason: '' }))
+		expect(diagnoseChronicRefusal(blank)).toBeNull()
 	})
 })

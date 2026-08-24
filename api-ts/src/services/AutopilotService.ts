@@ -37,7 +37,12 @@ import {
 } from '../lib/seal'
 import { type Anchor, createAnchor, NullAnchor } from './autopilot/anchor'
 import { type Executor, ManagedExecutor, PaperExecutor } from './autopilot/executor'
-import { evaluateGates, exitSlippageBps, shouldExit } from './autopilot/gates'
+import {
+	diagnoseChronicRefusal,
+	evaluateGates,
+	exitSlippageBps,
+	shouldExit,
+} from './autopilot/gates'
 import {
 	benchmarkComparison,
 	type BenchmarkComparison,
@@ -1273,6 +1278,27 @@ export async function runCycleImpl(
 			} else {
 				errors.push(`entry ${draft.symbol}: ${result.error}`)
 			}
+		}
+
+		// A gate that refuses everything is either reading a uniformly bad market
+		// or has quietly stopped being satisfiable. Say so either way — the last
+		// time this happened it went unnoticed until a human read the feed.
+		const recent = await db
+			.select({
+				gatePassed: autopilotDecisions.gatePassed,
+				rejectionReason: autopilotDecisions.rejectionReason,
+			})
+			.from(autopilotDecisions)
+			.where(eq(autopilotDecisions.agentId, agent.id))
+			.orderBy(desc(autopilotDecisions.id))
+			.limit(20)
+		const chronic = diagnoseChronicRefusal(recent)
+		if (chronic) {
+			logger.error(
+				{ agentId: agent.id, rule: chronic.rule, count: chronic.count },
+				'autopilot: one gate is refusing every decision',
+			)
+			await journal(db, agent.id, cycleId, null, 'gate', chronic.message, chronic, 'error')
 		}
 
 		const finalPortfolio = await loadPortfolio(db, agent.id)

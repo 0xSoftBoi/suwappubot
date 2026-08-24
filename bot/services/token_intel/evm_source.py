@@ -23,7 +23,20 @@ BLOCKSCOUT_BASE_URLS: Dict[str, str] = {
     "polygon": "https://polygon.blockscout.com",
     "arbitrum": "https://arbitrum.blockscout.com",
     "optimism": "https://optimism.blockscout.com",
+    # Robinhood runs its own Blockscout. Verified live: /api/v2/tokens/{addr}
+    # and /holders both serve, and holders correctly flags the UniswapV3Pool as
+    # a contract, which _holder_row already excludes from the float.
+    # NOTE: Blockscout v2 paginates by cursor and ignores ?limit — passing one
+    # silently returns an empty items array, which reads as "no holders".
+    "robinhood": "https://robinhoodchain.blockscout.com",
 }
+
+# Chains we can discover and trade but cannot measure holder concentration on.
+# HyperEVM has no Blockscout instance (hyperevm.blockscout.com is 404 and
+# hyperscan.com redirects off-chain), so the holder gate can never pass there.
+# Listed explicitly so a permanently-refused chain is a known fact rather than a
+# silent stream of "holder distribution unknown" rejections.
+CHAINS_WITHOUT_HOLDER_DATA = frozenset({"hyperevm"})
 
 # Snipe-detection window: buys within this many seconds of the earliest known
 # transfer are treated as "sniped in".
@@ -52,7 +65,9 @@ async def _get_json(url: str, params: Optional[dict] = None) -> Optional[dict]:
         return None
 
 
-async def enrich_report(report, chain: str, quick: bool = False) -> None:
+async def enrich_report(
+    report, chain: str, quick: bool = False, skip_holders: bool = False
+) -> None:
     """Populate an EVM TokenIntelReport in place. Never raises.
 
     quick=True runs only the enrichments a risk gate needs — token info and
@@ -61,6 +76,12 @@ async def enrich_report(report, chain: str, quick: bool = False) -> None:
     the full report legitimately takes tens of seconds on a cold token, which is
     fine for an on-demand /intel command and far too slow for a trading loop
     that must decide before its quote goes stale.
+
+    skip_holders=True when GoPlus (bot/services/token_intel/goplus_source.py)
+    already answered the holder-concentration question for this chain. This
+    endpoint is Base Blockscout's proven-unreliable /holders call — HTTP 200
+    with the body "Internal server error" — and there is no reason to pay its
+    latency and failure risk for data we are about to overwrite anyway.
     """
     base = _base_url(chain)
     if not base:
@@ -72,7 +93,8 @@ async def enrich_report(report, chain: str, quick: bool = False) -> None:
         await _enrich_deployer(report, base)
         if report.deployer:
             await _enrich_deployer_stats(report, base)
-    await _enrich_holders(report, base)
+    if not skip_holders:
+        await _enrich_holders(report, base)
     if quick:
         report.notes.append("quick_scan")
         return
