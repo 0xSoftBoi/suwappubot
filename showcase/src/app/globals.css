@@ -2817,6 +2817,9 @@ h2 {
 }
 
 body {
+  /* Preflight never emits (Tailwind v3 directives on the v4 plugin — see
+     showcase/CLAUDE.md), so the UA's 8px body margin was framing every route. */
+  margin: 0;
   background: #faf8f4;
   color: #1a1a1a;
   overflow-x: hidden;

@@ -21,6 +21,10 @@
 .home-hero {
   position: relative;
   isolation: isolate;
+  /* content-box + `width: 100%` + inline padding pushes the band past the
+     viewport; .hd is `overflow: clip`, so the excess is silently amputated
+     rather than showing as a scrollbar. Measure, don't trust scrollWidth. */
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1.04fr) minmax(24rem, 0.86fr);
   align-items: center;
@@ -232,6 +236,7 @@
 /* ── Shared section rhythm ────────────────────────────────────── */
 .home-section {
   position: relative;
+  box-sizing: border-box; /* see .home-hero — keeps inline padding inside the viewport */
   width: min(1180px, 100%);
   margin: 0 auto;
   padding: clamp(5rem, 10vw, 8rem) 1.5rem;
@@ -270,6 +275,143 @@
   font-size: 0.95rem;
   line-height: 1.65;
   color: var(--fg-dim);
+}
+
+/* A lead line under a non-split section head (use-cases, routing). */
+.sw .home-section__head-lead {
+  max-width: 60ch;
+  margin: 0.9rem 0 0;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+
+/* ── Use-case grid (01–08) ────────────────────────────────────── */
+.home-usecases {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.home-usecase {
+  position: relative;
+  display: block;
+  min-width: 0;
+  padding: 1.75rem clamp(1rem, 2.5vw, 1.75rem) 2rem;
+  border-left: 1px solid var(--line);
+  color: var(--fg);
+  text-decoration: none;
+  transition: background 0.18s var(--sw-ease);
+}
+
+.home-usecase:nth-child(4n + 1) {
+  border-left: 0;
+}
+
+.home-usecase:nth-child(n + 5) {
+  border-top: 1px solid var(--line);
+}
+
+.home-usecase__number {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--sw-accent-muted, #BD7526);
+}
+
+.home-usecase h3 {
+  margin: 0.9rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.home-usecase p {
+  margin: 0.55rem 1.5rem 0 0;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+}
+
+.home-usecase b {
+  position: absolute;
+  right: clamp(1rem, 2.5vw, 1.75rem);
+  bottom: 1.5rem;
+  font-weight: 400;
+  color: var(--fg-faint);
+  transition: color 0.18s var(--sw-ease), transform 0.18s var(--sw-ease);
+}
+
+@media (hover: hover) {
+  .home-usecase:hover { background: rgba(255, 255, 255, 0.025); }
+  .home-usecase:hover b { color: var(--sw-accent-muted, #BD7526); transform: translateX(2px); }
+}
+
+/* ── Execution: MEV searcher + benchmarking facts ────────────────── */
+.home-execution-extra {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  /* .home-steps already closes on a full-width rule; a second rule 49px below
+     it read as a doubled hairline. One rule, then the facts. */
+  margin: clamp(1.75rem, 3.5vw, 2.5rem) 0 0;
+}
+
+.home-execution-extra strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.home-execution-extra p {
+  margin: 0.6rem 0 0;
+  max-width: 46ch;
+  font-size: 0.85rem;
+  line-height: 1.62;
+  color: var(--fg-dim);
+}
+
+/* ── Every surface: the surfaces without their own CTA yet ───────── */
+/* Same label register as .home-execution-extra strong. --fg-faint scored
+   3.58:1 on the dark band (AA fail for 10px text); --fg-dim scores 7.07:1. */
+.sw .home-surfaces-label {
+  margin: 1.75rem 0 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.home-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-surfaces li {
+  font-size: 0.83rem;
+  color: var(--fg-dim);
+}
+
+.home-surfaces a {
+  color: var(--fg-dim);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+.home-surfaces a:hover {
+  color: var(--fg);
+  text-decoration-color: var(--sw-accent-muted, #BD7526);
 }
 
 /* Interfaces are a register, not persona cards: one intent can enter through
@@ -423,15 +565,21 @@
   font-family: var(--font-mono);
   font-size: 0.62rem;
   letter-spacing: 0.04em;
-  color: var(--fg-faint);
+  /* --fg-faint scores 3.58:1 on the dark band — AA fail for caption-size text;
+     --fg-dim scores 7.07:1 (same fix as the surfaces label). */
+  color: var(--fg-dim);
 }
 
 .proof__mobile-hint { display: none; }
 
 /* ── Capability band ──────────────────────────────────────────── */
+/* Four items in a 3-col grid left an orphan on row 2 that also carried the
+   `article + article` left border/padding, so it sat indented from column 1
+   above it. 2x2 removes the orphan; borders are position-aware, matching the
+   pattern .home-usecase already uses. */
 .home-capabilities {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-block: 1px solid var(--line);
   background:
     linear-gradient(90deg, rgba(246, 169, 60, 0.04), transparent 42%, rgba(94, 156, 111, 0.035));
@@ -440,15 +588,17 @@
 .home-capabilities article {
   min-width: 0;
   padding: 1.8rem clamp(1rem, 2.5vw, 2rem);
+  border-left: 1px solid var(--line);
   scroll-margin-top: 6rem;
 }
 
-.home-capabilities article:first-child {
+.home-capabilities article:nth-child(2n + 1) {
   padding-left: 0;
+  border-left: 0;
 }
 
-.home-capabilities article + article {
-  border-left: 1px solid var(--line);
+.home-capabilities article:nth-child(n + 3) {
+  border-top: 1px solid var(--line);
 }
 
 .home-capabilities p {
@@ -719,6 +869,27 @@
     grid-template-columns: 1fr;
   }
 
+  .home-usecases {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-usecase:nth-child(4n + 1) {
+    border-left: 1px solid var(--line);
+  }
+
+  .home-usecase:nth-child(2n + 1) {
+    border-left: 0;
+  }
+
+  .home-usecase:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .home-execution-extra {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
   .home-faq .home-section__head {
     position: static;
   }
@@ -739,8 +910,27 @@
 
   .home-interface-register,
   .home-steps,
-  .home-capabilities {
+  .home-capabilities,
+  .home-usecases {
     grid-template-columns: 1fr;
+  }
+
+  .home-usecase,
+  .home-usecase:nth-child(4n + 1),
+  .home-usecase:nth-child(2n + 1) {
+    border-left: 0;
+    padding-inline: 0;
+  }
+
+  .home-usecase:nth-child(n + 2) {
+    border-top: 1px solid var(--line);
+  }
+
+  /* Keep a gutter for the absolutely-positioned arrow: at 1-col the body runs
+     the full card width and a long last line (fr/es are ~20% longer than en)
+     would set under it. */
+  .home-usecase p {
+    margin-right: 2rem;
   }
 
   .home-interface-register a,
@@ -780,7 +970,7 @@
     font-family: var(--font-mono);
     font-size: 0.62rem;
     line-height: 1.5;
-    color: var(--fg-faint);
+    color: var(--fg-dim);
   }
 }
 

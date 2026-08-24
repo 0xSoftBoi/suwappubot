@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { API_BASE_URL } from '@/lib/links';
 import AutopilotFeed from './AutopilotFeed';
@@ -65,7 +65,7 @@ export default async function AutopilotPage() {
 
   return (
     <>
-      <Navigation />
+      <SummerNav />
       <main className={styles.shell}>
         <div className={styles.wrap}>
           <header className={styles.header}>

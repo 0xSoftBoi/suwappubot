@@ -91,11 +91,11 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "执行基础设施",
-      "h1": "连接交易意图与市场的执行层。",
-      "lead": "Suwappu 将交易意图转化为可检查的路由，并在支持的市场中受控执行。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
+      "eyebrow": "全栈交易平台",
+      "h1": "面向跨链市场的全栈交易平台。",
+      "lead": "执行、路由、研究和投资组合管理，覆盖 45 条链——全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
       "ctaTerminal": "打开终端",
-      "ctaApi": "使用 API 构建",
+      "ctaApi": "查看文档",
       "ctaTelegram": "在 Telegram 交易",
       "telegramNav": "Telegram",
       "ticketLabel": "执行票据 · 生产报价",
@@ -142,8 +142,8 @@
       "changelogMeta": "最近发布"
     },
     "interfaces": {
-      "eyebrow": "入口",
-      "title": "交易意图可以从交易界面或 API 进入。",
+      "eyebrow": "能力 06",
+      "title": "一个账户，覆盖每一个入口。",
       "lead": "不同接口拥有不同授权能力。我们明确展示这些边界，不假设功能完全一致。",
       "ariaLabel": "Suwappu 接口",
       "terminal": "Terminal",
@@ -151,10 +151,15 @@
       "telegramMeta": "聊天内交易",
       "programmatic": "REST · MCP · SDK",
       "programmaticMeta": "程序化接口",
-      "boundary": "REST 支持托管执行和未签名的自托管流程。MCP 的 execute_swap 只准备未签名交易，不会广播；A2A 仅提供发现与报价。"
+      "boundary": "REST 支持托管执行和未签名的自托管流程。MCP 的 execute_swap 只准备未签名交易，不会广播；A2A 仅提供发现与报价。",
+      "surfacesLabel": "同时支持",
+      "surfaceMiniApp": "Telegram 小程序",
+      "surfaceIOS": "iOS 应用",
+      "surfaceChrome": "Chrome 扩展",
+      "surfaceWhatsApp": "WhatsApp"
     },
     "execution": {
-      "eyebrow": "执行契约",
+      "eyebrow": "能力 01",
       "title": "让交易意图变成可检查的执行流程。",
       "lead": "路由与授权彼此独立。报价后可选择进行零资金预检，再进入单独的授权决策。",
       "intentTitle": "意图",
@@ -166,14 +171,18 @@
       "authorizeTitle": "授权",
       "authorizeBody": "自托管流程返回未签名交易，由你签名。托管 REST 执行可在服务端控制下签名并广播。",
       "screenshotAlt": "Suwappu Terminal 展示 ETH/USDC 图表、订单簿和兑换票据。",
-      "screenshotCaption": "Suwappu Terminal · 产品截图 · 2026 年 7 月 31 日"
+      "screenshotCaption": "Suwappu Terminal · 产品截图 · 2026 年 7 月 31 日",
+      "mevTitle": "自研 MEV 搜索器",
+      "mevBody": "基于 Rust 的搜索器在执行前对待处理路由进行三明治攻击检测，完全自研而非外包。",
+      "benchTitle": "执行器基准测试",
+      "benchBody": "每条执行路径都会基于实测延迟和滑点进行基准测试，而非模拟数据。"
     },
     "proof": {
       "mobileHint": "产品截图。在窄屏设备上可横向滚动，以可读尺寸查看完整界面细节。"
     },
     "markets": {
-      "eyebrow": "有明确边界的覆盖范围",
-      "title": "市场接入明确说明适用范围。",
+      "eyebrow": "能力 02",
+      "title": "在你看到报价之前，路由已对每个市场排序。",
       "crossChainKicker": "跨链",
       "crossChainTitle": "按路由执行现货交易",
       "crossChainBody": "平台清单包含 {platformChains} 条链，而 Agent API 当前开放 {agentApiChains} 条。每次报价只使用与该路由兼容的提供方。",
@@ -184,19 +193,20 @@
       "curveTitle": "原生支持每一个 Curve 资金池",
       "curveBody": "终端的 Curve 交易区直接从 Curve Prices API 列出 Curve 部署的每条链上的所有资金池——可按 TVL、24 小时交易量或基础 APR 排序，支持搜索，一键进入兑换面板。基于我们的 flet-curve 分叉构建。",
       "screenshotAlt": "Suwappu 永续合约交易台展示 HyperLiquid 市场、行情数据和订单票据。",
-      "screenshotCaption": "Suwappu 中的 HyperLiquid 永续合约 · 产品截图 · 2026 年 7 月 31 日"
+      "screenshotCaption": "Suwappu 中的 HyperLiquid 永续合约 · 产品截图 · 2026 年 7 月 31 日",
+      "lead": "智能路由优先级会对各市场排序——包括 Tempo 的内置零手续费稳定币兑换 DEX 和 CoW 的抗 MEV 批量拍卖——然后再由 CCTP 和 Across 完成跨链桥环节。故障切换 RPC 管理器确保 45 条链在任一服务商出现问题时仍可路由。"
     },
     "security": {
-      "eyebrow": "托管 + 控制",
+      "eyebrow": "能力 05",
       "title": "执行会移动价值，权限必须始终明确。",
       "lead": "选择自托管或托管签名，并限制自动化密钥可以执行的操作。",
       "cta": "查看安全详情",
       "selfCustodyTitle": "自托管",
-      "selfCustodyBody": "未签名交易流程由调用方自行签名并广播。",
+      "selfCustodyBody": "未签名交易流程将签名与广播留给调用方——服务端从不持有该密钥。",
       "managedTitle": "托管签名",
-      "managedBody": "托管执行仅通过托管钱包流程及其授权控制在服务端完成签名。",
+      "managedBody": "托管执行通过 KMS 信封加密（kms_aesgcm_v2）、Turnkey TEE 签名或 MPC 签名器完成签名，具体取决于所用的钱包路径。",
       "policiesTitle": "服务端策略",
-      "policiesBody": "支出限制和敏感操作控制在服务端边界强制执行，不依赖客户端状态推断权限。",
+      "policiesBody": "2FA、消费限额、熔断机制和社交恢复均在服务端边界强制执行；授权监控会自动撤销被标记的授权。",
       "boundaryTitle": "当前保障边界",
       "boundaryBody": "本页面不声称已获得 SOC 2 认证或已完成公开的第三方协议审计。安全页面记录当前控制措施与限制。"
     },
@@ -217,6 +227,65 @@
       "title": "提交意图，并让执行权限保持明确。",
       "lead": "选择与审核、签名和广播责任相匹配的接口。",
       "telegram": "或在 Telegram 交易"
+    },
+    "useCases": {
+      "eyebrow": "你能做什么",
+      "title": "为每一笔交易、每一个市场而设计。",
+      "lead": "八种将想法付诸行动的方式，从一次简单的兑换到把 Suwappu 作为代理运行。",
+      "ariaLabel": "Suwappu 使用场景",
+      "item01Title": "兑换与路由",
+      "item01Body": "在 Jupiter、OKX、0x、Li.Fi、CoW、Socket 和 Jito 之间实时竞价，获取最优报价。",
+      "item02Title": "跨链桥",
+      "item02Body": "20 多个跨链桥提供方，包括 CCTP、Wormhole、LayerZero、Stargate 和 Across，全程可追踪。",
+      "item03Title": "永续合约交易",
+      "item03Body": "HyperLiquid 永续合约，实时监控资金费率与强平。",
+      "item04Title": "跟单交易",
+      "item04Body": "自动跟随专业钱包的交易。",
+      "item05Title": "自动化",
+      "item05Body": "DCA 定投计划、链上限价单，以及基于 Pump.fun 和 Raydium 检测的抢先交易。",
+      "item06Title": "预测市场",
+      "item06Body": "在同一平台交易 Polymarket 仓位。",
+      "item07Title": "以代理身份交易",
+      "item07Body": "通过 REST、MCP 和 A2A 路由，配合 x402 计量计费实现程序化执行。",
+      "item08Title": "竞赛与赚取",
+      "item08Body": "对战、赛季与 XP、推荐奖励，以及会员 NFT。"
+    },
+    "research": {
+      "eyebrow": "能力 03",
+      "title": "公开发布的研究与信号。",
+      "lead": "信号在终端与 API 中运行。研究以同样的方式发布：注明日期、署名、公开。",
+      "ctaResearch": "阅读研究",
+      "ctaSignals": "查看信号",
+      "launchTitle": "新币发射检测",
+      "launchBody": "发射检测器监控 Pump.fun 与 Raydium，新代币部署的瞬间即被标记。",
+      "hlTitle": "HyperLiquid 生态监控",
+      "hlBody": "持续监控 HyperLiquid 生态的成交、资金费率与清算。",
+      "dataTitle": "市场数据采集",
+      "dataBody": "实时价格与链上监控为信号 API 和终端的每一张图表供数。"
+    },
+    "portfolio": {
+      "eyebrow": "能力 04",
+      "title": "面向跨链持仓的投资组合管理。",
+      "lead": "仓位跨终端交易的所有链汇总为一本一目了然的账本。每周摘要回顾业绩表现。",
+      "cta": "打开你的投资组合",
+      "positionsTitle": "跨链仓位",
+      "positionsBody": "单一仓位服务聚合所有受支持链上的持仓——无需按链记账。",
+      "pnlTitle": "已实现与未实现盈亏",
+      "pnlBody": "按仓位计算盈亏，并在终端汇总为一条权益曲线。",
+      "cardsTitle": "仓位卡 NFT",
+      "cardsBody": "仓位可铸造链上凭证——一张随交易同行的仓位卡。"
+    },
+    "government": {
+      "eyebrow": "能力 07",
+      "title": "政府业务线：从设计之初即抗量子。",
+      "lead": "Lattice Transfer Protocol 负责带链上锚定的后量子数据传输，目标是达到 FedRAMP High 就绪水平。",
+      "cta": "查看协议",
+      "pqTitle": "默认后量子",
+      "pqBody": "标准模式采用 ML-KEM-768（FIPS 203）密钥封装、ML-DSA-65（FIPS 204）签名与 BLAKE3 内容寻址。",
+      "provenTitle": "52 条机器验证定理",
+      "provenBody": "Lean 4 证明覆盖法定人数安全、定长密封密钥与纠删阈值——由 CI 把关。",
+      "fedrampTitle": "FedRAMP High 就绪",
+      "fedrampBody": "证据包内含 NIST SP 800-53 控制对照表与故障即关闭的政府部署配置。"
     }
   },
   "cta": {

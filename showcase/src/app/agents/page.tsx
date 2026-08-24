@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import AgentQuickstart from './AgentQuickstart';
@@ -119,7 +119,7 @@ const FAQS = [
 export default function AgentsPage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         {/* ── a. HERO ── */}
         <header className="mkt-hero mkt-hero--center agents-hero">

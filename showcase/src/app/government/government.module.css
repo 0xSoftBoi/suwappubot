@@ -1,0 +1,207 @@
+/* Government / LTP evaluation page. Builds on the institutional register
+   (see ../institutional.css) and adds the handful of layout shapes that
+   register doesn't already cover: a spec table, an anchor-linked
+   contribution grid, and numbered detail sections with a figure card. */
+
+.specTable {
+  margin: 0 0 clamp(4.5rem, 9vw, 8rem);
+  border-top: 1px solid var(--institutional-line-strong);
+  border-bottom: 1px solid var(--institutional-line-strong);
+}
+
+.specRow {
+  display: grid;
+  grid-template-columns: minmax(200px, 0.36fr) 1fr;
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: baseline;
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--institutional-line);
+}
+
+.specRow:first-child {
+  border-top-color: var(--institutional-line-strong);
+}
+
+.specRow dt {
+  margin: 0;
+  color: var(--institutional-muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.specRow dd {
+  margin: 0;
+  color: var(--institutional-ink);
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.contribGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 clamp(4.5rem, 9vw, 8rem);
+  border: 1px solid var(--institutional-line-strong);
+  background: var(--institutional-line);
+}
+
+.contribCard {
+  display: block;
+  padding: clamp(1.35rem, 2.6vw, 1.85rem);
+  background: var(--institutional-canvas);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.contribCard:hover {
+  background: var(--sw-accent-wash);
+}
+
+.contribNum {
+  display: block;
+  color: var(--sw-accent-muted);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
+.contribLabel {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--institutional-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.contribTitle {
+  margin: 0.85rem 0 0;
+  color: var(--institutional-ink);
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.28;
+}
+
+.detail {
+  margin-top: clamp(4.5rem, 9vw, 8rem);
+  padding-top: clamp(2rem, 4vw, 3rem);
+  border-top: 1px solid var(--institutional-line-strong);
+}
+
+.detail:first-of-type {
+  margin-top: 0;
+}
+
+.detailHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.68fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  align-items: start;
+}
+
+.detailKicker {
+  margin: 0 0 0.9rem;
+  color: var(--sw-accent-deep);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.detailHead h2 {
+  margin: 0 0 0.6rem;
+  color: var(--institutional-ink);
+  font-family: var(--font-serif);
+  font-size: clamp(1.5rem, 2.6vw, 2.1rem);
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.detailBody p {
+  margin: 0 0 1rem;
+  color: var(--institutional-muted);
+  font-size: 0.94rem;
+  line-height: 1.68;
+}
+
+.detailBody p:last-child {
+  margin-bottom: 0;
+}
+
+.detailBody strong {
+  color: var(--institutional-ink);
+}
+
+.figure {
+  margin-top: 0.25rem;
+}
+
+.figure pre {
+  color: #d7cdbf;
+}
+
+.figureCaption {
+  margin: 0.6rem 0 0;
+  color: var(--institutional-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 880px) {
+  .contribGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detailHead {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .contribGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .specRow {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+}
+
+.contractLinks {
+  grid-column: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 880px) {
+  .contractLinks {
+    grid-column: auto;
+  }
+}
+
+.contractLinks a {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.contractLinks a:hover {
+  opacity: 1;
+}

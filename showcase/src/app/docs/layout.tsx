@@ -1,9 +1,9 @@
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <Navigation />
+      <SummerNav />
       {children}
     </>
   );
