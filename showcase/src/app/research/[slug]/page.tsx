@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import DocsReader from '@/components/docs/DocsReader';
 import { markdownToHtml } from '../../docs/[section]/[slug]/markdown';
@@ -128,7 +128,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page research-post">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>

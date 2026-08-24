@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { publishedPosts, plannedPosts } from '@/content/research';
 import styles from './research.module.css';
@@ -99,7 +99,7 @@ export default function ResearchPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
       />
-      <Navigation />
+      <SummerNav />
       <div className={`summer-shell mkt-page ${styles.page}`}>
         <header className={styles.hero}>
           <div className={styles.heroTopline}>

@@ -9,8 +9,9 @@ site (wrong nav, wrong palette, "some old library" look).
 
 Every page MUST use, unless it already deliberately doesn't:
 
-- **Nav:** `@/components/SummerNav` — dark bar, persimmon logo, "Launch
-  Terminal" CTA. This is the ONLY nav for new pages.
+- **Nav:** `@/components/SummerNav` — sticky glass bar (light `rgba(255,255,255,.78)`
+  base that composes with dark pages), persimmon logo, "Launch Terminal" CTA.
+  This is the ONLY nav for new pages.
 - **Footer:** `@/components/SummerFooter`.
 - **Tokens/classes:** the `summer-*` classes (`summer-page`, `summer-shell`,
   `summer-kicker`, `summer-button`, `summer-actions`, `summer-code`) defined in
