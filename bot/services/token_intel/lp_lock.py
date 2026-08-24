@@ -1,4 +1,25 @@
-"""LP-lock detection for EVM pairs.
+"""LP-lock detection for EVM pairs — RETIRED, not called from intel_service.
+
+Superseded by bot/services/token_intel/goplus_source.py. Kept for its test
+suite, which documents a real trap worth remembering even though this specific
+implementation no longer runs: `check_lp_lock` assumes a pair's DexScreener
+address is always a fungible ERC-20 LP token. That is false for Uniswap V3/V4,
+where liquidity positions are NFTs (V3) or live inside one shared PoolManager
+with no per-pool contract at all (V4).
+
+That assumption was PROVEN wrong on the exact tokens used to validate this
+module when it shipped: two Base/UniswapV4 pools (KEYCAT, RUSSELL) were
+reported as `locked=True, burned≈100%`, a confident and plausible verdict.
+GoPlus — which walks the actual position/vault contracts instead of assuming
+a shape — reports both as `is_locked: 0` (liquidity sits in the standard V4
+position manager, unlocked). What this code actually measured, unknowingly,
+was the BASE TOKEN's own supply burn (Blockscout resolved the "pair address"
+to something that looked like a valid fungible token and returned sensible,
+wrong data) — not the LP's. It never threw. It never logged. It was the same
+plausible-lie shape as everything else found this session, just one layer
+deeper: a bug in the fix for a bug.
+
+Original docstring, still true of what this module attempts:
 
 Answers one question: can the deployer pull the liquidity?
 

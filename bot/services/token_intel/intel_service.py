@@ -162,6 +162,41 @@ class TokenIntelService:
 
         await self._enrich_dexscreener(report)
 
+        # GoPlus is the primary LP-lock and holder-concentration source, run
+        # BEFORE the per-chain module so its success can skip the redundant,
+        # proven-unreliable Blockscout /holders call below.
+        #
+        # It correctly resolves V2/V3/V4 AMMs and Solana in one call; the
+        # retired Blockscout heuristic (bot/services/token_intel/lp_lock.py, no
+        # longer called from here) assumed a pair's DexScreener address was
+        # always a fungible ERC-20 LP token, which is false for V4 (liquidity
+        # lives in one shared PoolManager, no per-pool contract) and was PROVEN
+        # wrong on the exact tokens used to validate it: it reported two
+        # Base/V4 pools as "100% burned, locked" when GoPlus shows their
+        # liquidity sitting, unlocked, in the standard position manager. It
+        # never threw or logged — a confident, plausible, wrong safety verdict.
+        #
+        # GoPlus also gives holder concentration in the same call, on Base and
+        # Solana alike, without Blockscout's /holders endpoint, which has been
+        # observed returning HTTP 200 with the body "Internal server error".
+        try:
+            from bot.services.token_intel.goplus_source import fetch as fetch_goplus
+
+            gp = await fetch_goplus(chain, token_address)
+        except Exception as e:
+            logger.warning("goplus lookup failed for %s/%s: %s", chain, token_address, e)
+            gp = None
+
+        goplus_gave_holders = False
+        if gp is not None:
+            report.lp_locked = gp.lp_locked
+            report.lp_lock_reason = gp.lp_lock_reason
+            if gp.top_holder_pct is not None:
+                report.top10_pct = gp.top_holder_pct
+                goplus_gave_holders = True
+            if gp.contract_held_pct is not None:
+                report.contract_held_pct = gp.contract_held_pct
+
         try:
             if chain == "solana":
                 from bot.services.token_intel import solana_source
@@ -170,7 +205,9 @@ class TokenIntelService:
             else:
                 from bot.services.token_intel import evm_source
 
-                await evm_source.enrich_report(report, chain, quick=quick)
+                await evm_source.enrich_report(
+                    report, chain, quick=quick, skip_holders=goplus_gave_holders
+                )
         except Exception as e:
             # Belt-and-suspenders: source modules are already defensive, but a
             # single report must never fail the whole /intel command.
@@ -179,19 +216,11 @@ class TokenIntelService:
             )
             report.notes.append("source_enrichment_error")
 
-        # LP lock is the gate that decides whether liquidity can be pulled, so it
-        # runs for every report — including quick ones, which is what the risk
-        # gate actually calls. Two cheap explorer reads.
-        if chain != "solana" and report.pair_address:
-            try:
-                from bot.services.token_intel.lp_lock import check_lp_lock
-
-                lock = await check_lp_lock(chain, report.pair_address)
-                report.lp_locked = lock.locked
-                report.lp_lock_reason = lock.reason
-            except Exception as e:
-                logger.warning("lp_lock check failed for %s/%s: %s", chain, token_address, e)
-                report.lp_lock_reason = "lp lock check errored"
+        if gp is None and not report.lp_lock_reason:
+            # GoPlus does not cover this chain (HyperEVM today) or the call
+            # failed. Leave lp_locked as None/undetermined rather than guess —
+            # the Blockscout heuristic that used to fill this gap is retired.
+            report.lp_lock_reason = f"no LP security source covers {chain}"
 
         self._derive_flags(report)
 

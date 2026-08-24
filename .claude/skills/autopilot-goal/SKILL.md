@@ -69,21 +69,46 @@ Goal is one honest fill, not good fills.
       gate verdict shows real values (not `unknown`) for lp and holders.
 
 ### Phase 2 — Make holder data reliable `[medium]`
-- [ ] 2.1 **Validate shape, not status.** `base.blockscout.com/api/v2/tokens/{a}/holders`
-      returns **HTTP 200** with body `"Internal server error"` — valid JSON, but a
-      string. `res.ok` passes, `.json()` succeeds, the caller treats a string as a dict
-      and the field silently stays unset. Fix generically: anywhere we trust `res.ok`
-      we are one bad gateway from silently wrong data.
-- [ ] 2.2 **Fallback source order per chain** in `bot/services/token_intel/evm_source.py`
-      (`BLOCKSCOUT_BASE_URLS`): Blockscout → native explorer API → aggregator. First
-      usable shape wins.
-- [ ] 2.3 **Retry + backoff** on the holder call, mirroring `market.ts`'s
-      `throttleGecko`. Necessary but not sufficient — 2.1 is the real fix.
-- [ ] 2.4 **Cache negative results briefly** so a broken upstream isn't re-queried
-      every cycle for every token.
-- [ ] 2.5 **Verify by measurement**: holder coverage on Base over 50+ decisions,
-      reported as a number. Target >80%. Baseline today: 8/40, and all 8 are one
-      cached token.
+- [x] 2.1 + 2.2 + 2.3 **DONE, and it went further than planned.** The proper fix
+      was not retry/backoff on Blockscout — it was replacing it. New
+      `bot/services/token_intel/goplus_source.py` calls GoPlus Security
+      (`api.gopluslabs.io`), which covers base/bsc/robinhood/solana in one call and
+      resolves V2/V3/V4/Solana AMMs correctly by reading the actual position/vault
+      contracts, instead of assuming (as the retired Blockscout heuristic did) that
+      a pair's DexScreener address is always a fungible ERC-20 LP token.
+      **That assumption was proven false on the exact tokens 1.1 used as proof of
+      correctness**: KEYCAT and RUSSELL (both UniswapV4) were reported
+      `locked=True, burned≈100%` by the old code. GoPlus shows both `is_locked: 0`
+      — the liquidity sits, unlocked, in the standard V4 position manager. The old
+      code was reading the wrong address's data and never knew it; the 99.98%
+      "burn" it saw was the base token's own supply burn, not the LP's.
+      Also found and fixed while validating this: GoPlus's `holders` array tags a
+      burn address `is_contract: 0`, same as an ordinary wallet, so a heavily-burned
+      fair-launch token would otherwise fail `holder_concentration` at ~100% for
+      being safe. Burn addresses are now excluded from `top_holder_pct`, same
+      treatment as pool/contract addresses.
+      `evm_source.py` gained a `skip_holders` param so the redundant, now-optional
+      Blockscout `/holders` call is skipped when GoPlus already answered — it no
+      longer runs on the hot risk-gate path at all when GoPlus covers the chain.
+      GoPlus's own batch parameter (comma-separated addresses) silently returns
+      only the first address with no error — verified live, not used.
+      HyperEVM: GoPlus does not cover it either (confirmed via
+      `/api/v1/supported_chains`). `lp_locked` stays `None` there with an explicit
+      reason string, feeding into 1.2's `allowUnknownLpLock` flag rather than a bug.
+      30 tests, including one that reproduces the KEYCAT/RUSSELL regression exactly.
+      `lp_lock.py` (the retired Blockscout heuristic) is kept, unwired, with a
+      docstring explaining the bug it had — its test suite still documents a real
+      trap for whoever next assumes a DEX pair is always an ERC-20.
+- [x] 2.4 **Verified unnecessary.** GoPlus's failure mode is "does not cover this
+      chain" (a static, known set) rather than an intermittent flaky endpoint —
+      there is nothing to cache negatively. The throttle (`_MIN_INTERVAL_S`) plus
+      shape validation (`code == 1`, dict result) cover what remains.
+- [x] 2.5 **Verified live**, not yet at 50-decision scale. KEYCAT, RUSSELL, MIGGLES,
+      TIBBIR on Base all now return real `lp_locked` (correctly `False` on all four
+      — none of these particular tokens turn out to be actually locked) and
+      `top_holder_pct` under 1% once burn addresses are excluded. Formal 50+
+      decision measurement is now unblocked and can run against `suwappu-omni`'s
+      live cycles.
 
 ### Phase 3 — Close the discovery and safety gaps `[medium]`
 From `docs/research/autopilot-literature.md` items 5–7.
@@ -92,10 +117,13 @@ From `docs/research/autopilot-literature.md` items 5–7.
       returns per-window buyer/seller counts — a parsing change in `market.ts`. The
       system prompt already tells the model to distrust turnover far above depth and
       never gives it the data to apply that.
-- [ ] 3.2 **Decide HyperEVM.** No Blockscout exists (`hyperevm.blockscout.com` 404,
-      `hyperscan.com` redirects off-chain), so the holder gate can never pass. Drop it
-      from `allowedChains` until a source exists, or accept a permanent refusal
-      stream. Recommendation: drop. Recorded as `CHAINS_WITHOUT_HOLDER_DATA`.
+- [ ] 3.2 **Decide HyperEVM.** Confirmed absent from GoPlus too (not just Blockscout)
+      — `/api/v1/supported_chains` does not list it. With 1.2 shipped, this is no
+      longer "refuses everything forever": it degrades to the `allowUnknownLpLock`/
+      `allowUnknownHolders` posture like any other unmeasurable case. Still worth an
+      explicit operator decision on whether that posture is acceptable for a chain
+      with zero security tooling, or whether to drop it from `allowedChains` until
+      one exists.
 - [ ] 3.3 **Clustered-holder concentration** in `token_intel`. `topHolderPct` is
       defeated by splitting across 20 fresh wallets; MELT's bundle features cluster
       coordinated accounts first.
