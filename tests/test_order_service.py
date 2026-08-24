@@ -8,11 +8,11 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from database.db import get_session, init_db
-from bot.models.advanced import LimitOrder, OrderStatus, OrderType
-from bot.models.swap import SwapStatus, SwapTransaction
-from bot.models.user import User, Wallet
-from bot.services.orders import OrderService
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.advanced import LimitOrder, OrderStatus, OrderType  # noqa: E402
+from bot.models.swap import SwapStatus, SwapTransaction  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.services.orders import OrderService  # noqa: E402
 
 
 @pytest.fixture()

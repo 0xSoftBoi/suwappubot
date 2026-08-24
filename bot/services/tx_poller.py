@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -929,7 +929,7 @@ class TransactionPoller:
                     session.query(Wallet)
                     .filter(
                         Wallet.user_id == tx_dict["user_id"],
-                        Wallet.is_active == True,
+                        Wallet.is_active == True,  # noqa: E712
                     )
                     .first()
                 )

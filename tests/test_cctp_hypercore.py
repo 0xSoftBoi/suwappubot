@@ -6,7 +6,6 @@ import pytest
 
 from bot.services.cctp_hypercore import (
     FINALITY_FAST,
-    HYPEREVM_CCTP_DOMAIN,
     HYPERCORE_USDC_SYSTEM_ADDRESS,
     TOKEN_MESSENGER_V2,
     CctpAttestation,

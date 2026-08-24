@@ -59,7 +59,7 @@ class AlertService:
         with get_session() as session:
             query = session.query(PriceAlert).filter(PriceAlert.user_id == user_id)
             if active_only:
-                query = query.filter(PriceAlert.is_active == True)
+                query = query.filter(PriceAlert.is_active == True)  # noqa: E712
             return query.order_by(PriceAlert.created_at.desc()).all()
 
     def delete_alert(self, alert_id: int, user_id: int) -> bool:
@@ -111,8 +111,8 @@ class AlertService:
                 alerts = (
                     session.query(PriceAlert)
                     .filter(
-                        PriceAlert.is_active == True,
-                        PriceAlert.is_triggered == False,
+                        PriceAlert.is_active == True,  # noqa: E712
+                        PriceAlert.is_triggered == False,  # noqa: E712
                     )
                     .all()
                 )

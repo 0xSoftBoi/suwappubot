@@ -4,11 +4,10 @@ import logging
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
-from datetime import datetime
 
 from bot.models.user import User
 from bot.models.swap import SwapTransaction, SwapStatus
-from bot.utils.formatters import format_amount, format_usd, format_tx_link, format_chain_name
+from bot.utils.formatters import format_amount, format_usd, format_tx_link
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 from bot.services.pnl import pnl_service
@@ -123,7 +122,7 @@ async def history_command(
                     InlineKeyboardButton(
                         f"🖼️ Share {s.to_token}", callback_data=f"pnl_share_{s.id}"
                     )
-                    for s in recent_completed[i : i + 2]
+                    for s in recent_completed[i : i + 2]  # noqa: E203
                 ]
             )
 
@@ -136,7 +135,7 @@ async def history_command(
                     InlineKeyboardButton(
                         f"🧾 Receipt {s.to_token}", callback_data=f"exec_receipt_{s.id}"
                     )
-                    for s in recent_completed[i : i + 2]
+                    for s in recent_completed[i : i + 2]  # noqa: E203
                 ]
             )
 

@@ -228,7 +228,6 @@ class PredictFlow(BaseWhatsAppFlow):
         if text in ("pred_buy_yes", "pred_buy_no"):
             outcome = "Yes" if text == "pred_buy_yes" else "No"
             market_data = state.data.get("selected_market", {})
-            from bot.services.polymarket_api import MarketInfo
 
             market = self._deserialise_market(market_data)
             price = market.outcome_yes_price if outcome == "Yes" else market.outcome_no_price
@@ -362,7 +361,7 @@ class PredictFlow(BaseWhatsAppFlow):
                         "Maximum order amount is $10,000 USDC. Please enter a smaller amount:"
                     )
             except ValueError:
-                return FlowResponse(f"Invalid amount. Please enter a valid number (e.g. _25.00_):")
+                return FlowResponse("Invalid amount. Please enter a valid number (e.g. _25.00_):")
             await self._update(
                 user_id, "confirm_order", {"amount": amount, "awaiting_custom": False}
             )
@@ -647,7 +646,7 @@ class PredictFlow(BaseWhatsAppFlow):
                 .filter(
                     Wallet.user_id == user_db_id,
                     Wallet.chain_type == "evm",
-                    Wallet.is_default == True,
+                    Wallet.is_default == True,  # noqa: E712
                 )
                 .first()
             )
@@ -794,7 +793,7 @@ class PredictFlow(BaseWhatsAppFlow):
                 .filter(
                     PredictionPosition.user_id == db_id,
                     PredictionPosition.total_shares > 0,
-                    PredictionPosition.is_resolved == False,
+                    PredictionPosition.is_resolved == False,  # noqa: E712
                 )
                 .order_by(PredictionPosition.created_at.desc())
                 .limit(10)
@@ -967,7 +966,7 @@ class PredictFlow(BaseWhatsAppFlow):
                         .filter(
                             Wallet.user_id == user_db_id,
                             Wallet.chain_type == "evm",
-                            Wallet.is_default == True,
+                            Wallet.is_default == True,  # noqa: E712
                         )
                         .first()
                     )

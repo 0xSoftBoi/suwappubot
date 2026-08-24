@@ -13,21 +13,20 @@ lazily and the helpers under test are pure Python.
 
 import asyncio
 import os
-import types
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # validators
 # ---------------------------------------------------------------------------
 
-from bot.utils.validators import (
+from bot.utils.validators import (  # noqa: E402
     validate_starknet_address,
     validate_starknet_private_key,
     is_valid_starknet_address,
@@ -100,7 +99,7 @@ class TestValidateStarknetPrivateKey:
 # avnu_api — pure helpers
 # ---------------------------------------------------------------------------
 
-from bot.services.avnu_api import split_u256, _to_int, AvnuAPI, AVNU_INTEGRATOR_NAME
+from bot.services.avnu_api import split_u256, _to_int, AvnuAPI, AVNU_INTEGRATOR_NAME  # noqa: E402
 
 U128_MAX = (1 << 128) - 1
 

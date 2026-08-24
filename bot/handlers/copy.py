@@ -18,7 +18,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.services.copy_service import copy_service, MAX_FOLLOWS, format_wallet_pnl_pct
+from bot.services.copy_service import copy_service, format_wallet_pnl_pct
 from bot.models.subscription import SubscriptionTier
 from bot.utils.tos_utils import enforce_tos
 from bot.utils.gating import require_tier
@@ -360,7 +360,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     profile = copy_service.get_or_create_profile(user_id)
-    stats = copy_service.get_trader_stats(user_id)
+    stats = copy_service.get_trader_stats(user_id)  # noqa: F841
 
     visibility = "🟢 Public" if profile.is_public else "🔴 Private"
     pnl_emoji = "📈" if profile.total_pnl_usd >= 0 else "📉"
@@ -610,7 +610,7 @@ async def receive_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     copy_service.update_profile(user_id, bio=bio)
 
     await update.message.reply_text(
-        f"✅ Bio updated!\n\n" "Use /profile to view your profile.",
+        "✅ Bio updated!\n\n" "Use /profile to view your profile.",
         parse_mode="Markdown",
     )
 
@@ -897,7 +897,7 @@ async def receive_filter_min_trade(update: Update, context: ContextTypes.DEFAULT
             .filter(
                 CopyFollow.follower_id == user_id,
                 CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True,
+                CopyFollow.is_active == True,  # noqa: E712
             )
             .first()
         )

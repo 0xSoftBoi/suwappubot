@@ -14,12 +14,10 @@ This client provides:
 import logging
 import asyncio
 import json
-from typing import Optional, Dict, Any, List, Callable
-from dataclasses import dataclass, field
-from datetime import datetime
+from typing import Optional, Dict, List, Callable
+from dataclasses import dataclass
 from enum import Enum
 
-from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 

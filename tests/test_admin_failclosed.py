@@ -72,7 +72,7 @@ for _n in _inserted_stub_names:
     sys.modules.pop(_n, None)
 
 
-import pytest
+import pytest  # noqa: E402
 
 
 @pytest.mark.parametrize("mod", [admin_fees, admin_custodial])

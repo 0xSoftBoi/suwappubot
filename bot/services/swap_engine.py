@@ -2171,7 +2171,9 @@ class SwapEngine:
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
-        to_amount_min_human = self._get_token_amount_human(quote.to_amount_min, to_token, to_chain)
+        to_amount_min_human = self._get_token_amount_human(  # noqa: F841
+            quote.to_amount_min, to_token, to_chain
+        )  # noqa: F841
 
         # Calculate exchange rate
         exchange_rate = to_amount_human / amount if amount > 0 else 0
@@ -4247,7 +4249,7 @@ class SwapEngine:
             swap_id = await run_in_db(_create_swap_record)
 
             # Create a simple wallet data object for signing
-            wallet_data = {
+            wallet_data = {  # noqa: F841
                 "address": wallet_address,
                 "encrypted_private_key": wallet_encrypted_key,
                 "chain_type": wallet_chain_type,
@@ -4493,6 +4495,11 @@ class SwapEngine:
                 except Exception:  # pragma: no cover - defensive
                     error_category = "unknown"
 
+                # Capture the message now: `e` is bound by `except ... as e`
+                # and Python unbinds it as soon as this except block exits,
+                # so a nested function referencing `e` directly is unsafe.
+                error_message = str(e)
+
                 # Mark as failed
                 def _mark_failed():
                     with get_session() as session:
@@ -4503,7 +4510,7 @@ class SwapEngine:
                         )
                         if db_tx:
                             db_tx.status = SwapStatus.FAILED.value
-                            db_tx.error_message = str(e)
+                            db_tx.error_message = error_message
                             db_tx.error_category = error_category
 
                 await run_in_db(_mark_failed)
@@ -5112,7 +5119,7 @@ class SwapEngine:
         web3 = rpc_manager.get_web3(quote.from_chain)
 
         # First, check if we need to approve the token
-        token_address = transfer_data.token_address
+        token_address = transfer_data.token_address  # noqa: F841
         approval_tx = await self.ccip.get_approval_tx(
             chain=quote.from_chain,
             token=quote.from_token,
@@ -5560,7 +5567,9 @@ class SwapEngine:
             with get_session() as session:
                 sw = (
                     session.query(HotWallet)
-                    .filter(HotWallet.name == sponsor_name, HotWallet.is_active == True)
+                    .filter(
+                        HotWallet.name == sponsor_name, HotWallet.is_active == True  # noqa: E712
+                    )  # noqa: E712
                     .first()
                 )
                 if not sw:

@@ -10,15 +10,15 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-which-is-at-least-32b")
 
-import jwt
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import jwt  # noqa: E402
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from api.routes import social
-from bot.models.social import JellyAccountClaim
-from bot.models.user import User
-from database.db import get_session, init_db
+from api.routes import social  # noqa: E402
+from bot.models.social import JellyAccountClaim  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from database.db import get_session, init_db  # noqa: E402
 
 _SECRET = "test-secret-key-which-is-at-least-32b"
 _WALLET = "0x" + "1" * 40

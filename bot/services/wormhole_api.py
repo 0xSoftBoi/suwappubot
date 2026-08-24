@@ -13,9 +13,7 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from decimal import Decimal
 
-from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -174,7 +172,7 @@ class WormholeAPI:
             return False
 
         # Wormhole is most valuable for Solana routes
-        is_solana_route = from_chain_l == "solana" or to_chain_l == "solana"
+        is_solana_route = from_chain_l == "solana" or to_chain_l == "solana"  # noqa: F841
 
         # Check token availability
         if token_u not in WORMHOLE_TOKENS:

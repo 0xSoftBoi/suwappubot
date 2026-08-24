@@ -12,14 +12,11 @@ Sources:
 """
 
 import logging
-import asyncio
 import re
-from typing import Optional, Dict, Any, List, Set
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-
-from bot.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

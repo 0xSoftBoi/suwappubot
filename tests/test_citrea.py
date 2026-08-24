@@ -21,13 +21,13 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # chain config
 # ---------------------------------------------------------------------------
 
-from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name  # noqa: E402
 
 
 class TestCitreaChainConfig:
@@ -74,7 +74,7 @@ class TestCitreaSettingsAndRpc:
 # tokens
 # ---------------------------------------------------------------------------
 
-from bot.config.tokens import get_token_address, get_token_decimals
+from bot.config.tokens import get_token_address, get_token_decimals  # noqa: E402
 
 
 class TestCitreaTokens:
@@ -101,7 +101,7 @@ class TestCitreaTokens:
 # univ3_fork_api — JuiceSwap venue
 # ---------------------------------------------------------------------------
 
-from bot.services.univ3_fork_api import (
+from bot.services.univ3_fork_api import (  # noqa: E402
     CITREA_VENUE,
     FEE_TIERS,
     ROUTER_V1_DEADLINE_IN_PARAMS,

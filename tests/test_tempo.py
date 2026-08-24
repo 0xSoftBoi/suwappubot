@@ -22,13 +22,13 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # chain config
 # ---------------------------------------------------------------------------
 
-from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name  # noqa: E402
 
 
 class TestTempoChainConfig:
@@ -93,7 +93,7 @@ class TestTempoSettings:
 # tokens
 # ---------------------------------------------------------------------------
 
-from bot.config.tokens import get_token_address, get_token_decimals, TOKENS
+from bot.config.tokens import get_token_address, TOKENS  # noqa: E402
 
 
 class TestTempoTokens:
@@ -113,7 +113,7 @@ class TestTempoTokens:
 # tempo_dex_api — enshrined DEX pair support
 # ---------------------------------------------------------------------------
 
-from bot.services.tempo_dex_api import tempo_dex_api, TempoDexQuote
+from bot.services.tempo_dex_api import tempo_dex_api, TempoDexQuote  # noqa: E402
 
 
 class TestTempoDexSupportedPair:

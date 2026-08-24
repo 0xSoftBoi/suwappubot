@@ -10,10 +10,8 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import sys
-import types
-
-import pytest
+import sys  # noqa: E402
+import types  # noqa: E402
 
 _inserted_stub_names = []
 

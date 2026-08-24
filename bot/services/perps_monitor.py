@@ -111,7 +111,7 @@ class PerpsMonitor:
 
                 if hl_match:
                     # Update local position with live data
-                    old_pnl = float(local_pos.unrealized_pnl or 0)
+                    old_pnl = float(local_pos.unrealized_pnl or 0)  # noqa: F841
                     new_pnl = float(hl_match.get("unrealized_pnl", 0))
 
                     local_pos.mark_price = Decimal(str(hl_match.get("entry_price", 0)))

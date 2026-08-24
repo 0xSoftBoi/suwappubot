@@ -21,16 +21,15 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
-from eth_abi import encode as abi_encode
-from web3 import Web3
+import pytest  # noqa: E402
+from eth_abi import encode as abi_encode  # noqa: E402
+from web3 import Web3  # noqa: E402
 
-from bot.config.morpho_config import (
+from bot.config.morpho_config import (  # noqa: E402
     CBBTC,
     IRM,
     LLTV,
     MARKET_ID,
-    MARKET_PARAMS,
     MAX_LTV,
     MORPHO_BLUE,
     ORACLE,
@@ -39,7 +38,7 @@ from bot.config.morpho_config import (
     assert_market_id,
     compute_market_id,
 )
-from bot.services.morpho_api import (
+from bot.services.morpho_api import (  # noqa: E402
     SECONDS_PER_YEAR,
     MorphoAPI,
     MorphoError,

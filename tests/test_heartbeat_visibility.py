@@ -149,7 +149,11 @@ def test_a_service_that_never_beats_is_reported_dead_not_unknown():
     never started looks like — and it was excluded from `degraded`, so it was
     indistinguishable from healthy."""
     src = _src("api/main.py")
-    block = src[src.index("for svc in watched_services:") : src.index("# The worker publishes")]
+    block = src[
+        src.index("for svc in watched_services:") : src.index(  # noqa: E203
+            "# The worker publishes"
+        )  # noqa: E203
+    ]  # noqa: E203
     # Strip comments first — the assertion below otherwise matches the word
     # inside the comment that explains the fix, which is the same false positive
     # already hit twice in this repo (the disclaimer greps).
@@ -164,7 +168,7 @@ def test_a_dead_heartbeat_reaches_the_degraded_list():
     """It was previously visible only as a word nested inside
     checks.background_services, which nothing alerted on."""
     src = _src("api/main.py")
-    degraded = src[src.index('"degraded": [') :]
+    degraded = src[src.index('"degraded": [') :]  # noqa: E203
     degraded = degraded[: degraded.index("},\n    )")]
     assert "never_beat" in degraded, "dead heartbeats do not surface in degraded"
     assert "no heartbeat past staleness threshold" in degraded
@@ -195,7 +199,11 @@ def test_the_worker_fingerprint_is_refreshed_not_written_once():
     remove'. 24h was still short, because a stable worker does not restart for
     weeks — the answer is to refresh it, not to lengthen it further."""
     src = _src("api/main.py")
-    block = src[src.index("service:worker:fingerprint") : src.index("Could not publish worker")]
+    block = src[
+        src.index("service:worker:fingerprint") : src.index(  # noqa: E203
+            "Could not publish worker"
+        )  # noqa: E203
+    ]  # noqa: E203
     assert "_republish_fingerprint" in block, "the fingerprint is still written only at startup"
     assert "asyncio.create_task" in block
     # refresh interval must be comfortably under the TTL it is refreshing

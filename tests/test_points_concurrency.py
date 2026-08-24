@@ -43,13 +43,13 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-import pytest
-from sqlalchemy.orm import Query
+import pytest  # noqa: E402
+from sqlalchemy.orm import Query  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.points import UserPoints, Reward
-from bot.models.user import User
-from bot.services.points_service import points_service
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.points import UserPoints, Reward  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.services.points_service import points_service  # noqa: E402
 
 
 @pytest.fixture()

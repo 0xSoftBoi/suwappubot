@@ -23,10 +23,10 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-import bot.services.turnkey_fallback as tf
-from bot.services.turnkey_client import TurnkeyAPIError
+import bot.services.turnkey_fallback as tf  # noqa: E402
+from bot.services.turnkey_client import TurnkeyAPIError  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

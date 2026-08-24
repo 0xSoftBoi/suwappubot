@@ -11,19 +11,16 @@ With Jito bundles, transactions are protected from front-running.
 
 import logging
 import base64
-import json
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
 from solders.transaction import Transaction, VersionedTransaction
-from solders.message import Message, MessageV0
+from solders.message import Message
 from solders.pubkey import Pubkey
-from solders.instruction import Instruction, AccountMeta, CompiledInstruction
+from solders.instruction import Instruction
 from solders.system_program import transfer, TransferParams
-from solders.hash import Hash
 
-from bot.config.settings import settings
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 

@@ -21,7 +21,7 @@ from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
-from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+from bot.utils.encryption import encrypt_private_key
 from bot.utils.envelope_crypto import (
     encrypt_private_key_v2,
     encode_for_db,
@@ -29,8 +29,8 @@ from bot.utils.envelope_crypto import (
     SCHEME_LEGACY_FERNET_V1,
     SCHEME_KMS_AESGCM_V2,
 )
-from bot.utils.validators import validate_private_key, validate_address
-from bot.models.user import User, Wallet
+from bot.utils.validators import validate_private_key
+from bot.models.user import Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -608,7 +608,7 @@ class WalletService:
                 session.query(Wallet).filter(
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
-                    Wallet.is_default == True,
+                    Wallet.is_default == True,  # noqa: E712
                 ).update({"is_default": False})
 
             wallet = Wallet(
@@ -639,7 +639,7 @@ class WalletService:
         """Get all wallets for a user, optionally filtered by chain type."""
         with get_session() as session:
             query = session.query(Wallet).filter(
-                Wallet.user_id == user_id, Wallet.is_active == True
+                Wallet.user_id == user_id, Wallet.is_active == True  # noqa: E712
             )
             if chain_type:
                 query = query.filter(Wallet.chain_type == chain_type)
@@ -653,8 +653,8 @@ class WalletService:
                 .filter(
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
-                    Wallet.is_default == True,
-                    Wallet.is_active == True,
+                    Wallet.is_default == True,  # noqa: E712
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -666,7 +666,7 @@ class WalletService:
                     .filter(
                         Wallet.user_id == user_id,
                         Wallet.chain_type == chain_type,
-                        Wallet.is_active == True,
+                        Wallet.is_active == True,  # noqa: E712
                     )
                     .first()
                 )
@@ -873,12 +873,12 @@ class WalletService:
         if rpc_manager.chain_all_circuits_open("solana"):
             raise ConnectionError("all_circuits_open")
 
-        client = await self._get_solana_client()
+        client = await self._get_solana_client()  # noqa: F841
 
         try:
             # Get token accounts for the wallet
-            pubkey = Pubkey.from_string(address)
-            mint_pubkey = Pubkey.from_string(token_mint)
+            pubkey = Pubkey.from_string(address)  # noqa: F841
+            mint_pubkey = Pubkey.from_string(token_mint)  # noqa: F841
 
             # Use getTokenAccountsByOwner RPC method
             async with self._http_session() as session:
@@ -1741,7 +1741,6 @@ class WalletService:
     async def _sign_evm_via_turnkey(self, wallet: Wallet, transaction: dict) -> str:
         """Sign EVM transaction via Turnkey API."""
         from bot.services.turnkey_client import get_turnkey_client
-        from rlp import encode as rlp_encode
 
         client = get_turnkey_client()
 

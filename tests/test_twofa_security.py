@@ -15,11 +15,11 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pyotp
+import pyotp  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.user import User
-from bot.services.twofa import twofa_service
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.services.twofa import twofa_service  # noqa: E402
 
 
 @pytest.fixture()

@@ -39,7 +39,6 @@ from bot.config.xstocks import (
     xstocks_region_allowed,
 )
 from bot.utils.tos_utils import enforce_tos
-from bot.utils.gating import require_tier
 from bot.models.subscription import SubscriptionTier
 from bot.services.referral_service import referral_service
 from bot.services.points_service import points_service
@@ -254,7 +253,7 @@ async def start_swap(
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -909,7 +908,7 @@ async def show_wallet_selection(update: Update, context: ContextTypes.DEFAULT_TY
             .filter(
                 Wallet.user_id == user_id,
                 Wallet.chain_type == chain_type,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -1291,7 +1290,7 @@ async def confirm_swap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
     quote: SwapQuote = swap_data.get("quote")
     user_id = context.user_data.get("user_id")
-    wallet_id = swap_data.get("wallet_id")
+    wallet_id = swap_data.get("wallet_id")  # noqa: F841
 
     if not quote:
         await query.edit_message_text("❌ Quote expired. Please start over.")
@@ -1732,7 +1731,7 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
                     Wallet.id == selected_wallet_ids[0],
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )

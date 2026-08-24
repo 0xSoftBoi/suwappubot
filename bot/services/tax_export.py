@@ -3,13 +3,11 @@
 import csv
 import io
 import logging
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime
+from typing import List
 from decimal import Decimal
 
 from bot.models.swap import SwapTransaction
-from bot.models.user import User
-from bot.services.price_service import price_service
 from database.db import get_session
 
 logger = logging.getLogger(__name__)

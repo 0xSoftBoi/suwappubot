@@ -122,7 +122,7 @@ async def bulk_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
         wallets = (
             session.query(Wallet)
-            .filter(Wallet.user_id == db_user.id, Wallet.is_active == True)
+            .filter(Wallet.user_id == db_user.id, Wallet.is_active == True)  # noqa: E712
             .all()
         )
         if not wallets:
@@ -430,7 +430,7 @@ async def _show_leg_menu(
         ]
     )
     if legs:
-        buttons.append([InlineKeyboardButton(f"Remove last leg", callback_data="bulk_remove_last")])
+        buttons.append([InlineKeyboardButton("Remove last leg", callback_data="bulk_remove_last")])
     buttons.append([InlineKeyboardButton("Cancel", callback_data="bulk_cancel")])
 
     markup = InlineKeyboardMarkup(buttons)
@@ -484,7 +484,7 @@ async def _show_wallet_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             .filter(
                 Wallet.user_id == user_id,
                 Wallet.chain_type == chain_type,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )

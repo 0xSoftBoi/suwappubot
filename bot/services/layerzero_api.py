@@ -8,7 +8,6 @@ import logging
 from typing import Optional, List
 from dataclasses import dataclass
 
-from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name
 from bot.utils.http_client import get_session
 
@@ -283,7 +282,6 @@ class LayerZeroAPI:
             slippage: Slippage tolerance percentage
         """
         from web3 import Web3
-        import random as _rand
 
         pool_address = self.get_pool_address(src_chain, token_symbol)
         if not pool_address:
@@ -405,8 +403,9 @@ class LayerZeroAPI:
             - send_tx: The actual sendToken transaction data
         """
         from web3 import Web3
+        from bot.services.rpc_manager import rpc_manager
 
-        chain = get_chain_by_name(quote.src_chain)
+        chain = get_chain_by_name(quote.src_chain)  # noqa: F841
         web3 = rpc_manager.get_web3(quote.src_chain)
 
         pool_address = Web3.to_checksum_address(quote.pool_address)

@@ -7,7 +7,6 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Text,
-    Enum,
     UniqueConstraint,
 )
 from sqlalchemy.sql import func

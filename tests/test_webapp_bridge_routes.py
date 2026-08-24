@@ -155,7 +155,6 @@ def test_amount_is_converted_to_raw_units(monkeypatch):
         captured.update(kwargs)
         return []
 
-    import api.webapp as webapp_module
     import bot.services.bridge.registry as registry
 
     monkeypatch.setattr(registry, "get_bridge_quotes", _fake_quotes)

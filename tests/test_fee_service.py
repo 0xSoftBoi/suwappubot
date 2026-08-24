@@ -11,9 +11,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.fee_service import (
+from bot.services.fee_service import (  # noqa: E402
     FeeService,
     TIER_FEE_RATES,
     DEFAULT_FEE_RATE,
@@ -21,7 +21,7 @@ from bot.services.fee_service import (
     MIN_EFFECTIVE_FEE_RATE,
     ABSOLUTE_FLOOR,
 )
-from bot.models.subscription import SubscriptionTier
+from bot.models.subscription import SubscriptionTier  # noqa: E402
 
 
 @pytest.fixture()

@@ -19,8 +19,8 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.config.chains import ChainType
-from bot.services.gas_tracker import GasTracker
+from bot.config.chains import ChainType  # noqa: E402
+from bot.services.gas_tracker import GasTracker  # noqa: E402
 
 
 @pytest.mark.asyncio

@@ -201,7 +201,7 @@ def test_same_tier_renewal_after_price_rise_does_not_shrink_paid_time(env):
     m.functions.subscribe(PRO, 24, 2**200).transact({"from": alice})  # 720d @ 9.99
     _, before, _ = expiry_of(m, alice)
     m.functions.setPrice(PRO, ENTERPRISE_PRICE).transact({"from": owner})  # 10x rise
-    now = w3.eth.get_block("latest").timestamp
+    now = w3.eth.get_block("latest").timestamp  # noqa: F841
     m.functions.subscribe(PRO, 1, 2**200).transact({"from": alice})  # renew 30d at new price
     _, after, _ = expiry_of(m, alice)
     assert after >= before, "existing paid time was destroyed by a price rise"
@@ -474,7 +474,6 @@ def _sign_authorization(w3, acct, usdg, to, value, nonce, valid_after=0, valid_b
     authorization. Signing the transfer variant instead would let any observer
     burn the nonce and move the payer's USDG without crediting a subscription.
     """
-    from eth_account.messages import encode_typed_data
 
     if valid_before is None:
         valid_before = w3.eth.get_block("latest").timestamp + 3600

@@ -16,7 +16,6 @@ class Web3Pool:
     @classmethod
     def preload(cls):
         """No-op — RPCManager handles preloading."""
-        pass
 
 
 # Singleton instance

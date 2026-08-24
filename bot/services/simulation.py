@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
-from bot.config.tokens import get_token_by_symbol, get_token_decimals
+from bot.config.tokens import get_token_decimals
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class SimulationService:
         # Check if user has enough native token for gas
         native_balance = await self._get_native_balance(wallet_address, from_chain)
         if native_balance < gas_estimate:
-            warnings.append(f"Low gas balance. May need more ETH/native token for fees.")
+            warnings.append("Low gas balance. May need more ETH/native token for fees.")
 
         # Calculate price impact
         price_impact = await self._calculate_price_impact(

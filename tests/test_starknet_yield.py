@@ -22,11 +22,11 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.config import starknet_addresses as sn
-from bot.config.settings import settings
-from bot.services.starknet_yield import (
+from bot.config import starknet_addresses as sn  # noqa: E402
+from bot.config.settings import settings  # noqa: E402
+from bot.services.starknet_yield import (  # noqa: E402
     SATS,
     VENUES,
     StarknetYieldError,

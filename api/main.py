@@ -24,72 +24,79 @@ from urllib.parse import urlsplit
 # the same async context without threading explicit parameters everywhere.
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
-from fastapi.security.api_key import APIKeyHeader, APIKey
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import (  # noqa: E402
+    FastAPI,
+    Depends,
+    HTTPException,
+    Request,
+    Security,
+    Response,
+    Cookie,
+)  # noqa: E402
+from fastapi.security.api_key import APIKeyHeader  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 # Import webapp router (may be removed in some branches)
 try:
     from api.webapp import router as webapp_router
 except ImportError:
     webapp_router = None
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, ConfigDict
-import secrets
-import json
-import jwt
-import hashlib
-import hmac
-import base64
+from sqlalchemy.orm import Session  # noqa: E402
+from pydantic import BaseModel, ConfigDict  # noqa: E402
+import secrets  # noqa: E402
+import json  # noqa: E402
+import jwt  # noqa: E402
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+import base64  # noqa: E402
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from bot.services.wallet import WalletService
-from bot.config.settings import settings
-from bot.services.fee_sweeper import fee_sweeper
-from bot.services.alerts import alert_service
-from bot.services.market_data import market_data_service
-from bot.services.venue_data import venue_data_service
-from bot.services.orders import order_service
-from bot.services.swap_engine import SwapEngine
-from bot.services.tx_poller import tx_poller
-from bot.services.execution_scorer import execution_scorer
-from bot.services.withdraw_reconciler import withdraw_reconciler
-from bot.services.health_monitor import health_monitor
-from bot.services.approval_notifier import approval_notifier
-from bot.services.webhook_dispatcher import webhook_dispatcher
-from bot.services.balance_refresher import balance_refresher
-from bot.services.perps_monitor import perps_monitor
-from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
-from bot.services.hl_ws_alerts import hl_ws_alerts
-from bot.services.predict_monitor import predict_monitor
-from bot.services.cctp_relayer import cctp_relayer
-from bot.services.cctp_generic_relayer import cctp_generic_relayer
-from bot.services.event_bus import event_bus
-from bot.services.digest_service import digest_service
-from bot.services.api_client import api_client
-from bot.utils.preload import preload_config
-from bot.services.rpc_manager import rpc_manager
-from bot.services.aegis_service import get_aegis
-from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
-from bot.models.user import User, Wallet
-from bot.models.swap import SwapTransaction, SwapStatus
-from bot.models.advanced import LimitOrder, DCAOrder
-from bot.models.agent import RegisteredAgent
-from bot.utils.db_monitor import setup_db_monitoring
-from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
-from bot.utils.telegram_safe import safe_md
-from bot.main import add_handlers
-from telegram.ext import AIORateLimiter, Application, PicklePersistence
-from telegram import Update
-from contextlib import asynccontextmanager, contextmanager
+from bot.services.wallet import WalletService  # noqa: E402
+from bot.config.settings import settings  # noqa: E402
+from bot.services.fee_sweeper import fee_sweeper  # noqa: E402
+from bot.services.alerts import alert_service  # noqa: E402
+from bot.services.market_data import market_data_service  # noqa: E402
+from bot.services.venue_data import venue_data_service  # noqa: E402
+from bot.services.orders import order_service  # noqa: E402
+from bot.services.swap_engine import SwapEngine  # noqa: E402
+from bot.services.tx_poller import tx_poller  # noqa: E402
+from bot.services.execution_scorer import execution_scorer  # noqa: E402
+from bot.services.withdraw_reconciler import withdraw_reconciler  # noqa: E402
+from bot.services.health_monitor import health_monitor  # noqa: E402
+from bot.services.approval_notifier import approval_notifier  # noqa: E402
+from bot.services.webhook_dispatcher import webhook_dispatcher  # noqa: E402
+from bot.services.balance_refresher import balance_refresher  # noqa: E402
+from bot.services.perps_monitor import perps_monitor  # noqa: E402
+from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor  # noqa: E402
+from bot.services.hl_ws_alerts import hl_ws_alerts  # noqa: E402
+from bot.services.predict_monitor import predict_monitor  # noqa: E402
+from bot.services.cctp_relayer import cctp_relayer  # noqa: E402
+from bot.services.cctp_generic_relayer import cctp_generic_relayer  # noqa: E402
+from bot.services.event_bus import event_bus  # noqa: E402
+from bot.services.digest_service import digest_service  # noqa: E402
+from bot.services.api_client import api_client  # noqa: E402
+from bot.utils.preload import preload_config  # noqa: E402
+from bot.services.rpc_manager import rpc_manager  # noqa: E402
+from bot.services.aegis_service import get_aegis  # noqa: E402
+from database.db import init_db, engine, get_session, DATABASE_AVAILABLE  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.models.swap import SwapTransaction, SwapStatus  # noqa: E402
+from bot.models.agent import RegisteredAgent  # noqa: E402
+from bot.utils.db_monitor import setup_db_monitoring  # noqa: E402
+from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded  # noqa: E402
+from bot.utils.telegram_safe import safe_md  # noqa: E402
+from bot.main import add_handlers  # noqa: E402
+from telegram.ext import AIORateLimiter, Application, PicklePersistence  # noqa: E402
+from telegram import Update  # noqa: E402
+from contextlib import asynccontextmanager, contextmanager  # noqa: E402
 
-import logging
+import logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +254,7 @@ async def lifespan(app: FastAPI):
                         drop_pending_updates=True,
                         max_connections=40,
                     )
-                    using_webhook = True
+                    using_webhook = True  # noqa: F841
                     logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
                 else:
                     # Guard: refuse to start polling when multiple replicas are
@@ -301,7 +308,7 @@ async def lifespan(app: FastAPI):
             from bot.platforms.discord_bot import SuwappuDiscordBot
 
             discord_bot = SuwappuDiscordBot()
-            discord_task = asyncio.create_task(discord_bot.start())
+            discord_task = asyncio.create_task(discord_bot.start())  # noqa: F841
             app.state.discord_bot = discord_bot
             logger.info("✓ Discord bot starting")
         except Exception as e:
@@ -569,9 +576,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Suwappu Agent Infrastructure",
     description="""
-    A high-performance liquidity API for AI agents. 
+    A high-performance liquidity API for AI agents.
     This API allows agents to manage multi-chain wallets, fetch portfolio balances, and execute cross-chain swaps.
-    
+
     **Agent Instructions**:
     - Use the `/wallets` endpoint to discover available addresses.
     - Use `/portfolio` to check balances before trading.
@@ -633,7 +640,7 @@ async def get_agent_key(
                         session.query(RegisteredAgent)
                         .filter(
                             RegisteredAgent.api_key == api_key,
-                            RegisteredAgent.is_active == True,
+                            RegisteredAgent.is_active == True,  # noqa: E712
                         )
                         .first()
                     )
@@ -763,22 +770,22 @@ if webapp_router:
     app.include_router(webapp_router)
 
 # --- Import and register OAuth routes ---
-from api.routes.oauth import router as oauth_router
+from api.routes.oauth import router as oauth_router  # noqa: E402
 
 app.include_router(oauth_router)
 
 # --- Import and register mobile app API routes ---
-from api.routes.settings import router as settings_router
+from api.routes.settings import router as settings_router  # noqa: E402
 
 app.include_router(settings_router)
 
 # --- Import and register Phase 2 mobile feature routes ---
-from api.routes.mobile import router as mobile_router
+from api.routes.mobile import router as mobile_router  # noqa: E402
 
 app.include_router(mobile_router)
 
 # Jelly-native public discovery and wallet-backed creator claims (no third-party login).
-from api.routes.social import router as social_router
+from api.routes.social import router as social_router  # noqa: E402
 
 app.include_router(social_router)
 
@@ -1591,7 +1598,7 @@ async def auth_me(
     if address:
         wallet_query = db.query(Wallet).filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         if address.startswith("0x"):
             wallet_query = wallet_query.filter(Wallet.address.ilike(address))
@@ -1668,7 +1675,7 @@ async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, 
         db.query(Wallet)
         .filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         .order_by(Wallet.is_default.desc(), Wallet.id.asc())
         .first()
@@ -2145,7 +2152,7 @@ async def passkey_register_complete(
             db.query(Wallet)
             .filter(
                 Wallet.user_id == existing_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .order_by(Wallet.is_default.desc(), Wallet.id.asc())
             .first()
@@ -2266,7 +2273,6 @@ async def passkey_auth_init():
     _require_passkey_enabled()
     import secrets
     import time
-    import urllib.parse
 
     challenge = secrets.token_urlsafe(32)
 
@@ -2322,7 +2328,7 @@ async def passkey_auth_complete(
         db.query(Wallet)
         .filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         .first()
     )
@@ -2621,7 +2627,11 @@ async def get_wallets(
     Retrieve all active wallets for a specific user.
     Agents use this to identify target addresses for deposit/swap operations.
     """
-    wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
+    wallets = (
+        db.query(Wallet)
+        .filter(Wallet.user_id == user_id, Wallet.is_active == True)  # noqa: E712
+        .all()  # noqa: E712
+    )  # noqa: E712
     # Map camelCase for iOS compatibility
     res = []
     for w in wallets:
@@ -2653,7 +2663,11 @@ async def get_portfolio(
     Fetches a real-time consolidated balance sheet for a user across all supported chains.
     Agents must call this to verify sufficient liquidity before initiating swap orders.
     """
-    wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
+    wallets = (
+        db.query(Wallet)
+        .filter(Wallet.user_id == user_id, Wallet.is_active == True)  # noqa: E712
+        .all()  # noqa: E712
+    )  # noqa: E712
 
     total_usd = 0.0
     all_token_balances = []
@@ -2773,12 +2787,10 @@ async def admin_get_swaps(
 
 # ============ WhatsApp Webhook ============
 
-from fastapi import Request
-from fastapi.responses import PlainTextResponse
-from bot.services.whatsapp_service import whatsapp_service
-from bot.services.unified_bot_service import unified_bot_service
-from bot.services.whatsapp_voice import voice_handler
-from bot.services.whatsapp_queue import WhatsAppMessageQueue
+from fastapi import Request  # noqa: E402
+from bot.services.whatsapp_service import whatsapp_service  # noqa: E402
+from bot.services.whatsapp_voice import voice_handler  # noqa: E402
+from bot.services.whatsapp_queue import WhatsAppMessageQueue  # noqa: E402
 
 
 async def _wa_dispatch(message):

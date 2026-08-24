@@ -15,8 +15,6 @@ _supported_chains: Set[str] = set()
 
 def preload_config():
     """Preload chain and token configurations into memory."""
-    global _chain_id_map, _chain_name_map, _token_addresses, _supported_tokens, _supported_chains
-
     from bot.config.chains import CHAINS
     from bot.config.tokens import TOKENS
 

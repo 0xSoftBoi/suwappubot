@@ -14,12 +14,11 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from decimal import Decimal
+from decimal import Decimal  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
-import bot.services.referral_service as rs_mod
-from bot.services.referral_service import ReferralService, MIN_CLAIM_USD
+from bot.services.referral_service import ReferralService, MIN_CLAIM_USD  # noqa: E402
 
 
 def _seed(referrer_id=1, referee_id=2, reward_usd=5.0, swap_id=1):
@@ -103,7 +102,11 @@ def test_successful_claim_credits_ledger_and_marks_paid(tmp_db, credited):
     from bot.models.referral import ReferralReward
 
     with get_session() as session:
-        unpaid = session.query(ReferralReward).filter(ReferralReward.is_paid == False).count()
+        unpaid = (
+            session.query(ReferralReward)
+            .filter(ReferralReward.is_paid == False)  # noqa: E712
+            .count()  # noqa: E712
+        )  # noqa: E712
         assert unpaid == 0
 
 
@@ -138,5 +141,9 @@ def test_failed_credit_unmarks_rewards_for_retry(tmp_db, monkeypatch):
     from bot.models.referral import ReferralReward
 
     with get_session() as session:
-        unpaid = session.query(ReferralReward).filter(ReferralReward.is_paid == False).count()
+        unpaid = (
+            session.query(ReferralReward)
+            .filter(ReferralReward.is_paid == False)  # noqa: E712
+            .count()  # noqa: E712
+        )  # noqa: E712
         assert unpaid == 1

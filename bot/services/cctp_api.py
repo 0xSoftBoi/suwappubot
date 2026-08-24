@@ -17,8 +17,6 @@ from dataclasses import dataclass
 from web3 import Web3
 
 from bot.config.settings import settings
-from bot.config.chains import get_chain_by_name, ChainType
-from bot.config.tokens import get_token_address, get_token_decimals
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 

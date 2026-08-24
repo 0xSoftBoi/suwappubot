@@ -25,9 +25,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.fee_sweeper import FeeSweeper
+from bot.services.fee_sweeper import FeeSweeper  # noqa: E402
 
 
 @pytest.fixture()

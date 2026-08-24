@@ -11,7 +11,6 @@ Handles:
 import logging
 from typing import Optional, List, Tuple
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
 
 from sqlalchemy import func, desc
 from sqlalchemy.exc import IntegrityError
@@ -1140,7 +1139,9 @@ class PointsService:
             referral_count = user.referral_count if user else 0
 
             # Get all milestones
-            milestones = session.query(Milestone).filter(Milestone.is_active == True).all()
+            milestones = (
+                session.query(Milestone).filter(Milestone.is_active == True).all()  # noqa: E712
+            )  # noqa: E712
 
             # Get already achieved milestones
             achieved_ids = set(
@@ -1197,7 +1198,7 @@ class PointsService:
         with get_session() as session:
             rewards = (
                 session.query(Reward)
-                .filter(Reward.is_active == True)
+                .filter(Reward.is_active == True)  # noqa: E712
                 .order_by(Reward.points_cost)
                 .all()
             )

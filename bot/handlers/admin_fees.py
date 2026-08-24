@@ -1,12 +1,11 @@
 """Admin handlers for fee management."""
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler
 
 from bot.config.settings import settings
 from bot.services.fee_service import fee_service
 from bot.utils.formatters import format_usd, format_amount
-from database.db import get_session
 
 # Admin user IDs from settings, fail-closed if not configured
 ADMIN_IDS = (

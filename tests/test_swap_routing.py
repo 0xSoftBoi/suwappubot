@@ -14,9 +14,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from types import SimpleNamespace
-from bot.config.settings import settings
-from bot.services.swap_engine import SwapEngine, SwapQuote
+from types import SimpleNamespace  # noqa: E402
+from bot.config.settings import settings  # noqa: E402
+from bot.services.swap_engine import SwapEngine, SwapQuote  # noqa: E402
 
 
 @pytest.fixture()

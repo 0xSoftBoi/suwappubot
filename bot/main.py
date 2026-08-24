@@ -39,7 +39,7 @@ from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap
 from bot.handlers.bulk_swap import bulk_swap_conversation_handler
 from bot.handlers.bulk_pay import bulk_pay_conversation_handler
 from bot.handlers.battle import battle_conversation_handler, battle_menu_callback_handler
-from bot.handlers.rewards import rewards_handler, rewards_claim_handler
+from bot.handlers.rewards import rewards_claim_handler
 from bot.handlers.tip import tip_handler
 from bot.handlers.luckybox import luckybox_handler, luckybox_claim_handler
 from bot.handlers.split import split_handler, split_pay_handler
@@ -99,7 +99,6 @@ from bot.handlers.favorites import (
 )
 from bot.handlers.settings import (
     settings_handler,
-    settings_callback,
     toggle_notify_handler,
     slippage_conversation,
     toggle_panic_handler,
@@ -345,7 +344,7 @@ from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
 from bot.utils.db_monitor import setup_db_monitoring
-from database.db import init_db, DATABASE_AVAILABLE
+from database.db import init_db
 
 # Try to import C++ core for high-performance operations
 try:

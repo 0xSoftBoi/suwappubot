@@ -112,7 +112,7 @@ async def import_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         existing_addresses = {
             w.address.lower()
             for w in session.query(Wallet).filter(
-                Wallet.user_id == db_user.id, Wallet.is_active == True
+                Wallet.user_id == db_user.id, Wallet.is_active == True  # noqa: E712
             )
         }
 
@@ -133,7 +133,7 @@ async def import_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             session.add(wallet)
             added += 1
 
-        sol_offset = len(evm_addresses)
+        sol_offset = len(evm_addresses)  # noqa: F841
         for i, addr in enumerate(sol_addresses):
             if addr.lower() in existing_addresses:
                 skipped += 1

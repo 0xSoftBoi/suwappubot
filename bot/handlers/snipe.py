@@ -15,10 +15,8 @@ Features:
 """
 
 import logging
-import asyncio
 import re
-from typing import Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -30,7 +28,6 @@ from telegram.ext import (
     filters,
 )
 
-from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.snipe import (
     SnipeOrder,
@@ -40,7 +37,6 @@ from bot.models.snipe import (
     AutoSnipeRule,
     SnipeStatus,
     SnipeMode,
-    SnipePlatform,
 )
 from bot.services.sniping import (
     launch_detector,
@@ -134,7 +130,7 @@ async def snipe_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             .filter(
                 Wallet.user_id == db_user.id,
                 Wallet.chain_type == "solana",
-                Wallet.is_default == True,
+                Wallet.is_default == True,  # noqa: E712
             )
             .first()
         )
@@ -634,7 +630,7 @@ async def confirm_snipe_callback(update: Update, context: ContextTypes.DEFAULT_T
                 session.commit()
 
         await query.edit_message_text(
-            f"*Snipe Failed*\n\n" f"An unexpected error occurred. Please try again.",
+            "*Snipe Failed*\n\n" "An unexpected error occurred. Please try again.",
             parse_mode="Markdown",
         )
 
@@ -723,7 +719,7 @@ async def watchlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             session.query(WatchedToken)
             .filter(
                 WatchedToken.user_id == user_id,
-                WatchedToken.is_active == True,
+                WatchedToken.is_active == True,  # noqa: E712
             )
             .order_by(WatchedToken.created_at.desc())
             .limit(10)
@@ -1057,7 +1053,6 @@ async def auto_snipe_create_amount(update: Update, context: ContextTypes.DEFAULT
 
 async def snipe_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Show and edit snipe settings (slippage, Jito, quick amounts)."""
-    from bot.utils.telegram_safe import safe_md
 
     query = update.callback_query
     await query.answer()

@@ -12,7 +12,6 @@ import json
 import sys
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 

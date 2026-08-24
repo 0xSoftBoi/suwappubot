@@ -13,7 +13,6 @@ import logging
 import time
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from decimal import Decimal
 import aiohttp
 
 from bot.config.settings import settings
@@ -24,8 +23,6 @@ logger = logging.getLogger(__name__)
 
 class AlchemyRateLimitError(Exception):
     """Raised when Alchemy returns 429 or circuit breaker is open."""
-
-    pass
 
 
 class _CircuitBreaker:
@@ -167,7 +164,6 @@ class AlchemyClient:
     async def close(self):
         """No-op: the underlying session is shared/global and closed centrally
         on app shutdown (bot.utils.http_client.close_session), not per-instance."""
-        pass
 
     def _get_base_url(self, chain: str) -> Optional[str]:
         """Get Alchemy base URL for a chain."""

@@ -77,7 +77,7 @@ def test_the_submitter_cannot_redirect_a_paid_card_to_itself(pos_env):
     the card, the whole gasless design would be a theft primitive."""
     from eth_account import Account
 
-    from positions_helpers import authorized_mint, wire_payments
+    from positions_helpers import authorized_mint
 
     w3, pos, feed, owner, alice, art, usdg = pos_env
     payer = Account.create()
@@ -94,7 +94,7 @@ def test_an_authorization_cannot_be_settled_twice(pos_env):
     signature, settle again."""
     from eth_account import Account
 
-    from positions_helpers import authorized_mint, sign_authorization
+    from positions_helpers import sign_authorization
 
     w3, pos, feed, owner, alice, art, usdg = pos_env
     payer = Account.create()

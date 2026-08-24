@@ -17,12 +17,12 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import asyncio
+import asyncio  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.handlers import support
-from bot.models.support import TicketKind, TicketStatus
+from bot.handlers import support  # noqa: E402
+from bot.models.support import TicketKind, TicketStatus  # noqa: E402
 
 
 class _FakeQuery:

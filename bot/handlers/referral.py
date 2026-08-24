@@ -343,7 +343,7 @@ async def rewards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id = db_user.id
             username = db_user.username
 
-        code = referral_service.get_or_create_code(user_id, username)
+        code = referral_service.get_or_create_code(user_id, username)  # noqa: F841
         bot_username = (await context.bot.get_me()).username
         message = referral_service.format_referral_message(user_id, bot_username)
 

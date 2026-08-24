@@ -8,7 +8,6 @@ All private keys stay in Turnkey's secure enclaves - they never touch our server
 import json
 import re
 import time
-import hashlib
 import logging
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -141,7 +140,6 @@ class TurnkeyClient:
         """
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec as ec_module
-        from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
         import base64
 
         # Sign the body with ECDSA P-256 (SHA-256)
@@ -985,8 +983,8 @@ class TurnkeyClient:
 
 # === Authentication Helpers ===
 
-import secrets
-from datetime import datetime, timezone, timedelta
+import secrets  # noqa: E402
+from datetime import datetime, timezone, timedelta  # noqa: E402
 
 # Store for auth challenges (in production, use Redis/DB)
 _auth_challenges: Dict[str, Dict[str, Any]] = {}
@@ -1057,18 +1055,18 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
     # Get stored challenge
     challenge_data = _auth_challenges.get(nonce)
     if not challenge_data:
-        logger.warning(f"Auth verification failed: nonce not found")
+        logger.warning("Auth verification failed: nonce not found")
         return False
 
     # Check expiration
     if datetime.now(timezone.utc) > challenge_data["expires_at"]:
         del _auth_challenges[nonce]
-        logger.warning(f"Auth verification failed: challenge expired")
+        logger.warning("Auth verification failed: challenge expired")
         return False
 
     # Check address matches
     if challenge_data["address"] != address.lower():
-        logger.warning(f"Auth verification failed: address mismatch")
+        logger.warning("Auth verification failed: address mismatch")
         return False
 
     # Verify signature using eth_account
@@ -1080,7 +1078,7 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
         recovered_address = Account.recover_message(message, signature=signature)
 
         if recovered_address.lower() != address.lower():
-            logger.warning(f"Auth verification failed: signature recovery mismatch")
+            logger.warning("Auth verification failed: signature recovery mismatch")
             return False
 
         # Clean up used challenge

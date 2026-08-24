@@ -8,10 +8,8 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     Float,
-    Enum as SQLEnum,
     Text,
 )
-from sqlalchemy.orm import relationship
 from datetime import datetime
 from enum import Enum
 from database.db import Base

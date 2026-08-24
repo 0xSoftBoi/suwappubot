@@ -14,13 +14,11 @@ import time
 import json
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from web3 import Web3
-from eth_account.messages import encode_typed_data
 
-from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name
-from bot.config.tokens import get_token_address, get_token_decimals, get_decimals_by_address
+from bot.config.tokens import get_decimals_by_address
 from bot.utils.http_client import get_session, with_retry
 from bot.utils.rate_limiter import api_limiter
 

@@ -10,9 +10,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.rpc_manager import _is_trusted_rpc_url
+from bot.services.rpc_manager import _is_trusted_rpc_url  # noqa: E402
 
 
 @pytest.mark.parametrize(

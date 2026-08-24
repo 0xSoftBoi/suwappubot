@@ -18,11 +18,11 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.user import User, Wallet
-from bot.services.wallet_recovery import WalletRecoveryService
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.services.wallet_recovery import WalletRecoveryService  # noqa: E402
 
 
 @pytest.fixture()
