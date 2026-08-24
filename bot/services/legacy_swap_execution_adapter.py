@@ -14,9 +14,13 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from bot.models.execution import ExecutionChildPlacement, ExecutionParentOrder
+from bot.models.execution import (
+    ExecutionChildPlacement,
+    ExecutionParentOrder,
+    ExecutionSettlement,
+)
 from bot.models.swap import SwapStatus, SwapTransaction
-from bot.services.execution_lifecycle import ParentState
+from bot.services.execution_lifecycle import ParentState, TERMINAL_STATES
 from bot.services.execution_store import ExecutionStore, ExecutionStoreError, execution_store
 
 
@@ -43,6 +47,8 @@ _FORWARD_PATH = [
     ParentState.AUTHORIZING,
     ParentState.ACTIVE,
 ]
+
+_SETTLEMENT_TYPE = "swap_delivery"
 
 
 def _stable_event_id(swap_id: int, fact: str) -> str:
@@ -156,6 +162,36 @@ def _append_path(
         )
 
 
+def _prepare_realized_fill(
+    store: ExecutionStore,
+    session: Session,
+    swap: SwapTransaction,
+    parent: ExecutionParentOrder,
+) -> None:
+    """Bring a parent to a state from which an authoritative fill may land.
+
+    A late reconciliation result is specifically allowed to resolve directly
+    from ``reconciling`` to ``filled``. Regressing through ``active`` would both
+    be semantically wrong and violate the lifecycle reducer. A replay of an
+    already-filled legacy row is also a no-op here; ``record_fill`` owns the
+    stable fill identity and will dedupe it.
+    """
+
+    current = ParentState(parent.state)
+    if current in {
+        ParentState.ACTIVE,
+        ParentState.PARTIAL,
+        ParentState.RECONCILING,
+        ParentState.FILLED,
+    }:
+        return
+    if current in TERMINAL_STATES:
+        raise LegacySwapProjectionError(
+            f"cannot attach realized fill to terminal canonical state {current.value}"
+        )
+    _append_path(store, session, swap, parent, ParentState.ACTIVE)
+
+
 def _record_realized_fill(
     store: ExecutionStore,
     session: Session,
@@ -205,6 +241,107 @@ def _record_realized_fill(
     )
 
 
+def _project_settlement(
+    store: ExecutionStore,
+    session: Session,
+    swap: SwapTransaction,
+    parent: ExecutionParentOrder,
+    child: ExecutionChildPlacement,
+    *,
+    state: str,
+) -> Optional[ExecutionSettlement]:
+    """Upsert one stable settlement row without inventing an external outcome."""
+
+    if not swap.tx_hash:
+        return None
+
+    external_source = swap.route_provider or "legacy_swap"
+    external_ref = swap.tx_hash
+    settlement = (
+        session.query(ExecutionSettlement)
+        .filter(
+            ExecutionSettlement.external_source == external_source,
+            ExecutionSettlement.external_ref == external_ref,
+            ExecutionSettlement.settlement_type == _SETTLEMENT_TYPE,
+        )
+        .first()
+    )
+
+    if settlement is None:
+        settlement = ExecutionSettlement(
+            id=str(uuid.uuid4()),
+            parent_order_id=parent.id,
+            child_placement_id=child.id,
+            settlement_type=_SETTLEMENT_TYPE,
+            external_source=external_source,
+            external_ref=external_ref,
+            state=state,
+            chain=swap.to_chain,
+            asset=swap.to_token,
+            amount=swap.realized_to_amount if state == "settled" else None,
+            recovery_json=(
+                None
+                if state == "settled"
+                else {
+                    "reason": "missing_authoritative_realized_output",
+                    "destination_tx_hash": swap.destination_tx_hash,
+                }
+            ),
+        )
+        session.add(settlement)
+    else:
+        if settlement.parent_order_id != parent.id:
+            raise LegacySwapProjectionError(
+                "settlement external identity already belongs to a different parent: "
+                f"{external_source}:{external_ref}"
+            )
+        if settlement.child_placement_id not in (None, child.id):
+            raise LegacySwapProjectionError(
+                "settlement external identity already belongs to a different child: "
+                f"{external_source}:{external_ref}"
+            )
+        settlement.child_placement_id = child.id
+
+        if state == "settled":
+            realized = str(_decimal(swap.realized_to_amount, "realized_to_amount"))
+            if settlement.amount not in (None, "") and str(settlement.amount) != realized:
+                raise LegacySwapProjectionError(
+                    "authoritative settlement amount changed after observation: "
+                    f"{settlement.amount} -> {realized}"
+                )
+            settlement.state = "settled"
+            settlement.chain = swap.to_chain
+            settlement.asset = swap.to_token
+            settlement.amount = realized
+            settlement.recovery_json = None
+        elif settlement.state != "settled":
+            settlement.state = "reconciling"
+            settlement.recovery_json = {
+                "reason": "missing_authoritative_realized_output",
+                "destination_tx_hash": swap.destination_tx_hash,
+            }
+
+    session.flush()
+
+    event_state = settlement.state
+    store.append_event(
+        session,
+        parent_order_id=parent.id,
+        event_id=_stable_event_id(swap.id, f"settlement:{event_state}"),
+        event_type="settlement_observed",
+        payload={
+            "settlement_id": settlement.id,
+            "settlement_state": event_state,
+            "external_source": external_source,
+            "external_ref": external_ref,
+            "destination_tx_hash": swap.destination_tx_hash,
+            "realized_output": settlement.amount,
+        },
+        correlation_id=f"swap:{swap.id}",
+    )
+    return settlement
+
+
 def project_legacy_swap(
     session: Session,
     swap: SwapTransaction,
@@ -219,7 +356,9 @@ def project_legacy_swap(
     - failed-after-broadcast enters ``reconciling`` because the legacy row does
       not prove whether the external transaction reverted, timed out, or later
       settled;
-    - a definitive pre-broadcast failure may become canonical ``failed``.
+    - a definitive pre-broadcast failure may become canonical ``failed``;
+    - a late authoritative receive resolves ``reconciling`` directly to
+      ``filled`` rather than regressing the parent through ``active``.
     """
 
     parent = store.ensure_legacy_parent(
@@ -262,15 +401,19 @@ def project_legacy_swap(
 
     if swap.status == SwapStatus.COMPLETED.value:
         if swap.realized_to_amount:
-            _append_path(store, session, swap, parent, ParentState.ACTIVE)
+            _prepare_realized_fill(store, session, swap, parent)
             _record_realized_fill(store, session, swap, parent, child)
+            _project_settlement(store, session, swap, parent, child, state="settled")
             return parent
         _append_path(store, session, swap, parent, ParentState.RECONCILING)
+        _project_settlement(store, session, swap, parent, child, state="reconciling")
         return parent
 
     if swap.status == SwapStatus.FAILED.value:
         target = ParentState.RECONCILING if swap.tx_hash else ParentState.FAILED
         _append_path(store, session, swap, parent, target)
+        if swap.tx_hash:
+            _project_settlement(store, session, swap, parent, child, state="reconciling")
         return parent
 
     target = _STATUS_TARGET.get(swap.status)
