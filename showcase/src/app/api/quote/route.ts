@@ -40,6 +40,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'pair_not_allowed' }, { status: 400 });
   }
 
+  // Serve a quote fetched within the last 60s to everyone instead of hitting the
+  // metered upstream per page view. A quote is only valid ~60s anyway, so this is
+  // the longest honest window — and it is what makes the demo agent's prepaid
+  // credits last weeks instead of hours (every upstream call spends a credit).
+  const fresh = lastGood.get(pair);
+  if (fresh && Date.now() - fresh.at < 60_000) {
+    return NextResponse.json(fresh.body);
+  }
+
   try {
     const upstream = await fetch(UPSTREAM, {
       method: 'POST',
