@@ -33,12 +33,56 @@ interface DexPair {
 	pairCreatedAt?: number
 }
 
-async function getJson<T>(url: string): Promise<T | null> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * GeckoTerminal's free tier rate-limits hard, and five chains x two endpoints
+ * is ten calls. Fired in parallel they earn a wall of 429s and the screener
+ * reports an empty market — which reads exactly like "nothing is trading"
+ * rather than "we were not allowed to look". Observed live: every chain 429'd
+ * on the first multi-chain cycle.
+ *
+ * A cycle runs every five minutes, so it can afford to be polite.
+ */
+const GECKO_MAX_RETRIES = 2
+let geckoMinIntervalMs = 2_500
+let geckoNextAllowedAt = 0
+
+/**
+ * Override the pacing. Exists so tests can drive the retry and partial-failure
+ * paths without waiting real seconds, and so the interval can be tuned against
+ * an API key's actual limit without a redeploy of this logic.
+ */
+export function configureGeckoThrottle(minIntervalMs: number): void {
+	geckoMinIntervalMs = Math.max(0, minIntervalMs)
+	geckoNextAllowedAt = 0
+}
+
+/** Serialises GeckoTerminal calls and honours Retry-After on a 429. */
+async function throttleGecko(): Promise<void> {
+	const now = Date.now()
+	const wait = Math.max(0, geckoNextAllowedAt - now)
+	geckoNextAllowedAt = Math.max(now, geckoNextAllowedAt) + geckoMinIntervalMs
+	if (wait > 0) await sleep(wait)
+}
+
+async function getJson<T>(url: string, attempt = 0): Promise<T | null> {
+	const throttled = url.startsWith(GECKOTERMINAL)
+	if (throttled) await throttleGecko()
 	try {
 		const res = await fetch(url, {
 			headers: { Accept: 'application/json' },
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 		})
+		if (res.status === 429 && throttled && attempt < GECKO_MAX_RETRIES) {
+			const retryAfter = Number(res.headers.get('retry-after'))
+			const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
+				? retryAfter * 1000
+				: Math.max(geckoMinIntervalMs, 250) * 2 ** (attempt + 1)
+			logger.warn({ url, attempt, backoffMs }, 'autopilot: rate limited, backing off')
+			geckoNextAllowedAt = Date.now() + backoffMs
+			return getJson<T>(url, attempt + 1)
+		}
 		if (!res.ok) {
 			logger.warn({ url, status: res.status }, 'autopilot: market fetch failed')
 			return null
@@ -221,13 +265,18 @@ const GECKO_ENDPOINT: Record<DiscoverySource, string> = {
 	new: 'new_pools',
 }
 
-async function fetchGeckoPools(chain: string, source: DiscoverySource): Promise<Candidate[]> {
+/** Null means the call failed. An empty array means the list really was empty. */
+async function fetchGeckoPools(
+	chain: string,
+	source: DiscoverySource,
+): Promise<Candidate[] | null> {
 	const network = GECKO_NETWORKS[chain]
 	if (!network) return []
 	const data = await getJson<{ data?: GeckoPool[] }>(
 		`${GECKOTERMINAL}/networks/${network}/${GECKO_ENDPOINT[source]}`,
 	)
-	return (data?.data ?? [])
+	if (data === null) return null
+	return (data.data ?? [])
 		.map((pool, index) => {
 			const c = geckoPoolToCandidate(pool, chain)
 			if (!c) return null
@@ -308,11 +357,25 @@ export async function screenCandidates(params: ScreenParams): Promise<Candidate[
 	)
 
 	// Primary surface: what is actually trending, and what has just launched.
-	const chainPools = (
-		await Promise.all(
-			[...chains].flatMap((chain) => DISCOVERY_SOURCES.map((src) => fetchGeckoPools(chain, src))),
+	const results = await Promise.all(
+		[...chains].flatMap((chain) => DISCOVERY_SOURCES.map((src) => fetchGeckoPools(chain, src))),
+	)
+	const failed = results.filter((r) => r === null).length
+	const chainPools = results.filter((r): r is Candidate[] => r !== null).flat()
+
+	// A screener that cannot reach its data source must say so. Returning an
+	// empty list makes a total outage indistinguishable from a quiet market, and
+	// the cycle then records "scanned 0, no error" — which is how a broken agent
+	// looks exactly like a patient one. Observed live: every chain 429'd and the
+	// cycle reported a clean, empty scan.
+	if (failed === results.length && results.length > 0) {
+		throw new Error(
+			`discovery failed on every source (${failed}/${results.length} requests failed) — the market was not read, not empty`,
 		)
-	).flat()
+	}
+	if (failed > 0) {
+		logger.warn({ failed, total: results.length }, 'autopilot: some discovery sources failed')
+	}
 
 	const excluded = new Set((params.excludeTokens ?? []).map((t) => t.trim().toLowerCase()))
 

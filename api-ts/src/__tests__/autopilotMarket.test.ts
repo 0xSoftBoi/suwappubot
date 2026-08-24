@@ -5,12 +5,14 @@
  * chain's largest pools it is a slow blue-chip agent no matter what the rest
  * of the system does.
  */
-import { describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
 	dedupeByToken,
 	discoveryOrder,
 	geckoPoolToCandidate,
+	configureGeckoThrottle,
 	isQuoteAsset,
+	screenCandidates,
 } from '../services/autopilot/market'
 import type { Candidate } from '../services/autopilot/types'
 
@@ -133,5 +135,52 @@ describe('multi-chain discovery', () => {
 		const trendingLast = cand({ chain: 'robinhood', source: 'trending', sourceRank: 19 })
 		const newFirst = cand({ chain: 'base', source: 'new', sourceRank: 0 })
 		expect(discoveryOrder(trendingLast)).toBeLessThan(discoveryOrder(newFirst))
+	})
+})
+
+describe('discovery failure is not an empty market', () => {
+	const realFetch = globalThis.fetch
+	beforeEach(() => configureGeckoThrottle(0))
+	afterEach(() => {
+		globalThis.fetch = realFetch
+		configureGeckoThrottle(2_500)
+	})
+
+	it('throws when every source fails rather than reporting nothing to trade', async () => {
+		// Observed live on the first five-chain cycle: ten parallel GeckoTerminal
+		// calls all returned 429, screenCandidates returned [], and the cycle
+		// recorded "scanned 0, err none". A total outage read as a quiet market,
+		// which is how a broken agent looks exactly like a patient one.
+		globalThis.fetch = (async (_url: string) =>
+			new Response('rate limited', { status: 429 })) as unknown as typeof fetch
+		await expect(
+			screenCandidates({ chains: ['base', 'solana'], minLiquidityUsd: 0 }),
+		).rejects.toThrow(/not read, not empty/)
+	})
+
+	it('still returns what it got when only some sources fail', async () => {
+		// Partial failure is normal and must not stop the agent trading.
+		globalThis.fetch = (async (url: string) => {
+			if (String(url).includes('/solana/')) return new Response('nope', { status: 429 })
+			if (String(url).includes('trending_pools')) {
+				return Response.json({
+					data: [
+						{
+							attributes: {
+								name: 'MIGGLES / WETH',
+								base_token_price_usd: '0.02',
+								reserve_in_usd: '656790',
+								volume_usd: { h24: '724243' },
+							},
+							relationships: { base_token: { data: { id: 'base_0xabc' } } },
+						},
+					],
+				})
+			}
+			return Response.json({ data: [] })
+		}) as unknown as typeof fetch
+
+		const out = await screenCandidates({ chains: ['base', 'solana'], minLiquidityUsd: 0 })
+		expect(out.map((c) => c.symbol)).toContain('MIGGLES')
 	})
 })
