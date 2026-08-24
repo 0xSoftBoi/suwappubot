@@ -142,3 +142,44 @@ def test_provider_failure_does_not_500_the_page(monkeypatch):
 
     monkeypatch.setattr("bot.services.bridge.registry.get_bridge_quotes", _boom)
     assert _call().routes == []
+
+
+def test_amount_is_converted_to_raw_units(monkeypatch):
+    """Routes takes HUMAN units and providers take raw base units — this is
+    the lock on that conversion (money-path review): '250' USDC must reach
+    get_bridge_quotes as '250000000', with a sentinel sender when no wallet
+    is connected yet."""
+    captured = {}
+
+    async def _fake_quotes(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    import api.webapp as webapp_module
+    import bot.services.bridge.registry as registry
+
+    monkeypatch.setattr(registry, "get_bridge_quotes", _fake_quotes)
+
+    _call(amount="250")
+    assert captured["from_amount"] == "250000000"  # 250 * 10^6 (USDC)
+    assert captured["from_address"] == "0x000000000000000000000000000000000000dEaD"
+
+    _call(amount="0.5", fromAddress="0x1111111111111111111111111111111111111111")
+    assert captured["from_amount"] == "500000"
+    assert captured["from_address"] == "0x1111111111111111111111111111111111111111"
+
+
+def test_bad_amounts_are_rejected_not_500s():
+    """Infinity/NaN/garbage/zero are 400s, never unhandled exceptions."""
+    for bad in ("Infinity", "-Infinity", "NaN", "abc", "0", "-5"):
+        with pytest.raises(HTTPException) as excinfo:
+            _call(amount=bad)
+        assert excinfo.value.status_code == 400, bad
+
+
+def test_unknown_token_is_rejected():
+    """Raw addresses and unknown symbols fail closed — the registry is the
+    only source of token identity on this endpoint."""
+    with pytest.raises(HTTPException) as excinfo:
+        _call(token="0x1111111111111111111111111111111111111111")
+    assert excinfo.value.status_code == 400

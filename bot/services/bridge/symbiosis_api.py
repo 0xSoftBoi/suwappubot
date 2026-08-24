@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 
 from bot.config.chains import get_chain_by_name
 from bot.config.settings import settings
-from bot.config.tokens import get_token_address, get_token_decimals
+from bot.config.tokens import get_token_by_symbol, get_token_decimals
 from bot.services.bridge.base import (
     BridgeError,
     BridgeProvider,
@@ -122,11 +122,17 @@ class SymbiosisBridge(BridgeProvider):
         session = await get_session()
 
         # The API 422s without token address + decimals on both sides; symbols
-        # alone are not enough. Resolve from the shared token registry, and
-        # refuse to quote a token/chain pair the registry does not know rather
-        # than guess an address.
-        address_in = get_token_address(from_token, from_chain)
-        address_out = get_token_address(from_token, to_chain)
+        # alone are not enough. Resolve via the registry entry's OWN per-chain
+        # address map — never get_token_address, whose raw-address passthrough
+        # would echo one address onto both chains and fabricate the pair
+        # (money-path review finding). Unknown symbols, raw addresses, and
+        # chains the registry has no verified deployment for all decline.
+        token_cfg = get_token_by_symbol(from_token)
+        if token_cfg is None:
+            logger.debug(f"Symbiosis quote rejected: unknown token symbol {from_token!r}")
+            return None
+        address_in = token_cfg.addresses.get(from_chain.lower())
+        address_out = token_cfg.addresses.get(to_chain.lower())
         if not address_in or not address_out:
             logger.debug(
                 f"Symbiosis quote rejected: no registry address for {from_token} "
@@ -139,14 +145,14 @@ class SymbiosisBridge(BridgeProvider):
                 "chainId": chain_id_in,
                 "address": address_in,
                 "decimals": get_token_decimals(from_token, from_chain),
-                "symbol": from_token.upper(),
+                "symbol": token_cfg.symbol,
                 "amount": from_amount,
             },
             "tokenOut": {
                 "chainId": chain_id_out,
                 "address": address_out,
                 "decimals": get_token_decimals(from_token, to_chain),
-                "symbol": from_token.upper(),
+                "symbol": token_cfg.symbol,
             },
             "from": from_address,
             "to": recipient,
@@ -175,10 +181,16 @@ class SymbiosisBridge(BridgeProvider):
             logger.debug(f"Symbiosis quote has unparseable amount: {e}")
             return None
 
-        if amount_out < int(from_amount) // 2:
+        # Sanity band in HUMAN units: raw units are not comparable when the
+        # two chains disagree on decimals (USDT/USDC are 18dp on bsc, 6dp
+        # elsewhere), which made the raw comparison drop every bsc-source
+        # route and wave through dust on bsc-destination routes.
+        decimals_in = get_token_decimals(from_token, from_chain)
+        decimals_out = get_token_decimals(from_token, to_chain)
+        if amount_out / (10**decimals_out) < (int(from_amount) / (10**decimals_in)) / 2:
             logger.warning(
-                f"Symbiosis quote rejected: amountOut {amount_out} is less than half "
-                f"from_amount {from_amount}"
+                f"Symbiosis quote rejected: out {amount_out} (10^{decimals_out}) is less "
+                f"than half of in {from_amount} (10^{decimals_in})"
             )
             return None
 
