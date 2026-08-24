@@ -23,7 +23,20 @@ BLOCKSCOUT_BASE_URLS: Dict[str, str] = {
     "polygon": "https://polygon.blockscout.com",
     "arbitrum": "https://arbitrum.blockscout.com",
     "optimism": "https://optimism.blockscout.com",
+    # Robinhood runs its own Blockscout. Verified live: /api/v2/tokens/{addr}
+    # and /holders both serve, and holders correctly flags the UniswapV3Pool as
+    # a contract, which _holder_row already excludes from the float.
+    # NOTE: Blockscout v2 paginates by cursor and ignores ?limit — passing one
+    # silently returns an empty items array, which reads as "no holders".
+    "robinhood": "https://robinhoodchain.blockscout.com",
 }
+
+# Chains we can discover and trade but cannot measure holder concentration on.
+# HyperEVM has no Blockscout instance (hyperevm.blockscout.com is 404 and
+# hyperscan.com redirects off-chain), so the holder gate can never pass there.
+# Listed explicitly so a permanently-refused chain is a known fact rather than a
+# silent stream of "holder distribution unknown" rejections.
+CHAINS_WITHOUT_HOLDER_DATA = frozenset({"hyperevm"})
 
 # Snipe-detection window: buys within this many seconds of the earliest known
 # transfer are treated as "sniped in".
