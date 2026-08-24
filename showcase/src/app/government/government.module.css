@@ -176,3 +176,25 @@
     gap: 0.35rem;
   }
 }
+
+.contractLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin-top: 0.75rem;
+}
+
+.contractLinks a {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.contractLinks a:hover {
+  opacity: 1;
+}

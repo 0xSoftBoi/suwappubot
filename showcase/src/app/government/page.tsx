@@ -171,6 +171,20 @@ const assurance = [
     label: '04 · Anchors',
     title: 'On-chain anchors with no standing admin key',
     body: 'LTPAnchorRegistry sits behind an ERC1967 proxy, governed by a 2-of-2 multisig plus a TimelockController; the deployer holds no privileged access post-deployment. (Live on SUWAPPU Testnet and Base Sepolia today.)',
+    links: [
+      {
+        label: 'Anchor registry — verified source ↗',
+        href: 'https://base-sepolia.blockscout.com/address/0x79eF1B7914f98C5C1404617449AB1f377c475996',
+      },
+      {
+        label: 'Optimistic bridge challenge ↗',
+        href: 'https://base-sepolia.blockscout.com/address/0x5083194d9e8EB54Fc397E69A518Be9503C767Dd0',
+      },
+      {
+        label: 'Timelock governor ↗',
+        href: 'https://base-sepolia.blockscout.com/address/0xc915740e35E38569E47f611eA5772Ff5278bc5Ae',
+      },
+    ],
   },
 ] as const;
 
@@ -279,6 +293,15 @@ export default function GovernmentPage() {
                 <span className="institutional-row__label">{a.label.slice(5)}</span>
                 <h3>{a.title}</h3>
                 <p>{a.body}</p>
+                {'links' in a && (
+                  <p className={styles.contractLinks}>
+                    {a.links.map((l) => (
+                      <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer">
+                        {l.label}
+                      </a>
+                    ))}
+                  </p>
+                )}
               </article>
             ))}
           </div>
