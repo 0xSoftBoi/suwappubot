@@ -97,6 +97,54 @@ export const MCP_TOOL_COSTS: Record<string, number> = {
  */
 export const BYPASS_TIERS = new Set(['agent', 'pro', 'premium', 'enterprise'])
 
+/**
+ * Resources eligible for the demo-agent quote exemption (see DEMO_UNMETERED_AGENT_IDS
+ * below). Matched EXACTLY against `resource` as populated by the two charge call
+ * sites: meteredPayment() passes `c.req.path` (REST) and the MCP tools/call handler
+ * passes `mcp://tools/${name}` (MCP). Intentionally a tiny, explicit allowlist —
+ * anything not listed here (swap prep, execute, portfolio, etc.) stays metered.
+ */
+const DEMO_UNMETERED_RESOURCES = new Set(['/v1/agent/quote', 'mcp://tools/get_quote'])
+
+/**
+ * Parse DEMO_UNMETERED_AGENT_IDS into a case-insensitive set of trimmed UUIDs.
+ * Called per-request (cheap: a short comma-split) rather than cached, so an env
+ * change takes effect without a restart-triggering code path.
+ */
+function parseDemoUnmeteredAgentIds(raw: string | undefined): Set<string> {
+	if (!raw) return new Set()
+	return new Set(
+		raw
+			.split(',')
+			.map((s) => s.trim().toLowerCase())
+			.filter(Boolean),
+	)
+}
+
+/**
+ * Pure decision function: does this (agent, resource) pair qualify for the
+ * demo quote-only metering exemption? Exported (rather than inlined into
+ * chargeAgentForCall) so it's directly unit-testable without needing the
+ * live EnvService/DB runtime — mirrors costForTool/costForEndpoint's
+ * pure-and-exported pattern in this file.
+ *
+ * Deliberately NOT a tier bypass: this is a server-side showcase proxy key
+ * exemption, scoped to a read-only resource allowlist (DEMO_UNMETERED_RESOURCES).
+ * Anything else for the same agent (swap prep, execute, portfolio, etc.)
+ * returns false here and falls through to normal metering.
+ */
+export function isDemoUnmeteredCall(params: {
+	agentUuid?: string
+	resource: string
+	demoUnmeteredAgentIds?: string
+}): boolean {
+	const { agentUuid, resource, demoUnmeteredAgentIds } = params
+	if (!agentUuid) return false
+	if (!DEMO_UNMETERED_RESOURCES.has(resource)) return false
+	const demoIds = parseDemoUnmeteredAgentIds(demoUnmeteredAgentIds)
+	return demoIds.has(agentUuid.trim().toLowerCase())
+}
+
 function costForEndpoint(endpoint: string): number {
 	return COST_WEIGHTS[endpoint] ?? 1
 }
@@ -215,7 +263,7 @@ function deductCredits(agentId: number, cost: number) {
  *  - 'insufficient' no credits; `challenge` is the x402 402 body to return.
  */
 export type ChargeResult =
-	| { kind: 'skip'; reason: 'disabled' | 'no_agent' | 'bypass' | 'free'; tier?: string }
+	| { kind: 'skip'; reason: 'disabled' | 'no_agent' | 'bypass' | 'free' | 'demo'; tier?: string }
 	| { kind: 'ok'; balance: number; cost: number; tier: string }
 	| { kind: 'settled'; cost: number; txHash?: string; network?: string }
 	| { kind: 'insufficient'; cost: number; challenge: ReturnType<typeof buildX402Challenge> }
@@ -226,7 +274,14 @@ export type ChargeResult =
  * errors so metering can never take the API down.
  */
 export async function chargeAgentForCall(params: {
-	agent?: { id: number; rateLimitTier?: string }
+	/**
+	 * `uuid` is the agent's stable PUBLIC identifier (agents.uuid) — the only
+	 * form of "agent identity" that's safe to put in an operator-facing env var
+	 * (the numeric `id` is an internal serial PK, not something an operator can
+	 * look up). Optional because not every call site has it in scope; when
+	 * absent, the demo exemption below simply never matches.
+	 */
+	agent?: { id: number; rateLimitTier?: string; uuid?: string }
 	cost: number
 	resource: string
 	description: string
@@ -243,6 +298,24 @@ export async function chargeAgentForCall(params: {
 
 	const tier = agent.rateLimitTier || 'free'
 	if (BYPASS_TIERS.has(tier)) return { kind: 'skip', reason: 'bypass', tier }
+
+	// Demo exemption: explicitly-named demo agents (e.g. the showcase homepage's
+	// server-side live-quote-widget proxy key) get FREE reads on the quote
+	// endpoint/tool ONLY — never a tier bypass. This exists purely to stop the
+	// showcase's flagship live-data demo from going dark when its prepaid
+	// credits run dry; every other resource (swap prep, execute, portfolio,
+	// etc.) for the same agent stays fully metered below. Checked by UUID
+	// (agents.uuid), not the internal numeric id, since that's the only stable
+	// identifier an operator can actually put in DEMO_UNMETERED_AGENT_IDS.
+	if (
+		isDemoUnmeteredCall({
+			agentUuid: agent.uuid,
+			resource,
+			demoUnmeteredAgentIds: env.right.DEMO_UNMETERED_AGENT_IDS,
+		})
+	) {
+		return { kind: 'skip', reason: 'demo', tier }
+	}
 
 	// Free tools (cost 0) are always allowed even for metered tiers.
 	if (cost <= 0) return { kind: 'skip', reason: 'free', tier }
@@ -343,7 +416,7 @@ export function meteredPayment(endpoint: string) {
 	const cost = costForEndpoint(endpoint)
 
 	return async (c: Context, next: Next) => {
-		const agent = c.get('agent') as { id: number; rateLimitTier?: string } | undefined
+		const agent = c.get('agent') as { id: number; rateLimitTier?: string; uuid?: string } | undefined
 		const result = await chargeAgentForCall({
 			agent,
 			cost,
