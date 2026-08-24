@@ -48,11 +48,20 @@ Goal is one honest fill, not good fills.
       Python codebase. Detect: LP tokens burned to `0x0`/`0xdead`, or held by a known
       locker (Unicrypt, Team Finance, PinkLock). Populate truthfully; leave `null`
       where genuinely unknowable. Consumed at `api-ts/.../market.ts:466`.
-- [ ] 1.2 **Split "not locked" from "cannot tell."** `gates.ts:302` (`requireLpLocked`)
+- [x] 1.2 **DONE** — `allowUnknownLpLock` / `allowUnknownHolders` in `AutopilotRules`,
+      both default **false** (fail closed is right for a money system). A measured
+      negative always refuses whatever the flag says; only absent data is governed
+      by it. Refusal text now names the flag that would permit it. 12 tests.
+      Original: **Split "not locked" from "cannot tell."** `gates.ts:302` (`requireLpLocked`)
       and `gates.ts:292` (`holder_concentration`) both collapse absent data into
       refusal. Add a rule flag so an operator chooses whether unknown blocks. A real
       negative must stay a refusal.
-- [ ] 1.3 **Boot-time gate-satisfiability check.** For a known-good token per allowed
+- [x] 1.3 **DONE, differently than planned** — `diagnoseChronicRefusal` in `gates.ts`,
+      called at the end of every cycle. A fixture-per-chain boot check would rot and
+      only catches known fields; this catches the general class from live data: if one
+      rule has refused every decision in the last 20, it logs an error and journals it.
+      Would have caught `lp_locked` on day one, and catches the next one too. 5 tests.
+      Original: **Boot-time gate-satisfiability check.** For a known-good token per allowed
       chain, assert the security payload carries every field the gates require. A gate
       that can never pass must fail loudly at startup, not silently forever at runtime.
       This is the item that would have caught 1.1 on day one.
