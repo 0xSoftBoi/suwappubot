@@ -929,6 +929,16 @@ class Settings(BaseSettings):
         default="SuwappuProduction", description="Li.Fi integrator ID for fee collection"
     )
     jupiter_api_key: Optional[str] = Field(default=None, description="Jupiter API key")
+    etherscan_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Etherscan V2 unified API key (api.etherscan.io/v2). Free tier: 5 "
+            "calls/sec, 100k/day. Used for HyperEVM holder concentration only — "
+            "GoPlus does not cover HyperEVM and no working Blockscout instance "
+            "exists there. Absent this key, HyperEVM holder data stays "
+            "unavailable (same behavior as before this setting existed)."
+        ),
+    )
     socket_api_key: Optional[str] = Field(
         default=None, description="Socket/Bungee API key for super-aggregation"
     )

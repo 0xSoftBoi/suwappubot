@@ -117,13 +117,38 @@ From `docs/research/autopilot-literature.md` items 5–7.
       returns per-window buyer/seller counts — a parsing change in `market.ts`. The
       system prompt already tells the model to distrust turnover far above depth and
       never gives it the data to apply that.
-- [ ] 3.2 **Decide HyperEVM.** Confirmed absent from GoPlus too (not just Blockscout)
-      — `/api/v1/supported_chains` does not list it. With 1.2 shipped, this is no
-      longer "refuses everything forever": it degrades to the `allowUnknownLpLock`/
-      `allowUnknownHolders` posture like any other unmeasurable case. Still worth an
-      explicit operator decision on whether that posture is acceptable for a chain
-      with zero security tooling, or whether to drop it from `allowedChains` until
-      one exists.
+- [x] 3.2 **DECIDED: support it.** Two distinct things share the name "Hyperliquid"
+      and only one is in scope here:
+      - **HyperEVM** (chain id 999, the AMM side — already in `allowedChains`) gets
+        holder-concentration coverage via `bot/services/token_intel/etherscan_source.py`,
+        Etherscan's unified V2 API (confirmed live: HyperEVM is officially listed at
+        `/v2/chainlist`; free tier is 5 calls/sec, 100k/day, no cost). **LP-lock stays
+        unattempted there deliberately**: measured live against HyperEVM's own
+        trending pools, 65% of liquidity is hyperswap-v3 or hybra-finance-v4 — the
+        exact V3/V4 shape that broke the retired Blockscout heuristic in 2.1. Reusing
+        that pattern here would very likely repeat the KEYCAT/RUSSELL bug on most of
+        the chain's volume, so it isn't attempted; `lp_locked` stays `None`, governed
+        by 1.2's `allowUnknownLpLock`, same honest degrade as before.
+      - **HyperCore** (Hyperliquid's native perp/spot order book) is a DIFFERENT
+        product, out of scope for this item. It has no AMM reserves (GeckoTerminal
+        reports every HyperCore pool at $0 TVL — an order book has none), so nothing
+        in this pipeline — GeckoTerminal discovery, the constant-product impact model,
+        DexScreener pricing, LI.FI-based `ManagedExecutor` — applies to it. LI.FI's
+        separate "Hyperliquid" chain listing (id 1337) is a bridge target for moving
+        USDC onto HyperCore, not a trading venue. Real support would mean a new
+        market-data source (Hyperliquid's own `/info` API), a new execution path
+        (`/exchange`, its own signing scheme), and a new risk model (order-book
+        depth/spread, not pool reserves) — a distinct, large, money-path-relevant
+        feature. Not started; needs its own scoping if wanted.
+      - **UNVERIFIED CAVEAT**: `etherscan_source.py` could not be tested against a
+        live key — acquiring one needs a human (email signup), which this session
+        cannot do. The response-shape parsing (`TokenHolderAddress`/
+        `TokenHolderQuantity`) is well-documented and stable but unconfirmed live.
+        8 tests prove it fails safely (returns None) on any shape mismatch, but do
+        not prove the assumed shape is correct. **Needs `ETHERSCAN_API_KEY` set on
+        the api-ts/python-api Railway services and one live decision observed with
+        real HyperEVM holder data before this line can be called done rather than
+        ready.**
 - [ ] 3.3 **Clustered-holder concentration** in `token_intel`. `topHolderPct` is
       defeated by splitting across 20 fresh wallets; MELT's bundle features cluster
       coordinated accounts first.

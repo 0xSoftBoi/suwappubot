@@ -216,11 +216,40 @@ class TokenIntelService:
             )
             report.notes.append("source_enrichment_error")
 
-        if gp is None and not report.lp_lock_reason:
+        if gp is None:
             # GoPlus does not cover this chain (HyperEVM today) or the call
             # failed. Leave lp_locked as None/undetermined rather than guess —
-            # the Blockscout heuristic that used to fill this gap is retired.
-            report.lp_lock_reason = f"no LP security source covers {chain}"
+            # the Blockscout heuristic that used to fill this gap is retired,
+            # and HyperEVM's own liquidity is 65% V3/V4-shaped (measured live
+            # against its own trending pools), where that heuristic's exact
+            # bug would very likely repeat. lp_locked stays unattempted here,
+            # not wrong-and-confident.
+            if not report.lp_lock_reason:
+                report.lp_lock_reason = f"no LP security source covers {chain}"
+
+            # Holder concentration is a narrower, safer ask than LP lock — it
+            # only needs a normal ERC-20 holder list, not an assumption about
+            # what a DEX pair's address points to. Etherscan's unified API
+            # covers HyperEVM; try it as a fallback where GoPlus has none.
+            #
+            # UNVERIFIED: this module has not been exercised against a live
+            # key (see etherscan_source.py's module docstring for why). It is
+            # wired in defensively — every failure mode falls through to the
+            # existing "no data" path, so a wrong key or a changed response
+            # shape degrades to today's behavior rather than to bad data.
+            try:
+                from bot.config.settings import settings
+                from bot.services.token_intel.etherscan_source import fetch_holder_concentration
+
+                es = await fetch_holder_concentration(
+                    chain, token_address, settings.etherscan_api_key
+                )
+                if es is not None and es.top_holder_pct is not None:
+                    report.top10_pct = es.top_holder_pct
+            except Exception as e:
+                logger.warning(
+                    "etherscan holder lookup failed for %s/%s: %s", chain, token_address, e
+                )
 
         self._derive_flags(report)
 
