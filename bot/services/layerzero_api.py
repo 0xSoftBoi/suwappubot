@@ -405,7 +405,6 @@ class LayerZeroAPI:
         from web3 import Web3
         from bot.services.rpc_manager import rpc_manager
 
-        chain = get_chain_by_name(quote.src_chain)  # noqa: F841
         web3 = rpc_manager.get_web3(quote.src_chain)
 
         pool_address = Web3.to_checksum_address(quote.pool_address)
