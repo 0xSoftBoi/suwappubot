@@ -105,7 +105,9 @@ export function inferSettlementType(input: {
 	const tool = (input.tool ?? '').trim().toLowerCase()
 	if (!tool) return 'unknown'
 
-	if (tool.includes('cctp') || tool.includes('circle')) return 'issuer_native'
+	// LI.FI exposes CCTP variants under keys containing CCTP; Mayan's MCTP
+	// variants are also CCTP-backed native USDC transfers.
+	if (tool.includes('cctp') || tool.includes('mctp')) return 'issuer_native'
 
 	if (
 		tool.includes('intent') ||
@@ -136,8 +138,11 @@ export function inferSettlementType(input: {
 function netOutputUsd(candidate: RouteDecisionCandidate): number | null {
 	if (!finite(candidate.quotedToAmountUsd)) return null
 	const gas = finite(candidate.quotedGasUsd) ? candidate.quotedGasUsd : 0
-	const fee = finite(candidate.quotedFeeUsd) ? candidate.quotedFeeUsd : 0
-	return candidate.quotedToAmountUsd - gas - fee
+	// Provider toAmountUSD is already the post-route output. Protocol/bridge
+	// fees included in that output must not be subtracted a second time here.
+	// Gas remains external to the received asset, matching LI.FI's CHEAPEST
+	// comparison semantics and Suwappu's existing route-race telemetry.
+	return candidate.quotedToAmountUsd - gas
 }
 
 /**
