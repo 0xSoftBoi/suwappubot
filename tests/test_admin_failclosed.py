@@ -20,6 +20,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
 
+_inserted_stub_names = []
+
+
 def _install_stub(name):
     if name in sys.modules:
         return
@@ -33,6 +36,7 @@ def _install_stub(name):
     m = _Stub(name)
     m.__path__ = []
     sys.modules[name] = m
+    _inserted_stub_names.append(name)
 
 
 for _n in (
@@ -59,6 +63,13 @@ def _load(relpath, modname):
 
 admin_fees = _load("bot/handlers/admin_fees.py", "admin_fees_under_test")
 admin_custodial = _load("bot/handlers/admin_custodial.py", "admin_custodial_under_test")
+
+# These stubs are only needed for the exec_module() calls above. Leaving them
+# in sys.modules leaks a fake "PIL"/"PIL.Image" into every other test file
+# collected in the same pytest process (e.g. tests/test_chart_render.py,
+# which needs the real Pillow Image.new) — pop them back out now.
+for _n in _inserted_stub_names:
+    sys.modules.pop(_n, None)
 
 
 import pytest
