@@ -20,7 +20,7 @@ EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
-	CREATE TYPE "public"."autopilot_decision_status" AS ENUM('sealed', 'rejected', 'executing', 'filled', 'failed', 'revealed');
+	CREATE TYPE "public"."autopilot_decision_status" AS ENUM('sealed', 'rejected', 'executing', 'filled', 'failed', 'unknown', 'revealed');
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS "autopilot_positions" (
 	"take_profit_pct" real,
 	"stop_loss_pct" real,
 	"max_hold_minutes" integer,
+	"exit_attempts" integer DEFAULT 0 NOT NULL,
 	"invalidation" text,
 	"entry_decision_id" integer,
 	"exit_decision_id" integer,

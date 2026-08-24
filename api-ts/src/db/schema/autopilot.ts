@@ -38,6 +38,12 @@ export const autopilotDecisionStatusEnum = pgEnum('autopilot_decision_status', [
 	'executing',
 	'filled',
 	'failed',
+	/**
+	 * Sent, outcome never learned. NOT the same as `failed`: the swap may be on
+	 * chain. An agent with any decision in this state must not trade again until
+	 * a human has reconciled it against the wallet.
+	 */
+	'unknown',
 	'revealed', // terminal: thesis + nonce are public
 ])
 
@@ -197,6 +203,8 @@ export const autopilotPositions = pgTable(
 		 * which for a memecoin book means "held".
 		 */
 		maxHoldMinutes: integer('max_hold_minutes'),
+		/** Consecutive failed closes. Widens the slippage allowance on retry. */
+		exitAttempts: integer('exit_attempts').default(0).notNull(),
 		invalidation: text('invalidation'),
 
 		entryDecisionId: integer('entry_decision_id'),

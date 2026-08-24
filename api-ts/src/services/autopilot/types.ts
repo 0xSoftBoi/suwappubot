@@ -19,6 +19,9 @@ export interface Candidate {
 	ageMinutes?: number
 	/** Token-security verdict, from the existing token_security pipeline. */
 	security?: TokenSecurity
+	/** Which discovery list surfaced this, and where it placed in that list. */
+	source?: 'trending' | 'new'
+	sourceRank?: number
 	/** Free-form extras the thesis engine may cite. */
 	signals?: Record<string, number | string | boolean>
 }
@@ -113,6 +116,14 @@ export interface AutopilotRules {
 	maxHoldMinutes: number
 	maxSlippageBps: number
 	/**
+	 * Ceiling the slippage allowance may escalate to when an exit keeps failing.
+	 * An exit that cannot fill is not an exit: if 150bps is too tight for a
+	 * market moving against us, retrying at 150bps fails on exactly the days it
+	 * matters while the position runs past the stop it was meant to enforce.
+	 * Entries never escalate — refusing to buy costs nothing.
+	 */
+	exitSlippageCeilingBps: number
+	/**
 	 * Round-trip cost charged per side in paper mode: DEX fee plus our own.
 	 * A paper record that trades for free is not a forecast of a live one.
 	 */
@@ -139,8 +150,9 @@ export const DEFAULT_RULES: AutopilotRules = {
 	tokenCooldownMinutes: 240,
 	maxHoldMinutes: 2880,
 	maxSlippageBps: 150,
+	exitSlippageCeilingBps: 600,
 	paperFeeBps: 30,
-	allowedChains: ['base', 'arbitrum', 'solana'],
+	allowedChains: ['base', 'solana', 'bsc', 'hyperevm', 'robinhood'],
 	deniedTokens: [],
 	requireExitPlan: true,
 }
@@ -154,11 +166,20 @@ export interface PortfolioState {
 	openPositions: OpenPositionSummary[]
 	spentTodayUsd: number
 	realizedPnlTodayUsd: number
+	/**
+	 * Mark-to-market on the open book. The loss halt counts this: an agent whose
+	 * positions are deeply underwater has realized nothing, so a halt on realized
+	 * P&L alone never fires — which is the ordinary way an automated strategy
+	 * blows up. The losses are all unrealized right up until they are not.
+	 */
+	unrealizedPnlUsd: number
 	/** tokenAddress (lowercased) → epoch ms of the last decision on it. */
 	lastTradeAtByToken: Record<string, number>
 }
 
 export interface OpenPositionSummary {
+	/** Row id — needed to update the position without matching on token+agent. */
+	id: number
 	chain: string
 	tokenAddress: string
 	symbol: string
@@ -169,6 +190,8 @@ export interface OpenPositionSummary {
 	stopLossPct?: number | undefined
 	invalidation?: string | undefined
 	maxHoldMinutes?: number | undefined
+	/** Consecutive failed attempts to close this position. Drives escalation. */
+	exitAttempts?: number | undefined
 	openedAt: number
 }
 
@@ -190,6 +213,22 @@ export interface ExecutionRequest {
 	idempotencyKey: string
 }
 
+/**
+ * Everything an executor may be handed. One honest type for both
+ * implementations: fields a given executor ignores are optional, rather than
+ * being smuggled past the compiler with a cast at the call that spends money.
+ */
+export interface ExecutionCall extends ExecutionRequest {
+	/** Mid price the thesis was formed on. Required by the paper executor. */
+	referencePriceUsd?: number | undefined
+	/** Pool depth, for modelling impact. Absent on exits. */
+	liquidityUsd?: number | undefined
+	/** Simulated round-trip cost per side. Ignored by the live executor. */
+	feeBps?: number | undefined
+	/** Amount in the token being spent, when it is not a USD notional. */
+	amountHuman?: string | undefined
+}
+
 export interface ExecutionResult {
 	ok: boolean
 	txHash?: string
@@ -198,6 +237,14 @@ export interface ExecutionResult {
 	fillAmount?: string
 	realizedSlippageBps?: number
 	error?: string
+	/**
+	 * Set when a failure leaves the on-chain outcome genuinely unknown — the
+	 * order was sent and no answer came back. Distinct from `ok: false`, which
+	 * on its own means "did not happen". Treating the two the same is how an
+	 * agent buys the same position twice: it books nothing, still believes it
+	 * holds the cash, and spends it again on the next cycle.
+	 */
+	mayHaveBroadcast?: boolean
 	/** True when the fill was simulated rather than broadcast. */
 	paper: boolean
 }

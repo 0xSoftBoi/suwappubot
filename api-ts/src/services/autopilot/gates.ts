@@ -153,15 +153,20 @@ function entryGates(
 		),
 	)
 
-	const lossHalt = -portfolio.realizedPnlTodayUsd >= rules.dailyLossHaltUsd
+	// Realized AND mark-to-market. A halt that counts only closed trades cannot
+	// fire while the damage is still on the book, which is exactly when it is
+	// most needed — an agent sitting on large unrealized losses has realized
+	// nothing and would otherwise keep opening positions.
+	const totalPnlUsd = portfolio.realizedPnlTodayUsd + portfolio.unrealizedPnlUsd
+	const lossHalt = -totalPnlUsd >= rules.dailyLossHaltUsd
 	results.push(
 		check(
 			'daily_loss_halt',
 			!lossHalt,
 			lossHalt
-				? `daily loss $${(-portfolio.realizedPnlTodayUsd).toFixed(2)} hit the halt at $${rules.dailyLossHaltUsd}`
-				: `daily P&L $${portfolio.realizedPnlTodayUsd.toFixed(2)} is above the halt`,
-			Number(portfolio.realizedPnlTodayUsd.toFixed(2)),
+				? `loss $${(-totalPnlUsd).toFixed(2)} (realized $${portfolio.realizedPnlTodayUsd.toFixed(2)} + unrealized $${portfolio.unrealizedPnlUsd.toFixed(2)}) hit the halt at $${rules.dailyLossHaltUsd}`
+				: `P&L $${totalPnlUsd.toFixed(2)} (realized + unrealized) is above the halt`,
+			Number(totalPnlUsd.toFixed(2)),
 			-rules.dailyLossHaltUsd,
 		),
 	)
@@ -384,4 +389,18 @@ export function shouldExit(
 		}
 	}
 	return { exit: false }
+}
+
+/**
+ * Slippage allowance for closing a position, widened by each consecutive
+ * failure up to the ceiling.
+ *
+ * Deliberately asymmetric with entries. Refusing to buy costs nothing, so an
+ * entry never escalates. Refusing to sell costs whatever the position does
+ * next, so an exit is allowed to pay to complete — the alternative is a
+ * stop-loss that reliably fails in precisely the conditions it exists for.
+ */
+export function exitSlippageBps(attempts: number, rules: AutopilotRules): number {
+	const n = Math.max(0, Math.floor(attempts))
+	return Math.min(rules.maxSlippageBps * 2 ** n, rules.exitSlippageCeilingBps)
 }

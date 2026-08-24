@@ -4539,6 +4539,9 @@ _AUTOPILOT_ADDITIVE_COLUMNS = {
         # Hard time stop committed at entry. Without it the exit check receives
         # no hold limit and positions are held until TP/SL fires, i.e. forever.
         "max_hold_minutes": "INTEGER",
+        # Consecutive failed closes. An exit that keeps failing must be allowed
+        # to widen its slippage allowance, or the stop-loss cannot fill.
+        "exit_attempts": "INTEGER DEFAULT 0",
     },
 }
 
@@ -4684,6 +4687,7 @@ def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     take_profit_pct {real},
                     stop_loss_pct {real},
                     max_hold_minutes INTEGER,
+                    exit_attempts INTEGER DEFAULT 0,
                     invalidation TEXT,
                     entry_decision_id INTEGER,
                     exit_decision_id INTEGER,

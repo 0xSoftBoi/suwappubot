@@ -13,13 +13,11 @@
  *    its own.
  */
 import { logger } from '../../lib/logger'
-import type { ExecutionRequest, ExecutionResult } from './types'
+import type { ExecutionCall, ExecutionResult } from './types'
 
 export interface Executor {
 	readonly mode: 'paper' | 'live'
-	execute(
-		req: ExecutionRequest & { referencePriceUsd?: number; liquidityUsd?: number },
-	): Promise<ExecutionResult>
+	execute(req: ExecutionCall): Promise<ExecutionResult>
 }
 
 /**
@@ -37,13 +35,7 @@ export interface Executor {
 export class PaperExecutor implements Executor {
 	readonly mode = 'paper' as const
 
-	async execute(
-		req: ExecutionRequest & {
-			referencePriceUsd?: number
-			liquidityUsd?: number
-			feeBps?: number
-		},
-	): Promise<ExecutionResult> {
+	async execute(req: ExecutionCall): Promise<ExecutionResult> {
 		const price = req.referencePriceUsd
 		if (!price || price <= 0) {
 			return { ok: false, error: 'paper fill needs a reference price', paper: true }
@@ -127,10 +119,11 @@ export class ManagedExecutor implements Executor {
 		}
 	}
 
-	async execute(
-		req: ExecutionRequest & { referencePriceUsd?: number; amountHuman?: string },
-	): Promise<ExecutionResult> {
+	async execute(req: ExecutionCall): Promise<ExecutionResult> {
 		const timeout = this.config.timeoutMs ?? 30_000
+		// Everything before the execute POST is safe to call a clean failure: no
+		// order was ever sent. Only the execute call itself can leave us unsure.
+
 
 		// The amount is denominated in the token we are spending: USDC notional
 		// for an entry, token units for an exit.
@@ -175,10 +168,15 @@ export class ManagedExecutor implements Executor {
 			})
 			const data = (await res.json()) as ExecuteResponse
 			if (!res.ok || data.success === false) {
+				// A 4xx is our API refusing the order — nothing was broadcast. A 5xx
+				// is our API failing while holding it, which tells us nothing about
+				// whether it reached the chain first.
+				const unresolved = res.status >= 500
 				return {
 					ok: false,
 					paper: false,
 					quoteId,
+					...(unresolved ? { mayHaveBroadcast: true } : {}),
 					error: data.error ?? `execute failed (${res.status})`,
 				}
 			}
@@ -196,8 +194,22 @@ export class ManagedExecutor implements Executor {
 			}
 			return result
 		} catch (err) {
-			logger.error({ err: String(err), quoteId }, 'autopilot: managed execution failed')
-			return { ok: false, paper: false, quoteId, error: `execute request failed: ${String(err)}` }
+			// The request was sent and we never learned the outcome — a timeout, a
+			// dropped connection, our own API dying mid-flight. The swap may be on
+			// chain right now. Reporting this as a clean failure is how an agent
+			// spends the same money twice: it books no position, still believes it
+			// holds the cash, and buys again next cycle.
+			logger.error(
+				{ err: String(err), quoteId, idempotencyKey: req.idempotencyKey },
+				'autopilot: managed execution outcome UNKNOWN — may have broadcast',
+			)
+			return {
+				ok: false,
+				paper: false,
+				quoteId,
+				mayHaveBroadcast: true,
+				error: `execute outcome unknown (may have broadcast): ${String(err)}`,
+			}
 		}
 	}
 }
