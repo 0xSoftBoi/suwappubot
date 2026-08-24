@@ -27,6 +27,7 @@
 
 import { createHash } from 'node:crypto'
 import { logger } from './logger'
+import { rankRouteCandidates, type RankedRoute } from './routeDecision'
 
 const LIFI_ROUTES_URL = 'https://li.quest/v1/advanced/routes'
 
@@ -283,6 +284,11 @@ export interface CaptureQuoteParams {
 	selectedTool: string | null
 }
 
+function shadowWinnerLabel(winner: RankedRoute | undefined): string {
+	if (!winner) return 'none'
+	return `${winner.candidate.tool ?? 'unknown'}:${winner.settlementType}:${winner.score.toFixed(2)}`
+}
+
 /**
  * Fetch and persist the candidate routes for a quote.
  *
@@ -307,6 +313,46 @@ export async function captureQuoteRoutes(params: CaptureQuoteParams): Promise<vo
 		)
 
 		if (candidates.length === 0) return
+
+		// ROUTE INTELLIGENCE SHADOW MODE.
+		//
+		// This computes counterfactual winners only. It must never mutate the
+		// quote, calldata, provider selection, signing path, balances, or fees.
+		// Keeping it inside the already fire-and-forget capture path lets us
+		// collect evidence before a separate MONEY-PATH PR can promote routing
+		// policy into live CandidatePlan selection (ADR 0007).
+		const decisionCandidates = candidates.map((candidate) => ({
+			id: candidate.routeHash,
+			provider: candidate.provider,
+			tool: candidate.tool,
+			fromChain: params.fromChain,
+			toChain: params.toChain,
+			quotedToAmountUsd: candidate.quotedToAmountUsd,
+			quotedGasUsd: candidate.quotedGasUsd,
+			quotedFeeUsd: candidate.quotedFeeUsd,
+			quotedDurationS: candidate.quotedDurationS,
+			rank: candidate.rank,
+		}))
+
+		const retailWinner = rankRouteCandidates(decisionCandidates, 'retail')[0]
+		const treasuryWinner = rankRouteCandidates(decisionCandidates, 'treasury')[0]
+		const institutionalWinner = rankRouteCandidates(decisionCandidates, 'institutional')[0]
+		const winners = [retailWinner, treasuryWinner, institutionalWinner]
+		const divergence = winners.some(
+			(winner) =>
+				winner !== undefined &&
+				(params.selectedTool === null || winner.candidate.tool !== params.selectedTool),
+		)
+
+		logger.info(
+			'[routeDecision] shadow quote=%s selected=%s retail=%s treasury=%s institutional=%s divergence=%s',
+			params.quoteId,
+			params.selectedTool ?? 'unmatched',
+			shadowWinnerLabel(retailWinner),
+			shadowWinnerLabel(treasuryWinner),
+			shadowWinnerLabel(institutionalWinner),
+			divergence,
+		)
 
 		const db = await captureDb()
 		if (!db) return
