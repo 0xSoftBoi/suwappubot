@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 import {
   TerminalButton,
   TerminalPanel,
@@ -54,10 +55,16 @@ export function BridgePanel({
   const [token, setToken] = useState<string>("USDC");
   const [amount, setAmount] = useState<string>("");
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  // The quote endpoint validates from_address against the destination chain's
+  // format and rejects the request when it's absent — omitting it here is what
+  // made every routes request come back empty ("can't bridge"). Send the
+  // connected wallet's address; the server quotes with a sentinel when no
+  // wallet is connected yet.
+  const { address } = useAccount();
 
   const request = useMemo(
-    () => ({ fromChain, toChain, token, amount }),
-    [fromChain, toChain, token, amount],
+    () => ({ fromChain, toChain, token, amount, fromAddress: address }),
+    [fromChain, toChain, token, amount, address],
   );
 
   const { data, isFetching, error } = useBridgeRoutes(request);

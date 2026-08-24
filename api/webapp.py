@@ -27,7 +27,7 @@ import httpx
 
 from api.authz import require_proof_of_possession
 from bot.config.chains import CHAINS, ChainType
-from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_decimals
+from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_by_symbol, get_token_decimals
 from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
@@ -379,10 +379,13 @@ class WebAppBridgeRoutesRequest(BaseModel):
     fromChain: str
     toChain: str
     token: str
+    #: HUMAN units as typed ("250", "0.5") — converted to raw base units
+    #: server-side. /bridge/build's `amount` is RAW units echoed from a quote.
     amount: str
     fromAddress: Optional[str] = None
     toAddress: Optional[str] = None
-    slippageBps: Optional[int] = 50
+    #: Clamped: an absurd slippage floor is a signed invitation to be sandwiched.
+    slippageBps: Optional[int] = Field(50, ge=1, le=500)
 
 
 class WebAppBridgeRoute(BaseModel):
@@ -420,10 +423,11 @@ class WebAppBridgeBuildRequest(BaseModel):
     fromChain: str
     toChain: str
     token: str
+    #: RAW base units, echoed from a /bridge/routes quote's fromAmount.
     amount: str
     fromAddress: str
     toAddress: Optional[str] = None
-    slippageBps: Optional[int] = 50
+    slippageBps: Optional[int] = Field(50, ge=1, le=500)
 
 
 class WebAppBridgeTx(BaseModel):
@@ -3623,13 +3627,51 @@ async def list_terminal_bridge_routes(
     if body.fromChain == body.toChain:
         raise HTTPException(status_code=400, detail="Bridging requires two different chains")
 
+    # Quote-only sentinel sender. Providers validate from_address against the
+    # destination chain's format and reject an empty one, so a routes request
+    # made before a wallet is connected returned [] for everyone — the
+    # terminal's bridge looked permanently empty. Listing routes is
+    # informational; the /bridge/build step still requires the real connected
+    # address, so the sentinel can never end up in a transaction.
+    quote_sender = body.fromAddress or "0x000000000000000000000000000000000000dEaD"
+
+    # Only registry symbols quote here: get_token_decimals returns a default
+    # for unknown symbols and get_token_address can pass raw addresses
+    # through, both of which would let a caller fabricate a token pair
+    # (money-path review finding). Fail closed with a clear 400 instead.
+    if get_token_by_symbol(body.token) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown token: {body.token}")
+
+    # The terminal sends the amount as typed — human units ("250", "0.5") —
+    # while every provider's normalize_amount() takes raw base units and
+    # rejects decimal points outright. Convert here, where token decimals are
+    # known. (/bridge/build is unaffected: it receives the raw fromAmount
+    # echoed from a quote in this response.) Decimal hardening per the
+    # money-path review: Infinity/NaN raise OverflowError/InvalidOperation
+    # outside the default except tuple, and the default 28-digit context
+    # silently rounds very large amounts.
+    from decimal import ROUND_DOWN, Decimal, InvalidOperation, localcontext
+
+    src_decimals = get_token_decimals(body.token, body.fromChain)
+    try:
+        human = Decimal(body.amount)
+        if not human.is_finite():
+            raise HTTPException(status_code=400, detail="Invalid amount")
+        with localcontext() as ctx:
+            ctx.prec = 60
+            raw_amount = int(human.scaleb(src_decimals).to_integral_value(rounding=ROUND_DOWN))
+    except (InvalidOperation, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if raw_amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be above zero")
+
     try:
         quotes = await get_bridge_quotes(
             from_chain=body.fromChain,
             to_chain=body.toChain,
             from_token=body.token,
-            from_amount=body.amount,
-            from_address=body.fromAddress or "",
+            from_amount=str(raw_amount),
+            from_address=quote_sender,
             to_address=body.toAddress,
             slippage_bps=body.slippageBps or 50,
         )
@@ -3637,7 +3679,13 @@ async def list_terminal_bridge_routes(
         logger.warning(f"bridge routes failed {body.fromChain}->{body.toChain}: {exc}")
         return WebAppBridgeRoutesResponse(routes=[])
 
-    decimals = get_token_decimals(body.token, body.toChain) or 6
+    # A deposit-address rail with the sentinel as recipient would be a burn
+    # address the user sends funds to first. No provider mints one on a dry
+    # quote today; this keeps that true if one ever does.
+    if not body.fromAddress:
+        quotes = [q for q in quotes if not q.deposit_address]
+
+    decimals = get_token_decimals(body.token, body.toChain)
 
     routes: List[WebAppBridgeRoute] = []
     for quote in quotes:
@@ -3741,6 +3789,11 @@ async def build_terminal_bridge_transfer(
     sender = (body.fromAddress or "").strip()
     if not sender:
         raise HTTPException(status_code=400, detail="Connect a wallet first")
+    # The quote-only sentinel from /bridge/routes must never build a transfer.
+    if sender.lower() == "0x000000000000000000000000000000000000dead":
+        raise HTTPException(status_code=400, detail="Connect a wallet first")
+    if get_token_by_symbol(body.token) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown token: {body.token}")
     recipient = (body.toAddress or sender).strip()
 
     # Validate both addresses against the chain they will be used on, before
@@ -3791,7 +3844,7 @@ async def build_terminal_bridge_transfer(
             status_code=502, detail="Provider did not return a signable transaction"
         )
 
-    decimals = get_token_decimals(body.token, body.fromChain) or 6
+    decimals = get_token_decimals(body.token, body.fromChain)
 
     # Raw base units must be an exact integer. A provider handing back something
     # unparseable is a bug on their side, but persisting it would store a wrong
