@@ -93,7 +93,7 @@
     "hero": {
       "eyebrow": "Plataforma de trading full-stack",
       "h1": "La plataforma de trading full-stack para mercados cross-chain.",
-      "lead": "Ejecución, enrutamiento, investigación y gestión de portafolio en más de 7 cadenas, desde un solo lugar. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
+      "lead": "Ejecución, enrutamiento, investigación y gestión de portafolio en 45 cadenas, desde un solo lugar. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
       "ctaTerminal": "Abrir Terminal",
       "ctaApi": "Leer la documentación",
       "ctaTelegram": "Operar en Telegram",
@@ -194,7 +194,7 @@
       "curveBody": "El venue de Curve del terminal lista cada pool en cada red donde Curve está desplegado, directamente desde la Curve Prices API: ordenable por TVL, volumen de 24h o APR base, con búsqueda y a un clic del panel de swap. Construido sobre nuestro fork de flet-curve.",
       "screenshotAlt": "Mesa de perpetuos de Suwappu con mercados de HyperLiquid, datos de mercado y ticket de orden.",
       "screenshotCaption": "Perpetuos de HyperLiquid en Suwappu · captura del producto · 31 jul 2026",
-      "lead": "La prioridad de ruta inteligente ordena los mercados —incluido el DEX propio de Tempo para swaps estables sin comisión y las subastas por lotes de CoW protegidas contra MEV— antes de que CCTP y Across liquiden un tramo de bridge. Un gestor de RPC de respaldo mantiene enrutable cada una de las más de 7 cadenas si un proveedor falla."
+      "lead": "La prioridad de ruta inteligente ordena los mercados —incluido el DEX propio de Tempo para swaps estables sin comisión y las subastas por lotes de CoW protegidas contra MEV— antes de que CCTP y Across liquiden un tramo de bridge. Un gestor de RPC de respaldo mantiene enrutable cada una de las 45 cadenas si un proveedor falla."
     },
     "security": {
       "eyebrow": "Capacidad 05",

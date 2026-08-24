@@ -93,7 +93,7 @@
     "hero": {
       "eyebrow": "Full-stack trading platform",
       "h1": "The full-stack trading platform for cross-chain markets.",
-      "lead": "Execution, routing, research, and portfolio management across 7+ chains — from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+      "lead": "Execution, routing, research, and portfolio management across 45 chains — from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
       "ctaTerminal": "Launch Terminal",
       "ctaApi": "Read the docs",
       "ctaTelegram": "Trade in Telegram",
@@ -194,7 +194,7 @@
       "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API — sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
-      "lead": "Smart route priority orders venues — including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions — before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 7+ chains routable if a provider degrades."
+      "lead": "Smart route priority orders venues — including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions — before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
     },
     "security": {
       "eyebrow": "Capability 05",

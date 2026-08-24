@@ -93,7 +93,7 @@
     "hero": {
       "eyebrow": "全栈交易平台",
       "h1": "面向跨链市场的全栈交易平台。",
-      "lead": "执行、路由、研究和投资组合管理，覆盖 7 条以上链——全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
+      "lead": "执行、路由、研究和投资组合管理，覆盖 45 条链——全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
       "ctaTerminal": "打开终端",
       "ctaApi": "查看文档",
       "ctaTelegram": "在 Telegram 交易",
@@ -194,7 +194,7 @@
       "curveBody": "终端的 Curve 交易区直接从 Curve Prices API 列出 Curve 部署的每条链上的所有资金池——可按 TVL、24 小时交易量或基础 APR 排序，支持搜索，一键进入兑换面板。基于我们的 flet-curve 分叉构建。",
       "screenshotAlt": "Suwappu 永续合约交易台展示 HyperLiquid 市场、行情数据和订单票据。",
       "screenshotCaption": "Suwappu 中的 HyperLiquid 永续合约 · 产品截图 · 2026 年 7 月 31 日",
-      "lead": "智能路由优先级会对各市场排序——包括 Tempo 的内置零手续费稳定币兑换 DEX 和 CoW 的抗 MEV 批量拍卖——然后再由 CCTP 和 Across 完成跨链桥环节。故障切换 RPC 管理器确保 7 条以上链在任一服务商出现问题时仍可路由。"
+      "lead": "智能路由优先级会对各市场排序——包括 Tempo 的内置零手续费稳定币兑换 DEX 和 CoW 的抗 MEV 批量拍卖——然后再由 CCTP 和 Across 完成跨链桥环节。故障切换 RPC 管理器确保 45 条链在任一服务商出现问题时仍可路由。"
     },
     "security": {
       "eyebrow": "能力 05",

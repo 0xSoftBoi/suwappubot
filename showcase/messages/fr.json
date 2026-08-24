@@ -93,7 +93,7 @@
     "hero": {
       "eyebrow": "Plateforme de trading full-stack",
       "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
-      "lead": "Exécution, routage, recherche et gestion de portefeuille sur plus de 7 chaînes — depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
+      "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes — depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
       "ctaTerminal": "Lancer le Terminal",
       "ctaApi": "Lire la documentation",
       "ctaTelegram": "Trader dans Telegram",
@@ -194,7 +194,7 @@
       "curveBody": "Le venue Curve du terminal liste chaque pool sur chaque chaîne où Curve est déployé, directement depuis la Curve Prices API — triable par TVL, volume 24h ou APR de base, avec recherche, à un clic du panneau de swap. Construit sur notre fork de flet-curve.",
       "screenshotAlt": "Desk de perpétuels Suwappu avec marchés HyperLiquid, données de marché et ticket d’ordre.",
       "screenshotCaption": "Perpétuels HyperLiquid dans Suwappu · capture produit · 31 juil. 2026",
-      "lead": "La priorité de routage intelligente classe les marchés — dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées protégées contre le MEV de CoW — avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des plus de 7 chaînes routable en cas de dégradation d’un fournisseur."
+      "lead": "La priorité de routage intelligente classe les marchés — dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées protégées contre le MEV de CoW — avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des 45 chaînes routable en cas de dégradation d’un fournisseur."
     },
     "security": {
       "eyebrow": "Capacité 05",
