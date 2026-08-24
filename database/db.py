@@ -1759,6 +1759,20 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
     Idempotent — already-encrypted rows decrypt cleanly and are skipped. This
     remediates the historical plaintext exposure for users who never re-trigger
     a 2FA read. Best-effort: failures are logged, never fatal to startup.
+
+    Fast path (Postgres): a cheap regex EXISTS check runs first. Every row's
+    decrypt attempt below pays a real PBKDF2 key derivation (native C++ if the
+    compiled core loaded, a much slower pure-Python fallback otherwise)
+    regardless of whether it succeeds — so once a deployment's legacy-plaintext
+    rows are all healed, the unconditional per-row loop still re-derives a key
+    for every totp_secret on every single boot, inside one open transaction,
+    with no per-row logging and no timeout. At enough rows (or on the slow
+    fallback path) that made this step — and therefore DATABASE_AVAILABLE,
+    which gates /health readiness — take minutes, well past Railway's 5-minute
+    healthcheck window, with zero log output the whole time it was stuck. The
+    EXISTS check below is the exact shape _is_legacy_plaintext_secret tests,
+    in SQL: once nothing matches, every remaining row is either already
+    correctly encrypted or corrupted, and the loop would do no work either way.
     """
     try:
         from bot.config.settings import settings
@@ -1783,6 +1797,25 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
         except Exception:
             return False
         return True
+
+    if not is_sqlite:
+        try:
+            with db_engine.connect() as probe:
+                any_candidate = probe.execute(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM users " "WHERE totp_secret ~ '^[A-Z2-7]+=*$')"
+                    )
+                ).scalar()
+            if not any_candidate:
+                return
+        except Exception as e:
+            # Never let the fast path itself block the real migration --
+            # fall through to the full (slower but correct) loop below. This
+            # is the one path that can silently regress to the exact stall
+            # this fix exists to prevent (e.g. a `users` table too large for
+            # the probe's own seq scan to finish inside statement_timeout),
+            # so it must be visible at prod's default log level, not DEBUG.
+            logger.warning(f"TOTP backfill fast-path check failed, running full scan: {e}")
 
     key = settings.encryption_key
     try:
