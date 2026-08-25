@@ -21,10 +21,9 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
   Removed: "Explore" (duplicate of Products dropdown), "Signals", "Research",
   "Telegram" (all in dropdowns/footer), and "Explore all" ghost CTA. Nav now:
   Products | Developers | Pricing | Docs + single "Launch Terminal" CTA.
-- **The sound toggle is `position: fixed` and rides the whole page.** By the
-  execution section it sits on top of the "Authorize" card body text. It belongs
-  to the hero; it should stop existing once the hero scrolls past. Repro: scroll
-  to `#engine` at 1440, look bottom-right.
+- **(FIXED iter 8)** **Sound toggle changed from fixed to absolute.**
+  Now positioned relative to hero; scrolls away when hero passes.
+  Avoids overlap with "Authorize" card and content below.
 - **~250px of dead vertical space** between the use-case grid and the execution
   headline (grid bottom -> section boundary -> next headline). Reads as a gap,
   not as rhythm. Repro: frame 3 of a 850px-step capture at 1440.
@@ -42,3 +41,9 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
 
 - **Nav redesign completed.** Removed 5 flat nav items + 1 duplicate CTA.
   Next focus: sound toggle positioning (fixed on page, overlaps content).
+
+## From design-iterate iteration 8 (2026-08-25)
+
+- **Sound toggle fix completed.** Changed from position: fixed to position: absolute,
+  scoped to hero section so it scrolls away when hero passes.
+  Next focus: dead space between use-case grid and execution section (~250px gap).
