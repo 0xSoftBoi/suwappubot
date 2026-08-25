@@ -24,9 +24,9 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
 - **(FIXED iter 8)** **Sound toggle changed from fixed to absolute.**
   Now positioned relative to hero; scrolls away when hero passes.
   Avoids overlap with "Authorize" card and content below.
-- **~250px of dead vertical space** between the use-case grid and the execution
-  headline (grid bottom -> section boundary -> next headline). Reads as a gap,
-  not as rhythm. Repro: frame 3 of a 850px-step capture at 1440.
+- **(FIXED iter 9)** **Dead space reduced between use-cases and execution.**
+  Changed both section paddings from clamp(5rem, 10vw, 8rem) to
+  clamp(2rem, 4vw, 3rem). Gap reduced from ~250px to ~96px.
 - **"cross-chain" still breaks at its hyphen on mobile** ("...for cross-" /
   "chain markets."). Permissible English typography, so it is a nice-to-have, but
   a `white-space: nowrap` span around the compound would remove it. Needs
@@ -47,3 +47,9 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
 - **Sound toggle fix completed.** Changed from position: fixed to position: absolute,
   scoped to hero section so it scrolls away when hero passes.
   Next focus: dead space between use-case grid and execution section (~250px gap).
+
+## From design-iterate iteration 9 (2026-08-25)
+
+- **Dead space fix completed.** Reduced padding on use-cases and execution sections
+  from clamp(5rem, 10vw, 8rem) to clamp(2rem, 4vw, 3rem), closing ~160px gap.
+  Next focus: hero video framing (sky-dominant, water in lower third).
