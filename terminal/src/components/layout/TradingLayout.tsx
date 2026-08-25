@@ -78,8 +78,8 @@ const MarketDataPanel = lazy(() =>
 const CurvePoolsPanel = lazy(() =>
   import('../curve/CurvePoolsPanel').then((m) => ({ default: m.CurvePoolsPanel })),
 )
-const DefiPoolsPanel = lazy(() =>
-  import('../defiPools/DefiPoolsPanel').then((m) => ({ default: m.DefiPoolsPanel })),
+const LidoPanel = lazy(() =>
+  import('../lido/LidoPanel').then((m) => ({ default: m.LidoPanel })),
 )
 
 function DeferredPanel({ children }: { children: ReactNode }) {
@@ -98,11 +98,6 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'tweets', label: 'Tweets' },
   { id: 'defi', label: 'DeFi Center' },
   { id: 'curve', label: 'Curve' },
-  { id: 'uniswap', label: 'Uniswap' },
-  { id: 'pancakeswap', label: 'PancakeSwap' },
-  { id: 'balancer', label: 'Balancer' },
-  { id: 'aave', label: 'Aave' },
-  { id: 'compound', label: 'Compound' },
   { id: 'lido', label: 'Lido' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
@@ -289,34 +284,9 @@ function MobileLayout() {
                     <MarketDataPanel />
                   </ErrorBoundary>
                 )}
-                {bottomTab === 'uniswap' && (
-                  <ErrorBoundary label="Uniswap">
-                    <DefiPoolsPanel protocolKey="uniswap" />
-                  </ErrorBoundary>
-                )}
-                {bottomTab === 'pancakeswap' && (
-                  <ErrorBoundary label="PancakeSwap">
-                    <DefiPoolsPanel protocolKey="pancakeswap" />
-                  </ErrorBoundary>
-                )}
-                {bottomTab === 'balancer' && (
-                  <ErrorBoundary label="Balancer">
-                    <DefiPoolsPanel protocolKey="balancer" />
-                  </ErrorBoundary>
-                )}
-                {bottomTab === 'aave' && (
-                  <ErrorBoundary label="Aave">
-                    <DefiPoolsPanel protocolKey="aave" />
-                  </ErrorBoundary>
-                )}
-                {bottomTab === 'compound' && (
-                  <ErrorBoundary label="Compound">
-                    <DefiPoolsPanel protocolKey="compound" />
-                  </ErrorBoundary>
-                )}
                 {bottomTab === 'lido' && (
                   <ErrorBoundary label="Lido">
-                    <DefiPoolsPanel protocolKey="lido" />
+                    <LidoPanel />
                   </ErrorBoundary>
                 )}
               </DeferredPanel>
@@ -471,34 +441,9 @@ function DesktopLayout() {
                   <CurvePoolsPanel />
                 </ErrorBoundary>
               )}
-              {bottomTab === 'uniswap' && (
-                <ErrorBoundary label="Uniswap">
-                  <DefiPoolsPanel protocolKey="uniswap" />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'pancakeswap' && (
-                <ErrorBoundary label="PancakeSwap">
-                  <DefiPoolsPanel protocolKey="pancakeswap" />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'balancer' && (
-                <ErrorBoundary label="Balancer">
-                  <DefiPoolsPanel protocolKey="balancer" />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'aave' && (
-                <ErrorBoundary label="Aave">
-                  <DefiPoolsPanel protocolKey="aave" />
-                </ErrorBoundary>
-              )}
-              {bottomTab === 'compound' && (
-                <ErrorBoundary label="Compound">
-                  <DefiPoolsPanel protocolKey="compound" />
-                </ErrorBoundary>
-              )}
               {bottomTab === 'lido' && (
                 <ErrorBoundary label="Lido">
-                  <DefiPoolsPanel protocolKey="lido" />
+                  <LidoPanel />
                 </ErrorBoundary>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}

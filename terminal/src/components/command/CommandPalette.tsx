@@ -125,11 +125,6 @@ export function CommandPalette() {
       tab('wallet-tracker', 'Wallet Tracker', 'Track on-chain wallets', '🔍'),
       tab('defi', 'DeFi Center', 'Lending, alerts, DCA', '🏦'),
       tab('curve', 'Curve', 'Curve Finance pools, TVL & APR', '🌀'),
-      tab('uniswap', 'Uniswap', 'Uniswap pools, TVL & APY', '🦄'),
-      tab('pancakeswap', 'PancakeSwap', 'PancakeSwap pools, TVL & APY', '🥞'),
-      tab('balancer', 'Balancer', 'Balancer pools, TVL & APY', '⚖️'),
-      tab('aave', 'Aave', 'Aave markets, TVL & rates', '👻'),
-      tab('compound', 'Compound', 'Compound markets, TVL & rates', '🏛️'),
       tab('lido', 'Lido', 'Lido staking TVL & APR', '🌊'),
       tab('copilot', 'AI Co-Pilot', 'Ask the trading assistant', '🤖'),
     ]
