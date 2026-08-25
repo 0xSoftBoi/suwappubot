@@ -1193,7 +1193,7 @@
 
 /* ── Sound toggle ── */
 .home-sound {
-  position: fixed;
+  position: absolute;
   right: 1.25rem;
   bottom: 1.25rem;
   z-index: 40;
