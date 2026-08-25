@@ -83,6 +83,9 @@ interface Bot {
   messages_handled: number;
   treasury_address?: string | null;
   can_execute_live?: boolean;
+  funding_source?: 'revenue' | 'treasury' | 'undisclosed';
+  funding_note?: string | null;
+  proof_public?: boolean;
   provisioned_at: string | null;
   created_at: string;
   automations?: Automation[];
@@ -504,6 +507,113 @@ function AutomationRow({
   );
 }
 
+
+/**
+ * Publishing the public record.
+ *
+ * This is the feature the research says decides whether anyone believes the
+ * burn at all — across ~$19B of tracked buyback programs, the ones that were
+ * credible were the ones a stranger could check. So it is presented as an
+ * upgrade to offer, not a setting buried in a panel, and the copy says what
+ * gets published *before* the operator commits: the refusals and the failures,
+ * not just the wins.
+ */
+function ProofPanel({
+  orgId, bot, apiFetch, onChanged,
+}: {
+  orgId: string;
+  bot: Bot;
+  apiFetch: ReturnType<typeof useApiFetch>;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [funding, setFunding] = useState(bot.funding_source ?? 'undisclosed');
+
+  const published = bot.proof_public === true;
+  const proofUrl = bot.telegram_username
+    ? `${API_BASE_URL}/v1/bots/proof/${bot.telegram_username}`
+    : null;
+
+  async function save(next: { proof_public?: boolean; funding_source?: string }) {
+    setBusy(true); setErr(null);
+    try {
+      const res = await apiFetch(`/v1/orgs/${orgId}/bots/${bot.id}/disclosure`, {
+        method: 'POST',
+        body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || 'Could not save that.');
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not save that.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className={styles.sectionTitle}>Public record</div>
+
+      <p className={styles.composerHint} style={{ marginTop: 8 }}>
+        {published
+          ? 'Anyone can check this bot\u2019s treasury activity without asking you. Holders reach it with /proof.'
+          : 'Most buyback programs are not believed because nobody can verify them. Publishing a record that includes your refused and failed runs \u2014 not just the wins \u2014 is what makes the rest of it credible.'}
+      </p>
+
+      <label className={styles.field} style={{ marginTop: 12, maxWidth: 380 }}>
+        <span className={styles.fieldName}>Where the money comes from</span>
+        <select
+          className={styles.input}
+          value={funding}
+          disabled={busy}
+          onChange={(e) => {
+            setFunding(e.target.value as typeof funding);
+            void save({ funding_source: e.target.value });
+          }}
+        >
+          <option value="undisclosed">Not stated</option>
+          <option value="revenue">Recurring revenue or fees</option>
+          <option value="treasury">Treasury reserves</option>
+        </select>
+      </label>
+      <div className={styles.composerHint} style={{ marginTop: 6 }}>
+        {funding === 'revenue' && 'Shown as revenue-funded, which readers treat as durable.'}
+        {funding === 'treasury' && 'Shown as treasury-funded, with a note that it continues only while the treasury lasts.'}
+        {funding === 'undisclosed' && 'The record will say you have not stated this. Readers assume the worse answer when a program stays quiet about funding.'}
+      </div>
+
+      {err && <div className={styles.error} style={{ marginTop: 10 }}>{err}</div>}
+
+      {published && proofUrl && (
+        <div className={styles.runResult} style={{ marginTop: 12 }}>
+          Live at <a href={proofUrl} target="_blank" rel="noreferrer">{proofUrl}</a>
+        </div>
+      )}
+
+      <div className={styles.autoActions} style={{ marginTop: 12 }}>
+        {published ? (
+          <button className={styles.smallGhost} onClick={() => void save({ proof_public: false })} disabled={busy}>
+            {busy ? 'Working\u2026' : 'Unpublish'}
+          </button>
+        ) : (
+          <button
+            className={styles.primary}
+            onClick={() => void save({ proof_public: true })}
+            disabled={busy || !bot.telegram_username}
+          >
+            {busy ? 'Publishing\u2026' : 'Publish the record'}
+          </button>
+        )}
+      </div>
+      {!bot.telegram_username && (
+        <div className={styles.composerHint} style={{ marginTop: 8 }}>
+          Connect the bot to Telegram first \u2014 the record is published at its @handle.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Bot detail ──────────────────────────────────────────────────────────────
 
 function BotDetail({
@@ -679,6 +789,8 @@ function BotDetail({
           </div>
         </div>
       )}
+
+      <ProofPanel orgId={orgId} bot={bot} apiFetch={apiFetch} onChanged={onRefresh} />
 
       <div className={styles.actions}>
         {connected && (
