@@ -1,0 +1,88 @@
+name: Routing Performance Evidence
+
+on:
+  pull_request:
+    paths:
+      - 'api-ts/src/lib/routeDecision.ts'
+      - 'api-ts/src/lib/routeFeasibility.ts'
+      - 'api-ts/src/lib/routeDecisionAudit.ts'
+      - 'api-ts/src/benchmarks/routeDecision.bench.ts'
+      - 'api-ts/package.json'
+      - 'bun.lock'
+      - '.github/workflows/routing-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routing-benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  route-decision-distribution:
+    name: Route decision p50/p95/p99 evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: api-ts
+    env:
+      ROUTE_BENCH_ITERATIONS: '20000'
+      ROUTE_BENCH_CANDIDATES: '8,32,128'
+
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Capture runner metadata
+        run: |
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "bun=$(bun --version)"
+            echo "kernel=$(uname -srvmo)"
+            echo "cpu_model=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+            echo "cpu_count=$(nproc)"
+          } > routing-runner.txt
+
+      - name: Measure route-control distributions
+        run: bun run bench:routing | tee routing-benchmark.json
+
+      - name: Validate benchmark artifact
+        run: |
+          bun -e '
+            const text = await Bun.file("routing-benchmark.json").text();
+            const first = text.indexOf("{");
+            if (first < 0) throw new Error("benchmark JSON missing");
+            const result = JSON.parse(text.slice(first));
+            if (result.benchmark !== "institutional-route-decision-hot-path/v1") throw new Error("unexpected benchmark schema");
+            if (!Array.isArray(result.results) || result.results.length !== 3) throw new Error("missing benchmark cases");
+            for (const row of result.results) {
+              for (const key of ["p50Us", "p95Us", "p99Us", "maxUs", "meanUs"]) {
+                if (!Number.isFinite(row[key]) || row[key] < 0) throw new Error(`invalid ${key}`);
+              }
+              if (!(row.p50Us <= row.p95Us && row.p95Us <= row.p99Us && row.p99Us <= row.maxUs)) {
+                throw new Error("invalid latency quantile ordering");
+              }
+            }
+          '
+
+      - name: Upload immutable performance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: routing-performance-${{ github.sha }}
+          path: |
+            api-ts/routing-benchmark.json
+            api-ts/routing-runner.txt
+          if-no-files-found: error
+          retention-days: 30

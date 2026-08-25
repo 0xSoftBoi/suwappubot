@@ -27,6 +27,7 @@
 
 import { createHash } from 'node:crypto'
 import { logger } from './logger'
+import { rankRouteCandidates, type RankedRoute } from './routeDecision'
 
 const LIFI_ROUTES_URL = 'https://li.quest/v1/advanced/routes'
 
@@ -147,9 +148,19 @@ export interface CaptureParams {
 	toTokenSymbol: string
 }
 
+interface LifiRouteStep {
+	type?: string
+	tool?: string
+	toolDetails?: { name?: string }
+	estimate?: {
+		executionDuration?: number
+		feeCosts?: Array<{ amountUSD?: string }>
+	}
+}
+
 interface LifiRoutesResponse {
 	routes?: Array<{
-		steps?: Array<{ tool?: string; toolDetails?: { name?: string } }>
+		steps?: LifiRouteStep[]
 		toAmount?: string
 		toAmountUSD?: string
 		gasCostUSD?: string
@@ -161,6 +172,35 @@ interface LifiRoutesResponse {
 function num(v: unknown): number | null {
 	const n = Number(v)
 	return Number.isFinite(n) ? n : null
+}
+
+/** Prefer the actual cross-chain step over a source/destination swap step. */
+function routeTool(steps: LifiRouteStep[] | undefined): string | null {
+	const routeSteps = steps ?? []
+	const step = routeSteps.find((candidate) => candidate.type === 'cross') ?? routeSteps[0]
+	return step?.toolDetails?.name ?? step?.tool ?? null
+}
+
+function routeDurationS(steps: LifiRouteStep[] | undefined): number | null {
+	const durations = (steps ?? [])
+		.map((step) => num(step.estimate?.executionDuration))
+		.filter((value): value is number => value !== null && value >= 0)
+	return durations.length > 0 ? durations.reduce((sum, value) => sum + value, 0) : null
+}
+
+function routeFeeUsd(steps: LifiRouteStep[] | undefined): number | null {
+	let sawFeeArray = false
+	let total = 0
+	for (const step of steps ?? []) {
+		const feeCosts = step.estimate?.feeCosts
+		if (!feeCosts) continue
+		sawFeeArray = true
+		for (const fee of feeCosts) {
+			const amount = num(fee.amountUSD)
+			if (amount !== null) total += amount
+		}
+	}
+	return sawFeeArray ? total : null
 }
 
 /**
@@ -206,15 +246,15 @@ export async function fetchRouteCandidates(
 		const routes = body.routes ?? []
 
 		return routes.map((r, i) => {
-			const tool = r.steps?.[0]?.toolDetails?.name ?? r.steps?.[0]?.tool ?? null
+			const tool = routeTool(r.steps)
 			return {
 				provider: 'lifi',
 				tool,
 				quotedToAmount: r.toAmount ?? null,
 				quotedToAmountUsd: num(r.toAmountUSD),
 				quotedGasUsd: num(r.gasCostUSD),
-				quotedFeeUsd: null,
-				quotedDurationS: null,
+				quotedFeeUsd: routeFeeUsd(r.steps),
+				quotedDurationS: routeDurationS(r.steps),
 				rank: i,
 				routeHash: routeHash({
 					provider: 'lifi',
@@ -283,6 +323,11 @@ export interface CaptureQuoteParams {
 	selectedTool: string | null
 }
 
+function shadowWinnerLabel(winner: RankedRoute | undefined): string {
+	if (!winner) return 'none'
+	return `${winner.candidate.tool ?? 'unknown'}:${winner.settlementType}:${winner.score.toFixed(2)}`
+}
+
 /**
  * Fetch and persist the candidate routes for a quote.
  *
@@ -307,6 +352,46 @@ export async function captureQuoteRoutes(params: CaptureQuoteParams): Promise<vo
 		)
 
 		if (candidates.length === 0) return
+
+		// ROUTE INTELLIGENCE SHADOW MODE.
+		//
+		// This computes counterfactual winners only. It must never mutate the
+		// quote, calldata, provider selection, signing path, balances, or fees.
+		// Keeping it inside the already fire-and-forget capture path lets us
+		// collect evidence before a separate MONEY-PATH PR can promote routing
+		// policy into live CandidatePlan selection (ADR 0007).
+		const decisionCandidates = candidates.map((candidate) => ({
+			id: candidate.routeHash,
+			provider: candidate.provider,
+			tool: candidate.tool,
+			fromChain: params.fromChain,
+			toChain: params.toChain,
+			quotedToAmountUsd: candidate.quotedToAmountUsd,
+			quotedGasUsd: candidate.quotedGasUsd,
+			quotedFeeUsd: candidate.quotedFeeUsd,
+			quotedDurationS: candidate.quotedDurationS,
+			rank: candidate.rank,
+		}))
+
+		const retailWinner = rankRouteCandidates(decisionCandidates, 'retail')[0]
+		const treasuryWinner = rankRouteCandidates(decisionCandidates, 'treasury')[0]
+		const institutionalWinner = rankRouteCandidates(decisionCandidates, 'institutional')[0]
+		const winners = [retailWinner, treasuryWinner, institutionalWinner]
+		const divergence = winners.some(
+			(winner) =>
+				winner !== undefined &&
+				(params.selectedTool === null || winner.candidate.tool !== params.selectedTool),
+		)
+
+		logger.info(
+			'[routeDecision] shadow quote=%s selected=%s retail=%s treasury=%s institutional=%s divergence=%s',
+			params.quoteId,
+			params.selectedTool ?? 'unmatched',
+			shadowWinnerLabel(retailWinner),
+			shadowWinnerLabel(treasuryWinner),
+			shadowWinnerLabel(institutionalWinner),
+			divergence,
+		)
 
 		const db = await captureDb()
 		if (!db) return

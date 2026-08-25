@@ -365,6 +365,48 @@ async def execute_agent_swap(
 
     except Exception as e:
         logger.error(f"Agent swap execution failed: {e}")
+
+        # A provider timeout/5xx after dispatch is epistemically different from
+        # a definitive validation/revert failure. swap_engine's legacy catch
+        # currently writes FAILED for every exception; repair only the exact
+        # idempotency-keyed managed-agent attempt when the stored classifier or
+        # transport evidence says the outcome may have crossed the provider
+        # boundary. This helper never submits/retries anything.
+        recovery = None
+        try:
+            from bot.services.agent_execution_recovery import (
+                mark_ambiguous_agent_swap_for_reconciliation,
+            )
+
+            recovery = mark_ambiguous_agent_swap_for_reconciliation(
+                request.idempotency_key,
+                e,
+            )
+        except Exception as recovery_error:
+            logger.exception(
+                "Failed to durably classify ambiguous agent execution for reconciliation: %s",
+                recovery_error,
+            )
+
+        if recovery is not None:
+            logger.warning(
+                "Agent swap outcome indeterminate; reconciliation required: swap=%s provider=%s tx=%s",
+                recovery.swap_id,
+                recovery.provider,
+                recovery.tx_hash,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "EXECUTION_OUTCOME_UNKNOWN",
+                    "swap_id": recovery.swap_id,
+                    "status": recovery.status,
+                    "provider": recovery.provider,
+                    "tx_hash": recovery.tx_hash,
+                    "error_category": recovery.error_category,
+                },
+            )
+
         raise HTTPException(status_code=400, detail=str(e))
 
 

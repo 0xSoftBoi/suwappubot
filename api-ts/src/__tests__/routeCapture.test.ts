@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
 	_resetBreaker,
+	fetchRouteCandidates,
 	isBreakerOpen,
 	observeRateLimitHeaders,
 	routeHash,
@@ -19,9 +20,11 @@ import {
  */
 
 const ORIGINAL_ENV = { ...process.env }
+const ORIGINAL_FETCH = globalThis.fetch
 
 afterEach(() => {
 	process.env = { ...ORIGINAL_ENV }
+	globalThis.fetch = ORIGINAL_FETCH
 	_resetBreaker()
 })
 
@@ -92,6 +95,59 @@ describe('rate-limit circuit breaker', () => {
 			headers({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': 'soon' }),
 		)
 		expect(isBreakerOpen()).toBe(true)
+	})
+})
+
+describe('route candidate extraction', () => {
+	test('uses the cross step and captures duration and fee metrics', async () => {
+		globalThis.fetch = (async () =>
+			new Response(
+				JSON.stringify({
+					routes: [
+						{
+							toAmount: '99000000',
+							toAmountUSD: '99.0',
+							gasCostUSD: '0.20',
+							steps: [
+								{
+									type: 'swap',
+									tool: '1inch',
+									estimate: {
+										executionDuration: 10,
+										feeCosts: [{ amountUSD: '0.05' }],
+									},
+								},
+								{
+									type: 'cross',
+									tool: 'across',
+									estimate: {
+										executionDuration: 90,
+										feeCosts: [{ amountUSD: '0.25' }],
+									},
+								},
+							],
+						},
+					],
+				}),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			)) as unknown as typeof fetch
+
+		const routes = await fetchRouteCandidates({
+			fromChain: '1',
+			toChain: '8453',
+			fromToken: '0xfrom',
+			toToken: '0xto',
+			fromAmount: '100000000',
+			fromAddress: '0xsender',
+			fromTokenSymbol: 'USDC',
+			toTokenSymbol: 'USDC',
+		})
+
+		expect(routes).toHaveLength(1)
+		expect(routes[0]?.tool).toBe('across')
+		expect(routes[0]?.quotedDurationS).toBe(100)
+		expect(routes[0]?.quotedFeeUsd).toBeCloseTo(0.3)
+		expect(routes[0]?.quotedGasUsd).toBe(0.2)
 	})
 })
 
