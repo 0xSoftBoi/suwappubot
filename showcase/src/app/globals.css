@@ -358,6 +358,7 @@ h2 {
 .summer-shell {
   position: relative;
   z-index: var(--z-content);
+  box-sizing: border-box;
   width: min(100%, 1280px);
   margin: 0 auto;
   padding: 14px 20px 40px;
@@ -2139,8 +2140,12 @@ h2 {
 }
 
 @media (max-width: 560px) {
+  /* The 4th value here used to be 68px, which — with no CSS reset emitting, so
+     content-box sizing — made the shell 466px wide inside a 390px viewport.
+     Every marketing page was shoved right and lost 68px off its right edge,
+     silently, because the ancestors clip rather than scroll. */
   .summer-shell {
-    padding: 8px 8px 24px 68px;
+    padding: 8px 8px 24px;
   }
 
   .summer-nav {
@@ -8083,4 +8088,52 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
 .summer-footer__logo span {
   color: var(--summer-ink);
   text-decoration: none;
+}
+
+/* Products directory grids. These were inline styles whose track minimums
+   (180px sidebar + 250px cards) could not collapse on a phone: the cards were
+   250px inside a 134px cell, which widened the layout viewport to 482px and
+   pushed the fixed nav drawer — and its close button — off the right edge. */
+.products-group {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(0, 2.2fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.products-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .products-group { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+
+/* Wide comparison tables carry a deliberate min-width (680px / 34rem) but sat
+   in a container that clips rather than scrolls, so their right-hand columns
+   were unreachable on a phone. Let the table itself scroll. */
+@media (max-width: 760px) {
+  .compare-table,
+  .repl-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Agent connect cards held a long unbreakable code line. A grid item defaults
+   to min-width:auto, so the track grew to the code's width (588px on a 390px
+   phone) and the card was clipped instead of the code scrolling. */
+.agents-connect { grid-template-columns: minmax(0, 1fr); }
+
+.agents-connect__item {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.agents-connect .summer-code {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }

@@ -1335,6 +1335,9 @@
 .home-heroshot {
   position: relative;
   z-index: 1;
+  /* No CSS reset emits here, so the 1.5rem side padding was added on top of
+     100% and 48px of the shot was clipped on a phone. */
+  box-sizing: border-box;
   width: min(1240px, 100%);
   margin: 0 auto;
   padding: 0 1.5rem clamp(3rem, 6vh, 5rem);
