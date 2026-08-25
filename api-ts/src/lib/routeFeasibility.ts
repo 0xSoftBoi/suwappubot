@@ -26,6 +26,12 @@ export type FeasibilityReasonCode =
 	| 'duration_unknown'
 	| 'economics_invalid'
 	| 'economics_unknown'
+	| 'eligibility_blocked'
+	| 'eligibility_review_required'
+	| 'eligibility_unknown'
+	| 'order_notional_exceeds_limit'
+	| 'order_notional_invalid'
+	| 'order_notional_unknown'
 	| 'quote_expired'
 	| 'quote_timestamp_invalid'
 	| 'quote_timestamp_unknown'
@@ -38,6 +44,7 @@ export type FeasibilityReasonCode =
 	| 'venue_status_unknown'
 
 export type VenueStatus = 'healthy' | 'degraded' | 'unavailable' | 'unknown'
+export type RouteEligibilityStatus = 'allowed' | 'blocked' | 'review' | 'unknown'
 
 /**
  * Signals required by a production-grade feasibility gate but not guaranteed
@@ -51,6 +58,8 @@ export interface ControlledRouteCandidate extends RouteDecisionCandidate {
 	recoveryAvailable?: boolean | null
 	authorizationSatisfied?: boolean | null
 	venueStatus?: VenueStatus | null
+	/** Authoritative policy result from #939; never inferred from a weighted score. */
+	eligibilityStatus?: RouteEligibilityStatus | null
 	/** 0..1 confidence in the market/route data snapshot used by the adapter. */
 	dataConfidence?: number | null
 }
@@ -62,12 +71,18 @@ export interface InstitutionalExecutionPolicy {
 	profile: RouteProfile
 	maxQuoteAgeMs: number
 	maxDurationS: number
+	/** Optional policy cap; production policies should set explicit mandate limits. */
+	maxOrderNotionalUsd: number | null
+	/** Shadow-only quality score gate. Live legal/mandate eligibility uses eligibilityStatus. */
 	minComplianceScore: number
 	minDataConfidence: number
 	allowedSettlementTypes: readonly SettlementType[]
 	requireKnownEconomics: boolean
 	requireKnownDuration: boolean
 	requireKnownCapacity: boolean
+	requireKnownOrderNotional: boolean
+	requireAllowedEligibility: boolean
+	requireComplianceScore: boolean
 	requireRecovery: boolean
 	requireAuthorization: boolean
 	requireHealthyVenue: boolean
@@ -110,19 +125,28 @@ const DEFAULT_ALLOWED_SETTLEMENT_TYPES: readonly SettlementType[] = [
  *
  * This is intentionally fail-closed. Live MONEY-PATH promotion must still use
  * a separately reviewed, versioned policy calibrated to the actual client,
- * jurisdiction, venue set, asset, and order type.
+ * jurisdiction, venue set, asset, order type and approved notional limits.
+ *
+ * No arbitrary notional ceiling is embedded here: this shadow policy requires
+ * the notional to be known, while a production mandate must supply its reviewed
+ * maximum explicitly.
  */
 export const INSTITUTIONAL_SHADOW_POLICY_V1: InstitutionalExecutionPolicy = {
 	version: 'institutional-shadow-v1',
 	profile: 'institutional',
 	maxQuoteAgeMs: 5_000,
 	maxDurationS: 300,
+	maxOrderNotionalUsd: null,
 	minComplianceScore: 90,
 	minDataConfidence: 0.95,
 	allowedSettlementTypes: DEFAULT_ALLOWED_SETTLEMENT_TYPES,
 	requireKnownEconomics: true,
 	requireKnownDuration: true,
 	requireKnownCapacity: true,
+	requireKnownOrderNotional: true,
+	requireAllowedEligibility: true,
+	// The numeric compliance score remains shadow analytics. #939 owns live eligibility.
+	requireComplianceScore: false,
 	requireRecovery: true,
 	requireAuthorization: true,
 	requireHealthyVenue: true,
@@ -147,9 +171,34 @@ function push(reasons: FeasibilityReasonCode[], reason: FeasibilityReasonCode): 
 	if (!reasons.includes(reason)) reasons.push(reason)
 }
 
+function evaluateEligibility(
+	candidate: ControlledRouteCandidate,
+	policy: InstitutionalExecutionPolicy,
+	reasons: FeasibilityReasonCode[],
+): void {
+	if (!policy.requireAllowedEligibility) return
+
+	switch (candidate.eligibilityStatus) {
+		case 'allowed':
+			return
+		case 'blocked':
+			push(reasons, 'eligibility_blocked')
+			return
+		case 'review':
+			push(reasons, 'eligibility_review_required')
+			return
+		case 'unknown':
+		case null:
+		case undefined:
+			push(reasons, 'eligibility_unknown')
+			return
+	}
+}
+
 /**
  * Stage 1 of #899: hard feasibility only. No weighted penalty can rescue a
- * route that violates policy, capacity, freshness, recovery, or authorization.
+ * route that violates policy, mandate, capacity, freshness, recovery, venue,
+ * notional, settlement, or authorization constraints.
  */
 export function evaluateRouteFeasibility(
 	candidate: ControlledRouteCandidate,
@@ -162,6 +211,8 @@ export function evaluateRouteFeasibility(
 	if (policy.requireAuthorization && candidate.authorizationSatisfied !== true) {
 		push(reasons, 'authorization_unconfirmed')
 	}
+
+	evaluateEligibility(candidate, policy, reasons)
 
 	if (!finite(candidate.quoteTimestampMs)) {
 		push(reasons, 'quote_timestamp_unknown')
@@ -188,10 +239,12 @@ export function evaluateRouteFeasibility(
 		push(reasons, 'settlement_not_allowed')
 	}
 
-	if (!finite(candidate.complianceScore)) {
-		push(reasons, 'compliance_unknown')
-	} else if (candidate.complianceScore < policy.minComplianceScore) {
-		push(reasons, 'compliance_below_minimum')
+	if (policy.requireComplianceScore) {
+		if (!finite(candidate.complianceScore)) {
+			push(reasons, 'compliance_unknown')
+		} else if (candidate.complianceScore < policy.minComplianceScore) {
+			push(reasons, 'compliance_below_minimum')
+		}
 	}
 
 	if (!finite(candidate.quotedDurationS)) {
@@ -200,14 +253,30 @@ export function evaluateRouteFeasibility(
 		push(reasons, 'duration_exceeds_limit')
 	}
 
-	if (finite(context.orderNotionalUsd) && context.orderNotionalUsd > 0) {
+	let validOrderNotional = false
+	if (!finite(context.orderNotionalUsd)) {
+		if (policy.requireKnownOrderNotional) push(reasons, 'order_notional_unknown')
+	} else if (context.orderNotionalUsd <= 0) {
+		push(reasons, 'order_notional_invalid')
+	} else {
+		validOrderNotional = true
+		if (
+			finite(policy.maxOrderNotionalUsd) &&
+			context.orderNotionalUsd > policy.maxOrderNotionalUsd
+		) {
+			push(reasons, 'order_notional_exceeds_limit')
+		}
+	}
+
+	if (validOrderNotional) {
 		if (!finite(candidate.capacityUsd)) {
 			if (policy.requireKnownCapacity) push(reasons, 'capacity_unknown')
-		} else if (candidate.capacityUsd < context.orderNotionalUsd) {
+		} else if (candidate.capacityUsd < (context.orderNotionalUsd as number)) {
 			push(reasons, 'capacity_insufficient')
 		}
-	} else if (policy.requireKnownCapacity) {
-		push(reasons, 'capacity_unknown')
+	} else if (policy.requireKnownCapacity && !reasons.includes('order_notional_unknown')) {
+		// Capacity cannot be validated against an invalid notional. Keep the
+		// notional error authoritative rather than mislabeling it as capacity.
 	}
 
 	if (policy.requireRecovery) {
@@ -219,7 +288,11 @@ export function evaluateRouteFeasibility(
 	}
 
 	if (policy.requireHealthyVenue) {
-		if (candidate.venueStatus === null || candidate.venueStatus === undefined || candidate.venueStatus === 'unknown') {
+		if (
+			candidate.venueStatus === null ||
+			candidate.venueStatus === undefined ||
+			candidate.venueStatus === 'unknown'
+		) {
 			push(reasons, 'venue_status_unknown')
 		} else if (candidate.venueStatus === 'degraded') {
 			push(reasons, 'venue_degraded')
