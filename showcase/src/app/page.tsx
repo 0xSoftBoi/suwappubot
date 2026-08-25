@@ -16,7 +16,7 @@ import './site.css';
 export const metadata: Metadata = {
   title: 'Suwappu | The full-stack cross-chain trading platform',
   description:
-    'Suwappu is the full-stack cross-chain trading platform — execution, routing, research, ' +
+    'Suwappu is the full-stack cross-chain trading platform: execution, routing, research, ' +
     'and portfolio management across 7+ chains, from one venue.',
 };
 
@@ -194,11 +194,20 @@ export default async function Home() {
 
           <section className="home-proofbar" aria-label={h('evidence.ariaLabel')}>
             <div className="home-proofbar__intro">
-              <strong>{productStats.platformChains}</strong> {h('evidence.platformChains')}
-              <span aria-hidden="true">·</span>
-              <strong>{productStats.routerCount}</strong> {h('evidence.routingVenues')}
-              <span aria-hidden="true">·</span>
-              <strong>{productStats.agentApiChains}</strong> {h('evidence.agentApiChains')}
+              <dl className="home-proofbar__stats">
+                <div>
+                  <dt>{h('evidence.platformChains')}</dt>
+                  <dd>{productStats.platformChains}</dd>
+                </div>
+                <div>
+                  <dt>{h('evidence.routingVenues')}</dt>
+                  <dd>{productStats.routerCount}</dd>
+                </div>
+                <div>
+                  <dt>{h('evidence.agentApiChains')}</dt>
+                  <dd>{productStats.agentApiChains}</dd>
+                </div>
+              </dl>
               <small>{h('evidence.routeNote')}</small>
             </div>
             <div className="home-proofbar__links">

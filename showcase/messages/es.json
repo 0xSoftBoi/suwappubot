@@ -197,7 +197,7 @@
       "lead": "La prioridad de ruta inteligente ordena los mercados, incluido el DEX propio de Tempo para swaps estables sin comisión y las subastas por lotes de CoW protegidas contra MEV, antes de que CCTP y Across liquiden un tramo de bridge. Un gestor de RPC de respaldo mantiene enrutable cada una de las 45 cadenas si un proveedor falla."
     },
     "security": {
-      "eyebrow": "Capacidad 05",
+      "eyebrow": "Modelo de seguridad",
       "title": "La ejecución mueve valor. La autoridad sigue explícita.",
       "lead": "Elige autocustodia o firma gestionada y limita después lo que una clave automatizada puede hacer.",
       "cta": "Ver detalles de seguridad",

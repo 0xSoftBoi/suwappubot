@@ -197,7 +197,7 @@
       "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
     },
     "security": {
-      "eyebrow": "Capability 05",
+      "eyebrow": "Security model",
       "title": "Execution moves value. Authority stays explicit.",
       "lead": "Choose self-custody or managed signing, then constrain what an automated key is allowed to do.",
       "cta": "Read security details",

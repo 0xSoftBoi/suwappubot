@@ -166,26 +166,51 @@
 
 .home-proofbar__intro {
   display: flex;
-  align-content: center;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.7rem;
   margin: 0;
   padding: 1.25rem 1.5rem 1.25rem 0;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  line-height: 1.5;
-  color: var(--fg-faint);
 }
 
-.home-proofbar__intro strong {
-  font-size: 0.8rem;
+.home-proofbar__stats {
+  display: flex;
+  margin: 0;
+}
+
+.home-proofbar__stats > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.2rem;
+  padding: 0 1.4rem;
+  border-left: 1px solid var(--line);
+}
+
+.home-proofbar__stats > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.home-proofbar__stats dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1;
   color: var(--fg);
 }
 
+.home-proofbar__stats dt {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+}
+
 .home-proofbar__intro small {
-  flex-basis: 100%;
   font-size: 0.64rem;
+  font-family: var(--font-mono);
+  line-height: 1.5;
   color: var(--sw-leaf-muted, #6BAF7C);
 }
 

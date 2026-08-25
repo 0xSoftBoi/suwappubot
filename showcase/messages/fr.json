@@ -197,7 +197,7 @@
       "lead": "La priorité de routage intelligente classe les marchés, dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées protégées contre le MEV de CoW, avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des 45 chaînes routable en cas de dégradation d’un fournisseur."
     },
     "security": {
-      "eyebrow": "Capacité 05",
+      "eyebrow": "Modèle de sécurité",
       "title": "L’exécution déplace de la valeur. L’autorité reste explicite.",
       "lead": "Choisissez l’auto-garde ou la signature gérée, puis limitez ce qu’une clé automatisée peut faire.",
       "cta": "Lire les détails de sécurité",
