@@ -9,15 +9,36 @@ import type { WalletBalance } from '../../types/api'
 
 type Tab = 'deposit' | 'withdraw'
 
-// Chains a custodial user can deposit on. `type` picks which omnibus address.
-const DEPOSIT_CHAINS: { id: string; label: string; type: 'evm' | 'solana' }[] = [
-  { id: 'ethereum', label: 'Ethereum', type: 'evm' },
-  { id: 'base', label: 'Base', type: 'evm' },
-  { id: 'arbitrum', label: 'Arbitrum', type: 'evm' },
-  { id: 'optimism', label: 'Optimism', type: 'evm' },
-  { id: 'polygon', label: 'Polygon', type: 'evm' },
-  { id: 'bsc', label: 'BSC', type: 'evm' },
-  { id: 'solana', label: 'Solana', type: 'solana' },
+// A deposit address belongs to an address FAMILY, not to a chain: one EVM
+// address receives on every EVM network. Offering six chips over a single
+// address presented a choice that does not exist — switching them changed the
+// label and nothing else, which is what made the picker look broken. Polymarket
+// models deposits the same way (evm / svm / btc / tron), and it is the only
+// framing that lets the wrong-network warning name something true.
+// See docs/research/deposit-ux-2026.md.
+const DEPOSIT_FAMILIES: {
+  id: string
+  label: string
+  type: 'evm' | 'solana'
+  /** Chain ids that credit to this address — used to match balances. */
+  chains: string[]
+  /** Human list for the warning. Every network here shares the address. */
+  networks: string
+}[] = [
+  {
+    id: 'evm',
+    label: 'EVM networks',
+    type: 'evm',
+    chains: ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc'],
+    networks: 'Ethereum, Base, Arbitrum, Optimism, Polygon or BSC',
+  },
+  {
+    id: 'solana',
+    label: 'Solana',
+    type: 'solana',
+    chains: ['solana'],
+    networks: 'Solana',
+  },
 ]
 
 const EXPLORER_TX: Record<string, string> = {
@@ -287,42 +308,40 @@ function TimelineStep({
   )
 }
 
-// Deposit panel: chain chips → QR + copyable address + network warning. Balances
-// auto-refresh in the background so an incoming deposit shows up on its own.
+// Receive panel: address family → QR + copyable address + a warning that names
+// every network the address accepts. Balances auto-refresh in the background so
+// an incoming deposit shows up on its own.
 function DepositView({
   evmAddress,
   solanaAddress,
   balances,
   loaded,
-  chains = DEPOSIT_CHAINS,
+  families = DEPOSIT_FAMILIES,
   selfCustody = false,
 }: {
   evmAddress: string | null
   solanaAddress: string | null
   balances: WalletBalance[]
   loaded: boolean
-  // Networks this account can actually receive on. A connected external wallet
-  // signs for exactly one address family, so we never offer it a network whose
-  // address format it could not control (an EVM address cannot hold SOL).
-  chains?: typeof DEPOSIT_CHAINS
+  // Families this account can actually receive into. A connected external
+  // wallet signs for exactly one, so we never present an EVM address as a place
+  // to send SOL.
+  families?: typeof DEPOSIT_FAMILIES
   // Self-custody: the address shown is the user's own connected wallet.
   selfCustody?: boolean
 }) {
-  const [chain, setChain] = useState(() => chains[0]?.id ?? 'ethereum')
+  const [familyId, setFamilyId] = useState(() => families[0]?.id ?? 'evm')
   const [qr, setQr] = useState<
     { status: 'idle' } | { status: 'loading' } | { status: 'ready'; src: string } | { status: 'error' }
   >({ status: 'idle' })
   const [qrAttempt, setQrAttempt] = useState(0)
-  // `chains` narrows once the session resolves which wallet family is connected,
-  // so a stale selection must fall back instead of leaving `def` undefined.
+  // `families` narrows once the session resolves which wallet is connected, so a
+  // stale selection must fall back instead of leaving `def` undefined.
   useEffect(() => {
-    if (chains.length && !chains.some((c) => c.id === chain)) setChain(chains[0].id)
-  }, [chains, chain])
-  const def = chains.find((c) => c.id === chain) ?? chains[0]
+    if (families.length && !families.some((f) => f.id === familyId)) setFamilyId(families[0].id)
+  }, [families, familyId])
+  const def = families.find((f) => f.id === familyId) ?? families[0]
   const address = def?.type === 'solana' ? solanaAddress : evmAddress
-  // Every EVM network shares one address, so say so — otherwise switching chips
-  // looks like it did nothing.
-  const sharedEvmAddress = def?.type === 'evm' && chains.filter((c) => c.type === 'evm').length > 1
 
   useEffect(() => {
     if (!address) {
@@ -352,18 +371,23 @@ function DepositView({
   // deposit landed (an unrelated fill on the same chain can move balances).
   const chainTokenAmounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const b of balances) if (b.chain === chain) m.set(b.token, b.amount)
+    // Sum per token across every chain in the family — the address is shared, so
+    // a credit can land on any of them.
+    for (const b of balances) {
+      if (!def?.chains.includes(b.chain)) continue
+      m.set(b.token, (m.get(b.token) ?? 0) + b.amount)
+    }
     return m
-  }, [balances, chain])
+  }, [balances, def])
   const baselineRef = useRef<Map<string, number> | null>(null)
   const [creditedToken, setCreditedToken] = useState<string | null>(null)
   const credited = creditedToken !== null
 
   useEffect(() => {
-    // Chain switch: drop the baseline; it re-arms from loaded data below.
+    // Family switch: drop the baseline; it re-arms from loaded data below.
     baselineRef.current = null
     setCreditedToken(null)
-  }, [chain])
+  }, [familyId])
 
   useEffect(() => {
     if (!loaded) return
@@ -382,21 +406,25 @@ function DepositView({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
-        {chains.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setChain(c.id)}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-              chain === c.id
-                ? 'bg-sakura-500/15 text-sakura-600 ring-1 ring-sakura-500/40'
-                : 'text-terminal-text-secondary hover:bg-terminal-bg-tertiary/60 hover:text-terminal-text'
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      {/* One chip per address family. With a single family there is nothing to
+          choose, so we render no control rather than a decorative one. */}
+      {families.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {families.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFamilyId(f.id)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                familyId === f.id
+                  ? 'bg-sakura-500/15 text-sakura-600 ring-1 ring-sakura-500/40'
+                  : 'text-terminal-text-secondary hover:bg-terminal-bg-tertiary/60 hover:text-terminal-text'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {address ? (
         <>
@@ -430,23 +458,39 @@ function DepositView({
             </div>
           </div>
 
+          {/* Name the networks outright. "Only send Ethereum-network tokens"
+              was false — this one address also accepts Base, Arbitrum and the
+              rest, and a user reading the old copy would think it did not. */}
           <div className="rounded-lg border border-terminal-warn/40 bg-terminal-warn/10 px-3 py-2 text-[11px] text-terminal-warn">
-            ⚠ Only send <b>{def?.label}</b>-network tokens to this address. Sending from another network
-            can lose funds.
+            ⚠ Send only on <b>{def?.networks}</b>. This one address receives on all of them. Sending
+            from any other network can lose funds.
           </div>
-
-          {sharedEvmAddress && (
-            <p className="text-[11px] text-terminal-text-muted">
-              This same address receives on every EVM network above — switching the chip changes which
-              network you should send from, not the address.
-            </p>
-          )}
 
           {credited && (
             <div className="flex items-center gap-2 rounded-lg border border-bull/30 bg-bull-dim px-3 py-2 text-[12px] font-medium text-bull">
               <span aria-hidden>✓</span> Balance increased — {creditedToken} is up on this chain
             </div>
           )}
+
+          {/* Already holding funds elsewhere? An address cannot move them —
+              a route can. /bridge is the shipped flow: ranked routes, custody
+              disclosure, and in-flight tracking that survives a reload. */}
+          <a
+            href="/bridge"
+            className="flex items-center justify-between gap-2 rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2.5 transition-colors hover:border-sakura-500/40 hover:bg-terminal-bg-tertiary/40"
+          >
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-terminal-text">
+                Funds on another chain?
+              </span>
+              <span className="block text-[11px] text-terminal-text-muted">
+                Bridge them over instead of sending manually
+              </span>
+            </span>
+            <span aria-hidden className="text-terminal-text-muted">
+              →
+            </span>
+          </a>
 
           <div>
             <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-terminal-text-muted">
@@ -467,7 +511,7 @@ function DepositView({
       ) : (
         <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-6 text-center text-sm text-terminal-text-muted">
           {selfCustody
-            ? `Connect a ${def?.label ?? ''} wallet to receive on this network.`
+            ? `Connect a wallet to receive on ${def?.networks ?? 'this network'}.`
             : `No ${def?.label ?? ''} deposit address available on your account yet.`}
         </div>
       )}
@@ -782,9 +826,9 @@ export function WalletModal({
   // Phantom session has no `connectedAddress` and would otherwise show nothing.
   const externalAddress = walletAddress ?? connectedAddress ?? null
   const externalIsSolana = externalChain === 'solana'
-  // Only the networks this wallet family can actually control.
-  const externalChains = useMemo(
-    () => DEPOSIT_CHAINS.filter((c) => (externalIsSolana ? c.type === 'solana' : c.type === 'evm')),
+  // Only the family this wallet can actually control.
+  const externalFamilies = useMemo(
+    () => DEPOSIT_FAMILIES.filter((f) => (externalIsSolana ? f.type === 'solana' : f.type === 'evm')),
     [externalIsSolana]
   )
 
@@ -832,7 +876,7 @@ export function WalletModal({
                     solanaAddress={externalIsSolana ? externalAddress : null}
                     balances={balances}
                     loaded={summary !== undefined}
-                    chains={externalChains}
+                    families={externalFamilies}
                     selfCustody
                   />
                 </>
