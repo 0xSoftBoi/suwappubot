@@ -93,6 +93,12 @@ export const EnvSchema = Schema.Struct({
 	 * service — that is where the multi-bot runtime lives — not api-ts. Defaults
 	 * to INTERNAL_API_URL's public twin; override per environment.
 	 */
+	/**
+	 * Seconds between automation ticks. 0 (the default) disables the scheduler
+	 * entirely — nothing a tenant configures can spend until an operator turns
+	 * this on for the environment.
+	 */
+	TENANT_BOT_TICK_SECONDS: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
 	TENANT_BOT_WEBHOOK_BASE_URL: Schema.optionalWith(Schema.String, {
 		default: () => 'https://python-api-production-8526.up.railway.app',
 	}),

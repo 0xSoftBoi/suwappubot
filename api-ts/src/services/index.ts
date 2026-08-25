@@ -205,3 +205,8 @@ export {
 	TenantBotServiceLive,
 	toSummary as tenantBotSummary,
 } from './TenantBotService'
+export {
+	TenantBotExecutor,
+	TenantBotExecutorLive,
+	type RunResult,
+} from './TenantBotExecutorService'

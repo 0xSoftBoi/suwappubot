@@ -19,6 +19,7 @@ import { P2PServiceLive } from './P2PService'
 import { PointsServiceLive } from './PointsService'
 import { PolicyServiceLive } from './PolicyService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
+import { TenantBotExecutorLive } from './TenantBotExecutorService'
 import { TenantBotServiceLive } from './TenantBotService'
 import { PolymarketServiceLive } from './PolymarketService'
 import { RedisServiceLive } from './RedisService'
@@ -73,6 +74,11 @@ export const TenantBotLayer = TenantBotServiceLive.pipe(
 	Layer.provide(DatabaseLayer),
 )
 
+// The executor needs the env for the internal-execution credentials; the swap,
+// token and bot services it uses are provided by ServicesLayer/TenantBotLayer
+// at the point of use, so it stays a thin layer here.
+export const TenantBotExecutorLayer = TenantBotExecutorLive.pipe(Layer.provide(ConfigLayer))
+
 // Service layers (stateless, no dependencies on other services)
 export const ServicesLayer = Layer.mergeAll(
 	WalletServiceLive,
@@ -111,6 +117,7 @@ export const MainLayer = Layer.mergeAll(
 	ServicesLayer,
 	PolymarketCredentialLayer,
 	TenantBotLayer,
+	TenantBotExecutorLayer,
 	StripeLayer,
 	SmartAccountLayer,
 	RewardsLayer,

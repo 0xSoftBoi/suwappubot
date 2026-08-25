@@ -39,6 +39,7 @@ import {
 	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
+	tenantBotAdminRoutes,
 	tenantBotRoutes,
 	tokenRoutes,
 	webappDataRoutes,
@@ -485,6 +486,7 @@ https://suwappu.bot/docs
 	app.use('/admin/*', adminKeyAuth(config.adminApiKey))
 	app.route('/admin', adminRoutes)
 	app.route('/admin/autopilot', autopilotAdminRoutes)
+	app.route('/admin/bots', tenantBotAdminRoutes)
 
 	// Dashboard SPA - static files
 	app.use(

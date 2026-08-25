@@ -133,6 +133,18 @@ export const tenantBots = pgTable(
 		tokenAddress: varchar('token_address', { length: 100 }),
 		tokenSymbol: varchar('token_symbol', { length: 32 }),
 
+		// ── Treasury. The wallet an automation spends FROM. ──
+		//
+		// Provisioned through the same managed-wallet path as agent wallets
+		// (Turnkey sub-org + an internal users/wallets row on the Python side),
+		// because that is the path `POST /internal/agent/execute-swap` can
+		// actually sign with. We never hold a raw key for a tenant: the org funds
+		// this address, and the only thing that can move those funds through us is
+		// a capped automation.
+		treasuryAddress: varchar('treasury_address', { length: 100 }),
+		treasuryInternalUserId: integer('treasury_internal_user_id'),
+		treasuryInternalWalletId: integer('treasury_internal_wallet_id'),
+
 		messagesHandled: integer('messages_handled').default(0).notNull(),
 		lastUpdateAt: timestamp('last_update_at'),
 		provisionedAt: timestamp('provisioned_at'),
@@ -216,6 +228,19 @@ export const tenantBotRuns = pgTable(
 			.references(() => tenantBots.id, { onDelete: 'cascade' })
 			.notNull(),
 
+		/**
+		 * `<automationId>:<slot minute, ISO>` — see cron.ts's slotKey().
+		 *
+		 * Unique, and written BEFORE anything is quoted or broadcast. Two
+		 * replicas ticking the same minute, a restart mid-run, or a manual
+		 * trigger racing the scheduler all collide here instead of spending
+		 * twice. Manual runs use a `manual:<uuid>` key so they never collide
+		 * with a scheduled slot.
+		 */
+		idempotencyKey: varchar('idempotency_key', { length: 120 }),
+		/** The scheduled minute this run belongs to; null for a manual run. */
+		scheduledFor: timestamp('scheduled_for'),
+
 		status: tenantBotRunStatusEnum('status').notNull(),
 		/** Why a `skipped` run was skipped, or why a `failed` one failed. */
 		reason: text('reason'),
@@ -232,6 +257,7 @@ export const tenantBotRuns = pgTable(
 		finishedAt: timestamp('finished_at'),
 	},
 	(t) => ({
+		idemUniq: unique('tenant_bot_runs_idem_uniq').on(t.idempotencyKey),
 		automationIdx: index('tenant_bot_runs_automation_idx').on(t.automationId, t.startedAt),
 		botIdx: index('tenant_bot_runs_bot_idx').on(t.botId, t.startedAt),
 	}),
