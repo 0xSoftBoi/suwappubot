@@ -70,11 +70,11 @@ export default function ProductsPage() {
 
         {groups.map((group) => (
           <section key={group.title} style={{ marginTop: 72 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, .8fr) minmax(0, 2.2fr)', gap: 28, alignItems: 'start' }}>
+            <div className="products-group">
               <div>
                 <h2 style={{ fontSize: 28, letterSpacing: '-.035em', margin: 0 }}>{group.title}</h2>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 12 }}>
+              <div className="products-cards">
                 {group.items.map((item) => (
                   <a key={item.title} href={item.href} {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ color: 'inherit', textDecoration: 'none', border: '1px solid #222834', borderRadius: 16, padding: 22, background: '#0f1218', minHeight: 160, display: 'flex', flexDirection: 'column', transition: 'border-color .18s ease, transform .18s ease' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>

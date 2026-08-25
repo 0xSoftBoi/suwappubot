@@ -643,6 +643,15 @@ body:has(.institutional-page) .nav__hamburger-line {
   }
 }
 
+/* Below 560px the shell's side padding is 8px, not 20px, so the -20px bleed
+   overshot the viewport by 12px a side. Match the shell so the band lands
+   exactly edge to edge. */
+@media (max-width: 560px) {
+  .institutional-darkband {
+    margin-inline: -8px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body:has(.institutional-page) .nav,
   body:has(.institutional-page) .nav--scrolled {

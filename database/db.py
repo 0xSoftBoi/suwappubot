@@ -772,6 +772,7 @@ def _ensure_schema(db_engine) -> None:
     # --- referrals: verified_at + perps_volume_14d_usd columns ---
     if "referrals" in tables:
         _add_referral_stream_columns(db_engine, inspector, is_sqlite)
+        _backfill_referral_verified_at(db_engine, inspector, is_sqlite)
 
     # --- Bucket 2: community payment tools ---
     _create_tips_table(db_engine, inspector, is_sqlite)
@@ -3229,6 +3230,52 @@ def _add_referral_stream_columns(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info(f"Added referrals.{col_name}")
         except Exception as e:
             logger.warning(f"Failed to add referrals.{col_name}: {e}")
+
+
+def _backfill_referral_verified_at(db_engine, inspector, is_sqlite: bool) -> None:
+    """One-time backfill of referrals.verified_at for already-active referees.
+
+    verified_at was added but nothing in the codebase ever set it, so every
+    referral stayed unverified and the milestone bonus stream (5/10/20/50/100
+    verified referrals) was permanently unreachable. record_reward() now calls
+    verify_referral() on each recorded swap commission, but that only fixes
+    referrals going forward — a referee who already swapped would stay
+    unverified until their next swap.
+
+    This stamps verified_at on any active referral whose referee already has at
+    least one recorded referral reward, i.e. a real fee-paying swap that already
+    cleared the min-volume guard. Uses the reward's created_at as the timestamp
+    so the verification date reflects when the activity actually happened.
+
+    Idempotent: only touches rows where verified_at IS NULL, so re-running is a
+    no-op. Milestone bonuses for backfilled referrals are credited by
+    _check_and_award_milestones on the referrer's next referral event.
+    """
+    cols = {c["name"] for c in inspector.get_columns("referrals")}
+    if "verified_at" not in cols:
+        return
+    tables = set(inspector.get_table_names())
+    if "referral_rewards" not in tables:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    "UPDATE referrals SET verified_at = ("
+                    "  SELECT MIN(rr.created_at) FROM referral_rewards rr"
+                    "  WHERE rr.referral_id = referrals.id"
+                    ") "
+                    "WHERE verified_at IS NULL "
+                    "AND EXISTS ("
+                    "  SELECT 1 FROM referral_rewards rr2 WHERE rr2.referral_id = referrals.id"
+                    ")"
+                )
+            )
+        if result.rowcount:
+            logger.info(f"Backfilled referrals.verified_at for {result.rowcount} referral(s)")
+    except Exception as e:
+        logger.warning(f"Failed to backfill referrals.verified_at: {e}")
 
 
 # ---------------------------------------------------------------------------
