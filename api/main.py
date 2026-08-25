@@ -373,6 +373,15 @@ async def lifespan(app: FastAPI):
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
         await asyncio.sleep(2)
+        # Credits inbound custodial deposits. Without it TransactionType.DEPOSIT
+        # is never written and funds sent to a deposit address are never booked
+        # to anyone. Optional-start: a watcher that cannot reach an RPC must not
+        # block the API, but it must be visible as degraded rather than silent.
+        with _track_degraded("deposit_watcher", "⚠️ Deposit watcher failed to start"):
+            from bot.services.deposit_watcher import deposit_watcher
+
+            await deposit_watcher.start()
+        await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
         # Market data capture (candles for the Historical API). No-op unless

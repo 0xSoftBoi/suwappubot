@@ -426,6 +426,41 @@ def _ensure_schema(db_engine) -> None:
                     )
                 )
 
+    # --- per-user deposit addresses + the watcher's scan cursor ---
+    # A shared omnibus deposit address cannot be attributed: EVM has no memo
+    # field, so an inbound transfer carries nothing tying it to a user. Each
+    # user gets their own address instead (docs/operations/deposit-crediting.md).
+    if "hot_wallets" in tables:
+        hw_cols = {c["name"] for c in inspector.get_columns("hot_wallets")}
+        if "deposit_user_id" not in hw_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE hot_wallets ADD COLUMN deposit_user_id INTEGER"
+            else:
+                ddl = "ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS deposit_user_id INTEGER"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+        with db_engine.begin() as conn:
+            # One deposit address per (user, chain family). UNIQUE so a race
+            # between two concurrent first-loads cannot mint two addresses for
+            # the same user — the loser retries and reads the winner's row.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_hot_wallets_deposit_user_chain "
+                    "ON hot_wallets(deposit_user_id, chain_type)"
+                )
+            )
+
+    # Per-chain high-water mark for the deposit watcher. Separate table rather
+    # than a config blob so an operator can inspect and rewind a single chain.
+    with db_engine.begin() as conn:
+        conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS deposit_scan_cursors (
+                    chain VARCHAR(50) PRIMARY KEY,
+                    last_scanned_block BIGINT NOT NULL,
+                    updated_at TIMESTAMP
+                )
+                """))
+
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)
