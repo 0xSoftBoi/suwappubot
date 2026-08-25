@@ -25,14 +25,16 @@
      viewport; .hd is `overflow: clip`, so the excess is silently amputated
      rather than showing as a scrollbar. Measure, don't trust scrollWidth. */
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: minmax(0, 1.04fr) minmax(24rem, 0.86fr);
-  align-items: center;
-  gap: clamp(3rem, 6vw, 6.5rem);
+  /* Single column, deliberately. The previous two-column hero squeezed an
+     89px display headline into a 605px slot, which set it as FIVE lines. No
+     reference site in this category sets a headline past two. Giving the
+     headline the full 1240px and dropping its size to ~68px puts it on two,
+     and the product shot moves below rather than fighting it for width. */
+  display: flex;
+  flex-direction: column;
   width: min(1240px, 100%);
-  min-height: min(780px, calc(100svh - 74px));
   margin: 0 auto;
-  padding: clamp(4rem, 8vh, 7rem) 1.5rem clamp(4.5rem, 9vh, 7.5rem);
+  padding: clamp(3.5rem, 7vh, 6rem) 1.5rem clamp(3rem, 5vh, 4rem);
 }
 
 .home-hero::before {
@@ -56,18 +58,19 @@
 
 .home-hero h1 {
   margin: 0;
-  max-width: 12ch;
+  /* ~28ch/line over two lines. The reference band is 20-35ch; 12ch was the bug. */
+  max-width: 30ch;
   font-family: var(--font-serif);
-  font-size: clamp(3.25rem, 6.2vw, 5.65rem);
+  font-size: clamp(2.75rem, 5vw, 4.25rem);
   font-weight: 500;
-  line-height: 0.99;
-  letter-spacing: -0.018em;
+  line-height: 1.04;
+  letter-spacing: -0.028em;
   text-wrap: balance;
   color: var(--fg);
 }
 
 .home-hero__lead {
-  max-width: 59ch;
+  max-width: 54ch;
   margin: 1.6rem 0 0;
   font-size: clamp(1rem, 1.5vw, 1.12rem);
   line-height: 1.65;
@@ -1072,14 +1075,16 @@
   inset: 0;
   z-index: 0;
   overflow: clip;
-  /* Paint before the poster arrives: dusk-water gradient, not a black hole. */
-  background:
-    radial-gradient(90% 70% at 50% 0%, rgba(64, 48, 34, 0.5), transparent 70%),
-    linear-gradient(180deg, #1d1611 0%, var(--sw-soil-0, #1c1310) 88%);
+  background: var(--sw-soil-0, #1c1310);
+  /* THE fix for "muddy". Previously this layer was uniformly darkened by a
+     flat scrim, which is the named cause: flattening a photograph's whole
+     tonal range into a single grey wash. Instead the footage is left bright
+     and MASKED, so it fades out into the page background. The picture keeps
+     its own contrast; it just stops existing where the page needs to breathe. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0, 0, 0, 0.55) 68%, transparent 96%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 38%, rgba(0, 0, 0, 0.55) 68%, transparent 96%);
 }
 
-/* Poster + video share one slowly drifting frame — a barely-there push-in
-   that makes even the still feel filmed. */
 .home-ocean__media {
   position: absolute;
   inset: -2.5%;
@@ -1093,8 +1098,9 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* Darkened toward the desk, saturation held back to institutional. */
-  filter: saturate(0.82) brightness(0.7) contrast(1.06);
+  /* Was brightness(0.7): crushed. The mask now does the work the darkening
+     used to do, so the water can keep its real luminance. */
+  filter: saturate(0.9) brightness(0.92) contrast(1.02);
 }
 
 .home-ocean__video {
@@ -1111,33 +1117,33 @@
   to { transform: scale(1.06) translateY(-0.8%); }
 }
 
+/* Legibility only, and only where the type actually sits: a soft wash behind
+   the top-left copy block. Deliberately NOT a full-bleed overlay. */
 .home-ocean__scrim {
   position: absolute;
   inset: 0;
-  background:
-    /* copy column stays AA over moving light; the right half keeps the water */
-    linear-gradient(97deg, rgba(18, 13, 11, 0.88) 0%, rgba(18, 13, 11, 0.6) 38%, rgba(18, 13, 11, 0.16) 66%, rgba(18, 13, 11, 0.05) 100%),
-    /* settle the sky behind the glass nav */
-    linear-gradient(180deg, rgba(18, 13, 11, 0.5) 0%, transparent 22%),
-    /* hand off to the soil canvas before the proofbar */
-    linear-gradient(180deg, transparent 55%, rgba(28, 19, 16, 0.55) 82%, var(--sw-soil-0, #1c1310) 99%);
+  background: radial-gradient(
+    120% 90% at 8% 22%,
+    rgba(16, 11, 9, 0.86) 0%,
+    rgba(16, 11, 9, 0.66) 28%,
+    rgba(16, 11, 9, 0.22) 56%,
+    transparent 78%
+  );
 }
 
-/* Film grain: inline SVG turbulence tile. Kills the "flat mp4 on a div"
-   look and knits poster, video, and gradient into one filmed surface. */
 .home-ocean__grain {
   position: absolute;
   inset: 0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 180px 180px;
   mix-blend-mode: overlay;
-  opacity: 0.07;
+  opacity: 0.045;
 }
 
+/* The vignette is gone: stacked with the mask and the scrim it was a third
+   darkening pass, and three of them is how a photograph turns to mud. */
 .home-ocean__vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(12, 8, 7, 0.42) 100%);
+  display: none;
 }
 
 /* ── Hero entrance: one slow, staggered rise. Runs once on load. ── */
@@ -1320,4 +1326,79 @@
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* ── Hero product shot ────────────────────────────────────────────
+   The real trading desk, directly under the headline. Reference sites in
+   this category lead with product UI rather than an abstract visual, and
+   it gives the ocean somewhere to fade out to. */
+.home-heroshot {
+  position: relative;
+  z-index: 1;
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  padding: 0 1.5rem clamp(3rem, 6vh, 5rem);
+}
+
+.home-heroshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Cropped to a desk-like band: the full 3160x940 plate is too tall here
+     and the top of the UI is the part worth showing. */
+  aspect-ratio: 20 / 5;
+  object-fit: cover;
+  object-position: top center;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  /* Tinted toward the page's own hue rather than a black boilerplate shadow. */
+  box-shadow: 0 30px 80px -30px rgba(10, 6, 5, 0.9);
+}
+
+/* The relocated execution ticket. */
+.home-ticket {
+  margin: clamp(2rem, 4vw, 3rem) 0 0;
+  max-width: 46rem;
+}
+
+@media (max-width: 640px) {
+  .home-heroshot img {
+    aspect-ratio: 16 / 9;
+  }
+}
+
+/* ── Section rhythm ───────────────────────────────────────────────
+   Every section shared one background, so they ran together into a single
+   brown wall and only whitespace separated them. The reference sites all
+   alternate the section BACKGROUND rather than relying on spacing alone, so
+   each band reads as its own unit at a glance. The step is deliberately
+   small (soil-0 to soil-1) — this is rhythm, not stripes. */
+/* The section container is a centred 1180px column, so colouring it directly
+   produced a floating panel with dark gutters. The band is painted by a
+   pseudo-element stretched to the full viewport width instead, with the
+   content staying on the grid. */
+main > section.home-section:nth-of-type(even) {
+  isolation: isolate;
+}
+
+main > section.home-section:nth-of-type(even)::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--sw-soil-1, #241a15);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Body copy in the card grids was ~13px, which is the single most common
+   "cheap" tell. Nudged into a readable band. */
+.home-usecase p,
+.home-execution-extra p,
+.home-security__facts p {
+  font-size: 0.9rem;
 }
