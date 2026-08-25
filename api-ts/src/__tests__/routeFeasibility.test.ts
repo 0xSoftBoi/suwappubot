@@ -170,6 +170,35 @@ describe('institutional route feasibility', () => {
 		])
 	})
 
+	test('rejects malformed policy artifacts before evaluating candidates', () => {
+		expect(() =>
+			evaluateRouteFeasibility(
+				candidate(),
+				policy({ maxQuoteAgeMs: Number.NaN, minDataConfidence: 2 }),
+				context,
+			),
+		).toThrow('Invalid institutional execution policy')
+	})
+
+	test('rejects duplicate settlement types in a policy bundle', () => {
+		expect(() =>
+			evaluateRouteFeasibility(
+				candidate(),
+				policy({ allowedSettlementTypes: ['issuer_native', 'issuer_native'] }),
+				context,
+			),
+		).toThrow('allowedSettlementTypes must not contain duplicates')
+	})
+
+	test('rejects a non-finite evaluation clock instead of failing open freshness checks', () => {
+		expect(() =>
+			evaluateRouteFeasibility(candidate(), policy(), {
+				nowMs: Number.NaN,
+				orderNotionalUsd: 100_000,
+			}),
+		).toThrow('nowMs must be finite')
+	})
+
 	test('persists a versioned decision envelope and deterministic rejection order', () => {
 		const decision = decideInstitutionalRoute(
 			[
