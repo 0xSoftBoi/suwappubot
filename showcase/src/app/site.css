@@ -1033,10 +1033,12 @@
   }
 }
 
-/* ── Atmosphere: ocean video + ambient sound ─────────────────────
-   .home-stage wraps the hero full-bleed; the video sits at z 0 under a
-   warm scrim that hands off to var(--bg) before the proofbar, so the
-   footage reads as depth behind the desk, not a screensaver. */
+/* ── Atmosphere: golden-hour ocean + ambient sound ───────────────
+   .home-stage wraps the hero full-bleed. The poster frame paints at once,
+   the video crossfades over it, and a directional scrim keeps the copy
+   column dark while the sun path on the water stays visible, handing off
+   to var(--bg) before the proofbar. Warm footage, warm palette — the sun
+   on the water is doing the same job as the persimmon accent. */
 .home-stage {
   position: relative;
   isolation: isolate;
@@ -1051,38 +1053,174 @@
   inset: 0;
   z-index: 0;
   overflow: clip;
-  /* Pre-video frame: composed deep-water gradient, not a black hole. */
+  /* Paint before the poster arrives: dusk-water gradient, not a black hole. */
   background:
-    radial-gradient(90% 70% at 50% 0%, rgba(31, 42, 51, 0.55), transparent 70%),
-    linear-gradient(180deg, #131a20 0%, var(--sw-soil-0, #1c1310) 88%);
+    radial-gradient(90% 70% at 50% 0%, rgba(64, 48, 34, 0.5), transparent 70%),
+    linear-gradient(180deg, #1d1611 0%, var(--sw-soil-0, #1c1310) 88%);
 }
 
+/* Poster + video share one slowly drifting frame — a barely-there push-in
+   that makes even the still feel filmed. */
+.home-ocean__media {
+  position: absolute;
+  inset: -2.5%;
+  animation: home-ocean-drift 55s ease-in-out infinite alternate;
+}
+
+.home-ocean__poster,
 .home-ocean__video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scale(1.03);
-  filter: saturate(0.62) brightness(0.6) contrast(1.04);
+  /* Darkened toward the desk, saturation held back to institutional. */
+  filter: saturate(0.82) brightness(0.7) contrast(1.06);
+}
+
+.home-ocean__video {
   opacity: 0;
-  transition: opacity 1.8s var(--sw-ease, ease);
+  transition: opacity 2.2s var(--sw-ease, ease);
 }
 
 .home-ocean__video.is-ready {
   opacity: 1;
 }
 
+@keyframes home-ocean-drift {
+  from { transform: scale(1) translateY(0); }
+  to { transform: scale(1.06) translateY(-0.8%); }
+}
+
 .home-ocean__scrim {
   position: absolute;
   inset: 0;
   background:
-    /* left column darkening keeps the copy at AA over moving water */
-    linear-gradient(100deg, rgba(20, 15, 13, 0.82) 0%, rgba(20, 15, 13, 0.5) 44%, rgba(20, 15, 13, 0.18) 100%),
-    /* warm brand cast so the blue footage sits in the soil palette */
-    linear-gradient(180deg, rgba(28, 19, 16, 0.62) 0%, rgba(28, 19, 16, 0.22) 42%, var(--sw-soil-0, #1c1310) 99%);
+    /* copy column stays AA over moving light; the right half keeps the water */
+    linear-gradient(97deg, rgba(18, 13, 11, 0.88) 0%, rgba(18, 13, 11, 0.6) 38%, rgba(18, 13, 11, 0.16) 66%, rgba(18, 13, 11, 0.05) 100%),
+    /* settle the sky behind the glass nav */
+    linear-gradient(180deg, rgba(18, 13, 11, 0.5) 0%, transparent 22%),
+    /* hand off to the soil canvas before the proofbar */
+    linear-gradient(180deg, transparent 55%, rgba(28, 19, 16, 0.55) 82%, var(--sw-soil-0, #1c1310) 99%);
 }
 
+/* Film grain: inline SVG turbulence tile. Kills the "flat mp4 on a div"
+   look and knits poster, video, and gradient into one filmed surface. */
+.home-ocean__grain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: 0.07;
+}
+
+.home-ocean__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(12, 8, 7, 0.42) 100%);
+}
+
+/* ── Hero entrance: one slow, staggered rise. Runs once on load. ── */
+@media (prefers-reduced-motion: no-preference) {
+  .home-stage .home-hero__copy .home-eyebrow,
+  .home-stage .home-hero__copy h1,
+  .home-stage .home-hero__lead,
+  .home-stage .home-hero__copy .home-actions,
+  .home-stage .home-hero__telegram,
+  .home-stage .home-hero__product {
+    animation: home-hero-rise 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .home-stage .home-hero__copy .home-eyebrow { animation-delay: 0.15s; }
+  .home-stage .home-hero__copy h1 { animation-delay: 0.28s; }
+  .home-stage .home-hero__lead { animation-delay: 0.46s; }
+  .home-stage .home-hero__copy .home-actions { animation-delay: 0.62s; }
+  .home-stage .home-hero__telegram { animation-delay: 0.76s; }
+  .home-stage .home-hero__product { animation-delay: 0.9s; animation-duration: 1.3s; }
+}
+
+@keyframes home-hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Type over moving light: a soft drop keeps the thin mono labels and the
+   dim lead legible whatever the water is doing underneath. */
+.home-stage .home-hero__copy,
+.home-stage .home-hero__product .home-product-label,
+.home-stage .home-product-note {
+  text-shadow: 0 1px 14px rgba(12, 8, 7, 0.6);
+}
+
+.home-stage .home-actions a {
+  text-shadow: none;
+}
+
+/* The faint mono register drowns in the horizon glare — lift it on-stage. */
+.sw .home-stage .home-product-label {
+  color: rgba(250, 250, 250, 0.62);
+}
+
+.home-stage .home-product-note {
+  color: rgba(250, 250, 250, 0.55);
+}
+
+/* ── Scroll cue ── */
+.home-scrollcue {
+  position: absolute;
+  left: 50%;
+  bottom: 1.1rem;
+  z-index: 1;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(250, 250, 250, 0.4);
+  pointer-events: none;
+  animation: home-hero-rise 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) 1.6s both;
+}
+
+.home-scrollcue i {
+  width: 1px;
+  height: 34px;
+  background: linear-gradient(180deg, rgba(250, 250, 250, 0.45), transparent);
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .home-scrollcue i {
+    background: none;
+  }
+
+  .home-scrollcue i::before {
+    content: '';
+    display: block;
+    width: 1px;
+    height: 34px;
+    background: linear-gradient(180deg, rgba(250, 250, 250, 0.55), transparent);
+    animation: home-scrollcue-drop 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+}
+
+@keyframes home-scrollcue-drop {
+  0% { transform: translateY(-100%); }
+  55%, 100% { transform: translateY(100%); }
+}
+
+/* ── Sound toggle ── */
 .home-sound {
   position: fixed;
   right: 1.25rem;
@@ -1145,6 +1283,10 @@
     display: none;
   }
 
+  .home-ocean__media {
+    animation: none;
+  }
+
   .home-sound.is-on .home-sound__bars i {
     animation: none;
     height: 7px;
@@ -1154,6 +1296,10 @@
 @media (max-width: 640px) {
   .home-ocean__scrim {
     background:
-      linear-gradient(180deg, rgba(20, 15, 13, 0.78) 0%, rgba(20, 15, 13, 0.45) 48%, var(--sw-soil-0, #1c1310) 99%);
+      linear-gradient(180deg, rgba(18, 13, 11, 0.66) 0%, rgba(18, 13, 11, 0.55) 34%, rgba(18, 13, 11, 0.62) 62%, var(--sw-soil-0, #1c1310) 99%);
+  }
+
+  .home-scrollcue {
+    display: none;
   }
 }

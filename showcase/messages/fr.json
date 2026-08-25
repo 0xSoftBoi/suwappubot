@@ -290,7 +290,8 @@
     "atmosphere": {
       "soundOn": "Son activé",
       "soundOff": "Son coupé",
-      "videoLabel": "Vue aérienne lente de l’océan"
+      "videoLabel": "Vue aérienne lente de l’océan",
+      "scroll": "Défiler"
     }
   },
   "cta": {

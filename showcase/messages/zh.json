@@ -290,7 +290,8 @@
     "atmosphere": {
       "soundOn": "声音开",
       "soundOff": "声音关",
-      "videoLabel": "开阔海面的缓慢航拍画面"
+      "videoLabel": "开阔海面的缓慢航拍画面",
+      "scroll": "下滑"
     }
   },
   "cta": {

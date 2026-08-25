@@ -290,7 +290,8 @@
     "atmosphere": {
       "soundOn": "Sound on",
       "soundOff": "Sound off",
-      "videoLabel": "Slow aerial footage of open ocean water"
+      "videoLabel": "Slow aerial footage of open ocean water",
+      "scroll": "Scroll"
     }
   },
   "cta": {

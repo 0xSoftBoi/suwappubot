@@ -157,6 +157,7 @@ export default async function Home() {
               soundOn: h('atmosphere.soundOn'),
               soundOff: h('atmosphere.soundOff'),
               videoLabel: h('atmosphere.videoLabel'),
+              scroll: h('atmosphere.scroll'),
             }}
           />
           <section className="home-hero" aria-labelledby="home-hero-title">
