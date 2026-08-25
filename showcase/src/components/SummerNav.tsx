@@ -32,6 +32,7 @@ export default function SummerNav() {
         <a href="/pricing">{nav('pricing')}</a>
         <a href="/docs">{nav('docs')}</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">{hero('telegramNav')}</a>
+        <a href="/login">Sign in</a>
       </nav>
 
       <div className="summer-nav__actions">
@@ -60,6 +61,7 @@ export default function SummerNav() {
             { href: '/pricing', label: nav('pricing') },
             { href: '/docs', label: nav('docs') },
             { href: TELEGRAM_URL, label: hero('telegramNav'), external: true },
+            { href: '/login', label: 'Sign in' },
           ]}
           actions={
             <>

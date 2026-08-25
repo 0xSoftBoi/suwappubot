@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
-import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
-import TelegramLoginButton from './components/TelegramLoginButton';
+import { API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
+import SignInPanel from '@/components/auth/SignInPanel';
+import signInStyles from '@/components/auth/sign-in.module.css';
 import { type AuthState, DashboardAuthContext } from './auth-context';
 import styles from './dashboard.module.css';
 
@@ -19,56 +19,17 @@ function currentDashboardDestination(): string {
   return url.toString();
 }
 
+/**
+ * The gate shown to an unauthenticated visitor.
+ *
+ * The card itself is <SignInPanel>, shared verbatim with /login, so the
+ * dashboard gate and the standalone sign-in page can never offer a different
+ * set of auth methods.
+ */
 function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
-  const [draft, setDraft] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-  const [showToken, setShowToken] = useState(false);
-
-  function handlePaste() {
-    const t = draft.trim();
-    if (!t) {
-      setErr('Paste a valid Bearer token to continue.');
-      return;
-    }
-    setErr(null);
-    fetch(`${API_BASE_URL}/enterprise/orgs/me`, {
-      headers: { Authorization: `Bearer ${t}` },
-    })
-      .then((r) => {
-        if (r.status === 401 || r.status === 403) setErr('Token rejected: check it and try again.');
-        else onToken(t);
-      })
-      .catch(() => onToken(t));
-  }
-
-  const destination = currentDashboardDestination();
-
   return (
-    <div className={`summer-page ${styles.loginPage}`}>
-      <div className={styles.loginCard}>
-        <Image src="/logo.svg" alt="Suwappu" width={52} height={52} className={styles.loginLogo} />
-        <h1 className={styles.loginTitle}>Sign in to Suwappu</h1>
-        <p className={styles.loginLead}>Continue to the product you opened. Your account also gives you Signal Intelligence, API management, and billing in one workspace.</p>
-        <a
-          className="summer-button summer-button--primary"
-          style={{ display: 'inline-flex', width: '100%', justifyContent: 'center' }}
-          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(destination)}`}
-        >
-          Continue with Google
-        </a>
-        <TelegramLoginButton onToken={onToken} onError={setErr} />
-        <div className={styles.loginFooterLinks}>
-          <a className={styles.loginAdvancedToggle} href={`${TELEGRAM_URL}?start=link`} target="_blank" rel="noopener noreferrer">Open the Suwappu bot</a>
-          <button type="button" className={styles.loginAdvancedToggle} onClick={() => setShowToken((v) => !v)} aria-expanded={showToken}>
-            {showToken ? 'Hide' : 'Use an access token instead'}
-          </button>
-        </div>
-        {showToken && (<>
-          <input className={styles.tokenInput} type="password" placeholder="Bearer eyJ…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePaste()} aria-label="Access token" autoComplete="off" />
-          <button className={styles.tokenSubmit} onClick={handlePaste}>Continue</button>
-        </>)}
-        {err && <p className={styles.loginError} role="alert">{err}</p>}
-      </div>
+    <div className={`summer-page ${signInStyles.page}`}>
+      <SignInPanel destination={currentDashboardDestination()} onToken={onToken} />
     </div>
   );
 }
@@ -107,13 +68,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
     let cancelled = false;
-    fetch(`${API_BASE_URL}/enterprise/orgs/me`, { credentials: 'include' })
+    // Bound the probe. `ready` gates the ENTIRE dashboard, so a request that
+    // never settles — API down, a blocked cross-origin preflight, a captive
+    // network — left the page blank forever with nothing on screen to explain
+    // it or act on. Failing to the sign-in gate is always recoverable; hanging
+    // is not.
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 8000);
+    fetch(`${API_BASE_URL}/enterprise/orgs/me`, { credentials: 'include', signal: abort.signal })
       .then((r) => {
         if (!cancelled) setAuth(r.status === 401 ? { kind: 'none' } : { kind: 'cookie' });
       })
       .catch(() => { if (!cancelled) setAuth({ kind: 'none' }); })
-      .finally(() => { if (!cancelled) setReady(true); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        clearTimeout(timer);
+        if (!cancelled) setReady(true);
+      });
+    return () => { cancelled = true; clearTimeout(timer); abort.abort(); };
   }, []);
 
   const handleToken = useCallback((t: string) => {
@@ -127,7 +98,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fetch(`${AUTH_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
   }, []);
 
-  if (!ready) return null;
+  // A bare `return null` here shipped an empty <body> for as long as the
+  // session probe took, so every visit to /dashboard began as a blank white
+  // page — indistinguishable from the site being down.
+  if (!ready) {
+    return (
+      <div className={`summer-page ${signInStyles.page}`}>
+        <p role="status" aria-live="polite" style={{ opacity: 0.7, fontSize: '0.9rem' }}>
+          Checking your session…
+        </p>
+      </div>
+    );
+  }
   if (!auth || auth.kind === 'none') return <LoginScreen onToken={handleToken} />;
 
   return (

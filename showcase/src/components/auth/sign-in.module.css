@@ -1,0 +1,188 @@
+/*
+ * Unified sign-in card. Deliberately mirrors the summer token layer
+ * (globals.css) rather than inventing a second palette — this card renders
+ * both at /login and inside the dashboard gate, so it has to look native in
+ * either place.
+ *
+ * Every auth method uses ONE .method rule so no provider looks more "real"
+ * than another; only .methodPrimary lifts Google as the default path.
+ */
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.card {
+  width: min(440px, 100%);
+  padding: 40px 36px 32px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 2px 0 rgba(255, 255, 255, 0.9) inset,
+    0 24px 48px rgba(33, 88, 110, 0.12);
+  text-align: center;
+}
+
+.logo {
+  display: block;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 20px;
+}
+
+.title {
+  margin: 0 0 6px;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.lead {
+  margin: 0 0 24px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.methods {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.method {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.method:hover:not(:disabled) {
+  background: rgba(237, 248, 251, 0.9);
+  border-color: rgba(14, 149, 189, 0.45);
+}
+
+.method:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.method:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.method:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.6);
+  outline-offset: 2px;
+}
+
+.methodPrimary {
+  border-color: rgba(14, 149, 189, 0.5);
+  background: rgba(237, 248, 251, 0.85);
+}
+
+.walletNote {
+  margin: 16px 0 0;
+  color: var(--summer-muted, #345069);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.footerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 14px;
+  margin-top: 18px;
+}
+
+.footerLinks a,
+.footerLinks button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--summer-muted, #345069);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.footerLinks a:hover,
+.footerLinks button:hover {
+  color: var(--summer-ink, #17324a);
+}
+
+.tokenInput {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 12px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.tokenInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.tokenSubmit {
+  margin-top: 10px;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(237, 248, 251, 0.8);
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.tokenSubmit:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.error {
+  margin-top: 12px;
+  color: #c0392b;
+  font-size: 0.82rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .method {
+    transition: none;
+  }
+  .method:active:not(:disabled) {
+    transform: none;
+  }
+}
