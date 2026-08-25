@@ -286,6 +286,11 @@
       "provenBody": "Pruebas en Lean 4 cubren la seguridad de quórums, claves selladas de tamaño constante y umbrales de borrado — bloqueadas en CI.",
       "fedrampTitle": "Preparación FedRAMP High",
       "fedrampBody": "Un paquete de evidencias con correspondencia NIST SP 800-53 y un perfil de despliegue gubernamental fail-closed."
+    },
+    "atmosphere": {
+      "soundOn": "Sonido activado",
+      "soundOff": "Sonido apagado",
+      "videoLabel": "Vista aérea lenta del océano abierto"
     }
   },
   "cta": {

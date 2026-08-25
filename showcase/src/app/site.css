@@ -1032,3 +1032,128 @@
     height: 1.4rem;
   }
 }
+
+/* ── Atmosphere: ocean video + ambient sound ─────────────────────
+   .home-stage wraps the hero full-bleed; the video sits at z 0 under a
+   warm scrim that hands off to var(--bg) before the proofbar, so the
+   footage reads as depth behind the desk, not a screensaver. */
+.home-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.home-stage .home-hero {
+  z-index: 1;
+}
+
+.home-ocean {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: clip;
+  /* Pre-video frame: composed deep-water gradient, not a black hole. */
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(31, 42, 51, 0.55), transparent 70%),
+    linear-gradient(180deg, #131a20 0%, var(--sw-soil-0, #1c1310) 88%);
+}
+
+.home-ocean__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.03);
+  filter: saturate(0.62) brightness(0.6) contrast(1.04);
+  opacity: 0;
+  transition: opacity 1.8s var(--sw-ease, ease);
+}
+
+.home-ocean__video.is-ready {
+  opacity: 1;
+}
+
+.home-ocean__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    /* left column darkening keeps the copy at AA over moving water */
+    linear-gradient(100deg, rgba(20, 15, 13, 0.82) 0%, rgba(20, 15, 13, 0.5) 44%, rgba(20, 15, 13, 0.18) 100%),
+    /* warm brand cast so the blue footage sits in the soil palette */
+    linear-gradient(180deg, rgba(28, 19, 16, 0.62) 0%, rgba(28, 19, 16, 0.22) 42%, var(--sw-soil-0, #1c1310) 99%);
+}
+
+.home-sound {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(20, 14, 12, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--fg-dim, #a1a1a1);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.18s var(--sw-ease, ease), border-color 0.18s var(--sw-ease, ease);
+}
+
+.home-sound:hover,
+.home-sound.is-on {
+  color: var(--fg, #fafafa);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.home-sound__bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+
+.home-sound__bars i {
+  width: 2px;
+  height: 3px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.home-sound.is-on .home-sound__bars i {
+  animation: home-sound-bar 1.6s ease-in-out infinite;
+}
+
+.home-sound.is-on .home-sound__bars i:nth-child(2) { animation-delay: 0.3s; }
+.home-sound.is-on .home-sound__bars i:nth-child(3) { animation-delay: 0.65s; }
+.home-sound.is-on .home-sound__bars i:nth-child(4) { animation-delay: 0.95s; }
+
+@keyframes home-sound-bar {
+  0%, 100% { height: 3px; }
+  50% { height: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-ocean__video {
+    display: none;
+  }
+
+  .home-sound.is-on .home-sound__bars i {
+    animation: none;
+    height: 7px;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-ocean__scrim {
+    background:
+      linear-gradient(180deg, rgba(20, 15, 13, 0.78) 0%, rgba(20, 15, 13, 0.45) 48%, var(--sw-soil-0, #1c1310) 99%);
+  }
+}

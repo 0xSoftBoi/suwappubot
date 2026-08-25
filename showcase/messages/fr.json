@@ -286,6 +286,11 @@
       "provenBody": "Des preuves Lean 4 couvrent la sûreté des quorums, les clés scellées de taille constante et les seuils d'effacement — verrouillées en CI.",
       "fedrampTitle": "Préparation FedRAMP High",
       "fedrampBody": "Un dossier de preuves avec correspondance NIST SP 800-53 et un profil de déploiement gouvernemental fail-closed."
+    },
+    "atmosphere": {
+      "soundOn": "Son activé",
+      "soundOff": "Son coupé",
+      "videoLabel": "Vue aérienne lente de l’océan"
     }
   },
   "cta": {

@@ -286,6 +286,11 @@
       "fedrampTitle": "FedRAMP High readiness",
       "fedrampBody": "An evidence package with a NIST SP 800-53 control crosswalk and a fail-closed government deployment profile.",
       "cta": "See the protocol"
+    },
+    "atmosphere": {
+      "soundOn": "Sound on",
+      "soundOff": "Sound off",
+      "videoLabel": "Slow aerial footage of open ocean water"
     }
   },
   "cta": {

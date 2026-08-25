@@ -4,6 +4,7 @@ import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
+import OceanAtmosphere from '@/components/OceanAtmosphere';
 import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
 import FaqAccordion from '@/components/FaqAccordion';
@@ -150,6 +151,14 @@ export default async function Home() {
         <SummerNav />
 
         <main id="main-content">
+          <div className="home-stage">
+          <OceanAtmosphere
+            labels={{
+              soundOn: h('atmosphere.soundOn'),
+              soundOff: h('atmosphere.soundOff'),
+              videoLabel: h('atmosphere.videoLabel'),
+            }}
+          />
           <section className="home-hero" aria-labelledby="home-hero-title">
             <div className="home-hero__copy">
               <p className="home-eyebrow">{h('hero.eyebrow')}</p>
@@ -181,6 +190,7 @@ export default async function Home() {
               <p className="home-product-note">{h('hero.ticketNote')}</p>
             </div>
           </section>
+          </div>
 
           <section className="home-proofbar" aria-label={h('evidence.ariaLabel')}>
             <div className="home-proofbar__intro">

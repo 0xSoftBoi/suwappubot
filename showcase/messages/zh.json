@@ -286,6 +286,11 @@
       "provenBody": "Lean 4 证明覆盖法定人数安全、定长密封密钥与纠删阈值——由 CI 把关。",
       "fedrampTitle": "FedRAMP High 就绪",
       "fedrampBody": "证据包内含 NIST SP 800-53 控制对照表与故障即关闭的政府部署配置。"
+    },
+    "atmosphere": {
+      "soundOn": "声音开",
+      "soundOff": "声音关",
+      "videoLabel": "开阔海面的缓慢航拍画面"
     }
   },
   "cta": {
