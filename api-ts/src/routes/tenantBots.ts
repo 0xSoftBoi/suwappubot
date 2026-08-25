@@ -702,6 +702,56 @@ tenantBotRoutes.post('/:orgId/bots/:botId/treasury', async (c) => {
 	return respond(c, result, 'treasury')
 })
 
+// ─── operational health ────────────────────────────────────────────────────
+
+/**
+ * What Telegram thinks of this bot's webhook.
+ *
+ * Read-only and cheap, so any member can check it — being able to answer "is
+ * our bot actually working?" should not require admin.
+ */
+tenantBotRoutes.get('/:orgId/bots/:botId/health', async (c) => {
+	const orgId = c.req.param('orgId')
+	if (!(await requireMember(c, orgId, READ_ROLES))) return c.json({ error: 'Forbidden' }, 403)
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const svc = yield* TenantBotService
+			return yield* svc.webhookHealth(orgId, c.req.param('botId'))
+		}),
+	)
+	return respond(c, result, 'health')
+})
+
+const RotateSchema = z.object({ token: z.string().min(20).max(200) })
+
+/**
+ * Replace a bot's token after regenerating it in BotFather.
+ *
+ * The remediation CVE-2026-27003 asks for. Owner/admin only, and the service
+ * verifies the new token belongs to the same bot before storing it.
+ */
+tenantBotRoutes.post('/:orgId/bots/:botId/rotate-token', async (c) => {
+	const orgId = c.req.param('orgId')
+	if (!(await requireMember(c, orgId, ['owner', 'admin']))) return c.json({ error: 'Forbidden' }, 403)
+	const parsed = RotateSchema.safeParse(await c.req.json().catch(() => ({})))
+	if (!parsed.success) return c.json({ error: 'A replacement bot token is required' }, 400)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const svc = yield* TenantBotService
+			const bot = yield* svc.rotateToken(
+				orgId,
+				c.req.param('botId'),
+				parsed.data.token,
+				env.TENANT_BOT_WEBHOOK_BASE_URL,
+			)
+			return toSummary(bot)
+		}),
+	)
+	return respond(c, result, 'bot')
+})
+
 // ─── disclosure ────────────────────────────────────────────────────────────
 
 const DisclosureSchema = z.object({

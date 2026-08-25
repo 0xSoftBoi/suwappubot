@@ -22,6 +22,7 @@ import { NotFoundError, ValidationError } from '../errors'
 import { logger } from '../lib/logger'
 import { SwapService } from './SwapService'
 import { TenantBotService } from './TenantBotService'
+import { redactBotToken } from './tenantBots/redact'
 import { TokenService } from './TokenService'
 import { getTokenPriceUsd } from './autopilot/market'
 import {
@@ -148,12 +149,16 @@ export const TenantBotExecutorLive = Layer.effect(
 							}),
 							signal: AbortSignal.timeout(10_000),
 						}),
-					catch: (e) => new Error(String(e)),
+					// The token is in the URL above — never let a fetch error carry it.
+					catch: (e) => new Error(redactBotToken(e)),
 				})
 			}).pipe(
 				Effect.catchAll((e) =>
 					Effect.sync(() =>
-						logger.warn({ botId: bot.id, err: String(e) }, 'tenant bot receipt not delivered'),
+						logger.warn(
+							{ botId: bot.id, err: redactBotToken(e) },
+							'tenant bot receipt not delivered',
+						),
 					),
 				),
 			)

@@ -27,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -49,6 +50,33 @@ BURN_ADDRESSES = (
     "0x000000000000000000000000000000000000dead",
     "0x0000000000000000000000000000000000000000",
 )
+
+# ── Credential hygiene ─────────────────────────────────────────────────────
+#
+# GHSA-chf7-jq6g-qrwv (CVE-2026-27003) was filed against `openclaw` — a package
+# in this repository — for logging Telegram request URLs without redaction. The
+# Bot API puts the token in the URL path, so any transport error whose message
+# includes the URL carries the credential into logs, crash reports and support
+# bundles. We hold our customers' tokens, not our own, so a single unredacted
+# traceback is a multi-tenant compromise.
+#
+# Applied at the boundary rather than trusted to each call site.
+
+_BOT_TOKEN_RE = re.compile(r"\b\d{5,16}:[A-Za-z0-9_-]{20,}")
+_TELEGRAM_URL_RE = re.compile(
+    r"""(https?://api\.telegram\.org)/bot[^/\s"']+(/[A-Za-z]+)?""", re.IGNORECASE
+)
+
+
+def redact(value: object) -> str:
+    """Scrub token-shaped substrings out of arbitrary text.
+
+    Keeps the API method name (``/sendMessage`` vs ``/setWebhook``) because it
+    is the diagnostic value of the message; only the credential is removed.
+    """
+    text = str(value)
+    text = _TELEGRAM_URL_RE.sub(lambda m: f"{m.group(1)}/bot[REDACTED]{m.group(2) or ''}", text)
+    return _BOT_TOKEN_RE.sub("[REDACTED]", text)
 
 
 # ── token decryption (mirrors api-ts TenantBotService) ─────────────────────
@@ -189,10 +217,33 @@ def invalidate(bot_id: str) -> None:
 # ── Telegram I/O ───────────────────────────────────────────────────────────
 
 
-async def _send(cfg: TenantBotConfig, chat_id: int, body: str, **extra) -> None:
+async def _send(cfg: TenantBotConfig, chat_id: int, body: str, **extra) -> bool:
+    """Send one message, respecting Telegram's rate limits.
+
+    The previous version treated every ``status >= 400`` as a Markdown problem,
+    stripped ``parse_mode`` and retried immediately. That is actively harmful on
+    a 429: the Bot API docs are explicit that Telegram "does not accept decimal
+    back-off and will extend the ban if you hammer early", so the retry deepened
+    the outage it was trying to paper over.
+
+    The two failure modes are now separated, because they need opposite
+    responses:
+
+    - **429 Too Many Requests** — back off for ``retry_after`` and give up on
+      this message. Since layer 167 the wait is per-chat, so one chatty group
+      cannot be fixed by retrying; it can only be waited out. Relevant ceilings:
+      ~1 message/second to a chat, **20 messages/minute to a group**, ~30/second
+      overall.
+    - **400 Bad Request** — usually a stray ``_`` or ``*`` in a token name
+      breaking Markdown. Retry once as plain text so the member still gets an
+      answer.
+
+    Returns True if Telegram accepted the message.
+    """
     if not cfg.token:
         logger.warning("tenant bot %s: send attempted with no token", cfg.bot_id)
-        return
+        return False
+
     payload = {
         "chat_id": chat_id,
         "text": cfg.decorate(body),
@@ -200,18 +251,81 @@ async def _send(cfg: TenantBotConfig, chat_id: int, body: str, **extra) -> None:
         "disable_web_page_preview": True,
         **extra,
     }
+    url = f"{TELEGRAM_API}/bot{cfg.token}/sendMessage"
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            res = await client.post(f"{TELEGRAM_API}/bot{cfg.token}/sendMessage", json=payload)
-        if res.status_code >= 400:
-            # Markdown is the usual culprit (a stray _ or * in a token name).
-            # Retry once as plain text so the member still gets an answer.
-            logger.warning("tenant bot %s: send failed %s", cfg.bot_id, res.text[:200])
-            payload.pop("parse_mode", None)
-            async with httpx.AsyncClient(timeout=10) as client:
-                await client.post(f"{TELEGRAM_API}/bot{cfg.token}/sendMessage", json=payload)
+            res = await client.post(url, json=payload)
+
+            if res.status_code == 429:
+                # Honour the wait; never re-send inside it.
+                retry_after = 0
+                try:
+                    retry_after = int(
+                        (res.json().get("parameters") or {}).get("retry_after")
+                        or res.headers.get("Retry-After")
+                        or 0
+                    )
+                except Exception:  # noqa: BLE001
+                    retry_after = int(res.headers.get("Retry-After") or 0)
+                _note_rate_limit(cfg.bot_id, chat_id, retry_after)
+                logger.warning(
+                    "tenant bot %s: rate limited on chat %s, retry_after=%ss",
+                    cfg.bot_id,
+                    chat_id,
+                    retry_after,
+                )
+                return False
+
+            if res.status_code == 400:
+                # Almost always Markdown. One plain-text retry.
+                logger.warning(
+                    "tenant bot %s: send rejected (%s), retrying as plain text: %s",
+                    cfg.bot_id,
+                    res.status_code,
+                    redact(res.text)[:200],
+                )
+                payload.pop("parse_mode", None)
+                retry = await client.post(url, json=payload)
+                return retry.status_code < 400
+
+            if res.status_code >= 400:
+                logger.warning(
+                    "tenant bot %s: send failed %s: %s",
+                    cfg.bot_id,
+                    res.status_code,
+                    redact(res.text)[:200],
+                )
+                return False
+
+            return True
     except Exception as e:  # noqa: BLE001
-        logger.error("tenant bot %s: send error: %s", cfg.bot_id, e)
+        # httpx exceptions embed the request URL, which contains the token.
+        logger.error("tenant bot %s: send error: %s", cfg.bot_id, redact(e))
+        return False
+
+
+# In-process record of the last flood-wait per (bot, chat). Advisory only: it
+# exists so a scheduled poster can see it is inside a wait and skip rather than
+# queue up a send Telegram will refuse. A restart clears it, which is safe —
+# the worst case is one refused request that we already handle.
+_rate_limited_until: dict[tuple[str, int], float] = {}
+
+
+def _note_rate_limit(bot_id: str, chat_id: int, retry_after: int) -> None:
+    if retry_after > 0:
+        _rate_limited_until[(bot_id, chat_id)] = time.time() + retry_after
+
+
+def is_rate_limited(bot_id: str, chat_id: int) -> bool:
+    """True while Telegram's flood-wait for this chat is still running."""
+    until = _rate_limited_until.get((bot_id, chat_id))
+    if until is None:
+        return False
+    if time.time() >= until:
+        _rate_limited_until.pop((bot_id, chat_id), None)
+        return False
+    return True
 
 
 # ── market data ────────────────────────────────────────────────────────────

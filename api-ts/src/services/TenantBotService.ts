@@ -32,11 +32,16 @@ import {
 import { ExternalServiceError, NotFoundError, ValidationError } from '../errors'
 import { logger } from '../lib/logger'
 import { checkImpersonation } from './tenantBots/impersonation'
+import { redactBotToken } from './tenantBots/redact'
 
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 12
 const AUTH_TAG_LENGTH = 16
 const TELEGRAM_API = 'https://api.telegram.org'
+
+/** Simultaneous webhook connections Telegram may open per tenant bot.
+ *  See the comment at the provision() call site — the API default is 40. */
+const WEBHOOK_MAX_CONNECTIONS = 4
 
 function deriveKey(secret: string): Buffer {
 	return crypto.createHash('sha256').update(secret).digest()
@@ -117,6 +122,18 @@ export function toSummary(row: TenantBot): TenantBotSummary {
 	}
 }
 
+export interface WebhookHealth {
+	url: string | null
+	pending_update_count: number
+	last_error_message: string | null
+	last_error_at: string | null
+	max_connections: number | null
+	ip_address: string | null
+	/** Our read of the above, so the dashboard does not have to interpret it. */
+	healthy: boolean
+	summary: string
+}
+
 export interface CreateBotInput {
 	organizationId: string
 	createdBy: number | null
@@ -156,6 +173,20 @@ export interface TenantBotServiceInterface {
 	) => Effect.Effect<TenantBot, Error, DrizzleService>
 	/** Runtime-only. Not reachable from an org-facing route. */
 	readonly getDecryptedToken: (botId: string) => Effect.Effect<string, Error, DrizzleService>
+	/** What Telegram thinks of our webhook — the only way to learn a bot is
+	 *  silently broken before its community tells us. */
+	readonly webhookHealth: (
+		orgId: string,
+		botId: string,
+	) => Effect.Effect<WebhookHealth, Error, DrizzleService>
+	/** Replace the stored token after the operator regenerates it in BotFather.
+	 *  This is the remediation CVE-2026-27003 asks for. */
+	readonly rotateToken: (
+		orgId: string,
+		botId: string,
+		newToken: string,
+		publicBaseUrl: string,
+	) => Effect.Effect<TenantBot, Error, DrizzleService>
 	readonly listAutomations: (
 		botId: string,
 	) => Effect.Effect<TenantBotAutomation[], Error, DrizzleService>
@@ -220,10 +251,12 @@ export const TenantBotServiceLive = Layer.effect(
 					}
 					return json.result as T
 				},
+				// CVE-2026-27003: the token is in the request URL, so a transport
+				// error can carry it into this message and onward into logs.
 				catch: (e) =>
 					new ExternalServiceError({
 						service: 'telegram',
-						message: e instanceof Error ? e.message : String(e),
+						message: redactBotToken(e),
 					}),
 			})
 
@@ -335,7 +368,9 @@ export const TenantBotServiceLive = Layer.effect(
 					const token = decrypt(row.botTokenCiphertext, row.botTokenNonce, getKey())
 					yield* telegram(token, 'deleteWebhook').pipe(
 						Effect.catchAll((e) =>
-							Effect.sync(() => logger.warn({ err: String(e), botId }, 'deleteWebhook failed')),
+							Effect.sync(() =>
+								logger.warn({ err: redactBotToken(e), botId }, 'deleteWebhook failed'),
+							),
 						),
 					)
 				}
@@ -389,6 +424,12 @@ export const TenantBotServiceLive = Layer.effect(
 					secret_token: secret,
 					allowed_updates: ['message', 'callback_query', 'my_chat_member'],
 					drop_pending_updates: true,
+					// Defaults to 40 PER BOT. One shared Python process serves every
+					// tenant, so at 25 bots the default authorises a 1,000-connection
+					// ceiling pointed at one worker and lets a single busy community
+					// starve everyone else's. Our handlers are a dispatch table and
+					// return in milliseconds, so a small number is plenty.
+					max_connections: WEBHOOK_MAX_CONNECTIONS,
 				})
 
 				const enc = encrypt(token, getKey())
@@ -433,6 +474,7 @@ export const TenantBotServiceLive = Layer.effect(
 						url: `${publicBaseUrl.replace(/\/+$/, '')}/telegram/tbot/${botId}`,
 						secret_token: row.webhookSecret,
 						allowed_updates: ['message', 'callback_query', 'my_chat_member'],
+						max_connections: WEBHOOK_MAX_CONNECTIONS,
 					})
 				}
 				const rows = yield* Effect.tryPromise({
@@ -598,6 +640,137 @@ export const TenantBotServiceLive = Layer.effect(
 				return Number(rows[0]?.total ?? 0)
 			})
 
+		/**
+		 * Ask Telegram whether it can actually reach us.
+		 *
+		 * Without this a bot whose webhook is failing — expired DNS, a deploy
+		 * returning 500, our host unreachable — reads "Live" in the dashboard
+		 * indefinitely while its community gets silence, and the team's first
+		 * signal is a member complaining. `pending_update_count` climbing is the
+		 * early warning, and it costs one API call.
+		 */
+		const webhookHealth = (orgId: string, botId: string) =>
+			Effect.gen(function* () {
+				const row = yield* fetchRow(orgId, botId)
+				if (!row.botTokenCiphertext || !row.botTokenNonce) {
+					return {
+						url: null,
+						pending_update_count: 0,
+						last_error_message: null,
+						last_error_at: null,
+						max_connections: null,
+						ip_address: null,
+						healthy: false,
+						summary: 'Not connected to Telegram yet.',
+					} satisfies WebhookHealth
+				}
+				const token = decrypt(row.botTokenCiphertext, row.botTokenNonce, getKey())
+				const info = yield* telegram<{
+					url?: string
+					pending_update_count?: number
+					last_error_message?: string
+					last_error_date?: number
+					max_connections?: number
+					ip_address?: string
+				}>(token, 'getWebhookInfo')
+
+				const pending = info.pending_update_count ?? 0
+				const lastError = info.last_error_message ?? null
+				// A backlog is the signal that matters: Telegram has updates it
+				// cannot hand us. A stale last_error with an empty queue is history.
+				const healthy = Boolean(info.url) && pending < 20 && !(lastError && pending > 0)
+
+				let summary: string
+				if (!info.url) summary = 'Telegram has no webhook for this bot — it is receiving nothing.'
+				else if (lastError && pending > 0) {
+					summary = `Telegram cannot deliver: ${lastError} (${pending} updates waiting).`
+				} else if (pending >= 20) summary = `${pending} updates are backed up.`
+				else if (lastError) summary = `Delivering normally. Last error seen: ${lastError}`
+				else summary = 'Delivering normally.'
+
+				return {
+					url: info.url ?? null,
+					pending_update_count: pending,
+					last_error_message: lastError,
+					last_error_at: info.last_error_date
+						? new Date(info.last_error_date * 1000).toISOString()
+						: null,
+					max_connections: info.max_connections ?? null,
+					ip_address: info.ip_address ?? null,
+					healthy,
+					summary,
+				} satisfies WebhookHealth
+			})
+
+		/**
+		 * Swap in a freshly-issued token.
+		 *
+		 * CVE-2026-27003's remediation is "rotate any token that may have been
+		 * exposed", and until now a tenant had no way to do that without deleting
+		 * the bot and losing its history. The operator regenerates in BotFather
+		 * (which invalidates the old token immediately) and hands us the new one;
+		 * we verify it belongs to the SAME bot before storing, so a rotation
+		 * cannot quietly repoint a bot's history at a different Telegram account.
+		 */
+		const rotateToken = (orgId: string, botId: string, newToken: string, publicBaseUrl: string) =>
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const row = yield* fetchRow(orgId, botId)
+				const token = newToken.trim()
+				if (!TOKEN_RE.test(token)) {
+					return yield* Effect.fail(
+						new ValidationError({
+							message: 'That does not look like a BotFather token.',
+							fields: { token: 'malformed' },
+						}),
+					)
+				}
+
+				const me = yield* telegram<{ id: number; username: string }>(token, 'getMe')
+				if (row.telegramBotId && me.id !== row.telegramBotId) {
+					return yield* Effect.fail(
+						new ValidationError({
+							message:
+								'That token belongs to a different bot. Rotate the token for this bot in ' +
+								'BotFather, or create a new bot instead.',
+							fields: { token: 'wrong bot' },
+						}),
+					)
+				}
+
+				const secret = crypto.randomBytes(24).toString('hex')
+				yield* telegram(token, 'setWebhook', {
+					url: `${publicBaseUrl.replace(/\/+$/, '')}/telegram/tbot/${botId}`,
+					secret_token: secret,
+					allowed_updates: ['message', 'callback_query', 'my_chat_member'],
+					max_connections: WEBHOOK_MAX_CONNECTIONS,
+				})
+
+				const enc = encrypt(token, getKey())
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(tenantBots)
+							.set({
+								botTokenCiphertext: enc.ciphertext,
+								botTokenNonce: enc.nonce,
+								botTokenHash: tokenHash(token),
+								// Rotated alongside the token: the old secret was paired with a
+								// credential we are treating as burned.
+								webhookSecret: secret,
+								telegramUsername: me.username,
+								status: 'live',
+								lastError: null,
+								updatedAt: new Date(),
+							})
+							.where(eq(tenantBots.id, botId))
+							.returning(),
+					catch: (e) => new Error(`Failed to store rotated credentials: ${e}`),
+				})
+				logger.info({ botId, username: me.username }, 'tenant bot token rotated')
+				return rows[0]
+			})
+
 		return {
 			list,
 			get: fetchRow,
@@ -607,6 +780,8 @@ export const TenantBotServiceLive = Layer.effect(
 			provision,
 			setPaused,
 			getDecryptedToken,
+			webhookHealth,
+			rotateToken,
 			listAutomations,
 			upsertAutomation,
 			deleteAutomation,
