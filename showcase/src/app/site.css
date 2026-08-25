@@ -1304,3 +1304,20 @@
     display: none;
   }
 }
+
+.home-glfigure--tall {
+  height: 300px;
+}
+
+.home-glfigure .toolconstellation {
+  position: absolute;
+  inset: 0;
+}
+
+.home-glfigure .toolconstellation canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}

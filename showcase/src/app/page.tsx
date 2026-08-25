@@ -6,6 +6,7 @@ import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import OceanAtmosphere from '@/components/OceanAtmosphere';
 import DepthSurfaceGL from '@/components/DepthSurfaceGL';
+import ToolConstellationGL from '@/components/ToolConstellationGL';
 import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
 import FaqAccordion from '@/components/FaqAccordion';
@@ -397,11 +398,19 @@ export default async function Home() {
 
           <section id="terminal" className="home-section" aria-labelledby="interfaces-title">
             <Reveal>
-              <div className="home-section__head home-section__head--split">
+              {/* Right column is the MCP tool constellation — exactly
+                  stats.mcpToolCount nodes from the registry the server ships. */}
+              <div className="home-section__head home-section__head--figure">
                 <div>
                   <h2 id="interfaces-title">{h('interfaces.title')}</h2>
+                  <p className="home-section__head-lead">{h('interfaces.lead')}</p>
                 </div>
-                <p>{h('interfaces.lead')}</p>
+                <div className="home-glfigure home-glfigure--tall" aria-hidden="true">
+                  <ToolConstellationGL
+                    toolCount={productStats.mcpToolCount}
+                    names={productStats.mcpTools}
+                  />
+                </div>
               </div>
 
               <div
