@@ -59,6 +59,15 @@ interface Run {
   started_at: string;
 }
 
+interface WebhookHealth {
+  url: string | null;
+  pending_update_count: number;
+  last_error_message: string | null;
+  last_error_at: string | null;
+  healthy: boolean;
+  summary: string;
+}
+
 interface RunResult {
   status: 'simulated' | 'succeeded' | 'failed' | 'skipped';
   reason: string | null;
@@ -630,6 +639,21 @@ function BotDetail({
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [health, setHealth] = useState<WebhookHealth | null>(null);
+
+  // Ask Telegram whether it can actually reach us. Without this a bot whose
+  // webhook is failing reads "Live" here indefinitely while its community gets
+  // silence, and the team finds out from a member complaining.
+  useEffect(() => {
+    let alive = true;
+    setHealth(null);
+    if (bot.status === 'draft') return;
+    apiFetch(`/v1/orgs/${orgId}/bots/${bot.id}/health`)
+      .then((r) => r.json())
+      .then((d) => { if (alive && d?.health) setHealth(d.health as WebhookHealth); })
+      .catch(() => { /* health is advisory; never break the panel over it */ });
+    return () => { alive = false; };
+  }, [apiFetch, orgId, bot.id, bot.status]);
 
   async function act(label: string, path: string, opts: RequestInit, key: 'bot' | 'result') {
     setBusy(label); setErr(null);
@@ -684,6 +708,15 @@ function BotDetail({
 
       {bot.last_error && <div className={styles.error}>{bot.last_error}</div>}
       {err && <div className={styles.error}>{err}</div>}
+
+      {health && (
+        <div className={health.healthy ? styles.runResult : styles.notice}>
+          <strong>Telegram delivery:</strong> {health.summary}
+          {health.pending_update_count > 0 && (
+            <> ({health.pending_update_count} waiting)</>
+          )}
+        </div>
+      )}
 
       {!connected && (
         <div>
