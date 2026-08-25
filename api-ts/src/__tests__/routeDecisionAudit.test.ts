@@ -60,6 +60,13 @@ describe('institutional decision audit record', () => {
 		expect(first.snapshot.candidates.map((row) => row.id)).toEqual(['a', 'b'])
 	})
 
+	test('stores the exact resolved settlement classification used by the decision', () => {
+		const audit = record([candidate('cctp', 0, { settlementType: undefined, tool: 'Circle CCTP' })])
+
+		expect(audit.snapshot.candidates[0]?.settlementType).toBe('issuer_native')
+		expect(audit.snapshot.winner?.settlementType).toBe('issuer_native')
+	})
+
 	test('changing a control-plane input changes the digest', () => {
 		const baseline = record([candidate('a', 0)])
 		const changed = record([candidate('a', 0, { capacityUsd: 900_000 })])
