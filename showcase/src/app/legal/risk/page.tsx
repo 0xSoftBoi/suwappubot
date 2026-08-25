@@ -26,10 +26,10 @@ export default function RiskDisclosurePage() {
           <h1>Risk Disclosure</h1>
           <p className="legal-page__updated">Last updated: June 18, 2026</p>
 
-          <p>This page explains, in plain terms, the material risks of using Suwappu: the Telegram bot, trading terminal, REST API, SDK, and MCP server (together, the “Service”): to swap, hold, or trade digital assets. Read it alongside our <a href="/legal/terms">Terms of Service</a>. It does not cover every risk and is not a substitute for your own research or professional advice.</p>
+          <p>This page explains, in plain terms, the material risks of using Suwappu (the Telegram bot, trading terminal, REST API, SDK, and MCP server, together the “Service”) to swap, hold, or trade digital assets. Read it alongside our <a href="/legal/terms">Terms of Service</a>. It does not cover every risk and is not a substitute for your own research or professional advice.</p>
 
           <h2>1. Volatility</h2>
-          <p>Digital asset prices can move sharply and unpredictably, in either direction, within minutes. Quotes, routes, and estimated outputs shown before a swap can become stale by the time a transaction confirms. You can lose a substantial portion, or all: of the value you put in.</p>
+          <p>Digital asset prices can move sharply and unpredictably, in either direction, within minutes. Quotes, routes, and estimated outputs shown before a swap can become stale by the time a transaction confirms. You can lose a substantial portion, or all, of the value you put in.</p>
 
           <h2>2. Smart contract risk</h2>
           <p>Swaps, routing, and liquidity provisioning rely on smart contracts written and audited by us and by third parties. Contracts can contain bugs, be exploited, or behave unexpectedly under conditions that were not anticipated. No audit or amount of testing eliminates this risk. A contract failure can result in funds being lost, locked, or stolen.</p>
@@ -56,7 +56,7 @@ export default function RiskDisclosurePage() {
           <p>The Service is provided on an “as is” and “as available” basis. Network congestion, RPC outages, third-party API failures, or maintenance can prevent you from trading, cancelling, or withdrawing at the time you want to. Plan accordingly, especially around volatile market conditions.</p>
 
           <h2>10. Only risk what you can afford to lose</h2>
-          <p>Trading digital assets, and especially using leverage, perpetual futures, or cross-chain routes: can result in the rapid and total loss of the funds involved. Only use the Service with funds you can afford to lose in full.</p>
+          <p>Trading digital assets, and especially using leverage, perpetual futures, or cross-chain routes, can result in the rapid and total loss of the funds involved. Only use the Service with funds you can afford to lose in full.</p>
 
           <h2>11. Questions</h2>
           <p>Questions about this disclosure? Reach us through the official Suwappu Telegram or at <code>legal@suwappu.bot</code>.</p>

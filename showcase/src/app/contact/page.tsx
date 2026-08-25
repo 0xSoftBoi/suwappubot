@@ -38,7 +38,6 @@ export default function ContactPage() {
         {/* Saphira-style gate: the fastest path is a 30-min call, not the form. */}
         <section className={styles.demoCard} aria-label="Schedule a demo">
           <div>
-            <p className={styles.demoEyebrow}>Fastest path</p>
             <h2 className="mkt-h2">Book a 30-min demo.</h2>
             <p className={styles.demoBody}>
               Skip the form: grab time with our team directly and we&rsquo;ll walk through rate

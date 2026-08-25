@@ -72,7 +72,6 @@ export default function ProductsPage() {
           <section key={group.title} style={{ marginTop: 72 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, .8fr) minmax(0, 2.2fr)', gap: 28, alignItems: 'start' }}>
               <div>
-                <p style={{ textTransform: 'uppercase', letterSpacing: '.14em', fontSize: 11, color: '#737d8c', margin: '4px 0 10px' }}>{group.eyebrow}</p>
                 <h2 style={{ fontSize: 28, letterSpacing: '-.035em', margin: 0 }}>{group.title}</h2>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 12 }}>

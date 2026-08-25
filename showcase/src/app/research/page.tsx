@@ -11,7 +11,7 @@ const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 const decisionLenses = [
   {
     seat: 'Reserve / settlement',
-    question: 'What does an onchain backing ratio prove—and what issuer, legal, liquidity, and finality risk remains outside it?',
+    question: 'What does an onchain backing ratio prove, and what issuer, legal, liquidity, and finality risk remains outside it?',
     href: '/research/omnichain-dollar-collateral',
     label: 'USDT0 backing',
   },
@@ -49,7 +49,7 @@ const decisionLenses = [
 
 export const metadata: Metadata = {
   alternates: { canonical: '/research' },
-  title: 'Research — Suwappu',
+  title: 'Research | Suwappu',
   description:
     'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, tokenized-asset interfaces, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
 };
