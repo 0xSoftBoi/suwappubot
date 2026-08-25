@@ -102,6 +102,9 @@ const MorphoPanel = lazy(() =>
 const EulerPanel = lazy(() =>
   import('../euler/EulerPanel').then((m) => ({ default: m.EulerPanel })),
 )
+const YearnPanel = lazy(() =>
+  import('../yearn/YearnPanel').then((m) => ({ default: m.YearnPanel })),
+)
 
 function DeferredPanel({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -127,6 +130,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'pancakeswap', label: 'PancakeSwap' },
   { id: 'morpho', label: 'Morpho' },
   { id: 'euler', label: 'Euler' },
+  { id: 'yearn', label: 'Yearn' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
@@ -352,6 +356,11 @@ function MobileLayout() {
                     <EulerPanel />
                   </ErrorBoundary>
                 )}
+                {bottomTab === 'yearn' && (
+                  <ErrorBoundary label="Yearn">
+                    <YearnPanel />
+                  </ErrorBoundary>
+                )}
               </DeferredPanel>
             </div>
           </div>
@@ -542,6 +551,11 @@ function DesktopLayout() {
               {bottomTab === 'euler' && (
                 <ErrorBoundary label="Euler">
                   <EulerPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'yearn' && (
+                <ErrorBoundary label="Yearn">
+                  <YearnPanel />
                 </ErrorBoundary>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
