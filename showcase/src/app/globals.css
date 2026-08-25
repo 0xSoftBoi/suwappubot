@@ -7665,9 +7665,34 @@ a.summer-button:active,
 .nav__drawer {
   visibility: hidden;
   transition: transform 0.3s var(--sw-ease), visibility 0.3s;
+  /* width:280px + 2rem side padding was 344px of actual box, so on a 390px
+     phone the drawer left a 46px sliver of backdrop. */
+  box-sizing: border-box;
+  width: min(320px, 86vw);
 }
 
 .nav__drawer--open { visibility: visible; }
+
+/* Sits where the hamburger was, which the open drawer now covers. */
+.nav__drawer-close {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--sw-hairline);
+  border-radius: 8px;
+  background: transparent;
+  /* No reset is emitting, so an unset colour falls back to UA `buttontext`. */
+  color: var(--sw-ink);
+  cursor: pointer;
+}
+
+.nav__drawer-close:hover { background: rgba(127, 127, 127, 0.12); }
 
 /* Viewport-sized clip for the drawer. Without it the closed drawer, which is
    translated 100% off the right edge, widens the document. */
@@ -7786,6 +7811,7 @@ body:has(.sw-dark) .nav__panel-desc { color: #A1A1A1; }
 body:has(.sw-dark) .nav__panel-link:hover { background: rgba(255,255,255,0.06); }
 body:has(.sw-dark) .nav__drawer { background: var(--sw-soil-1); }
 body:has(.sw-dark) .nav__drawer-link,
+body:has(.sw-dark) .nav__drawer-close,
 body:has(.sw-dark) .nav__drawer-toggle { color: #FAFAFA; }
 body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
 

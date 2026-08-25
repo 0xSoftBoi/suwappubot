@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslations } from 'next-intl';
 import { MENU_PANELS } from './NavMenuData';
 
@@ -26,6 +27,9 @@ export default function NavDrawer({
   const tm = useTranslations('nav.menu');
   const [open, setOpen] = useState(false);
   const [openSection, setOpenSection] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
@@ -55,7 +59,12 @@ export default function NavDrawer({
         <span className={`nav__hamburger-line ${open ? 'nav__hamburger-line--open' : ''}`} />
       </button>
 
-      {/* Clips the off-screen drawer so it cannot create horizontal scroll. */}
+      {/* The portal is mounted on <body>. The headers that host this drawer use
+          backdrop-filter, and a filtered ancestor becomes the containing block
+          for position:fixed descendants — leaving the portal the size of the
+          header, which clipped the drawer down to a black strip across the
+          wordmark. */}
+      {mounted && createPortal(
       <div className="nav__portal">
       {open && <div className="nav__backdrop" onClick={close} aria-hidden="true" />}
 
@@ -66,6 +75,20 @@ export default function NavDrawer({
         aria-modal="true"
         aria-label="Navigation menu"
       >
+        {/* The open drawer covers the header, so the hamburger it was opened
+            from is no longer reachable. */}
+        <button
+          type="button"
+          className="nav__drawer-close"
+          onClick={close}
+          aria-label="Close menu"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.6"
+              strokeLinecap="round" />
+          </svg>
+        </button>
+
         {MENU_PANELS.map((panel) => {
           const expanded = openSection === panel.id;
           return (
@@ -118,7 +141,8 @@ export default function NavDrawer({
 
         {actions}
       </div>
-      </div>
+      </div>,
+      document.body)}
     </>
   );
 }
