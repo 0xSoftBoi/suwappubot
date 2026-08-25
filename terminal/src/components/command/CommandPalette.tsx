@@ -132,6 +132,7 @@ export function CommandPalette() {
       tab('uniswap', 'Uniswap', 'Uniswap pools, TVL & volume', '🦄'),
       tab('pancakeswap', 'PancakeSwap', 'PancakeSwap pools, TVL & volume', '🥞'),
       tab('morpho', 'Morpho', 'Morpho vaults, TVL & net APY', '🦋'),
+      tab('euler', 'Euler', 'Euler lending vaults, TVL & APY', '🔷'),
       tab('copilot', 'AI Co-Pilot', 'Ask the trading assistant', '🤖'),
     ]
   }, [setTradingMode, goSpotTab])
