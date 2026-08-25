@@ -31,6 +31,7 @@ import { UserService } from '../services'
 import { TenantBotExecutor } from '../services/TenantBotExecutorService'
 import { TenantBotService, toSummary } from '../services/TenantBotService'
 import { nextRunAfter } from '../services/tenantBots/cron'
+import { checkImpersonation } from '../services/tenantBots/impersonation'
 import { BURN_SINKS, STABLE_SPEND_TOKENS } from '../services/tenantBots/executor'
 import {
 	AUTOMATION_KINDS,
@@ -195,6 +196,14 @@ tenantBotRoutes.post('/:orgId/bots', async (c) => {
 	const p = parsed.data
 	const bp = (p.blueprint ?? {}) as Record<string, any>
 
+	// Refuse the name before a row exists. See services/tenantBots/impersonation:
+	// we are not adjudicating trademarks, we are declining to host the naming
+	// patterns that turn a bot into a phishing credential.
+	const nameCheck = checkImpersonation(p.name, p.slug)
+	if (!nameCheck.allowed) {
+		return c.json({ error: 'name_not_allowed', message: nameCheck.message }, 400)
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const svc = yield* TenantBotService
@@ -308,6 +317,16 @@ tenantBotRoutes.patch('/:orgId/bots/:botId', async (c) => {
 	const parsed = UpdateBotSchema.safeParse(await c.req.json().catch(() => ({})))
 	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
 	const p = parsed.data
+
+	// Renaming is the obvious way round a create-time check.
+	const renameTarget = p.name ?? (p.branding as { displayName?: string } | undefined)?.displayName
+	if (renameTarget) {
+		const nameCheck = checkImpersonation(renameTarget)
+		if (!nameCheck.allowed) {
+			return c.json({ error: 'name_not_allowed', message: nameCheck.message }, 400)
+		}
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const svc = yield* TenantBotService

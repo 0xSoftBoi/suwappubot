@@ -31,6 +31,7 @@ import {
 } from '../db'
 import { ExternalServiceError, NotFoundError, ValidationError } from '../errors'
 import { logger } from '../lib/logger'
+import { checkImpersonation } from './tenantBots/impersonation'
 
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 12
@@ -360,6 +361,26 @@ export const TenantBotServiceLive = Layer.effect(
 
 				// Verify before storing. A revoked or mistyped token fails here.
 				const me = yield* telegram<{ id: number; username: string }>(token, 'getMe')
+
+				// The @handle is chosen in BotFather, not here, so it is the one field
+				// a tenant could use to impersonate after passing the create-time name
+				// check. It is also the string a victim actually sees in a forwarded
+				// message, which makes it the one that matters most.
+				const handleCheck = checkImpersonation(me.username ?? '', me.username)
+				if (!handleCheck.allowed) {
+					logger.warn(
+						{ botId, username: me.username, matched: handleCheck.matched },
+						'tenant bot provision refused: impersonating handle',
+					)
+					return yield* Effect.fail(
+						new ValidationError({
+							message:
+								handleCheck.message ??
+								'That bot handle is not allowed. Choose a different one in BotFather.',
+							fields: { token: 'impersonating handle' },
+						}),
+					)
+				}
 
 				const secret = crypto.randomBytes(24).toString('hex')
 				const webhookUrl = `${publicBaseUrl.replace(/\/+$/, '')}/telegram/tbot/${botId}`

@@ -18,6 +18,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk'
 import { logger } from '../../lib/logger'
+import { checkImpersonation } from './impersonation'
 
 export const MODEL = 'claude-opus-5'
 
@@ -182,10 +183,21 @@ export function sanitizeBlueprint(raw: unknown, input: ComposeInput, source: 'll
 		.filter((c: { command: string }) => /^\/[a-z0-9_]{1,30}$/.test(c.command))
 
 	const branding = (obj.branding ?? {}) as Record<string, unknown>
+
+	// A composed name still has to clear the impersonation guardrails. The model
+	// is not adversarial, but a brief like "make it look official so people trust
+	// it" would otherwise be answered literally. Falling back to the project name
+	// keeps the blueprint usable instead of erroring out of the whole compose.
+	const proposed = str(obj.name, 120) || fallbackName
+	const nameOk = checkImpersonation(proposed).allowed
+	const safeName = nameOk ? proposed : fallbackName
+	const proposedDisplay = str(branding.displayName, 120) || safeName
+	const displayOk = checkImpersonation(proposedDisplay).allowed
+
 	return {
-		name: str(obj.name, 120) || fallbackName,
+		name: nameOk ? proposed : fallbackName,
 		branding: {
-			displayName: str(branding.displayName, 120) || str(obj.name, 120) || fallbackName,
+			displayName: displayOk ? proposedDisplay : safeName,
 			tagline: str(branding.tagline, 160),
 			mark: str(branding.mark, 8),
 			footer: str(branding.footer, 120),
@@ -314,6 +326,10 @@ Rules you are held to:
   register — a meme coin is not a bank — without being obnoxious.
 - Never promise a price outcome, a return, or that a burn raises the price.
   Describe mechanics, not results.
+- NEVER name a bot after an exchange, wallet, stablecoin, block explorer or
+  Telegram itself, and never name it as a security, verification, support or
+  recovery function ("Safeguard", "Verify", "Wallet Connect"). Those names are
+  how holders get phished; they are rejected, and the bot loses its name.
 - The summary is read by the operator to check you understood them. Write it as
   two or three plain sentences, not a feature list.`
 
