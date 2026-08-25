@@ -29,7 +29,8 @@ interface CandidateAuditSnapshot {
 	quotedGasUsd: number | null
 	quotedFeeUsd: number | null
 	quotedDurationS: number | null
-	settlementType: SettlementType | null
+	/** Exact settlement classification consumed by the feasibility/ranking decision. */
+	settlementType: SettlementType
 	complianceScore: number | null
 	quoteTimestampMs: number | null
 	expiresAtMs: number | null
@@ -82,7 +83,10 @@ function assertFinite(value: number | null, path: string): void {
 	}
 }
 
-function candidateSnapshot(candidate: ControlledRouteCandidate): CandidateAuditSnapshot {
+function candidateSnapshot(
+	candidate: ControlledRouteCandidate,
+	resolvedSettlementType: SettlementType,
+): CandidateAuditSnapshot {
 	const snapshot: CandidateAuditSnapshot = {
 		id: candidate.id,
 		rank: candidate.rank,
@@ -94,7 +98,7 @@ function candidateSnapshot(candidate: ControlledRouteCandidate): CandidateAuditS
 		quotedGasUsd: nullable(candidate.quotedGasUsd),
 		quotedFeeUsd: nullable(candidate.quotedFeeUsd),
 		quotedDurationS: nullable(candidate.quotedDurationS),
-		settlementType: nullable(candidate.settlementType),
+		settlementType: resolvedSettlementType,
 		complianceScore: nullable(candidate.complianceScore),
 		quoteTimestampMs: nullable(candidate.quoteTimestampMs),
 		expiresAtMs: nullable(candidate.expiresAtMs),
@@ -198,6 +202,11 @@ export function canonicalAuditJson(value: unknown): string {
 /**
  * Build the hashable, non-secret decision envelope that #941 will persist.
  * Candidate input order does not affect the digest; candidate IDs must be unique.
+ *
+ * Settlement type is copied from the actual decision result, not recomputed
+ * from provider/tool metadata. Historical replay therefore hashes the exact
+ * classification used by feasibility/ranking even if classifier heuristics
+ * change in a later build.
  */
 export function buildInstitutionalDecisionAuditRecord(
 	candidates: ControlledRouteCandidate[],
@@ -207,19 +216,32 @@ export function buildInstitutionalDecisionAuditRecord(
 	if (!metadata.optimizerVersion.trim()) throw new Error('optimizerVersion is required')
 	if (!Number.isFinite(decision.evaluatedAtMs)) throw new Error('evaluatedAtMs must be finite')
 
+	const winner = rankedSnapshot(decision.winner)
+	const alternatives = decision.alternatives
+		.map((route) => rankedSnapshot(route))
+		.filter((route): route is RankedAuditSnapshot => route !== null)
+
+	const resolvedSettlementByCandidateId = new Map<string, SettlementType>()
+	if (winner) resolvedSettlementByCandidateId.set(winner.candidateId, winner.settlementType)
+	for (const route of alternatives) {
+		resolvedSettlementByCandidateId.set(route.candidateId, route.settlementType)
+	}
+	for (const row of decision.rejected) {
+		resolvedSettlementByCandidateId.set(row.candidateId, row.settlementType)
+	}
+
 	const candidateIds = new Set<string>()
 	const normalizedCandidates = candidates
 		.map((candidate) => {
 			if (candidateIds.has(candidate.id)) throw new Error(`Duplicate candidate id: ${candidate.id}`)
 			candidateIds.add(candidate.id)
-			return candidateSnapshot(candidate)
+			const resolvedSettlementType = resolvedSettlementByCandidateId.get(candidate.id)
+			if (!resolvedSettlementType) {
+				throw new Error(`Decision is missing settlement classification for candidate id: ${candidate.id}`)
+			}
+			return candidateSnapshot(candidate, resolvedSettlementType)
 		})
 		.sort((a, b) => a.id.localeCompare(b.id))
-
-	const winner = rankedSnapshot(decision.winner)
-	const alternatives = decision.alternatives
-		.map((route) => rankedSnapshot(route))
-		.filter((route): route is RankedAuditSnapshot => route !== null)
 
 	const referencedIds = [
 		...(winner ? [winner.candidateId] : []),
@@ -230,6 +252,9 @@ export function buildInstitutionalDecisionAuditRecord(
 		if (!candidateIds.has(candidateId)) {
 			throw new Error(`Decision references unknown candidate id: ${candidateId}`)
 		}
+	}
+	if (resolvedSettlementByCandidateId.size !== candidateIds.size) {
+		throw new Error('Decision/candidate cardinality mismatch in audit snapshot')
 	}
 
 	const snapshot: InstitutionalDecisionAuditSnapshotV1 = {
