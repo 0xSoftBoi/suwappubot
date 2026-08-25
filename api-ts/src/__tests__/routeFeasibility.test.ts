@@ -28,6 +28,7 @@ function candidate(overrides: Partial<ControlledRouteCandidate> = {}): Controlle
 		recoveryAvailable: true,
 		authorizationSatisfied: true,
 		venueStatus: 'healthy',
+		eligibilityStatus: 'allowed',
 		dataConfidence: 0.99,
 		...overrides,
 	}
@@ -51,11 +52,37 @@ describe('institutional route feasibility', () => {
 		expect(result.settlementType).toBe('issuer_native')
 	})
 
-	test('rejects unknown compliance instead of treating it as neutral', () => {
-		const result = evaluateRouteFeasibility(candidate({ complianceScore: null }), policy(), context)
+	test('uses authoritative eligibility instead of a synthetic compliance score', () => {
+		const allowedWithNoScore = evaluateRouteFeasibility(
+			candidate({ complianceScore: null, eligibilityStatus: 'allowed' }),
+			policy(),
+			context,
+		)
+		const blockedWithPerfectScore = evaluateRouteFeasibility(
+			candidate({ complianceScore: 100, eligibilityStatus: 'blocked' }),
+			policy(),
+			context,
+		)
 
-		expect(result.eligible).toBe(false)
-		expect(result.reasonCodes).toContain('compliance_unknown')
+		expect(allowedWithNoScore.eligible).toBe(true)
+		expect(blockedWithPerfectScore.eligible).toBe(false)
+		expect(blockedWithPerfectScore.reasonCodes).toContain('eligibility_blocked')
+	})
+
+	test('fails closed for review and unknown eligibility states', () => {
+		const review = evaluateRouteFeasibility(
+			candidate({ eligibilityStatus: 'review' }),
+			policy(),
+			context,
+		)
+		const unknown = evaluateRouteFeasibility(
+			candidate({ eligibilityStatus: 'unknown' }),
+			policy(),
+			context,
+		)
+
+		expect(review.reasonCodes).toContain('eligibility_review_required')
+		expect(unknown.reasonCodes).toContain('eligibility_unknown')
 	})
 
 	test('rejects stale quotes even when their economics are best', () => {
@@ -86,6 +113,29 @@ describe('institutional route feasibility', () => {
 
 		expect(result.eligible).toBe(false)
 		expect(result.reasonCodes).toContain('capacity_insufficient')
+	})
+
+	test('separates unknown order notional from unknown route capacity', () => {
+		const result = evaluateRouteFeasibility(
+			candidate(),
+			policy(),
+			{ nowMs: NOW_MS, orderNotionalUsd: null },
+		)
+
+		expect(result.eligible).toBe(false)
+		expect(result.reasonCodes).toContain('order_notional_unknown')
+		expect(result.reasonCodes).not.toContain('capacity_unknown')
+	})
+
+	test('enforces an explicit mandate notional ceiling before ranking', () => {
+		const result = evaluateRouteFeasibility(
+			candidate({ capacityUsd: 1_000_000 }),
+			policy({ maxOrderNotionalUsd: 50_000 }),
+			context,
+		)
+
+		expect(result.eligible).toBe(false)
+		expect(result.reasonCodes).toContain('order_notional_exceeds_limit')
 	})
 
 	test('rejects settlement classes outside the explicit allowlist', () => {
@@ -123,7 +173,7 @@ describe('institutional route feasibility', () => {
 	test('persists a versioned decision envelope and deterministic rejection order', () => {
 		const decision = decideInstitutionalRoute(
 			[
-				candidate({ id: 'z-route', complianceScore: null }),
+				candidate({ id: 'z-route', eligibilityStatus: 'blocked' }),
 				candidate({ id: 'good-route', rank: 2 }),
 				candidate({ id: 'a-route', venueStatus: 'degraded' }),
 			],
