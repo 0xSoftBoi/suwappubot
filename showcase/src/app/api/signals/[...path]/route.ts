@@ -1,29 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { API_BASE_URL } from '@/lib/links';
+import { probeSession } from '@/app/dashboard/session';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const SIGNAL_LAB_URL = process.env.SIGNAL_LAB_URL || 'https://signal-lab-dev.up.railway.app';
 
+/**
+ * Signed in is enough to read signals.
+ *
+ * This gate previously required an *enterprise-tier* answer from
+ * `/enterprise/orgs/me` and treated 403 as unauthenticated — so a perfectly
+ * valid Google session got a 401 on every panel of the Signal Intelligence
+ * page and the UI told the user their session had expired. It had not. See
+ * probeSession.
+ */
 async function isAuthenticated(request: NextRequest): Promise<boolean> {
   const cookie = request.headers.get('cookie') || '';
   const authorization = request.headers.get('authorization') || '';
   if (!cookie && !authorization) return false;
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/enterprise/orgs/me`, {
-      headers: {
-        ...(cookie ? { cookie } : {}),
-        ...(authorization ? { authorization } : {}),
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    return response.status !== 401 && response.status !== 403;
-  } catch {
-    return false;
-  }
+  return probeSession({
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      ...(authorization ? { authorization } : {}),
+    },
+    signal: AbortSignal.timeout(5000),
+  });
 }
 
 export async function GET(

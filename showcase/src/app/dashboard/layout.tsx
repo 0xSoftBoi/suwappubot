@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
+import { TELEGRAM_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
 import { type AuthState, DashboardAuthContext } from './auth-context';
 import styles from './dashboard.module.css';
+
+import { probeSession } from './session';
 
 const TOKEN_KEY = 'suwappu_dashboard_token';
 
@@ -31,14 +33,10 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
       return;
     }
     setErr(null);
-    fetch(`${API_BASE_URL}/enterprise/orgs/me`, {
-      headers: { Authorization: `Bearer ${t}` },
-    })
-      .then((r) => {
-        if (r.status === 401 || r.status === 403) setErr('Token rejected: check it and try again.');
-        else onToken(t);
-      })
-      .catch(() => onToken(t));
+    probeSession({ headers: { Authorization: `Bearer ${t}` } }).then((ok) => {
+      if (ok) onToken(t);
+      else setErr('Token rejected: check it and try again.');
+    });
   }
 
   const destination = currentDashboardDestination();
@@ -107,13 +105,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
     let cancelled = false;
-    fetch(`${API_BASE_URL}/enterprise/orgs/me`, { credentials: 'include' })
-      .then((r) => {
-        if (!cancelled) setAuth(r.status === 401 ? { kind: 'none' } : { kind: 'cookie' });
+    // Ask only "is there a session?" — see probeSession. Anything narrower
+    // (a plan, an org) is a question for the feature that needs it, not for
+    // the door.
+    probeSession({ credentials: 'include' })
+      .then((ok) => {
+        if (!cancelled) setAuth(ok ? { kind: 'cookie' } : { kind: 'none' });
       })
-      .catch(() => { if (!cancelled) setAuth({ kind: 'none' }); })
       .finally(() => { if (!cancelled) setReady(true); });
     return () => { cancelled = true; };
+  }, []);
+
+  // Google/Telegram hand the browser back with ?auth=success&provider=… — the
+  // session now lives in the cookie, so drop the transport metadata rather
+  // than leaving it to accumulate in the address bar and in the redirect_url
+  // of any subsequent sign-in link.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('auth') && !url.searchParams.has('provider')) return;
+    url.searchParams.delete('auth');
+    url.searchParams.delete('provider');
+    window.history.replaceState(null, '', url.toString());
   }, []);
 
   const handleToken = useCallback((t: string) => {
