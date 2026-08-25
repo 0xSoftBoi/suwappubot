@@ -22,7 +22,7 @@ TOKENS = os.path.join(REPO, "packages", "design-tokens", "src", "tokens.ts")
 def _canonical_brand() -> dict:
     src = open(TOKENS).read()
     start = src.index("  brand: {")
-    block = src[start : src.index("  colors: {", start)]
+    block = src[start : src.index("  colors: {", start)]  # noqa: E203
     pairs = re.findall(r"(\w+):\s*'(#[0-9a-fA-F]{6})'", block)
     assert pairs, "designTokens.brand is missing or unparseable"
     return dict(pairs)
@@ -76,7 +76,9 @@ def test_the_canonical_type_is_geist_not_a_cursive_face():
     A cursive display face contradicts that; the previous stack survives only as
     `legacyFontFamilies` for surfaces not yet migrated."""
     src = open(TOKENS).read()
-    block = src[src.index("    fontFamilies: {") : src.index("    legacyFontFamilies: {")]
+    block = src[
+        src.index("    fontFamilies: {") : src.index("    legacyFontFamilies: {")  # noqa: E203
+    ]  # noqa: E203
     assert "Geist" in block
     assert "Pacifico" not in block, "the cursive face is still canonical"
     assert "legacyFontFamilies" in src, "the legacy stack must stay addressable for migration"

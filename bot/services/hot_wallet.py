@@ -14,9 +14,9 @@ from sqlalchemy.exc import IntegrityError
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
-from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
-from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
-from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+from bot.config.chains import apply_min_gas_price, get_chain_by_name
+from bot.config.tokens import get_token_address, NATIVE_TOKEN_ADDRESS
+from bot.utils.encryption import encrypt_private_key
 from bot.utils.envelope_crypto import (
     encrypt_private_key_v2,
     encode_for_db,
@@ -507,7 +507,7 @@ class HotWalletService:
                 {
                     "id": w.id,
                     "name": w.name,
-                    "label": w.name[len(self.INTERNAL_PREFIX) :],
+                    "label": w.name[len(self.INTERNAL_PREFIX) :],  # noqa: E203
                     "chain_type": w.chain_type,
                     "address": w.address,
                     "purpose": w.purpose,
@@ -816,8 +816,8 @@ class HotWalletService:
                 session.query(HotWallet)
                 .filter(
                     HotWallet.chain_type == chain_type,
-                    HotWallet.is_deposit_wallet == True,
-                    HotWallet.is_active == True,
+                    HotWallet.is_deposit_wallet == True,  # noqa: E712
+                    HotWallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -829,8 +829,8 @@ class HotWalletService:
                 session.query(HotWallet)
                 .filter(
                     HotWallet.chain_type == chain_type,
-                    HotWallet.is_gas_payer == True,
-                    HotWallet.is_active == True,
+                    HotWallet.is_gas_payer == True,  # noqa: E712
+                    HotWallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -1553,7 +1553,6 @@ class HotWalletService:
             TransferCheckedParams,
             get_associated_token_address,
         )
-        from spl.token.async_client import AsyncToken
 
         # Get Solana RPC URL
         rpc_url = getattr(settings, "solana_rpc_url", None)

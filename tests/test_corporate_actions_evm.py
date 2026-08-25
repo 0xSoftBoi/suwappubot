@@ -44,7 +44,7 @@ def env():
 
     args = json.load(open(os.path.join(REPO, "nft", "position-cards", "deploy_args.json")))
     stock = deploy("MockStockToken")
-    feed = deploy("MockEthUsdFeed", ETH_USD)
+    feed = deploy("MockEthUsdFeed", ETH_USD)  # noqa: F841
     equity_feed = deploy("MockEthUsdFeed", 100_00000000)  # $100 a share
 
     # the collection's ticker 0 points at our mock licensed stock token
@@ -234,7 +234,11 @@ def test_the_position_struct_still_packs_into_one_slot():
     """The widening must not have quietly cost a storage slot: 8 + 96 + 40 + 16
     + 96 = 256 bits exactly."""
     src = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
-    struct = src[src.index("struct Position {") : src.index("}", src.index("struct Position {"))]
+    struct = src[
+        src.index("struct Position {") : src.index(  # noqa: E203
+            "}", src.index("struct Position {")
+        )  # noqa: E203
+    ]  # noqa: E203
     bits = sum(int(w) for w in __import__("re").findall(r"uint(\d+)\s+\w+;", struct))
     assert bits == 256, f"Position is {bits} bits — no longer one slot"
 

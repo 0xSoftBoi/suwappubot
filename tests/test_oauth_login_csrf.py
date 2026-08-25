@@ -15,14 +15,13 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
 
-import pytest
-from fastapi import HTTPException
-from starlette.responses import RedirectResponse
+import pytest  # noqa: E402
+from starlette.responses import RedirectResponse  # noqa: E402
 
-import api.routes.oauth as oauth
+import api.routes.oauth as oauth  # noqa: E402
 
 
 def _db_returning(state_obj):

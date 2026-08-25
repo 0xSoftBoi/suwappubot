@@ -7,13 +7,10 @@ Uses uint128 amounts (not uint256).
 
 import asyncio
 import logging
-import random
 from dataclasses import dataclass
-from typing import Optional
 
 from web3 import Web3
 
-from bot.config.settings import settings
 from bot.config.tokens import get_token_address, TOKENS
 from bot.services.layerzero_api import ERC20_APPROVE_ABI
 

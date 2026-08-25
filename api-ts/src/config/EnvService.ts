@@ -103,6 +103,14 @@ export const EnvSchema = Schema.Struct({
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Comma-separated agent UUIDs (agents.uuid) exempted from metering for
+	// quote-class reads ONLY (see middleware/x402Payment.ts's chargeAgentForCall).
+	// Purpose-built for the showcase homepage's live-quote widget, which
+	// authenticates as a server-side proxy key whose prepaid credits kept
+	// draining and going dark. Deliberately NOT a general bypass tier: swap
+	// prep/execution and every other resource for these agents stay fully
+	// metered. Unset = no exemptions, existing behavior unchanged.
+	DEMO_UNMETERED_AGENT_IDS: Schema.optional(Schema.String),
 	// Require a server-issued step-up challenge (approval_step_up_challenges)
 	// to be presented and consumed before an owner's approve decision is
 	// honored. Default OFF so existing owner approve flows are unaffected.

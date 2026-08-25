@@ -17,15 +17,15 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch  # noqa: E402
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from api.webapp import router, get_telegram_user, TelegramUser
-from bot.config.tokens import TOKENS
-from database.db import get_session, init_db
-from bot.models.user import User, Wallet
+from api.webapp import router, get_telegram_user, TelegramUser  # noqa: E402
+from bot.config.tokens import TOKENS  # noqa: E402
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
 
 
 def app_client():

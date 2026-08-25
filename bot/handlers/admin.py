@@ -1,9 +1,8 @@
 """Admin commands for monitoring and management."""
 
 import asyncio
-import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler
 
 from bot.config.settings import settings
 from bot.config.chains import CHAINS, ChainType
@@ -187,7 +186,7 @@ def _get_database_stats() -> dict:
     """Get database statistics."""
     with get_session() as session:
         users = session.query(User).count()
-        wallets = session.query(Wallet).filter(Wallet.is_active == True).count()
+        wallets = session.query(Wallet).filter(Wallet.is_active == True).count()  # noqa: E712
         swaps = session.query(SwapTransaction).count()
         completed = (
             session.query(SwapTransaction)

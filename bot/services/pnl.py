@@ -8,7 +8,6 @@ from collections import defaultdict
 
 from bot.models.swap import SwapTransaction
 from bot.models.advanced import UserStats, PortfolioSnapshot
-from bot.models.user import User
 from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
 from bot.config.tokens import get_token_decimals

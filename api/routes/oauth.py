@@ -375,7 +375,7 @@ async def oauth_callback(
     )
 
     if not oauth_identity:
-        is_new_user = True
+        is_new_user = True  # noqa: F841
         user, oauth_identity = await _create_oauth_user(
             db=db,
             user_info=user_info,
@@ -406,7 +406,7 @@ async def oauth_callback(
         db.query(Wallet)
         .filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         .order_by(Wallet.is_default.desc(), Wallet.id.asc())
         .first()

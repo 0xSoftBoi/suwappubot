@@ -105,7 +105,7 @@ def test_positions_mint_gas_within_ceilings(w3):
     tokens = list(args["tokens"])
     tokens[0] = stock.address
     pos = _deploy(w3, art, "SuwappuPositions", args["caps"], tokens, "https://x/", owner)
-    feed = _deploy(w3, art, "MockEthUsdFeed", 2000_00000000)
+    feed = _deploy(w3, art, "MockEthUsdFeed", 2000_00000000)  # noqa: F841
     oracle = _deploy(w3, art, "RobinhoodChainlinkOracle", owner)
     oracle.functions.setFeeds([stock.address], [equity_feed.address]).transact({"from": owner})
     pos.functions.sealRegistry().transact({"from": owner})

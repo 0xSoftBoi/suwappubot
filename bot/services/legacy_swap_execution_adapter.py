@@ -82,11 +82,11 @@ def _status_path(current: ParentState, target: ParentState) -> list[ParentState]
         start = _FORWARD_PATH.index(current)
         end = _FORWARD_PATH.index(target)
         if end >= start:
-            return _FORWARD_PATH[start + 1 : end + 1]
+            return _FORWARD_PATH[start + 1 : end + 1]  # noqa: E203
 
     if target == ParentState.RECONCILING and current in _FORWARD_PATH:
         start = _FORWARD_PATH.index(current)
-        through_active = _FORWARD_PATH[start + 1 :]
+        through_active = _FORWARD_PATH[start + 1 :]  # noqa: E203
         return through_active + [ParentState.RECONCILING]
 
     if target in {ParentState.CANCELLED, ParentState.FAILED}:

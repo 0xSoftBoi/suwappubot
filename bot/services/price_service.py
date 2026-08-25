@@ -1,10 +1,9 @@
 """Price fetching service using CoinGecko and caching."""
 
-import asyncio
 import aiohttp
 from typing import Optional
 
-from bot.utils.cache import price_cache, cached
+from bot.utils.cache import price_cache
 from bot.utils.retry import async_retry
 from bot.utils.rate_limiter import api_limiter
 from bot.utils.performance import track_time, MetricNames

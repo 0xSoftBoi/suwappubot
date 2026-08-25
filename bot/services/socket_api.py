@@ -12,10 +12,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 
-from web3 import Web3
 
 from bot.config.settings import settings
-from bot.config.chains import get_chain_by_name, CHAINS
 from bot.utils.http_client import get_session, with_retry
 from bot.utils.rate_limiter import api_limiter
 

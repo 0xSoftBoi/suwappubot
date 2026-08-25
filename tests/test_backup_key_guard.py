@@ -6,10 +6,10 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.wallet import _BackupKeyAccessGuard, _key_fingerprint
-from bot.utils.rate_limiter import RateLimitExceeded
+from bot.services.wallet import _BackupKeyAccessGuard, _key_fingerprint  # noqa: E402
+from bot.utils.rate_limiter import RateLimitExceeded  # noqa: E402
 
 
 def test_allows_up_to_burst_then_blocks():

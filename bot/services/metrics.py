@@ -2,13 +2,13 @@
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional
+from typing import List
 from decimal import Decimal
 from collections import defaultdict
 
 from bot.models.user import User
 from bot.models.swap import SwapTransaction
-from bot.models.custodial import CustodialBalance, CustodialTransaction, HotWallet
+from bot.models.custodial import CustodialBalance, HotWallet
 from bot.models.fees import FeeTransaction
 from database.db import get_session
 
@@ -99,7 +99,6 @@ class MetricsService:
                     volume_by_day[day] += amount
                 except (ValueError, TypeError, AttributeError) as e:
                     logger.warning(f"Error parsing volume for tx {getattr(tx, 'id', '?')}: {e}")
-                    pass
 
             return {
                 "total_volume": float(total_volume),
@@ -146,7 +145,6 @@ class MetricsService:
                         pending += amount
                 except (ValueError, TypeError, AttributeError) as e:
                     logger.warning(f"Error parsing fee for fee {getattr(fee, 'id', '?')}: {e}")
-                    pass
 
             return {
                 "total_collected": float(total_collected),

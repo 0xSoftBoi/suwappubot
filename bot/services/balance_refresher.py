@@ -231,7 +231,7 @@ class BalanceRefresher:
             wallets = (
                 session.query(Wallet.address, Wallet.chain_type)
                 .filter(
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .all()
             )
@@ -252,7 +252,7 @@ class BalanceRefresher:
         for i in range(0, len(targets), BATCH_SIZE):
             if not self._running:
                 return
-            batch = targets[i : i + BATCH_SIZE]
+            batch = targets[i : i + BATCH_SIZE]  # noqa: E203
             tasks = [
                 asyncio.create_task(self._safe_refresh(address, chain_type))
                 for address, chain_type in batch

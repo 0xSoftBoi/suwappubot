@@ -40,7 +40,6 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from bot.config.xstocks import (
     XSTOCKS_BLOCKED_REGION_NAMES,
-    XSTOCKS_BLOCKED_REGIONS,
     get_all_xstocks,
     get_xstock,
     xstocks_region_allowed,

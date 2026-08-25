@@ -148,7 +148,7 @@ def _extract_chain_suffix(text: str) -> tuple:
     if not m:
         return text, None
     chain_raw = m.group(1)
-    remaining = (text[: m.start()] + " " + text[m.end() :]).strip()
+    remaining = (text[: m.start()] + " " + text[m.end() :]).strip()  # noqa: E203
     remaining = re.sub(r"\s+", " ", remaining)
     return remaining, chain_raw
 
@@ -209,7 +209,7 @@ def _split_on_connector(tokens: list) -> Optional[tuple]:
     connectors = {"to", "for", "into", "->", "por", "hacia", "vers", "换成"}
     for i, t in enumerate(tokens):
         if t in connectors:
-            return tokens[:i], tokens[i + 1 :]
+            return tokens[:i], tokens[i + 1 :]  # noqa: E203
     return None
 
 
@@ -275,7 +275,7 @@ def _parse_buy(tokens: list, chain: Optional[str]) -> Optional[TradeIntent]:
     if "with" in rest:
         idx = rest.index("with")
         token_out_raw = rest[0] if idx > 0 else None
-        with_rest = rest[idx + 1 :]
+        with_rest = rest[idx + 1 :]  # noqa: E203
         if with_rest:
             token_in_raw = with_rest[0]
         if token_out_raw is None:

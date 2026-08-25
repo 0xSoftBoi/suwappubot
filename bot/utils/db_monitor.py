@@ -2,7 +2,6 @@
 
 import time
 import logging
-from typing import Callable
 from contextlib import contextmanager
 
 from sqlalchemy import event

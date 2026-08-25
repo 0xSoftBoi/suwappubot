@@ -14,7 +14,6 @@ from bot.models.user import User
 from bot.models.advanced import AdvancedPriceAlert as PriceAlert, AlertType
 from bot.services.alerts import alert_service
 from bot.services.price_service import price_service
-from bot.utils.formatters import format_usd
 from bot.utils.telegram_safe import safe_md
 from database.db import get_session
 
@@ -194,7 +193,7 @@ async def alert_enter_price(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         condition = f"±{value}%"
     else:
-        alert = alert_service.create_alert(
+        alert = alert_service.create_alert(  # noqa: F841
             user_id=user_id,
             token_symbol=token,
             alert_type=alert_type,

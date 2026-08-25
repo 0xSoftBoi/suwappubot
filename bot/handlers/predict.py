@@ -201,7 +201,7 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             .filter(
                 Wallet.user_id == db_user.id,
                 Wallet.chain_type == "evm",
-                Wallet.is_default == True,
+                Wallet.is_default == True,  # noqa: E712
             )
             .first()
         )
@@ -478,7 +478,7 @@ async def market_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     # Fetch orderbook for YES token
     yes_token = _get_yes_token(market)
-    no_token = _get_no_token(market)
+    no_token = _get_no_token(market)  # noqa: F841
 
     orderbook_text = ""
     if yes_token:
@@ -931,7 +931,7 @@ async def confirm_order_callback(update: Update, context: ContextTypes.DEFAULT_T
                 session.commit()
 
         await query.edit_message_text(
-            f"*Order Failed*\n\n" f"An unexpected error occurred. Please try again.",
+            "*Order Failed*\n\n" "An unexpected error occurred. Please try again.",
             parse_mode="Markdown",
         )
 
@@ -956,7 +956,7 @@ async def positions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             .filter(
                 PredictionPosition.user_id == user_id,
                 PredictionPosition.total_shares > 0,
-                PredictionPosition.is_resolved == False,
+                PredictionPosition.is_resolved == False,  # noqa: E712
             )
             .order_by(PredictionPosition.created_at.desc())
             .limit(10)
@@ -1217,7 +1217,7 @@ async def confirm_sell_callback(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Sell position error: {e}")
         await query.edit_message_text(
-            f"*Sell Failed*\n\n" f"An unexpected error occurred.",
+            "*Sell Failed*\n\n" "An unexpected error occurred.",
             parse_mode="Markdown",
         )
 
@@ -1315,9 +1315,9 @@ async def confirm_redeem_callback(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
 
     await query.edit_message_text(
-        f"*Redeeming...*\n\n"
-        f"Sending the on-chain redeem transaction on Polygon.\n"
-        f"Please wait — this can take up to a couple of minutes.",
+        "*Redeeming...*\n\n"
+        "Sending the on-chain redeem transaction on Polygon.\n"
+        "Please wait — this can take up to a couple of minutes.",
         parse_mode="Markdown",
     )
 

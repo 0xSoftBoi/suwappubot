@@ -19,10 +19,10 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import sys
+import sys  # noqa: E402
 
-from bot.config.settings import settings
-from bot.services.compliance.flashbots_relay import FlashbotsRelay, _parse_chain_ids
+from bot.config.settings import settings  # noqa: E402
+from bot.services.compliance.flashbots_relay import FlashbotsRelay, _parse_chain_ids  # noqa: E402
 
 # The package re-exports a singleton named ``flashbots_relay`` which shadows the
 # submodule attribute, so resolve the real module object via sys.modules to

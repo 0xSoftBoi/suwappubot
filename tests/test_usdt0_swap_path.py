@@ -25,8 +25,8 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.bridge.base import BridgeQuote
-from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
+from bot.services.bridge.base import BridgeQuote  # noqa: E402
+from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote  # noqa: E402
 
 SENDER = "0x1111111111111111111111111111111111111111"
 OFT = "0x14E4A1B13bf7F943c8ff7C51fb60FA964A298D92"

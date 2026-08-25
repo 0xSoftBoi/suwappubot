@@ -12,8 +12,7 @@ Usage::
 
 import os
 import asyncio
-from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -47,7 +46,7 @@ def event_loop_policy():
 @pytest.fixture()
 def tmp_db(tmp_path):
     """Isolated SQLite database for each test, cleaned up afterwards."""
-    from database.db import init_db, SessionLocal
+    from database.db import init_db
 
     url = f"sqlite:///{tmp_path / 'test.db'}"
     assert init_db(url), "DB init failed"

@@ -33,11 +33,8 @@ from telegram.ext import (
     CommandHandler,
     ConversationHandler,
     ContextTypes,
-    MessageHandler,
-    filters,
 )
 
-from bot.config.settings import settings
 from bot.models.user import User
 from bot.services.giftcard_api import (
     GiftCardUnavailableError,
@@ -188,7 +185,7 @@ async def _show_brand_picker(
 
     # Build button rows (2 per row).
     buttons = [InlineKeyboardButton(p.name, callback_data=f"gift_brand_{p.id}") for p in products]
-    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]  # noqa: E203
     rows.append([InlineKeyboardButton("Cancel", callback_data="gift_cancel")])
 
     text = "Select a gift card brand:"
@@ -208,7 +205,7 @@ async def gift_brand_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
 
     # Extract product_id from callback data, e.g. "gift_brand_amazon-us" -> "amazon-us"
-    product_id = query.data[len("gift_brand_") :]
+    product_id = query.data[len("gift_brand_") :]  # noqa: E203
     context.user_data["gift_product_id"] = product_id
 
     # Fetch product details to show denominations.
@@ -231,7 +228,7 @@ async def gift_brand_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Build value buttons from product denominations or presets.
     values = product.denominations or _PRESET_VALUES
     buttons = [InlineKeyboardButton(f"${v}", callback_data=f"gift_value_{v}") for v in values]
-    rows = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]
+    rows = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]  # noqa: E203
     rows.append([InlineKeyboardButton("« Back", callback_data="gift_back_brands")])
     rows.append([InlineKeyboardButton("Cancel", callback_data="gift_cancel")])
 
@@ -252,7 +249,7 @@ async def gift_value_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
-    raw_value = query.data[len("gift_value_") :]
+    raw_value = query.data[len("gift_value_") :]  # noqa: E203
     try:
         value = float(raw_value)
     except ValueError:

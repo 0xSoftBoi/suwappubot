@@ -43,7 +43,6 @@ from .subscription import (
     X402Payment,
     PaymentStatus,
     APICredit,
-    APICredit,
 )
 from .predict import PredictionOrder, PredictionPosition
 from .p2p import (

@@ -33,9 +33,9 @@ def derive_ws_url(rpc_url: Optional[str]) -> Optional[str]:
     if rpc_url.startswith("wss://") or rpc_url.startswith("ws://"):
         return rpc_url
     if rpc_url.startswith("https://"):
-        return "wss://" + rpc_url[len("https://") :]
+        return "wss://" + rpc_url[len("https://") :]  # noqa: E203
     if rpc_url.startswith("http://"):
-        return "ws://" + rpc_url[len("http://") :]
+        return "ws://" + rpc_url[len("http://") :]  # noqa: E203
     return None
 
 

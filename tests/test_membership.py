@@ -113,7 +113,7 @@ def test_tier_index_map_covers_the_contract_enum():
 def test_best_tier_only_ever_raises():
     from bot.services.membership_service import membership_service as m
 
-    F, P, PR, E = (
+    F, P, PR, E = (  # noqa: F841
         SubscriptionTier.FREE,
         SubscriptionTier.PRO,
         SubscriptionTier.PREMIUM,
@@ -442,7 +442,7 @@ def test_bindwallet_does_not_hold_a_db_session_across_an_await():
     a full network round-trip. The DB work runs in one short transaction off the
     await path instead."""
     src = open(os.path.join(REPO, "bot", "handlers", "bindwallet.py")).read()
-    bind_block = src[src.index("def _bind()") : src.index("await run_in_db(_bind)")]
+    bind_block = src[src.index("def _bind()") : src.index("await run_in_db(_bind)")]  # noqa: E203
     assert "await " not in bind_block, "the bind transaction must not await"
     assert "run_in_db(_bind)" in src
     # no `with get_session()` may contain an await anywhere in this handler
@@ -494,7 +494,6 @@ def test_registering_robinhood_does_not_disturb_other_chains():
     """_load_configured_endpoints is chain-wide. Adding an entry to its extras
     list must be strictly additive — verified by building the endpoint table with
     and without `robinhood` and diffing every chain."""
-    import re
 
     import bot.services.rpc_manager as rm
     from bot.services.rpc_manager import RPCManager

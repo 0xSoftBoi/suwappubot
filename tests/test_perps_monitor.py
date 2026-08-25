@@ -12,7 +12,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.perps_monitor import PerpsMonitor
+from bot.services.perps_monitor import PerpsMonitor  # noqa: E402
 
 
 def test_start_runs_loop_then_stops(monkeypatch):

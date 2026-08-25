@@ -23,6 +23,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
 
+_inserted_stub_names = []
+
+
 def _install_stub(name):
     if name in sys.modules:
         return
@@ -36,6 +39,7 @@ def _install_stub(name):
     m = _Stub(name)
     m.__path__ = []
     sys.modules[name] = m
+    _inserted_stub_names.append(name)
 
 
 for _n in (
@@ -55,6 +59,13 @@ _PATH = pathlib.Path(__file__).resolve().parents[1] / "bot" / "handlers" / "cust
 _spec = importlib.util.spec_from_file_location("custodial_under_test", _PATH)
 custodial = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(custodial)
+
+# These stubs are only needed for the exec_module() call above. Leaving them
+# in sys.modules leaks a fake "PIL"/"PIL.Image" into every other test file
+# collected in the same pytest process (e.g. tests/test_chart_render.py,
+# which needs the real Pillow Image.new) — pop them back out now.
+for _n in _inserted_stub_names:
+    sys.modules.pop(_n, None)
 
 END = custodial.ConversationHandler.END
 VALID_ADDR = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"  # valid EIP-55 checksum, len 42

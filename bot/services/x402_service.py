@@ -1,13 +1,11 @@
 """x402 Protocol Service for token-gated subscriptions and payments."""
 
 import logging
-import hashlib
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from enum import Enum
 from decimal import Decimal
 
 from web3 import Web3
@@ -28,7 +26,7 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-import os as _os
+import os as _os  # noqa: E402
 
 
 def _load_beta_passwords() -> dict:

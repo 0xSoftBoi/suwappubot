@@ -441,7 +441,7 @@ class PerpsFlow(BaseWhatsAppFlow):
                 {
                     "id": f"perp_asset_{asset}",
                     "title": asset,
-                    "description": f"Perpetual contract",
+                    "description": "Perpetual contract",
                 }
             )
 

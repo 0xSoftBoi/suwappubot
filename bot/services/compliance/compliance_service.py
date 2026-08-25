@@ -55,7 +55,6 @@ from bot.services.compliance.ofac_list import (
     load_ofac_addresses,
     ofac_list,
     _is_evm_address,
-    _is_solana_address,
     _is_tron_address,
     _is_screenable_address,
     _tron_canonical,

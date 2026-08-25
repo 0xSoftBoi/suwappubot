@@ -143,7 +143,7 @@ def test_attacker_domain_still_rejected():
 # from the logs at all.
 # --------------------------------------------------------------------------
 
-from bot.services.rpc_manager import RPCEndpoint, RPCTier, _safe_url
+from bot.services.rpc_manager import RPCEndpoint, RPCTier, _safe_url  # noqa: E402
 
 
 def _endpoint(url="https://polygon.meowrpc.com"):

@@ -15,10 +15,10 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from database.db import get_session, init_db
-from bot.models.user import User, Wallet
-from bot.services.api_client import api_client
-import bot.handlers.smart_account as sa
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.services.api_client import api_client  # noqa: E402
+import bot.handlers.smart_account as sa  # noqa: E402
 
 SA_ADDR = "0x35b96a60a485Ae03226b37B73bBA1eeaC827abC4"
 OWNER = "0x6456f69215C470e1545Ed6eea4621C136B30D85d"

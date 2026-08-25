@@ -1,12 +1,10 @@
 """Prediction market models for Polymarket integration."""
 
-from datetime import datetime
 from sqlalchemy import (
     Column,
     Integer,
     BigInteger,
     String,
-    Float,
     Boolean,
     DateTime,
     ForeignKey,

@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.token_security.honeypot_detector import honeypot_detector
 from bot.services.token_security.authority_checker import authority_checker
@@ -197,7 +196,7 @@ class TokenAnalyzer:
                 return report
 
         report = TokenSafetyReport(token_mint=token_mint, chain=chain)
-        risk_factors = []
+        risk_factors = []  # noqa: F841
 
         try:
             # Run checks in parallel
@@ -489,7 +488,7 @@ class TokenAnalyzer:
                                 score_impact=15,
                             )
                         )
-                        report.warnings.append(f"Suspicious name pattern detected")
+                        report.warnings.append("Suspicious name pattern detected")
                         break
 
                 # Check socials

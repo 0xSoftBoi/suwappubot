@@ -10,7 +10,7 @@ Suwappu Competitive Pricing (Option B Hybrid):
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple
 from decimal import Decimal, ROUND_DOWN
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -136,7 +136,7 @@ class FeeService:
                     session.query(Referral)
                     .filter(
                         Referral.referee_id == user_id,
-                        Referral.is_active == True,
+                        Referral.is_active == True,  # noqa: E712
                         Referral.referee_swap_rebate_remaining > 0,
                     )
                     .first()
@@ -531,7 +531,7 @@ class FeeService:
             session.add(fee_tx)
             session.flush()
 
-            fee_id = fee_tx.id
+            fee_id = fee_tx.id  # noqa: F841
 
         logger.info(
             f"Recorded fee: ${fee_amount_usd:.2f} ({resolved_fee_amount} {resolved_token}) "
@@ -597,7 +597,7 @@ class FeeService:
                     func.sum(FeeTransaction.fee_amount_usd).label("total_usd"),
                     func.count(FeeTransaction.id).label("tx_count"),
                 )
-                .filter(FeeTransaction.collected == False)
+                .filter(FeeTransaction.collected == False)  # noqa: E712
                 .group_by(FeeTransaction.chain, FeeTransaction.token_symbol)
                 .all()
             )
@@ -657,7 +657,7 @@ class FeeService:
                     session.query(FeeTransaction).filter(
                         FeeTransaction.chain == chain,
                         FeeTransaction.token_symbol == token,
-                        FeeTransaction.collected == False,
+                        FeeTransaction.collected == False,  # noqa: E712
                     ).update({"collected": True})
 
                 results.append(

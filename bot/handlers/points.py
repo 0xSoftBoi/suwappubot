@@ -14,7 +14,6 @@ from telegram.ext import (
     ContextTypes,
     CommandHandler,
     CallbackQueryHandler,
-    ConversationHandler,
 )
 
 from bot.services.points_service import points_service
@@ -181,7 +180,7 @@ async def checkin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Refresh stats display
     msg = points_service.format_stats_message(user_id)
 
-    level_up_msg = ""
+    level_up_msg = ""  # noqa: F841
     if new_level:
         level_info = LEVELS.get(new_level, {})
         msg += (
@@ -287,7 +286,7 @@ async def rewards_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(f"{r['emoji']} {r['cost']}", callback_data=f"xp_redeem_{r['id']}")
         )
 
-    keyboard_rows = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]
+    keyboard_rows = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]  # noqa: E203
     keyboard_rows.append([InlineKeyboardButton("📊 My Stats", callback_data="xp_stats")])
 
     await update.message.reply_text(
@@ -339,7 +338,7 @@ async def rewards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(f"{r['emoji']} {r['cost']}", callback_data=f"xp_redeem_{r['id']}")
         )
 
-    keyboard_rows = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]
+    keyboard_rows = [buttons[i : i + 3] for i in range(0, len(buttons), 3)]  # noqa: E203
     keyboard_rows.append([InlineKeyboardButton("📊 My Stats", callback_data="xp_stats")])
 
     await query.edit_message_text(

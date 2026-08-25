@@ -10,7 +10,6 @@ import importlib.util
 import inspect
 import re
 import sys
-import types
 from pathlib import Path
 
 _HANDLERS_DIR = Path(__file__).resolve().parent.parent / "bot" / "handlers"

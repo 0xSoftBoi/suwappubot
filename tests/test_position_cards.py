@@ -345,7 +345,7 @@ def test_oracle_does_not_double_apply_the_multiplier():
     start = src.index("function priceOf(")
     # priceOf only — multiplierOf now sits between it and debugPrice, so slicing
     # to debugPrice would swallow the very function this is allowed to have.
-    body = src[start : src.index("\n    function ", start + 10)]
+    body = src[start : src.index("\n    function ", start + 10)]  # noqa: E203
     assert "uiMultiplier" not in body, "priceOf must not touch the multiplier"
     assert "multiplierOf" not in body, "priceOf must not touch the multiplier"
     # ...and it is still available to callers that need the basis, not the price
@@ -1227,7 +1227,7 @@ def test_the_plate_uses_the_real_brand_tokens_and_cannot_drift():
     cfg = render.load_config()
     tokens = open(os.path.join(REPO, "packages", "design-tokens", "src", "tokens.ts")).read()
     start = tokens.index("  brand: {")
-    block = tokens[start : tokens.index("  colors: {", start)]
+    block = tokens[start : tokens.index("  colors: {", start)]  # noqa: E203
     live = dict(re.findall(r"(\w+):\s*'(#[0-9a-fA-F]{6})'", block))
     assert live, "could not read the canonical brand"
     camel = {
@@ -1291,7 +1291,7 @@ def test_the_palette_has_exactly_one_implementation():
     the quality gate was measuring colours the renderer had stopped using."""
     src = open(os.path.join(REPO, "nft", "position-cards", "render.py")).read()
     assert src.count("def palette(") == 1
-    body = src[src.index("def card_traits(") : src.index("def render_card(")]
+    body = src[src.index("def card_traits(") : src.index("def render_card(")]  # noqa: E203
     assert "palette(cfg," in body, "card_traits does not use the shared palette"
-    rc = src[src.index("def render_card(") :]
+    rc = src[src.index("def render_card(") :]  # noqa: E203
     assert "palette(cfg," in rc, "render_card does not use the shared palette"

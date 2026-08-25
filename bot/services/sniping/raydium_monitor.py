@@ -17,16 +17,13 @@ Key events to snipe:
 
 import logging
 import asyncio
-import json
 import base64
-from typing import Optional, Dict, Any, List, Callable, Tuple
+from typing import Optional, Dict, List, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
-from solders.pubkey import Pubkey
 
-from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
@@ -378,7 +375,7 @@ class RaydiumMonitor:
             # Look for pool initialization instruction
             message = tx_data.get("transaction", {}).get("message", {})
             instructions = message.get("instructions", [])
-            inner_instructions = meta.get("innerInstructions", [])
+            inner_instructions = meta.get("innerInstructions", [])  # noqa: F841
 
             # Find Raydium AMM initialize instruction
             for ix in instructions:
@@ -409,7 +406,7 @@ class RaydiumMonitor:
                         continue
 
                     # Get initial amounts from token balance changes
-                    pre_balances = meta.get("preTokenBalances", [])
+                    pre_balances = meta.get("preTokenBalances", [])  # noqa: F841
                     post_balances = meta.get("postTokenBalances", [])
 
                     initial_base = 0
