@@ -16,10 +16,13 @@ import { startAmbient, type AmbientHandle } from '@/lib/ambientEngine';
  * and the measurements behind each number):
  *  - a seamless loop: the cut point was found by searching every frame pair in
  *    the source for the tightest colour match, then dissolved over 0.5s
- *  - H.264 only. WebM was measured on this footage and lost, and H.264 has
- *    universal hardware decode, which matters for a video that loops forever
- *    in the background of somebody's phone.
- *  - 1080p (1.3 MB) for tablet-and-up, 720p (476 KB) for phones
+ *  - H.264 only. WebM and (later) AV1 were both measured on this footage and
+ *    both lost, and H.264 has universal hardware decode, which matters for a
+ *    video that loops forever in the background of somebody's phone.
+ *  - 1080p (4.3 MB) for desktop, 720p (1.8 MB) for phones and tablets. Both
+ *    got noticeably bigger when the encode was rebuilt: site.css had dropped
+ *    the darkening that used to hide CRF 39's compression, which left the sun
+ *    glitter visibly clumped. See scripts/encode-ocean.sh.
  *  - a WebP poster of the loop's OPENING frame, so the poster-to-video handoff
  *    has nothing to flash between
  */
@@ -48,7 +51,10 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
       .connection;
     if (connection?.saveData) return;
     if (/(^|\b)(slow-2g|2g|3g)\b/.test(connection?.effectiveType ?? '')) return;
-    setVariant(window.innerWidth >= 700 ? '1080' : '720');
+    // 1000, not 700. The 1080p file is 4.3 MB against 720p's 1.8 MB, so the
+    // cutoff sits above tablet width rather than just above phone width: a
+    // tablet cannot resolve the difference but does pay the whole download.
+    setVariant(window.innerWidth >= 1000 ? '1080' : '720');
   }, []);
 
   // Don't animate or synthesize for a tab nobody is looking at.

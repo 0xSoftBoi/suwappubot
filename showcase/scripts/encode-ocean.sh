@@ -36,18 +36,37 @@
 #    3800 was tested and goes sepia: the water stops reading as water.
 # 4. Denoise + CRF. Sun glitter on open water is about the most expensive
 #    thing there is to encode: every frame is full of moving high-frequency
-#    speckle. hqdn3d plus CRF 39 takes 1080p from 4.1 MB to ~1.4 MB, and under
-#    the production colour treatment (brightness 0.7, scrim, grain, vignette)
-#    the difference is not visible. Both were rendered through that treatment
-#    and compared before this number was chosen.
+#    speckle.
 #
-# H.264 ONLY, DELIBERATELY. An earlier revision also shipped VP9/WebM on the
-# usual "modern codec is smaller" reasoning. Measured on THIS footage it was
-# not: VP9 needed so high a CRF to match H.264's size that it lost its quality
-# edge, and matching quality cost 5.7 MB against H.264's 4.1 MB. So WebM would
-# have doubled the committed bytes to serve a worse file to some browsers.
-# H.264 also has universal hardware decode, which matters for a video that
-# loops forever in the background of a phone. Re-measure before re-adding it.
+#    This used to be hqdn3d=6:5:8:6 at CRF 39 (~1.4 MB), justified by "under
+#    the production colour treatment (brightness 0.7, scrim, grain, vignette)
+#    the difference is not visible". THAT JUSTIFICATION EXPIRED. site.css has
+#    since dropped the video to brightness(0.92), deleted the vignette, and
+#    replaced the flat scrim with a mask — see the "Was brightness(0.7):
+#    crushed" comment there. The heavy darkening that was hiding the
+#    compression is gone, so at 1:1 the glitter had clumped into visible waxy
+#    blobs on the brightest, most-looked-at part of the frame.
+#
+#    Re-measured at the CURRENT grade. The knee is CRF 34 with a LIGHTER
+#    denoise: the old 6:5:8:6 was itself smearing the sparkle before x264 ever
+#    saw it, and dropping to 4:3:6:6 is what buys back the individual glints.
+#    Sizes on this clip: CRF 39/dn6 1.3 MB (smeared), CRF 34/dn4 4.2 MB,
+#    CRF 30/dn4 8.8 MB, CRF 24/dn2 20.8 MB. CRF 34 sits right where the
+#    returns flatten — side by side with CRF 24 it is very hard to separate,
+#    and it stays inside the ~5 MB a hero background loop should cost.
+#    -tune film + aq-mode=3 both matter here: they bias x264 toward keeping
+#    fine texture instead of flattening the water into plastic.
+#
+# H.264 ONLY, DELIBERATELY, AND RE-CONFIRMED. An earlier revision shipped
+# VP9/WebM on the usual "modern codec is smaller" reasoning and measured that
+# it lost on THIS footage. That has now been re-tested against AV1 (SVT-AV1
+# preset 6) at the new quality target, and AV1 loses too: size-matched at
+# ~4 MB, libsvtav1 CRF 53 is visibly softer than x264 CRF 34 — the glints
+# smear and the dark water loses definition. To merely match x264's quality
+# AV1 needed ~7.5 MB. Dense high-frequency speckle is the one content type
+# where AV1's advantages do not show up. H.264 also has universal hardware
+# decode, which matters for a video that loops forever in the background of
+# somebody's phone. Re-measure before adding a second codec.
 #
 # fps is deliberately left at the source's 25: resampling to 24 saves ~4% and
 # risks judder, which is a bad trade.
@@ -76,18 +95,19 @@ LOOP="[0]split[a][b];\
 [a]trim=start=8.5:end=20,setpts=PTS-STARTPTS[body];\
 [b]trim=start=8:end=8.5,setpts=PTS-STARTPTS[pre];\
 [body][pre]xfade=transition=fade:duration=0.5:offset=11[lp]"
-POST="colortemperature=temperature=4400,hqdn3d=6:5:8:6"
+POST="colortemperature=temperature=4400,hqdn3d=4:3:6:6"
 
 encode () {
   local H=$1 CRF=$2
   echo "→ ${H}p"
   ffmpeg -y -v error -i "$SRC" -filter_complex "$LOOP;[lp]$POST,scale=-2:$H[v]" -map "[v]" -an \
-    -c:v libx264 -crf "$CRF" -preset slow -profile:v high -pix_fmt yuv420p \
+    -c:v libx264 -crf "$CRF" -preset slow -tune film -profile:v high -pix_fmt yuv420p \
+    -x264-params "aq-mode=3:psy-rd=1.0,0.15:ref=4:bframes=6:me=umh:subme=9" \
     -movflags +faststart "$OUT/ocean-${H}.mp4"
 }
 
-encode 1080 39
-encode 720 39
+encode 1080 34
+encode 720 34
 
 # The poster MUST be the loop's opening frame (src @8.5s) under the same grade,
 # so the handoff from poster to playing video has nothing to flash between.
