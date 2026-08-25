@@ -187,15 +187,24 @@ export default async function Home() {
               </a>
             </div>
 
-            <div className="home-hero__product">
-              <p className="home-product-label">
-                <span>{h('hero.ticketLabel')}</span>
-                <span>{h('hero.ticketStatus')}</span>
-              </p>
-              <LiveQuote variant="dark" />
-              <p className="home-product-note">{h('hero.ticketNote')}</p>
-            </div>
           </section>
+
+            {/* The hero's visual is the real trading desk, which is what every
+                comparable product leads with. It replaces the live-quote
+                widget, which moved down to the execution section: that widget
+                renders an honest "unavailable" state when the demo key has no
+                credits, and an error panel is the wrong thing to make the most
+                prominent element on the page. It still ships, still tells the
+                truth, just not as the first impression. */}
+            <div className="home-heroshot">
+              <img
+                src="/proof/spot-desk.png"
+                width={3160}
+                height={940}
+                alt={h('execution.screenshotAlt')}
+                decoding="async"
+              />
+            </div>
           </div>
 
           <section className="home-proofbar" aria-label={h('evidence.ariaLabel')}>
@@ -283,14 +292,18 @@ export default async function Home() {
                 ))}
               </div>
 
-              <ProofShot
-                src="/proof/spot-desk.png"
-                width={3160}
-                height={940}
-                alt={h('execution.screenshotAlt')}
-                caption={h('execution.screenshotCaption')}
-                mobileHint={h('proof.mobileHint')}
-              />
+              {/* The live execution ticket, moved here from the hero. This is
+                  where it belongs: the section is literally about how an
+                  intent becomes an inspectable execution. The desk screenshot
+                  it replaces now opens the page. */}
+              <div className="home-ticket">
+                <p className="home-product-label">
+                  <span>{h('hero.ticketLabel')}</span>
+                  <span>{h('hero.ticketStatus')}</span>
+                </p>
+                <LiveQuote variant="dark" />
+                <p className="home-product-note">{h('hero.ticketNote')}</p>
+              </div>
             </Reveal>
           </section>
 
