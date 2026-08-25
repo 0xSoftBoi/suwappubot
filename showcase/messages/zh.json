@@ -149,7 +149,7 @@
       "terminal": "Terminal",
       "terminalMeta": "完整交易台",
       "telegramMeta": "聊天内交易",
-      "programmatic": "REST · MCP · SDK",
+      "programmatic": "REST、MCP、SDK",
       "programmaticMeta": "程序化接口",
       "boundary": "REST 支持托管执行和未签名的自托管流程。MCP 的 execute_swap 只准备未签名交易，不会广播；A2A 仅提供发现与报价。",
       "surfacesLabel": "同时支持",

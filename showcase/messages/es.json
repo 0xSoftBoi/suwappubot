@@ -149,7 +149,7 @@
       "terminal": "Terminal",
       "terminalMeta": "Mesa de trading completa",
       "telegramMeta": "Trading desde el chat",
-      "programmatic": "REST · MCP · SDKs",
+      "programmatic": "REST, MCP, SDKs",
       "programmaticMeta": "Interfaces programáticas",
       "boundary": "REST admite ejecución gestionada y flujos de autocustodia sin firmar. execute_swap de MCP prepara una transacción sin firmar y no la transmite; A2A se limita a descubrimiento y cotización.",
       "surfacesLabel": "También disponible en",

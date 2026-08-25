@@ -287,16 +287,17 @@
   color: var(--fg);
 }
 
+/* Section headers stack: headline first, explainer under it at a 65ch
+   measure. The old two-column split (big left headline + small floating
+   right paragraph) repeated the same header family five times. */
 .home-section__head--split {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
-  align-items: end;
-  gap: clamp(2rem, 7vw, 6rem);
+  display: block;
   max-width: none;
 }
 
 .home-section__head--split > p {
-  margin: 0 0 0.3rem;
+  margin: 1.1rem 0 0;
+  max-width: 65ch;
   font-size: 0.95rem;
   line-height: 1.65;
   color: var(--fg-dim);
@@ -384,11 +385,9 @@
 
 .home-execution-extra strong {
   display: block;
-  font-family: var(--font-mono);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--fg);
 }
 
@@ -405,11 +404,8 @@
    3.58:1 on the dark band (AA fail for 10px text); --fg-dim scores 7.07:1. */
 .sw .home-surfaces-label {
   margin: 1.75rem 0 0.6rem;
-  font-family: var(--font-mono);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.85rem;
+  font-weight: 500;
   color: var(--fg-dim);
 }
 
@@ -715,11 +711,9 @@
 .home-security__facts h3,
 .home-security__facts strong {
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--fg);
 }
 

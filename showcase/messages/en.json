@@ -149,7 +149,7 @@
       "terminal": "Terminal",
       "terminalMeta": "Full trading desk",
       "telegramMeta": "Trading from chat",
-      "programmatic": "REST · MCP · SDKs",
+      "programmatic": "REST, MCP, SDKs",
       "programmaticMeta": "Programmatic interfaces",
       "boundary": "REST supports managed execution and unsigned self-custody flows. MCP’s execute_swap prepares an unsigned transaction and does not broadcast it; A2A is limited to discovery and quoting.",
       "surfacesLabel": "Also live on",
