@@ -49,6 +49,21 @@ interface Automation {
   next_run_at?: string | null;
 }
 
+type Verification =
+  | 'pending' | 'verified' | 'mismatch' | 'not_found' | 'unsupported_chain' | 'unavailable';
+
+/** What the operator is told about each verdict. 'mismatch' is deliberately
+ *  blunt: it means money left the treasury and the tokens are not where they
+ *  were supposed to go, and softening that would be doing them no favours. */
+const VERIFICATION_LABEL: Record<Verification, string> = {
+  verified: 'Confirmed on-chain',
+  mismatch: 'NOT confirmed — tokens did not reach the burn address',
+  pending: 'Awaiting confirmation',
+  not_found: 'Not found on-chain yet',
+  unavailable: 'Could not check',
+  unsupported_chain: 'No explorer for this chain',
+};
+
 interface Run {
   id: string;
   status: 'simulated' | 'succeeded' | 'failed' | 'skipped';
@@ -57,6 +72,7 @@ interface Run {
   token_amount: string | null;
   tx_hash: string | null;
   started_at: string;
+  verification?: Verification;
 }
 
 interface WebhookHealth {
@@ -798,13 +814,22 @@ function BotDetail({
         </div>
       </div>
 
+      {(bot.runs ?? []).some((r) => r.verification === 'mismatch') && (
+        <div className={styles.error}>
+          <strong>A burn did not reach the burn address.</strong> One or more runs
+          spent treasury funds but the block explorer shows no transfer of your token
+          to the burn address. Check the transaction before running this again — and
+          note this is visible on your public record.
+        </div>
+      )}
+
       {(bot.runs ?? []).length > 0 && (
         <div>
           <div className={styles.sectionTitle}>Recent runs</div>
           <div className={styles.tableWrap}>
             <table className={styles.runTable}>
               <thead>
-                <tr><th>When</th><th>Result</th><th>Spend</th><th>Detail</th></tr>
+                <tr><th>When</th><th>Result</th><th>Spend</th><th>On-chain</th><th>Detail</th></tr>
               </thead>
               <tbody>
                 {bot.runs!.map((r) => (
@@ -812,6 +837,11 @@ function BotDetail({
                     <td>{fmtDate(r.started_at)}</td>
                     <td>{r.status}</td>
                     <td>{r.spend_usd ? `$${r.spend_usd}` : '—'}</td>
+                    <td className={r.verification === 'mismatch' ? styles.verifyBad : undefined}>
+                      {r.status === 'succeeded'
+                        ? VERIFICATION_LABEL[r.verification ?? 'pending']
+                        : '—'}
+                    </td>
                     <td className={styles.mono}>
                       {r.tx_hash ? `${r.tx_hash.slice(0, 10)}…` : (r.reason ?? '—')}
                     </td>

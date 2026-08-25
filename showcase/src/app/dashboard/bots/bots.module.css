@@ -417,3 +417,7 @@
   font-size: 0.82rem;
   line-height: 1.5;
 }
+
+/* A run whose burn the chain could not confirm. Loud on purpose: it means
+   money left the treasury and the tokens are not where they should be. */
+.verifyBad { color: #8f2b2b; font-weight: 700; }
