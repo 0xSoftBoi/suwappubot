@@ -208,7 +208,12 @@ Ranked by (impact on whether a real team adopts this) × (cost to build).
 | 3 | **"Total burned" is a vanity metric** | Reporting cumulative spend with no net-of-emissions context is the flagged failure mode (§1). | Low |
 | 4 | **Funding source not modelled** | Revenue-funded vs treasury-funded is *the* durability signal (§1). We don't record or disclose it. | Low |
 | 5 | **Refusals are free text, not records** | A structured decision record is what makes the log evidence (§7). | Medium |
-| 6 | **No verification of the burn address on-chain** | We allowlist sinks but never confirm the tokens arrived. | Medium |
+| 6 | ~~No verification of the burn address on-chain~~ | **Done.** `tenantBots/burnVerify.ts` — three outcomes, and `mismatch` (tx exists, burn did not happen) is surfaced on the public page and the dashboard. Learned on the way: sending to `0xdead` is a transfer, so `total_supply` is unchanged — the disclosure now says that precisely. | Medium |
 
 Items 1–4 are all small and all attack the same weakness: we built execution
 without proof. That is the work.
+
+**Status (later in the same session):** 1–4 and 6 are shipped. Item 5
+(structured refusal records) is still open, and round 2's defect 6 — no
+lifecycle handling for abandoned bots — is open by choice: it needs a product
+decision about what happens to a dead bot's treasury, not just code.
