@@ -2961,6 +2961,34 @@ async def telegram_webhook(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/telegram/tbot/{bot_id}")
+async def tenant_bot_webhook(bot_id: str, request: Request):
+    """Telegram updates for a hosted white-label bot.
+
+    One route serves every tenant: the path carries the bot id and the
+    ``X-Telegram-Bot-Api-Secret-Token`` header carries that bot's own secret,
+    set when the dashboard provisioned it. The secret is checked inside
+    ``handle_update`` against the stored value, so a caller who guesses a bot id
+    still cannot drive the bot.
+
+    Always 200s. Telegram retries on anything else, and a retry storm caused by
+    one malformed update would delay every other tenant's messages.
+    """
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"status": "bad_payload"}
+
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    try:
+        from bot.services.tenant_bot_runtime import handle_update
+
+        return await handle_update(bot_id, secret, payload)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Tenant bot webhook error for {bot_id}: {e}", exc_info=True)
+        return {"status": "error"}
+
+
 @app.post("/internal/railway-webhook", include_in_schema=False)
 async def railway_webhook(request: Request):
     """Receive Railway deploy-status webhooks and fan failures out to Telegram admins.

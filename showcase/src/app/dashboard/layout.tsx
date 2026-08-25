@@ -84,6 +84,7 @@ function WorkspaceNav({ onSignOut }: { onSignOut: () => void }) {
         <Link href="/" style={{ ...linkStyle, fontWeight: 800, color: '#fff' }}>suwappu</Link>
         <span style={{ color: '#48505c' }}>/</span>
         <Link href="/dashboard" style={linkStyle}>Home</Link>
+        <Link href="/dashboard/bots" style={linkStyle}>Bots</Link>
         <Link href="/dashboard/signals" style={{ ...linkStyle, color: '#fff', background: '#171d26', borderColor: '#2a3340', fontWeight: 700 }}>Signal Intelligence <span aria-hidden="true">●</span></Link>
         <Link href="/products" style={linkStyle}>All products</Link>
         <Link href="/research" style={linkStyle}>Research</Link>

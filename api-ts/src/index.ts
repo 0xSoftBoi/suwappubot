@@ -12,6 +12,10 @@ import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
 import { runAutopilotBootstrap } from './services/autopilot/bootstrap'
 import { startAutopilotScheduler, stopAutopilotScheduler } from './services/autopilot/scheduler'
+import {
+	startTenantBotScheduler,
+	stopTenantBotScheduler,
+} from './services/tenantBots/scheduler'
 
 async function main() {
 	// Get environment config
@@ -68,6 +72,12 @@ async function main() {
 	// and (for real money) explicitly in live mode.
 	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES, seeded ? undefined : env.AUTOPILOT_BOOTSTRAP)
 
+	// Tenant-bot automations — buy-and-burn and friends for hosted white-label
+	// bots. Disabled unless TENANT_BOT_TICK_SECONDS is set, and each automation
+	// still has to be armed (mode 'live' AND enabled) with a treasury attached
+	// before a tick can move anything.
+	startTenantBotScheduler(env.TENANT_BOT_TICK_SECONDS)
+
 	// Graceful shutdown
 	const shutdown = async () => {
 		logger.info('Shutting down...')
@@ -75,6 +85,7 @@ async function main() {
 		stopAgentCleanup()
 		stopDataLiveTicker()
 		stopAutopilotScheduler()
+		stopTenantBotScheduler()
 		// Drain the write-behind usage buffer before stopping the flush timer —
 		// otherwise any unflushed /v1/data/* request counts from the last <30s
 		// are silently dropped on every deploy/restart.
