@@ -127,6 +127,7 @@ export function CommandPalette() {
       tab('curve', 'Curve', 'Curve Finance pools, TVL & APR', '🌀'),
       tab('lido', 'Lido', 'Lido staking TVL & APR', '🌊'),
       tab('aave', 'Aave', 'Aave markets, TVL & rates', '👻'),
+      tab('balancer', 'Balancer', 'Balancer pools, TVL & APR', '⚖️'),
       tab('copilot', 'AI Co-Pilot', 'Ask the trading assistant', '🤖'),
     ]
   }, [setTradingMode, goSpotTab])

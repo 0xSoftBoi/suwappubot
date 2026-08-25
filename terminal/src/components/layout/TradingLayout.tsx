@@ -84,6 +84,9 @@ const LidoPanel = lazy(() =>
 const AavePanel = lazy(() =>
   import('../aave/AavePanel').then((m) => ({ default: m.AavePanel })),
 )
+const BalancerPanel = lazy(() =>
+  import('../balancer/BalancerPanel').then((m) => ({ default: m.BalancerPanel })),
+)
 
 function DeferredPanel({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -103,6 +106,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'curve', label: 'Curve' },
   { id: 'lido', label: 'Lido' },
   { id: 'aave', label: 'Aave' },
+  { id: 'balancer', label: 'Balancer' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
@@ -298,6 +302,11 @@ function MobileLayout() {
                     <AavePanel />
                   </ErrorBoundary>
                 )}
+                {bottomTab === 'balancer' && (
+                  <ErrorBoundary label="Balancer">
+                    <BalancerPanel />
+                  </ErrorBoundary>
+                )}
               </DeferredPanel>
             </div>
           </div>
@@ -458,6 +467,11 @@ function DesktopLayout() {
               {bottomTab === 'aave' && (
                 <ErrorBoundary label="Aave">
                   <AavePanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'balancer' && (
+                <ErrorBoundary label="Balancer">
+                  <BalancerPanel />
                 </ErrorBoundary>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
