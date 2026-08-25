@@ -19,6 +19,18 @@ Each route decision is normalized into canonical JSON and receives a SHA-256 **i
 
 The fingerprint alone is **not tamper evidence** against a privileged database writer: historical data could be modified and re-hashed. `executionAuditCheckpoint.ts` therefore supports chained decision heads and signatures from an injected KMS/HSM-style signer. A signed chain head only becomes meaningful tamper evidence after it is anchored in storage with independent access/retention controls.
 
+## Pre-dispatch risk
+
+The submission fence does not trust route scoring to enforce economic limits. Before a NEW child is created, `executionRisk.ts` resolves the parent intent's `principal_key` and aggregates every active parent order for that principal across providers, venues and substrates. It fails closed on missing/malformed requested notionals and enforces:
+
+- maximum single-order notional;
+- maximum aggregate open notional;
+- maximum active order count.
+
+The check runs inside the same database transaction as write-ahead child creation. A replayed child does not re-run exposure admission because it is not a new order and is never granted permission to dispatch again.
+
+This is the minimum dispatch-boundary control. Production policy still needs organization/firm hierarchies, dynamic credit/capital limits, liquidity-aware sizing and independent kill-switch administration.
+
 ## Submission semantics
 
 The execution boundary uses a write-ahead child placement:
