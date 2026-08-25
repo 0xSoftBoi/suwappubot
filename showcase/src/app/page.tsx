@@ -148,6 +148,10 @@ export default async function Home() {
 
   return (
     <>
+      {/* The hero poster is the largest contentful paint. Preloading it here
+          (Next hoists this into <head>) starts the fetch with the document
+          rather than after React hydrates and mounts the atmosphere layer. */}
+      <link rel="preload" as="image" href="/media/ocean-poster.webp" type="image/webp" />
       <StructuredData />
       <div className="hd sw sw-dark">
         <SummerNav />
