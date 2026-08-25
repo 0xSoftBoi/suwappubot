@@ -1075,7 +1075,7 @@
   inset: 0;
   z-index: 0;
   overflow: clip;
-  background: var(--sw-soil-0, #1c1310);
+  background: var(--sw-soil-0, #0d0f12);
   /* THE fix for "muddy". Previously this layer was uniformly darkened by a
      flat scrim, which is the named cause: flattening a photograph's whole
      tonal range into a single grey wash. Instead the footage is left bright
@@ -1124,9 +1124,9 @@
   inset: 0;
   background: radial-gradient(
     120% 90% at 8% 22%,
-    rgba(16, 11, 9, 0.86) 0%,
-    rgba(16, 11, 9, 0.66) 28%,
-    rgba(16, 11, 9, 0.22) 56%,
+    rgba(9, 11, 14, 0.88) 0%,
+    rgba(9, 11, 14, 0.68) 28%,
+    rgba(9, 11, 14, 0.22) 56%,
     transparent 78%
   );
 }
@@ -1181,7 +1181,7 @@
 .home-stage .home-hero__copy,
 .home-stage .home-hero__product .home-product-label,
 .home-stage .home-product-note {
-  text-shadow: 0 1px 14px rgba(12, 8, 7, 0.6);
+  text-shadow: 0 1px 14px rgba(6, 8, 11, 0.65);
 }
 
 .home-stage .home-actions a {
@@ -1352,7 +1352,7 @@
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   /* Tinted toward the page's own hue rather than a black boilerplate shadow. */
-  box-shadow: 0 30px 80px -30px rgba(10, 6, 5, 0.9);
+  box-shadow: 0 30px 80px -30px rgba(4, 6, 9, 0.9);
 }
 
 /* The relocated execution ticket. */

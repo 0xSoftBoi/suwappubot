@@ -42,11 +42,18 @@
                              SIGN route coding
      ================================================================ */
 
-  /* Soil — warm aubergine-brown dark base. Replaces the near-neutral black
-     used by .hd (homepage) and .sw-dark (inner pages): a tint shift, not a
-     brightness shift, so the page still reads dark and calm at a glance. */
-  --sw-soil-0: #1C1310;
-  --sw-soil-1: #241A15;
+  /* Dark base. Was a warm aubergine-brown (#1C1310/#241A15) and is now a
+     cool near-neutral, for two reasons found by looking rather than taste:
+       1. No comparable product uses warm-brown for dark UI. The category
+          (Linear #08090a, Vercel #171717, Mercury charcoal) converges on a
+          cool neutral in the #08090a-#171717 band. Brown reads boutique,
+          not financial infrastructure.
+       2. The brown was fighting our own accent. Persimmon on brown is a
+          low-contrast, muddy pairing; on a neutral ground the same orange
+          separates cleanly and does more work with less of it.
+     Scoped to .sw-dark, so light/cream surfaces are untouched. */
+  --sw-soil-0: #0D0F12;
+  --sw-soil-1: #15181C;
 
   /* Leaf green ramp (P2) — desaturated jade, one hue stepped for text vs.
      border vs. wash duty, the same shape as the persimmon ramp above.
