@@ -4,6 +4,9 @@ import StructuredData from '@/components/StructuredData';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
+import OceanAtmosphere from '@/components/OceanAtmosphere';
+import DepthSurfaceGL from '@/components/DepthSurfaceGL';
+import ToolConstellationGL from '@/components/ToolConstellationGL';
 import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
 import FaqAccordion from '@/components/FaqAccordion';
@@ -15,7 +18,7 @@ import './site.css';
 export const metadata: Metadata = {
   title: 'Suwappu | The full-stack cross-chain trading platform',
   description:
-    'Suwappu is the full-stack cross-chain trading platform — execution, routing, research, ' +
+    'Suwappu is the full-stack cross-chain trading platform: execution, routing, research, ' +
     'and portfolio management across 7+ chains, from one venue.',
 };
 
@@ -145,11 +148,23 @@ export default async function Home() {
 
   return (
     <>
+      {/* The hero poster is the largest contentful paint. Preloading it here
+          (Next hoists this into <head>) starts the fetch with the document
+          rather than after React hydrates and mounts the atmosphere layer. */}
+      <link rel="preload" as="image" href="/media/ocean-poster.webp" type="image/webp" />
       <StructuredData />
       <div className="hd sw sw-dark">
         <SummerNav />
 
         <main id="main-content">
+          <div className="home-stage">
+          <OceanAtmosphere
+            labels={{
+              soundOn: h('atmosphere.soundOn'),
+              soundOff: h('atmosphere.soundOff'),
+              videoLabel: h('atmosphere.videoLabel'),
+            }}
+          />
           <section className="home-hero" aria-labelledby="home-hero-title">
             <div className="home-hero__copy">
               <p className="home-eyebrow">{h('hero.eyebrow')}</p>
@@ -181,14 +196,24 @@ export default async function Home() {
               <p className="home-product-note">{h('hero.ticketNote')}</p>
             </div>
           </section>
+          </div>
 
           <section className="home-proofbar" aria-label={h('evidence.ariaLabel')}>
             <div className="home-proofbar__intro">
-              <strong>{productStats.platformChains}</strong> {h('evidence.platformChains')}
-              <span aria-hidden="true">·</span>
-              <strong>{productStats.routerCount}</strong> {h('evidence.routingVenues')}
-              <span aria-hidden="true">·</span>
-              <strong>{productStats.agentApiChains}</strong> {h('evidence.agentApiChains')}
+              <dl className="home-proofbar__stats">
+                <div>
+                  <dt>{h('evidence.platformChains')}</dt>
+                  <dd>{productStats.platformChains}</dd>
+                </div>
+                <div>
+                  <dt>{h('evidence.routingVenues')}</dt>
+                  <dd>{productStats.routerCount}</dd>
+                </div>
+                <div>
+                  <dt>{h('evidence.agentApiChains')}</dt>
+                  <dd>{productStats.agentApiChains}</dd>
+                </div>
+              </dl>
               <small>{h('evidence.routeNote')}</small>
             </div>
             <div className="home-proofbar__links">
@@ -212,7 +237,6 @@ export default async function Home() {
           <section id="use-cases" className="home-section" aria-labelledby="usecases-title">
             <Reveal>
               <div className="home-section__head">
-                <p className="home-eyebrow">{h('useCases.eyebrow')}</p>
                 <h2 id="usecases-title">{h('useCases.title')}</h2>
                 <p className="home-section__head-lead">{h('useCases.lead')}</p>
               </div>
@@ -235,7 +259,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('execution.eyebrow')}</p>
                   <h2 id="execution-title">{h('execution.title')}</h2>
                 </div>
                 <p>{h('execution.lead')}</p>
@@ -273,10 +296,16 @@ export default async function Home() {
 
           <section id="routing" className="home-section" aria-labelledby="markets-title">
             <Reveal>
-              <div className="home-section__head">
-                <p className="home-eyebrow">{h('markets.eyebrow')}</p>
-                <h2 id="markets-title">{h('markets.title')}</h2>
-                <p className="home-section__head-lead">{h('markets.lead')}</p>
+              {/* The right column is a real rendered element (order-book ridge),
+                  not a floating explainer — the sanctioned use of a split head. */}
+              <div className="home-section__head home-section__head--figure">
+                <div>
+                  <h2 id="markets-title">{h('markets.title')}</h2>
+                  <p className="home-section__head-lead">{h('markets.lead')}</p>
+                </div>
+                <div className="home-glfigure" aria-hidden="true">
+                  <DepthSurfaceGL />
+                </div>
               </div>
 
               <div className="home-capabilities">
@@ -304,7 +333,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('research.eyebrow')}</p>
                   <h2 id="research-title">{h('research.title')}</h2>
                 </div>
                 <p>{h('research.lead')}</p>
@@ -328,7 +356,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('portfolio.eyebrow')}</p>
                   <h2 id="portfolio-title">{h('portfolio.title')}</h2>
                 </div>
                 <p>{h('portfolio.lead')}</p>
@@ -375,12 +402,19 @@ export default async function Home() {
 
           <section id="terminal" className="home-section" aria-labelledby="interfaces-title">
             <Reveal>
-              <div className="home-section__head home-section__head--split">
+              {/* Right column is the MCP tool constellation — exactly
+                  stats.mcpToolCount nodes from the registry the server ships. */}
+              <div className="home-section__head home-section__head--figure">
                 <div>
-                  <p className="home-eyebrow">{h('interfaces.eyebrow')}</p>
                   <h2 id="interfaces-title">{h('interfaces.title')}</h2>
+                  <p className="home-section__head-lead">{h('interfaces.lead')}</p>
                 </div>
-                <p>{h('interfaces.lead')}</p>
+                <div className="home-glfigure home-glfigure--tall" aria-hidden="true">
+                  <ToolConstellationGL
+                    toolCount={productStats.mcpToolCount}
+                    names={productStats.mcpTools}
+                  />
+                </div>
               </div>
 
               <div
@@ -419,7 +453,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('government.eyebrow')}</p>
                   <h2 id="government-title">{h('government.title')}</h2>
                 </div>
                 <p>{h('government.lead')}</p>
@@ -442,7 +475,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-faq">
                 <div className="home-section__head">
-                  <p className="home-eyebrow">{h('faq.eyebrow')}</p>
                   <h2 id="faq-title">{h('faq.title')}</h2>
                 </div>
                 <FaqAccordion items={faq} />

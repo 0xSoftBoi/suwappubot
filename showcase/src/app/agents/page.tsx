@@ -51,7 +51,7 @@ const MATRIX_COLUMNS: { key: string; label: string; sub: string }[] = [
 ];
 
 type Cell = 'yes' | 'partial' | 'no';
-const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '–' };
+const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '-' };
 const CELL_WORD: Record<Cell, string> = { yes: 'Yes', partial: 'Partial', no: 'No' };
 
 const MATRIX_ROWS: { label: string; cells: Record<string, Cell> }[] = [
@@ -84,7 +84,7 @@ const PAYMENT_MODES = [
 const FAQS = [
   {
     q: 'What is the Suwappu MCP server?',
-    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp. Source 0.6.0 advertises 22 tools; clients should call tools/list at runtime. Its historical execute_swap tool prepares an unsigned self-custody transaction — it never signs or broadcasts a managed swap.',
+    a: 'A hosted Model Context Protocol endpoint at POST https://api.suwappu.bot/mcp. Source 0.6.0 advertises 22 tools; clients should call tools/list at runtime. Its historical execute_swap tool prepares an unsigned self-custody transaction: it never signs or broadcasts a managed swap.',
   },
   {
     q: 'Which AI clients work with it?',
@@ -123,7 +123,6 @@ export default function AgentsPage() {
       <div className="summer-shell mkt-page">
         {/* ── a. HERO ── */}
         <header className="mkt-hero mkt-hero--center agents-hero">
-          <p className="summer-kicker">Built for AI agents</p>
           <h1>Onchain execution for AI agents.</h1>
           <p className="mkt-hero__lead">
             Quote, swap, and manage a portfolio across {stats.agentApiChains} chains from a REST API, an MCP
@@ -280,7 +279,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
               <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial
             </span>
             <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered on this surface
+              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">-</span> Not offered on this surface
             </span>
           </p>
           <p className="compare__note">
@@ -297,7 +296,6 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
 
         {/* ── e. AGENTIC PAYMENTS ── */}
         <section className="agents-caps" aria-label="Agentic payments">
-          <p className="summer-kicker">Agentic payments</p>
           <h2 className="mkt-h2">Pay however your agent transacts.</h2>
           <div className="agents-caps__grid">
             {PAYMENT_MODES.map((p) => (

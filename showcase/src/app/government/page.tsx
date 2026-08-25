@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 const specs = [
   {
     label: 'Sender payload',
-    value: '~1.3 KB sealed lattice key (ML-KEM-768) — constant, independent of entity size',
+    value: '~1.3 KB sealed lattice key (ML-KEM-768): constant, independent of entity size',
   },
   {
     label: 'KEM primitive',
@@ -29,7 +29,7 @@ const specs = [
   {
     label: 'Adversary model',
     value:
-      'PPT adversary across Theorems 3–8 · Dolev-Yao active adversary in the Verifpal symbolic model',
+      'PPT adversary across Theorems 3-8 · Dolev-Yao active adversary in the Verifpal symbolic model',
   },
   {
     label: 'Composite barriers',
@@ -55,10 +55,10 @@ const sections = [
     title: 'CLM as a Transfer Primitive',
     body: [
       'LTP runs three phases in sequence. COMMIT deterministically shards the entity with Reed-Solomon k-of-n erasure coding, places the shards across the commitment network, and signs a commitment record onto an append-only Merkle log. LATTICE seals a constant-size lattice key to the receiver. MATERIALIZE lets the receiver reconstruct the entity from geographically nearby commitment nodes.',
-      'No payload ever crosses the sender–receiver link directly: the sender commits once to the network, and every receiver materializes independently against that commitment.',
+      'No payload ever crosses the sender-receiver link directly: the sender commits once to the network, and every receiver materializes independently against that commitment.',
     ],
     whatsNew:
-      'Prior content-addressed storage systems treat this shape as storage with sharing. LTP frames the same pipeline as a transfer protocol — an alternative to sending payloads at all.',
+      'Prior content-addressed storage systems treat this shape as storage with sharing. LTP frames the same pipeline as a transfer protocol: an alternative to sending payloads at all.',
     figLabel: 'clm-pipeline.txt',
     fig: 'COMMIT      shard (k-of-n) + sign commitment record\n   ↓\nLATTICE     seal ~1,300B lattice key to receiver\n   ↓\nMATERIALIZE fetch k-of-n shards, decode, verify EntityID',
   },
@@ -67,7 +67,7 @@ const sections = [
     code: 'EFFICIENCY',
     title: 'O(1) Sealed Lattice Key Transfer',
     body: [
-      'The sealed lattice key is ML-KEM-768 encapsulated to the receiver’s public key. Its size — ~1,300 bytes, up from ~240 bytes pre-quantum — is fixed by the KEM ciphertext overhead, not by what it unlocks.',
+      'The sealed lattice key is ML-KEM-768 encapsulated to the receiver’s public key. Its size (~1,300 bytes, up from ~240 bytes pre-quantum) is fixed by the KEM ciphertext overhead, not by what it unlocks.',
       'A 1 KB note and a 1 TB dataset produce sealed keys of identical size. Total system bandwidth still scales with entity size and replication factor, but the direct sender→receiver bottleneck is eliminated.',
     ],
     whatsNew:
@@ -81,10 +81,10 @@ const sections = [
     title: 'EntityID Construction',
     body: [
       'Identity is content-addressed: EntityID = H(content ‖ shape ‖ timestamp ‖ sender_pubkey), with BLAKE3-256 as the default hash (BLAKE2b-256 is an equally valid alternative; ZK mode substitutes Poseidon for circuit-friendliness).',
-      'Any modification to the content produces a different EntityID — Theorem 3 (Entity Immutability) proves this holds under H’s collision resistance.',
+      'Any modification to the content produces a different EntityID. Theorem 3 (Entity Immutability) proves this holds under H’s collision resistance.',
     ],
     whatsNew:
-      'Because EntityID includes timestamp and sender_pubkey, re-committing identical content twice produces two distinct EntityIDs by design — a deliberate tradeoff, not an accident.',
+      'Because EntityID includes timestamp and sender_pubkey, re-committing identical content twice produces two distinct EntityIDs by design: a deliberate tradeoff, not an accident.',
     figLabel: 'entity-id.txt',
     fig: 'EntityID = H( content ‖ shape ‖ timestamp ‖ sender_pubkey )\n           default H = BLAKE3-256',
   },
@@ -96,7 +96,7 @@ const sections = [
       'Unlike bearer-style access grants or static read-caps, the sealed lattice key is cryptographically bound to a specific receiver’s ML-KEM-768 encapsulation key, carries inline access policy (one-time, time-bounded, delegatable), and uses a fresh per-transfer encapsulation for forward secrecy.',
     ],
     whatsNew:
-      'Capability + receiver binding + per-message forward secrecy + inline policy, packed into a constant-size token — the whitepaper’s claim is that this specific bundle, applied to asynchronous capability-based retrieval, is not present in prior systems.',
+      'Capability + receiver binding + per-message forward secrecy + inline policy, packed into a constant-size token. The whitepaper’s claim is that this specific bundle, applied to asynchronous capability-based retrieval, is not present in prior systems.',
     figLabel: 'seal.txt',
     fig: 'seal():\n  (ss, kem_ct) = ML-KEM.Encaps(receiver_ek)   → fresh per transfer\n  key         = AEAD-wrap(lattice_key, ss)',
   },
@@ -105,7 +105,7 @@ const sections = [
     code: 'NETWORK',
     title: 'Commitment Network Distribution',
     body: [
-      'Shard placement is derived from the EntityID via consistent hashing — no lookup service, no external metadata. Receivers materialize from geographically nearby commitment nodes, reconstructing from any k of n shards under Reed-Solomon erasure coding.',
+      'Shard placement is derived from the EntityID via consistent hashing: no lookup service, no external metadata. Receivers materialize from geographically nearby commitment nodes, reconstructing from any k of n shards under Reed-Solomon erasure coding.',
     ],
     whatsNew:
       'Fewer than k shards leak only a proportional fraction of joint entropy. AEAD remains the primary confidentiality guarantee; the erasure threshold is defense in depth, not the sole barrier.',
@@ -117,12 +117,12 @@ const sections = [
     code: 'ADVERSARY',
     title: 'Composite Adversary Bound',
     body: [
-      'LTP’s security proofs are stated against a standard PPT (probabilistic polynomial-time) adversary across Theorems 3–8. The corridor attestation flow and the COMMIT/LATTICE/MATERIALIZE message flow additionally have a symbolic Dolev-Yao model in Verifpal, run against an active attacker with full message-modification capability.',
+      'LTP’s security proofs are stated against a standard PPT (probabilistic polynomial-time) adversary across Theorems 3-8. The corridor attestation flow and the COMMIT/LATTICE/MATERIALIZE message flow additionally have a symbolic Dolev-Yao model in Verifpal, run against an active attacker with full message-modification capability.',
     ],
     whatsNew:
-      'The Verifpal run verified both confidentiality queries; both authentication queries currently fail on cross-session replay of the sealed key — a disclosed, tracked finding, not a hidden gap.',
+      'The Verifpal run verified both confidentiality queries; both authentication queries currently fail on cross-session replay of the sealed key: a disclosed, tracked finding, not a hidden gap.',
     figLabel: 'adversary.txt',
-    fig: 'Theorems 3–8:        PPT adversary\nVerifpal (symbolic):  Dolev-Yao active attacker\n                      (unbounded sessions, full message modification)',
+    fig: 'Theorems 3-8:        PPT adversary\nVerifpal (symbolic):  Dolev-Yao active attacker\n                      (unbounded sessions, full message modification)',
   },
   {
     num: '07',
@@ -130,7 +130,7 @@ const sections = [
     title: 'Transfer Immutability (Theorem 8)',
     body: [
       'Theorem 8 bounds the adversary’s advantage in the Transfer Immutability (TIMM) composite game by the sum of four independent barrier advantages: hash collision resistance (CR), ML-DSA-65 unforgeability (EUF-CMA), AEAD authentication (AUTH), and ML-KEM-768 indistinguishability (IND-CCA2).',
-      'The bound is a conservative union bound — winning via any single path still requires breaking two barriers in combination, never just one, so the true security margin is tighter than the sum suggests.',
+      'The bound is a conservative union bound: winning via any single path still requires breaking two barriers in combination, never just one, so the true security margin is tighter than the sum suggests.',
     ],
     whatsNew:
       'A composite, chained security game across the full commit-to-materialize pipeline, rather than a proof about any one phase in isolation.',
@@ -145,7 +145,7 @@ const sections = [
       'On MATERIALIZE, the receiver fetches k-of-n shards, decrypts, erasure-decodes, and re-hashes the reconstructed content to confirm it matches the expected EntityID. Any tampering en route produces a different EntityID and fails the check.',
     ],
     whatsNew:
-      'Verification is content-addressed and receiver-side — conditional on an honest append-only commitment log, no third party needs to be trusted to certify that materialized data matches what was committed.',
+      'Verification is content-addressed and receiver-side: conditional on an honest append-only commitment log, no third party needs to be trusted to certify that materialized data matches what was committed.',
     figLabel: 'verify.txt',
     fig: 'verify:\n  H( decode(shards) ) == EntityID  ?  ACCEPT  :  REJECT',
   },
@@ -155,7 +155,7 @@ const assurance = [
   {
     label: '01 · Readiness',
     title: 'FedRAMP High readiness package',
-    body: 'An evidence overlay: a NIST SP 800-53 Rev. 5 control crosswalk, SSP-style implementation narratives, and system / trust-boundary documentation. This is a readiness package — not an authorization, agency sponsorship, 3PAO assessment, or ATO.',
+    body: 'An evidence overlay: a NIST SP 800-53 Rev. 5 control crosswalk, SSP-style implementation narratives, and system / trust-boundary documentation. This is a readiness package, not an authorization, agency sponsorship, 3PAO assessment, or ATO.',
   },
   {
     label: '02 · Fail-closed',
@@ -173,7 +173,7 @@ const assurance = [
     body: 'LTPAnchorRegistry sits behind an ERC1967 proxy, governed by a 2-of-2 multisig plus a TimelockController; the deployer holds no privileged access post-deployment. (Live on SUWAPPU Testnet and Base Sepolia today.)',
     links: [
       {
-        label: 'Anchor registry — verified source ↗',
+        label: 'Anchor registry: verified source ↗',
         href: 'https://base-sepolia.blockscout.com/address/0x79eF1B7914f98C5C1404617449AB1f377c475996',
       },
       {
@@ -199,7 +199,7 @@ export default function GovernmentPage() {
           <p className="mkt-hero__lead">
             LTP is a transfer primitive, not storage. The pipeline is{' '}
             <strong>Commit &rarr; Lattice &rarr; Materialize</strong>: no payload ever crosses
-            the sender&ndash;receiver link &mdash; the sender commits, the receiver
+            the sender-receiver link. The sender commits, the receiver
             materializes. The Lattice Transfer Protocol is Suwappu&rsquo;s government arm:
             post-quantum data transfer with on-chain anchors, built for FedRAMP High
             environments.

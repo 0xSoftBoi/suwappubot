@@ -93,7 +93,7 @@
     "hero": {
       "eyebrow": "Full-stack trading platform",
       "h1": "The full-stack trading platform for cross-chain markets.",
-      "lead": "Execution, routing, research, and portfolio management across 45 chains — from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+      "lead": "Execution, routing, research, and portfolio management across 45 chains, from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
       "ctaTerminal": "Launch Terminal",
       "ctaApi": "Read the docs",
       "ctaTelegram": "Trade in Telegram",
@@ -149,7 +149,7 @@
       "terminal": "Terminal",
       "terminalMeta": "Full trading desk",
       "telegramMeta": "Trading from chat",
-      "programmatic": "REST · MCP · SDKs",
+      "programmatic": "REST, MCP, SDKs",
       "programmaticMeta": "Programmatic interfaces",
       "boundary": "REST supports managed execution and unsigned self-custody flows. MCP’s execute_swap prepares an unsigned transaction and does not broadcast it; A2A is limited to discovery and quoting.",
       "surfacesLabel": "Also live on",
@@ -191,18 +191,18 @@
       "tempoTitle": "Surface-specific support",
       "tempoBody": "Tempo support is not uniform across interfaces. The current Agent API exposes Tempo token discovery, but Agent API swap execution on Tempo is not enabled.",
       "curveTitle": "Every Curve pool, natively",
-      "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API — sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
+      "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API, sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
-      "lead": "Smart route priority orders venues — including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions — before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
+      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
     },
     "security": {
-      "eyebrow": "Capability 05",
+      "eyebrow": "Security model",
       "title": "Execution moves value. Authority stays explicit.",
       "lead": "Choose self-custody or managed signing, then constrain what an automated key is allowed to do.",
       "cta": "Read security details",
       "selfCustodyTitle": "Self-custody",
-      "selfCustodyBody": "Unsigned transaction flows keep signing and broadcasting with the caller — nothing server-side ever holds that key.",
+      "selfCustodyBody": "Unsigned transaction flows keep signing and broadcasting with the caller, nothing server-side ever holds that key.",
       "managedTitle": "Managed signing",
       "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey TEE signing, or an MPC signer, depending on the wallet path.",
       "policiesTitle": "Server-side policies",
@@ -268,11 +268,11 @@
       "title": "Portfolio management for a position that spans chains.",
       "lead": "Positions roll up across every chain the terminal trades, into one book you can read at a glance. A weekly digest recaps performance.",
       "positionsTitle": "Cross-chain positions",
-      "positionsBody": "One positions service aggregates holdings across every supported chain — no per-chain bookkeeping.",
+      "positionsBody": "One positions service aggregates holdings across every supported chain, no per-chain bookkeeping.",
       "pnlTitle": "Realized and unrealized PnL",
       "pnlBody": "PnL is computed per position and rolled into a single equity curve in the Terminal.",
       "cardsTitle": "Position-card NFTs",
-      "cardsBody": "A position can mint an on-chain receipt — a position card that travels with the trade.",
+      "cardsBody": "A position can mint an on-chain receipt: a position card that travels with the trade.",
       "cta": "Open your portfolio"
     },
     "government": {
@@ -282,10 +282,15 @@
       "pqTitle": "Post-quantum by default",
       "pqBody": "Standard mode uses ML-KEM-768 (FIPS 203) key encapsulation, ML-DSA-65 (FIPS 204) signatures, and BLAKE3 content addressing.",
       "provenTitle": "52 machine-checked theorems",
-      "provenBody": "Lean 4 proofs cover quorum safety, constant-size sealed keys, and erasure thresholds — gated in CI.",
+      "provenBody": "Lean 4 proofs cover quorum safety, constant-size sealed keys, and erasure thresholds, gated in CI.",
       "fedrampTitle": "FedRAMP High readiness",
       "fedrampBody": "An evidence package with a NIST SP 800-53 control crosswalk and a fail-closed government deployment profile.",
       "cta": "See the protocol"
+    },
+    "atmosphere": {
+      "soundOn": "Sound on",
+      "soundOff": "Sound off",
+      "videoLabel": "Slow aerial footage of open ocean water"
     }
   },
   "cta": {

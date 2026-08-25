@@ -23,7 +23,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const post = getPost(slug);
-  if (!post) return { title: 'Not found — Suwappu Research' };
+  if (!post) return { title: 'Not found | Suwappu Research' };
   const url = `/research/${post.slug}`;
   return {
     // The root layout's title template already appends "| Suwappu".

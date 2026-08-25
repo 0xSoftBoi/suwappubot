@@ -166,26 +166,51 @@
 
 .home-proofbar__intro {
   display: flex;
-  align-content: center;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.5rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.7rem;
   margin: 0;
   padding: 1.25rem 1.5rem 1.25rem 0;
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  line-height: 1.5;
-  color: var(--fg-faint);
 }
 
-.home-proofbar__intro strong {
-  font-size: 0.8rem;
+.home-proofbar__stats {
+  display: flex;
+  margin: 0;
+}
+
+.home-proofbar__stats > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.2rem;
+  padding: 0 1.4rem;
+  border-left: 1px solid var(--line);
+}
+
+.home-proofbar__stats > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.home-proofbar__stats dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1;
   color: var(--fg);
 }
 
+.home-proofbar__stats dt {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+}
+
 .home-proofbar__intro small {
-  flex-basis: 100%;
   font-size: 0.64rem;
+  font-family: var(--font-mono);
+  line-height: 1.5;
   color: var(--sw-leaf-muted, #6BAF7C);
 }
 
@@ -262,16 +287,17 @@
   color: var(--fg);
 }
 
+/* Section headers stack: headline first, explainer under it at a 65ch
+   measure. The old two-column split (big left headline + small floating
+   right paragraph) repeated the same header family five times. */
 .home-section__head--split {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(16rem, 0.75fr);
-  align-items: end;
-  gap: clamp(2rem, 7vw, 6rem);
+  display: block;
   max-width: none;
 }
 
 .home-section__head--split > p {
-  margin: 0 0 0.3rem;
+  margin: 1.1rem 0 0;
+  max-width: 65ch;
   font-size: 0.95rem;
   line-height: 1.65;
   color: var(--fg-dim);
@@ -359,11 +385,9 @@
 
 .home-execution-extra strong {
   display: block;
-  font-family: var(--font-mono);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--fg);
 }
 
@@ -380,11 +404,8 @@
    3.58:1 on the dark band (AA fail for 10px text); --fg-dim scores 7.07:1. */
 .sw .home-surfaces-label {
   margin: 1.75rem 0 0.6rem;
-  font-family: var(--font-mono);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 0.85rem;
+  font-weight: 500;
   color: var(--fg-dim);
 }
 
@@ -690,11 +711,9 @@
 .home-security__facts h3,
 .home-security__facts strong {
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--fg);
 }
 
@@ -1031,4 +1050,274 @@
   .proof__frame::before {
     height: 1.4rem;
   }
+}
+
+/* ── Atmosphere: golden-hour ocean + ambient sound ───────────────
+   .home-stage wraps the hero full-bleed. The poster frame paints at once,
+   the video crossfades over it, and a directional scrim keeps the copy
+   column dark while the sun path on the water stays visible, handing off
+   to var(--bg) before the proofbar. Warm footage, warm palette — the sun
+   on the water is doing the same job as the persimmon accent. */
+.home-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.home-stage .home-hero {
+  z-index: 1;
+}
+
+.home-ocean {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: clip;
+  /* Paint before the poster arrives: dusk-water gradient, not a black hole. */
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(64, 48, 34, 0.5), transparent 70%),
+    linear-gradient(180deg, #1d1611 0%, var(--sw-soil-0, #1c1310) 88%);
+}
+
+/* Poster + video share one slowly drifting frame — a barely-there push-in
+   that makes even the still feel filmed. */
+.home-ocean__media {
+  position: absolute;
+  inset: -2.5%;
+  animation: home-ocean-drift 55s ease-in-out infinite alternate;
+}
+
+.home-ocean__poster,
+.home-ocean__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Darkened toward the desk, saturation held back to institutional. */
+  filter: saturate(0.82) brightness(0.7) contrast(1.06);
+}
+
+.home-ocean__video {
+  opacity: 0;
+  transition: opacity 2.2s var(--sw-ease, ease);
+}
+
+.home-ocean__video.is-ready {
+  opacity: 1;
+}
+
+@keyframes home-ocean-drift {
+  from { transform: scale(1) translateY(0); }
+  to { transform: scale(1.06) translateY(-0.8%); }
+}
+
+.home-ocean__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    /* copy column stays AA over moving light; the right half keeps the water */
+    linear-gradient(97deg, rgba(18, 13, 11, 0.88) 0%, rgba(18, 13, 11, 0.6) 38%, rgba(18, 13, 11, 0.16) 66%, rgba(18, 13, 11, 0.05) 100%),
+    /* settle the sky behind the glass nav */
+    linear-gradient(180deg, rgba(18, 13, 11, 0.5) 0%, transparent 22%),
+    /* hand off to the soil canvas before the proofbar */
+    linear-gradient(180deg, transparent 55%, rgba(28, 19, 16, 0.55) 82%, var(--sw-soil-0, #1c1310) 99%);
+}
+
+/* Film grain: inline SVG turbulence tile. Kills the "flat mp4 on a div"
+   look and knits poster, video, and gradient into one filmed surface. */
+.home-ocean__grain {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+  opacity: 0.07;
+}
+
+.home-ocean__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(12, 8, 7, 0.42) 100%);
+}
+
+/* ── Hero entrance: one slow, staggered rise. Runs once on load. ── */
+@media (prefers-reduced-motion: no-preference) {
+  .home-stage .home-hero__copy .home-eyebrow,
+  .home-stage .home-hero__copy h1,
+  .home-stage .home-hero__lead,
+  .home-stage .home-hero__copy .home-actions,
+  .home-stage .home-hero__telegram,
+  .home-stage .home-hero__product {
+    animation: home-hero-rise 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .home-stage .home-hero__copy .home-eyebrow { animation-delay: 0.15s; }
+  .home-stage .home-hero__copy h1 { animation-delay: 0.28s; }
+  .home-stage .home-hero__lead { animation-delay: 0.46s; }
+  .home-stage .home-hero__copy .home-actions { animation-delay: 0.62s; }
+  .home-stage .home-hero__telegram { animation-delay: 0.76s; }
+  .home-stage .home-hero__product { animation-delay: 0.9s; animation-duration: 1.3s; }
+}
+
+@keyframes home-hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Type over moving light: a soft drop keeps the thin mono labels and the
+   dim lead legible whatever the water is doing underneath. */
+.home-stage .home-hero__copy,
+.home-stage .home-hero__product .home-product-label,
+.home-stage .home-product-note {
+  text-shadow: 0 1px 14px rgba(12, 8, 7, 0.6);
+}
+
+.home-stage .home-actions a {
+  text-shadow: none;
+}
+
+/* The faint mono register drowns in the horizon glare — lift it on-stage. */
+.sw .home-stage .home-product-label {
+  color: rgba(250, 250, 250, 0.62);
+}
+
+.home-stage .home-product-note {
+  color: rgba(250, 250, 250, 0.55);
+}
+
+/* ── Sound toggle ── */
+.home-sound {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(20, 14, 12, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--fg-dim, #a1a1a1);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.18s var(--sw-ease, ease), border-color 0.18s var(--sw-ease, ease);
+}
+
+.home-sound:hover,
+.home-sound.is-on {
+  color: var(--fg, #fafafa);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.home-sound__bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+
+.home-sound__bars i {
+  width: 2px;
+  height: 3px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.home-sound.is-on .home-sound__bars i {
+  animation: home-sound-bar 1.6s ease-in-out infinite;
+}
+
+.home-sound.is-on .home-sound__bars i:nth-child(2) { animation-delay: 0.3s; }
+.home-sound.is-on .home-sound__bars i:nth-child(3) { animation-delay: 0.65s; }
+.home-sound.is-on .home-sound__bars i:nth-child(4) { animation-delay: 0.95s; }
+
+@keyframes home-sound-bar {
+  0%, 100% { height: 3px; }
+  50% { height: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-ocean__video {
+    display: none;
+  }
+
+  .home-ocean__media {
+    animation: none;
+  }
+
+  .home-sound.is-on .home-sound__bars i {
+    animation: none;
+    height: 7px;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-ocean__scrim {
+    background:
+      linear-gradient(180deg, rgba(18, 13, 11, 0.66) 0%, rgba(18, 13, 11, 0.55) 34%, rgba(18, 13, 11, 0.62) 62%, var(--sw-soil-0, #1c1310) 99%);
+  }
+}
+
+/* ── Routing header figure ───────────────────────────────────────
+   DepthSurfaceGL: the order-book ridge from the section-object era,
+   rehomed beside the routing headline. Ambient texture, not a feed. */
+.home-section__head--figure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+  max-width: none;
+}
+
+.home-glfigure {
+  position: relative;
+  height: 230px;
+}
+
+.home-glfigure .depthsurface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@media (max-width: 1023px) {
+  .home-section__head--figure {
+    display: block;
+  }
+
+  .home-glfigure {
+    display: none;
+  }
+}
+
+.home-glfigure--tall {
+  height: 300px;
+}
+
+.home-glfigure .toolconstellation {
+  position: absolute;
+  inset: 0;
+}
+
+.home-glfigure .toolconstellation canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
