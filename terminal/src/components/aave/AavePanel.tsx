@@ -1,53 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import {
-  aaveAppUrl,
-  fetchAaveChains,
-  fetchAaveMarkets,
-  marketLabel,
-  type AaveMarket,
-  type AaveReserve,
-} from '../../lib/aave'
+import { aaveAppUrl, fetchAaveMarkets, marketLabel, type AaveMarket, type AaveReserve } from '../../lib/aave'
 import type { SwapToken } from '../../types/api'
 import { usePair } from '../../contexts/PairContext'
 import { usdcFor } from '../../lib/quoteTokens'
+import { compactUsd, percent } from '../../lib/format'
+import { rankChainsByTvl } from '../../lib/chainRanking'
+import { swapDeskSlugForChainName } from '../../lib/swapDeskChains'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
-
-// Chains wagmi's config carries a public client for, keyed to Aave's own
-// chain names — the intersection the swap desk can actually load a
-// "Trade"-prefilled pair for.
-const CHAIN_NAME_TO_SLUG: Record<string, string> = {
-  Ethereum: 'ethereum',
-  Arbitrum: 'arbitrum',
-  Optimism: 'optimism',
-  Polygon: 'polygon',
-  Base: 'base',
-  Avalanche: 'avalanche',
-  BSC: 'bsc',
-}
 
 // Aave's public markets API lists dozens of deployments; querying every
 // chain up front is one request either way, but we cap to the chains the
 // swap desk supports plus the largest few others by convention (Aave itself
 // concentrates >95% of TVL on these).
 const QUERY_CHAIN_IDS = [1, 42161, 10, 137, 8453, 43114, 56]
-
-function compactUsd(value: number): string {
-  const sign = value < 0 ? '-' : ''
-  const magnitude = Math.abs(value)
-  if (magnitude >= 1e12) return `${sign}$${(magnitude / 1e12).toFixed(2)}t`
-  if (magnitude >= 1e9) return `${sign}$${(magnitude / 1e9).toFixed(2)}b`
-  if (magnitude >= 1e6) return `${sign}$${(magnitude / 1e6).toFixed(2)}m`
-  if (magnitude >= 1e3) return `${sign}$${(magnitude / 1e3).toFixed(2)}k`
-  return `${sign}$${magnitude.toFixed(2)}`
-}
-
-function percent(value: number): string {
-  return `${value.toFixed(2)}%`
-}
 
 function ReserveDetail({
   reserve,
@@ -134,13 +103,6 @@ export function AavePanel() {
   const { setSelectedPair } = usePair()
   const isMobile = useIsMobile()
 
-  const { data: chains } = useQuery({
-    queryKey: ['aave', 'chains'],
-    queryFn: fetchAaveChains,
-    staleTime: 30 * 60_000,
-    gcTime: 60 * 60_000,
-  })
-
   const {
     data: markets,
     isLoading,
@@ -156,13 +118,17 @@ export function AavePanel() {
 
   // Chains ordered by summed market TVL desc, restricted to chains that
   // actually returned a market this call.
-  const orderedChainIds = useMemo(() => {
-    if (!markets) return []
-    const tvlByChain = new Map<number, number>()
-    for (const m of markets) {
-      tvlByChain.set(m.chainId, (tvlByChain.get(m.chainId) ?? 0) + m.totalMarketSizeUsd)
-    }
-    return [...tvlByChain.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+  const orderedChainIds = useMemo(
+    () => rankChainsByTvl(markets ?? [], (m) => m.chainId, (m) => m.totalMarketSizeUsd),
+    [markets],
+  )
+
+  // chainId -> display name, straight off the markets we already fetched —
+  // no need for a separate `chains` query just to look up a name.
+  const chainNameById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const m of markets ?? []) if (!map.has(m.chainId)) map.set(m.chainId, m.chainName)
+    return map
   }, [markets])
 
   const activeChainId = chainId && orderedChainIds.includes(chainId) ? chainId : (orderedChainIds[0] ?? null)
@@ -184,8 +150,8 @@ export function AavePanel() {
     )
   }, [activeMarket, sortBy])
 
-  const chainName = chains?.find((c) => c.chainId === activeChainId)?.name ?? activeMarket?.chainName ?? ''
-  const chainSlug = CHAIN_NAME_TO_SLUG[chainName]
+  const chainName = (activeChainId !== null ? chainNameById.get(activeChainId) : undefined) ?? activeMarket?.chainName ?? ''
+  const chainSlug = swapDeskSlugForChainName(chainName)
   const tradable = Boolean(chainSlug)
 
   function tradeReserve(reserve: AaveReserve) {
@@ -227,7 +193,7 @@ export function AavePanel() {
           >
             {orderedChainIds.map((id) => (
               <option key={id} value={id}>
-                {chains?.find((c) => c.chainId === id)?.name ?? id}
+                {chainNameById.get(id) ?? id}
               </option>
             ))}
           </select>

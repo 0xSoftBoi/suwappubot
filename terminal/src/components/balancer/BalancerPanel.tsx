@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -10,32 +10,11 @@ import {
 } from '../../lib/balancer'
 import type { SwapToken } from '../../types/api'
 import { usePair } from '../../contexts/PairContext'
+import { compactUsd, percent } from '../../lib/format'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows, TerminalTextField } from '../foundation'
-
-function compactUsd(value: number): string {
-  const sign = value < 0 ? '-' : ''
-  const magnitude = Math.abs(value)
-  if (magnitude >= 1e12) return `${sign}$${(magnitude / 1e12).toFixed(2)}t`
-  if (magnitude >= 1e9) return `${sign}$${(magnitude / 1e9).toFixed(2)}b`
-  if (magnitude >= 1e6) return `${sign}$${(magnitude / 1e6).toFixed(2)}m`
-  if (magnitude >= 1e3) return `${sign}$${(magnitude / 1e3).toFixed(2)}k`
-  return `${sign}$${magnitude.toFixed(2)}`
-}
-
-function percent(value: number): string {
-  return `${value.toFixed(2)}%`
-}
-
-function useDebouncedValue<T>(value: T, delayMs = 350): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebounced(value), delayMs)
-    return () => window.clearTimeout(timeout)
-  }, [value, delayMs])
-  return debounced
-}
 
 // Balancer's own venue: chain -> pools ranked by TVL/volume/APR, sourced
 // straight from Balancer's public v3 GraphQL API (api-v3.balancer.fi) — the

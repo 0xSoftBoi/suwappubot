@@ -23,32 +23,6 @@ async function graphql<T = unknown>(query: string, variables?: Record<string, un
   return payload.data
 }
 
-export interface AaveChain {
-  chainId: number
-  name: string
-  explorerUrl: string
-}
-
-function parseChain(raw: unknown): AaveChain | null {
-  if (!raw || typeof raw !== 'object') return null
-  const row = raw as Record<string, unknown>
-  const chainId = Number(row.chainId)
-  const name = typeof row.name === 'string' ? row.name : ''
-  if (!Number.isFinite(chainId) || !name) return null
-  return { chainId, name, explorerUrl: typeof row.explorerUrl === 'string' ? row.explorerUrl : '' }
-}
-
-export async function fetchAaveChains(): Promise<AaveChain[]> {
-  const data = await graphql<{ chains: unknown[] }>(
-    'query { chains { chainId name explorerUrl isTestnet } }',
-  )
-  const chains = Array.isArray(data.chains) ? data.chains : []
-  return chains
-    .filter((c) => !(c && typeof c === 'object' && (c as Record<string, unknown>).isTestnet))
-    .map(parseChain)
-    .filter((c): c is AaveChain => c !== null)
-}
-
 export interface AaveReserve {
   symbol: string
   address: string

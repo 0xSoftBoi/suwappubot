@@ -3,101 +3,59 @@ import { useQuery } from '@tanstack/react-query'
 import { usePublicClient } from 'wagmi'
 import toast from 'react-hot-toast'
 import { compoundAppUrl, fetchCompoundMarkets, type CompoundMarket } from '../../lib/compound'
+import { resolveTokens, type TokenInfo } from '../../lib/v3Amm'
 import type { SwapToken } from '../../types/api'
 import { usePair } from '../../contexts/PairContext'
 import { usdcFor } from '../../lib/quoteTokens'
+import { compactUsd, percent } from '../../lib/format'
+import { rankChainsByTvl } from '../../lib/chainRanking'
+import { swapDeskSlugForChainId } from '../../lib/swapDeskChains'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
 
-// Chains wagmi carries a public client for, keyed to the terminal's own
-// chain slugs — the intersection where both on-chain base-asset resolution
-// and a Trade prefill are possible.
-const CHAIN_ID_TO_SLUG: Record<number, string> = {
-  1: 'ethereum',
-  42161: 'arbitrum',
-  10: 'optimism',
-  137: 'polygon',
-  8453: 'base',
-}
-
 const COMET_ABI = [
   { type: 'function', name: 'baseToken', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
 ] as const
-const ERC20_ABI = [
-  { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
-  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
-] as const
-
-interface BaseAssetInfo {
-  address: string
-  symbol: string
-  decimals: number
-}
 
 // Comet's own `baseToken()` view resolves the market's base asset address;
 // the summary API doesn't carry it (only USD price + collateral symbols).
-// Falls back to a USD-price-derived label when no public client is wired
-// for the chain, so the panel still renders on chains the swap desk doesn't
-// cover.
+// Symbol/decimals for that resolved address reuse the shared `resolveTokens`
+// (same multicall primitive the Uniswap/PancakeSwap engine uses) rather than
+// a second hand-rolled ERC20 multicall. Falls back to a USD-price-derived
+// label when no public client is wired for the chain, so the panel still
+// renders on chains the swap desk doesn't cover.
 function useBaseAssets(markets: CompoundMarket[], chainId: number) {
   const publicClient = usePublicClient({ chainId })
   return useQuery({
     queryKey: ['compound', 'base-assets', chainId, markets.map((m) => m.cometAddress).join(',')],
     queryFn: async () => {
-      const out = new Map<string, BaseAssetInfo>()
+      const out = new Map<string, TokenInfo>()
       if (!publicClient || markets.length === 0) return out
-      const baseTokenCalls = markets.map((m) => ({
-        address: m.cometAddress as `0x${string}`,
-        abi: COMET_ABI,
-        functionName: 'baseToken' as const,
-      }))
-      const baseTokenResults = await publicClient.multicall({ contracts: baseTokenCalls })
-      const tokenCalls: { address: `0x${string}`; abi: typeof ERC20_ABI; functionName: 'symbol' | 'decimals' }[] = []
-      const tokenAddresses: string[] = []
-      baseTokenResults.forEach((r) => {
+      const baseTokenResults = await publicClient.multicall({
+        contracts: markets.map((m) => ({
+          address: m.cometAddress as `0x${string}`,
+          abi: COMET_ABI,
+          functionName: 'baseToken' as const,
+        })),
+      })
+      const resolved: { market: CompoundMarket; baseTokenAddress: string }[] = []
+      baseTokenResults.forEach((r, i) => {
         if (r.status === 'success' && typeof r.result === 'string') {
-          tokenAddresses.push(r.result)
-          tokenCalls.push({ address: r.result as `0x${string}`, abi: ERC20_ABI, functionName: 'symbol' })
-          tokenCalls.push({ address: r.result as `0x${string}`, abi: ERC20_ABI, functionName: 'decimals' })
-        } else {
-          tokenAddresses.push('')
+          resolved.push({ market: markets[i], baseTokenAddress: r.result })
         }
       })
-      const tokenResults = tokenCalls.length > 0 ? await publicClient.multicall({ contracts: tokenCalls }) : []
-      let cursor = 0
-      markets.forEach((m, i) => {
-        const address = tokenAddresses[i]
-        if (!address) return
-        const symbolRes = tokenResults[cursor]
-        const decimalsRes = tokenResults[cursor + 1]
-        cursor += 2
-        out.set(m.cometAddress, {
-          address,
-          symbol: symbolRes?.status === 'success' ? String(symbolRes.result) : '?',
-          decimals: decimalsRes?.status === 'success' ? Number(decimalsRes.result) : 18,
-        })
-      })
+      const tokenInfoByAddress = await resolveTokens(publicClient, resolved.map((r) => r.baseTokenAddress))
+      for (const { market, baseTokenAddress } of resolved) {
+        const info = tokenInfoByAddress.get(baseTokenAddress.toLowerCase())
+        if (info) out.set(market.cometAddress, info)
+      }
       return out
     },
     enabled: markets.length > 0,
     staleTime: 30 * 60_000,
     gcTime: 60 * 60_000,
   })
-}
-
-function compactUsd(value: number): string {
-  const sign = value < 0 ? '-' : ''
-  const magnitude = Math.abs(value)
-  if (magnitude >= 1e12) return `${sign}$${(magnitude / 1e12).toFixed(2)}t`
-  if (magnitude >= 1e9) return `${sign}$${(magnitude / 1e9).toFixed(2)}b`
-  if (magnitude >= 1e6) return `${sign}$${(magnitude / 1e6).toFixed(2)}m`
-  if (magnitude >= 1e3) return `${sign}$${(magnitude / 1e3).toFixed(2)}k`
-  return `${sign}$${magnitude.toFixed(2)}`
-}
-
-function percent(value: number): string {
-  return `${value.toFixed(2)}%`
 }
 
 // A USD-price-derived fallback label for chains with no wagmi public client
@@ -132,12 +90,10 @@ export function CompoundPanel() {
     gcTime: 10 * 60_000,
   })
 
-  const orderedChainIds = useMemo(() => {
-    if (!markets) return []
-    const tvlByChain = new Map<number, number>()
-    for (const m of markets) tvlByChain.set(m.chainId, (tvlByChain.get(m.chainId) ?? 0) + m.totalSupplyUsd)
-    return [...tvlByChain.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
-  }, [markets])
+  const orderedChainIds = useMemo(
+    () => rankChainsByTvl(markets ?? [], (m) => m.chainId, (m) => m.totalSupplyUsd),
+    [markets],
+  )
 
   const activeChainId = chainId && orderedChainIds.includes(chainId) ? chainId : (orderedChainIds[0] ?? null)
   const chainMarkets = useMemo(
@@ -146,7 +102,7 @@ export function CompoundPanel() {
   )
 
   const { data: baseAssets } = useBaseAssets(chainMarkets, activeChainId ?? 0)
-  const chainSlug = activeChainId ? CHAIN_ID_TO_SLUG[activeChainId] : undefined
+  const chainSlug = activeChainId ? swapDeskSlugForChainId(activeChainId) : undefined
   const tradable = Boolean(chainSlug)
 
   function tradeMarket(market: CompoundMarket) {

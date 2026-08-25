@@ -4,6 +4,7 @@ import { fetchLidoApr, fetchLidoStats, lidoStakeUrl, STETH_ADDRESS, STETH_DECIMA
 import type { SwapToken } from '../../types/api'
 import { usePair } from '../../contexts/PairContext'
 import { useAuth } from '../../contexts/AuthContext'
+import { compactUsd } from '../../lib/format'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows } from '../foundation'
@@ -25,16 +26,6 @@ const STETH: SwapToken = {
   address: STETH_ADDRESS,
   chain: 'ethereum',
   decimals: STETH_DECIMALS,
-}
-
-function compactUsd(value: number): string {
-  const sign = value < 0 ? '-' : ''
-  const magnitude = Math.abs(value)
-  if (magnitude >= 1e12) return `${sign}$${(magnitude / 1e12).toFixed(2)}t`
-  if (magnitude >= 1e9) return `${sign}$${(magnitude / 1e9).toFixed(2)}b`
-  if (magnitude >= 1e6) return `${sign}$${(magnitude / 1e6).toFixed(2)}m`
-  if (magnitude >= 1e3) return `${sign}$${(magnitude / 1e3).toFixed(2)}k`
-  return `${sign}$${magnitude.toFixed(2)}`
 }
 
 // Lido's own protocol venue: single-product stats (it's one liquid-staking

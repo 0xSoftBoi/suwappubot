@@ -10,10 +10,12 @@ import {
   type CurveSortBy,
   type CurveSortDirection,
 } from '../../lib/curve'
+import { compactUsd, percent } from '../../lib/format'
 import type { SwapToken } from '../../types/api'
 import { usePair } from '../../contexts/PairContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { requestMobileTab } from '../layout/TradingLayout'
 import { TerminalEmptyState, TerminalSkeletonRows, TerminalTextField } from '../foundation'
 import { CurvePoolDetail } from './CurvePoolDetail'
@@ -41,30 +43,6 @@ const SORT_COLUMNS: { id: CurveSortBy; label: string }[] = [
   { id: 'volume', label: '24h Volume' },
   { id: 'base_daily_apr', label: 'Base APR' },
 ]
-
-function useDebouncedValue<T>(value: T, delayMs = 350): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebounced(value), delayMs)
-    return () => window.clearTimeout(timeout)
-  }, [value, delayMs])
-  return debounced
-}
-
-function compactUsd(value: number): string {
-  const sign = value < 0 ? '-' : ''
-  const magnitude = Math.abs(value)
-  if (magnitude >= 1e12) return `${sign}$${(magnitude / 1e12).toFixed(2)}t`
-  if (magnitude >= 1e9) return `${sign}$${(magnitude / 1e9).toFixed(2)}b`
-  if (magnitude >= 1e6) return `${sign}$${(magnitude / 1e6).toFixed(2)}m`
-  if (magnitude >= 1e3) return `${sign}$${(magnitude / 1e3).toFixed(2)}k`
-  if (magnitude === 0) return '$0'
-  return `${sign}$${magnitude.toFixed(2)}`
-}
-
-function percent(value: number): string {
-  return `${value.toFixed(2)}%`
-}
 
 function coinToSwapToken(coin: CurvePool['coins'][number], chain: string): SwapToken {
   return {
