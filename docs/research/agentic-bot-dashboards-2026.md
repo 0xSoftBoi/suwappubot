@@ -213,7 +213,12 @@ Ranked by (impact on whether a real team adopts this) × (cost to build).
 Items 1–4 are all small and all attack the same weakness: we built execution
 without proof. That is the work.
 
-**Status (later in the same session):** 1–4 and 6 are shipped. Item 5
+**Status (later in the same session):** 1–4 and 6 are shipped, and the proof
+surface is now an HTML page rather than a JSON endpoint — worth recording as a
+mistake, because for several commits I described it as "everyone gets their own
+assistancefund.top" while it returned braces. The reference implementation is a
+page a sceptical holder can read on a phone; matching its data model but not its
+form meant the feature could not do the job I was claiming for it. Item 5
 (structured refusal records) is still open, and round 2's defect 6 — no
 lifecycle handling for abandoned bots — is open by choice: it needs a product
 decision about what happens to a dead bot's treasury, not just code.
