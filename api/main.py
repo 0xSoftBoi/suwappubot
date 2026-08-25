@@ -880,6 +880,9 @@ class SwapResponse(BaseModel):
 
 class AuthChallengeRequest(BaseModel):
     address: str
+    # EVM chain the wallet is connected to. Smart accounts bind their EIP-1271
+    # check to block.chainid, so we must sign for — and verify on — that chain.
+    chainId: Optional[int] = None
 
 
 class AuthChallengeResponse(BaseModel):
@@ -1382,7 +1385,9 @@ async def auth_challenge(body: AuthChallengeRequest, request: Request):
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
 
     domain, uri = _wallet_auth_origin(request)
-    result = generate_auth_challenge(address, domain=domain, uri=uri)
+    # Pass chainId through as-is: None means "client didn't say", which tells the
+    # verifier to probe the major chains instead of assuming mainnet.
+    result = generate_auth_challenge(address, domain=domain, uri=uri, chain_id=body.chainId)
 
     return AuthChallengeResponse(
         challenge=result["challenge"],
@@ -1399,12 +1404,14 @@ async def auth_verify(
     Verify the signed challenge and create a session.
     Returns a JWT token for subsequent authenticated requests.
     """
-    from bot.services.turnkey_client import verify_auth_signature
+    from bot.services.turnkey_client import verify_wallet_auth_signature
 
     address = request.address.strip().lower()
 
-    # Verify the signature
-    is_valid = verify_auth_signature(
+    # Verify the signature. Handles both EOAs (65-byte ECDSA) and smart accounts
+    # (EIP-1271 / ERC-6492 — Coinbase Smart Wallet, Safe, passkey/4337 wallets),
+    # whose signatures are not recoverable and must be checked on-chain.
+    is_valid = await verify_wallet_auth_signature(
         address=address, signature=request.signature, nonce=request.nonce
     )
 

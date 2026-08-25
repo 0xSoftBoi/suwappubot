@@ -144,10 +144,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Auth
-  async walletChallenge(address: string) {
+  // `chainId` is the chain the wallet is connected to. Smart accounts
+  // (Coinbase Smart Wallet, Safe, passkey/4337) verify their own signature
+  // on-chain via EIP-1271 and bind it to block.chainid, so the backend must
+  // know which chain to check — send it whenever wagmi knows it.
+  async walletChallenge(address: string, chainId?: number) {
     const result = await request<{ nonce: string; challenge: string }>('/auth/turnkey/challenge', {
       method: 'POST',
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({ address, ...(chainId ? { chainId } : {}) }),
     })
     return { nonce: result.nonce, message: result.challenge }
   },

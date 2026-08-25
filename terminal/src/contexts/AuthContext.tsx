@@ -100,7 +100,12 @@ function AuthInner({ children }: { children: ReactNode }) {
   const [isWalletConnecting, setIsWalletConnecting] = useState(false)
   const [isWalletAuthAvailable, setIsWalletAuthAvailable] = useState(true)
   const queryClient = useQueryClient()
-  const { address: connectedAddress, isConnected, connector } = useAccount()
+  const {
+    address: connectedAddress,
+    isConnected,
+    connector,
+    chainId: connectedChainId,
+  } = useAccount()
   const { signMessageAsync } = useSignMessage()
   const { disconnectAsync } = useDisconnect()
   const { openConnectModal } = useConnectModal()
@@ -481,7 +486,7 @@ function AuthInner({ children }: { children: ReactNode }) {
       setIsWalletConnecting(true)
       const task = (async (): Promise<boolean> => {
         try {
-          const { message, nonce } = await api.walletChallenge(address)
+          const { message, nonce } = await api.walletChallenge(address, connectedChainId)
           const signature = await signMessageAsync({ message })
           const providerTag = resolveWalletProviderTag(connector?.id)
           const result = await api.walletVerify(address, signature, nonce, providerTag)
@@ -525,7 +530,7 @@ function AuthInner({ children }: { children: ReactNode }) {
       })
       return task
     },
-    [signMessageAsync, connector],
+    [signMessageAsync, connector, connectedChainId],
   )
 
   // Set when the user clicks "Connect wallet" while no wallet is connected: we
