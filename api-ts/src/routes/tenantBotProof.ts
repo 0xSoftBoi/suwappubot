@@ -95,6 +95,7 @@ tenantBotProofRoutes.get('/:handle', async (c) => {
 				tokenAmount: r.tokenAmount,
 				txHash: r.txHash,
 				startedAt: r.startedAt,
+				verification: r.verification,
 			}))
 			const totals = summarise(runs)
 
@@ -136,6 +137,10 @@ tenantBotProofRoutes.get('/:handle', async (c) => {
 					skipped_runs: totals.skippedRuns,
 					failed_runs: totals.failedRuns,
 					verifiable_runs: totals.verifiableRuns,
+					// Independently confirmed. The only figures here that do not
+					// depend on taking our word for it.
+					confirmed_on_chain: totals.confirmedRuns,
+					failed_verification: totals.failedVerificationRuns,
 					first_run_at: totals.firstRunAt?.toISOString() ?? null,
 					last_run_at: totals.lastRunAt?.toISOString() ?? null,
 				},
@@ -168,12 +173,16 @@ tenantBotProofRoutes.get('/:handle', async (c) => {
 					// The link is the point. A number without one is our word for it.
 					explorer_url: explorerUrl(chain, r.txHash),
 					started_at: r.startedAt.toISOString(),
+					verification: r.verification ?? 'pending',
 				})),
 				disclosure:
 					'Every run this bot attempted is listed, including the ones that were ' +
 					'refused or failed. Simulated runs moved no funds and are counted ' +
-					'separately. Figures are what this bot spent — not a claim about the ' +
-					"token's total supply.",
+					'separately. Runs marked confirmed were checked against a public block ' +
+					'explorer, which you can re-check yourself from the transaction links. ' +
+					'Note that sending tokens to a burn address is an ordinary transfer: it ' +
+					"makes them unreachable, but the contract's total supply is unchanged, so " +
+					'none of these figures are a claim about total supply.',
 			}
 		}),
 	)

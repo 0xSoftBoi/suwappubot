@@ -4828,6 +4828,11 @@ def _create_tenant_bot_tables(db_engine, inspector, is_sqlite: bool) -> None:
                     token_amount VARCHAR(80),
                     tx_hash VARCHAR(100),
                     quote {json_type},
+                    verification VARCHAR(24) NOT NULL DEFAULT 'pending',
+                    verified_amount VARCHAR(80),
+                    verified_block BIGINT,
+                    verified_at {dt},
+                    verification_detail TEXT,
                     started_at {ts} NOT NULL,
                     finished_at {dt}
                 )

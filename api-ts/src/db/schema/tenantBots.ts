@@ -66,6 +66,16 @@ export const tenantBotAutomationModeEnum = pgEnum('tenant_bot_automation_mode', 
 	'live',
 ])
 
+/** Whether the chain agrees with what a run claimed. See tenantBots/burnVerify. */
+export const tenantBotVerificationEnum = pgEnum('tenant_bot_verification', [
+	'pending', // not checked yet
+	'verified', // the transfer is on-chain
+	'mismatch', // the tx exists but did not deliver to the sink — a failed burn
+	'not_found', // the explorer has no such tx (retryable)
+	'unsupported_chain',
+	'unavailable', // explorer down (retryable)
+])
+
 export const tenantBotRunStatusEnum = pgEnum('tenant_bot_run_status', [
 	'simulated',
 	'succeeded',
@@ -275,6 +285,18 @@ export const tenantBotRuns = pgTable(
 		tokenAmount: varchar('token_amount', { length: 80 }),
 		txHash: varchar('tx_hash', { length: 100 }),
 		quote: jsonb('quote').$type<Record<string, unknown>>(),
+
+		// ── Independent confirmation. See services/tenantBots/burnVerify.ts. ──
+		//
+		// `spendUsd`/`tokenAmount` above are what we INTENDED. These are what the
+		// chain says actually happened, kept separate on purpose: when they
+		// disagree, the disagreement is the most important thing on the page.
+		verification: tenantBotVerificationEnum('verification').default('pending').notNull(),
+		/** Raw on-chain amount as a decimal string — never a float. */
+		verifiedAmount: varchar('verified_amount', { length: 80 }),
+		verifiedBlock: bigint('verified_block', { mode: 'number' }),
+		verifiedAt: timestamp('verified_at'),
+		verificationDetail: text('verification_detail'),
 
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		finishedAt: timestamp('finished_at'),

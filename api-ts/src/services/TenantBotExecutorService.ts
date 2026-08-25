@@ -23,6 +23,7 @@ import { logger } from '../lib/logger'
 import { SwapService } from './SwapService'
 import { TenantBotService } from './TenantBotService'
 import { redactBotToken } from './tenantBots/redact'
+import { isRetryable, type VerificationResult, verifyBurn } from './tenantBots/burnVerify'
 import { TokenService } from './TokenService'
 import { getTokenPriceUsd } from './autopilot/market'
 import {
@@ -66,6 +67,10 @@ export interface TenantBotExecutorInterface {
 	) => Effect.Effect<RunResult, Error, ExecutorDeps>
 	/** Drive every automation whose next_run_at has passed. */
 	readonly runDue: (now?: Date) => Effect.Effect<RunResult[], Error, ExecutorDeps>
+	/** Ask the chain whether one run did what it claimed. */
+	readonly verifyRun: (runId: string) => Effect.Effect<unknown, Error, ExecutorDeps>
+	/** Re-check runs whose verdict was retryable. */
+	readonly verifyPending: (limit?: number) => Effect.Effect<number, Error, ExecutorDeps>
 }
 
 export class TenantBotExecutor extends Context.Tag('TenantBotExecutor')<
@@ -162,6 +167,130 @@ export const TenantBotExecutorLive = Layer.effect(
 					),
 				),
 			)
+
+		/**
+		 * Ask the chain whether a run did what it claimed, and record the answer.
+		 *
+		 * Deliberately never changes the run's own `status`. A `succeeded` run
+		 * that fails verification stays `succeeded` — we really did broadcast it —
+		 * but it now carries `mismatch`, and the proof page treats verified and
+		 * claimed as different things. Rewriting history to `failed` would lose
+		 * the fact that funds left the treasury, which is the part that matters.
+		 */
+		const verifyRun = (runId: string) =>
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								id: tenantBotRuns.id,
+								txHash: tenantBotRuns.txHash,
+								botId: tenantBotRuns.botId,
+								automationId: tenantBotRuns.automationId,
+								status: tenantBotRuns.status,
+							})
+							.from(tenantBotRuns)
+							.where(eq(tenantBotRuns.id, runId))
+							.limit(1),
+					catch: (e) => new Error(`run load failed: ${e}`),
+				})
+				const run = rows[0]
+				if (!run || run.status !== 'succeeded' || !run.txHash) return null
+
+				const botRows = yield* Effect.tryPromise({
+					try: () => db.select().from(tenantBots).where(eq(tenantBots.id, run.botId)).limit(1),
+					catch: (e) => new Error(`bot load failed: ${e}`),
+				})
+				const bot = botRows[0]
+				if (!bot?.tokenAddress) return null
+
+				const autoRows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select()
+							.from(tenantBotAutomations)
+							.where(eq(tenantBotAutomations.id, run.automationId))
+							.limit(1),
+					catch: (e) => new Error(`automation load failed: ${e}`),
+				})
+				const automation = autoRows[0]
+				// Only a burn makes a checkable claim about where tokens ended up. A
+				// buyback leaves them in the treasury, which this check cannot judge.
+				if (!automation || automation.kind !== 'buy_and_burn') return null
+				const cfg = readBurnConfig(automation, bot)
+				if (!cfg.burnAddress) return null
+
+				const result = yield* Effect.tryPromise({
+					try: () =>
+						verifyBurn({
+							chain: cfg.chain,
+							txHash: run.txHash as string,
+							tokenAddress: bot.tokenAddress as string,
+							burnAddress: cfg.burnAddress as string,
+						}),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}).pipe(
+					Effect.catchAll(() =>
+						Effect.succeed<VerificationResult>({
+							status: 'unavailable',
+							detail: 'Verification could not run.',
+						}),
+					),
+				)
+
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(tenantBotRuns)
+							.set({
+								verification: result.status,
+								verifiedAmount: result.amountRaw ?? null,
+								verifiedBlock: result.blockNumber ?? null,
+								// Only stamp a time on a settled verdict, so a retryable
+								// outcome stays visibly unfinished rather than looking checked.
+								verifiedAt: isRetryable(result.status) ? null : new Date(),
+								verificationDetail: result.detail,
+							})
+							.where(eq(tenantBotRuns.id, runId)),
+					catch: (e) => new Error(`verification write failed: ${e}`),
+				})
+
+				if (result.status === 'mismatch') {
+					logger.error(
+						{ runId, botId: run.botId, txHash: run.txHash, detail: result.detail },
+						'tenant bot burn FAILED verification — tokens did not reach the burn address',
+					)
+				}
+				return result
+			})
+
+		/** Re-check runs whose verdict was retryable, oldest first. */
+		const verifyPending = (limit = 25) =>
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ id: tenantBotRuns.id })
+							.from(tenantBotRuns)
+							.where(
+								and(
+									eq(tenantBotRuns.status, 'succeeded'),
+									sql`${tenantBotRuns.verification} in ('pending', 'not_found', 'unavailable')`,
+								),
+							)
+							.orderBy(tenantBotRuns.startedAt)
+							.limit(limit),
+					catch: (e) => new Error(`pending scan failed: ${e}`),
+				})
+				let checked = 0
+				for (const r of rows) {
+					yield* verifyRun(r.id).pipe(Effect.catchAll(() => Effect.succeed(null)))
+					checked += 1
+				}
+				return checked
+			})
 
 		const runAutomation = (
 			automationId: string,
@@ -548,6 +677,12 @@ export const TenantBotExecutorLive = Layer.effect(
 				}
 				yield* closeRun(run.id, rec)
 				yield* recordOutcome(automation, true)
+
+				// Check it immediately. Usually too early — the explorer often has
+				// not indexed the block yet — which is exactly why `not_found` is
+				// retryable and swept later rather than treated as a failed burn.
+				yield* verifyRun(run.id).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
 				yield* announce(
 					bot,
 					cfg.announceChatId,
@@ -614,6 +749,6 @@ export const TenantBotExecutorLive = Layer.effect(
 				return results
 			})
 
-		return { runAutomation, runDue } satisfies TenantBotExecutorInterface
+		return { runAutomation, runDue, verifyRun, verifyPending } satisfies TenantBotExecutorInterface
 	}),
 )

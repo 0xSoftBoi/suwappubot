@@ -32,6 +32,18 @@ export async function runDueAutomations(): Promise<number> {
 				return yield* exec.runDue()
 			}),
 		)
+		// Re-check runs whose verification was retryable. Done on the same tick
+		// because a burn confirms a minute or two after it broadcasts, and an
+		// unconfirmed run on a public page is a question mark the team has to
+		// answer. Failures here never affect the run itself.
+		const confirmed = await runEffect(
+			Effect.gen(function* () {
+				const exec = yield* TenantBotExecutor
+				return yield* exec.verifyPending()
+			}),
+		).catch(() => 0)
+		if (confirmed > 0) logger.info({ confirmed }, 'tenant bot runs re-verified')
+
 		if (results.length > 0) {
 			const byStatus = results.reduce<Record<string, number>>((acc, r) => {
 				acc[r.status] = (acc[r.status] ?? 0) + 1

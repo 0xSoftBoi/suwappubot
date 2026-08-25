@@ -41,6 +41,14 @@ export interface ProofRun {
 	tokenAmount: string | null
 	txHash: string | null
 	startedAt: Date
+	/** What the chain says, as opposed to what the run claimed. */
+	verification?:
+		| 'pending'
+		| 'verified'
+		| 'mismatch'
+		| 'not_found'
+		| 'unsupported_chain'
+		| 'unavailable'
 }
 
 export interface ProofTotals {
@@ -55,6 +63,12 @@ export interface ProofTotals {
 	/** Of the executed runs, how many carry a verifiable tx hash. A gap here is
 	 *  a coverage lapse and is reported as one rather than quietly ignored. */
 	verifiableRuns: number
+	/** Confirmed on-chain by an independent block explorer. The only number on
+	 *  this page that does not depend on trusting us. */
+	confirmedRuns: number
+	/** Runs whose transaction exists but did NOT deliver to the burn address —
+	 *  a burn that did not happen. Any value above zero is the headline. */
+	failedVerificationRuns: number
 	firstRunAt: Date | null
 	lastRunAt: Date | null
 }
@@ -67,6 +81,8 @@ export function summarise(runs: ProofRun[]): ProofTotals {
 		skippedRuns: 0,
 		failedRuns: 0,
 		verifiableRuns: 0,
+		confirmedRuns: 0,
+		failedVerificationRuns: 0,
 		firstRunAt: null,
 		lastRunAt: null,
 	}
@@ -75,6 +91,8 @@ export function summarise(runs: ProofRun[]): ProofTotals {
 			t.executedRuns += 1
 			t.executedSpendUsd += r.spendUsd
 			if (r.txHash) t.verifiableRuns += 1
+			if (r.verification === 'verified') t.confirmedRuns += 1
+			if (r.verification === 'mismatch') t.failedVerificationRuns += 1
 		} else if (r.status === 'simulated') {
 			t.simulatedRuns += 1
 		} else if (r.status === 'skipped') {
@@ -96,6 +114,8 @@ export type ProofCaveat =
 	| 'no_supply_context'
 	| 'recently_failing'
 	| 'stalled'
+	| 'failed_verification'
+	| 'unconfirmed'
 
 export interface Caveat {
 	code: ProofCaveat
@@ -169,6 +189,30 @@ export function caveatsFor(input: {
 		})
 	}
 
+	// The strongest possible finding on this page, so it says the quiet part:
+	// the transaction happened, the burn did not.
+	if (totals.failedVerificationRuns > 0) {
+		out.push({
+			code: 'failed_verification',
+			text:
+				`${totals.failedVerificationRuns} of ${totals.executedRuns} executed runs did NOT ` +
+				'deliver tokens to the burn address, according to the block explorer. Money left ' +
+				'the treasury on those runs and the tokens are not where they should be.',
+		})
+	}
+
+	const pendingConfirm =
+		totals.executedRuns - totals.confirmedRuns - totals.failedVerificationRuns
+	if (totals.executedRuns > 0 && pendingConfirm > 0) {
+		out.push({
+			code: 'unconfirmed',
+			text:
+				`${pendingConfirm} executed ${pendingConfirm === 1 ? 'run has' : 'runs have'} not been ` +
+				'confirmed on-chain yet. Recent runs usually confirm within minutes; an older one ' +
+				'staying unconfirmed means the transaction was never found.',
+		})
+	}
+
 	if (input.recentFailures >= 2) {
 		out.push({
 			code: 'recently_failing',
@@ -195,7 +239,17 @@ export function headline(totals: ProofTotals, kind: string, symbol: string): str
 		return `No ${kind === 'buy_and_burn' ? 'burns' : 'buybacks'} executed yet`
 	}
 	const verb = kind === 'buy_and_burn' ? 'sent to a burn address' : 'bought back'
-	return `$${totals.executedSpendUsd.toLocaleString()} of ${symbol} ${verb} across ${totals.executedRuns} ${
-		totals.executedRuns === 1 ? 'run' : 'runs'
-	}`
+	const base = `$${totals.executedSpendUsd.toLocaleString()} of ${symbol} ${verb} across ${
+		totals.executedRuns
+	} ${totals.executedRuns === 1 ? 'run' : 'runs'}`
+
+	// Never more confident than the chain allows. A discrepancy is the single
+	// most important fact on the page and must not be hidden behind a total.
+	if (totals.failedVerificationRuns > 0) {
+		return `${base} — ${totals.failedVerificationRuns} unconfirmed by the chain`
+	}
+	if (totals.confirmedRuns === totals.executedRuns) {
+		return `${base}, all confirmed on-chain`
+	}
+	return base
 }
