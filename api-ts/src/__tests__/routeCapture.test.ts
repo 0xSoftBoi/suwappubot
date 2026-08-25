@@ -130,7 +130,7 @@ describe('route candidate extraction', () => {
 					],
 				}),
 				{ status: 200, headers: { 'Content-Type': 'application/json' } },
-			)) as typeof fetch
+			)) as unknown as typeof fetch
 
 		const routes = await fetchRouteCandidates({
 			fromChain: '1',
