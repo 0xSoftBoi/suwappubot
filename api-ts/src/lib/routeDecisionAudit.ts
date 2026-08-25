@@ -172,6 +172,8 @@ function toCanonicalValue(value: unknown, path = '$'): CanonicalValue {
 			return result
 		}
 	}
+
+	throw new Error(`Unsupported canonical value at ${path}`)
 }
 
 function serializeCanonical(value: CanonicalValue): string {
