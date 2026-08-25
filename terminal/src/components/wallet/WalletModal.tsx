@@ -294,19 +294,35 @@ function DepositView({
   solanaAddress,
   balances,
   loaded,
+  chains = DEPOSIT_CHAINS,
+  selfCustody = false,
 }: {
   evmAddress: string | null
   solanaAddress: string | null
   balances: WalletBalance[]
   loaded: boolean
+  // Networks this account can actually receive on. A connected external wallet
+  // signs for exactly one address family, so we never offer it a network whose
+  // address format it could not control (an EVM address cannot hold SOL).
+  chains?: typeof DEPOSIT_CHAINS
+  // Self-custody: the address shown is the user's own connected wallet.
+  selfCustody?: boolean
 }) {
-  const [chain, setChain] = useState('ethereum')
+  const [chain, setChain] = useState(() => chains[0]?.id ?? 'ethereum')
   const [qr, setQr] = useState<
     { status: 'idle' } | { status: 'loading' } | { status: 'ready'; src: string } | { status: 'error' }
   >({ status: 'idle' })
   const [qrAttempt, setQrAttempt] = useState(0)
-  const def = DEPOSIT_CHAINS.find((c) => c.id === chain)!
-  const address = def.type === 'solana' ? solanaAddress : evmAddress
+  // `chains` narrows once the session resolves which wallet family is connected,
+  // so a stale selection must fall back instead of leaving `def` undefined.
+  useEffect(() => {
+    if (chains.length && !chains.some((c) => c.id === chain)) setChain(chains[0].id)
+  }, [chains, chain])
+  const def = chains.find((c) => c.id === chain) ?? chains[0]
+  const address = def?.type === 'solana' ? solanaAddress : evmAddress
+  // Every EVM network shares one address, so say so — otherwise switching chips
+  // looks like it did nothing.
+  const sharedEvmAddress = def?.type === 'evm' && chains.filter((c) => c.type === 'evm').length > 1
 
   useEffect(() => {
     if (!address) {
@@ -367,7 +383,7 @@ function DepositView({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5">
-        {DEPOSIT_CHAINS.map((c) => (
+        {chains.map((c) => (
           <button
             key={c.id}
             onClick={() => setChain(c.id)}
@@ -415,9 +431,16 @@ function DepositView({
           </div>
 
           <div className="rounded-lg border border-terminal-warn/40 bg-terminal-warn/10 px-3 py-2 text-[11px] text-terminal-warn">
-            ⚠ Only send <b>{def.label}</b>-network tokens to this address. Sending from another network
+            ⚠ Only send <b>{def?.label}</b>-network tokens to this address. Sending from another network
             can lose funds.
           </div>
+
+          {sharedEvmAddress && (
+            <p className="text-[11px] text-terminal-text-muted">
+              This same address receives on every EVM network above — switching the chip changes which
+              network you should send from, not the address.
+            </p>
+          )}
 
           {credited && (
             <div className="flex items-center gap-2 rounded-lg border border-bull/30 bg-bull-dim px-3 py-2 text-[12px] font-medium text-bull">
@@ -443,7 +466,9 @@ function DepositView({
         </>
       ) : (
         <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-6 text-center text-sm text-terminal-text-muted">
-          No {def.label} deposit address available on your account yet.
+          {selfCustody
+            ? `Connect a ${def?.label ?? ''} wallet to receive on this network.`
+            : `No ${def?.label ?? ''} deposit address available on your account yet.`}
         </div>
       )}
     </div>
@@ -737,7 +762,7 @@ export function WalletModal({
   initialTab?: Tab
 }) {
   const [tab, setTab] = useState<Tab>(initialTab)
-  const { isExternalWallet, connectedAddress } = useAuth()
+  const { isExternalWallet, connectedAddress, walletAddress, externalChain } = useAuth()
   const { data: summary } = useWalletSummary(open)
 
   useEffect(() => {
@@ -751,6 +776,17 @@ export function WalletModal({
   }, [open, onClose])
 
   const balances = useMemo(() => summary?.balances ?? [], [summary])
+
+  // A connected wallet receives at its own address. Prefer the authenticated
+  // session's wallet over wagmi's `connectedAddress`: wagmi is EVM-only, so a
+  // Phantom session has no `connectedAddress` and would otherwise show nothing.
+  const externalAddress = walletAddress ?? connectedAddress ?? null
+  const externalIsSolana = externalChain === 'solana'
+  // Only the networks this wallet family can actually control.
+  const externalChains = useMemo(
+    () => DEPOSIT_CHAINS.filter((c) => (externalIsSolana ? c.type === 'solana' : c.type === 'evm')),
+    [externalIsSolana]
+  )
 
   if (!open) return null
 
@@ -788,17 +824,17 @@ export function WalletModal({
                   <p className="text-sm text-terminal-text">
                     You’re signed in with your own wallet — receive funds directly to it:
                   </p>
-                  {connectedAddress && (
-                    <div className="flex items-center gap-2 rounded-lg bg-terminal-bg-tertiary/60 px-3 py-2">
-                      <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-terminal-text">
-                        {connectedAddress}
-                      </span>
-                      <CopyButton value={connectedAddress} />
-                    </div>
-                  )}
-                  <p className="text-[11px] text-terminal-text-muted">
-                    Send tokens on the matching network. They’ll appear in your portfolio automatically.
-                  </p>
+                  {/* Same picker as the custodial flow: a self-custody user still
+                      has to choose which network they are sending from, and still
+                      needs the QR and the wrong-network warning. */}
+                  <DepositView
+                    evmAddress={externalIsSolana ? null : externalAddress}
+                    solanaAddress={externalIsSolana ? externalAddress : null}
+                    balances={balances}
+                    loaded={summary !== undefined}
+                    chains={externalChains}
+                    selfCustody
+                  />
                 </>
               ) : (
                 <p className="py-6 text-center text-sm text-terminal-text-muted">
