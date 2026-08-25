@@ -30,6 +30,7 @@ import { mapErrorToResponse } from '../errors'
 import { runEffectEither } from '../runtime'
 import { explorerUrl } from '../services/tenantBots/executor'
 import { caveatsFor, headline, type ProofRun, summarise } from '../services/tenantBots/proof'
+import { type ProofPageData, renderProofPage } from '../services/tenantBots/proofPage'
 
 export const tenantBotProofRoutes = new Hono()
 
@@ -194,6 +195,14 @@ tenantBotProofRoutes.get('/:handle', async (c) => {
 	const payload = result.right
 	if (!payload.found) return c.json({ success: false, error: 'No such bot' }, 404)
 	if (!payload.published) {
+		const accept = c.req.header('accept') ?? ''
+		if (accept.includes('text/html')) {
+			// A holder who followed a link deserves a sentence, not a JSON 404.
+			// Worded so it does not imply the team is hiding something — most
+			// unpublished bots simply never turned it on.
+			c.header('Content-Type', 'text/html; charset=utf-8')
+			return c.body(notPublishedPage(payload.name ?? 'This bot'), 404)
+		}
 		return c.json(
 			{
 				success: false,
@@ -207,5 +216,44 @@ tenantBotProofRoutes.get('/:handle', async (c) => {
 	// Short cache: a holder refreshing during a burn should see it land, but an
 	// anonymous endpoint should not be a free database load generator.
 	c.header('Cache-Control', 'public, max-age=30')
+
+	// Content negotiation. The audience for this surface is someone in a
+	// Telegram group tapping a link on their phone, so a browser gets a page;
+	// anything asking for JSON (or adding .json) still gets the API response,
+	// because the machine-readable record is the thing another tool would audit.
+	const accept = c.req.header('accept') ?? ''
+	const wantsJson =
+		c.req.query('format') === 'json' || (accept.includes('application/json') && !accept.includes('text/html'))
+
+	if (!wantsJson) {
+		c.header('Content-Type', 'text/html; charset=utf-8')
+		return c.body(renderProofPage(payload as unknown as ProofPageData))
+	}
 	return c.json({ success: true, ...payload })
 })
+
+/** Minimal page for a bot with no published record. */
+function notPublishedPage(name: string): string {
+	const safe = escapeForPage(name)
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>No public record</title><meta name="robots" content="noindex">
+<style>:root{color-scheme:light dark}body{margin:0;padding:14vh 20px;
+font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+text-align:center;color:#16202b;background:#fbfbf9}
+@media(prefers-color-scheme:dark){body{color:#e8eef5;background:#0e1319}}
+p{max-width:34rem;margin:0 auto;color:#5c7080}</style></head>
+<body><h1>No public record</h1>
+<p>${safe} has not published its treasury record. Only the project can turn this
+on, and most simply have not.</p></body></html>`
+}
+
+/** Local copy so this module does not import the renderer just to escape. */
+function escapeForPage(value: string): string {
+	return value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;')
+}
