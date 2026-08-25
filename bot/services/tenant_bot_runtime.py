@@ -89,6 +89,8 @@ class TenantBotConfig:
     token_chain: Optional[str] = None
     token_address: Optional[str] = None
     token_symbol: Optional[str] = None
+    telegram_username: Optional[str] = None
+    proof_public: bool = False
     loaded_at: float = 0.0
 
     def has_skill(self, key: str) -> bool:
@@ -137,6 +139,8 @@ def _row_to_config(row: Any) -> TenantBotConfig:
         token_chain=row.token_chain,
         token_address=row.token_address,
         token_symbol=row.token_symbol,
+        telegram_username=row.telegram_username,
+        proof_public=bool(getattr(row, "proof_public", False)),
         loaded_at=time.time(),
     )
 
@@ -147,7 +151,8 @@ def _load_config_sync(bot_id: str) -> Optional[TenantBotConfig]:
             text("""
                 SELECT id, name, status, webhook_secret, bot_token_ciphertext,
                        bot_token_nonce, branding, skills, token_chain,
-                       token_address, token_symbol
+                       token_address, token_symbol, telegram_username,
+                       proof_public
                 FROM tenant_bots WHERE id = :bot_id
                 """),
             {"bot_id": bot_id},
@@ -276,6 +281,8 @@ def _command_menu(cfg: TenantBotConfig) -> str:
         rows.append("/holders — supply and holders")
     if cfg.has_skill("burn_stats"):
         rows.append("/burnstats — what has been burned")
+    if cfg.proof_public:
+        rows.append("/proof — the public treasury record")
     if cfg.has_skill("leaderboard"):
         rows.append("/leaderboard — top buyers")
     if cfg.has_skill("alerts"):
@@ -344,10 +351,22 @@ async def _cmd_buy(cfg: TenantBotConfig, chat_id: int, _args: str) -> None:
 
 
 async def _cmd_burnstats(cfg: TenantBotConfig, chat_id: int, _args: str) -> None:
-    """What this bot's own automations have burned, from tenant_bot_runs.
+    """What this bot's own automations have burned.
 
-    Only successful live runs count. A simulated run is a rehearsal, and
-    reporting it as burned supply to a community would be a lie.
+    Rewritten after research on ~$19B of 2025-26 buyback programs found that
+    only 2 of 11 tracked tokens actually shrank supply, and that the standard
+    failure is exactly what this command used to do: report a cumulative
+    "total burned" figure that implies a supply effect it does not establish.
+
+    So this reports three things instead of one:
+
+    - What was actually spent, from **successful live runs only**. A simulated
+      run is a rehearsal; counting it as burned supply would be a lie told to a
+      community by their own bot.
+    - How many of those runs are verifiable on-chain. A run without a tx hash
+      is the bot's word for it, and the bot's word is not the point.
+    - What the number does not prove — that total supply is falling — because
+      emissions and unlocks are not counted here and we cannot see them.
     """
 
     def _query() -> dict:
@@ -355,7 +374,8 @@ async def _cmd_burnstats(cfg: TenantBotConfig, chat_id: int, _args: str) -> None
             row = session.execute(
                 text("""
                     SELECT count(*) AS runs,
-                           coalesce(sum(r.spend_usd), 0) AS spent
+                           coalesce(sum(r.spend_usd), 0) AS spent,
+                           count(r.tx_hash) AS verifiable
                     FROM tenant_bot_runs r
                     JOIN tenant_bot_automations a ON a.id = r.automation_id
                     WHERE r.bot_id = :bot_id
@@ -364,9 +384,13 @@ async def _cmd_burnstats(cfg: TenantBotConfig, chat_id: int, _args: str) -> None
                     """),
                 {"bot_id": cfg.bot_id},
             ).first()
-            return (
-                {"runs": row.runs or 0, "spent": row.spent or 0} if row else {"runs": 0, "spent": 0}
-            )
+            if not row:
+                return {"runs": 0, "spent": 0, "verifiable": 0}
+            return {
+                "runs": row.runs or 0,
+                "spent": row.spent or 0,
+                "verifiable": row.verifiable or 0,
+            }
 
     try:
         stats = await run_in_db(_query)
@@ -379,15 +403,57 @@ async def _cmd_burnstats(cfg: TenantBotConfig, chat_id: int, _args: str) -> None
         await _send(
             cfg,
             chat_id,
-            f"{cfg.mark}*Burn stats*\n\nNo burns have executed yet.",
+            f"{cfg.mark}*Burn stats*\n\nNo burns have executed yet." + _proof_line(cfg),
         )
         return
+
+    lines = [
+        f"{cfg.mark}*Burn stats*",
+        "",
+        f"Burns executed: *{stats['runs']}*",
+        f"Spent buying to burn: *{_fmt_usd(stats['spent'])}*",
+    ]
+    # A gap between executed and verifiable runs is reported, not hidden.
+    if stats["verifiable"] < stats["runs"]:
+        unproven = stats["runs"] - stats["verifiable"]
+        lines.append(f"On-chain proof: {stats['verifiable']}/{stats['runs']} ({unproven} unproven)")
+    else:
+        lines.append(f"All {stats['runs']} verifiable on-chain")
+    lines += [
+        "",
+        "_This is what was spent buying tokens and sending them to a burn "
+        "address. It does not mean total supply is falling — new issuance and "
+        "unlocks are not counted here._",
+    ]
+    await _send(cfg, chat_id, "\n".join(lines) + _proof_line(cfg))
+
+
+def _proof_line(cfg: TenantBotConfig) -> str:
+    """Point at the public record, when the team published one."""
+    if not cfg.proof_public or not cfg.telegram_username:
+        return ""
+    base = os.environ.get("SUWAPPU_PUBLIC_API_URL", "https://api.suwappu.bot")
+    return f"\n\n[Full record]({base}/v1/bots/proof/{cfg.telegram_username})"
+
+
+async def _cmd_proof(cfg: TenantBotConfig, chat_id: int, _args: str) -> None:
+    """Hand a holder the public record.
+
+    The whole value of the record is that a sceptic can reach it without asking
+    the team's permission, so the bot volunteers the link rather than making
+    anyone hunt for it.
+    """
+    if not cfg.proof_public or not cfg.telegram_username:
+        await _send(cfg, chat_id, "This project has not published a public treasury record.")
+        return
+    base = os.environ.get("SUWAPPU_PUBLIC_API_URL", "https://api.suwappu.bot")
     await _send(
         cfg,
         chat_id,
-        f"{cfg.mark}*Burn stats*\n\n"
-        f"Burns executed: *{stats['runs']}*\n"
-        f"Total spent on buybacks: *{_fmt_usd(stats['spent'])}*",
+        f"{cfg.mark}*Public record*\n\n"
+        f"Every run this bot attempted — including the ones that were refused "
+        f"or failed — with transaction links.\n\n"
+        f"[Open the record]({base}/v1/bots/proof/{cfg.telegram_username})",
     )
 
 
@@ -426,6 +492,9 @@ _ROUTES = {
     "holders": ("holders", _cmd_holders),
     "burnstats": ("burn_stats", _cmd_burnstats),
     "burn": ("burn_stats", _cmd_burnstats),
+    # Always available when the team published a record — a holder should never
+    # have to know whether a "skill" is switched on to audit the treasury.
+    "proof": (None, _cmd_proof),
 }
 
 

@@ -702,6 +702,69 @@ tenantBotRoutes.post('/:orgId/bots/:botId/treasury', async (c) => {
 	return respond(c, result, 'treasury')
 })
 
+// ─── disclosure ────────────────────────────────────────────────────────────
+
+const DisclosureSchema = z.object({
+	funding_source: z.enum(['revenue', 'treasury', 'undisclosed']).optional(),
+	funding_note: z.string().max(300).nullable().optional(),
+	proof_public: z.boolean().optional(),
+})
+
+/**
+ * Publish (or unpublish) the bot's public treasury record, and state where the
+ * money comes from.
+ *
+ * Funding source is asked for explicitly rather than inferred, because the
+ * research is unambiguous that it is the durability signal that matters:
+ * revenue-funded programs continue, treasury-funded ones stop. `undisclosed`
+ * stays the default and the proof page says so — silence must not read as the
+ * flattering answer.
+ */
+tenantBotRoutes.post('/:orgId/bots/:botId/disclosure', async (c) => {
+	const orgId = c.req.param('orgId')
+	const botId = c.req.param('botId')
+	if (!(await requireMember(c, orgId, ['owner', 'admin']))) return c.json({ error: 'Forbidden' }, 403)
+	const parsed = DisclosureSchema.safeParse(await c.req.json().catch(() => ({})))
+	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+	const p = parsed.data
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const svc = yield* TenantBotService
+			const bot = yield* svc.get(orgId, botId)
+
+			// Publishing needs a public identity to publish under: the proof page is
+			// addressed by Telegram handle, and an unprovisioned bot has none.
+			if (p.proof_public && !bot.telegramUsername) {
+				return yield* Effect.fail(
+					new Error('Connect the bot to Telegram before publishing its record.'),
+				)
+			}
+
+			const set: Record<string, unknown> = { updatedAt: new Date() }
+			if (p.funding_source !== undefined) set.fundingSource = p.funding_source
+			if (p.funding_note !== undefined) set.fundingNote = p.funding_note
+			if (p.proof_public !== undefined) set.proofPublic = p.proof_public
+
+			const rows = yield* Effect.tryPromise({
+				try: () => db.update(tenantBots).set(set).where(eq(tenantBots.id, botId)).returning(),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const row = rows[0]
+			return {
+				funding_source: row.fundingSource,
+				funding_note: row.fundingNote,
+				proof_public: row.proofPublic,
+				proof_url: row.proofPublic && row.telegramUsername
+					? `/v1/bots/proof/${row.telegramUsername}`
+					: null,
+			}
+		}),
+	)
+	return respond(c, result, 'disclosure')
+})
+
 // ─── admin ─────────────────────────────────────────────────────────────────
 
 /**

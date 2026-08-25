@@ -40,6 +40,7 @@ import {
 	stakingRoutes,
 	swapRoutes,
 	tenantBotAdminRoutes,
+	tenantBotProofRoutes,
 	tenantBotRoutes,
 	tokenRoutes,
 	webappDataRoutes,
@@ -217,6 +218,10 @@ export function createApp(config: AppConfig) {
 	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API
 	// key or agent bearer token via agentFlexAuth), enforced inside dataRoutes.
 	app.route('/v1/data', dataRoutes)
+
+	// A tenant bot's public treasury record. Unauthenticated by design — the
+	// point is that a stranger who does not trust the team can check it.
+	app.route('/v1/bots/proof', tenantBotProofRoutes)
 
 	// Tenant bots — the white-label bot factory. Org-scoped, flexAuth + explicit
 	// membership check inside the router (see routes/tenantBots.ts).

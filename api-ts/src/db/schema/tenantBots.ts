@@ -38,6 +38,13 @@ import {
 import { organizations } from './organizations'
 import { users } from './users'
 
+/** Where an automation's money comes from. See tenantBots.fundingSource. */
+export const tenantBotFundingEnum = pgEnum('tenant_bot_funding', [
+	'revenue', // recurring protocol/product fees — durable
+	'treasury', // a finite pot — honest, but it runs out
+	'undisclosed', // the default: we will not guess on a team's behalf
+])
+
 export const tenantBotStatusEnum = pgEnum('tenant_bot_status', [
 	'draft', // composed in the dashboard, no token attached yet
 	'provisioning', // token accepted, webhook registration in flight
@@ -142,6 +149,22 @@ export const tenantBots = pgTable(
 		// this address, and the only thing that can move those funds through us is
 		// a capped automation.
 		treasuryAddress: varchar('treasury_address', { length: 100 }),
+		/**
+		 * Where the money comes from. This is the single strongest durability
+		 * signal in the whole category: research on ~$19B of 2025-26 buyback
+		 * programs found revenue-funded programs durable and treasury-funded ones
+		 * "motion without much effect", because a treasury is finite. Recorded so
+		 * the public proof page can state it rather than let a reader assume the
+		 * flattering answer.
+		 */
+		fundingSource: tenantBotFundingEnum('funding_source').default('undisclosed').notNull(),
+		/** Free-text detail, e.g. "0.8% of swap fees" or "seed round treasury". */
+		fundingNote: text('funding_note'),
+		/**
+		 * Opt-in public proof page at /v1/bots/proof/:slug. Off by default — we
+		 * publish a team's treasury activity only when they ask us to.
+		 */
+		proofPublic: boolean('proof_public').default(false).notNull(),
 		treasuryInternalUserId: integer('treasury_internal_user_id'),
 		treasuryInternalWalletId: integer('treasury_internal_wallet_id'),
 
