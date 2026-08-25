@@ -69,7 +69,7 @@ export interface InstitutionalDecisionAuditSnapshotV1 {
 
 export interface InstitutionalDecisionAuditRecord {
 	snapshot: InstitutionalDecisionAuditSnapshotV1
-	/** SHA-256 over canonical UTF-8 JSON of snapshot. */
+	/** Deterministic SHA-256 integrity fingerprint over canonical UTF-8 JSON. */
 	digest: string
 }
 
@@ -191,17 +191,23 @@ function serializeCanonical(value: CanonicalValue): string {
 }
 
 /**
- * Deterministic canonical JSON used for tamper-evident audit digests.
- * This is deliberately stricter than JSON.stringify: non-finite numbers,
- * class instances and unsupported values fail instead of being silently coerced.
+ * Deterministic canonical JSON used for decision integrity fingerprints and
+ * externally anchored audit-chain checkpoints. This function alone does NOT
+ * provide tamper evidence: a privileged writer could alter data and recompute an
+ * unanchored hash. See executionAuditCheckpoint.ts for chained/signable heads.
+ *
+ * The serializer is deliberately stricter than JSON.stringify: non-finite
+ * numbers, class instances and unsupported values fail instead of being silently
+ * coerced.
  */
 export function canonicalAuditJson(value: unknown): string {
 	return serializeCanonical(toCanonicalValue(value))
 }
 
 /**
- * Build the hashable, non-secret decision envelope that #941 will persist.
+ * Build the hashable, non-secret decision envelope that #941 persists.
  * Candidate input order does not affect the digest; candidate IDs must be unique.
+ * The returned SHA-256 is an integrity fingerprint, NOT standalone tamper evidence.
  *
  * Settlement type is copied from the actual decision result, not recomputed
  * from provider/tool metadata. Historical replay therefore hashes the exact
