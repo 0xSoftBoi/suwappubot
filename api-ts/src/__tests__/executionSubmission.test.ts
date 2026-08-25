@@ -14,6 +14,7 @@ import {
 } from '../lib/executionLifecycle'
 import {
 	listSubmissionAttemptsNeedingReconciliation,
+	markSubmissionIndeterminate,
 	prepareChildSubmission,
 	recordSubmissionAcknowledgement,
 } from '../lib/executionSubmission'
@@ -221,6 +222,18 @@ describe('write-ahead submission fencing', () => {
 		expect(await db.select().from(executionOutbox)).toHaveLength(1)
 	})
 
+	test('concurrent prepare workers collapse onto one durable child', async () => {
+		const [a, b] = await Promise.all([
+			prepareChildSubmission(db, prepareInput()),
+			prepareChildSubmission(db, prepareInput()),
+		])
+		const outcomes = [a.replayRequiresReconciliation, b.replayRequiresReconciliation].sort()
+		expect(outcomes).toEqual([false, true])
+		expect(a.child.id).toBe(b.child.id)
+		expect(await db.select().from(executionChildPlacements)).toHaveLength(1)
+		expect(await db.select().from(executionEvents)).toHaveLength(1)
+	})
+
 	test('same child sequence with different terms is a hard idempotency conflict', async () => {
 		await prepareChildSubmission(db, prepareInput())
 
@@ -237,6 +250,54 @@ describe('write-ahead submission fencing', () => {
 		expect(queue[0]?.parentOrder.id).toBe(PARENT_ID)
 		expect(queue[0]?.child.id).toBe(prepared.child.id)
 		expect(queue[0]?.child.externalTxHash).toBeNull()
+	})
+
+	test('timeout or transport failure becomes UNKNOWN/recovery_pending, never terminal failed', async () => {
+		const prepared = await prepareChildSubmission(db, prepareInput())
+		const unknown = await markSubmissionIndeterminate(db, {
+			parentOrderId: PARENT_ID,
+			expectedParentVersion: 4,
+			childPlacementId: prepared.child.id,
+			idempotencyKey: 'child-submit-1',
+			requestFingerprint: 'signed-plan-digest',
+			reasonCode: 'provider_timeout',
+			detail: 'socket closed after request body was sent',
+		})
+
+		expect(unknown.child.state).toBe('unknown')
+		expect(unknown.parentOrder.state).toBe('recovery_pending')
+		expect(unknown.parentOrder.stateVersion).toBe(5)
+		const queue = await listSubmissionAttemptsNeedingReconciliation(db)
+		expect(queue).toHaveLength(1)
+		expect(queue[0]?.child.state).toBe('unknown')
+		expect(await db.select().from(executionEvents)).toHaveLength(2)
+	})
+
+	test('provider recovery may attach identity to UNKNOWN attempt without creating a second child', async () => {
+		const prepared = await prepareChildSubmission(db, prepareInput())
+		await markSubmissionIndeterminate(db, {
+			parentOrderId: PARENT_ID,
+			expectedParentVersion: 4,
+			childPlacementId: prepared.child.id,
+			idempotencyKey: 'child-submit-1',
+			requestFingerprint: 'signed-plan-digest',
+			reasonCode: 'http_500',
+		})
+
+		const recovered = await recordSubmissionAcknowledgement(db, {
+			parentOrderId: PARENT_ID,
+			expectedParentVersion: 5,
+			childPlacementId: prepared.child.id,
+			idempotencyKey: 'child-submit-1',
+			requestFingerprint: 'signed-plan-digest',
+			externalTxHash: '0xrecovered',
+		})
+
+		expect(recovered.child.id).toBe(prepared.child.id)
+		expect(recovered.child.state).toBe('submitted')
+		expect(recovered.parentOrder.state).toBe('submitted')
+		expect(await db.select().from(executionChildPlacements)).toHaveLength(1)
+		expect(await listSubmissionAttemptsNeedingReconciliation(db)).toHaveLength(0)
 	})
 
 	test('external acknowledgement requires identity and atomically moves child+parent to submitted', async () => {
@@ -288,5 +349,25 @@ describe('write-ahead submission fencing', () => {
 		await expect(
 			recordSubmissionAcknowledgement(db, { ...baseAck, externalTxHash: '0xdifferent' }),
 		).rejects.toBeInstanceOf(ExecutionIdempotencyConflictError)
+	})
+
+	test('concurrent identical acknowledgements collapse onto the same external identity', async () => {
+		const prepared = await prepareChildSubmission(db, prepareInput())
+		const ack = {
+			parentOrderId: PARENT_ID,
+			expectedParentVersion: 4,
+			childPlacementId: prepared.child.id,
+			idempotencyKey: 'child-submit-1',
+			requestFingerprint: 'signed-plan-digest',
+			externalTxHash: '0xabc123',
+		}
+		const [a, b] = await Promise.all([
+			recordSubmissionAcknowledgement(db, ack),
+			recordSubmissionAcknowledgement(db, ack),
+		])
+		expect([a.duplicate, b.duplicate].sort()).toEqual([false, true])
+		expect(a.child.externalTxHash).toBe('0xabc123')
+		expect(b.child.externalTxHash).toBe('0xabc123')
+		expect(await db.select().from(executionEvents)).toHaveLength(2)
 	})
 })
