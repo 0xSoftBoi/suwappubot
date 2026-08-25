@@ -17,7 +17,6 @@ type Labels = {
   soundOn: string;
   soundOff: string;
   videoLabel: string;
-  scroll: string;
 };
 
 type AmbientHandle = {
@@ -214,10 +213,6 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
         <div className="home-ocean__scrim" />
         <div className="home-ocean__grain" />
         <div className="home-ocean__vignette" />
-      </div>
-      <div className="home-scrollcue" aria-hidden="true">
-        <span>{labels.scroll}</span>
-        <i />
       </div>
       <button
         type="button"

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Geist, EB_Garamond, JetBrains_Mono } from 'next/font/google';
+import { Geist, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
@@ -28,15 +28,16 @@ const jetbrainsMono = JetBrains_Mono({
 
 // Display-only serif: hero + section headlines and the A2A pull-quote on the
 // homepage. Never used for body copy or UI — Geist and JetBrains Mono keep
-// carrying those. EB Garamond is a warm old-style face chosen over the
-// LLM-default display serifs after an A/B render of the real headline copy
-// (see docs/design/serif-decision.md): it matches the warm soil/persimmon
-// palette, keeps the pull-quote on one line, and ships a weight axis so
-// display type can carry 500 against dark without faking bold.
-const displaySerif = EB_Garamond({
+// carrying those. Newsreader replaced EB Garamond in round 2 of the display
+// A/B (see docs/design/serif-decision.md): rendered over the dark ocean hero
+// at real sizes it carries the sharp, high-contrast financial-masthead
+// register the brand wants, where Garamond read bookish and light. Variable
+// weight + true italics + an optical-size axis (opsz), so display sizes get
+// the tighter high-contrast display cut automatically.
+const displaySerif = Newsreader({
   subsets: ['latin'],
-  weight: ['400', '500'],
   style: ['normal', 'italic'],
+  axes: ['opsz'],
   variable: '--font-serif',
   display: 'swap',
 });

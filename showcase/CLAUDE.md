@@ -18,9 +18,9 @@ Every page MUST use, unless it already deliberately doesn't:
   `src/app/summer-token-vars.css` / `site.css`, plus the `mkt-*` layout classes
   and `institutional-*` section classes (both belong to the current era and
   compose with summer tokens).
-- **Type:** the site's existing stack (serif display = EB Garamond via the
-  summer tokens; mono for labels). Never add a new font without a brand
-  decision.
+- **Type:** the site's existing stack (serif display = Newsreader via the
+  summer tokens; Geist for body/UI; mono for labels). Never add a new font
+  without a brand decision (see docs/design/serif-decision.md).
 
 ## Legacy — do NOT use on new pages
 

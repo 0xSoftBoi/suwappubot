@@ -157,7 +157,6 @@ export default async function Home() {
               soundOn: h('atmosphere.soundOn'),
               soundOff: h('atmosphere.soundOff'),
               videoLabel: h('atmosphere.videoLabel'),
-              scroll: h('atmosphere.scroll'),
             }}
           />
           <section className="home-hero" aria-labelledby="home-hero-title">
@@ -223,7 +222,6 @@ export default async function Home() {
           <section id="use-cases" className="home-section" aria-labelledby="usecases-title">
             <Reveal>
               <div className="home-section__head">
-                <p className="home-eyebrow">{h('useCases.eyebrow')}</p>
                 <h2 id="usecases-title">{h('useCases.title')}</h2>
                 <p className="home-section__head-lead">{h('useCases.lead')}</p>
               </div>
@@ -246,7 +244,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('execution.eyebrow')}</p>
                   <h2 id="execution-title">{h('execution.title')}</h2>
                 </div>
                 <p>{h('execution.lead')}</p>
@@ -285,7 +282,6 @@ export default async function Home() {
           <section id="routing" className="home-section" aria-labelledby="markets-title">
             <Reveal>
               <div className="home-section__head">
-                <p className="home-eyebrow">{h('markets.eyebrow')}</p>
                 <h2 id="markets-title">{h('markets.title')}</h2>
                 <p className="home-section__head-lead">{h('markets.lead')}</p>
               </div>
@@ -315,7 +311,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('research.eyebrow')}</p>
                   <h2 id="research-title">{h('research.title')}</h2>
                 </div>
                 <p>{h('research.lead')}</p>
@@ -339,7 +334,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('portfolio.eyebrow')}</p>
                   <h2 id="portfolio-title">{h('portfolio.title')}</h2>
                 </div>
                 <p>{h('portfolio.lead')}</p>
@@ -388,7 +382,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('interfaces.eyebrow')}</p>
                   <h2 id="interfaces-title">{h('interfaces.title')}</h2>
                 </div>
                 <p>{h('interfaces.lead')}</p>
@@ -430,7 +423,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
-                  <p className="home-eyebrow">{h('government.eyebrow')}</p>
                   <h2 id="government-title">{h('government.title')}</h2>
                 </div>
                 <p>{h('government.lead')}</p>
@@ -453,7 +445,6 @@ export default async function Home() {
             <Reveal>
               <div className="home-faq">
                 <div className="home-section__head">
-                  <p className="home-eyebrow">{h('faq.eyebrow')}</p>
                   <h2 id="faq-title">{h('faq.title')}</h2>
                 </div>
                 <FaqAccordion items={faq} />

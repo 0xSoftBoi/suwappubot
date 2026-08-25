@@ -42,3 +42,28 @@ the hero wrap via the grid ratio and clamp, not via `hd__h1 { max-width }`.
 Swapping the display face again means re-checking hero line count at 1440/1280/390 and
 the pull-quote line count, because both are width-sensitive. Rerun the A/B harness rather
 than judging a face from its specimen page.
+
+---
+
+# Round 2: Newsreader replaces EB Garamond (2026-08-25)
+
+**Outcome: Newsreader (variable, opsz axis) is now `--font-serif`.** Owner asked for a
+stronger, less default-feeling display face for the new ocean-hero institutional
+direction (BlackRock / Jane Street register).
+
+Per the rule above, the A/B harness was rerun (`serif-ab-2.html` + `serif-ab-2.png` in
+the session scratchpad): real headline copy at display size over the actual golden-hour
+ocean poster with the production scrim. Candidates were faces NOT tested in round 1,
+drawn from the financial-masthead register:
+
+| | Face | Verdict |
+|---|---|---|
+| A | EB Garamond (incumbent) | Bookish, humanist, lightest presence of the five. Reads university press, not trading floor. |
+| B | **Newsreader** | **Chosen.** Sharp high-contrast strokes, vertical stress, modern financial-masthead register (FT/Financier adjacent). Variable weight + true italics + optical-size axis, so display sizes get the display cut automatically (`font-optical-sizing: auto`). |
+| C | Besley | Clarendon; sturdy but blunt/slabby, heritage-newspaper-ad register. Hyphen glyph sits oddly high at display size. |
+| D | Spectral | Competent but generic screen serif; less character than Newsreader. |
+| E | STIX Two Text | Times register; institutional but reads like an unstyled default. |
+
+Layout consequences: with the current home hero (12ch measure, stacked headline) the
+line count is unchanged vs Garamond at 1440/1280/390; wrap points shifted slightly and
+read better. No clamp changes needed. Interior pages inherit via `--font-serif`.
