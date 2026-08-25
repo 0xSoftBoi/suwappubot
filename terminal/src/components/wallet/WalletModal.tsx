@@ -318,6 +318,7 @@ function DepositView({
   loaded,
   families = DEPOSIT_FAMILIES,
   selfCustody = false,
+  creditableTokens,
 }: {
   evmAddress: string | null
   solanaAddress: string | null
@@ -329,6 +330,10 @@ function DepositView({
   families?: typeof DEPOSIT_FAMILIES
   // Self-custody: the address shown is the user's own connected wallet.
   selfCustody?: boolean
+  // Tokens the deposit watcher actually credits. Anything else sent to the
+  // address is not detected, and the panel says so rather than implying
+  // everything lands.
+  creditableTokens?: string[]
 }) {
   const [familyId, setFamilyId] = useState(() => families[0]?.id ?? 'evm')
   const [qr, setQr] = useState<
@@ -466,6 +471,17 @@ function DepositView({
             from any other network can lose funds.
           </div>
 
+          {/* The watcher books an allowlist, nothing else. Saying so is the
+              difference between a deposit page and a trap: anything else sent
+              here is not detected and will not appear as a balance. */}
+          {creditableTokens && creditableTokens.length > 0 && (
+            <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2 text-[11px] text-terminal-text-secondary">
+              Only <b className="text-terminal-text">{creditableTokens.join(' and ')}</b> are
+              credited. Other tokens — including {def?.type === 'evm' ? 'ETH and other native coins' : 'SOL'} —
+              are not detected and will not show up in your balance.
+            </div>
+          )}
+
           {credited && (
             <div className="flex items-center gap-2 rounded-lg border border-bull/30 bg-bull-dim px-3 py-2 text-[12px] font-medium text-bull">
               <span aria-hidden>✓</span> Balance increased — {creditedToken} is up on this chain
@@ -498,11 +514,16 @@ function DepositView({
             </div>
             <div role="status" aria-live="polite" className="space-y-2 rounded-lg border border-terminal-border bg-terminal-bg p-3">
               <TimelineStep index={1} label="Submitted" note="Sent from your wallet or exchange" state="pending" />
-              <TimelineStep index={2} label="Confirming" note="Network confirmation, usually 1–5 min" state="pending" />
+              <TimelineStep
+                index={2}
+                label="Confirming"
+                note="Held until the network confirms — longest on Polygon"
+                state="pending"
+              />
               <TimelineStep
                 index={3}
                 label="Credited"
-                note={credited ? 'Balance increase detected just now' : 'Appears in your balance automatically'}
+                note={credited ? 'Balance increase detected just now' : 'Credited to your balance'}
                 state={credited ? 'done' : 'pending'}
               />
             </div>
@@ -825,6 +846,16 @@ export function WalletModal({
   // session's wallet over wagmi's `connectedAddress`: wagmi is EVM-only, so a
   // Phantom session has no `connectedAddress` and would otherwise show nothing.
   const externalAddress = walletAddress ?? connectedAddress ?? null
+  // A family is only offered when we hold an address for it. The server returns
+  // null for a family whose deposits nothing credits yet.
+  const custodialFamilies = useMemo(
+    () =>
+      DEPOSIT_FAMILIES.filter((f) =>
+        f.type === 'solana' ? !!summary?.solanaDepositAddress : !!summary?.evmDepositAddress
+      ),
+    [summary?.evmDepositAddress, summary?.solanaDepositAddress]
+  )
+
   const externalIsSolana = externalChain === 'solana'
   // Only the family this wallet can actually control.
   const externalFamilies = useMemo(
@@ -893,6 +924,11 @@ export function WalletModal({
               solanaAddress={summary?.solanaDepositAddress ?? null}
               balances={balances}
               loaded={summary !== undefined}
+              // Offer only families a deposit to which is actually credited.
+              // Solana comes back null until its watcher ships, and an address
+              // nothing books must not be presented as a way to add funds.
+              families={custodialFamilies}
+              creditableTokens={summary?.creditableTokens}
             />
           ) : (
             <WithdrawView balances={balances} enabled={summary?.withdrawEnabled !== false} />

@@ -129,6 +129,12 @@ class HotWallet(Base):
     address = Column(String(100), nullable=False, unique=True)
     encrypted_private_key = Column(Text, nullable=True)  # Ciphertext (NULL for Turnkey wallets)
 
+    # Set when this wallet is one user's dedicated deposit address. EVM has no
+    # memo field, so a shared address cannot be attributed to a depositor — the
+    # address itself is the attribution. UNIQUE(deposit_user_id, chain_type) is
+    # enforced in database/db.py::_ensure_schema.
+    deposit_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
     # Envelope encryption metadata (KMS + AES-GCM)
     encryption_scheme = Column(
         String(50), default="legacy_fernet_v1"

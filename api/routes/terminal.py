@@ -2154,13 +2154,22 @@ def _withdraw_enabled() -> bool:
 
 @router.get("/wallet/summary")
 async def terminal_wallet_summary(request: Request):
-    """Custodial wallet overview for the signed-in user: the omnibus deposit
-    addresses (EVM + Solana, same as the bot shows) and the per-user balances."""
+    """Custodial wallet overview for the signed-in user: this user's OWN deposit
+    address and their balances.
+
+    Previously this returned the shared omnibus address. EVM carries no memo
+    field, so an inbound transfer to a shared address says nothing about who
+    sent it — the address has to be the attribution. Minted on first view and
+    never reassigned, because a deposit can arrive long after the user saved it.
+
+    Solana is reported as null until the SPL side of the watcher lands: an
+    address nothing credits must not be presented as a way to add funds.
+    """
     uid = int(_terminal_user(request)["user_id"])
+    from bot.services.deposit_watcher import ALLOWLIST, CONFIRMATIONS
     from bot.services.hot_wallet import hot_wallet_service
 
-    evm = hot_wallet_service.get_deposit_wallet("evm")
-    sol = hot_wallet_service.get_deposit_wallet("solana")
+    evm = await hot_wallet_service.get_or_create_user_deposit_wallet(uid, "evm")
     balances_raw = hot_wallet_service.get_all_custodial_balances(uid) or {}
 
     balances = []
@@ -2171,11 +2180,20 @@ async def terminal_wallet_summary(request: Request):
                 balances.append({"chain": chain, "token": token_symbol, "amount": value})
     balances.sort(key=lambda b: b["amount"], reverse=True)
 
+    # Tell the client exactly what will be credited, so the UI can state it
+    # instead of implying that anything sent to the address shows up. Only
+    # allowlisted ERC-20s are booked; native transfers emit no log and are not
+    # detected at all.
+    creditable = sorted({sym for syms in ALLOWLIST.values() for sym in syms})
+
     return {
         "evmDepositAddress": evm.address if evm else None,
-        "solanaDepositAddress": sol.address if sol else None,
+        "solanaDepositAddress": None,
         "balances": balances,
         "withdrawEnabled": _withdraw_enabled(),
+        "creditableTokens": creditable,
+        "creditableChains": sorted(ALLOWLIST.keys()),
+        "depositConfirmations": CONFIRMATIONS,
     }
 
 

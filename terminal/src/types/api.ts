@@ -315,13 +315,24 @@ export interface WalletBalance {
   amount: number
 }
 
-// Custodial wallet overview: omnibus deposit addresses + the user's balances.
+// Custodial wallet overview: this user's OWN deposit address + their balances.
+// The address is per user, not shared — EVM has no memo field, so a shared
+// address gives the watcher nothing to attribute an inbound transfer with.
 export interface WalletSummary {
   evmDepositAddress: string | null
+  // Null until the SPL side of the deposit watcher lands. An address nothing
+  // credits must not be shown as a way to add funds.
   solanaDepositAddress: string | null
   balances: WalletBalance[]
   // Server-side kill-switch — when false the UI pauses the withdraw form.
   withdrawEnabled?: boolean
+  // What the watcher actually books. Only these tokens are credited; native
+  // transfers emit no log and are not detected at all.
+  creditableTokens?: string[]
+  creditableChains?: string[]
+  // chain -> confirmations required before crediting, so the UI can say how
+  // long the wait is instead of guessing.
+  depositConfirmations?: Record<string, number>
 }
 
 export interface WalletWithdrawResult {

@@ -122,30 +122,35 @@ finality rather than the standard threshold.
 
 ---
 
-## 7. Interim runbook — before any of the above is built
+## 7. Status
 
-While the omnibus address is still displayed, the process is manual and must be
-treated as such:
+**Built and wired** (`bot/services/deposit_watcher.py`, started in
+`api/main.py`'s lifespan):
 
-1. **Do not advertise custodial deposits as automatic.** The UI currently says
-   funds "appear in your balance automatically". That is not true today and
-   should be corrected or the entry point removed.
-2. **Watch the omnibus addresses** (EVM + Solana) on a block explorer or via an
-   alert on inbound transfers.
-3. **Attribute manually.** With a shared address and no memo, attribution rests
-   on the sender address matching a user's known wallet, or the user telling
-   support the tx hash. Record both.
-4. **Credit through an audited path.** There is no admin credit command today —
-   any manual crediting is a direct DB write and must be logged with the tx
-   hash, operator, and reason. An admin credit command with the tx hash as
-   idempotency key is the smallest safe first step.
-5. **Reconcile the omnibus balance against the sum of manual credits** before
-   enabling withdrawals against deposited funds.
+- Per-user EVM deposit addresses, minted on first wallet view, never reassigned
+  (`hot_wallet_service.get_or_create_user_deposit_wallet`), with
+  `UNIQUE(deposit_user_id, chain_type)` so a concurrent first-load cannot mint
+  two addresses for one user.
+- Log-based detection of allowlisted ERC-20 transfers across the six EVM chains,
+  scanned only up to `head - confirmations`.
+- Idempotent credit: the ledger row and the balance move commit in one
+  transaction, keyed `deposit:{chain}:{tx_hash}:{log_index}` under the existing
+  `UNIQUE(user_id, idempotency_key)`. A re-scan is a no-op.
+- Dust floor, token allowlist (spam-airdrop defence), and a cursor that never
+  advances past a range that failed to read.
+- `/terminal/wallet/summary` returns the user's own address plus
+  `creditableTokens`, and the UI states what is and is not credited.
 
-**Recommendation:** until step 4 exists, the custodial deposit address should not
-be presented as a funding route in the Terminal or the bot.
+**Not built yet — and deliberately not offered in the UI:**
 
----
+| Gap | Consequence |
+|---|---|
+| **Sweeping to treasury** | Credited funds sit at the user's deposit address. Withdrawals send from the omnibus (`terminal.py`), so withdrawals are **not** backed by deposited funds until the sweep exists. This is the next piece of work. |
+| Native (ETH/BNB/MATIC) deposits | Emit no log; not detected. UI says so. |
+| Solana SPL deposits | `solanaDepositAddress` returns null; not offered. |
+| `CustodialBalance` as derived entries | Still a mutable column. Reconcile nightly against `CustodialTransaction` until it is derived. |
+
+**Do not enable withdrawals against deposited funds until sweeping lands.**
 
 ## Sources
 
