@@ -162,6 +162,44 @@ export function stepForState(state: BridgeTransferState): string {
   }
 }
 
+/** Display names for the chains the bridge offers. Raw ids ("hyperevm")
+ *  read as internals; these are the names users know the chains by. */
+const CHAIN_LABELS: Record<string, string> = {
+  ethereum: "Ethereum",
+  arbitrum: "Arbitrum",
+  base: "Base",
+  optimism: "Optimism",
+  polygon: "Polygon",
+  avalanche: "Avalanche",
+  plasma: "Plasma",
+  hyperevm: "HyperEVM",
+};
+
+export function chainLabel(chain: string): string {
+  return (
+    CHAIN_LABELS[chain] ?? chain.charAt(0).toUpperCase() + chain.slice(1)
+  );
+}
+
+/** Public explorers, keyed by the same chain ids the bridge API uses. A
+ *  transfer's tx hashes should always be checkable outside our UI — during
+ *  the in-flight window, "verify it yourself" is part of being trustworthy. */
+const EXPLORERS: Record<string, string> = {
+  ethereum: "https://etherscan.io",
+  arbitrum: "https://arbiscan.io",
+  base: "https://basescan.org",
+  optimism: "https://optimistic.etherscan.io",
+  polygon: "https://polygonscan.com",
+  avalanche: "https://snowtrace.io",
+  plasma: "https://plasmascan.to",
+  hyperevm: "https://hyperevmscan.io",
+};
+
+export function explorerTxUrl(chain: string, txHash: string): string | null {
+  const base = EXPLORERS[chain];
+  return base ? `${base}/tx/${txHash}` : null;
+}
+
 /** "45s" / "12m" / "1h 5m" — compact enough for a table cell. */
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "—";
