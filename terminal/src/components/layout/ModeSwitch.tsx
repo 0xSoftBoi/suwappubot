@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useTrading, type TradingMode } from '../../contexts/TradingContext'
 
 const MODES: { id: TradingMode; label: string; hint: string }[] = [
@@ -14,6 +15,22 @@ const MODES: { id: TradingMode; label: string; hint: string }[] = [
 export function ModeSwitch({ className = '' }: { className?: string }) {
   const { tradingMode, setTradingMode } = useTrading()
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([])
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // The bridge is also mounted on its own deep-link routes (/bridge,
+  // /terminal/bridge), outside TradingLayout. On those URLs the persisted
+  // tradingMode still says whatever it last was — usually "spot" — so without
+  // this the switcher highlights the wrong tab AND its clicks do nothing (the
+  // URL keeps rendering BridgeRoute regardless of mode). Derive the active tab
+  // from the URL, and leave the standalone route when another tab is chosen.
+  const onStandaloneBridge = /(^|\/)bridge\/?$/.test(location.pathname)
+  const activeMode: TradingMode = onStandaloneBridge ? 'bridge' : tradingMode
+
+  const selectMode = (mode: TradingMode) => {
+    setTradingMode(mode)
+    if (onStandaloneBridge && mode !== 'bridge') navigate('/')
+  }
 
   // A tablist has to answer the arrow keys, or the ARIA role is a lie to screen
   // readers. Roving tabindex: one stop in the tab order, arrows move within.
@@ -27,7 +44,7 @@ export function ModeSwitch({ className = '' }: { className?: string }) {
     else return
 
     event.preventDefault()
-    setTradingMode(MODES[next].id)
+    selectMode(MODES[next].id)
     tabsRef.current[next]?.focus()
   }
 
@@ -38,7 +55,7 @@ export function ModeSwitch({ className = '' }: { className?: string }) {
       className={`terminal-theme-inset flex items-center gap-0.5 rounded-[8px] p-0.5 ${className}`}
     >
       {MODES.map((mode, index) => {
-        const active = tradingMode === mode.id
+        const active = activeMode === mode.id
         return (
           <button
             key={mode.id}
@@ -50,7 +67,7 @@ export function ModeSwitch({ className = '' }: { className?: string }) {
             aria-selected={active}
             tabIndex={active ? 0 : -1}
             onKeyDown={(event) => onKeyDown(event, index)}
-            onClick={() => setTradingMode(mode.id)}
+            onClick={() => selectMode(mode.id)}
             title={mode.hint}
             className={`terminal-theme-control rounded-[6px] px-3 py-1 text-xs transition-colors
               ${
