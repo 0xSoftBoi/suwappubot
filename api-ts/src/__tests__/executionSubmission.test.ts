@@ -11,6 +11,7 @@ import {
 import {
 	ExecutionIdempotencyConflictError,
 	ExecutionLifecycleError,
+	ExecutionPreflightError,
 } from '../lib/executionLifecycle'
 import {
 	listSubmissionAttemptsNeedingReconciliation,
@@ -152,9 +153,9 @@ async function createSchema(): Promise<void> {
 
 	await pg.exec(`
 		INSERT INTO execution_intents
-			(id, principal_key, idempotency_key, intent_type, from_chain, to_chain, from_asset, to_asset)
+			(id, principal_key, idempotency_key, intent_type, from_chain, to_chain, from_asset, to_asset, requested_notional)
 		VALUES
-			('${INTENT_ID}', 'institution:portfolio:42', 'intent-1', 'cross_chain_swap', '1', '8453', 'USDC', 'USDC');
+			('${INTENT_ID}', 'institution:portfolio:42', 'intent-1', 'cross_chain_swap', '1', '8453', 'USDC', 'USDC', '100000');
 
 		INSERT INTO execution_candidate_plans
 			(id, intent_id, ordinal, substrate, provider, feasible, selected)
@@ -182,6 +183,11 @@ function prepareInput(overrides: Partial<Parameters<typeof prepareChildSubmissio
 		side: 'sell',
 		requestedQuantity: '100000',
 		quantityAsset: 'USDC',
+		riskLimits: {
+			maxOpenOrders: 10,
+			maxSingleOrderNotionalUsd: 250_000,
+			maxOpenNotionalUsd: 1_000_000,
+		},
 		...overrides,
 	}
 }
@@ -209,9 +215,35 @@ describe('write-ahead submission fencing', () => {
 		expect(await db.select().from(executionOutbox)).toHaveLength(1)
 	})
 
+	test('principal risk limit blocks a new child inside the submission transaction', async () => {
+		await expect(
+			prepareChildSubmission(
+				db,
+				prepareInput({
+					riskLimits: {
+						maxOpenOrders: 10,
+						maxSingleOrderNotionalUsd: 50_000,
+						maxOpenNotionalUsd: 1_000_000,
+					},
+				}),
+			),
+		).rejects.toBeInstanceOf(ExecutionPreflightError)
+		expect(await db.select().from(executionChildPlacements)).toHaveLength(0)
+		expect(await db.select().from(executionEvents)).toHaveLength(0)
+	})
+
 	test('retry after write-ahead commit never grants permission to blindly submit again', async () => {
 		const first = await prepareChildSubmission(db, prepareInput())
-		const replay = await prepareChildSubmission(db, prepareInput())
+		const replay = await prepareChildSubmission(
+			db,
+			prepareInput({
+				riskLimits: {
+					maxOpenOrders: 1,
+					maxSingleOrderNotionalUsd: 1,
+					maxOpenNotionalUsd: 1,
+				},
+			}),
+		)
 
 		expect(first.replayRequiresReconciliation).toBe(false)
 		expect(replay.replayRequiresReconciliation).toBe(true)
