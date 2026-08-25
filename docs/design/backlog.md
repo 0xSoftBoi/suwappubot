@@ -17,12 +17,10 @@
 
 Found by rendering and looking, not fixed this pass (3-fix budget):
 
-- **Nav is the loudest unfinished thing on the page.** A light glass pill on the
-  dark hero holding 9 links (Products, Developers, Why Suwappu, Explore, Signals,
-  Research, Pricing, Docs, Telegram) plus three CTAs (Launch Terminal in the bar,
-  Explore all, and Launch Terminal again in the hero). Reference sites in this
-  category carry 4-5 top-level items. Also a duplicate-CTA-intent violation:
-  "Launch Terminal" appears twice above the fold. Repro: screenshot `/` at 1440.
+- **(FIXED iter 7)** **Nav simplified from 9 links + 3 CTAs to 4-5 items + 1 CTA.**
+  Removed: "Explore" (duplicate of Products dropdown), "Signals", "Research",
+  "Telegram" (all in dropdowns/footer), and "Explore all" ghost CTA. Nav now:
+  Products | Developers | Pricing | Docs + single "Launch Terminal" CTA.
 - **The sound toggle is `position: fixed` and rides the whole page.** By the
   execution section it sits on top of the "Authorize" card body text. It belongs
   to the hero; it should stop existing once the hero scrolls past. Repro: scroll
@@ -39,3 +37,8 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
   headline sits; the water - the part worth showing - is in the lower third
   where the mask fades it out. Consider `object-position: center bottom` on the
   poster/video so the horizon rides higher.
+
+## From design-iterate iteration 7 (2026-08-25)
+
+- **Nav redesign completed.** Removed 5 flat nav items + 1 duplicate CTA.
+  Next focus: sound toggle positioning (fixed on page, overlaps content).
