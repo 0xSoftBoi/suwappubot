@@ -37,6 +37,7 @@ _STATUS_TARGET = {
     SwapStatus.EXECUTING.value: ParentState.ACTIVE,
     SwapStatus.SUBMITTED.value: ParentState.ACTIVE,
     SwapStatus.CONFIRMING.value: ParentState.ACTIVE,
+    SwapStatus.RECONCILING.value: ParentState.RECONCILING,
     SwapStatus.CANCELLED.value: ParentState.CANCELLED,
 }
 
@@ -121,7 +122,16 @@ def _ensure_child(
             side=None,
             requested_quantity=swap.from_amount,
             quantity_asset=swap.from_token,
-            state="submitted" if swap.tx_hash else "created",
+            # RECONCILING with no external identity is deliberately `unknown`,
+            # not `created`: the provider call may already have produced a side
+            # effect and this child is no longer eligible for blind submission.
+            state=(
+                "submitted"
+                if swap.tx_hash
+                else "unknown"
+                if swap.status == SwapStatus.RECONCILING.value
+                else "created"
+            ),
             idempotency_key=swap.idempotency_key,
             external_tx_hash=swap.tx_hash,
             submitted_at=(swap.updated_at or datetime.utcnow()) if swap.tx_hash else None,
@@ -138,6 +148,11 @@ def _ensure_child(
             "legacy swap external tx identity changed after canonical child creation: "
             f"{child.external_tx_hash} -> {swap.tx_hash}"
         )
+    elif swap.status == SwapStatus.RECONCILING.value and not swap.tx_hash:
+        # Idempotently repair an older projection that created the child before
+        # the explicit UNKNOWN state existed.
+        child.state = "unknown"
+        session.flush()
     return child
 
 
@@ -353,6 +368,9 @@ def project_legacy_swap(
     Safety rules:
     - quote-time ``to_amount`` is never used as a realized fill;
     - completed-without-realized-output enters ``reconciling``;
+    - explicit legacy ``reconciling`` means the provider/transport outcome is
+      indeterminate and projects to canonical ``reconciling`` even without a
+      source transaction hash;
     - failed-after-broadcast enters ``reconciling`` because the legacy row does
       not prove whether the external transaction reverted, timed out, or later
       settled;
