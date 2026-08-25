@@ -167,7 +167,6 @@ export default async function Home() {
           />
           <section className="home-hero" aria-labelledby="home-hero-title">
             <div className="home-hero__copy">
-              <p className="home-eyebrow">{h('hero.eyebrow')}</p>
               <h1 id="home-hero-title">{h('hero.h1')}</h1>
               <p className="home-hero__lead">{h('hero.lead')}</p>
 
@@ -253,7 +252,6 @@ export default async function Home() {
               <div className="home-usecases" role="list" aria-label={h('useCases.ariaLabel')}>
                 {useCases.map((item) => (
                   <a key={item.number} className="home-usecase" href={item.href} role="listitem">
-                    <span className="home-usecase__number">{item.number}</span>
                     <h3>{item.title}</h3>
                     <p>{item.body}</p>
                     <b aria-hidden="true">→</b>

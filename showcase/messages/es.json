@@ -91,7 +91,6 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plataforma de trading full-stack",
       "h1": "La plataforma de trading full-stack para mercados cross-chain.",
       "lead": "Ejecución, enrutamiento, investigación y gestión de portafolio en 45 cadenas, desde un solo lugar. Opera desde Terminal o Telegram, o integra mediante REST, MCP y SDK tipados.",
       "ctaTerminal": "Abrir Terminal",

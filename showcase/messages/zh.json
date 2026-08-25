@@ -91,7 +91,6 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "全栈交易平台",
       "h1": "面向跨链市场的全栈交易平台。",
       "lead": "执行、路由、研究和投资组合管理，覆盖 45 条链，全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
       "ctaTerminal": "打开终端",

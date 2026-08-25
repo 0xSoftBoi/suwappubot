@@ -91,7 +91,6 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Full-stack trading platform",
       "h1": "The full-stack trading platform for cross-chain markets.",
       "lead": "Execution, routing, research, and portfolio management across 45 chains, from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
       "ctaTerminal": "Launch Terminal",

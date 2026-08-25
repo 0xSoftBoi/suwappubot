@@ -341,13 +341,6 @@
   border-top: 1px solid var(--line);
 }
 
-.home-usecase__number {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  color: var(--sw-accent-muted, #BD7526);
-}
-
 .home-usecase h3 {
   margin: 0.9rem 0 0;
   font-size: 1.05rem;
@@ -833,13 +826,8 @@
 
 /* ── Responsive ───────────────────────────────────────────────── */
 @media (max-width: 1020px) {
-  .home-hero {
-    grid-template-columns: minmax(0, 1fr) minmax(21rem, 0.8fr);
-    gap: 2.5rem;
-  }
-
   .home-hero h1 {
-    font-size: clamp(3rem, 6.7vw, 4.9rem);
+    font-size: clamp(2rem, 8.6vw, 3.25rem);
   }
 
   .home-proofbar {
@@ -1008,7 +996,13 @@
   }
 
   .home-hero h1 {
-    font-size: clamp(2.8rem, 13vw, 4rem);
+    /* 13vw put the headline at 50.7px in a 358px column, so "cross-chain"
+       could not fit on a line and broke mid-word at its hyphen. 8.7vw lands
+       at ~34px on a 390px phone, which fits the longest word run whole. */
+    font-size: clamp(1.9rem, 8.7vw, 2.6rem);
+    /* The 30ch desktop measure resolves to 258px here, i.e. 100px narrower
+       than the column it sits in. On a phone the column IS the measure. */
+    max-width: none;
   }
 
   .home-actions {
