@@ -169,6 +169,7 @@ from bot.handlers.alerts import (
 )
 from bot.handlers.referral import (
     referral_handler,
+    ref_review_handler,
     ref_menu_callback_handler,
     ref_list_callback_handler,
     ref_claim_callback_handler,
@@ -435,6 +436,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(referral_handler)  # /ref
     application.add_handler(fees_command_handler)  # /fees
     application.add_handler(rewards_command_handler)  # /rewards
+    application.add_handler(ref_review_handler)  # /refreview (admin)
     application.add_handler(orders_handler)  # /o (limit orders)
     application.add_handler(dca_handler)  # /dca
     application.add_handler(tax_handler)  # /tax

@@ -594,6 +594,23 @@ class ReferralService:
             f"${fee_amount_usd:.4f}) for referrer of user {referee_id} swap {swap_id}"
         )
 
+        # --- Verify the referral (unblocks the milestone stream) ---
+        # A recorded reward means this referee cleared MIN_VOLUME_BEFORE_PAYOUT_USD
+        # with a real, fee-paying swap and passed the shared-wallet self-referral
+        # check at link time. That IS the activity/fraud signal verify_referral()
+        # was documented to wait for. Nothing else in the codebase ever called it,
+        # so verified_at stayed NULL forever and every milestone bonus
+        # (5/10/20/50/100 referrals) was permanently unreachable.
+        #
+        # Called AFTER the transaction above has committed: verify_referral opens
+        # its own session and touches the same referrals row that was held
+        # FOR UPDATE, so calling it inside that block would self-deadlock.
+        # Idempotent — returns early once verified_at is set.
+        try:
+            self.verify_referral(referee_id)
+        except Exception as e:
+            logger.warning(f"Referral verification failed for referee {referee_id}: {e}")
+
         # Check if this is referee's first swap and award bonus points to referrer
         with get_session() as session:
             reward_count = (
@@ -1179,8 +1196,16 @@ class ReferralService:
             f"{referee_id} order {perp_order_id}"
         )
 
-        # After crediting perps commission, check for newly unlocked milestones.
-        # Best-effort: never let a milestone error break the perps close.
+        # A credited perps commission is real, fee-paying activity by the referee —
+        # the same verification signal the swap path uses. verify_referral() runs the
+        # milestone check itself when it flips verified_at, so the explicit call below
+        # only matters for referees that were already verified.
+        # Both run outside the FOR UPDATE block above to avoid self-deadlocking on the
+        # referrals row. Best-effort: never let this break the perps close.
+        try:
+            self.verify_referral(referee_id)
+        except Exception as e:
+            logger.warning(f"Referral verification failed for referee {referee_id}: {e}")
         try:
             self._check_and_award_milestones(referrer_id)
         except Exception as e:
@@ -1210,8 +1235,26 @@ class ReferralService:
     def verify_referral(self, referee_id: int) -> bool:
         """Mark a referral as verified (sets verified_at = now).
 
-        Called by fraud/activity checks once the referee is confirmed legitimate.
-        Returns True if a referral row was found and updated.
+        Verification gates the milestone bonus stream: get_verified_referral_count
+        only counts referrals with a non-NULL verified_at.
+
+        CALL SITES (must stay wired — nothing called this before, which left every
+        referral unverified and every milestone bonus unreachable):
+          - record_reward()            after a swap commission is recorded
+          - credit_perps_commission()  after a perps commission is credited
+
+        Both are proof of real, fee-paying activity by the referee that already
+        cleared the min-volume guard and the shared-wallet self-referral check at
+        link time — the "confirmed legitimate" signal this method waits for.
+
+        MUST be called outside any transaction holding the referrals row FOR UPDATE
+        (both call sites do): this opens its own session against the same row.
+
+        Idempotent — returns early without re-stamping or re-crediting milestones
+        once verified_at is set.
+
+        Returns True if a referral row was found (whether or not it was newly
+        verified), False if the referee has no active referral.
         """
         # HIGH #6: capture referrer_id INSIDE the session block to avoid
         # DetachedInstanceError when accessing the attribute after the session
