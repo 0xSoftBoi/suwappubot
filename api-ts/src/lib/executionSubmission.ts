@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, or, sql } from 'drizzle-orm'
 import type { DbClient, DbTransaction } from '../db/client'
 import {
 	executionChildPlacements,
@@ -89,8 +89,8 @@ export interface PreparedChildSubmission {
 	parentOrder: ExecutionParentOrder
 	child: ExecutionChildPlacement
 	/**
-	 * true means this exact write-ahead record already existed. The caller MUST
-	 * NOT blindly call the venue/provider again. Reconcile the existing attempt.
+	 * true means a write-ahead record for this exact instruction already exists.
+	 * The caller MUST reconcile it and MUST NOT blindly invoke the provider again.
 	 */
 	replayRequiresReconciliation: boolean
 }
@@ -113,14 +113,27 @@ function childMatchesPrepare(
 	)
 }
 
+async function loadParent(tx: DbTransaction, parentOrderId: string): Promise<ExecutionParentOrder> {
+	const rows = await tx
+		.select()
+		.from(executionParentOrders)
+		.where(eq(executionParentOrders.id, parentOrderId))
+		.limit(1)
+	const parent = rows[0]
+	if (!parent) throw new ExecutionLifecycleError('Parent order not found')
+	return parent
+}
+
 /**
  * Write-ahead fence for external submission.
  *
- * The child placement is durable BEFORE any provider/chain call is allowed and
- * the parent is CAS-moved from preflight_validated -> submitting in the same
- * transaction. If the caller retries after this transaction committed, the
- * function returns the existing child with replayRequiresReconciliation=true;
- * the caller must reconcile it and may not submit again blindly.
+ * A child placement is committed before an external call is permitted and the
+ * parent is CAS-moved from preflight_validated -> submitting in the SAME
+ * transaction. The unique (parent, childSequence) constraint is deliberately
+ * used as the cross-worker arbitration point: two workers racing the same
+ * economic instruction collapse to one durable child. The loser receives that
+ * child with replayRequiresReconciliation=true; it never receives permission to
+ * resubmit.
  */
 export async function prepareChildSubmission(
 	db: DbClient,
@@ -135,57 +148,9 @@ export async function prepareChildSubmission(
 	const idempotencyKey = nonEmpty(input.idempotencyKey, 'idempotencyKey')
 	const requestFingerprint = nonEmpty(input.requestFingerprint, 'requestFingerprint')
 	const substrate = nonEmpty(input.substrate, 'substrate')
+	const normalizedInput = { ...input, idempotencyKey, requestFingerprint, substrate }
 
 	return db.transaction(async (tx) => {
-		const existingChildren = await tx
-			.select()
-			.from(executionChildPlacements)
-			.where(
-				and(
-					eq(executionChildPlacements.parentOrderId, input.parentOrderId),
-					eq(executionChildPlacements.childSequence, input.childSequence),
-				),
-			)
-			.limit(1)
-		const existingChild = existingChildren[0]
-		if (existingChild) {
-			if (!childMatchesPrepare(existingChild, { ...input, idempotencyKey, requestFingerprint, substrate })) {
-				throw new ExecutionIdempotencyConflictError(
-					'Child sequence is already bound to different submission terms',
-				)
-			}
-			const parentRows = await tx
-				.select()
-				.from(executionParentOrders)
-				.where(eq(executionParentOrders.id, input.parentOrderId))
-				.limit(1)
-			const parent = parentRows[0]
-			if (!parent) throw new ExecutionLifecycleError('Parent order not found for existing child')
-			if (!['submitting', 'submitted', 'source_confirmed', 'settlement_pending', 'recovery_pending', 'settled'].includes(parent.state)) {
-				throw new ExecutionStateConflictError(
-					`Existing child has incompatible parent state: ${parent.state}`,
-				)
-			}
-			return {
-				parentOrder: parent,
-				child: existingChild,
-				replayRequiresReconciliation: true,
-			}
-		}
-
-		const parentRows = await tx
-			.select()
-			.from(executionParentOrders)
-			.where(eq(executionParentOrders.id, input.parentOrderId))
-			.limit(1)
-		const parent = parentRows[0]
-		if (!parent) throw new ExecutionLifecycleError('Parent order not found')
-		if (parent.state !== 'preflight_validated' || parent.stateVersion !== input.expectedParentVersion) {
-			throw new ExecutionStateConflictError(
-				`Submission fence requires preflight_validated@${input.expectedParentVersion}; got ${parent.state}@${parent.stateVersion}`,
-			)
-		}
-
 		const insertedChildren = await tx
 			.insert(executionChildPlacements)
 			.values({
@@ -204,9 +169,55 @@ export async function prepareChildSubmission(
 				idempotencyKey,
 				requestFingerprint,
 			})
+			.onConflictDoNothing({
+				target: [executionChildPlacements.parentOrderId, executionChildPlacements.childSequence],
+			})
 			.returning()
-		const child = insertedChildren[0]
-		if (!child) throw new ExecutionLifecycleError('Child placement insert returned no row')
+
+		const insertedChild = insertedChildren[0]
+		if (!insertedChild) {
+			const existingRows = await tx
+				.select()
+				.from(executionChildPlacements)
+				.where(
+					and(
+						eq(executionChildPlacements.parentOrderId, input.parentOrderId),
+						eq(executionChildPlacements.childSequence, input.childSequence),
+					),
+				)
+				.limit(1)
+			const existingChild = existingRows[0]
+			if (!existingChild) {
+				throw new ExecutionLifecycleError('Submission conflict returned no durable child')
+			}
+			if (!childMatchesPrepare(existingChild, normalizedInput)) {
+				throw new ExecutionIdempotencyConflictError(
+					'Child sequence is already bound to different submission terms',
+				)
+			}
+			const parent = await loadParent(tx, input.parentOrderId)
+			if (
+				!['submitting', 'submitted', 'source_confirmed', 'settlement_pending', 'recovery_pending', 'settled'].includes(
+					parent.state,
+				)
+			) {
+				throw new ExecutionStateConflictError(
+					`Existing child has incompatible parent state: ${parent.state}`,
+				)
+			}
+			return {
+				parentOrder: parent,
+				child: existingChild,
+				replayRequiresReconciliation: true,
+			}
+		}
+
+		const parent = await loadParent(tx, input.parentOrderId)
+		if (parent.state !== 'preflight_validated' || parent.stateVersion !== input.expectedParentVersion) {
+			throw new ExecutionStateConflictError(
+				`Submission fence requires preflight_validated@${input.expectedParentVersion}; got ${parent.state}@${parent.stateVersion}`,
+			)
+		}
 
 		const now = new Date()
 		const updatedParents = await tx
@@ -237,12 +248,12 @@ export async function prepareChildSubmission(
 			fromState: 'preflight_validated',
 			toState: 'submitting',
 			payload: {
-				childPlacementId: child.id,
-				childSequence: child.childSequence,
-				idempotencyKey: child.idempotencyKey,
-				requestFingerprint: child.requestFingerprint,
-				provider: child.provider,
-				venue: child.venue,
+				childPlacementId: insertedChild.id,
+				childSequence: insertedChild.childSequence,
+				idempotencyKey: insertedChild.idempotencyKey,
+				requestFingerprint: insertedChild.requestFingerprint,
+				provider: insertedChild.provider,
+				venue: insertedChild.venue,
 			},
 			actorType: input.actorType,
 			actorId: input.actorId,
@@ -251,7 +262,7 @@ export async function prepareChildSubmission(
 
 		return {
 			parentOrder: updatedParent,
-			child,
+			child: insertedChild,
 			replayRequiresReconciliation: false,
 		}
 	})
@@ -271,22 +282,50 @@ export interface RecordSubmissionAcknowledgementInput {
 	correlationId?: string | null
 }
 
-function externalIdentityCount(input: RecordSubmissionAcknowledgementInput): number {
-	return [input.externalOrderId, input.externalTxHash, input.externalIntentId].filter(
-		(value) => typeof value === 'string' && value.trim().length > 0,
-	).length
+interface NormalizedExternalIdentity {
+	externalOrderId: string | null
+	externalTxHash: string | null
+	externalIntentId: string | null
+}
+
+function normalizeExternalIdentity(
+	input: Pick<
+		RecordSubmissionAcknowledgementInput,
+		'externalOrderId' | 'externalTxHash' | 'externalIntentId'
+	>,
+): NormalizedExternalIdentity {
+	return {
+		externalOrderId: input.externalOrderId?.trim() || null,
+		externalTxHash: input.externalTxHash?.trim() || null,
+		externalIntentId: input.externalIntentId?.trim() || null,
+	}
+}
+
+function hasExternalIdentity(identity: NormalizedExternalIdentity): boolean {
+	return Boolean(identity.externalOrderId || identity.externalTxHash || identity.externalIntentId)
+}
+
+function childHasIdentity(child: ExecutionChildPlacement, identity: NormalizedExternalIdentity): boolean {
+	return (
+		(child.externalOrderId ?? null) === identity.externalOrderId &&
+		(child.externalTxHash ?? null) === identity.externalTxHash &&
+		(child.externalIntentId ?? null) === identity.externalIntentId
+	)
 }
 
 /**
- * Durable acknowledgement after the external submit returned an identity.
- * At least one external identifier is mandatory; `submitted` without a venue
- * order id / tx hash / intent id is not an auditable or recoverable state.
+ * Durable acknowledgement after the provider returns a recoverable external
+ * identity. `prepared` and `unknown` are both accepted because an indeterminate
+ * request may later be recovered by querying the provider/chain. Two workers
+ * racing the same acknowledgement collapse to one durable identity; a different
+ * identity is a hard idempotency conflict.
  */
 export async function recordSubmissionAcknowledgement(
 	db: DbClient,
 	input: RecordSubmissionAcknowledgementInput,
 ): Promise<{ parentOrder: ExecutionParentOrder; child: ExecutionChildPlacement; duplicate: boolean }> {
-	if (externalIdentityCount(input) === 0) {
+	const identity = normalizeExternalIdentity(input)
+	if (!hasExternalIdentity(identity)) {
 		throw new ExecutionLifecycleError('Submission acknowledgement requires an external identity')
 	}
 	const idempotencyKey = nonEmpty(input.idempotencyKey, 'idempotencyKey')
@@ -306,43 +345,25 @@ export async function recordSubmissionAcknowledgement(
 			throw new ExecutionIdempotencyConflictError('Submission acknowledgement does not match prepared child')
 		}
 
-		const normalizedExternalOrderId = input.externalOrderId?.trim() || null
-		const normalizedExternalTxHash = input.externalTxHash?.trim() || null
-		const normalizedExternalIntentId = input.externalIntentId?.trim() || null
-
 		if (child.state === 'submitted') {
-			if (
-				(child.externalOrderId ?? null) !== normalizedExternalOrderId ||
-				(child.externalTxHash ?? null) !== normalizedExternalTxHash ||
-				(child.externalIntentId ?? null) !== normalizedExternalIntentId
-			) {
+			if (!childHasIdentity(child, identity)) {
 				throw new ExecutionIdempotencyConflictError(
 					'Prepared child is already acknowledged with a different external identity',
 				)
 			}
-			const parentRows = await tx
-				.select()
-				.from(executionParentOrders)
-				.where(eq(executionParentOrders.id, input.parentOrderId))
-				.limit(1)
-			const parent = parentRows[0]
-			if (!parent) throw new ExecutionLifecycleError('Parent order not found for submitted child')
-			return { parentOrder: parent, child, duplicate: true }
+			return { parentOrder: await loadParent(tx, input.parentOrderId), child, duplicate: true }
 		}
-		if (child.state !== 'prepared') {
+		if (!['prepared', 'unknown'].includes(child.state)) {
 			throw new ExecutionStateConflictError(`Cannot acknowledge child from state ${child.state}`)
 		}
 
-		const parentRows = await tx
-			.select()
-			.from(executionParentOrders)
-			.where(eq(executionParentOrders.id, input.parentOrderId))
-			.limit(1)
-		const parent = parentRows[0]
-		if (!parent) throw new ExecutionLifecycleError('Parent order not found')
-		if (parent.state !== 'submitting' || parent.stateVersion !== input.expectedParentVersion) {
+		const parent = await loadParent(tx, input.parentOrderId)
+		const validParentState =
+			(parent.state === 'submitting' || parent.state === 'recovery_pending') &&
+			parent.stateVersion === input.expectedParentVersion
+		if (!validParentState) {
 			throw new ExecutionStateConflictError(
-				`Submission acknowledgement requires submitting@${input.expectedParentVersion}; got ${parent.state}@${parent.stateVersion}`,
+				`Submission acknowledgement requires submitting/recovery_pending@${input.expectedParentVersion}; got ${parent.state}@${parent.stateVersion}`,
 			)
 		}
 
@@ -351,21 +372,43 @@ export async function recordSubmissionAcknowledgement(
 			.update(executionChildPlacements)
 			.set({
 				state: 'submitted',
-				externalOrderId: normalizedExternalOrderId,
-				externalTxHash: normalizedExternalTxHash,
-				externalIntentId: normalizedExternalIntentId,
+				externalOrderId: identity.externalOrderId,
+				externalTxHash: identity.externalTxHash,
+				externalIntentId: identity.externalIntentId,
 				submittedAt: now,
 				updatedAt: now,
 			})
 			.where(
 				and(
 					eq(executionChildPlacements.id, child.id),
-					eq(executionChildPlacements.state, 'prepared'),
+					or(
+						eq(executionChildPlacements.state, 'prepared'),
+						eq(executionChildPlacements.state, 'unknown'),
+					),
 				),
 			)
 			.returning()
 		const updatedChild = updatedChildren[0]
-		if (!updatedChild) throw new ExecutionStateConflictError('Child changed before acknowledgement')
+
+		if (!updatedChild) {
+			const racedRows = await tx
+				.select()
+				.from(executionChildPlacements)
+				.where(eq(executionChildPlacements.id, child.id))
+				.limit(1)
+			const racedChild = racedRows[0]
+			if (!racedChild) throw new ExecutionLifecycleError('Child disappeared during acknowledgement')
+			if (racedChild.state !== 'submitted' || !childHasIdentity(racedChild, identity)) {
+				throw new ExecutionIdempotencyConflictError(
+					'Concurrent acknowledgement resolved to a different external identity',
+				)
+			}
+			return {
+				parentOrder: await loadParent(tx, input.parentOrderId),
+				child: racedChild,
+				duplicate: true,
+			}
+		}
 
 		const updatedParents = await tx
 			.update(executionParentOrders)
@@ -377,7 +420,7 @@ export async function recordSubmissionAcknowledgement(
 			.where(
 				and(
 					eq(executionParentOrders.id, parent.id),
-					eq(executionParentOrders.state, 'submitting'),
+					eq(executionParentOrders.state, parent.state),
 					eq(executionParentOrders.stateVersion, input.expectedParentVersion),
 				),
 			)
@@ -389,7 +432,7 @@ export async function recordSubmissionAcknowledgement(
 			parentOrderId: updatedParent.id,
 			sequence: updatedParent.stateVersion,
 			eventType: 'submission_acknowledged',
-			fromState: 'submitting',
+			fromState: parent.state,
 			toState: 'submitted',
 			payload: {
 				childPlacementId: updatedChild.id,
@@ -406,11 +449,117 @@ export async function recordSubmissionAcknowledgement(
 	})
 }
 
+export interface MarkSubmissionIndeterminateInput {
+	parentOrderId: string
+	expectedParentVersion: number
+	childPlacementId: string
+	idempotencyKey: string
+	requestFingerprint: string
+	reasonCode: string
+	detail?: string | null
+	actorType?: string | null
+	actorId?: string | null
+	correlationId?: string | null
+}
+
 /**
- * Discover attempts where write-ahead persistence happened but no durable
- * external acknowledgement was recorded. This is the crash/timeout queue.
- * Nothing in this function resubmits; it exists specifically to prevent a
- * restart from treating `prepared` as proof that no external side effect occurred.
+ * Records the only safe interpretation of a timeout/transport/5xx after an
+ * external dispatch may have occurred: outcome UNKNOWN. It is deliberately
+ * recoverable, not terminal. The existing economic instruction remains fenced
+ * and no retry path is granted permission to manufacture a second submission.
+ */
+export async function markSubmissionIndeterminate(
+	db: DbClient,
+	input: MarkSubmissionIndeterminateInput,
+): Promise<{ parentOrder: ExecutionParentOrder; child: ExecutionChildPlacement; duplicate: boolean }> {
+	const idempotencyKey = nonEmpty(input.idempotencyKey, 'idempotencyKey')
+	const requestFingerprint = nonEmpty(input.requestFingerprint, 'requestFingerprint')
+	const reasonCode = nonEmpty(input.reasonCode, 'reasonCode')
+
+	return db.transaction(async (tx) => {
+		const childRows = await tx
+			.select()
+			.from(executionChildPlacements)
+			.where(eq(executionChildPlacements.id, input.childPlacementId))
+			.limit(1)
+		const child = childRows[0]
+		if (!child || child.parentOrderId !== input.parentOrderId) {
+			throw new ExecutionLifecycleError('Child placement not found for parent order')
+		}
+		if (child.idempotencyKey !== idempotencyKey || child.requestFingerprint !== requestFingerprint) {
+			throw new ExecutionIdempotencyConflictError('Indeterminate result does not match prepared child')
+		}
+
+		const parent = await loadParent(tx, input.parentOrderId)
+		if (child.state === 'unknown' && parent.state === 'recovery_pending') {
+			return { parentOrder: parent, child, duplicate: true }
+		}
+		if (child.state !== 'prepared') {
+			throw new ExecutionStateConflictError(`Cannot mark child indeterminate from state ${child.state}`)
+		}
+		if (parent.state !== 'submitting' || parent.stateVersion !== input.expectedParentVersion) {
+			throw new ExecutionStateConflictError(
+				`Indeterminate result requires submitting@${input.expectedParentVersion}; got ${parent.state}@${parent.stateVersion}`,
+			)
+		}
+
+		const now = new Date()
+		const updatedChildren = await tx
+			.update(executionChildPlacements)
+			.set({ state: 'unknown', updatedAt: now })
+			.where(
+				and(
+					eq(executionChildPlacements.id, child.id),
+					eq(executionChildPlacements.state, 'prepared'),
+				),
+			)
+			.returning()
+		const updatedChild = updatedChildren[0]
+		if (!updatedChild) throw new ExecutionStateConflictError('Child changed before UNKNOWN persistence')
+
+		const updatedParents = await tx
+			.update(executionParentOrders)
+			.set({
+				state: 'recovery_pending',
+				stateVersion: sql`${executionParentOrders.stateVersion} + 1`,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(executionParentOrders.id, parent.id),
+					eq(executionParentOrders.state, 'submitting'),
+					eq(executionParentOrders.stateVersion, input.expectedParentVersion),
+				),
+			)
+			.returning()
+		const updatedParent = updatedParents[0]
+		if (!updatedParent) throw new ExecutionStateConflictError('Parent changed before UNKNOWN persistence')
+
+		await appendEventAndOutbox(tx, {
+			parentOrderId: updatedParent.id,
+			sequence: updatedParent.stateVersion,
+			eventType: 'submission_indeterminate',
+			fromState: 'submitting',
+			toState: 'recovery_pending',
+			payload: {
+				childPlacementId: updatedChild.id,
+				reasonCode,
+				detail: input.detail ?? null,
+			},
+			actorType: input.actorType,
+			actorId: input.actorId,
+			correlationId: input.correlationId,
+		})
+
+		return { parentOrder: updatedParent, child: updatedChild, duplicate: false }
+	})
+}
+
+/**
+ * Crash/timeout recovery queue. `prepared/submitting` means the process may have
+ * died around the provider call. `unknown/recovery_pending` means we KNOW the
+ * result was indeterminate. Neither state is proof that no external side effect
+ * occurred; callers must use provider/chain recovery, never blind resubmission.
  */
 export async function listSubmissionAttemptsNeedingReconciliation(
 	db: DbClient,
@@ -425,9 +574,15 @@ export async function listSubmissionAttemptsNeedingReconciliation(
 			eq(executionChildPlacements.parentOrderId, executionParentOrders.id),
 		)
 		.where(
-			and(
-				eq(executionParentOrders.state, 'submitting'),
-				eq(executionChildPlacements.state, 'prepared'),
+			or(
+				and(
+					eq(executionParentOrders.state, 'submitting'),
+					eq(executionChildPlacements.state, 'prepared'),
+				),
+				and(
+					eq(executionParentOrders.state, 'recovery_pending'),
+					eq(executionChildPlacements.state, 'unknown'),
+				),
 			),
 		)
 		.orderBy(asc(executionParentOrders.updatedAt), asc(executionChildPlacements.childSequence))
