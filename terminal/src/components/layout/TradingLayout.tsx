@@ -90,6 +90,12 @@ const BalancerPanel = lazy(() =>
 const CompoundPanel = lazy(() =>
   import('../compound/CompoundPanel').then((m) => ({ default: m.CompoundPanel })),
 )
+const UniswapPanel = lazy(() =>
+  import('../uniswap/UniswapPanel').then((m) => ({ default: m.UniswapPanel })),
+)
+const PancakeSwapPanel = lazy(() =>
+  import('../pancakeswap/PancakeSwapPanel').then((m) => ({ default: m.PancakeSwapPanel })),
+)
 
 function DeferredPanel({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -111,6 +117,8 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'aave', label: 'Aave' },
   { id: 'balancer', label: 'Balancer' },
   { id: 'compound', label: 'Compound' },
+  { id: 'uniswap', label: 'Uniswap' },
+  { id: 'pancakeswap', label: 'PancakeSwap' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
@@ -316,6 +324,16 @@ function MobileLayout() {
                     <CompoundPanel />
                   </ErrorBoundary>
                 )}
+                {bottomTab === 'uniswap' && (
+                  <ErrorBoundary label="Uniswap">
+                    <UniswapPanel />
+                  </ErrorBoundary>
+                )}
+                {bottomTab === 'pancakeswap' && (
+                  <ErrorBoundary label="PancakeSwap">
+                    <PancakeSwapPanel />
+                  </ErrorBoundary>
+                )}
               </DeferredPanel>
             </div>
           </div>
@@ -486,6 +504,16 @@ function DesktopLayout() {
               {bottomTab === 'compound' && (
                 <ErrorBoundary label="Compound">
                   <CompoundPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'uniswap' && (
+                <ErrorBoundary label="Uniswap">
+                  <UniswapPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'pancakeswap' && (
+                <ErrorBoundary label="PancakeSwap">
+                  <PancakeSwapPanel />
                 </ErrorBoundary>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
