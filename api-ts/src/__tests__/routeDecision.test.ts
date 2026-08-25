@@ -8,9 +8,11 @@ import {
 function candidate(
 	overrides: Partial<RouteDecisionCandidate> & Pick<RouteDecisionCandidate, 'id' | 'rank'>,
 ): RouteDecisionCandidate {
+	const { id, rank, ...rest } = overrides
+
 	return {
-		id: overrides.id,
-		rank: overrides.rank,
+		id,
+		rank,
 		fromChain: '1',
 		toChain: '8453',
 		provider: 'lifi',
@@ -19,7 +21,7 @@ function candidate(
 		quotedGasUsd: 0,
 		quotedFeeUsd: 0,
 		quotedDurationS: 60,
-		...overrides,
+		...rest,
 	}
 }
 
