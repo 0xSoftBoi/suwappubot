@@ -316,6 +316,15 @@
 }
 
 /* ── Use-case grid (01–08) ────────────────────────────────────── */
+#use-cases {
+  padding-bottom: clamp(2rem, 4vw, 3rem);
+}
+
+/* Execution section follows use-cases with reduced top padding for better rhythm */
+#engine {
+  padding-top: clamp(2rem, 4vw, 3rem);
+}
+
 .home-usecases {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
