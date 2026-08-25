@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
-import { Geist, Newsreader, JetBrains_Mono } from 'next/font/google';
+import { Archivo, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
@@ -9,12 +9,14 @@ import './summer-token-vars.css';
 import './globals.css';
 import './institutional.css';
 
-// Two families, one voice: Geist carries display + UI + body, JetBrains Mono
-// is rationed to numerals, kickers, and code. Geist is loaded ONCE: globals.css
-// aliases --font-display to --font-sans so both var() names resolve to the same
-// instance (no second font download).
-const geist = Geist({
+// Archivo carries UI + body (news-agency grotesk register, chosen over Geist
+// in the round-3 sans A/B — see docs/design/serif-decision.md), JetBrains Mono
+// is rationed to numerals, kickers, and code. Archivo is loaded ONCE:
+// globals.css aliases --font-display to --font-sans so both var() names
+// resolve to the same instance (no second font download).
+const bodySans = Archivo({
   subsets: ['latin'],
+  style: ['normal', 'italic'],
   variable: '--font-sans',
   display: 'swap',
 });
@@ -123,7 +125,7 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={`${geist.variable} ${jetbrainsMono.variable} ${displaySerif.variable}`}>
+    <html lang={locale} className={`${bodySans.variable} ${jetbrainsMono.variable} ${displaySerif.variable}`}>
       <head>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="author" type="text/plain" href="/llms.txt" />

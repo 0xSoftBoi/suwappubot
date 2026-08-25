@@ -11,7 +11,7 @@
    polish layer further down this file.
    ================================================================ */
 :root {
-  /* Geist is loaded once in layout.tsx as --font-sans; display is an alias so
+  /* The body sans (Archivo) is loaded once in layout.tsx as --font-sans; display is an alias so
      the existing var(--font-display) references need no edits. */
   --font-display: var(--font-sans);
 

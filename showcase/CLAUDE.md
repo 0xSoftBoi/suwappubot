@@ -19,7 +19,7 @@ Every page MUST use, unless it already deliberately doesn't:
   and `institutional-*` section classes (both belong to the current era and
   compose with summer tokens).
 - **Type:** the site's existing stack (serif display = Newsreader via the
-  summer tokens; Geist for body/UI; mono for labels). Never add a new font
+  summer tokens; Archivo for body/UI; mono for labels). Never add a new font
   without a brand decision (see docs/design/serif-decision.md).
 
 ## Legacy — do NOT use on new pages

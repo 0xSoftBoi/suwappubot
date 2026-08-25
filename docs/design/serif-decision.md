@@ -67,3 +67,25 @@ drawn from the financial-masthead register:
 Layout consequences: with the current home hero (12ch measure, stacked headline) the
 line count is unchanged vs Garamond at 1440/1280/390; wrap points shifted slightly and
 read better. No clamp changes needed. Interior pages inherit via `--font-serif`.
+
+---
+
+# Round 3: Archivo replaces Geist for body/UI sans (2026-08-25)
+
+Same harness discipline, applied to the sans (`sans-ab.html` / `sans-ab.png`, session
+scratchpad): the real lead paragraph, real buttons, the nav row, and a tabular-numerals
+strip at production sizes on the soil ground, with the site's global `tnum` applied.
+
+| | Face | Verdict |
+|---|---|---|
+| A | Geist (incumbent) | Clean and competent, but it is Vercel's font: the last recognizably stack-default face on the page. |
+| B | Hanken Grotesk | Warm, humanist, friendly-SaaS register. Softer than the brand wants. |
+| C | Schibsted Grotesk | **Disqualified**: its `tnum` implementation monospaces punctuation, and the site sets tabular numerals globally, so commas/periods gap visibly. |
+| D | **Archivo** | **Chosen.** News-agency grotesk register, slightly denser set, clean tabular numerals, holds character at button/nav sizes. Institutional without being another company's brand font. Variable weights + italics. |
+| E | Public Sans | USWDS-neutral; institutional in the government sense, no gain over Geist. |
+
+`--font-display` still aliases `--font-sans` (globals.css), so display-sans surfaces
+moved with it. JetBrains Mono unchanged.
+
+**Caution for future swaps:** any sans candidate must be checked with
+`font-variant-numeric: tabular-nums` active — that is what eliminated Schibsted.
