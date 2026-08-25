@@ -171,6 +171,51 @@ function push(reasons: FeasibilityReasonCode[], reason: FeasibilityReasonCode): 
 	if (!reasons.includes(reason)) reasons.push(reason)
 }
 
+/**
+ * Reject malformed policy artifacts before they can weaken a money-path gate.
+ * Production policy activation should call this before a bundle becomes active;
+ * evaluation also calls it defensively so NaN/empty limits never fail open.
+ */
+export function assertInstitutionalExecutionPolicy(policy: InstitutionalExecutionPolicy): void {
+	const errors: string[] = []
+
+	if (!policy.version.trim()) errors.push('version is required')
+	if (!finite(policy.maxQuoteAgeMs) || policy.maxQuoteAgeMs < 0) {
+		errors.push('maxQuoteAgeMs must be a finite non-negative number')
+	}
+	if (!finite(policy.maxDurationS) || policy.maxDurationS < 0) {
+		errors.push('maxDurationS must be a finite non-negative number')
+	}
+	if (
+		policy.maxOrderNotionalUsd !== null &&
+		(!finite(policy.maxOrderNotionalUsd) || policy.maxOrderNotionalUsd <= 0)
+	) {
+		errors.push('maxOrderNotionalUsd must be null or a finite positive number')
+	}
+	if (!finite(policy.minComplianceScore) || policy.minComplianceScore < 0 || policy.minComplianceScore > 100) {
+		errors.push('minComplianceScore must be between 0 and 100')
+	}
+	if (!finite(policy.minDataConfidence) || policy.minDataConfidence < 0 || policy.minDataConfidence > 1) {
+		errors.push('minDataConfidence must be between 0 and 1')
+	}
+	if (policy.allowedSettlementTypes.length === 0) {
+		errors.push('allowedSettlementTypes must not be empty')
+	}
+	if (new Set(policy.allowedSettlementTypes).size !== policy.allowedSettlementTypes.length) {
+		errors.push('allowedSettlementTypes must not contain duplicates')
+	}
+
+	if (errors.length > 0) {
+		throw new Error(`Invalid institutional execution policy: ${errors.sort().join('; ')}`)
+	}
+}
+
+function assertFeasibilityContext(context: FeasibilityContext): void {
+	if (!finite(context.nowMs)) {
+		throw new Error('Invalid feasibility context: nowMs must be finite')
+	}
+}
+
 function evaluateEligibility(
 	candidate: ControlledRouteCandidate,
 	policy: InstitutionalExecutionPolicy,
@@ -195,12 +240,7 @@ function evaluateEligibility(
 	}
 }
 
-/**
- * Stage 1 of #899: hard feasibility only. No weighted penalty can rescue a
- * route that violates policy, mandate, capacity, freshness, recovery, venue,
- * notional, settlement, or authorization constraints.
- */
-export function evaluateRouteFeasibility(
+function evaluateRouteFeasibilityUnchecked(
 	candidate: ControlledRouteCandidate,
 	policy: InstitutionalExecutionPolicy,
 	context: FeasibilityContext,
@@ -253,30 +293,21 @@ export function evaluateRouteFeasibility(
 		push(reasons, 'duration_exceeds_limit')
 	}
 
-	let validOrderNotional = false
-	if (!finite(context.orderNotionalUsd)) {
+	const orderNotionalUsd = context.orderNotionalUsd
+	if (!finite(orderNotionalUsd)) {
 		if (policy.requireKnownOrderNotional) push(reasons, 'order_notional_unknown')
-	} else if (context.orderNotionalUsd <= 0) {
+	} else if (orderNotionalUsd <= 0) {
 		push(reasons, 'order_notional_invalid')
 	} else {
-		validOrderNotional = true
-		if (
-			finite(policy.maxOrderNotionalUsd) &&
-			context.orderNotionalUsd > policy.maxOrderNotionalUsd
-		) {
+		if (finite(policy.maxOrderNotionalUsd) && orderNotionalUsd > policy.maxOrderNotionalUsd) {
 			push(reasons, 'order_notional_exceeds_limit')
 		}
-	}
 
-	if (validOrderNotional) {
 		if (!finite(candidate.capacityUsd)) {
 			if (policy.requireKnownCapacity) push(reasons, 'capacity_unknown')
-		} else if (candidate.capacityUsd < (context.orderNotionalUsd as number)) {
+		} else if (candidate.capacityUsd < orderNotionalUsd) {
 			push(reasons, 'capacity_insufficient')
 		}
-	} else if (policy.requireKnownCapacity && !reasons.includes('order_notional_unknown')) {
-		// Capacity cannot be validated against an invalid notional. Keep the
-		// notional error authoritative rather than mislabeling it as capacity.
 	}
 
 	if (policy.requireRecovery) {
@@ -316,6 +347,21 @@ export function evaluateRouteFeasibility(
 }
 
 /**
+ * Stage 1 of #899: hard feasibility only. No weighted penalty can rescue a
+ * route that violates policy, mandate, capacity, freshness, recovery, venue,
+ * notional, settlement, or authorization constraints.
+ */
+export function evaluateRouteFeasibility(
+	candidate: ControlledRouteCandidate,
+	policy: InstitutionalExecutionPolicy,
+	context: FeasibilityContext,
+): RouteFeasibilityResult {
+	assertInstitutionalExecutionPolicy(policy)
+	assertFeasibilityContext(context)
+	return evaluateRouteFeasibilityUnchecked(candidate, policy, context)
+}
+
+/**
  * Stage 2 of #899 for the currently normalized scorer: rank only candidates
  * that survived feasibility and return an audit-friendly rejection ledger.
  */
@@ -324,8 +370,11 @@ export function decideInstitutionalRoute(
 	policy: InstitutionalExecutionPolicy,
 	context: FeasibilityContext,
 ): InstitutionalRouteDecision {
+	assertInstitutionalExecutionPolicy(policy)
+	assertFeasibilityContext(context)
+
 	const evaluations = candidates.map((candidate) =>
-		evaluateRouteFeasibility(candidate, policy, context),
+		evaluateRouteFeasibilityUnchecked(candidate, policy, context),
 	)
 	const feasible = evaluations.filter((result) => result.eligible).map((result) => result.candidate)
 	const ranked = rankRouteCandidates(feasible, policy.profile)
