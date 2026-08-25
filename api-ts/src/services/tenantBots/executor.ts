@@ -363,4 +363,99 @@ export const recordOutcome = (automation: TenantBotAutomation, ok: boolean) =>
 		}
 	})
 
+// ── Posting automations ────────────────────────────────────────────────────
+
+/** Kinds that post a message rather than spending. They still journal a run,
+ *  so "did the daily post actually go out?" is answerable from the same log as
+ *  everything else. */
+export const POSTING_KINDS = new Set(['price_post', 'holder_report'])
+
+export interface PostGuardInput {
+	botStatus: TenantBot['status']
+	enabled: boolean
+	kind: string
+	tokenAddress: string | null
+	announceChatId?: string
+	manual: boolean
+}
+
+export type PostVerdict = { ok: true } | { ok: false; reason: SkipReason; detail: string }
+
+/** The posting equivalent of `evaluateGuards`. Far shorter, because nothing
+ *  here can lose anyone money — the worst case is a message nobody wanted. */
+export function evaluatePostGuards(g: PostGuardInput): PostVerdict {
+	if (!POSTING_KINDS.has(g.kind)) {
+		return { ok: false, reason: 'not_a_spending_automation', detail: `kind ${g.kind} does not post` }
+	}
+	if (g.botStatus !== 'live') {
+		return { ok: false, reason: 'bot_not_live', detail: `bot is ${g.botStatus}` }
+	}
+	if (!g.enabled && !g.manual) {
+		return { ok: false, reason: 'automation_disabled', detail: 'automation is switched off' }
+	}
+	if (!g.tokenAddress) {
+		return { ok: false, reason: 'no_amount', detail: 'no token is configured for this bot' }
+	}
+	if (!g.announceChatId && !g.manual) {
+		return {
+			ok: false,
+			reason: 'no_amount',
+			detail: 'no chat configured to post to — set announceChatId',
+		}
+	}
+	return { ok: true }
+}
+
+export interface PricePostFacts {
+	symbol: string
+	priceUsd: number | null
+	change24h?: number | null
+	liquidityUsd?: number | null
+	volume24hUsd?: number | null
+	marketCapUsd?: number | null
+	holders?: number | null
+	burnedRuns?: number
+	burnedSpendUsd?: number
+}
+
+function money(v: number | null | undefined): string {
+	if (v === null || v === undefined || !Number.isFinite(v)) return '—'
+	if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
+	if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`
+	if (v >= 1) return `$${v.toFixed(2)}`
+	return `$${v.toFixed(8)}`.replace(/0+$/, '')
+}
+
+/**
+ * The community-facing post.
+ *
+ * States measured facts and nothing else. No prediction, no "we're going up",
+ * and burns are reported only as what was actually spent — a bot that told a
+ * community its burn raised the price would be the worst thing in this repo.
+ */
+export function formatPricePost(kind: string, f: PricePostFacts, mark: string): string {
+	const head = `${mark}*${f.symbol}*`
+	if (kind === 'holder_report') {
+		return [
+			head,
+			'',
+			`Price: *${money(f.priceUsd)}*`,
+			`Market cap: ${money(f.marketCapUsd)}`,
+			`Liquidity: ${money(f.liquidityUsd)}`,
+			f.burnedRuns
+				? `Burns executed: *${f.burnedRuns}* (${money(f.burnedSpendUsd ?? 0)} spent)`
+				: 'No burns executed yet',
+		].join('\n')
+	}
+	const arrow = (f.change24h ?? 0) >= 0 ? '🟢' : '🔴'
+	return [
+		head,
+		'',
+		`Price: *${money(f.priceUsd)}*`,
+		`24h: ${arrow} ${f.change24h === null || f.change24h === undefined ? '—' : `${f.change24h}%`}`,
+		`24h volume: ${money(f.volume24hUsd)}`,
+		`Liquidity: ${money(f.liquidityUsd)}`,
+	].join('\n')
+}
+
 export { nextRunAfter, slotKey }

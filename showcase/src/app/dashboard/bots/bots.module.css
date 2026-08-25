@@ -381,3 +381,39 @@
   font-size: 0.86rem;
   text-align: center;
 }
+
+/* ── Automation controls ──────────────────────────────────────── */
+
+.autoActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.smallGhost {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--summer-muted, #4f6f7f);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.smallGhost:hover:not(:disabled) {
+  border-color: var(--summer-persimmon, #e58d2b);
+  color: var(--summer-ink, #17324a);
+}
+.smallGhost:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Arming is the one button here that spends real money. It is warm, and it is
+   not the button your eye lands on first — "Dry run" is. */
+.armBtn { border-color: rgba(229, 141, 43, 0.6); color: #94570d; }
+.armBtn:hover:not(:disabled) { border-color: #d17a1e; color: #7a4a10; }
+
+.runResult {
+  padding: 9px 12px;
+  border: 1px solid rgba(119, 191, 208, 0.6);
+  border-radius: 8px;
+  background: rgba(237, 248, 251, 0.8);
+  color: #10627f;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}

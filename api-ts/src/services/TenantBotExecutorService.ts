@@ -6,7 +6,7 @@
  * broadcast, announce — and it is deliberately thin so that the parts worth
  * arguing about stay pure and tested.
  */
-import { and, eq, isNotNull, lte } from 'drizzle-orm'
+import { and, eq, isNotNull, lte, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { EnvService } from '../config/EnvService'
 import {
@@ -23,9 +23,13 @@ import { logger } from '../lib/logger'
 import { SwapService } from './SwapService'
 import { TenantBotService } from './TenantBotService'
 import { TokenService } from './TokenService'
+import { getTokenPriceUsd } from './autopilot/market'
 import {
 	claimAutomation,
 	evaluateGuards,
+	evaluatePostGuards,
+	formatPricePost,
+	POSTING_KINDS,
 	explorerUrl,
 	formatReceipt,
 	nextRunAfter,
@@ -185,6 +189,125 @@ export const TenantBotExecutorLive = Layer.effect(
 				const bot = botRows[0]
 				if (!bot) {
 					return yield* Effect.fail(new NotFoundError({ resource: 'bot', message: automation.botId }))
+				}
+
+				// ── Posting automations: no money, so a much shorter path. ──
+				if (POSTING_KINDS.has(automation.kind)) {
+					const postCfg = (automation.config ?? {}) as { announceChatId?: string }
+					const verdict = evaluatePostGuards({
+						botStatus: bot.status,
+						enabled: automation.enabled,
+						kind: automation.kind,
+						tokenAddress: bot.tokenAddress,
+						announceChatId: postCfg.announceChatId,
+						manual: opts.manual === true,
+					})
+					const pkey = opts.manual
+						? `manual:${automationId}:${Date.now()}`
+						: slotKey(automationId, opts.slot ?? new Date())
+					const prun = yield* openRun(automation, pkey, opts.manual ? null : (opts.slot ?? null))
+					if (!prun) {
+						return {
+							runId: null,
+							status: 'skipped' as const,
+							reason: 'duplicate slot',
+							spendUsd: 0,
+							txHash: null,
+							tokenAmount: null,
+						}
+					}
+					if (!verdict.ok) {
+						yield* closeRun(prun.id, { status: 'skipped', reason: verdict.detail, spendUsd: 0 })
+						return {
+							runId: prun.id,
+							status: 'skipped' as const,
+							reason: verdict.detail,
+							spendUsd: 0,
+							txHash: null,
+							tokenAmount: null,
+						}
+					}
+
+					const price = yield* Effect.tryPromise({
+						try: () => getTokenPriceUsd(bot.tokenChain ?? 'base', bot.tokenAddress as string),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					}).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
+					if (price === null) {
+						// No price means no honest post. Journalled as failed so a
+						// silent gap in the daily posts is visible in the run log.
+						yield* closeRun(prun.id, {
+							status: 'failed',
+							reason: 'no market data for this token right now',
+							spendUsd: 0,
+						})
+						yield* recordOutcome(automation, false)
+						return {
+							runId: prun.id,
+							status: 'failed' as const,
+							reason: 'no market data for this token right now',
+							spendUsd: 0,
+							txHash: null,
+							tokenAmount: null,
+						}
+					}
+
+					// Burn totals for a holder_report come from this bot's own
+					// successful LIVE runs only — never simulated ones.
+					let burnedRuns = 0
+					let burnedSpendUsd = 0
+					if (automation.kind === 'holder_report') {
+						const agg = yield* Effect.tryPromise({
+							try: () =>
+								db
+									.select({
+										runs: sql<number>`count(*)`,
+										spent: sql<number>`coalesce(sum(${tenantBotRuns.spendUsd}), 0)`,
+									})
+									.from(tenantBotRuns)
+									.where(
+										and(
+											eq(tenantBotRuns.botId, bot.id),
+											eq(tenantBotRuns.status, 'succeeded'),
+										),
+									),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						}).pipe(Effect.catchAll(() => Effect.succeed([{ runs: 0, spent: 0 }])))
+						burnedRuns = Number(agg[0]?.runs ?? 0)
+						burnedSpendUsd = Number(agg[0]?.spent ?? 0)
+					}
+
+					const body = formatPricePost(
+						automation.kind,
+						{
+							symbol: bot.tokenSymbol ?? 'Token',
+							priceUsd: price,
+							burnedRuns,
+							burnedSpendUsd,
+						},
+						(bot.branding as { mark?: string })?.mark
+							? `${(bot.branding as { mark?: string }).mark} `
+							: '',
+					)
+					// A manual dry run shows the operator the post without sending it.
+					if (!opts.manual) {
+						yield* announce(bot, postCfg.announceChatId, body)
+					}
+					yield* closeRun(prun.id, {
+						status: opts.manual ? 'simulated' : 'succeeded',
+						reason: opts.manual ? 'preview only — not posted' : null,
+						spendUsd: 0,
+						quote: { preview: body },
+					})
+					yield* recordOutcome(automation, true)
+					return {
+						runId: prun.id,
+						status: opts.manual ? ('simulated' as const) : ('succeeded' as const),
+						reason: opts.manual ? body : null,
+						spendUsd: 0,
+						txHash: null,
+						tokenAmount: null,
+					}
 				}
 
 				// A manual dry run is always a dry run, whatever the row says.

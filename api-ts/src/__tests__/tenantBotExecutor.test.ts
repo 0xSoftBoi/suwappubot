@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import { nextRunAfter, parseCron, slotKey } from '../services/tenantBots/cron'
 import {
 	BURN_SINKS,
+	evaluatePostGuards,
+	formatPricePost,
 	DEFAULT_BURN_ADDRESS,
 	evaluateGuards,
 	FAILURE_CIRCUIT_LIMIT,
@@ -310,5 +312,77 @@ describe('slotKey', () => {
 		expect(slotKey('auto-1', new Date('2026-03-10T09:00:00Z'))).not.toBe(
 			slotKey('auto-2', new Date('2026-03-10T09:00:00Z')),
 		)
+	})
+})
+
+describe('posting automations', () => {
+	const POST = {
+		botStatus: 'live' as const,
+		enabled: true,
+		kind: 'price_post',
+		tokenAddress: '0xTOKEN',
+		announceChatId: '-100123',
+		manual: false,
+	}
+
+	it('posts when armed and configured', () => {
+		expect(evaluatePostGuards(POST).ok).toBe(true)
+	})
+
+	it('will not post from a paused bot', () => {
+		const v = evaluatePostGuards({ ...POST, botStatus: 'paused' })
+		expect(v.ok).toBe(false)
+		if (!v.ok) expect(v.reason).toBe('bot_not_live')
+	})
+
+	it('needs a chat on the scheduled path but not for a manual preview', () => {
+		expect(evaluatePostGuards({ ...POST, announceChatId: undefined }).ok).toBe(false)
+		expect(evaluatePostGuards({ ...POST, announceChatId: undefined, manual: true }).ok).toBe(true)
+	})
+
+	it('refuses a spending kind', () => {
+		// The two paths must not be able to swap places: a buy_and_burn routed
+		// into the posting branch would skip every spend guard there is.
+		const v = evaluatePostGuards({ ...POST, kind: 'buy_and_burn' })
+		expect(v.ok).toBe(false)
+		if (!v.ok) expect(v.reason).toBe('not_a_spending_automation')
+	})
+
+	it('needs a token', () => {
+		expect(evaluatePostGuards({ ...POST, tokenAddress: null }).ok).toBe(false)
+	})
+})
+
+describe('formatPricePost', () => {
+	it('states measured facts and never predicts', () => {
+		const body = formatPricePost(
+			'price_post',
+			{ symbol: 'PEPE', priceUsd: 0.00000123, change24h: 12, volume24hUsd: 250_000, liquidityUsd: 90_000 },
+			'🔥 ',
+		)
+		expect(body).toContain('PEPE')
+		expect(body).toContain('24h')
+		expect(body).not.toMatch(/moon|pump|will|guarantee|expect/i)
+	})
+
+	it('reports no burns honestly rather than omitting the line', () => {
+		const body = formatPricePost('holder_report', { symbol: 'PEPE', priceUsd: 1 }, '')
+		expect(body).toContain('No burns executed yet')
+	})
+
+	it('reports burn totals when there are some', () => {
+		const body = formatPricePost(
+			'holder_report',
+			{ symbol: 'PEPE', priceUsd: 1, burnedRuns: 4, burnedSpendUsd: 200 },
+			'',
+		)
+		expect(body).toContain('Burns executed: *4*')
+		expect(body).toContain('$200')
+	})
+
+	it('renders a missing number as an em dash, not as zero', () => {
+		const body = formatPricePost('price_post', { symbol: 'X', priceUsd: null }, '')
+		expect(body).toContain('—')
+		expect(body).not.toContain('$0.00')
 	})
 })

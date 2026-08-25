@@ -46,6 +46,7 @@ interface Automation {
   max_usd_per_run: number;
   max_usd_per_day: number;
   last_run_at: string | null;
+  next_run_at?: string | null;
 }
 
 interface Run {
@@ -56,6 +57,14 @@ interface Run {
   token_amount: string | null;
   tx_hash: string | null;
   started_at: string;
+}
+
+interface RunResult {
+  status: 'simulated' | 'succeeded' | 'failed' | 'skipped';
+  reason: string | null;
+  spendUsd: number;
+  txHash: string | null;
+  tokenAmount: string | null;
 }
 
 interface Bot {
@@ -72,6 +81,8 @@ interface Bot {
   brief: string | null;
   last_error: string | null;
   messages_handled: number;
+  treasury_address?: string | null;
+  can_execute_live?: boolean;
   provisioned_at: string | null;
   created_at: string;
   automations?: Automation[];
@@ -372,16 +383,139 @@ function Composer({
   );
 }
 
+
+/**
+ * One automation, with the two controls that matter.
+ *
+ * "Dry run" is the important one. Nothing about a scheduled treasury spend is
+ * obvious from a cron expression and a dollar cap — you find out what it does
+ * by running it and reading the result. It works on a switched-off automation
+ * precisely because that is when you most need to know.
+ *
+ * "Arm" is deliberately harder to reach than the dry run, states the caps in
+ * the confirmation, and is refused by the server until a simulated run exists.
+ */
+function AutomationRow({
+  orgId, botId, automation, apiFetch, onChanged,
+}: {
+  orgId: string;
+  botId: string;
+  automation: Automation;
+  apiFetch: ReturnType<typeof useApiFetch>;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<'run' | 'arm' | null>(null);
+  const [result, setResult] = useState<RunResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const a = automation;
+  const spends = a.max_usd_per_run > 0;
+  const armed = a.mode === 'live' && a.enabled;
+
+  async function dryRun() {
+    setBusy('run'); setErr(null); setResult(null);
+    try {
+      const res = await apiFetch(
+        `/v1/orgs/${orgId}/bots/${botId}/automations/${a.id}/run`,
+        { method: 'POST' }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || 'The run could not start.');
+      setResult(data.run as RunResult);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'The run could not start.');
+    } finally { setBusy(null); }
+  }
+
+  async function setArmed(live: boolean) {
+    if (live && spends) {
+      const ok = window.confirm(
+        `Arm "${a.name}" with real funds?\n\n` +
+        `It will spend up to $${a.max_usd_per_run} per run, ` +
+        `at most $${a.max_usd_per_day} per day, ${describeCron(a.cron)}.\n\n` +
+        `Funds come from this bot's treasury wallet.`
+      );
+      if (!ok) return;
+    }
+    setBusy('arm'); setErr(null);
+    try {
+      const res = await apiFetch(
+        `/v1/orgs/${orgId}/bots/${botId}/automations/${a.id}/arm`,
+        { method: 'POST', body: JSON.stringify({ live }) }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || 'Could not change the mode.');
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not change the mode.');
+    } finally { setBusy(null); }
+  }
+
+  return (
+    <div className={styles.autoRow}>
+      <div className={styles.autoTop}>
+        <span className={styles.autoName}>{a.name}</span>
+        <span className={`${styles.modeBadge} ${armed ? styles.modeLive : styles.modeSimulate}`}>
+          {armed ? 'Live' : a.mode === 'live' ? 'Live · off' : 'Simulate'}
+        </span>
+      </div>
+      <div className={styles.autoMeta}>
+        <span>{describeCron(a.cron)}</span>
+        {spends && <span>${a.max_usd_per_run}/run · ${a.max_usd_per_day}/day</span>}
+        <span>last run {fmtDate(a.last_run_at)}</span>
+        {armed && a.next_run_at && <span>next {fmtDate(a.next_run_at)}</span>}
+      </div>
+
+      {result && (
+        <div className={result.status === 'failed' ? styles.error : styles.runResult}>
+          {result.status === 'simulated' && (
+            <>
+              Dry run: would have spent <strong>${result.spendUsd}</strong>
+              {result.tokenAmount ? <> for <strong>{result.tokenAmount}</strong> tokens</> : null}. Nothing moved.
+            </>
+          )}
+          {result.status === 'succeeded' && (
+            <>Spent <strong>${result.spendUsd}</strong>{result.tokenAmount ? <> for {result.tokenAmount} tokens</> : null}.</>
+          )}
+          {result.status === 'skipped' && <>Skipped — {result.reason}</>}
+          {result.status === 'failed' && <>Failed — {result.reason}</>}
+        </div>
+      )}
+      {err && <div className={styles.error}>{err}</div>}
+
+      <div className={styles.autoActions}>
+        <button className={styles.smallGhost} onClick={dryRun} disabled={busy !== null}>
+          {busy === 'run' ? 'Running…' : 'Dry run'}
+        </button>
+        {spends && (
+          armed ? (
+            <button className={styles.smallGhost} onClick={() => void setArmed(false)} disabled={busy !== null}>
+              {busy === 'arm' ? 'Working…' : 'Disarm'}
+            </button>
+          ) : (
+            <button className={`${styles.smallGhost} ${styles.armBtn}`} onClick={() => void setArmed(true)} disabled={busy !== null}>
+              {busy === 'arm' ? 'Working…' : 'Arm with real funds'}
+            </button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Bot detail ──────────────────────────────────────────────────────────────
 
 function BotDetail({
-  orgId, bot, apiFetch, onChanged, onDeleted,
+  orgId, bot, apiFetch, onChanged, onDeleted, onRefresh,
 }: {
   orgId: string;
   bot: Bot;
   apiFetch: ReturnType<typeof useApiFetch>;
   onChanged: (bot: Bot) => void;
   onDeleted: (id: string) => void;
+  /** Re-pull the bot after a run so the run log and counters reflect it. */
+  onRefresh: () => void;
 }) {
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -495,25 +629,28 @@ function BotDetail({
         </div>
       </div>
 
+      {(bot.automations ?? []).some((a) => a.max_usd_per_run > 0) && !bot.treasury_address && (
+        <div className={styles.notice}>
+          These automations spend from a treasury wallet, and this bot does not have one yet.
+          Dry runs work without it — they quote and journal without moving anything — but arming
+          needs a funded wallet connected first.
+        </div>
+      )}
+
       <div>
         <div className={styles.sectionTitle}>Automations</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
           {(bot.automations ?? []).length === 0
             ? <span className={styles.composerHint}>None configured.</span>
             : bot.automations!.map((a) => (
-                <div key={a.id} className={styles.autoRow}>
-                  <div className={styles.autoTop}>
-                    <span className={styles.autoName}>{a.name}</span>
-                    <span className={`${styles.modeBadge} ${a.mode === 'live' ? styles.modeLive : styles.modeSimulate}`}>
-                      {a.mode === 'live' ? (a.enabled ? 'Live' : 'Live · off') : 'Simulate'}
-                    </span>
-                  </div>
-                  <div className={styles.autoMeta}>
-                    <span>{describeCron(a.cron)}</span>
-                    {a.max_usd_per_run > 0 && <span>${a.max_usd_per_run}/run · ${a.max_usd_per_day}/day</span>}
-                    <span>last run {fmtDate(a.last_run_at)}</span>
-                  </div>
-                </div>
+                <AutomationRow
+                  key={a.id}
+                  orgId={orgId}
+                  botId={bot.id}
+                  automation={a}
+                  apiFetch={apiFetch}
+                  onChanged={onRefresh}
+                />
               ))}
         </div>
       </div>
@@ -684,6 +821,7 @@ export default function BotsPage() {
               bot={selected}
               apiFetch={apiFetch}
               onChanged={replaceBot}
+              onRefresh={() => void openBot(selected)}
               onDeleted={(id) => {
                 setBots((p) => p.filter((b) => b.id !== id));
                 setSelected(null);
