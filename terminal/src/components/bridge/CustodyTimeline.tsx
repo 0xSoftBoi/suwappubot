@@ -1,6 +1,11 @@
-import { TerminalStatusPill } from "../foundation";
 import type { BridgeSettlement, BridgeTransferState, BridgeTrustModel } from "../../types/bridge";
-import { STATE_COPY, TRUST_COPY, custodySteps, stepForState } from "./custody";
+import {
+  STATE_COPY,
+  TRUST_COPY,
+  chainLabel,
+  custodySteps,
+  stepForState,
+} from "./custody";
 
 /**
  * The spine of the bridge flow: where the value is, right now.
@@ -40,8 +45,8 @@ export function CustodyTimeline({
 
   const chainFor = (key: string) => {
     if (key === "deposit") return "You";
-    if (key === "source") return fromChain;
-    if (key === "destination") return toChain;
+    if (key === "source") return chainLabel(fromChain);
+    if (key === "destination") return chainLabel(toChain);
     return null;
   };
 
@@ -112,18 +117,15 @@ export function CustodyTimeline({
         })}
       </ol>
 
+      {/* Detail only — the card header already carries the state pill, and
+          repeating it here read as two different statuses. */}
       {!compact ? (
-        <div className="mt-3 flex items-start justify-between gap-3">
-          <p
-            className="max-w-[52ch] text-[12px] leading-[1.5] text-terminal-text"
-            aria-live="polite"
-          >
-            {stateCopy.detail}
-          </p>
-          <TerminalStatusPill tone={stateCopy.tone}>
-            {stateCopy.label}
-          </TerminalStatusPill>
-        </div>
+        <p
+          className="mt-3 max-w-[52ch] text-[12px] leading-[1.5] text-terminal-text"
+          aria-live="polite"
+        >
+          {stateCopy.detail}
+        </p>
       ) : null}
     </div>
   );
