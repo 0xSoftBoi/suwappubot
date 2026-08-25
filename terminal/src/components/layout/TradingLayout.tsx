@@ -87,6 +87,9 @@ const AavePanel = lazy(() =>
 const BalancerPanel = lazy(() =>
   import('../balancer/BalancerPanel').then((m) => ({ default: m.BalancerPanel })),
 )
+const CompoundPanel = lazy(() =>
+  import('../compound/CompoundPanel').then((m) => ({ default: m.CompoundPanel })),
+)
 
 function DeferredPanel({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
@@ -107,6 +110,7 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: 'lido', label: 'Lido' },
   { id: 'aave', label: 'Aave' },
   { id: 'balancer', label: 'Balancer' },
+  { id: 'compound', label: 'Compound' },
   { id: 'copilot', label: 'AI Co-Pilot' },
   { id: 'referrals', label: 'Referrals' },
   { id: 'rewards', label: 'Cashback' },
@@ -307,6 +311,11 @@ function MobileLayout() {
                     <BalancerPanel />
                   </ErrorBoundary>
                 )}
+                {bottomTab === 'compound' && (
+                  <ErrorBoundary label="Compound">
+                    <CompoundPanel />
+                  </ErrorBoundary>
+                )}
               </DeferredPanel>
             </div>
           </div>
@@ -472,6 +481,11 @@ function DesktopLayout() {
               {bottomTab === 'balancer' && (
                 <ErrorBoundary label="Balancer">
                   <BalancerPanel />
+                </ErrorBoundary>
+              )}
+              {bottomTab === 'compound' && (
+                <ErrorBoundary label="Compound">
+                  <CompoundPanel />
                 </ErrorBoundary>
               )}
               {bottomTab === 'copilot' && <CopilotPanel />}
