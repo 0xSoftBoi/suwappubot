@@ -14,6 +14,7 @@ import {
 	ExecutionLifecycleError,
 	ExecutionStateConflictError,
 } from './executionLifecycle'
+import { assertPrincipalRiskLimits, type PrincipalRiskLimits } from './executionRisk'
 
 type JsonObject = Record<string, unknown>
 
@@ -73,6 +74,7 @@ export interface PrepareChildSubmissionInput {
 	idempotencyKey: string
 	requestFingerprint: string
 	substrate: string
+	riskLimits: PrincipalRiskLimits
 	provider?: string | null
 	venue?: string | null
 	chain?: string | null
@@ -124,6 +126,44 @@ async function loadParent(tx: DbTransaction, parentOrderId: string): Promise<Exe
 	return parent
 }
 
+async function loadExistingChild(
+	tx: DbTransaction,
+	input: PrepareChildSubmissionInput,
+): Promise<ExecutionChildPlacement | null> {
+	const rows = await tx
+		.select()
+		.from(executionChildPlacements)
+		.where(
+			and(
+				eq(executionChildPlacements.parentOrderId, input.parentOrderId),
+				eq(executionChildPlacements.childSequence, input.childSequence),
+			),
+		)
+		.limit(1)
+	return rows[0] ?? null
+}
+
+async function replayExistingChild(
+	tx: DbTransaction,
+	input: PrepareChildSubmissionInput,
+	existingChild: ExecutionChildPlacement,
+): Promise<PreparedChildSubmission> {
+	if (!childMatchesPrepare(existingChild, input)) {
+		throw new ExecutionIdempotencyConflictError(
+			'Child sequence is already bound to different submission terms',
+		)
+	}
+	const parent = await loadParent(tx, input.parentOrderId)
+	if (
+		!['submitting', 'submitted', 'source_confirmed', 'settlement_pending', 'recovery_pending', 'settled'].includes(
+			parent.state,
+		)
+	) {
+		throw new ExecutionStateConflictError(`Existing child has incompatible parent state: ${parent.state}`)
+	}
+	return { parentOrder: parent, child: existingChild, replayRequiresReconciliation: true }
+}
+
 /**
  * Write-ahead fence for external submission.
  *
@@ -134,6 +174,11 @@ async function loadParent(tx: DbTransaction, parentOrderId: string): Promise<Exe
  * economic instruction collapse to one durable child. The loser receives that
  * child with replayRequiresReconciliation=true; it never receives permission to
  * resubmit.
+ *
+ * For a genuinely NEW submission the principal-wide exposure gate is evaluated
+ * inside this same transaction immediately before the child is created. A
+ * replayed child bypasses the exposure gate only because it is NOT a new order
+ * and is never granted permission to dispatch again.
  */
 export async function prepareChildSubmission(
 	db: DbClient,
@@ -151,6 +196,13 @@ export async function prepareChildSubmission(
 	const normalizedInput = { ...input, idempotencyKey, requestFingerprint, substrate }
 
 	return db.transaction(async (tx) => {
+		const alreadyExists = await loadExistingChild(tx, normalizedInput)
+		if (alreadyExists) return replayExistingChild(tx, normalizedInput, alreadyExists)
+
+		// Hard, principal-wide risk control at the dispatch choke point. This is
+		// deliberately not a route score: exceeding a limit aborts the transaction.
+		await assertPrincipalRiskLimits(tx, input.parentOrderId, input.riskLimits)
+
 		const insertedChildren = await tx
 			.insert(executionChildPlacements)
 			.values({
@@ -176,40 +228,11 @@ export async function prepareChildSubmission(
 
 		const insertedChild = insertedChildren[0]
 		if (!insertedChild) {
-			const existingRows = await tx
-				.select()
-				.from(executionChildPlacements)
-				.where(
-					and(
-						eq(executionChildPlacements.parentOrderId, input.parentOrderId),
-						eq(executionChildPlacements.childSequence, input.childSequence),
-					),
-				)
-				.limit(1)
-			const existingChild = existingRows[0]
-			if (!existingChild) {
+			const racedChild = await loadExistingChild(tx, normalizedInput)
+			if (!racedChild) {
 				throw new ExecutionLifecycleError('Submission conflict returned no durable child')
 			}
-			if (!childMatchesPrepare(existingChild, normalizedInput)) {
-				throw new ExecutionIdempotencyConflictError(
-					'Child sequence is already bound to different submission terms',
-				)
-			}
-			const parent = await loadParent(tx, input.parentOrderId)
-			if (
-				!['submitting', 'submitted', 'source_confirmed', 'settlement_pending', 'recovery_pending', 'settled'].includes(
-					parent.state,
-				)
-			) {
-				throw new ExecutionStateConflictError(
-					`Existing child has incompatible parent state: ${parent.state}`,
-				)
-			}
-			return {
-				parentOrder: parent,
-				child: existingChild,
-				replayRequiresReconciliation: true,
-			}
+			return replayExistingChild(tx, normalizedInput, racedChild)
 		}
 
 		const parent = await loadParent(tx, input.parentOrderId)
