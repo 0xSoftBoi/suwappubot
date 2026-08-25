@@ -4,13 +4,19 @@ Commands:
 - /ref - Show referral code and stats
 - /fees - Show fee structure
 - /rewards - Show referral rewards
+- /refreview - (admin) list / approve / reject held referral claims
 """
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 
-from bot.services.referral_service import referral_service, MIN_CLAIM_USD
+from bot.services.referral_service import (
+    referral_service,
+    MIN_CLAIM_USD,
+    CLAIM_REVIEW_THRESHOLD_USD,
+)
+from bot.models.referral import ReferralPayout
 from bot.services.fee_service import fee_service
 from bot.models.user import User
 from bot.utils.tos_utils import enforce_tos
@@ -385,6 +391,94 @@ async def rewards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================
+# /refreview - Admin review of held claims
+# ============================================
+
+
+async def ref_review_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: list, approve, or reject referral claims held for manual review.
+
+    claim_rewards() holds any claim above CLAIM_REVIEW_THRESHOLD_USD: it marks the
+    reward rows paid and parks a ``pending_review`` payout, but credits nothing.
+    approve_referral_claim / reject_referral_claim existed to resolve those, but
+    nothing ever called them — so every large claim was frozen with no operator
+    path to release it. This is that path.
+
+    Usage:
+        /refreview                  list all pending_review payouts
+        /refreview approve <id>     credit the user and complete the payout
+        /refreview reject <id>      restore the reward rows to claimable
+    """
+    # Imported here rather than at module scope to avoid a circular import:
+    # bot.handlers.admin imports from the referral surface for its own reporting.
+    from bot.handlers.admin import is_admin
+
+    user = update.effective_user
+    if not is_admin(user.id):
+        # Stay silent about the command's existence for non-admins.
+        return
+
+    args = context.args or []
+
+    if not args:
+        with get_session() as session:
+            pending = (
+                session.query(ReferralPayout)
+                .filter(ReferralPayout.status == "pending_review")
+                .order_by(ReferralPayout.created_at.asc())
+                .limit(25)
+                .all()
+            )
+            rows = [(p.id, p.user_id, float(p.amount_usd or 0), p.created_at) for p in pending]
+
+        if not rows:
+            await update.message.reply_text(
+                f"✅ No referral claims awaiting review.\n\n"
+                f"_Claims above ${CLAIM_REVIEW_THRESHOLD_USD:.0f} are held here._",
+                parse_mode="Markdown",
+            )
+            return
+
+        total = sum(amount for _, _, amount, _ in rows)
+        lines = [f"🔍 *Referral claims awaiting review* ({len(rows)})\n"]
+        for payout_id, uid, amount, created in rows:
+            when = created.strftime("%Y-%m-%d") if created else "?"
+            lines.append(f"• `#{payout_id}` user `{uid}` — *${amount:.2f}* ({when})")
+        lines.append(f"\n*Total held:* ${total:.2f}")
+        lines.append("\n`/refreview approve <id>` · `/refreview reject <id>`")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    action = args[0].lower()
+    if action not in ("approve", "reject"):
+        await update.message.reply_text(
+            "Usage: `/refreview` · `/refreview approve <id>` · `/refreview reject <id>`",
+            parse_mode="Markdown",
+        )
+        return
+
+    if len(args) < 2 or not args[1].lstrip("#").isdigit():
+        await update.message.reply_text(
+            f"Usage: `/refreview {action} <payout_id>`", parse_mode="Markdown"
+        )
+        return
+
+    payout_id = int(args[1].lstrip("#"))
+
+    if action == "approve":
+        ok, msg = referral_service.approve_referral_claim(payout_id)
+    else:
+        ok, msg = referral_service.reject_referral_claim(payout_id)
+
+    logger.info(
+        f"Admin {user.id} ran /refreview {action} {payout_id}: "
+        f"{'ok' if ok else 'failed'} — {msg}"
+    )
+    await update.message.reply_text(f"{'✅' if ok else '❌'} {msg}")
+
+
+# ============================================
 # Handler Registration
 # ============================================
 
@@ -392,6 +486,7 @@ async def rewards_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 referral_handler = CommandHandler("ref", ref_command)
 fees_command_handler = CommandHandler("fees", fees_command)
 rewards_command_handler = CommandHandler("rewards", rewards_command)
+ref_review_handler = CommandHandler("refreview", ref_review_command)
 
 # Callback handlers for main.py
 ref_menu_callback_handler = CallbackQueryHandler(ref_callback, pattern="^ref_")
@@ -408,6 +503,7 @@ def get_referral_handlers():
         referral_handler,
         fees_command_handler,
         rewards_command_handler,
+        ref_review_handler,
         # Callbacks
         ref_menu_callback_handler,
         ref_list_callback_handler,
