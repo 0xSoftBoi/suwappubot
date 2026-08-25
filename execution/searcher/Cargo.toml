@@ -8,10 +8,14 @@ publish = false
 blake3 = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha3 = "0.10"
 thiserror = "2"
 
 [lints.rust]
 unsafe_code = "forbid"
 
 [lints.clippy]
-all = "warn"
+all = { level = "warn", priority = -1 }
+# QuoteDecision intentionally keeps ControlledQuote inline so the maker hot path remains
+# Copy + allocation-free; boxing this single large variant would add heap indirection.
+large_enum_variant = "allow"
