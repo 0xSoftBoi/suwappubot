@@ -28,6 +28,10 @@ class SwapStatus(enum.Enum):
     EXECUTING = "executing"
     SUBMITTED = "submitted"
     CONFIRMING = "confirming"
+    # The provider/transport outcome is indeterminate: the economic instruction
+    # may already have produced an external side effect, so retry must reconcile
+    # the existing attempt rather than blindly create another one.
+    RECONCILING = "reconciling"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
