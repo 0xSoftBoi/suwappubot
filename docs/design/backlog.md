@@ -31,11 +31,9 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
   "chain markets."). Permissible English typography, so it is a nice-to-have, but
   a `white-space: nowrap` span around the compound would remove it. Needs
   next-intl rich-text markup across all four locales.
-- **The hero video is sky-dominant.** The top 40% of the frame is pale flat
-  cloud, which is exactly where the mask holds full opacity and where the
-  headline sits; the water - the part worth showing - is in the lower third
-  where the mask fades it out. Consider `object-position: center bottom` on the
-  poster/video so the horizon rides higher.
+- **(FIXED iter 10)** **Hero video framing adjusted to show water.**
+  Added `object-position: center bottom` to shift focus from sky
+  (pale cloud) to water. Horizon now rides higher.
 
 ## From design-iterate iteration 7 (2026-08-25)
 
@@ -53,3 +51,9 @@ Found by rendering and looking, not fixed this pass (3-fix budget):
 - **Dead space fix completed.** Reduced padding on use-cases and execution sections
   from clamp(5rem, 10vw, 8rem) to clamp(2rem, 4vw, 3rem), closing ~160px gap.
   Next focus: hero video framing (sky-dominant, water in lower third).
+
+## From design-iterate iteration 10 (2026-08-25)
+
+- **Hero video framing adjusted.** Added object-position: center bottom to show
+  water instead of sky. All five iteration-6 findings now fixed.
+- **Next iteration:** Full render pass to identify new findings and check convergence.
