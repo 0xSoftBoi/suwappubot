@@ -5,6 +5,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import OceanAtmosphere from '@/components/OceanAtmosphere';
+import DepthSurfaceGL from '@/components/DepthSurfaceGL';
 import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
 import FaqAccordion from '@/components/FaqAccordion';
@@ -290,9 +291,16 @@ export default async function Home() {
 
           <section id="routing" className="home-section" aria-labelledby="markets-title">
             <Reveal>
-              <div className="home-section__head">
-                <h2 id="markets-title">{h('markets.title')}</h2>
-                <p className="home-section__head-lead">{h('markets.lead')}</p>
+              {/* The right column is a real rendered element (order-book ridge),
+                  not a floating explainer — the sanctioned use of a split head. */}
+              <div className="home-section__head home-section__head--figure">
+                <div>
+                  <h2 id="markets-title">{h('markets.title')}</h2>
+                  <p className="home-section__head-lead">{h('markets.lead')}</p>
+                </div>
+                <div className="home-glfigure" aria-hidden="true">
+                  <DepthSurfaceGL />
+                </div>
               </div>
 
               <div className="home-capabilities">

@@ -1270,3 +1270,37 @@
       linear-gradient(180deg, rgba(18, 13, 11, 0.66) 0%, rgba(18, 13, 11, 0.55) 34%, rgba(18, 13, 11, 0.62) 62%, var(--sw-soil-0, #1c1310) 99%);
   }
 }
+
+/* ── Routing header figure ───────────────────────────────────────
+   DepthSurfaceGL: the order-book ridge from the section-object era,
+   rehomed beside the routing headline. Ambient texture, not a feed. */
+.home-section__head--figure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: center;
+  max-width: none;
+}
+
+.home-glfigure {
+  position: relative;
+  height: 230px;
+}
+
+.home-glfigure .depthsurface {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@media (max-width: 1023px) {
+  .home-section__head--figure {
+    display: block;
+  }
+
+  .home-glfigure {
+    display: none;
+  }
+}
