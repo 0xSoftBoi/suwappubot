@@ -1,7 +1,7 @@
 import { createContext, useContext, useCallback, type ReactNode } from 'react'
 import { usePersistentState } from '../lib/persist'
 
-export type BottomTab = 'portfolio' | 'signals' | 'discovery' | 'watchlist' | 'copy-trading' | 'wallet-tracker' | 'tweets' | 'defi' | 'curve' | 'copilot' | 'referrals' | 'rewards' | 'intel' | 'approvals' | 'audit' | 'data'
+export type BottomTab = 'portfolio' | 'signals' | 'discovery' | 'watchlist' | 'copy-trading' | 'wallet-tracker' | 'tweets' | 'defi' | 'curve' | 'uniswap' | 'pancakeswap' | 'balancer' | 'aave' | 'compound' | 'lido' | 'copilot' | 'referrals' | 'rewards' | 'intel' | 'approvals' | 'audit' | 'data'
 
 interface BottomTabContextType {
   activeTab: BottomTab
