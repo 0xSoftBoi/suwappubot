@@ -19,6 +19,7 @@ import { P2PServiceLive } from './P2PService'
 import { PointsServiceLive } from './PointsService'
 import { PolicyServiceLive } from './PolicyService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
+import { TenantBotServiceLive } from './TenantBotService'
 import { PolymarketServiceLive } from './PolymarketService'
 import { RedisServiceLive } from './RedisService'
 import { ReferralServiceLive } from './ReferralService'
@@ -66,6 +67,12 @@ export const PolymarketCredentialLayer = PolymarketCredentialServiceLive.pipe(
 	Layer.provide(DatabaseLayer),
 )
 
+// Tenant bots need the env (for the token-encryption key) and the db.
+export const TenantBotLayer = TenantBotServiceLive.pipe(
+	Layer.provide(ConfigLayer),
+	Layer.provide(DatabaseLayer),
+)
+
 // Service layers (stateless, no dependencies on other services)
 export const ServicesLayer = Layer.mergeAll(
 	WalletServiceLive,
@@ -103,6 +110,7 @@ export const MainLayer = Layer.mergeAll(
 	EventBusLayer,
 	ServicesLayer,
 	PolymarketCredentialLayer,
+	TenantBotLayer,
 	StripeLayer,
 	SmartAccountLayer,
 	RewardsLayer,

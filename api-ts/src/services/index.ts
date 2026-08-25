@@ -200,3 +200,8 @@ export {
 } from './TurnkeyService'
 export { UserService, UserServiceLive } from './UserService'
 export { WalletService, WalletServiceLive } from './WalletService'
+export {
+	TenantBotService,
+	TenantBotServiceLive,
+	toSummary as tenantBotSummary,
+} from './TenantBotService'

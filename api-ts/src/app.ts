@@ -39,6 +39,7 @@ import {
 	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
+	tenantBotRoutes,
 	tokenRoutes,
 	webappDataRoutes,
 	webappRoutes,
@@ -215,6 +216,10 @@ export function createApp(config: AppConfig) {
 	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API
 	// key or agent bearer token via agentFlexAuth), enforced inside dataRoutes.
 	app.route('/v1/data', dataRoutes)
+
+	// Tenant bots — the white-label bot factory. Org-scoped, flexAuth + explicit
+	// membership check inside the router (see routes/tenantBots.ts).
+	app.route('/v1/orgs', tenantBotRoutes)
 
 	// Autopilot — the autonomous trading agent's public transparency surface.
 	// Unauthenticated by design: decisions, refusals, positions and P&L are the

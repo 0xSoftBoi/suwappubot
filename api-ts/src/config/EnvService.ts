@@ -84,6 +84,19 @@ export const EnvSchema = Schema.Struct({
 	 */
 	AUTOPILOT_BOOTSTRAP: Schema.optional(Schema.String),
 
+	// Tenant bots — hosted white-label Telegram bots (see services/TenantBotService).
+	// The encryption key is required before any bot token can be stored; without
+	// it provisioning fails loudly rather than persisting a credential in clear.
+	TENANT_BOT_ENC_KEY: Schema.optional(Schema.String),
+	/**
+	 * Base URL Telegram posts tenant-bot updates to. This must be the **Python**
+	 * service — that is where the multi-bot runtime lives — not api-ts. Defaults
+	 * to INTERNAL_API_URL's public twin; override per environment.
+	 */
+	TENANT_BOT_WEBHOOK_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://python-api-production-8526.up.railway.app',
+	}),
+
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
