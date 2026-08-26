@@ -774,7 +774,15 @@ def render_card(
         f'<g clip-path="url(#card)">',
         f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
         f'<rect width="{W_}" height="{H_}" fill="url(#brush)"/>',
-        f'<rect width="{W_}" height="{H_}" filter="url(#grain)"/>',
+        # fill="none" is load-bearing, not tidiness. A filtered rect with no fill
+        # defaults to BLACK, and cairosvg/librsvg — what a lot of indexers
+        # rasterize on-chain SVGs with — ignore <filter> entirely and paint that
+        # black over the whole card. That erased the plate gradient everywhere,
+        # flattened the Founders' Gold ground to plain black, and turned the
+        # ivory Gilt proof into a black plate with invisible dark ink. Same class
+        # of bug as the currentColor note below. feTurbulence generates its own
+        # image and never reads SourceGraphic, so a browser renders identically.
+        f'<rect width="{W_}" height="{H_}" fill="none" filter="url(#grain)"/>',
         f'<ellipse cx="{eng_cx}" cy="{eng_cy}" rx="{eng_r + 150}" ry="{eng_r + 140}" '
         f'fill="url(#bloom)"/>',
     ]

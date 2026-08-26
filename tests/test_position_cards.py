@@ -514,10 +514,13 @@ def test_team_reserve_is_bounded_on_chain():
 
 
 def test_supply_and_reserve_constants_match_config():
+    import re
+
     sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
     cfg = render.load_config()
-    assert f"MAX_SUPPLY = {cfg['collection']['supply']};" in sol
-    assert "MAX_SUPPLY = 4_444;" in sol
+    m = re.search(r"MAX_SUPPLY = ([\d_]+);", sol)
+    assert m, "MAX_SUPPLY not found in SuwappuPositions.sol"
+    assert int(m.group(1).replace("_", "")) == cfg["collection"]["supply"] == 4444
     assert "RESERVE_MAX = 45;" in sol
     # scaled down from 50 for the smaller supply — the widest single-phase
     # grant (Public, walletCap 5) plus headroom for minting across phases
