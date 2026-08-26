@@ -178,3 +178,16 @@ ADRs 0001–0005.
   cairosvg/librsvg (marketplace indexers) drop the filter — the whole
   collection rasterized as black rectangles until the art-director pass
   caught it. Always rasterize through cairosvg before shipping card art.
+
+### Turnkey-signed deploys: two bugs only a funded run can find
+- **What**: The `--signer turnkey` deploy path had never run with a funded
+  signer. First real use hit (1) `serializable_unsigned_transaction_from_dict`
+  returns an `rlp.Serializable` with no `.encode()` — use `rlp.encode(unsigned)`,
+  the EIP-155 preimage `wallet.py::_serialize_evm_transaction` already used
+  correctly; and (2) `asyncio.run()` per tx closes its loop while the Turnkey
+  client caches an aiohttp session bound to it, so contract #2 died with
+  "Event loop is closed" after #1 succeeded. Drive every signature through one
+  long-lived loop. Deployment record: `nft/position-cards/DEPLOYED-TESTNET.md`.
+- **Also**: a Railway service created via API can carry a manual-deploy-only
+  `watchPatterns` sentinel — pushed fixes come back SKIPPED, not built. Check
+  `get-service-config` before concluding a fix didn't work.
