@@ -3,6 +3,12 @@
 > This is the original migration history. For the current service policy, selective CI,
 > watch paths, and Railway's 2026 IaC transition, use
 > [Railway build reliability](build-reliability.md) and `railway.services.json`.
+>
+> **⚠ Config as Code (`railway.json`) is deprecated by Railway — hard cutoff 2026-12-01.**
+> The `railway.*.json` files described below stop being read on that date. Read
+> [`railway-best-practices.md`](./railway-best-practices.md) for the audit findings
+> (including which of these files are *already* not being read) and the
+> `.railway/railway.ts` migration runbook.
 
 Migration target: **Superposition's Railway Pro org** (off AWS). This documents how each
 service is built and what it needs. The AWS Dockerfiles, `buildspec.yml`s, and GitHub
@@ -23,7 +29,7 @@ to read). Set them as below.
 |---|---|---|---|---|
 | **python-api** (FastAPI + Telegram bot) | `/` (repo root) | `railway.python-api.json` | `$PORT` (CMD expands it) | New self-contained image + `requirements.txt`. The old `api/Dockerfile` needs the private ECR base — do **not** use it on Railway. |
 | **api-ts** (Hono + Effect) | `api-ts` | `railway.json` (auto-detected) | `$PORT` (`Bun.serve({port: env.PORT})`) | Existing Dockerfile works as-is (public ECR base, no AWS auth). |
-| **terminal** (Vite + nginx) | `/` (repo root) | `railway.terminal.json` | **80** (nginx hardcodes `listen 80`) | Build context is repo root (copies `packages/design-tokens`). Set Railway **target port = 80**. `VITE_API_URL` is baked at build time — see below. |
+| **terminal** (Vite + nginx) | `/` (repo root) | `railway.terminal.json` | `$PORT` (`terminal/nginx.conf` is `listen ${PORT}`, envsubst'd at start; Dockerfile defaults `PORT=8080`) | Build context is repo root (copies `packages/design-tokens`). No target-port override needed. `VITE_API_URL` is baked at build time — see below. |
 | **showcase** (Next.js) | `/` (repo root) | `railway.showcase.json` | `$PORT` (`next start`) | Requires the root context for `packages/design-tokens`. |
 
 Why distinct filenames for python-api and terminal: both build from repo root (Root
@@ -115,11 +121,13 @@ publicly.
 
 ## Python image notes (`api/Dockerfile.railway`)
 - Multi-stage: builder (with `build-essential`/`libpq-dev`) installs into `/opt/venv`;
-  runtime is `python:3.9-slim-bookworm`, non-root (`botuser`), copies only `api/ bot/
+  runtime is `python:3.12-slim-bookworm`, non-root (`botuser`), copies only `api/ bot/
   database/` + the venv.
-- **Python 3.9 is pinned deliberately** — `requirements.txt` pins were resolved against
-  3.9, and `py-clob-client` requires Python ≥3.9.10 (satisfied by slim-bookworm's 3.9.18+;
-  it will NOT resolve on an older 3.9.x).
+- **Python 3.12 is pinned deliberately** — every pin in `requirements.txt` ships a cp312/abi3
+  manylinux wheel (solders, pydantic_core, ckzg, cryptography, psycopg2-binary, Pillow).
+  Do NOT bump to 3.13/3.14: `coincurve==21.0.0` has no cp313/cp314 wheel, pip resolution
+  fails, and every python-api build dies. Dependabot keeps proposing it; it is ignored in
+  `.github/dependabot.yml`.
 - `requirements.txt` is a **reconstruction** (the real list lived only in the ECR base
   image). The first `docker build` is the validation step. If the pip resolver conflicts
   on a pinned line, relax that one line and rebuild. Packages added beyond the local venv
