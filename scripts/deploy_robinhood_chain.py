@@ -191,6 +191,7 @@ def _broadcast(w3, art, plan, a, net, deployer, owner, gas_price):
         tx["gas"] = int(w3.eth.estimate_gas({k: tx[k] for k in ("from", "data")}) * 1.2)
 
         if a.signer == "turnkey":
+            import rlp
             from eth_account._utils.legacy_transactions import (
                 serializable_unsigned_transaction_from_dict,
             )
@@ -198,7 +199,10 @@ def _broadcast(w3, art, plan, a, net, deployer, owner, gas_price):
             unsigned = serializable_unsigned_transaction_from_dict(
                 {k: v for k, v in tx.items() if k != "from"}
             )
-            signed_hex = asyncio.run(_turnkey_sign(to_hex(unsigned.encode()), deployer))
+            # rlp.encode(unsigned) is the EIP-155 preimage Turnkey expects —
+            # same bytes wallet.py's _serialize_evm_transaction hands it. The
+            # object has no .encode() of its own (it is an rlp.Serializable).
+            signed_hex = asyncio.run(_turnkey_sign(to_hex(rlp.encode(unsigned)), deployer))
             raw = signed_hex if signed_hex.startswith("0x") else "0x" + signed_hex
             tx_hash = w3.eth.send_raw_transaction(raw)
         else:

@@ -91,6 +91,7 @@ def pick_signer(w3, accounts):
 
 async def send_via_turnkey(w3, fn, signer, nonce, gas_price):
     """Sign one contract call in Turnkey's enclave and broadcast it."""
+    import rlp
     from eth_account._utils.legacy_transactions import (
         serializable_unsigned_transaction_from_dict,
     )
@@ -105,8 +106,9 @@ async def send_via_turnkey(w3, fn, signer, nonce, gas_price):
     unsigned = serializable_unsigned_transaction_from_dict(
         {k: v for k, v in tx.items() if k != "from"}
     )
+    # rlp.encode(unsigned): the EIP-155 preimage, matching wallet.py's proven path
     signed = await get_turnkey_client().sign_transaction(
-        unsigned_transaction=to_hex(unsigned.encode()),
+        unsigned_transaction=to_hex(rlp.encode(unsigned)),
         sign_with=signer,
         transaction_type="TRANSACTION_TYPE_ETHEREUM",
         organization_id=None,
