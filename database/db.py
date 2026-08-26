@@ -1181,6 +1181,9 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
         # the column only from here, and every Drizzle select on agents includes
         # it — without it agent registration/auth 500s (ADR 0003).
         ("organization_id", "UUID" if not is_sqlite else "VARCHAR(36)", "NULL"),
+        # Drizzle: agents.lastActiveAt (timestamp, nullable). Same
+        # SKIP_SCHEMA_SYNC story as organization_id above.
+        ("last_active_at", "TIMESTAMP", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
