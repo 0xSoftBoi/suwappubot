@@ -16,10 +16,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone  # noqa: E402
 
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Endpoint tests: POST /internal/monitor-heartbeat

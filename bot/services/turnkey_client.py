@@ -5,10 +5,10 @@ Provides TEE-backed wallet creation, signing, and management via Turnkey's API.
 All private keys stay in Turnkey's secure enclaves - they never touch our servers.
 """
 
+import asyncio
 import json
 import re
 import time
-import hashlib
 import logging
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -141,7 +141,6 @@ class TurnkeyClient:
         """
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec as ec_module
-        from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
         import base64
 
         # Sign the body with ECDSA P-256 (SHA-256)
@@ -985,17 +984,183 @@ class TurnkeyClient:
 
 # === Authentication Helpers ===
 
-import secrets
-from datetime import datetime, timezone, timedelta
+import secrets  # noqa: E402
+from datetime import datetime, timezone, timedelta  # noqa: E402
 
 # Store for auth challenges (in production, use Redis/DB)
 _auth_challenges: Dict[str, Dict[str, Any]] = {}
+
+# EIP-1271: isValidSignature(bytes32,bytes) returns this selector when the
+# smart account accepts the signature.
+_EIP1271_SELECTOR = "1626ba7e"
+_EIP1271_MAGIC_VALUE = "1626ba7e"
+
+# ERC-6492 wraps a counterfactual (not-yet-deployed) account signature and
+# terminates it with this 32-byte magic suffix.
+_ERC6492_MAGIC_SUFFIX = bytes.fromhex("6492" * 16)
+
+# Chains probed for a smart-account signature when the client never told us
+# which network it signed on (older Terminal/webapp builds). A smart account's
+# EIP-1271 check is chain-bound, so at most one of these can succeed.
+_SMART_WALLET_FALLBACK_CHAINS = ("ethereum", "base", "arbitrum", "optimism", "polygon")
+
+
+def _normalize_chain_id(chain_id: Any) -> int:
+    """Coerce a client-supplied chain id to a sane positive int (default 1)."""
+    try:
+        value = int(chain_id)
+    except (TypeError, ValueError):
+        return 1
+    if value <= 0 or value > 2**53:
+        return 1
+    return value
+
+
+def _chain_names_for_id(chain_id: Optional[int]) -> List[str]:
+    """Map an EVM chain id to the rpc_manager chain name(s) to probe."""
+    if chain_id:
+        try:
+            from bot.config.chains import get_chain_by_id
+
+            chain = get_chain_by_id(chain_id)
+            if chain is not None and chain.name:
+                return [chain.name]
+        except Exception as exc:  # pragma: no cover - config import guard
+            logger.warning(f"Chain lookup failed for id {chain_id}: {exc}")
+    return list(_SMART_WALLET_FALLBACK_CHAINS)
+
+
+def _unwrap_erc6492_signature(signature: bytes) -> bytes:
+    """Return the inner signature of an ERC-6492 payload (or the input as-is).
+
+    An ERC-6492 signature is ``abi.encode(factory, factoryCalldata, signature)``
+    followed by the magic suffix. Once the account is deployed the inner
+    signature validates through plain EIP-1271, which is the case we can check
+    without deploying anything.
+    """
+    if len(signature) <= 32 or signature[-32:] != _ERC6492_MAGIC_SUFFIX:
+        return signature
+    try:
+        from eth_abi import decode as abi_decode
+
+        _factory, _factory_calldata, inner = abi_decode(
+            ["address", "bytes", "bytes"], signature[:-32]
+        )
+        return inner
+    except Exception as exc:
+        logger.warning(f"ERC-6492 unwrap failed: {exc}")
+        return signature
+
+
+def _encode_is_valid_signature_call(message_hash: bytes, signature: bytes) -> str:
+    """ABI-encode isValidSignature(bytes32 hash, bytes signature)."""
+    padding = (32 - len(signature) % 32) % 32
+    data = (
+        bytes.fromhex(_EIP1271_SELECTOR)
+        + message_hash
+        + (0x40).to_bytes(32, "big")
+        + len(signature).to_bytes(32, "big")
+        + signature
+        + b"\x00" * padding
+    )
+    return "0x" + data.hex()
+
+
+async def _eth_call(rpc_url: str, to: str, data: str) -> Optional[str]:
+    """Single eth_call against an RPC endpoint. Returns the hex result or None."""
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [{"to": to, "data": data}, "latest"],
+    }
+    try:
+        session = await get_http_session()
+        async with session.post(
+            rpc_url, json=payload, timeout=aiohttp.ClientTimeout(total=8)
+        ) as resp:
+            if resp.status != 200:
+                return None
+            body = await resp.json()
+    except Exception as exc:
+        logger.warning(f"eth_call failed: {exc}")
+        return None
+
+    if not isinstance(body, dict) or body.get("error"):
+        return None
+    result = body.get("result")
+    return result if isinstance(result, str) else None
+
+
+async def _verify_smart_wallet_signature(
+    address: str, message: str, signature: str, chain_id: Optional[int] = None
+) -> bool:
+    """Verify an EIP-1271 (smart contract account) signature over a SIWE message.
+
+    Coinbase Smart Wallet, Safe, Argent and every passkey/4337 account return a
+    signature that is NOT a 65-byte ECDSA tuple, so `Account.recover_message`
+    cannot validate them — the account contract itself is the verifier. We ask
+    it directly via `isValidSignature`, which is what the wallet expects.
+    """
+    try:
+        from eth_account.messages import encode_defunct, _hash_eip191_message
+        from eth_utils import to_checksum_address
+    except ImportError:
+        logger.error("eth_account/eth_utils required for EIP-1271 verification")
+        return False
+
+    try:
+        message_hash = _hash_eip191_message(encode_defunct(text=message))
+        raw = signature.strip()
+        sig_bytes = bytes.fromhex(raw[2:] if raw.startswith("0x") else raw)
+        checksum_address = to_checksum_address(address)
+    except Exception as exc:
+        logger.warning(f"EIP-1271 verification failed: malformed input ({exc})")
+        return False
+
+    # Try the payload as sent, plus the unwrapped ERC-6492 inner signature.
+    candidates = [sig_bytes]
+    inner = _unwrap_erc6492_signature(sig_bytes)
+    if inner != sig_bytes:
+        candidates.append(inner)
+
+    from bot.services.rpc_manager import rpc_manager
+
+    async def probe(chain_name: str) -> bool:
+        try:
+            rpc_url = rpc_manager.get_rpc_url(chain_name)
+        except Exception as exc:
+            logger.warning(f"No RPC available for {chain_name}: {exc}")
+            return False
+        if not rpc_url:
+            return False
+
+        for candidate in candidates:
+            data = _encode_is_valid_signature_call(message_hash, candidate)
+            result = await _eth_call(rpc_url, checksum_address, data)
+            if result and result[2:10].lower() == _EIP1271_MAGIC_VALUE:
+                logger.info(f"EIP-1271 verification succeeded for {address} on {chain_name}")
+                return True
+        return False
+
+    # Probe the candidate chains in parallel: a sign-in must not wait out a
+    # serial timeout per chain. At most one chain can accept the signature
+    # anyway, since the account hashes block.chainid into what it verifies.
+    chains = _chain_names_for_id(chain_id)
+    results = await asyncio.gather(*(probe(chain) for chain in chains), return_exceptions=True)
+    for result in results:
+        if result is True:
+            return True
+
+    logger.warning(f"EIP-1271 verification failed for {address}")
+    return False
 
 
 def generate_auth_challenge(
     address: str,
     domain: str = "terminal.suwappu.bot",
     uri: Optional[str] = None,
+    chain_id: Optional[int] = None,
 ) -> Dict[str, str]:
     """
     Generate an EIP-4361 style sign-in message for wallet authentication.
@@ -1003,6 +1168,12 @@ def generate_auth_challenge(
     Args:
         address: The wallet address requesting authentication
         domain: The domain for the sign-in message
+        chain_id: EVM chain the wallet is connected to. Smart accounts
+            (EIP-1271) bind their signature to ``block.chainid``, so the
+            verifier must check the signature on this same chain — we store it
+            alongside the challenge instead of guessing later. When a client
+            does not send one, we record None and the verifier probes the
+            major chains instead.
 
     Returns:
         Dict with 'challenge', 'nonce', and 'expiresAt' fields
@@ -1014,6 +1185,11 @@ def generate_auth_challenge(
     sign_in_uri = uri or f"https://{domain}"
     issued_at_rfc3339 = issued_at.isoformat().replace("+00:00", "Z")
     expires_at_rfc3339 = expires_at.isoformat().replace("+00:00", "Z")
+    # The chain id printed in the message is cosmetic (a smart account hashes
+    # block.chainid at verify time, not this text), so an unusable value just
+    # falls back to 1 — but only a client-supplied one narrows the verify probe.
+    message_chain_id = _normalize_chain_id(chain_id)
+    stored_chain_id = message_chain_id if chain_id is not None else None
 
     # EIP-4361 SIWE-style message
     challenge = f"""{domain} wants you to sign in with your Ethereum account:
@@ -1023,7 +1199,7 @@ Sign in to Suwappu
 
 URI: {sign_in_uri}
 Version: 1
-Chain ID: 1
+Chain ID: {message_chain_id}
 Nonce: {nonce}
 Issued At: {issued_at_rfc3339}
 Expiration Time: {expires_at_rfc3339}"""
@@ -1033,6 +1209,7 @@ Expiration Time: {expires_at_rfc3339}"""
         "address": address.lower(),
         "challenge": challenge,
         "expires_at": expires_at,
+        "chain_id": stored_chain_id,
     }
 
     return {
@@ -1042,9 +1219,70 @@ Expiration Time: {expires_at_rfc3339}"""
     }
 
 
+def _lookup_evm_challenge(address: str, nonce: str) -> Optional[Dict[str, Any]]:
+    """Fetch + validate a stored EVM challenge WITHOUT consuming it.
+
+    Returns the challenge record, or None when the nonce is unknown, expired or
+    bound to a different address. Expired records are dropped on the way out.
+    """
+    challenge_data = _auth_challenges.get(nonce)
+    if not challenge_data:
+        logger.warning("Auth verification failed: nonce not found")
+        return None
+
+    if datetime.now(timezone.utc) > challenge_data["expires_at"]:
+        del _auth_challenges[nonce]
+        logger.warning("Auth verification failed: challenge expired")
+        return None
+
+    if challenge_data.get("chain") == "solana":
+        logger.warning("Auth verification failed: challenge is not an EVM challenge")
+        return None
+
+    if challenge_data["address"] != address.lower():
+        logger.warning("Auth verification failed: address mismatch")
+        return None
+
+    return challenge_data
+
+
+async def verify_wallet_auth_signature(address: str, signature: str, nonce: str) -> bool:
+    """Verify an EVM wallet signature, EOA or smart account.
+
+    Tries plain ECDSA recovery first (MetaMask, Ledger, Rainbow, …). If the
+    signature is not a 65-byte ECDSA tuple — every ERC-4337 / passkey / Safe
+    account — falls back to asking the account contract itself via EIP-1271.
+    Consumes the challenge on success so a signature is single-use.
+    """
+    challenge_data = _lookup_evm_challenge(address, nonce)
+    if challenge_data is None:
+        return False
+
+    if verify_auth_signature(address, signature, nonce):
+        return True
+
+    # The challenge survives a failed ECDSA attempt (verify_auth_signature only
+    # consumes it on success), so the smart-account path can still use it.
+    if nonce not in _auth_challenges:
+        return False
+
+    is_valid = await _verify_smart_wallet_signature(
+        address=address,
+        message=challenge_data["challenge"],
+        signature=signature,
+        chain_id=challenge_data.get("chain_id"),
+    )
+    if is_valid:
+        _auth_challenges.pop(nonce, None)
+        logger.info(f"Smart-account auth verification successful for {address}")
+    return is_valid
+
+
 def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
     """
-    Verify a wallet signature against a stored challenge.
+    Verify an EOA (65-byte ECDSA) wallet signature against a stored challenge.
+
+    Smart-contract accounts are handled by verify_wallet_auth_signature().
 
     Args:
         address: The wallet address that signed
@@ -1054,21 +1292,8 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
     Returns:
         True if signature is valid, False otherwise
     """
-    # Get stored challenge
-    challenge_data = _auth_challenges.get(nonce)
-    if not challenge_data:
-        logger.warning(f"Auth verification failed: nonce not found")
-        return False
-
-    # Check expiration
-    if datetime.now(timezone.utc) > challenge_data["expires_at"]:
-        del _auth_challenges[nonce]
-        logger.warning(f"Auth verification failed: challenge expired")
-        return False
-
-    # Check address matches
-    if challenge_data["address"] != address.lower():
-        logger.warning(f"Auth verification failed: address mismatch")
+    challenge_data = _lookup_evm_challenge(address, nonce)
+    if challenge_data is None:
         return False
 
     # Verify signature using eth_account
@@ -1080,7 +1305,7 @@ def verify_auth_signature(address: str, signature: str, nonce: str) -> bool:
         recovered_address = Account.recover_message(message, signature=signature)
 
         if recovered_address.lower() != address.lower():
-            logger.warning(f"Auth verification failed: signature recovery mismatch")
+            logger.warning("Auth verification failed: signature recovery mismatch")
             return False
 
         # Clean up used challenge

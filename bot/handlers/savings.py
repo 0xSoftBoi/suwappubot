@@ -661,10 +661,10 @@ async def save_btc_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"₿ *Bitcoin Savings* — Starknet\n"
         f"_Non-custodial · variable APY · gas-free via paymaster_\n\n"
         f"👛 Wallet ({addr_short}):\n{bal_lines}\n\n"
-        f"📈 Positions:\n" + "\n".join(pos_lines) + "\n\n"
-        f"Pick a venue:\n"
-        f"• *Endur xWBTC* — STRK staking rewards (variable)\n"
-        f"• *Vesu* — BTC-denominated lending yield (variable)"
+        "📈 Positions:\n" + "\n".join(pos_lines) + "\n\n"
+        "Pick a venue:\n"
+        "• *Endur xWBTC* — STRK staking rewards (variable)\n"
+        "• *Vesu* — BTC-denominated lending yield (variable)"
     )
     keyboard = [
         [InlineKeyboardButton(venue.name, callback_data=f"save_btc_v_{key}")]

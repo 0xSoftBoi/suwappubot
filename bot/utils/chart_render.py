@@ -13,7 +13,6 @@ chart is simple enough to draw with plain rectangles/lines.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Optional, Sequence
 
 from PIL import Image, ImageDraw, ImageFont

@@ -10,13 +10,13 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from api.main import (
+from api.main import (  # noqa: E402
     _wallet_auth_origin,
     create_jwt_token,
     decode_jwt_token,
     get_current_user_from_token,
 )
-from api.authz import require_proof_of_possession
+from api.authz import require_proof_of_possession  # noqa: E402
 
 
 def test_jwt_preserves_case_sensitive_solana_address():

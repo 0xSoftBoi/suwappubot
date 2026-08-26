@@ -42,19 +42,18 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from types import SimpleNamespace
+from types import SimpleNamespace  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.swap import SwapStatus, SwapTransaction
-from bot.models.user import User, Wallet
-from bot.models.favorites import UserSettings
-import bot.services.token_security.rug_service as rug_service_module
-from bot.services.token_security.rug_service import (
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.swap import SwapStatus, SwapTransaction  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.models.favorites import UserSettings  # noqa: E402
+import bot.services.token_security.rug_service as rug_service_module  # noqa: E402
+from bot.services.token_security.rug_service import (  # noqa: E402
     RugService,
     RAYDIUM_AMM,
-    RUG_MIN_DRAINED_NOTIONAL_USD,
     RUG_MIN_POOL_AGE_SECONDS,
     STABLE_MINTS,
     WSOL_MINT,

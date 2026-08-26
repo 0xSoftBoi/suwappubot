@@ -22,17 +22,20 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock  # noqa: E402
 
-import jwt
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import jwt  # noqa: E402
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from api.routes.terminal import router
-from bot.models.intel import DeployerWatch, DeployerWatchHit
-from bot.services.token_intel.intel_service import HolderInfo, TokenIntelReport, token_intel_service
-from database.db import get_session, init_db
+from api.routes.terminal import router  # noqa: E402
+from bot.models.intel import DeployerWatchHit  # noqa: E402
+from bot.services.token_intel.intel_service import (  # noqa: E402
+    TokenIntelReport,
+    token_intel_service,
+)  # noqa: E402
+from database.db import get_session, init_db  # noqa: E402
 
 _SECRET = "test-secret"
 

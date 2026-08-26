@@ -1,14 +1,21 @@
 import { useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 import {
   TerminalButton,
   TerminalPanel,
   TerminalPanelHeader,
   TerminalTextField,
 } from "../foundation";
+import { useAuth } from "../../contexts/AuthContext";
 import { useBridgeRoutes } from "../../hooks/useBridgeRoutes";
 import type { BridgeRoute } from "../../types/bridge";
 import { BridgeRouteList } from "./BridgeRouteList";
-import { SETTLEMENT_COPY, TRUST_COPY } from "./custody";
+import {
+  SETTLEMENT_COPY,
+  TRUST_COPY,
+  chainLabel,
+  guaranteedShortfall,
+} from "./custody";
 
 /**
  * The bridge flow.
@@ -42,22 +49,32 @@ interface Props {
   onConfirm?: (route: BridgeRoute) => void;
   /** True while the wallet is being prompted / the transfer is starting. */
   isSubmitting?: boolean;
+  /** Why the last attempt failed, rendered next to the button that caused it. */
+  failureDetail?: string | null;
 }
 
 export function BridgePanel({
   tokenPriceUsd = 1,
   onConfirm,
   isSubmitting = false,
+  failureDetail = null,
 }: Props) {
   const [fromChain, setFromChain] = useState<string>("arbitrum");
   const [toChain, setToChain] = useState<string>("base");
   const [token, setToken] = useState<string>("USDC");
   const [amount, setAmount] = useState<string>("");
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  // The quote endpoint validates from_address against the destination chain's
+  // format and rejects the request when it's absent — omitting it here is what
+  // made every routes request come back empty ("can't bridge"). Send the
+  // connected wallet's address; the server quotes with a sentinel when no
+  // wallet is connected yet.
+  const { address } = useAccount();
+  const { signInWithWallet } = useAuth();
 
   const request = useMemo(
-    () => ({ fromChain, toChain, token, amount }),
-    [fromChain, toChain, token, amount],
+    () => ({ fromChain, toChain, token, amount, fromAddress: address }),
+    [fromChain, toChain, token, amount, address],
   );
 
   const { data, isFetching, error } = useBridgeRoutes(request);
@@ -162,26 +179,50 @@ export function BridgePanel({
 
       {selected ? (
         <div className="mt-3 space-y-2 border-t border-terminal-border pt-3">
+          {/* Restate the whole trade at the moment of commitment: what leaves,
+              what is guaranteed to arrive, and where. The route row said it
+              once, but the button is where the user actually decides. */}
+          <ConfirmSummary route={selected} amount={amount} />
           {/* The rows carry the category; the explanation lands once, here,
               for the route actually chosen. */}
           <p className="text-[11px] leading-[1.45] text-terminal-text-secondary">
             {TRUST_COPY[selected.trustModel].summary}{" "}
             {SETTLEMENT_COPY[selected.settlement]}
           </p>
-          <TerminalButton
-            className="w-full"
-            onClick={() => onConfirm?.(selected)}
-            disabled={!onConfirm || isSubmitting}
-          >
-            {isSubmitting
-              ? "Confirm in your wallet…"
-              : selected.settlement === "deposit_address"
-                ? "Get deposit address"
-                : `Bridge to ${selected.toChain}`}
-          </TerminalButton>
+          {address ? (
+            <TerminalButton
+              className="w-full"
+              onClick={() => onConfirm?.(selected)}
+              disabled={!onConfirm || isSubmitting}
+            >
+              {isSubmitting
+                ? "Confirm in your wallet…"
+                : selected.settlement === "deposit_address"
+                  ? "Get deposit address"
+                  : `Bridge to ${chainLabel(selected.toChain)}`}
+            </TerminalButton>
+          ) : (
+            // Say what is missing instead of failing after the click. The
+            // route list stays browsable without a wallet; only the commit
+            // needs one.
+            <TerminalButton
+              className="w-full"
+              onClick={() => void signInWithWallet()}
+            >
+              Connect wallet to bridge
+            </TerminalButton>
+          )}
+          {failureDetail ? (
+            <p
+              role="alert"
+              className="text-[11px] leading-[1.45] text-terminal-text"
+            >
+              {failureDetail}
+            </p>
+          ) : null}
           {/* Two signatures on rails that lock rather than mint — say so before
               the first prompt, not between them. */}
-          {selected.settlement !== "deposit_address" ? (
+          {address && selected.settlement !== "deposit_address" ? (
             <p className="text-[10px] leading-[1.4] text-terminal-text-muted">
               You may be asked to approve the token first, then to confirm the
               transfer.
@@ -190,6 +231,35 @@ export function BridgePanel({
         </div>
       ) : null}
     </TerminalPanel>
+  );
+}
+
+function ConfirmSummary({
+  route,
+  amount,
+}: {
+  route: BridgeRoute;
+  amount: string;
+}) {
+  const shortfall = guaranteedShortfall(route);
+  const minHuman =
+    shortfall > 0 ? route.toAmountHuman * (1 - shortfall) : route.toAmountHuman;
+  const format = (value: number) =>
+    value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+  return (
+    <p className="text-[12px] leading-[1.5] text-terminal-text">
+      Send{" "}
+      <span className="tnum font-mono">
+        {amount} {route.token}
+      </span>{" "}
+      on {chainLabel(route.fromChain)} →{" "}
+      {shortfall > 0 ? "at least " : ""}
+      <span className="tnum font-mono">
+        {format(minHuman)} {route.token}
+      </span>{" "}
+      on {chainLabel(route.toChain)}.
+    </p>
   );
 }
 
@@ -214,7 +284,7 @@ function ChainSelect({
       >
         {BRIDGE_CHAINS.map((chain) => (
           <option key={chain} value={chain}>
-            {chain}
+            {chainLabel(chain)}
           </option>
         ))}
       </select>

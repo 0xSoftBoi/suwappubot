@@ -22,12 +22,11 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services import kms_client as kms_client_module
-from bot.services.kms_client import (
+from bot.services.kms_client import (  # noqa: E402
     DevMockKmsClient,
     LocalKmsClient,
     AwsKmsClient,

@@ -9,7 +9,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.hyperliquid_client import HyperLiquidClient
+from bot.services.hyperliquid_client import HyperLiquidClient  # noqa: E402
 
 PK = "0x0123456789012345678901234567890123456789012345678901234567890123"
 

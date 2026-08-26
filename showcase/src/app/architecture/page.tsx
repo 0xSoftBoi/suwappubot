@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import stats from '@/data/stats.generated.json';
 import { GITHUB_URL } from '@/lib/links';
@@ -83,7 +83,7 @@ const boundaries = [
 export default function ArchitecturePage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">
           <p className="summer-kicker">Architecture / Execution model</p>
@@ -119,7 +119,7 @@ export default function ArchitecturePage() {
             <span>Execution pipeline</span>
             <span>Intent → route → simulate → authorize → settle</span>
           </div>
-          <div className="institutional-section__intro">
+          <div className="institutional-section__intro institutional-section__intro--stack">
             <h2 id="pipeline-title">Make every boundary inspectable.</h2>
             <p>
               The architecture is deliberately staged. A quote can be useful without granting
@@ -144,7 +144,7 @@ export default function ArchitecturePage() {
             <span>Interface authority</span>
             <span>Same engine does not mean same permissions</span>
           </div>
-          <div className="institutional-section__intro">
+          <div className="institutional-section__intro institutional-section__intro--stack">
             <h2 id="surfaces-title">Protocol semantics stay intact.</h2>
             <p>
               Enterprise systems fail when an integration quietly gains authority that its parent
@@ -163,7 +163,7 @@ export default function ArchitecturePage() {
         </section>
 
         <section className="institutional-darkband" aria-labelledby="boundaries-title">
-          <div className="institutional-darkband__head">
+          <div className="institutional-darkband__head institutional-darkband__head--stack">
             <h2 id="boundaries-title">Four boundaries worth threat-modeling.</h2>
             <p>
               The most important architecture decisions are not decorative boxes in a diagram. They
@@ -187,7 +187,7 @@ export default function ArchitecturePage() {
             <span>Contracts &amp; evidence</span>
             <span>Start from machine-readable truth</span>
           </div>
-          <div className="institutional-section__intro">
+          <div className="institutional-section__intro institutional-section__intro--stack">
             <h2 id="contracts-title">Integrate from the contract, not the brochure.</h2>
             <p>
               Current schemas, supported-chain responses and source are better integration inputs

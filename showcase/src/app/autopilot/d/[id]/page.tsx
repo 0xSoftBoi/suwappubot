@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { API_BASE_URL } from '@/lib/links';
 import { VerifyBadge } from '../../AutopilotFeed';
@@ -61,7 +61,7 @@ export default async function DecisionPage({ params }: { params: Promise<{ id: s
 
   return (
     <>
-      <Navigation />
+      <SummerNav />
       <main className={styles.shell}>
         <div className={styles.wrap}>
           <a className={styles.back} href="/autopilot">

@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from web3 import Web3
@@ -14,9 +14,9 @@ from sqlalchemy.exc import IntegrityError
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
-from bot.config.chains import CHAINS, ChainType, apply_min_gas_price, get_chain_by_name
-from bot.config.tokens import get_token_address, get_token_decimals, NATIVE_TOKEN_ADDRESS
-from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+from bot.config.chains import apply_min_gas_price, get_chain_by_name
+from bot.config.tokens import get_token_address, NATIVE_TOKEN_ADDRESS
+from bot.utils.encryption import encrypt_private_key
 from bot.utils.envelope_crypto import (
     encrypt_private_key_v2,
     encode_for_db,
@@ -507,7 +507,7 @@ class HotWalletService:
                 {
                     "id": w.id,
                     "name": w.name,
-                    "label": w.name[len(self.INTERNAL_PREFIX) :],
+                    "label": w.name[len(self.INTERNAL_PREFIX) :],  # noqa: E203
                     "chain_type": w.chain_type,
                     "address": w.address,
                     "purpose": w.purpose,
@@ -816,11 +816,91 @@ class HotWalletService:
                 session.query(HotWallet)
                 .filter(
                     HotWallet.chain_type == chain_type,
-                    HotWallet.is_deposit_wallet == True,
-                    HotWallet.is_active == True,
+                    HotWallet.is_deposit_wallet == True,  # noqa: E712
+                    HotWallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
+
+    DEPOSIT_PREFIX = "deposit/u"
+
+    def get_user_deposit_wallet(self, user_id: int, chain_type: str) -> Optional[HotWallet]:
+        """The user's own deposit address, or None if not minted yet."""
+        with get_session() as session:
+            return (
+                session.query(HotWallet)
+                .filter(
+                    HotWallet.deposit_user_id == user_id,
+                    HotWallet.chain_type == chain_type,
+                    HotWallet.is_active == True,  # noqa: E712
+                )
+                .first()
+            )
+
+    async def get_or_create_user_deposit_wallet(self, user_id: int, chain_type: str) -> HotWallet:
+        """Get-or-create THIS user's deposit address for a chain family.
+
+        One address per (user, family) — an EVM address receives on every EVM
+        network, so this is the whole EVM side. Never reassigned and never
+        retired: a deposit can arrive years later against an address the user
+        saved, and it must still credit the right person.
+
+        Both operational role flags stay False. These hold user funds only
+        between arrival and sweep; deposits route to the wallet flagged
+        is_deposit_wallet and gas to is_gas_payer, and this is neither.
+        """
+        if chain_type not in ("evm", "solana"):
+            raise ValueError("chain_type must be 'evm' or 'solana'")
+
+        existing = self.get_user_deposit_wallet(user_id, chain_type)
+        if existing is not None:
+            return existing
+
+        wallet = await self.create_hot_wallet(
+            name=f"{self.DEPOSIT_PREFIX}{user_id}/{chain_type}",
+            chain_type=chain_type,
+            is_deposit_wallet=False,
+            is_gas_payer=False,
+        )
+        try:
+            with get_session() as session:
+                row = session.query(HotWallet).filter(HotWallet.id == wallet.id).first()
+                row.deposit_user_id = user_id
+                row.purpose = "user deposit address"
+                session.flush()
+        except Exception:
+            # UNIQUE(deposit_user_id, chain_type) means a concurrent first-load
+            # already claimed this user's address. Theirs wins; ours is left
+            # unclaimed rather than becoming a second address we would then
+            # have to watch forever.
+            logger.warning(
+                "Deposit address race for user %s/%s — reusing winner", user_id, chain_type
+            )
+            winner = self.get_user_deposit_wallet(user_id, chain_type)
+            if winner is None:
+                raise
+            return winner
+
+        logger.info("Minted deposit address for user %s on %s", user_id, chain_type)
+        return self.get_hot_wallet_by_id(wallet.id)
+
+    def list_user_deposit_wallets(self, chain_type: str = "evm") -> list:
+        """Every live per-user deposit address, as (user_id, address) pairs.
+
+        The watcher's address set. Read fresh each pass so an address minted
+        mid-run is watched on the next one.
+        """
+        with get_session() as session:
+            rows = (
+                session.query(HotWallet.deposit_user_id, HotWallet.address)
+                .filter(
+                    HotWallet.deposit_user_id.isnot(None),
+                    HotWallet.chain_type == chain_type,
+                    HotWallet.is_active == True,  # noqa: E712
+                )
+                .all()
+            )
+            return [(int(uid), addr) for uid, addr in rows if uid is not None and addr]
 
     def get_gas_payer_wallet(self, chain_type: str) -> Optional[HotWallet]:
         """Get the gas payer wallet for a chain type."""
@@ -829,8 +909,8 @@ class HotWalletService:
                 session.query(HotWallet)
                 .filter(
                     HotWallet.chain_type == chain_type,
-                    HotWallet.is_gas_payer == True,
-                    HotWallet.is_active == True,
+                    HotWallet.is_gas_payer == True,  # noqa: E712
+                    HotWallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -920,46 +1000,74 @@ class HotWalletService:
         token_symbol: str,
         amount: Decimal,
         operation: str = "add",  # "add" or "subtract"
+        session: Optional[Any] = None,
     ) -> Decimal:
-        """Update custodial balance. Returns new balance."""
+        """Update custodial balance. Returns new balance.
+
+        ``session`` lets a caller move the balance inside a transaction it
+        already owns. The deposit watcher needs this: the ledger row that makes
+        a credit idempotent and the credit itself must commit together, or a
+        crash between them either double-credits on retry or loses the money.
+        Omit it and this opens (and commits) its own session as before.
+        """
         token_address = get_token_address(token_symbol, chain) or NATIVE_TOKEN_ADDRESS
 
-        with get_session() as session:
-            balance = (
-                session.query(CustodialBalance)
-                .filter(
-                    CustodialBalance.user_id == user_id,
-                    CustodialBalance.chain == chain,
-                    CustodialBalance.token_symbol == token_symbol,
-                )
-                .first()
+        if session is not None:
+            return self._apply_custodial_balance(
+                session, user_id, chain, token_symbol, token_address, amount, operation
             )
 
-            if not balance:
-                balance = CustodialBalance(
-                    user_id=user_id,
-                    chain=chain,
-                    token_symbol=token_symbol,
-                    token_address=token_address,
-                    balance="0",
-                )
-                session.add(balance)
+        with get_session() as owned:
+            return self._apply_custodial_balance(
+                owned, user_id, chain, token_symbol, token_address, amount, operation
+            )
 
-            current = Decimal(balance.balance)
+    def _apply_custodial_balance(
+        self,
+        session,
+        user_id: int,
+        chain: str,
+        token_symbol: str,
+        token_address: str,
+        amount: Decimal,
+        operation: str,
+    ) -> Decimal:
+        """The balance move itself, against a caller-supplied session."""
+        balance = (
+            session.query(CustodialBalance)
+            .filter(
+                CustodialBalance.user_id == user_id,
+                CustodialBalance.chain == chain,
+                CustodialBalance.token_symbol == token_symbol,
+            )
+            .first()
+        )
 
-            if operation == "add":
-                new_balance = current + amount
-            elif operation == "subtract":
-                new_balance = current - amount
-                if new_balance < 0:
-                    raise ValueError("Insufficient balance")
-            else:
-                raise ValueError(f"Invalid operation: {operation}")
+        if not balance:
+            balance = CustodialBalance(
+                user_id=user_id,
+                chain=chain,
+                token_symbol=token_symbol,
+                token_address=token_address,
+                balance="0",
+            )
+            session.add(balance)
 
-            balance.balance = str(new_balance)
-            session.flush()
+        current = Decimal(balance.balance)
 
-            return new_balance
+        if operation == "add":
+            new_balance = current + amount
+        elif operation == "subtract":
+            new_balance = current - amount
+            if new_balance < 0:
+                raise ValueError("Insufficient balance")
+        else:
+            raise ValueError(f"Invalid operation: {operation}")
+
+        balance.balance = str(new_balance)
+        session.flush()
+
+        return new_balance
 
     def reserve_custodial_balance(
         self,
@@ -1553,7 +1661,6 @@ class HotWalletService:
             TransferCheckedParams,
             get_associated_token_address,
         )
-        from spl.token.async_client import AsyncToken
 
         # Get Solana RPC URL
         rpc_url = getattr(settings, "solana_rpc_url", None)

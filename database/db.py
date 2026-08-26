@@ -426,6 +426,41 @@ def _ensure_schema(db_engine) -> None:
                     )
                 )
 
+    # --- per-user deposit addresses + the watcher's scan cursor ---
+    # A shared omnibus deposit address cannot be attributed: EVM has no memo
+    # field, so an inbound transfer carries nothing tying it to a user. Each
+    # user gets their own address instead (docs/operations/deposit-crediting.md).
+    if "hot_wallets" in tables:
+        hw_cols = {c["name"] for c in inspector.get_columns("hot_wallets")}
+        if "deposit_user_id" not in hw_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE hot_wallets ADD COLUMN deposit_user_id INTEGER"
+            else:
+                ddl = "ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS deposit_user_id INTEGER"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+        with db_engine.begin() as conn:
+            # One deposit address per (user, chain family). UNIQUE so a race
+            # between two concurrent first-loads cannot mint two addresses for
+            # the same user — the loser retries and reads the winner's row.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_hot_wallets_deposit_user_chain "
+                    "ON hot_wallets(deposit_user_id, chain_type)"
+                )
+            )
+
+    # Per-chain high-water mark for the deposit watcher. Separate table rather
+    # than a config blob so an operator can inspect and rewind a single chain.
+    with db_engine.begin() as conn:
+        conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS deposit_scan_cursors (
+                    chain VARCHAR(50) PRIMARY KEY,
+                    last_scanned_block BIGINT NOT NULL,
+                    updated_at TIMESTAMP
+                )
+                """))
+
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)
@@ -737,6 +772,7 @@ def _ensure_schema(db_engine) -> None:
     # --- referrals: verified_at + perps_volume_14d_usd columns ---
     if "referrals" in tables:
         _add_referral_stream_columns(db_engine, inspector, is_sqlite)
+        _backfill_referral_verified_at(db_engine, inspector, is_sqlite)
 
     # --- Bucket 2: community payment tools ---
     _create_tips_table(db_engine, inspector, is_sqlite)
@@ -1759,6 +1795,20 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
     Idempotent — already-encrypted rows decrypt cleanly and are skipped. This
     remediates the historical plaintext exposure for users who never re-trigger
     a 2FA read. Best-effort: failures are logged, never fatal to startup.
+
+    Fast path (Postgres): a cheap regex EXISTS check runs first. Every row's
+    decrypt attempt below pays a real PBKDF2 key derivation (native C++ if the
+    compiled core loaded, a much slower pure-Python fallback otherwise)
+    regardless of whether it succeeds — so once a deployment's legacy-plaintext
+    rows are all healed, the unconditional per-row loop still re-derives a key
+    for every totp_secret on every single boot, inside one open transaction,
+    with no per-row logging and no timeout. At enough rows (or on the slow
+    fallback path) that made this step — and therefore DATABASE_AVAILABLE,
+    which gates /health readiness — take minutes, well past Railway's 5-minute
+    healthcheck window, with zero log output the whole time it was stuck. The
+    EXISTS check below is the exact shape _is_legacy_plaintext_secret tests,
+    in SQL: once nothing matches, every remaining row is either already
+    correctly encrypted or corrupted, and the loop would do no work either way.
     """
     try:
         from bot.config.settings import settings
@@ -1783,6 +1833,25 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
         except Exception:
             return False
         return True
+
+    if not is_sqlite:
+        try:
+            with db_engine.connect() as probe:
+                any_candidate = probe.execute(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM users " "WHERE totp_secret ~ '^[A-Z2-7]+=*$')"
+                    )
+                ).scalar()
+            if not any_candidate:
+                return
+        except Exception as e:
+            # Never let the fast path itself block the real migration --
+            # fall through to the full (slower but correct) loop below. This
+            # is the one path that can silently regress to the exact stall
+            # this fix exists to prevent (e.g. a `users` table too large for
+            # the probe's own seq scan to finish inside statement_timeout),
+            # so it must be visible at prod's default log level, not DEBUG.
+            logger.warning(f"TOTP backfill fast-path check failed, running full scan: {e}")
 
     key = settings.encryption_key
     try:
@@ -3161,6 +3230,52 @@ def _add_referral_stream_columns(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info(f"Added referrals.{col_name}")
         except Exception as e:
             logger.warning(f"Failed to add referrals.{col_name}: {e}")
+
+
+def _backfill_referral_verified_at(db_engine, inspector, is_sqlite: bool) -> None:
+    """One-time backfill of referrals.verified_at for already-active referees.
+
+    verified_at was added but nothing in the codebase ever set it, so every
+    referral stayed unverified and the milestone bonus stream (5/10/20/50/100
+    verified referrals) was permanently unreachable. record_reward() now calls
+    verify_referral() on each recorded swap commission, but that only fixes
+    referrals going forward — a referee who already swapped would stay
+    unverified until their next swap.
+
+    This stamps verified_at on any active referral whose referee already has at
+    least one recorded referral reward, i.e. a real fee-paying swap that already
+    cleared the min-volume guard. Uses the reward's created_at as the timestamp
+    so the verification date reflects when the activity actually happened.
+
+    Idempotent: only touches rows where verified_at IS NULL, so re-running is a
+    no-op. Milestone bonuses for backfilled referrals are credited by
+    _check_and_award_milestones on the referrer's next referral event.
+    """
+    cols = {c["name"] for c in inspector.get_columns("referrals")}
+    if "verified_at" not in cols:
+        return
+    tables = set(inspector.get_table_names())
+    if "referral_rewards" not in tables:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    "UPDATE referrals SET verified_at = ("
+                    "  SELECT MIN(rr.created_at) FROM referral_rewards rr"
+                    "  WHERE rr.referral_id = referrals.id"
+                    ") "
+                    "WHERE verified_at IS NULL "
+                    "AND EXISTS ("
+                    "  SELECT 1 FROM referral_rewards rr2 WHERE rr2.referral_id = referrals.id"
+                    ")"
+                )
+            )
+        if result.rowcount:
+            logger.info(f"Backfilled referrals.verified_at for {result.rowcount} referral(s)")
+    except Exception as e:
+        logger.warning(f"Failed to backfill referrals.verified_at: {e}")
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,7 @@
 """Snipe order models for token launch sniping."""
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, JSON
 import enum
 
 from database.db import Base

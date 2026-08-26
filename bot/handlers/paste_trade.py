@@ -338,7 +338,7 @@ async def _route_intent(update: Update, context: ContextTypes.DEFAULT_TYPE, lowe
             InlineKeyboardButton("📂 Menu", callback_data="main_menu"),
         ]
 
-    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]  # noqa: E203
     await update.message.reply_text(
         "I didn't catch a command there. Paste a token address to trade it, "
         "or tap one of these:",

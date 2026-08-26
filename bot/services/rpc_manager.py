@@ -14,7 +14,7 @@ import random
 import re
 import ssl
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, urlsplit

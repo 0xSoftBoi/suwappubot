@@ -12,11 +12,11 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.handlers.inline_query import DEFAULT_SYMBOLS, inline_query_handler
+from bot.handlers.inline_query import DEFAULT_SYMBOLS, inline_query_handler  # noqa: E402
 
 SOLANA_ADDRESS = "So11111111111111111111111111111111111111112"
 

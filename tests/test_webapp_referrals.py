@@ -18,12 +18,12 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-import jwt
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import jwt  # noqa: E402
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from api.webapp import router, get_terminal_auth_payload
+from api.webapp import router  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers

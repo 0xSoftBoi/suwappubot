@@ -19,6 +19,7 @@ const groups = [
       { title: 'Cross-chain swaps', desc: 'Route assets across supported chains through Suwappu execution infrastructure.', href: '/#engine', badge: 'Live' },
       { title: 'Perpetuals', desc: 'Access perpetual markets through the Suwappu terminal.', href: '/#hyperliquid', badge: 'Live' },
       { title: 'Predictions & market surfaces', desc: 'Explore additional market interfaces exposed through the terminal.', href: TERMINAL_URL, external: true, badge: 'Live' },
+      { title: 'Curve Pools', desc: 'Every pool on every chain Curve deploys to, sortable by TVL, 24h volume, or base APR, live in the Curve venue tab. Powered by the Curve Prices API and our fork of flet-curve.', href: TERMINAL_URL, external: true, badge: 'New' },
     ],
   },
   {
@@ -69,12 +70,11 @@ export default function ProductsPage() {
 
         {groups.map((group) => (
           <section key={group.title} style={{ marginTop: 72 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, .8fr) minmax(0, 2.2fr)', gap: 28, alignItems: 'start' }}>
+            <div className="products-group">
               <div>
-                <p style={{ textTransform: 'uppercase', letterSpacing: '.14em', fontSize: 11, color: '#737d8c', margin: '4px 0 10px' }}>{group.eyebrow}</p>
                 <h2 style={{ fontSize: 28, letterSpacing: '-.035em', margin: 0 }}>{group.title}</h2>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 12 }}>
+              <div className="products-cards">
                 {group.items.map((item) => (
                   <a key={item.title} href={item.href} {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} style={{ color: 'inherit', textDecoration: 'none', border: '1px solid #222834', borderRadius: 16, padding: 22, background: '#0f1218', minHeight: 160, display: 'flex', flexDirection: 'column', transition: 'border-color .18s ease, transform .18s ease' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>

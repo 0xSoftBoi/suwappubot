@@ -1,7 +1,7 @@
 """Message and data formatting utilities."""
 
 from typing import Optional
-from bot.config.chains import CHAINS, get_chain_by_name
+from bot.config.chains import get_chain_by_name
 
 # Try to import C++ core
 try:

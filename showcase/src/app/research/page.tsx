@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { publishedPosts, plannedPosts } from '@/content/research';
 import styles from './research.module.css';
@@ -11,7 +11,7 @@ const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 const decisionLenses = [
   {
     seat: 'Reserve / settlement',
-    question: 'What does an onchain backing ratio prove—and what issuer, legal, liquidity, and finality risk remains outside it?',
+    question: 'What does an onchain backing ratio prove, and what issuer, legal, liquidity, and finality risk remains outside it?',
     href: '/research/omnichain-dollar-collateral',
     label: 'USDT0 backing',
   },
@@ -49,7 +49,7 @@ const decisionLenses = [
 
 export const metadata: Metadata = {
   alternates: { canonical: '/research' },
-  title: 'Research — Suwappu',
+  title: 'Research | Suwappu',
   description:
     'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, tokenized-asset interfaces, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
 };
@@ -99,7 +99,7 @@ export default function ResearchPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
       />
-      <Navigation />
+      <SummerNav />
       <div className={`summer-shell mkt-page ${styles.page}`}>
         <header className={styles.hero}>
           <div className={styles.heroTopline}>

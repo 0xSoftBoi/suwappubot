@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 
 const SITE = 'https://suwappu.bot';
@@ -7,12 +7,12 @@ const BASE = '/research/replication';
 const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 
 export const metadata: Metadata = {
-  title: 'Data & code availability — Suwappu Research',
+  title: 'Data & code availability | Suwappu Research',
   description:
     'Full working papers, collection code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, airdrop allocations, ERC-8056 Stock Token interface risk, and cross-chain latency economics.',
   alternates: { canonical: BASE },
   openGraph: {
-    title: 'Data & code availability — Suwappu Research',
+    title: 'Data & code availability | Suwappu Research',
     description:
       'Papers, code and data behind the USDT0 reconciliation, Tullock-contest model and field test, the ERC-8056 public-code integration audit, and a source-locked calibration of cross-chain execution latency.',
     type: 'article',
@@ -31,22 +31,22 @@ const PAPERS: Row[] = [
   {
     file: 'papers/points-tullock-contests.md',
     size: '28 KB',
-    desc: 'Points-Program Economics After Empirical Rejection — conditional Tullock benchmarks with the active-set failure and hard-cap correction incorporated into the main conclusion.',
+    desc: 'Points-Program Economics After Empirical Rejection: conditional Tullock benchmarks with the active-set failure and hard-cap correction incorporated into the main conclusion.',
   },
   {
     file: 'papers/airdrop-concentration.md',
     size: '29 KB',
-    desc: 'Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model — revised to separate measurement from causal interpretation.',
+    desc: 'Airdrop Allocation Concentration: A Wallet-Level Field Test of the Tullock Active-Set Model, revised to separate measurement from causal interpretation.',
   },
   {
     file: 'papers/erc8056-stock-token-interface-risk.md',
     size: '14 KB',
-    desc: 'When balanceOf() Stops Meaning What the User Thinks — ERC-8056 integration semantics, a nine-repository public-code audit, and explicit runtime-support limits.',
+    desc: 'When balanceOf() Stops Meaning What the User Thinks: ERC-8056 integration semantics, a nine-repository public-code audit, and explicit runtime-support limits.',
   },
   {
     file: 'papers/settlement-latency-value.md',
     size: '25 KB',
-    desc: 'What Is a Minute of Cross-Chain Execution Worth? — a source-locked calibration of the 10bp speed ceiling against simple SOFR carry, with ETA kept separate from finality.',
+    desc: 'What Is a Minute of Cross-Chain Execution Worth? A source-locked calibration of the 10bp speed ceiling against simple SOFR carry, with ETA kept separate from finality.',
   },
 ];
 
@@ -61,7 +61,7 @@ const CODE_USDT0: Row[] = [
   {
     file: 'code/robustness.py',
     size: '9.1 KB',
-    desc: 'Serial correlation, changepoint search, stationary block bootstrap, Newey–West HAC inference, ADF, coverage thresholds.',
+    desc: 'Serial correlation, changepoint search, stationary block bootstrap, Newey-West HAC inference, ADF, coverage thresholds.',
   },
   {
     file: 'code/predicate_backfill.py',
@@ -111,7 +111,7 @@ const DATA_USDT0: Row[] = [
   {
     file: 'data/polygon_predicate_prebreak.json',
     size: '1 KB',
-    desc: 'Correction 2’s evidence: canonical-predicate balances at the 16 pre-break aligned blocks ($1.22–1.39bn throughout).',
+    desc: 'Correction 2’s evidence: canonical-predicate balances at the 16 pre-break aligned blocks ($1.22-1.39bn throughout).',
   },
   { file: 'data/buffer_dynamics.json', size: '3 KB', desc: 'Per-leg and aggregate flow betas, the full census of eleven >$100m discretionary operations, and the terminal drawdown.' },
   { file: 'data/head_snapshot_20260801.json', size: '2 KB', desc: 'Complete documented head reading: 20 direct supply legs, ratio 1.000298, 1.029m-unit arithmetic difference, HyperCore containment check.' },
@@ -131,7 +131,7 @@ const CODE_AIRDROP: Row[] = [
 ];
 
 const DATA_AIRDROP: Row[] = [
-  { file: 'data/airdrops/hype_genesis_raw.json', size: '4.9 MB', desc: 'The complete raw HYPE genesis holder state, 90,918 addresses — before any exclusion, so the system-account step is auditable.' },
+  { file: 'data/airdrops/hype_genesis_raw.json', size: '4.9 MB', desc: 'The complete raw HYPE genesis holder state, 90,918 addresses, before any exclusion, so the system-account step is auditable.' },
   { file: 'data/airdrops/hype_recipients.json', size: '4.9 MB', desc: '90,912 recipient wallets after the six documented system-account exclusions, with fetched address tags.' },
   { file: 'data/airdrops/eigen_recipients.json', size: '14 MB', desc: '239,035 EIGEN S1 claim recipients, both phases merged per wallet, summed from the two real distributor transfer logs.' },
   { file: 'data/airdrops/ena_recipients.json', size: '~8 MB', desc: 'All four Ethena-seeded ENA claim channels merged, with the approximately 750M seeded population and sweep-back/residual accounting reconciled.' },
@@ -140,7 +140,7 @@ const DATA_AIRDROP: Row[] = [
 ];
 
 const DATA_POINTS: Row[] = [
-  { file: 'data/tullock_results.json', size: '4.8 KB', desc: 'Propositions 1–4: symmetric equilibrium, scalar cost invariance, heterogeneous active sets, fixed-budget wallet-splitting invariance, and modeled revenue capture.' },
+  { file: 'data/tullock_results.json', size: '4.8 KB', desc: 'Propositions 1-4: symmetric equilibrium, scalar cost invariance, heterogeneous active sets, fixed-budget wallet-splitting invariance, and modeled revenue capture.' },
   { file: 'data/tullock_mc.json', size: '3.1 KB', desc: 'Monte Carlo sampling distributions per σ, and the wallet-splitting sensitivity sweep.' },
   { file: 'data/verify_output.txt', size: '3.8 KB', desc: 'Raw output of the verification suite.' },
   { file: 'data/sim_output.txt', size: '596 B', desc: 'Raw output of the simulation.' },
@@ -213,7 +213,7 @@ export default function ReplicationPage() {
   const datasetLd = {
     '@context': 'https://schema.org',
     '@type': 'Dataset',
-    name: 'Suwappu Research replication bundle — stablecoins, incentive design, allocation validation, tokenized-asset interfaces, and execution latency',
+    name: 'Suwappu Research replication bundle: stablecoins, incentive design, allocation validation, tokenized-asset interfaces, and execution latency',
     description:
       'Twelve months of block-height-aligned USDT0 state, the exact-equilibrium solver and Monte Carlo behind the Tullock-contest analysis, HYPE and EIGEN recipient vectors used to test that model, the released ERC-8056 public-code integration audit, and a pinned SOFR scenario dataset for calibrating a source-verified cross-chain speed policy.',
     url: `${SITE}${BASE}`,
@@ -284,7 +284,7 @@ export default function ReplicationPage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(datasetLd) }} />
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page repl-page">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>
@@ -321,7 +321,7 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 1 — USDT0 protocol-backing reconciliation</h2>
+          <h2>Paper 1: USDT0 protocol-backing reconciliation</h2>
           <p>
             A 12-month, block-height-aligned reconciliation of USDT token units in USDT0&rsquo;s
             backing accounts against documented direct USDT0 supply, plus a complete documented
@@ -334,8 +334,8 @@ export default function ReplicationPage() {
           <h3>Data</h3>
           <FileTable rows={DATA_USDT0} />
           <p className="repl-caveat">
-            <strong>Stated limits.</strong> The historical panel remains unbalanced — chains
-            returning live supply rise from 8 to 17 — and zero-fills archive-depth failures, so
+            <strong>Stated limits.</strong> The historical panel remains unbalanced (chains
+            returning live supply rise from 8 to 17) and zero-fills archive-depth failures, so
             historical direct supply is a lower bound. The separate 1 August head check measures
             every documented direct USDT0 supply leg, but its reads are not block-aligned. At a
             1.029m-unit measured difference, legal availability, messages in flight, registry
@@ -347,10 +347,10 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 2 — Points-program economics after empirical rejection</h2>
+          <h2>Paper 2: Points-program economics after empirical rejection</h2>
           <p>
             The exact active-set equilibrium of the stated pro-rata contest, its Monte Carlo sampling
-            distribution, and the verification suite — now governed by the companion field test that
+            distribution, and the verification suite, now governed by the companion field test that
             rejects the active-set result as a wallet-level forecast. Seeded with{' '}
             <code>np.random.default_rng(20260726)</code>; the numbers are reproducible bit-for-bit
             with no network access.
@@ -362,7 +362,7 @@ export default function ReplicationPage() {
           <p className="repl-caveat">
             <strong>Stated limits.</strong> The model scenarios are not calibrated to an observed
             points program. Three of the four verification checks evaluate or solve the model&rsquo;s own
-            first-order condition, so the suite establishes that the solver solves the stated game —
+            first-order condition, so the suite establishes that the solver solves the stated game,
             not that the game describes reality. The HYPE/EIGEN companion test rejects its active-set
             prediction at wallet level. Proposition 2 covers scalar common-cost changes; a binding
             hard quantity cap is a separate constrained game and is not solved by the paper.
@@ -370,10 +370,10 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 3 — Airdrop concentration: testing the model</h2>
+          <h2>Paper 3: Airdrop concentration, testing the model</h2>
           <p>
-            The HYPE genesis recipient vector and both-phase EIGEN Season 1 claim-recipient vector —
-            329,947 rows in aggregate — plus the prespecified finite-grid simulation test of the theory
+            The HYPE genesis recipient vector and both-phase EIGEN Season 1 claim-recipient vector
+            (329,947 rows in aggregate) plus the prespecified finite-grid simulation test of the theory
             paper&rsquo;s active-set prediction. The raw pre-exclusion HYPE state is
             included so the paper&rsquo;s single most judgment-laden step is inspectable.
           </p>
@@ -392,7 +392,7 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 4 — ERC-8056 Stock Token interface risk</h2>
+          <h2>Paper 4: ERC-8056 Stock Token interface risk</h2>
           <p>
             Primary-source analysis of Robinhood Stock Token amount and price semantics, paired
             with a 7 August 2026 public-code search across nine wallet, portfolio, explorer,
@@ -416,7 +416,7 @@ export default function ReplicationPage() {
         </section>
 
         <section className="repl-section">
-          <h2>Paper 5 — Pricing cross-chain latency</h2>
+          <h2>Paper 5: Pricing cross-chain latency</h2>
           <p>
             A source-locked calibration of Suwappu&rsquo;s current 10bp cross-chain speed-tiebreak
             ceiling against a pinned 3.65% SOFR benchmark. The paper derives the simple ACT/360

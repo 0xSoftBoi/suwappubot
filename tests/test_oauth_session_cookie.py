@@ -8,7 +8,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import api.routes.oauth as oauth
+import api.routes.oauth as oauth  # noqa: E402
 
 
 async def test_success_redirect_carries_session_cookie(monkeypatch):

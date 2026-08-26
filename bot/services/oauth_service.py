@@ -13,8 +13,7 @@ import secrets
 import hashlib
 import base64
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple
 from dataclasses import dataclass
 import aiohttp
 
@@ -79,7 +78,6 @@ class OAuthService:
     async def close(self):
         """No-op: the underlying session is shared/global and closed centrally
         on app shutdown (bot.utils.http_client.close_session), not per-instance."""
-        pass
 
     def _get_credentials(self, provider: str) -> Tuple[str, str]:
         """Get OAuth credentials for a provider."""
@@ -377,8 +375,6 @@ class OAuthService:
 
 class OAuthError(Exception):
     """Raised when OAuth flow fails."""
-
-    pass
 
 
 # Global service instance

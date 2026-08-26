@@ -19,7 +19,9 @@ CADENCES = {
     "tx_poller": ("bot/services/tx_poller.py", 15),
     "perps_monitor": ("bot/services/perps_monitor.py", 10),
     "withdraw_reconciler": ("bot/services/withdraw_reconciler.py", 60),
-    "balance_refresher": ("bot/services/balance_refresher.py", 60),
+    # Its supervisor beats on its own tick now, independent of how long a
+    # refresh pass takes — that decoupling is the fix for the wedge.
+    "balance_refresher": ("bot/services/balance_refresher.py", 30),
     "predict_monitor": ("bot/services/predict_monitor.py", 120),
 }
 
@@ -29,7 +31,7 @@ def _heartbeat_ttl(module_path: str) -> int:
     src = (REPO / module_path).read_text()
     m = re.search(r"heartbeat[^\n]*?ttl_seconds=(\d+)", src, re.S)
     if not m:
-        m = re.search(r"_HEARTBEAT_TTL\s*=\s*(\d+)", src)
+        m = re.search(r"_HEARTBEAT_TTL(?:_SECONDS)?\s*=\s*(\d+)", src)
     assert m, f"no heartbeat ttl found in {module_path}"
     return int(m.group(1))
 

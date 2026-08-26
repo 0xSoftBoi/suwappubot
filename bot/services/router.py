@@ -14,12 +14,10 @@ Routing Priority (for maximum user value):
 
 import asyncio
 import logging
-from typing import List, Optional, Dict
+from typing import List, Optional
 from dataclasses import dataclass
-from decimal import Decimal
-from datetime import datetime
 
-from bot.services.tempo_dex_api import TempoDexAPI, tempo_dex_api
+from bot.services.tempo_dex_api import tempo_dex_api
 from bot.services.lifi_api import LiFiAPI
 from bot.services.jupiter_api import JupiterAPI
 from bot.services.layerzero_api import LayerZeroAPI
@@ -27,11 +25,10 @@ from bot.services.cctp_api import CircleCCTPAPI
 from bot.services.across_api import AcrossAPI
 from bot.services.wormhole_api import WormholeAPI
 from bot.services.bridge.registry import get_bridge_quotes
-from bot.services.cow_api import CoWProtocolAPI, cow_api
-from bot.services.socket_api import SocketAPI, socket_api
-from bot.services.jito_api import JitoAPI, jito_api, TipPriority
+from bot.services.cow_api import cow_api
+from bot.services.socket_api import socket_api
+from bot.services.jito_api import jito_api
 from bot.services.price_service import price_service
-from bot.config.chains import get_chain_by_name
 from bot.config.tokens import get_token_decimals, get_token_address
 
 logger = logging.getLogger(__name__)

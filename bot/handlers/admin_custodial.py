@@ -6,18 +6,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    MessageHandler,
-    filters,
 )
 
 from bot.services.hot_wallet import hot_wallet_service
 from bot.services.paymaster import paymaster_service
-from bot.models.custodial import HotWallet, GasSponsorshipConfig
+from bot.models.custodial import HotWallet
 from bot.config.chains import CHAINS
 from bot.config.settings import settings
-from bot.utils.formatters import format_amount, format_usd
+from bot.utils.formatters import format_usd
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -213,7 +209,7 @@ async def admin_hot_wallets(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     with get_session() as session:
-        wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
+        wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()  # noqa: E712
 
         wallet_data = [
             {
@@ -348,9 +344,9 @@ async def create_deploy_wallet(update: Update, context: ContextTypes.DEFAULT_TYP
             "✅ *Deployer wallet created*\n\n"
             f"`{wallet.address}`\n\n"
             "Key is held by Turnkey — it was never exported and there is no "
-            "private key to copy\.\n\n"
-            "⚠️ No deposit or gas\-payer role\. Nothing routes here; it is safe "
-            "to fund for a deploy\.",
+            "private key to copy\\.\n\n"
+            "⚠️ No deposit or gas\\-payer role\\. Nothing routes here; it is safe "
+            "to fund for a deploy\\.",
             parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("« Back", callback_data="admin_wallets")]]
@@ -452,7 +448,7 @@ async def configure_gas_chain(update: Update, context: ContextTypes.DEFAULT_TYPE
     chain = query.data.replace("admin_gas_", "")
 
     # Enable sponsorship with default settings
-    config = paymaster_service.set_sponsorship_config(
+    config = paymaster_service.set_sponsorship_config(  # noqa: F841
         chain=chain,
         is_enabled=True,
         max_gas_per_tx_usd=5.0,
@@ -484,7 +480,7 @@ async def admin_wallets_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     with get_session() as session:
-        wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()
+        wallets = session.query(HotWallet).filter(HotWallet.is_active == True).all()  # noqa: E712
         wallet_data = [
             {
                 "name": w.name,

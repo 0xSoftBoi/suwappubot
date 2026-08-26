@@ -14,15 +14,15 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-import jwt
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+import jwt  # noqa: E402
 
-from api.webapp import router
-from bot.models.copy_trading import TraderProfile, TraderTrade
-from bot.models.social import JellyAccountClaim
-from bot.models.user import User, Wallet
-from database.db import get_session, init_db
+from api.webapp import router  # noqa: E402
+from bot.models.copy_trading import TraderProfile, TraderTrade  # noqa: E402
+from bot.models.social import JellyAccountClaim  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from database.db import get_session, init_db  # noqa: E402
 
 _SECRET = "test-secret"
 

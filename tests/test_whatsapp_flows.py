@@ -21,7 +21,6 @@ Note on CI vs local:
 """
 
 import os
-import sys
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 

@@ -16,7 +16,6 @@ from callback_data — before any balance mutation.
 """
 
 import logging
-import re
 from decimal import Decimal, InvalidOperation
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup

@@ -1,12 +1,11 @@
 """Portfolio and balance overview handlers."""
 
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler
 
 from bot.models.user import User, Wallet
 from bot.models.predict import PredictionPosition
@@ -17,7 +16,6 @@ from bot.services.wallet import WalletService
 from bot.services.price_service import PriceService
 from bot.services.x402_service import x402_service, TIER_LIMITS
 from bot.utils.formatters import format_amount, format_usd, format_chain_name
-from bot.config.chains import CHAINS, ChainType
 from database.db import get_session
 from bot.utils.tos_utils import enforce_tos
 
@@ -28,7 +26,7 @@ price_service = PriceService()
 
 # PRO tier's swap fee, single-sourced from fee_service so a pricing change
 # can't silently desync the upsell math from what PRO users actually pay.
-from bot.services.fee_service import TIER_FEE_RATES
+from bot.services.fee_service import TIER_FEE_RATES  # noqa: E402
 
 PRO_FEE_RATE = TIER_FEE_RATES[SubscriptionTier.PRO]
 
@@ -188,7 +186,7 @@ async def _build_portfolio_text(wallet_infos, user_id=None):
                     .filter(
                         PredictionPosition.user_id == user_id,
                         PredictionPosition.total_shares > 0,
-                        PredictionPosition.is_resolved == False,
+                        PredictionPosition.is_resolved == False,  # noqa: E712
                     )
                     .all()
                 )
@@ -310,7 +308,7 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -366,7 +364,7 @@ async def portfolio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )

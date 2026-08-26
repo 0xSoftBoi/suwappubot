@@ -2171,7 +2171,9 @@ class SwapEngine:
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
-        to_amount_min_human = self._get_token_amount_human(quote.to_amount_min, to_token, to_chain)
+        to_amount_min_human = self._get_token_amount_human(  # noqa: F841
+            quote.to_amount_min, to_token, to_chain
+        )  # noqa: F841
 
         # Calculate exchange rate
         exchange_rate = to_amount_human / amount if amount > 0 else 0
@@ -3482,7 +3484,25 @@ class SwapEngine:
             slippage=slippage,
         )
 
-        to_amount_human = self._get_token_amount_human(quote.amount_out, token, to_chain)
+        # `quote.amount_out` / `quote.amount_out_min` are denominated in
+        # SOURCE-chain local decimals (Stargate's sendParam.amountLD/
+        # minAmountLD use the source token's decimals — see
+        # LayerZeroAPI.get_quote). Cross-chain stablecoin decimals can
+        # differ (e.g. USDT: 18 on bsc, 6 on ethereum), so scale the raw
+        # figure into DESTINATION decimals purely to compute the
+        # human-readable/ranking value. The SwapQuote.to_amount /
+        # to_amount_min fields below stay as the original SOURCE-decimal
+        # strings unchanged, because execution (_execute_layerzero_swap ->
+        # build_send_transaction) feeds to_amount_min straight into
+        # on-chain minAmountLD calldata, which Stargate expects in source
+        # decimals.
+        src_decimals = get_token_decimals(token, from_chain)
+        dst_decimals = get_token_decimals(token, to_chain)
+        if dst_decimals != src_decimals:
+            scaled_amount_out = (int(quote.amount_out) * (10**dst_decimals)) // (10**src_decimals)
+        else:
+            scaled_amount_out = int(quote.amount_out)
+        to_amount_human = self._get_token_amount_human(str(scaled_amount_out), token, to_chain)
 
         return SwapQuote(
             provider="layerzero",
@@ -4246,13 +4266,6 @@ class SwapEngine:
 
             swap_id = await run_in_db(_create_swap_record)
 
-            # Create a simple wallet data object for signing
-            wallet_data = {
-                "address": wallet_address,
-                "encrypted_private_key": wallet_encrypted_key,
-                "chain_type": wallet_chain_type,
-            }
-
             # Phase 2: Deep State Simulation (Solana Anti-Honeypot)
             if quote.from_chain == "solana" and quote.to_chain == "solana":
                 tier = await x402_service.get_tier(user_id)
@@ -4457,8 +4470,10 @@ class SwapEngine:
                 except Exception as e:
                     logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
 
-                # Clean up local references
-                wallet_encrypted_key = None
+                # Clean up local references (drop the encrypted-key reference
+                # from this scope as soon as it's no longer needed; the store
+                # is intentionally never read again).
+                wallet_encrypted_key = None  # noqa: F841
 
                 # Re-fetch the updated record to return
                 def _refetch():
@@ -4493,6 +4508,11 @@ class SwapEngine:
                 except Exception:  # pragma: no cover - defensive
                     error_category = "unknown"
 
+                # Capture the message now: `e` is bound by `except ... as e`
+                # and Python unbinds it as soon as this except block exits,
+                # so a nested function referencing `e` directly is unsafe.
+                error_message = str(e)
+
                 # Mark as failed
                 def _mark_failed():
                     with get_session() as session:
@@ -4503,7 +4523,7 @@ class SwapEngine:
                         )
                         if db_tx:
                             db_tx.status = SwapStatus.FAILED.value
-                            db_tx.error_message = str(e)
+                            db_tx.error_message = error_message
                             db_tx.error_category = error_category
 
                 await run_in_db(_mark_failed)
@@ -4522,8 +4542,10 @@ class SwapEngine:
                     },
                 )
 
-                # Clean up local references
-                wallet_encrypted_key = None
+                # Clean up local references (drop the encrypted-key reference
+                # from this scope as soon as it's no longer needed; the store
+                # is intentionally never read again).
+                wallet_encrypted_key = None  # noqa: F841
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
 
@@ -5112,7 +5134,7 @@ class SwapEngine:
         web3 = rpc_manager.get_web3(quote.from_chain)
 
         # First, check if we need to approve the token
-        token_address = transfer_data.token_address
+        token_address = transfer_data.token_address  # noqa: F841
         approval_tx = await self.ccip.get_approval_tx(
             chain=quote.from_chain,
             token=quote.from_token,
@@ -5560,7 +5582,9 @@ class SwapEngine:
             with get_session() as session:
                 sw = (
                     session.query(HotWallet)
-                    .filter(HotWallet.name == sponsor_name, HotWallet.is_active == True)
+                    .filter(
+                        HotWallet.name == sponsor_name, HotWallet.is_active == True  # noqa: E712
+                    )  # noqa: E712
                     .first()
                 )
                 if not sw:

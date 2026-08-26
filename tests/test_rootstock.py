@@ -18,18 +18,17 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from bot.config.chains import (
+from bot.config.chains import (  # noqa: E402
     CHAINS,
     ChainType,
     apply_min_gas_price,
     get_chain_by_id,
     get_chain_by_name,
 )
-from bot.config.tokens import (
+from bot.config.tokens import (  # noqa: E402
     addresses_equal,
     get_token_address,
     get_token_decimals,
-    get_decimals_by_address,
     get_tokens_for_chain,
 )
 

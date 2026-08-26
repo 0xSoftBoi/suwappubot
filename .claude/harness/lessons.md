@@ -23,7 +23,27 @@ findings to disk as confirmed. (Seeded from CLAUDE.md Security Audits.)
 Bash tool caps ~2min by default; slow suites are normal, not hung.
 (Seeded from CLAUDE.md CI/Testing.)
 
+### Marketing surfaces exist to surface capabilities, never hide them
+User vetoed a minimal-hero home replica: the standing goal is highlighting the
+hidden platform (execution, PM, routing, research). Reference sites set the
+quality bar, not the content bar. (Session 2026-08-24.)
+
+### Frontend "done" means funnels clicked end-to-end
+Build green + screenshot is not done: click/curl every link and CTA (booking,
+contracts, docs, live-data endpoints) and confirm real destinations, no mocks.
+(Session 2026-08-24 — user correction after a shipped-but-unclicked page.)
+
+### Resume subagents that stop mid-pass instead of respawning
+Background agents repeatedly stop before delivering their final report; a
+SendMessage to the same agent id continues them with context intact.
+(Session 2026-08-24 — 4 of 6 agents needed a resume.)
+
 ## Facts (environment memory)
 
 ### api.suwappu.bot serves api-ts, not the Python bot
 The Python bot's prod health check is its railway.app host. (Seeded from CLAUDE.md.)
+
+### Hero live quote dies when the demo agent runs out of credits
+Upstream 402 insufficient_credits → showcase /api/quote 502 → Cloudflare HTML
+masks the JSON. Check demo-agent credits before debugging the widget; topping
+up is a billing action needing user sign-off. (Diagnosed 2026-08-24.)

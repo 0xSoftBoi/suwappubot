@@ -303,8 +303,12 @@ capabilities:
         required_to_enable: false
       - name: X402_FACILITATOR_API_KEY
         required_to_enable: false
-    enabled_when: "X402_FACILITATOR_ENABLED=true (default false); when off only prepaid credits + subscriptions are paid paths."
-    evidence: "api-ts/src/config/EnvService.ts:80-91"
+      - name: CDP_API_KEY_ID
+        required_to_enable: false  # both CDP vars required together for CDP mainnet JWT auth; one alone is a no-op (logs an error)
+      - name: CDP_API_KEY_SECRET
+        required_to_enable: false
+    enabled_when: "X402_FACILITATOR_ENABLED=true (default false); when off only prepaid credits + subscriptions are paid paths. CDP_API_KEY_ID+CDP_API_KEY_SECRET (both set) switch auth to CDP JWT and default the URL to CDP's hosted facilitator; CDP auth is only ever attached when the resolved facilitator host is actually CDP's."
+    evidence: "api-ts/src/config/EnvService.ts:129-143; api-ts/src/services/FacilitatorService.ts (resolveFacilitatorConfig)"
     verify: "curl -s https://<api-ts-host>/health"
 
   - name: agent_metering

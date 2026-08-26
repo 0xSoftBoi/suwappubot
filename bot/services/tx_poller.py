@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,6 +18,7 @@ from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.lifi_api import LiFiAPI
 from bot.services.zerox_api import ZeroXAPI, ZEROX_CHAIN_IDS
+from bot.services.legacy_swap_execution_adapter import project_legacy_swap
 from bot.utils import ws_confirm
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ class TransactionPoller:
         logger.info("Transaction poller started")
 
     async def stop(self):
-        """Stop the polling service."""
+        """Stop the transaction polling service."""
         self._running = False
         if self._task:
             self._task.cancel()
@@ -135,6 +136,26 @@ class TransactionPoller:
                 return False
 
             logger.info(f"Checking {len(pending_txs)} pending transactions")
+
+            # Shadow-project every currently pending legacy row before the RPC
+            # phase so a worker restart reconstructs the canonical parent/child
+            # identity even when the original submitter process died. A single
+            # malformed historical row must not block status monitoring for all
+            # other users, so isolate each projection in a savepoint. Final
+            # status writes below are stricter: legacy + canonical truth commit
+            # atomically or neither does.
+            for tx in pending_txs:
+                try:
+                    with session.begin_nested():
+                        project_legacy_swap(session, tx)
+                except Exception as e:
+                    logger.error(
+                        "Canonical projection failed for pending swap %s: %s",
+                        tx.id,
+                        e,
+                    )
+            session.commit()
+
             tx_data = [
                 {
                     "id": tx.id,
@@ -207,7 +228,12 @@ class TransactionPoller:
                     SwapStatus.COMPLETED.value,
                     SwapStatus.FAILED.value,
                 ):
-                    # Already applied (or terminal) — skip to avoid duplicate notifications
+                    # The legacy status may already have been written by the
+                    # websocket path or an older worker. Projection is
+                    # idempotent, so use this race/restart path to repair any
+                    # missing canonical state without duplicating user notices.
+                    project_legacy_swap(session, tx)
+                    session.commit()
                     return
                 old_status = tx.status
                 tx.status = new_status
@@ -231,6 +257,13 @@ class TransactionPoller:
                     # bridge_pending wall-clock bound: a mined origin
                     # receipt with no bridge settlement, NOT a revert.
                     tx.error_message = self.BRIDGE_UNSETTLED_TIMEOUT_REASON
+
+                # MONEY-PATH invariant: authoritative legacy status, realized
+                # receive amount, canonical lifecycle event/fill, and outbox
+                # must commit together. If projection fails, this session rolls
+                # back the legacy terminal transition too and the poller retries
+                # the same external identity on the next pass.
+                project_legacy_swap(session, tx)
                 session.commit()
 
             logger.info(f"Transaction {tx_dict['id']} status: {old_status} -> {new_status}")
@@ -896,7 +929,7 @@ class TransactionPoller:
                     session.query(Wallet)
                     .filter(
                         Wallet.user_id == tx_dict["user_id"],
-                        Wallet.is_active == True,
+                        Wallet.is_active == True,  # noqa: E712
                     )
                     .first()
                 )

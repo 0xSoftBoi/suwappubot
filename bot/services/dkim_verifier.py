@@ -159,7 +159,7 @@ def verify_email(
 
     # Split raw message into header block and body.
     sep = raw.find(b"\r\n\r\n")
-    body = raw[sep + 4 :] if sep != -1 else b""
+    body = raw[sep + 4 :] if sep != -1 else b""  # noqa: E203
 
     # 1) Body hash.
     canon_body = (

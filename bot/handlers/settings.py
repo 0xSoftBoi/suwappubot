@@ -13,7 +13,7 @@ from telegram.ext import (
 
 from bot.models.user import User, Wallet
 from bot.models.favorites import UserSettings
-from bot.utils.validators import validate_slippage, validate_amount
+from bot.utils.validators import validate_slippage
 from bot.utils.telegram_safe import safe_md, send_md_safe
 from bot.services.x402_service import x402_service
 from bot.models.subscription import SubscriptionTier
@@ -948,7 +948,7 @@ async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             .filter(
                 Wallet.user_id == db_user.id,
                 Wallet.wallet_provider == "turnkey",
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -980,7 +980,7 @@ async def limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         window = "hourly" if p.time_window_seconds == 3600 else "daily"
                         policy_lines.append(f"    Spending limit ({window})")
                     elif p.policy_type == "address_whitelist":
-                        policy_lines.append(f"    Address whitelist")
+                        policy_lines.append("    Address whitelist")
                 text += f"\n  `{addr_short}`:\n" + "\n".join(policy_lines) + "\n"
             else:
                 text += f"\n  `{addr_short}`: No policies\n"

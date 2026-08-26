@@ -15,7 +15,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.swap_engine import (
+from bot.services.swap_engine import (  # noqa: E402
     SwapEngine,
     SwapQuote,
     _apply_speed_tiebreak,

@@ -122,7 +122,7 @@ async def bulk_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
         wallets = (
             session.query(Wallet)
-            .filter(Wallet.user_id == db_user.id, Wallet.is_active == True)
+            .filter(Wallet.user_id == db_user.id, Wallet.is_active == True)  # noqa: E712
             .all()
         )
         if not wallets:
@@ -430,7 +430,7 @@ async def _show_leg_menu(
         ]
     )
     if legs:
-        buttons.append([InlineKeyboardButton(f"Remove last leg", callback_data="bulk_remove_last")])
+        buttons.append([InlineKeyboardButton("Remove last leg", callback_data="bulk_remove_last")])
     buttons.append([InlineKeyboardButton("Cancel", callback_data="bulk_cancel")])
 
     markup = InlineKeyboardMarkup(buttons)
@@ -484,7 +484,7 @@ async def _show_wallet_selection(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
             .filter(
                 Wallet.user_id == user_id,
                 Wallet.chain_type == chain_type,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -938,6 +938,12 @@ async def _run_bulk_swap(edit, ctx: ContextTypes.DEFAULT_TYPE) -> int:
             swap_id=swap_tx.id,
         )
 
+        # Consume one referee rebate slot if applicable.
+        # Mirrors the single-swap path in swap.py — this is the ONLY other place a
+        # charged Suwappu fee is recorded, so without it a referred user's first-5-swaps
+        # 10% rebate never burned on bulk swaps and stayed active forever.
+        referral_service.consume_referee_rebate(referee_id=user_id)
+
         # Referral reward
         referral_service.record_reward(
             referee_id=user_id,
@@ -1151,12 +1157,15 @@ bulk_swap_conversation_handler = ConversationHandler(
 #    No on-chain transfer here; the fee is collected on-chain by the aggregator
 #    (baked into platform_fee_bps on the quote) and tracked off-chain by this call.
 #
-# 3. referral_service.record_reward — awards referrer credit from the fee.
+# 3. referral_service.consume_referee_rebate — burns one first-5-swaps 10% fee
+#    rebate slot for a referred user.  Off-chain counter only.
+#
+# 4. referral_service.record_reward — awards referrer credit from the fee.
 #    Off-chain accounting only; no on-chain transfer.
 #
-# 4. points_service.award_swap_points — credits XP.  Off-chain only.
+# 5. points_service.award_swap_points — credits XP.  Off-chain only.
 #
-# 5. points_service.consume_gas_rebate — atomically applies a one-shot gas
+# 6. points_service.consume_gas_rebate — atomically applies a one-shot gas
 #    rebate (display only — the rebate is a points discount, not an on-chain tx).
 #
 # Guards that protect #1:

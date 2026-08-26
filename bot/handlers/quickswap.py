@@ -1,7 +1,6 @@
 """Quick swap command for power users."""
 
 import logging
-import re
 import secrets
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler
@@ -116,8 +115,8 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_default == True,
-                Wallet.is_active == True,
+                Wallet.is_default == True,  # noqa: E712
+                Wallet.is_active == True,  # noqa: E712
             )
             .first()
         )

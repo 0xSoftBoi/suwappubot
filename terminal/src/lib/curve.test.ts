@@ -1,0 +1,280 @@
+import { afterEach, describe, expect, test } from 'bun:test'
+import {
+  DEFAULT_MIN_TVL,
+  MAX_PAGE_SIZE,
+  fetchCurvePools,
+  parseChainTvls,
+  parseCurveChains,
+  parseCurvePool,
+  parseCurvePools,
+} from './curve'
+
+describe('curve chains', () => {
+  test('parses a happy-path chains payload', () => {
+    const payload = { data: [{ name: 'ethereum', chain_id: 1 }, { name: 'arbitrum', chain_id: 42161 }] }
+    expect(parseCurveChains(payload)).toEqual([
+      { name: 'ethereum', chainId: 1 },
+      { name: 'arbitrum', chainId: 42161 },
+    ])
+  })
+
+  test('drops entries missing name or chain_id', () => {
+    const payload = { data: [{ name: 'ethereum' }, { chain_id: 1 }, null, { name: 'base', chain_id: 8453 }] }
+    expect(parseCurveChains(payload)).toEqual([{ name: 'base', chainId: 8453 }])
+  })
+
+  test('returns empty array for missing/null data', () => {
+    expect(parseCurveChains({})).toEqual([])
+    expect(parseCurveChains(null)).toEqual([])
+    expect(parseCurveChains(undefined)).toEqual([])
+  })
+
+  test('treats a rejection payload (detail, no data) as empty', () => {
+    expect(parseCurveChains({ detail: 'pagination too large' })).toEqual([])
+  })
+})
+
+describe('chain tvls', () => {
+  test('parses v1 chain totals', () => {
+    const payload = { data: [{ name: 'ethereum', pool_tvl: 1234.5, other_field: 'ignored' }] }
+    expect(parseChainTvls(payload)).toEqual([{ name: 'ethereum', poolTvl: 1234.5 }])
+  })
+
+  test('defaults missing pool_tvl to 0', () => {
+    const payload = { data: [{ name: 'fraxtal' }] }
+    expect(parseChainTvls(payload)).toEqual([{ name: 'fraxtal', poolTvl: 0 }])
+  })
+
+  test('rejection payload yields empty array', () => {
+    expect(parseChainTvls({ detail: 'nope' })).toEqual([])
+  })
+})
+
+describe('parseCurvePool', () => {
+  test('maps a full v2 pool row', () => {
+    const raw = {
+      address: '0xabc',
+      name: '3pool',
+      tvl_usd: 500_000,
+      trading_volume_24h: 12_345,
+      // v2 base_weekly_apr is already in PERCENT units — 1.27 means 1.27%.
+      base_weekly_apr: 1.27,
+      pool_type: 'main',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usd_price: 1.0 },
+        { symbol: 'USDC', address: '0xusdc', usd_price: 1.001, decimals: 6 },
+      ],
+    }
+    const pool = parseCurvePool(raw, 1, 'ethereum')
+    expect(pool).toEqual({
+      address: '0xabc',
+      name: '3pool',
+      chainId: 1,
+      tvlUsd: 500_000,
+      volume24h: 12_345,
+      baseApr: 1.27,
+      coins: [
+        // decimals falls back to 18 when the payload omits it, same as flet-curve.
+        { symbol: 'DAI', address: '0xdai', usdPrice: 1.0, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usdPrice: 1.001, decimals: 6 },
+      ],
+      registry: 'main',
+      poolUrl: 'https://www.curve.finance/dex/ethereum/pools/0xabc/deposit',
+    })
+  })
+
+  test('is defensive against missing/null fields', () => {
+    const pool = parseCurvePool({ address: '0xdef' }, 1, 'ethereum')
+    expect(pool).toEqual({
+      address: '0xdef',
+      name: '0xdef', // falls back to address prefix when name is absent
+      chainId: 1,
+      tvlUsd: 0,
+      volume24h: 0,
+      baseApr: 0,
+      coins: [],
+      registry: '',
+      poolUrl: 'https://www.curve.finance/dex/ethereum/pools/0xdef/deposit',
+    })
+  })
+
+  test('returns null when address is missing', () => {
+    expect(parseCurvePool({ name: 'no address' }, 1)).toBeNull()
+    expect(parseCurvePool(null, 1)).toBeNull()
+  })
+
+  test('empty poolUrl when chainName is not supplied', () => {
+    const pool = parseCurvePool({ address: '0xabc' }, 1)
+    expect(pool?.poolUrl).toBe('')
+  })
+})
+
+describe('parseCurvePools', () => {
+  test('parses a page of pools with count', () => {
+    const payload = {
+      pools: [{ address: '0x1', name: 'a' }, { address: '0x2', name: 'b' }],
+      count: 137,
+    }
+    const page = parseCurvePools(payload, 1, 'ethereum')
+    expect(page.count).toBe(137)
+    expect(page.pools).toHaveLength(2)
+    expect(page.pools[0].name).toBe('a')
+  })
+
+  test('a rejection payload (detail, no pools/data) yields an empty page', () => {
+    const payload = { detail: 'pagination must be <= 50' }
+    expect(parseCurvePools(payload, 1)).toEqual({ pools: [], count: 0 })
+  })
+
+  test('missing pools array yields empty list', () => {
+    expect(parseCurvePools({ count: 0 }, 1)).toEqual({ pools: [], count: 0 })
+  })
+
+  test('drops malformed pool rows (no address) but keeps the rest', () => {
+    const payload = { pools: [{ address: '0x1' }, { name: 'missing address' }], count: 2 }
+    const page = parseCurvePools(payload, 1)
+    expect(page.pools).toHaveLength(1)
+    expect(page.pools[0].address).toBe('0x1')
+  })
+})
+
+describe('pagination and min_tvl constraints', () => {
+  test('MAX_PAGE_SIZE matches the v2 hard cap (larger values 422)', () => {
+    expect(MAX_PAGE_SIZE).toBe(50)
+  })
+
+  test('DEFAULT_MIN_TVL matches the dust-pool floor', () => {
+    expect(DEFAULT_MIN_TVL).toBe(10_000)
+  })
+
+  afterEach(() => {
+    // @ts-expect-error resetting the global test double
+    delete globalThis.fetch
+  })
+
+  test('fetchCurvePools clamps a requested pageSize above 50 down to 50', async () => {
+    let capturedUrl = ''
+    globalThis.fetch = (async (input: string | URL) => {
+      capturedUrl = String(input)
+      return new Response(JSON.stringify({ pools: [], count: 0 }), { status: 200 })
+    }) as typeof fetch
+
+    await fetchCurvePools({ chainId: 1, chainName: 'ethereum', pageSize: 500 })
+    const params = new URL(capturedUrl).searchParams
+    expect(params.get('pagination')).toBe('50')
+  })
+})
+
+describe('parseCurveCandles', () => {
+  const { parseCurveCandles } = require('./curve') as typeof import('./curve')
+
+  test('parses, sorts ascending, and fills volume', () => {
+    const payload = {
+      data: [
+        { time: 200, open: 1.1, high: 1.2, low: 1.0, close: 1.15 },
+        { time: 100, open: 1.0, high: 1.1, low: 0.9, close: 1.1, volume: 5 },
+      ],
+    }
+    expect(parseCurveCandles(payload)).toEqual([
+      { time: 100, open: 1.0, high: 1.1, low: 0.9, close: 1.1, volume: 5 },
+      { time: 200, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 0 },
+    ])
+  })
+
+  test('drops rows without a usable time and non-finite fields', () => {
+    const payload = { data: [{ open: 1 }, { time: 0, open: 1 }, { time: 10, open: 'x' }, null] }
+    expect(parseCurveCandles(payload)).toEqual([])
+  })
+
+  test('rejection payloads and junk yield empty', () => {
+    expect(parseCurveCandles({ detail: 'nope' })).toEqual([])
+    expect(parseCurveCandles(null)).toEqual([])
+    expect(parseCurveCandles({})).toEqual([])
+  })
+})
+
+describe('parseCurvePoolDetail', () => {
+  const { parseCurvePoolDetail } = require('./curve') as typeof import('./curve')
+
+  test('parses coins, balances and figures', () => {
+    const detail = parseCurvePoolDetail({
+      name: '3pool',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usd_price: 1, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usd_price: 1, decimals: 6 },
+      ],
+      balances_usd: [100, '200'],
+      tvl_usd: 300,
+      trading_volume_24h: 50,
+      trading_fee_24h: 0.5,
+      liquidity_volume_24h: 10,
+      lp_token_address: '0xlp',
+    })
+    expect(detail).toEqual({
+      name: '3pool',
+      coins: [
+        { symbol: 'DAI', address: '0xdai', usdPrice: 1, decimals: 18 },
+        { symbol: 'USDC', address: '0xusdc', usdPrice: 1, decimals: 6 },
+      ],
+      balancesUsd: [100, 200],
+      tvlUsd: 300,
+      volume24h: 50,
+      tradingFee24h: 0.5,
+      liquidityVolume24h: 10,
+      lpTokenAddress: '0xlp',
+    })
+  })
+
+  test('is defensive: rejection and junk yield null, missing fields zero', () => {
+    expect(parseCurvePoolDetail({ detail: 'not found' })).toBeNull()
+    expect(parseCurvePoolDetail(null)).toBeNull()
+    const bare = parseCurvePoolDetail({})
+    expect(bare?.coins).toEqual([])
+    expect(bare?.balancesUsd).toEqual([])
+    expect(bare?.tvlUsd).toBe(0)
+  })
+})
+
+describe('parseCurveTrades', () => {
+  const { parseCurveTrades, explorerTxUrl } = require('./curve') as typeof import('./curve')
+
+  test('maps sold/bought ids to symbols via pool_index and parses UTC time', () => {
+    const payload = {
+      main_token: { symbol: 'USDC', pool_index: 1 },
+      reference_token: { symbol: 'DAI', pool_index: 0 },
+      data: [
+        {
+          sold_id: 0,
+          bought_id: 1,
+          tokens_sold: 256.47,
+          tokens_bought: 256.43,
+          tokens_sold_usd: 256.44,
+          time: '2026-08-23T21:58:35',
+          transaction_hash: '0xtx',
+          buyer: '0xbuyer',
+        },
+      ],
+    }
+    const trades = parseCurveTrades(payload)
+    expect(trades).toHaveLength(1)
+    expect(trades[0].soldSymbol).toBe('DAI')
+    expect(trades[0].boughtSymbol).toBe('USDC')
+    expect(trades[0].time).toBe(Math.floor(Date.parse('2026-08-23T21:58:35Z') / 1000))
+    expect(trades[0].txHash).toBe('0xtx')
+  })
+
+  test('drops rows without a parseable time; rejection/junk yield empty', () => {
+    expect(
+      parseCurveTrades({ main_token: {}, reference_token: {}, data: [{ sold_id: 0 }] }),
+    ).toEqual([])
+    expect(parseCurveTrades({ detail: 'nope' })).toEqual([])
+    expect(parseCurveTrades(null)).toEqual([])
+  })
+
+  test('explorerTxUrl maps known chains and falls back to blockscan', () => {
+    expect(explorerTxUrl(1, '0xabc')).toBe('https://etherscan.io/tx/0xabc')
+    expect(explorerTxUrl(42161, '0xabc')).toBe('https://arbiscan.io/tx/0xabc')
+    expect(explorerTxUrl(146, '0xabc')).toBe('https://blockscan.com/tx/0xabc')
+    expect(explorerTxUrl(1, '')).toBe('')
+  })
+})

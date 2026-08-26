@@ -352,6 +352,23 @@ body:has(.institutional-page) .nav__hamburger-line {
   line-height: 1.68;
 }
 
+/* Stacked variant: headline over body instead of the two-column split. The
+   split reads as filler on sections where the paragraph is real explanatory
+   copy, not a decorative aside. Opt in per-section with this modifier. */
+.institutional-section__intro--stack {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.institutional-section__intro--stack h2 {
+  max-width: 20ch;
+}
+
+.institutional-section__intro--stack p {
+  max-width: 65ch;
+  margin-top: 1rem;
+}
+
 .institutional-register {
   border-bottom: 1px solid var(--institutional-line-strong);
 }
@@ -483,6 +500,17 @@ body:has(.institutional-page) .nav__hamburger-line {
   line-height: 1.66;
 }
 
+/* Stacked variant, same rationale as .institutional-section__intro--stack above. */
+.institutional-darkband__head--stack {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.institutional-darkband__head--stack p {
+  max-width: 65ch;
+  margin-top: 1rem;
+}
+
 .institutional-darkband .institutional-register {
   border-bottom-color: rgba(255, 255, 255, 0.13);
 }
@@ -612,6 +640,15 @@ body:has(.institutional-page) .nav__hamburger-line {
   .institutional-darkband {
     margin-inline: -20px;
     padding-inline: 20px;
+  }
+}
+
+/* Below 560px the shell's side padding is 8px, not 20px, so the -20px bleed
+   overshot the viewport by 12px a side. Match the shell so the band lands
+   exactly edge to edge. */
+@media (max-width: 560px) {
+  .institutional-darkband {
+    margin-inline: -8px;
   }
 }
 

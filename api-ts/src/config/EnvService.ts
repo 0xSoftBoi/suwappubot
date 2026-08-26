@@ -103,6 +103,14 @@ export const EnvSchema = Schema.Struct({
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Comma-separated agent UUIDs (agents.uuid) exempted from metering for
+	// quote-class reads ONLY (see middleware/x402Payment.ts's chargeAgentForCall).
+	// Purpose-built for the showcase homepage's live-quote widget, which
+	// authenticates as a server-side proxy key whose prepaid credits kept
+	// draining and going dark. Deliberately NOT a general bypass tier: swap
+	// prep/execution and every other resource for these agents stay fully
+	// metered. Unset = no exemptions, existing behavior unchanged.
+	DEMO_UNMETERED_AGENT_IDS: Schema.optional(Schema.String),
 	// Require a server-issued step-up challenge (approval_step_up_challenges)
 	// to be presented and consumed before an owner's approve decision is
 	// honored. Default OFF so existing owner approve flows are unaffected.
@@ -130,9 +138,17 @@ export const EnvSchema = Schema.Struct({
 	X402_FACILITATOR_URL: Schema.optionalWith(Schema.String, {
 		default: () => 'https://x402.org/facilitator',
 	}),
-	// Optional bearer token for facilitators that accept one. CDP mainnet needs
-	// JWT auth via @coinbase/x402 instead (follow-up).
+	// Optional static bearer token for facilitators that accept one. Ignored in
+	// favor of CDP JWT auth below when both CDP_API_KEY_ID/SECRET are set.
 	X402_FACILITATOR_API_KEY: Schema.optional(Schema.String),
+	// CDP hosted mainnet facilitator auth — a CDP API key (from the CDP Portal,
+	// https://portal.cdp.coinbase.com/), NOT a wallet/signing key. When both are
+	// set, FacilitatorService generates a per-request JWT via @coinbase/x402
+	// instead of using X402_FACILITATOR_API_KEY's static bearer token, and (unless
+	// X402_FACILITATOR_URL was explicitly overridden) points at CDP's hosted
+	// facilitator automatically.
+	CDP_API_KEY_ID: Schema.optional(Schema.String),
+	CDP_API_KEY_SECRET: Schema.optional(Schema.String),
 
 	// Recurring crypto billing via Base Spend Permissions (true auto-renew). OFF by
 	// default — needs a funded operator (spender) key on Base. SPEND_OPERATOR_PK is
@@ -215,6 +231,22 @@ export const EnvServiceLive = Layer.effect(
 		if (!process.env.FEE_WALLET_SOLANA) {
 			console.warn(
 				'[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!',
+			)
+		}
+		// CDP facilitator auth (see FacilitatorService.resolveFacilitatorConfig)
+		// requires BOTH vars — one without the other is almost certainly a
+		// misconfiguration (partial copy-paste from the CDP Portal) and silently
+		// falls back to no CDP auth, which then either 401s against CDP's hosted
+		// facilitator or falls through to an unauthenticated call. Empty string
+		// counts as unset, matching the trim-and-treat-empty-as-unset behavior in
+		// resolveFacilitatorConfig.
+		const cdpKeyId = env.CDP_API_KEY_ID?.trim()
+		const cdpKeySecret = env.CDP_API_KEY_SECRET?.trim()
+		if (!!cdpKeyId !== !!cdpKeySecret) {
+			console.error(
+				'[EnvService] ERROR: only one of CDP_API_KEY_ID / CDP_API_KEY_SECRET is set — ' +
+					'CDP facilitator JWT auth requires BOTH. Falling back to no CDP auth for the x402 ' +
+					'facilitator path until both are set correctly.',
 			)
 		}
 		return env

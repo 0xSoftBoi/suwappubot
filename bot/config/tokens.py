@@ -34,7 +34,9 @@ TOKENS: dict[str, TokenConfig] = {
             "base": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
             "solana": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
             "tron": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
-            "plasma": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            # No "plasma" entry: Plasma has no native USDT deployment (see the
+            # USDT0 registry note below) — the previous entry was the Ethereum
+            # mainnet address and mis-addressed every Plasma quote.
             "starknet": starknet_addresses.USDT,
             "goat": "0xE1AD845D93853fff44990aE0DcecD8575293681e",  # 6 decimals on GOAT
             # Rootstock rUSDT — 18 decimals NOT 6 (see get_token_decimals override)
@@ -80,7 +82,8 @@ TOKENS: dict[str, TokenConfig] = {
             "base-sepolia": "0xDABa329Ed949f28F64019f22c33c3B253B2Ded60",
             "solana": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
-            "plasma": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            # No "plasma" entry: previous value was the ETHEREUM USDC address
+            # (see the USDT note above).
             "starknet": starknet_addresses.USDC,
             # GOAT's canonical USDC is bridged USDC.e (6 decimals)
             "goat": "0x3022b87ac063DE95b1570F46f5e470F8B53112D8",

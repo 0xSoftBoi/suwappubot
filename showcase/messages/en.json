@@ -39,6 +39,8 @@
       "perpsDesc": "HyperLiquid, up to 20x",
       "tempoTitle": "Gasless on Tempo",
       "tempoDesc": "We sponsor the gas",
+      "curveTitle": "Curve pools",
+      "curveDesc": "Every pool on every Curve chain, by TVL, volume, or APR",
       "agentApiTitle": "Agent API",
       "agentApiDesc": "REST built for agents",
       "mcpTitle": "MCP server",
@@ -89,11 +91,11 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Execution infrastructure",
-      "h1": "The execution layer between intent and markets.",
-      "lead": "Suwappu turns a trade intent into an inspectable route and controlled execution across supported markets. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
-      "ctaTerminal": "Open Terminal",
-      "ctaApi": "Build with the API",
+      "eyebrow": "Full-stack trading platform",
+      "h1": "The full-stack trading platform for cross-chain markets.",
+      "lead": "Execution, routing, research, and portfolio management across 45 chains, from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+      "ctaTerminal": "Launch Terminal",
+      "ctaApi": "Read the docs",
       "ctaTelegram": "Trade in Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Execution ticket · production quote",
@@ -140,19 +142,24 @@
       "changelogMeta": "What shipped"
     },
     "interfaces": {
-      "eyebrow": "Entry points",
-      "title": "Intent can enter through a trading surface or an API.",
+      "eyebrow": "Capability 06",
+      "title": "One account. Every surface.",
       "lead": "The interface changes what can be authorized. We keep those authority boundaries visible instead of implying feature parity.",
       "ariaLabel": "Suwappu interfaces",
       "terminal": "Terminal",
       "terminalMeta": "Full trading desk",
       "telegramMeta": "Trading from chat",
-      "programmatic": "REST · MCP · SDKs",
+      "programmatic": "REST, MCP, SDKs",
       "programmaticMeta": "Programmatic interfaces",
-      "boundary": "REST supports managed execution and unsigned self-custody flows. MCP’s execute_swap prepares an unsigned transaction and does not broadcast it; A2A is limited to discovery and quoting."
+      "boundary": "REST supports managed execution and unsigned self-custody flows. MCP’s execute_swap prepares an unsigned transaction and does not broadcast it; A2A is limited to discovery and quoting.",
+      "surfacesLabel": "Also live on",
+      "surfaceMiniApp": "Telegram Mini App",
+      "surfaceIOS": "iOS app",
+      "surfaceChrome": "Chrome extension",
+      "surfaceWhatsApp": "WhatsApp"
     },
     "execution": {
-      "eyebrow": "Execution contract",
+      "eyebrow": "Capability 01",
       "title": "Intent becomes an execution you can inspect.",
       "lead": "Routing and authority are separate. After quoting, you can optionally run a zero-funds preflight before the separate authorization decision.",
       "intentTitle": "Intent",
@@ -164,14 +171,18 @@
       "authorizeTitle": "Authorize",
       "authorizeBody": "Self-custody returns an unsigned transaction for you to sign. Managed REST execution can sign and broadcast under server-side controls.",
       "screenshotAlt": "Suwappu Terminal showing an ETH/USDC chart, order book, and swap ticket.",
-      "screenshotCaption": "Suwappu Terminal · product capture · 31 Jul 2026"
+      "screenshotCaption": "Suwappu Terminal · product capture · 31 Jul 2026",
+      "mevTitle": "In-house MEV searcher",
+      "mevBody": "A Rust-based searcher screens pending routes for sandwich risk before execution, in-house rather than outsourced.",
+      "benchTitle": "Executor benchmarking",
+      "benchBody": "Every execution path is benchmarked against measured latency and slippage, not simulated numbers."
     },
     "proof": {
       "mobileHint": "Product screenshot. On narrow screens, scroll horizontally to inspect full-size interface detail."
     },
     "markets": {
-      "eyebrow": "Coverage with boundaries",
-      "title": "Market access is explicit about where it works.",
+      "eyebrow": "Capability 02",
+      "title": "Routing ranks every venue before you see a quote.",
       "crossChainKicker": "Cross-chain",
       "crossChainTitle": "Route-specific spot execution",
       "crossChainBody": "The platform inventory lists {platformChains} chains while the Agent API exposes {agentApiChains}. A quote only uses venues compatible with that route.",
@@ -179,20 +190,23 @@
       "hyperliquidBody": "HyperLiquid trading is available through Suwappu product surfaces; programmatic capabilities depend on the specific Agent API or MCP tool.",
       "tempoTitle": "Surface-specific support",
       "tempoBody": "Tempo support is not uniform across interfaces. The current Agent API exposes Tempo token discovery, but Agent API swap execution on Tempo is not enabled.",
+      "curveTitle": "Every Curve pool, natively",
+      "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API, sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
-      "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026"
+      "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
+      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
     },
     "security": {
-      "eyebrow": "Custody + controls",
+      "eyebrow": "Security model",
       "title": "Execution moves value. Authority stays explicit.",
       "lead": "Choose self-custody or managed signing, then constrain what an automated key is allowed to do.",
       "cta": "Read security details",
       "selfCustodyTitle": "Self-custody",
-      "selfCustodyBody": "Unsigned transaction flows keep signing and broadcasting with the caller.",
+      "selfCustodyBody": "Unsigned transaction flows keep signing and broadcasting with the caller, nothing server-side ever holds that key.",
       "managedTitle": "Managed signing",
-      "managedBody": "Managed execution signs server-side only through the managed-wallet path and its authorization controls.",
+      "managedBody": "Managed execution signs through KMS envelope encryption (kms_aesgcm_v2), Turnkey TEE signing, or an MPC signer, depending on the wallet path.",
       "policiesTitle": "Server-side policies",
-      "policiesBody": "Spending limits and sensitive-operation controls are enforced at the server boundary, not inferred from client state.",
+      "policiesBody": "2FA, spending limits, circuit breakers, and social recovery are enforced at the server boundary; approval monitoring auto-revokes what it flags.",
       "boundaryTitle": "Current assurance boundary",
       "boundaryBody": "This page does not claim SOC 2 certification or a completed public third-party protocol audit. The security page documents current controls and limitations."
     },
@@ -213,6 +227,70 @@
       "title": "Send intent. Keep execution authority explicit.",
       "lead": "Start with the interface that matches who should review, sign, and broadcast.",
       "telegram": "Or trade in Telegram"
+    },
+    "useCases": {
+      "eyebrow": "What you can do",
+      "title": "Built for every trade, on every venue.",
+      "lead": "Eight ways to act on an idea, from a single swap to running Suwappu as an agent.",
+      "ariaLabel": "Suwappu use cases",
+      "item01Title": "Swap & route",
+      "item01Body": "Best quote across Jupiter, OKX, 0x, Li.Fi, CoW, Socket, and Jito, raced on every request.",
+      "item02Title": "Bridge",
+      "item02Body": "20+ bridge providers, including CCTP, Wormhole, LayerZero, Stargate, and Across, tracked end to end.",
+      "item03Title": "Trade perps",
+      "item03Body": "HyperLiquid perpetuals with live funding and liquidation monitoring.",
+      "item04Title": "Copy trade",
+      "item04Body": "Mirror a professional wallet's trades automatically.",
+      "item05Title": "Automate",
+      "item05Body": "DCA schedules, on-chain limit orders, and launch sniping with Pump.fun and Raydium detection.",
+      "item06Title": "Predict",
+      "item06Body": "Trade Polymarket positions from the same venue as everything else.",
+      "item07Title": "Trade as an agent",
+      "item07Body": "REST, MCP, and A2A routes with x402 metered billing for programmatic execution.",
+      "item08Title": "Compete & earn",
+      "item08Body": "Battles, seasons and XP, referrals, rewards, and membership NFTs."
+    },
+    "research": {
+      "eyebrow": "Capability 03",
+      "title": "Research and signals, published in the open.",
+      "lead": "Signals run in the Terminal and over the API. Research goes out the same way: dated, attributed, and public.",
+      "launchTitle": "Launch detection",
+      "launchBody": "The launch detector watches Pump.fun and Raydium and flags new tokens the moment they deploy.",
+      "hlTitle": "HyperLiquid ecosystem monitor",
+      "hlBody": "Trades, funding, and liquidations across the HyperLiquid ecosystem, watched continuously.",
+      "dataTitle": "Market data capture",
+      "dataBody": "Real-time pricing and on-chain monitoring feed the signals API and every chart in the Terminal.",
+      "ctaResearch": "Read the research",
+      "ctaSignals": "Explore signals"
+    },
+    "portfolio": {
+      "eyebrow": "Capability 04",
+      "title": "Portfolio management for a position that spans chains.",
+      "lead": "Positions roll up across every chain the terminal trades, into one book you can read at a glance. A weekly digest recaps performance.",
+      "positionsTitle": "Cross-chain positions",
+      "positionsBody": "One positions service aggregates holdings across every supported chain, no per-chain bookkeeping.",
+      "pnlTitle": "Realized and unrealized PnL",
+      "pnlBody": "PnL is computed per position and rolled into a single equity curve in the Terminal.",
+      "cardsTitle": "Position-card NFTs",
+      "cardsBody": "A position can mint an on-chain receipt: a position card that travels with the trade.",
+      "cta": "Open your portfolio"
+    },
+    "government": {
+      "eyebrow": "Capability 07",
+      "title": "The government arm: post-quantum by design.",
+      "lead": "The Lattice Transfer Protocol handles post-quantum data transfer with on-chain anchors, built toward FedRAMP High readiness.",
+      "pqTitle": "Post-quantum by default",
+      "pqBody": "Standard mode uses ML-KEM-768 (FIPS 203) key encapsulation, ML-DSA-65 (FIPS 204) signatures, and BLAKE3 content addressing.",
+      "provenTitle": "52 machine-checked theorems",
+      "provenBody": "Lean 4 proofs cover quorum safety, constant-size sealed keys, and erasure thresholds, gated in CI.",
+      "fedrampTitle": "FedRAMP High readiness",
+      "fedrampBody": "An evidence package with a NIST SP 800-53 control crosswalk and a fail-closed government deployment profile.",
+      "cta": "See the protocol"
+    },
+    "atmosphere": {
+      "soundOn": "Sound on",
+      "soundOff": "Sound off",
+      "videoLabel": "Slow aerial footage of open ocean water"
     }
   },
   "cta": {

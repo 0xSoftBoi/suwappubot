@@ -62,7 +62,7 @@ from bot.models.referral import (
     ReferralEarning,
     ReferralMilestone,
 )
-from bot.services.fee_service import REFERRAL_REWARD_DECIMAL, fee_service
+from bot.services.fee_service import REFERRAL_REWARD_DECIMAL
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -306,7 +306,7 @@ class ReferralService:
         with get_session() as session:
             referral = (
                 session.query(Referral)
-                .filter(Referral.referee_id == user_id, Referral.is_active == True)
+                .filter(Referral.referee_id == user_id, Referral.is_active == True)  # noqa: E712
                 .first()
             )
 
@@ -410,7 +410,9 @@ class ReferralService:
                 # that together exceed MAX_REWARD_PER_REFEREE_PER_30D_USD.
                 referral = (
                     session.query(Referral)
-                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                    .filter(
+                        Referral.referee_id == referee_id, Referral.is_active == True  # noqa: E712
+                    )  # noqa: E712
                     .with_for_update()
                     .first()
                 )
@@ -531,7 +533,7 @@ class ReferralService:
                         for r in session.query(Referral.referee_id)
                         .filter(
                             Referral.referrer_id == referral.referrer_id,
-                            Referral.is_active == True,
+                            Referral.is_active == True,  # noqa: E712
                         )
                         .all()
                     ]
@@ -592,6 +594,23 @@ class ReferralService:
             f"${fee_amount_usd:.4f}) for referrer of user {referee_id} swap {swap_id}"
         )
 
+        # --- Verify the referral (unblocks the milestone stream) ---
+        # A recorded reward means this referee cleared MIN_VOLUME_BEFORE_PAYOUT_USD
+        # with a real, fee-paying swap and passed the shared-wallet self-referral
+        # check at link time. That IS the activity/fraud signal verify_referral()
+        # was documented to wait for. Nothing else in the codebase ever called it,
+        # so verified_at stayed NULL forever and every milestone bonus
+        # (5/10/20/50/100 referrals) was permanently unreachable.
+        #
+        # Called AFTER the transaction above has committed: verify_referral opens
+        # its own session and touches the same referrals row that was held
+        # FOR UPDATE, so calling it inside that block would self-deadlock.
+        # Idempotent — returns early once verified_at is set.
+        try:
+            self.verify_referral(referee_id)
+        except Exception as e:
+            logger.warning(f"Referral verification failed for referee {referee_id}: {e}")
+
         # Check if this is referee's first swap and award bonus points to referrer
         with get_session() as session:
             reward_count = (
@@ -626,7 +645,7 @@ class ReferralService:
             # Get referrals where this user is the referrer
             referrals = (
                 session.query(Referral.id)
-                .filter(Referral.referrer_id == user_id, Referral.is_active == True)
+                .filter(Referral.referrer_id == user_id, Referral.is_active == True)  # noqa: E712
                 .all()
             )
 
@@ -642,7 +661,8 @@ class ReferralService:
                     func.count(ReferralReward.id).label("count"),
                 )
                 .filter(
-                    ReferralReward.referral_id.in_(referral_ids), ReferralReward.is_paid == False
+                    ReferralReward.referral_id.in_(referral_ids),
+                    ReferralReward.is_paid == False,  # noqa: E712
                 )
                 .first()
             )
@@ -686,7 +706,7 @@ class ReferralService:
                 for r in session.query(Referral.id)
                 .filter(
                     Referral.referrer_id == user_id,
-                    Referral.is_active == True,
+                    Referral.is_active == True,  # noqa: E712
                 )
                 .all()
             ]
@@ -699,7 +719,7 @@ class ReferralService:
                 session.query(ReferralReward)
                 .filter(
                     ReferralReward.referral_id.in_(referral_ids),
-                    ReferralReward.is_paid == False,
+                    ReferralReward.is_paid == False,  # noqa: E712
                 )
                 .with_for_update()
                 .all()
@@ -964,7 +984,7 @@ class ReferralService:
                 session.query(ReferralReward)
                 .filter(
                     ReferralReward.payout_id == payout_id,
-                    ReferralReward.is_paid == True,
+                    ReferralReward.is_paid == True,  # noqa: E712
                 )
                 .update(
                     {
@@ -1028,7 +1048,7 @@ class ReferralService:
         with get_session() as session:
             referral = (
                 session.query(Referral)
-                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                .filter(Referral.referee_id == referee_id, Referral.is_active == True)  # noqa: E712
                 .first()
             )
             if not referral:
@@ -1088,7 +1108,9 @@ class ReferralService:
                 # permanently retain the highest tier they ever reached.
                 referral = (
                     session.query(Referral)
-                    .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                    .filter(
+                        Referral.referee_id == referee_id, Referral.is_active == True  # noqa: E712
+                    )  # noqa: E712
                     .with_for_update()
                     .first()
                 )
@@ -1174,8 +1196,16 @@ class ReferralService:
             f"{referee_id} order {perp_order_id}"
         )
 
-        # After crediting perps commission, check for newly unlocked milestones.
-        # Best-effort: never let a milestone error break the perps close.
+        # A credited perps commission is real, fee-paying activity by the referee —
+        # the same verification signal the swap path uses. verify_referral() runs the
+        # milestone check itself when it flips verified_at, so the explicit call below
+        # only matters for referees that were already verified.
+        # Both run outside the FOR UPDATE block above to avoid self-deadlocking on the
+        # referrals row. Best-effort: never let this break the perps close.
+        try:
+            self.verify_referral(referee_id)
+        except Exception as e:
+            logger.warning(f"Referral verification failed for referee {referee_id}: {e}")
         try:
             self._check_and_award_milestones(referrer_id)
         except Exception as e:
@@ -1195,7 +1225,7 @@ class ReferralService:
                 session.query(func.count(Referral.id))
                 .filter(
                     Referral.referrer_id == referrer_id,
-                    Referral.is_active == True,
+                    Referral.is_active == True,  # noqa: E712
                     Referral.verified_at.isnot(None),
                 )
                 .scalar()
@@ -1205,8 +1235,26 @@ class ReferralService:
     def verify_referral(self, referee_id: int) -> bool:
         """Mark a referral as verified (sets verified_at = now).
 
-        Called by fraud/activity checks once the referee is confirmed legitimate.
-        Returns True if a referral row was found and updated.
+        Verification gates the milestone bonus stream: get_verified_referral_count
+        only counts referrals with a non-NULL verified_at.
+
+        CALL SITES (must stay wired — nothing called this before, which left every
+        referral unverified and every milestone bonus unreachable):
+          - record_reward()            after a swap commission is recorded
+          - credit_perps_commission()  after a perps commission is credited
+
+        Both are proof of real, fee-paying activity by the referee that already
+        cleared the min-volume guard and the shared-wallet self-referral check at
+        link time — the "confirmed legitimate" signal this method waits for.
+
+        MUST be called outside any transaction holding the referrals row FOR UPDATE
+        (both call sites do): this opens its own session against the same row.
+
+        Idempotent — returns early without re-stamping or re-crediting milestones
+        once verified_at is set.
+
+        Returns True if a referral row was found (whether or not it was newly
+        verified), False if the referee has no active referral.
         """
         # HIGH #6: capture referrer_id INSIDE the session block to avoid
         # DetachedInstanceError when accessing the attribute after the session
@@ -1215,7 +1263,7 @@ class ReferralService:
         with get_session() as session:
             referral = (
                 session.query(Referral)
-                .filter(Referral.referee_id == referee_id, Referral.is_active == True)
+                .filter(Referral.referee_id == referee_id, Referral.is_active == True)  # noqa: E712
                 .first()
             )
             if not referral or referral.verified_at is not None:
@@ -1420,7 +1468,7 @@ class ReferralService:
             # Get active referrals
             active_referrals = (
                 session.query(func.count(Referral.id))
-                .filter(Referral.referrer_id == user_id, Referral.is_active == True)
+                .filter(Referral.referrer_id == user_id, Referral.is_active == True)  # noqa: E712
                 .scalar()
                 or 0
             )
@@ -1453,7 +1501,7 @@ class ReferralService:
             referrals = (
                 session.query(Referral, User)
                 .join(User, Referral.referee_id == User.id)
-                .filter(Referral.referrer_id == user_id, Referral.is_active == True)
+                .filter(Referral.referrer_id == user_id, Referral.is_active == True)  # noqa: E712
                 .order_by(Referral.created_at.desc())
                 .limit(limit)
                 .all()

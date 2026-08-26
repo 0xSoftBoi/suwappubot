@@ -1,5 +1,15 @@
 from .user import User, Wallet
 from .swap import SwapTransaction, SwapStatus, SwapRouteCandidate
+from .execution import (
+    ExecutionIntent,
+    ExecutionCandidatePlan,
+    ExecutionParentOrder,
+    ExecutionChildPlacement,
+    ExecutionFill,
+    ExecutionSettlement,
+    ExecutionEvent,
+    ExecutionOutbox,
+)
 from .chain import Chain, Token
 from .favorites import FavoriteSwapPair, PriceAlert, UserSettings
 from .referral import Referral, ReferralCode, ReferralReward
@@ -33,7 +43,6 @@ from .subscription import (
     X402Payment,
     PaymentStatus,
     APICredit,
-    APICredit,
 )
 from .predict import PredictionOrder, PredictionPosition
 from .p2p import (
@@ -63,6 +72,15 @@ __all__ = [
     "SwapTransaction",
     "SwapRouteCandidate",
     "SwapStatus",
+    # Canonical execution lifecycle
+    "ExecutionIntent",
+    "ExecutionCandidatePlan",
+    "ExecutionParentOrder",
+    "ExecutionChildPlacement",
+    "ExecutionFill",
+    "ExecutionSettlement",
+    "ExecutionEvent",
+    "ExecutionOutbox",
     "Chain",
     "Token",
     "FavoriteSwapPair",

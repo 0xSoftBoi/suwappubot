@@ -15,12 +15,11 @@ Detection methods:
 
 import logging
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
-from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter

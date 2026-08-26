@@ -17,12 +17,12 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta  # noqa: E402
 
-import pytest
-from sqlalchemy.exc import IntegrityError
+import pytest  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
 
-from bot.services.waitlist_service import (
+from bot.services.waitlist_service import (  # noqa: E402
     RESERVED_HANDLES,
     derive_seed,
     generate_referral_code,
@@ -257,7 +257,7 @@ def test_referrals_to_next_rank_tie_needs_one_more(tmp_db):
 
     now = datetime.utcnow()
     with get_session() as session:
-        leader = _make_signup(session, "leader", "leader@x.com", created_at=now)
+        leader = _make_signup(session, "leader", "leader@x.com", created_at=now)  # noqa: F841
         follower = _make_signup(
             session, "follower", "follower@x.com", created_at=now + timedelta(seconds=5)
         )

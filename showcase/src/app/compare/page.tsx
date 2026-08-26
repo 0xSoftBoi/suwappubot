@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import stats from '@/data/stats.generated.json';
 import { Fragment } from 'react';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
 import styles from './compare.module.css';
@@ -106,7 +106,7 @@ const GROUPS: {
   },
 ];
 
-const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '–' };
+const CELL_GLYPH: Record<Cell, string> = { yes: '✓', partial: '~', no: '-' };
 const CELL_WORD: Record<Cell, string> = { yes: 'Yes', partial: 'Partial', no: 'No' };
 
 // ── Agent infrastructure comparison: a distinct competitive set from the
@@ -177,7 +177,7 @@ const AGENT_GROUPS: { category: string; rows: { label: string; cells: Record<str
   },
 ];
 
-const AGENT_CELL_GLYPH: Record<AgentCell, string> = { yes: '✓', partial: '~', no: '–', unclear: '?' };
+const AGENT_CELL_GLYPH: Record<AgentCell, string> = { yes: '✓', partial: '~', no: '-', unclear: '?' };
 const AGENT_CELL_WORD: Record<AgentCell, string> = {
   yes: 'Yes',
   partial: 'Partial',
@@ -209,10 +209,9 @@ const HIGHLIGHTS = [
 export default function ComparePage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Compare</p>
           <h1>One product where the others pick a lane.</h1>
           <p className="mkt-hero__lead">
             Telegram bots, trading terminals, and cross-chain infrastructure each do one part well.
@@ -290,7 +289,7 @@ export default function ComparePage() {
               <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial / varies by product
             </span>
             <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered
+              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">-</span> Not offered
             </span>
           </p>
           <p className="compare__note">
@@ -317,7 +316,6 @@ export default function ComparePage() {
 
         {/* ── AGENT INFRASTRUCTURE COMPARISON: a second, distinct competitive set ── */}
         <section className={`compare ${styles.matrix}`} aria-labelledby="agent-compare-matrix">
-          <p className="summer-kicker">For builders</p>
           <h2 id="agent-compare-matrix" className="compare__title">
             Agent infrastructure comparison
           </h2>
@@ -391,7 +389,7 @@ export default function ComparePage() {
               <span className="compare-cell__glyph compare-cell--partial" aria-hidden="true">~</span> Partial / varies
             </span>
             <span className="compare-legend__item">
-              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">–</span> Not offered
+              <span className="compare-cell__glyph compare-cell--no" aria-hidden="true">-</span> Not offered
             </span>
             <span className="compare-legend__item">
               <span className="compare-cell__glyph compare-cell--unclear" aria-hidden="true">?</span> Not publicly confirmed
@@ -413,7 +411,6 @@ export default function ComparePage() {
           className={`${styles.ctaBand} sw-card-dark sw-grain sw-grain--dark`}
           aria-labelledby="compare-cta"
         >
-          <p className="sw-kicker">See it for yourself</p>
           <h2 className={styles.ctaTitle} id="compare-cta">
             A matrix is an argument. A fill is proof.
           </h2>

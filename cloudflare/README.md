@@ -37,6 +37,22 @@ delete it first or the Custom Domain bind returns error 100117.
 Client TLS is served by Cloudflare; the Worker fetches each origin over the valid
 `*.up.railway.app` cert. The hostname→origin map lives in `suwappu-router.worker.js`.
 
+### After the one-time setup: CI deploys automatically
+`.github/workflows/deploy-cloudflare-worker.yml` runs `wrangler deploy` on every push to
+`main` that touches `cloudflare/**`, then curls `/webapp/data/status` to confirm the new
+routing actually took effect (a `{"detail":"Not Found"}` body means it didn't). No routing
+change is "shipped" until this workflow — or a manual `wrangler deploy` — has run; merging
+the PR alone only updates the repo copy of the Worker source.
+
+This needs two repo secrets (Settings → Secrets and variables → Actions), one-time,
+by whoever holds the Cloudflare account — no tool here can create them:
+- `CLOUDFLARE_API_TOKEN` — Cloudflare dashboard → My Profile → API Tokens → Create Token →
+  **Edit Cloudflare Workers** template, scoped to this account/zone.
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare dashboard → suwappu.bot zone → Overview, right sidebar.
+
+Until those secrets exist the workflow fails at the deploy step (harmless — nothing else
+depends on it) and `cd cloudflare && bunx wrangler deploy` remains the fallback.
+
 ## Verify
 ```bash
 curl -s https://api.suwappu.bot/health            | head -c 200   # → api-ts health 200
@@ -48,10 +64,12 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 ## Routing map (keep in sync with the Worker)
 | Path prefix | Backend | Notes |
 |-------------|---------|-------|
+| `/webapp/data/*`, `/webapp/tokens/*`, `/webapp/p2p/*`, `/webapp/rewards/*` | api-ts | api-ts-native namespaces; python 404s them (checked before the `/webapp` rule) |
 | `/auth/*` | python-api | JWT **issuer**; api-ts has no `/auth`, only consumes the token |
 | `/telegram/*`, `/webhook/*` | python-api | Telegram + WhatsApp |
 | `/users/*`, `/tools/*` | python-api | python-only |
-| everything else | api-ts | `/v1/agent/*`, `/mcp`, `/a2a`, `/webapp/*`, `/public/*`, `/staking/*`, `/billing/*`, `/health`, `/.well-known/*`, agent cards, `llms.txt` |
+| `/terminal/*`, `/webapp/*` (rest) | python-api | terminal SPA data layer + Mini App legacy routes, incl. money-path `/webapp/swap`, `/webapp/bridge` |
+| everything else | api-ts | `/v1/agent/*`, `/mcp`, `/a2a`, `/public/*`, `/staking/*`, `/billing/*`, `/health`, `/.well-known/*`, agent cards, `llms.txt` |
 
 ## Caveats / next steps
 - **Free Workers cap: 100,000 requests/day** (~69/min avg). Fine for now. Keep external

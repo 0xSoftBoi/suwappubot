@@ -1577,7 +1577,7 @@ mcpRoutes.post('/', async (c) => {
 				// Read from the raw (possibly-undefined) `agent`, not the `callAgent` cast —
 				// a PUBLIC_READ_TOOLS call reaches here with agent undefined, and
 				// chargeAgentForCall treats a missing agent as 'skip: no_agent' safely.
-				agent: agent ? { id: agent.id, rateLimitTier: agent.rateLimitTier } : undefined,
+				agent: agent ? { id: agent.id, rateLimitTier: agent.rateLimitTier, uuid: agent.uuid } : undefined,
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,

@@ -12,7 +12,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.token_security.token_analyzer import (
+from bot.services.token_security.token_analyzer import (  # noqa: E402
     token_analyzer,
     TokenSafetyReport,
     RiskCategory,

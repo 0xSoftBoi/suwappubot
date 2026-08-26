@@ -12,7 +12,7 @@ WALLET_NOT_FOUND = "❌ Wallet not found."
 SESSION_EXPIRED = "❌ Session expired. Please start again."
 
 # Pre-built keyboard configs (avoid repeated object creation)
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup  # noqa: E402
 
 MAIN_MENU_KEYBOARD = InlineKeyboardMarkup(
     [

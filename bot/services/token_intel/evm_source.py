@@ -6,7 +6,7 @@ endpoint never takes down the whole /intel report.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
@@ -313,7 +313,7 @@ async def _enrich_bundle_and_snipe(report, base: str) -> None:
     bundle_recipients = set()
     snipe_recipients = set()
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     def _parse_ts(raw):
         if not raw:

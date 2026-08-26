@@ -15,14 +15,14 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.config.settings import settings
-from bot.services.compliance import (
+from bot.config.settings import settings  # noqa: E402
+from bot.services.compliance import (  # noqa: E402
     AddressComplianceService,
     ComplianceError,
     ComplianceMode,
     ScreeningPolicy,
 )
-from bot.services.compliance.ofac_list import (
+from bot.services.compliance.ofac_list import (  # noqa: E402
     _parse_address_lines,
     load_ofac_addresses,
     seed_ofac_addresses,

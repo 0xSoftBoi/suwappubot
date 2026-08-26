@@ -2,8 +2,8 @@
 
 import logging
 import calendar
-from datetime import datetime, timezone, timedelta
-from typing import Optional, TYPE_CHECKING
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from decimal import Decimal
 
 from bot.utils.exceptions import SwapError

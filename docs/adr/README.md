@@ -28,3 +28,4 @@ Short, append-only records of decisions that shape the system. Nygard format:
 | [0003](0003-runtime-additive-migrations-no-alembic.md) | Runtime additive migrations, no Alembic | Accepted |
 | [0004](0004-telegram-polling-single-replica.md) | Telegram polling implies a single bot replica | Accepted |
 | [0005](0005-dual-stack-python-monolith-plus-api-ts.md) | Dual stack: Python monolith + TypeScript API over one database | Accepted |
+| [0006](0006-canonical-execution-lifecycle.md) | Canonical execution lifecycle for money-moving orders | Proposed |

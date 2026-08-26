@@ -38,6 +38,20 @@ const nextConfig = {
         { key: 'X-XSS-Protection', value: '0' },
       ],
     },
+    {
+      // Hero media (see docs/design/hero-media.md). Next serves everything in
+      // public/ as `max-age=0`, so without this every repeat visit revalidates
+      // a 1.3 MB video and a 200 KB poster. Verified against production before
+      // and after: the response was `cache-control: public, max-age=0`.
+      //
+      // These filenames are stable rather than content-hashed, so this is
+      // deliberately a week and NOT `immutable`: regenerating the loop via
+      // scripts/encode-ocean.sh reuses the same names, and a stale background
+      // video for up to 7 days is a cosmetic non-event, whereas an immutable
+      // year would strand it in caches indefinitely.
+      source: '/media/:file*',
+      headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+    },
   ],
 };
 

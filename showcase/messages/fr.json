@@ -39,6 +39,8 @@
       "perpsDesc": "HyperLiquid, jusqu'à 20x",
       "tempoTitle": "Sans gas sur Tempo",
       "tempoDesc": "Nous payons le gas",
+      "curveTitle": "Pools Curve",
+      "curveDesc": "Chaque pool sur chaque chaîne Curve, par TVL, volume ou APR",
       "agentApiTitle": "API pour agents",
       "agentApiDesc": "REST conçue pour les agents",
       "mcpTitle": "Serveur MCP",
@@ -89,11 +91,11 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Infrastructure d’exécution",
-      "h1": "La couche d’exécution entre l’intention et les marchés.",
-      "lead": "Suwappu transforme une intention de trading en une route vérifiable et une exécution contrôlée sur les marchés pris en charge. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
-      "ctaTerminal": "Ouvrir le Terminal",
-      "ctaApi": "Construire avec l’API",
+      "eyebrow": "Plateforme de trading full-stack",
+      "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
+      "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes, depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
+      "ctaTerminal": "Lancer le Terminal",
+      "ctaApi": "Lire la documentation",
       "ctaTelegram": "Trader dans Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket d’exécution · cotation de production",
@@ -140,19 +142,24 @@
       "changelogMeta": "Dernières livraisons"
     },
     "interfaces": {
-      "eyebrow": "Points d’entrée",
-      "title": "L’intention peut entrer par une interface de trading ou une API.",
+      "eyebrow": "Capacité 06",
+      "title": "Un seul compte. Chaque surface.",
       "lead": "L’interface change ce qui peut être autorisé. Nous affichons ces limites au lieu de prétendre à une parité fonctionnelle.",
       "ariaLabel": "Interfaces Suwappu",
       "terminal": "Terminal",
       "terminalMeta": "Poste de trading complet",
       "telegramMeta": "Trading depuis le chat",
-      "programmatic": "REST · MCP · SDK",
+      "programmatic": "REST, MCP, SDK",
       "programmaticMeta": "Interfaces programmatiques",
-      "boundary": "REST prend en charge l’exécution gérée et les flux d’auto-garde non signés. execute_swap de MCP prépare une transaction non signée sans la diffuser ; A2A se limite à la découverte et aux cotations."
+      "boundary": "REST prend en charge l’exécution gérée et les flux d’auto-garde non signés. execute_swap de MCP prépare une transaction non signée sans la diffuser ; A2A se limite à la découverte et aux cotations.",
+      "surfacesLabel": "Également disponible sur",
+      "surfaceMiniApp": "Mini App Telegram",
+      "surfaceIOS": "Application iOS",
+      "surfaceChrome": "Extension Chrome",
+      "surfaceWhatsApp": "WhatsApp"
     },
     "execution": {
-      "eyebrow": "Contrat d’exécution",
+      "eyebrow": "Capacité 01",
       "title": "L’intention devient une exécution que vous pouvez inspecter.",
       "lead": "Le routage et l’autorité sont séparés. Après la cotation, vous pouvez lancer facultativement un pré-contrôle sans mouvement de fonds avant la décision d’autorisation distincte.",
       "intentTitle": "Intention",
@@ -164,14 +171,18 @@
       "authorizeTitle": "Autorisation",
       "authorizeBody": "L’auto-garde renvoie une transaction non signée que vous signez. L’exécution REST gérée peut signer et diffuser sous les contrôles du serveur.",
       "screenshotAlt": "Terminal Suwappu avec graphique ETH/USDC, carnet d’ordres et ticket de swap.",
-      "screenshotCaption": "Suwappu Terminal · capture produit · 31 juil. 2026"
+      "screenshotCaption": "Suwappu Terminal · capture produit · 31 juil. 2026",
+      "mevTitle": "Chasseur de MEV interne",
+      "mevBody": "Un chasseur écrit en Rust détecte le risque de sandwich sur les routes en attente avant exécution, développé en interne plutôt que sous-traité.",
+      "benchTitle": "Benchmark des exécuteurs",
+      "benchBody": "Chaque chemin d’exécution est comparé à la latence et au slippage mesurés réellement, pas à des chiffres simulés."
     },
     "proof": {
       "mobileHint": "Capture produit. Sur écran étroit, faites défiler horizontalement pour examiner les détails à taille lisible."
     },
     "markets": {
-      "eyebrow": "Couverture avec limites",
-      "title": "L’accès aux marchés indique clairement où il fonctionne.",
+      "eyebrow": "Capacité 02",
+      "title": "Le routage classe chaque marché avant même votre cotation.",
       "crossChainKicker": "Multichaîne",
       "crossChainTitle": "Exécution spot selon la route",
       "crossChainBody": "L’inventaire de la plateforme compte {platformChains} chaînes, tandis que l’Agent API en expose {agentApiChains}. Une cotation utilise uniquement les fournisseurs compatibles avec cette route.",
@@ -179,20 +190,23 @@
       "hyperliquidBody": "Le trading HyperLiquid est disponible dans les interfaces produit Suwappu ; les capacités programmatiques dépendent de l’outil Agent API ou MCP concerné.",
       "tempoTitle": "Support selon l’interface",
       "tempoBody": "Le support de Tempo n’est pas uniforme. L’Agent API expose actuellement la découverte des tokens Tempo, mais l’exécution de swaps Tempo via l’Agent API n’est pas activée.",
+      "curveTitle": "Chaque pool Curve, en natif",
+      "curveBody": "Le venue Curve du terminal liste chaque pool sur chaque chaîne où Curve est déployé, directement depuis la Curve Prices API, triable par TVL, volume 24h ou APR de base, avec recherche, à un clic du panneau de swap. Construit sur notre fork de flet-curve.",
       "screenshotAlt": "Desk de perpétuels Suwappu avec marchés HyperLiquid, données de marché et ticket d’ordre.",
-      "screenshotCaption": "Perpétuels HyperLiquid dans Suwappu · capture produit · 31 juil. 2026"
+      "screenshotCaption": "Perpétuels HyperLiquid dans Suwappu · capture produit · 31 juil. 2026",
+      "lead": "La priorité de routage intelligente classe les marchés, dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées protégées contre le MEV de CoW, avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des 45 chaînes routable en cas de dégradation d’un fournisseur."
     },
     "security": {
-      "eyebrow": "Garde + contrôles",
+      "eyebrow": "Modèle de sécurité",
       "title": "L’exécution déplace de la valeur. L’autorité reste explicite.",
       "lead": "Choisissez l’auto-garde ou la signature gérée, puis limitez ce qu’une clé automatisée peut faire.",
       "cta": "Lire les détails de sécurité",
       "selfCustodyTitle": "Auto-garde",
-      "selfCustodyBody": "Les flux de transactions non signées laissent la signature et la diffusion à l’appelant.",
+      "selfCustodyBody": "Les flux de transaction non signée laissent la signature et la diffusion au demandeur, aucune clé n’est jamais détenue côté serveur.",
       "managedTitle": "Signature gérée",
-      "managedBody": "L’exécution gérée signe côté serveur uniquement via le parcours de portefeuille géré et ses contrôles d’autorisation.",
+      "managedBody": "L’exécution gérée signe via le chiffrement enveloppe KMS (kms_aesgcm_v2), la signature Turnkey en TEE, ou un signataire MPC, selon le chemin du wallet.",
       "policiesTitle": "Règles côté serveur",
-      "policiesBody": "Les limites de dépense et les contrôles des opérations sensibles sont appliqués à la frontière serveur, jamais déduits de l’état client.",
+      "policiesBody": "La 2FA, les limites de dépense, les coupe-circuits et la récupération sociale sont appliqués à la frontière serveur ; la surveillance des approbations révoque automatiquement ce qu’elle signale.",
       "boundaryTitle": "Périmètre d’assurance actuel",
       "boundaryBody": "Cette page ne revendique ni certification SOC 2 ni audit public complet du protocole par un tiers. La page Sécurité documente les contrôles et limites actuels."
     },
@@ -213,6 +227,70 @@
       "title": "Envoyez l’intention. Gardez l’autorité d’exécution explicite.",
       "lead": "Commencez avec l’interface adaptée à la personne ou au système qui doit vérifier, signer et diffuser.",
       "telegram": "Ou tradez dans Telegram"
+    },
+    "useCases": {
+      "eyebrow": "Ce que vous pouvez faire",
+      "title": "Conçu pour chaque trade, sur chaque marché.",
+      "lead": "Huit façons d'agir sur une idée, d'un simple swap à l'exécution de Suwappu par un agent.",
+      "ariaLabel": "Cas d’usage de Suwappu",
+      "item01Title": "Swap & routage",
+      "item01Body": "Le meilleur prix parmi Jupiter, OKX, 0x, Li.Fi, CoW, Socket et Jito, mis en concurrence à chaque requête.",
+      "item02Title": "Bridge",
+      "item02Body": "Plus de 20 fournisseurs de bridge, dont CCTP, Wormhole, LayerZero, Stargate et Across, suivis de bout en bout.",
+      "item03Title": "Trader des perpétuels",
+      "item03Body": "Perpétuels HyperLiquid avec suivi en direct du funding et des liquidations.",
+      "item04Title": "Copy trading",
+      "item04Body": "Reproduisez automatiquement les trades d’un portefeuille professionnel.",
+      "item05Title": "Automatiser",
+      "item05Body": "Plans DCA, ordres à cours limité on-chain, et détection de lancements Pump.fun et Raydium.",
+      "item06Title": "Prédire",
+      "item06Body": "Tradez des positions Polymarket depuis le même endroit que tout le reste.",
+      "item07Title": "Trader en tant qu’agent",
+      "item07Body": "Routes REST, MCP et A2A avec facturation mesurée x402 pour l’exécution programmatique.",
+      "item08Title": "Concourir & gagner",
+      "item08Body": "Battles, saisons et XP, parrainages, récompenses et NFT de membership."
+    },
+    "research": {
+      "eyebrow": "Capacité 03",
+      "title": "Recherche et signaux, publiés en toute transparence.",
+      "lead": "Les signaux tournent dans le Terminal et via l'API. La recherche sort par le même canal : datée, attribuée, publique.",
+      "ctaResearch": "Lire la recherche",
+      "ctaSignals": "Explorer les signaux",
+      "launchTitle": "Détection de lancements",
+      "launchBody": "Le détecteur surveille Pump.fun et Raydium et signale chaque nouveau token dès son déploiement.",
+      "hlTitle": "Moniteur de l'écosystème HyperLiquid",
+      "hlBody": "Trades, funding et liquidations sur l'écosystème HyperLiquid, surveillés en continu.",
+      "dataTitle": "Capture de données de marché",
+      "dataBody": "Prix en temps réel et surveillance on-chain alimentent l'API de signaux et chaque graphique du Terminal."
+    },
+    "portfolio": {
+      "eyebrow": "Capacité 04",
+      "title": "Une gestion de portefeuille pour une position qui traverse les chaînes.",
+      "lead": "Les positions se consolident sur toutes les chaînes tradées par le Terminal, en un seul livre lisible d'un coup d'œil. Un résumé hebdomadaire récapitule la performance.",
+      "cta": "Ouvrir votre portefeuille",
+      "positionsTitle": "Positions cross-chain",
+      "positionsBody": "Un service unique agrège les avoirs sur toutes les chaînes supportées, aucune comptabilité par chaîne.",
+      "pnlTitle": "PnL réalisé et latent",
+      "pnlBody": "Le PnL est calculé par position et consolidé en une courbe d'équité unique dans le Terminal.",
+      "cardsTitle": "NFT position-cards",
+      "cardsBody": "Une position peut frapper un reçu on-chain, une carte de position qui accompagne le trade."
+    },
+    "government": {
+      "eyebrow": "Capacité 07",
+      "title": "Le bras gouvernemental : post-quantique par conception.",
+      "lead": "Le Lattice Transfer Protocol gère le transfert de données post-quantique avec ancrage on-chain, conçu pour viser la conformité FedRAMP High.",
+      "cta": "Voir le protocole",
+      "pqTitle": "Post-quantique par défaut",
+      "pqBody": "Le mode standard utilise l'encapsulation ML-KEM-768 (FIPS 203), les signatures ML-DSA-65 (FIPS 204) et l'adressage par contenu BLAKE3.",
+      "provenTitle": "52 théorèmes vérifiés par machine",
+      "provenBody": "Des preuves Lean 4 couvrent la sûreté des quorums, les clés scellées de taille constante et les seuils d'effacement, verrouillées en CI.",
+      "fedrampTitle": "Préparation FedRAMP High",
+      "fedrampBody": "Un dossier de preuves avec correspondance NIST SP 800-53 et un profil de déploiement gouvernemental fail-closed."
+    },
+    "atmosphere": {
+      "soundOn": "Son activé",
+      "soundOff": "Son coupé",
+      "videoLabel": "Vue aérienne lente de l’océan"
     }
   },
   "cta": {

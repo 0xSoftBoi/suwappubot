@@ -6,8 +6,11 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
-from bot.utils.validators import validate_evm_address, validate_solana_address, EVM_ZERO_ADDRESS
+from bot.utils.validators import (  # noqa: E402
+    validate_evm_address,
+    validate_solana_address,
+    EVM_ZERO_ADDRESS,
+)  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # EVM address validation

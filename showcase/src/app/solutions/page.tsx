@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import { TELEGRAM_URL } from '@/lib/links';
 import stats from '@/data/stats.generated.json';
@@ -109,7 +109,7 @@ export default function SolutionsPage() {
 
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Solutions</p>
@@ -127,7 +127,6 @@ export default function SolutionsPage() {
           <section className={`${styles.row} ${styles.rowLead}`} id={lead.id}>
             <div className={styles.leadHead}>
               <div className={styles.copy}>
-                <p className="sw-kicker">{lead.eyebrow}</p>
                 <h2 className={styles.title}>{lead.title}</h2>
                 <p className={styles.body}>{lead.body}</p>
                 <a
@@ -157,7 +156,6 @@ export default function SolutionsPage() {
               key={s.id}
             >
               <div className={styles.copy}>
-                <p className="sw-kicker">{s.eyebrow}</p>
                 <h2 className={styles.title}>{s.title}</h2>
                 <p className={styles.body}>{s.body}</p>
                 <div className="summer-flow">

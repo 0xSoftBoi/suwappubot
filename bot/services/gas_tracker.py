@@ -8,12 +8,10 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-from bot.config.settings import settings
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
-from bot.services.rpc_manager import rpc_manager
-from bot.utils.cache import gas_cache, cached
-from bot.utils.retry import async_retry
-from bot.utils.http_client import get_session as get_http_session
+from bot.config.chains import CHAINS, ChainType, get_chain_by_name  # noqa: E402
+from bot.services.rpc_manager import rpc_manager  # noqa: E402
+from bot.utils.cache import gas_cache  # noqa: E402
+from bot.utils.http_client import get_session as get_http_session  # noqa: E402
 
 
 @dataclass
