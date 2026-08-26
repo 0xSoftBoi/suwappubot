@@ -326,6 +326,15 @@ def test_config_contract_and_backstop_all_agree_on_the_gold_discount():
     )
     assert int(cap.group(1)) / 10_000.0 >= on_chain_fraction
 
+    # Three-way equality on the CEILING itself, not just the current rates:
+    # config.json's max_discount_fraction, the bot's MAX_CARD_DISCOUNT_FRACTION
+    # clamp, and the on-chain MAX_HOLD_DISCOUNT_FRACTION_BPS/10000 must all agree
+    # on 0.60. config.json previously pinned this at 0.55 (the current Gold rate,
+    # not the ceiling either number is actually bounded by) and disagreed with
+    # both real clamps.
+    max_fraction = render.load_config()["economics"]["max_discount_fraction"]
+    assert max_fraction == MAX_CARD_DISCOUNT_FRACTION == int(cap.group(1)) / 10_000.0 == 0.60
+
 
 # ── 5. the oracle ─────────────────────────────────────────────────────────────
 
@@ -576,6 +585,90 @@ def test_royalty_is_set_by_default_in_the_constructor():
     sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
     cfg = render.load_config()
     assert f"_setDefaultRoyalty(initialOwner, {cfg['economics']['royalty_bps']});" in sol
+
+
+def test_royalty_receiver_follows_treasury():
+    """Money-path HIGH: Ownable2Step's ownership transfer does NOT move the
+    ERC-2981 royalty receiver, and the constructor stamps the DEPLOY KEY
+    (`initialOwner`) as that receiver. Treasury is set post-deploy via
+    `setTreasury`, which previously never touched the royalty — so every
+    secondary sale paid the deploy key forever, independent of wherever
+    ownership or treasury moved.
+
+    Fix: `setTreasury` re-points the default royalty at the new treasury,
+    using the CURRENT `defaultRoyaltyBps` (tracked in storage because ERC2981
+    exposes no getter for it), so a later `setDefaultRoyalty` retune is not
+    clobbered by the next treasury rotation. See the EVM behavioural pin in
+    tests/test_positions_gold_evm.py::test_royalty_receiver_follows_treasury.
+    """
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    assert "uint16 public defaultRoyaltyBps = 200;" in sol
+    # setTreasury must re-point the royalty at the SAME bps it stores
+    m = re.search(
+        r"function setTreasury\(address t\) external onlyOwner \{(.*?)\n    \}", sol, re.S
+    )
+    assert m, "setTreasury not found"
+    body = m.group(1)
+    assert "treasury = t;" in body
+    assert "_setDefaultRoyalty(t, defaultRoyaltyBps);" in body
+    # setDefaultRoyalty must keep defaultRoyaltyBps in sync with whatever an
+    # owner retunes it to, or the NEXT setTreasury would revert to 200.
+    m2 = re.search(
+        r"function setDefaultRoyalty\(address receiver, uint96 feeNumerator\) external onlyOwner \{(.*?)\n    \}",
+        sol,
+        re.S,
+    )
+    assert m2, "setDefaultRoyalty wrapper not found"
+    body2 = m2.group(1)
+    assert "_setDefaultRoyalty(receiver, feeNumerator);" in body2
+    assert "defaultRoyaltyBps = " in body2
+
+
+def test_abi_artifact_has_the_gold_and_royalty_interface():
+    """The hand-maintained nft/position-cards/abi/SuwappuPositions.json drifted:
+    positionOf still reported uint40 mintedAt with no isGold field, and the
+    whole Gold/royalty-follows-treasury interface (discountFor, isGold,
+    goldBalance, goldDiscountFractionBps, setGoldDiscountFractionBps,
+    defaultRoyaltyBps) was simply absent — bot/services/position_cards_service.py
+    reads this shape at runtime, so a stale ABI silently breaks the Gold badge
+    and the discount lookup with no import-time signal.
+
+    This is a targeted pin, not a full-ABI diff: forge is not installed in this
+    sandbox, so the artifact was hand-patched rather than regenerated. It MUST
+    be regenerated with `forge inspect SuwappuPositions abi` (or equivalent)
+    before any real deploy — this test only pins the functions this change
+    actually touches plus the positionOf field list, not every entry.
+    """
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    abi = json.load(open(os.path.join(POS, "abi", "SuwappuPositions.json")))
+    abi_funcs = {e["name"] for e in abi if e.get("type") == "function"}
+
+    must_have = {
+        "discountFor",
+        "isGold",
+        "goldBalance",
+        "goldDiscountFractionBps",
+        "setGoldDiscountFractionBps",
+        "defaultRoyaltyBps",
+    }
+    for name in must_have:
+        assert re.search(
+            rf"\bfunction {name}\b|\buint16 public {name}\b", sol
+        ), f"{name} not found in the contract source — pin is stale"
+        assert name in abi_funcs, f"{name} missing from the ABI artifact"
+
+    positions_of = next(e for e in abi if e.get("name") == "positionOf")
+    fields = [(c["name"], c["type"]) for c in positions_of["outputs"][0]["components"]]
+    assert fields == [
+        ("tickerIndex", "uint8"),
+        ("entryPrice", "uint96"),
+        ("mintedAt", "uint32"),
+        ("mintRank", "uint16"),
+        ("entryMultiplier", "uint96"),
+        ("isGold", "bool"),
+    ], "positionOf ABI struct has drifted from the Position struct in the .sol"
+    # the reverse check for mintedAt specifically: uint40 was the stale type
+    assert "uint40" not in [t for _n, t in fields]
 
 
 def test_no_tx_origin_bot_gate():

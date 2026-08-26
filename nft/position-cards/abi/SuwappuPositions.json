@@ -1010,6 +1010,38 @@
   "inputs": [
    {
     "internalType": "address",
+    "name": "holder",
+    "type": "address"
+   }
+  ],
+  "name": "discountFor",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "defaultRoyaltyBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "address",
     "name": "owner",
     "type": "address"
    },
@@ -1146,6 +1178,25 @@
  {
   "inputs": [
    {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "goldBalance",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
     "internalType": "uint256",
     "name": "tokenId",
     "type": "uint256"
@@ -1170,6 +1221,38 @@
     "internalType": "uint16",
     "name": "",
     "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "goldDiscountFractionBps",
+  "outputs": [
+   {
+    "internalType": "uint16",
+    "name": "",
+    "type": "uint16"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "tokenId",
+    "type": "uint256"
+   }
+  ],
+  "name": "isGold",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "",
+    "type": "bool"
    }
   ],
   "stateMutability": "view",
@@ -1699,9 +1782,9 @@
       "type": "uint96"
      },
      {
-      "internalType": "uint40",
+      "internalType": "uint32",
       "name": "mintedAt",
-      "type": "uint40"
+      "type": "uint32"
      },
      {
       "internalType": "uint16",
@@ -1712,6 +1795,11 @@
       "internalType": "uint96",
       "name": "entryMultiplier",
       "type": "uint96"
+     },
+     {
+      "internalType": "bool",
+      "name": "isGold",
+      "type": "bool"
      }
     ],
     "internalType": "struct SuwappuPositions.Position",
@@ -2022,6 +2110,19 @@
    }
   ],
   "name": "setHoldDiscountFractionBps",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint16",
+    "name": "fractionBps",
+    "type": "uint16"
+   }
+  ],
+  "name": "setGoldDiscountFractionBps",
   "outputs": [],
   "stateMutability": "nonpayable",
   "type": "function"

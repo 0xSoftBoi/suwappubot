@@ -176,6 +176,13 @@ _ABI = [
         "inputs": [{"name": "tickerIndex", "type": "uint8"}],
         "outputs": [{"name": "", "type": "uint256"}],
     },
+    {
+        "name": "isGold",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
 ]
 
 
@@ -343,7 +350,16 @@ class PositionCardsService:
                 for tid in ids[:50]:
                     try:
                         bps, priced = contract.functions.returnBps(tid).call()
-                        rows.append((tid, bps, priced, contract.functions.grade(tid).call()))
+                        grade_idx = contract.functions.grade(tid).call()
+                        # Fail-safe false: a Gold read is decorative (a badge in
+                        # /cards output), never a discount source — the fee path
+                        # already resolves Gold authoritatively via discountFor.
+                        # A failed isGold call must not drop the whole row.
+                        try:
+                            gold = bool(contract.functions.isGold(tid).call())
+                        except Exception:
+                            gold = False
+                        rows.append((tid, bps, priced, grade_idx, gold))
                     except Exception:
                         continue
                 return rows
@@ -354,13 +370,14 @@ class PositionCardsService:
             # budget than _RPC_TIMEOUT — up to 100 eth_calls do not fit in 2s.
             rows = await self._offload(_read_all, default=[], timeout=_VIEW_TIMEOUT)
             out = []
-            for tid, bps, priced, grade_idx in rows or []:
+            for tid, bps, priced, grade_idx, gold in rows or []:
                 out.append(
                     {
                         "token_id": tid,
                         "return_bps": int(bps) if priced else None,
                         "priced": bool(priced),
                         "grade": GRADES[grade_idx] if 0 <= grade_idx < len(GRADES) else "Flat",
+                        "gold": gold,
                     }
                 )
             return out

@@ -122,7 +122,8 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
         cards = await position_cards_service.get_positions(address)
         lines = [f"🃏 *Your position cards* — {len(cards)}\n"]
         for pos in cards[:10]:
-            lines.append(f"`#{pos['token_id']:<5}` {_fmt_return(pos):>8}  {pos['grade']}")
+            marker = " 🏆 FOUNDERS' GOLD" if pos.get("gold") else ""
+            lines.append(f"`#{pos['token_id']:<5}` {_fmt_return(pos):>8}  {pos['grade']}{marker}")
         if len(cards) > 10:
             lines.append(f"_…and {len(cards) - 10} more_")
         lines.append(f"\nSwap fee discount: *−{discount_fraction * 100:.0f}%* on every swap")

@@ -21,7 +21,8 @@
   "hold_discount_fraction": 0.4,
   "_gold_comment": "Founders' Gold tier perk: 55% off the tier rate (under the on-chain MAX_HOLD_DISCOUNT_FRACTION_BPS = 6000 ceiling and the bot's MAX_CARD_DISCOUNT_FRACTION clamp). Gold is stamped per token at mint (Phase.Gold), never rolled — the StonkBrokers/Gremlin lesson: real utility inside the token is what held the only durable floors on chain 4663. A holder's discount is the best single card they hold: gold 55%, else 40%. Per holder, not per card — stacking cannot compound it.",
   "gold_discount_fraction": 0.55,
-  "max_discount_fraction": 0.55,
+  "_max_discount_fraction_comment": "Mirrors MAX_HOLD_DISCOUNT_FRACTION_BPS (on-chain, 6000 == 0.60) and MAX_CARD_DISCOUNT_FRACTION (bot/services/position_cards_service.py, 0.60) — the hard ceiling any discount (base or Gold) can ever be tuned to, not the current Gold rate. Pinned three-way in tests/test_position_cards.py.",
+  "max_discount_fraction": 0.60,
   "_royalty_comment": "ERC-2981 default royalty in bps. 2% is the only royalty verified on-chain in the Robinhood Chain market research (Robinhood Punks); the chain norm is 2-5%, and undercutting to the verified floor keeps secondary friction lowest.",
   "royalty_bps": 200,
   "early_mint_badge_ranks": {
