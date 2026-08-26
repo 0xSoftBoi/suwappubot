@@ -35,6 +35,14 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
+# Solana token program ids — one getTokenAccountsByOwner per program returns
+# every token account the owner has, so a portfolio fetch is 3 RPC calls
+# (getBalance + classic SPL + Token-2022) instead of one call per mint.
+SOLANA_TOKEN_PROGRAM_IDS = (
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  # classic SPL
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  # Token-2022 (PYUSD, ...)
+)
+
 
 # ---------------------------------------------------------------------------
 # Backup-key access guard (R4) — backup private keys are the highest-value secret
@@ -855,6 +863,90 @@ class WalletService:
         except Exception:
             return 0.0
 
+    async def _solana_rpc_post(
+        self, session: aiohttp.ClientSession, payload: dict, context: str
+    ) -> dict:
+        """POST one JSON-RPC payload to the healthiest Solana endpoint.
+
+        Reports the outcome to rpc_manager so rate-limited (429) or blocked
+        (403) endpoints circuit-open and the next call rotates to another URL
+        — without this the fetcher hammers the same dead endpoint forever.
+        """
+        url = rpc_manager.get_rpc_url("solana")
+        start = time.monotonic()
+        async with session.post(url, json=payload) as resp:
+            if resp.status == 429:
+                rpc_manager.report_failure("solana", url, "rate_limited_429")
+                logger.warning(f"Solana RPC rate limited (429) {context}")
+                raise ConnectionError("Solana RPC rate limited")
+            if resp.status >= 400:
+                rpc_manager.report_failure("solana", url, f"http_{resp.status}")
+                logger.warning(f"Solana RPC HTTP {resp.status} {context}")
+                raise ConnectionError(f"Solana RPC HTTP {resp.status}")
+            result = await resp.json()
+        if "error" in result:
+            rpc_manager.report_failure("solana", url, f"rpc_error: {str(result['error'])[:80]}")
+            logger.warning(f"Solana RPC error {context}: {result['error']}")
+            raise ConnectionError(f"Solana RPC error: {result['error']}")
+        rpc_manager.report_success("solana", url, (time.monotonic() - start) * 1000)
+        return result
+
+    async def get_solana_all_balances(self, address: str) -> dict[str, float]:
+        """Fetch SOL + every configured SPL token balance in 3 RPC calls.
+
+        Sequential getBalance + one getTokenAccountsByOwner per token program
+        (classic SPL and Token-2022), instead of one per-mint call — the
+        per-mint fan-out was 9+ concurrent requests per wallet and got the
+        whole worker rate-limited. Raises ConnectionError on RPC failure so
+        callers don't cache an empty result as truth.
+        """
+        from bot.config.tokens import TOKENS
+
+        if rpc_manager.chain_all_circuits_open("solana"):
+            raise ConnectionError("all_circuits_open")
+
+        mint_to_symbol = {
+            token.addresses["solana"]: symbol
+            for symbol, token in TOKENS.items()
+            if "solana" in token.addresses
+        }
+
+        balances: dict[str, float] = {}
+        async with self._http_session() as session:
+            native = await self._solana_rpc_post(
+                session,
+                {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]},
+                f"fetching SOL for {address[:8]}...",
+            )
+            lamports = (native.get("result") or {}).get("value")
+            if isinstance(lamports, int) and lamports > 0:
+                balances["SOL"] = lamports / 1e9
+
+            for program_id in SOLANA_TOKEN_PROGRAM_IDS:
+                result = await self._solana_rpc_post(
+                    session,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTokenAccountsByOwner",
+                        "params": [address, {"programId": program_id}, {"encoding": "jsonParsed"}],
+                    },
+                    f"fetching token accounts for {address[:8]}...",
+                )
+                for account in (result.get("result") or {}).get("value") or []:
+                    try:
+                        info = account["account"]["data"]["parsed"]["info"]
+                        symbol = mint_to_symbol.get(info.get("mint"))
+                        if not symbol:
+                            continue
+                        amount = int(info["tokenAmount"]["amount"])
+                        decimals = info["tokenAmount"]["decimals"]
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if amount > 0:
+                        balances[symbol] = balances.get(symbol, 0.0) + amount / (10**decimals)
+        return balances
+
     async def get_solana_token_balance(
         self,
         token_symbol: str,
@@ -873,48 +965,27 @@ class WalletService:
         if rpc_manager.chain_all_circuits_open("solana"):
             raise ConnectionError("all_circuits_open")
 
-        client = await self._get_solana_client()  # noqa: F841
-
         try:
-            # Get token accounts for the wallet
-            pubkey = Pubkey.from_string(address)  # noqa: F841
-            mint_pubkey = Pubkey.from_string(token_mint)  # noqa: F841
-
-            # Use getTokenAccountsByOwner RPC method
             async with self._http_session() as session:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getTokenAccountsByOwner",
-                    "params": [address, {"mint": token_mint}, {"encoding": "jsonParsed"}],
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    if resp.status == 429:
-                        logger.warning(
-                            f"Solana RPC rate limited (429) fetching {token_symbol} for {address[:8]}..."
-                        )
-                        raise ConnectionError("Solana RPC rate limited")
-                    if resp.status >= 400:
-                        logger.warning(f"Solana RPC HTTP {resp.status} fetching {token_symbol}")
-                        raise ConnectionError(f"Solana RPC HTTP {resp.status}")
-
-                    result = await resp.json()
-
-                    if "error" in result:
-                        logger.warning(
-                            f"Solana RPC error fetching {token_symbol}: {result['error']}"
-                        )
-                        raise ConnectionError(f"Solana RPC error: {result['error']}")
-
-                    if "result" in result and result["result"]["value"]:
-                        accounts = result["result"]["value"]
-                        total_balance = 0
-                        for account in accounts:
-                            info = account["account"]["data"]["parsed"]["info"]
-                            amount = int(info["tokenAmount"]["amount"])
-                            decimals = info["tokenAmount"]["decimals"]
-                            total_balance += amount / (10**decimals)
-                        return total_balance
+                result = await self._solana_rpc_post(
+                    session,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTokenAccountsByOwner",
+                        "params": [address, {"mint": token_mint}, {"encoding": "jsonParsed"}],
+                    },
+                    f"fetching {token_symbol} for {address[:8]}...",
+                )
+                if "result" in result and result["result"]["value"]:
+                    accounts = result["result"]["value"]
+                    total_balance = 0
+                    for account in accounts:
+                        info = account["account"]["data"]["parsed"]["info"]
+                        amount = int(info["tokenAmount"]["amount"])
+                        decimals = info["tokenAmount"]["decimals"]
+                        total_balance += amount / (10**decimals)
+                    return total_balance
 
             return 0.0
         except ConnectionError:
@@ -929,26 +1000,14 @@ class WalletService:
             raise ConnectionError("all_circuits_open")
         try:
             async with self._http_session() as session:
-                payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    if resp.status == 429:
-                        logger.warning(
-                            f"Solana RPC rate limited (429) fetching SOL for {address[:8]}..."
-                        )
-                        raise ConnectionError("Solana RPC rate limited")
-                    if resp.status >= 400:
-                        logger.warning(f"Solana RPC HTTP {resp.status} fetching SOL balance")
-                        raise ConnectionError(f"Solana RPC HTTP {resp.status}")
-
-                    result = await resp.json()
-
-                    if "error" in result:
-                        logger.warning(f"Solana RPC error for {address[:8]}...: {result['error']}")
-                        raise ConnectionError(f"Solana RPC error: {result['error']}")
-
-                    if "result" in result:
-                        lamports = result["result"]["value"]
-                        return lamports / 1e9  # Convert lamports to SOL
+                result = await self._solana_rpc_post(
+                    session,
+                    {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]},
+                    f"fetching SOL for {address[:8]}...",
+                )
+                if "result" in result:
+                    lamports = result["result"]["value"]
+                    return lamports / 1e9  # Convert lamports to SOL
 
             return 0.0
         except ConnectionError:
@@ -1350,26 +1409,14 @@ class WalletService:
                         balances[name] = chain_bal
 
         elif wallet.chain_type == "solana":
-            chain_balances: dict[str, float] = {}
-
-            # Parallel: SOL native + all SPL tokens
-            tasks = []
-            task_labels = []
-
-            tasks.append(_safe_fetch(self.get_solana_native_balance(wallet.address)))
-            task_labels.append("SOL")
-
-            for token_symbol, token in TOKENS.items():
-                if "solana" in token.addresses:
-                    tasks.append(
-                        _safe_fetch(self.get_solana_token_balance(token_symbol, wallet.address))
-                    )
-                    task_labels.append(token_symbol)
-
-            results = await asyncio.gather(*tasks)
-            for label, bal in zip(task_labels, results):
-                if isinstance(bal, (int, float)) and bal > 0:
-                    chain_balances[label] = bal
+            # Batched: 3 RPC calls total instead of one per mint
+            try:
+                chain_balances = await asyncio.wait_for(
+                    self.get_solana_all_balances(wallet.address), timeout=15
+                )
+            except (ConnectionError, asyncio.TimeoutError) as e:
+                logger.warning(f"Solana balance fetch failed for {wallet.address[:8]}...: {e}")
+                chain_balances = {}
 
             if chain_balances:
                 balances["solana"] = chain_balances
@@ -1586,34 +1633,15 @@ class WalletService:
                                 balances[chain_name] = chain_balances
 
                 elif chain_type == "solana":
-                    chain_balances: dict[str, float] = {}
-
-                    # Build all Solana tasks in parallel
-                    tasks = []
-                    task_keys = []
-
-                    tasks.append(_safe_call(self.get_solana_native_balance(address)))
-                    task_keys.append("SOL")
-
-                    for token_symbol, token in TOKENS.items():
-                        if "solana" in token.addresses:
-                            tasks.append(
-                                _safe_call(self.get_solana_token_balance(token_symbol, address))
-                            )
-                            task_keys.append(token_symbol)
-
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    any_rpc_failed = False
-                    for key, result in zip(task_keys, results):
-                        if result is None:
-                            any_rpc_failed = True  # RPC error — don't treat as zero
-                        elif isinstance(result, (int, float)) and result > 0:
-                            chain_balances[key] = result
-
-                    if chain_balances:
-                        balances["solana"] = chain_balances
-                    elif any_rpc_failed:
+                    # Batched: 3 RPC calls total instead of one per mint
+                    try:
+                        chain_balances = await asyncio.wait_for(
+                            self.get_solana_all_balances(address), timeout=CALL_TIMEOUT * 3
+                        )
+                        if chain_balances:
+                            balances["solana"] = chain_balances
+                    except (ConnectionError, asyncio.TimeoutError) as e:
+                        logger.warning(f"Solana balance fetch failed for {address[:8]}...: {e}")
                         # Mark that Solana fetch failed — prevents caching empty as truth
                         balances["_solana_rpc_failed"] = True
 
