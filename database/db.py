@@ -1176,6 +1176,11 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
         # Crypto-native subscription overlay (api-ts resolves effective tier from these).
         ("subscription_tier", "VARCHAR(20)", "NULL"),
         ("subscription_expires_at", "TIMESTAMP", "NULL"),
+        # Org context for agent-token auth (Drizzle: agents.organizationId, uuid,
+        # nullable). Environments that run api-ts with SKIP_SCHEMA_SYNC=true get
+        # the column only from here, and every Drizzle select on agents includes
+        # it — without it agent registration/auth 500s (ADR 0003).
+        ("organization_id", "UUID" if not is_sqlite else "VARCHAR(36)", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:
