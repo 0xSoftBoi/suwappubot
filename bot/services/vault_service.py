@@ -74,8 +74,11 @@ APY_CEILING = 2.0  # 200%
 # A partial-withdraw request within this fraction of the live full position
 # value redeems the ENTIRE share balance instead — no dust left behind, and
 # no ambiguity between "redeem some" and "redeem everything" (fix for the
-# earn.py partial-withdraw-drains-everything defect).
-FULL_REDEEM_EPSILON = 0.005
+# earn.py partial-withdraw-drains-everything defect). Kept tight (0.1%, not
+# the old buggy code's 0.5%) so a deliberate near-but-not-full request (e.g.
+# 996,000 of a 1,000,000 position — 99.6%) stays a genuine partial redeem
+# instead of silently draining the whole position.
+FULL_REDEEM_EPSILON = 0.001
 
 ERC4626_ABI = [
     {

@@ -10,7 +10,7 @@ those calls with asyncio.to_thread so the event loop stays responsive.
 
 import asyncio
 import logging
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -93,6 +93,22 @@ async def _log_event(user_id, wallet_id, vault_key, action, amount, tx_hash):
         logger.warning(f"Failed to log earn event: {e}")
 
 
+def _floor_str(value: float, decimals: int = 6) -> str:
+    """Floor (never round up) `value` to `decimals` places for display.
+
+    Fix 7: rendering with plain f"{value:.6f}" ROUNDS, so an available
+    balance like 99.9999996 displays as "100.000000" — typing that back
+    then fails the amount > available check even though it was copied
+    verbatim from the prompt. Flooring guarantees the displayed figure is
+    always <= the true available amount, so it's always accepted.
+    """
+    q = Decimal(1).scaleb(-decimals)
+    try:
+        return str(Decimal(str(value)).quantize(q, rounding=ROUND_FLOOR))
+    except Exception:
+        return f"{value:.{decimals}f}"
+
+
 def _tx_link(tx_hash: str, chain: str) -> str:
     if tx_hash and not tx_hash.startswith("0x"):
         tx_hash = "0x" + tx_hash
@@ -113,6 +129,35 @@ async def _resolve_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── Menu: list all vaults grouped by chain ────────────────────────────────────
+
+
+async def _fetch_vault_row(cfg, wallet_address: str) -> tuple:
+    """APY + position text for one vault, its two RPC round-trips run
+    concurrently (fix for /earn menu holding the per-user lock and a shared
+    to_thread executor slot for up to 5 vaults x 2 sequential 15s-timeout
+    RPCs on a cold cache)."""
+    apy_text = "—"
+    pos_text = ""
+
+    async def _apy():
+        nonlocal apy_text
+        try:
+            stats = await asyncio.to_thread(vault_service.get_vault_stats, cfg.key)
+            apy_text = f"{stats['apy']:.2%}" if stats.get("apy") is not None else "—"
+        except VaultError:
+            pass
+
+    async def _pos():
+        nonlocal pos_text
+        try:
+            pos = await asyncio.to_thread(vault_service.get_position, cfg.key, wallet_address)
+            if pos["shares_raw"] > 0:
+                pos_text = f" · your position: {pos['assets']:.4f} {pos['asset_symbol']}"
+        except VaultError:
+            pass
+
+    await asyncio.gather(_apy(), _pos())
+    return cfg.key, apy_text, pos_text
 
 
 async def _render_menu(update, context, *, is_callback):
@@ -150,22 +195,13 @@ async def _render_menu(update, context, *, is_callback):
     for cfg in list_vaults():
         by_chain.setdefault(cfg.chain, []).append(cfg)
 
+    rows = await asyncio.gather(*(_fetch_vault_row(cfg, wallet.address) for cfg in list_vaults()))
+    row_by_key = {key: (apy_text, pos_text) for key, apy_text, pos_text in rows}
+
     for chain in sorted(by_chain):
         lines.append(f"\n*{chain.capitalize()}*")
         for cfg in by_chain[chain]:
-            apy_text = "—"
-            pos_text = ""
-            try:
-                stats = await asyncio.to_thread(vault_service.get_vault_stats, cfg.key)
-                apy_text = f"{stats['apy']:.2%}" if stats.get("apy") is not None else "—"
-            except VaultError:
-                pass
-            try:
-                pos = await asyncio.to_thread(vault_service.get_position, cfg.key, wallet.address)
-                if pos["shares_raw"] > 0:
-                    pos_text = f" · your position: {pos['assets']:.4f} {pos['asset_symbol']}"
-            except VaultError:
-                pass
+            apy_text, pos_text = row_by_key[cfg.key]
             lines.append(
                 f"   • *{cfg.display_name}* ({cfg.protocol}, {cfg.asset_symbol}) "
                 f"— APY: {apy_text}{pos_text}"
@@ -211,6 +247,7 @@ async def earn_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return await _render_menu(update, context, is_callback=False)
 
 
+@enforce_tos
 async def earn_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer("Refreshing...")
@@ -318,14 +355,14 @@ async def earn_action_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         available = float(earn.get("idle") or 0)
         text = (
             f"➕ *Deposit {cfg.asset_symbol}* → {cfg.display_name}\n\n"
-            f"Available: *{available:.6f} {cfg.asset_symbol}*\n\n"
+            f"Available: *{_floor_str(available)} {cfg.asset_symbol}*\n\n"
             f"Enter an amount:"
         )
     else:
         available = float(earn["position"]["assets"])
         text = (
             f"➖ *Withdraw {cfg.asset_symbol}* from {cfg.display_name}\n\n"
-            f"In vault: *{available:.6f} {cfg.asset_symbol}*\n\n"
+            f"In vault: *{_floor_str(available)} {cfg.asset_symbol}*\n\n"
             f"Enter an amount, or use Withdraw All:"
         )
     earn["available"] = available
@@ -355,9 +392,14 @@ async def earn_enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return EARN_AMOUNT
 
     available = float(earn.get("available") or 0)
-    if amount > available + 1e-9:
+    # Fix 7: the "Available" prompt is floored to 6dp (never rounded up) so a
+    # user typing back exactly what was displayed is always accepted; a
+    # relative tolerance (not a fixed 1e-9) guards the remaining float-repr
+    # noise, which matters at scale for 18dp assets.
+    tolerance = max(available * 1e-6, 1e-9)
+    if amount > available + tolerance:
         await update.message.reply_text(
-            f"❌ Amount exceeds available ({available:.6f}). Enter a smaller amount:"
+            f"❌ Amount exceeds available ({_floor_str(available)}). Enter a smaller amount:"
         )
         return EARN_AMOUNT
 
@@ -382,18 +424,21 @@ async def _show_confirm(update, context, *, is_callback) -> int:
             )
             est_text = f"\nEst. shares: *{shares_raw / 10**cfg.share_decimals:.6f}*"
         elif action == "withdraw" and amount is not None:
-            position = earn.get("position") or {}
-            total_assets = float(position.get("assets") or 0)
-            total_shares_raw = int(position.get("shares_raw") or 0)
-            if total_assets > 0 and total_shares_raw > 0:
-                shares_raw = min(
-                    total_shares_raw, int(round(amount / total_assets * total_shares_raw))
-                )
-                assets_raw = await asyncio.to_thread(
-                    vault_service.preview_redeem, earn["vault_key"], shares_raw
-                )
+            # Same live-price rule execute uses (VaultService._resolve_withdrawal_shares)
+            # so this screen never promises a number execute won't deliver.
+            assets_raw_req = int(round(amount * 10**cfg.asset_decimals))
+            preview = await asyncio.to_thread(
+                vault_service.preview_withdrawal,
+                earn["vault_key"],
+                earn["wallet_address"],
+                assets_raw_req,
+            )
+            if preview.get("full_redeem"):
+                est_text = "\n⚠️ *This withdraws your full position* (no dust left behind)."
+            else:
                 est_text = (
-                    f"\nEst. return: *{assets_raw / 10**cfg.asset_decimals:.6f} {cfg.asset_symbol}*"
+                    f"\nEst. return: *{preview['assets_raw'] / 10**cfg.asset_decimals:.6f} "
+                    f"{cfg.asset_symbol}*"
                 )
     except VaultError:
         pass
@@ -439,9 +484,20 @@ async def earn_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     earn = context.user_data.get("earn")
-    if not earn or not earn.get("action") or not earn.get("vault_key"):
+    if not earn or not earn.get("vault_key"):
         await query.edit_message_text(
             "❌ Session expired. Start again with /earn", reply_markup=_RETRY_KEYBOARD
+        )
+        return ConversationHandler.END
+
+    action = earn.pop("action", None)
+    if not action:
+        # Fix 9: context.user_data is per-user, not per-conversation, and this
+        # conversation is per_chat=True — a confirm screen open in both a DM
+        # and a group shares this "earn" dict. A second tap must be a no-op.
+        await query.edit_message_text(
+            "⚠️ This action already completed (or expired). Use /earn to start again.",
+            reply_markup=_RETRY_KEYBOARD,
         )
         return ConversationHandler.END
 
@@ -449,7 +505,6 @@ async def earn_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
     wallet_id = earn.get("wallet_id")
     vault_key = earn["vault_key"]
     cfg = get_vault(vault_key)
-    action = earn["action"]
     amount = earn.get("amount")
 
     with get_session() as session:
@@ -483,23 +538,37 @@ async def earn_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 f"*Transactions:*\n{links}"
             )
         else:
-            shares_raw = None  # full redeem
-            if amount is not None:
-                position = earn.get("position") or {}
-                total_assets = float(position.get("assets") or 0)
-                total_shares_raw = int(position.get("shares_raw") or 0)
-                if total_assets <= 0 or total_shares_raw <= 0:
-                    raise VaultError("Nothing to withdraw from this vault.")
-                # ≥99.5% of the balance → full redeem (no dust left behind).
-                if amount < total_assets * 0.995:
-                    shares_raw = min(
-                        total_shares_raw, int(round(amount / total_assets * total_shares_raw))
-                    )
-            tx_hashes = await asyncio.to_thread(
-                vault_service.withdraw, wallet, vault_key, shares_raw
-            )
-            await _log_event(user_id, wallet_id, vault_key, "withdraw", amount, tx_hashes[-1])
-            amount_text = "all funds" if amount is None else f"{amount:.6f} {cfg.asset_symbol}"
+            if amount is None:
+                # "Withdraw All" button — explicit, unambiguous full redeem of
+                # the LIVE on-chain share balance (VaultService.withdraw).
+                tx_hashes = await asyncio.to_thread(vault_service.withdraw, wallet, vault_key, None)
+                actual_amount = None
+                full_redeem = True
+            else:
+                # Fix 2/3/6: target the ASSET amount, not a share count derived
+                # from the (possibly stale, possibly minutes/hours old) confirm
+                # screen's cached position. withdraw_assets re-reads balance and
+                # price live, floors at 1 share (never 0 -> never a false
+                # "Nothing to withdraw"), and treats a near-full request as a
+                # full redeem so no partial number can be shown while the
+                # entire position silently drains.
+                assets_raw = int(round(float(amount) * 10**cfg.asset_decimals))
+                result = await asyncio.to_thread(
+                    vault_service.withdraw_assets, wallet, vault_key, assets_raw
+                )
+                tx_hashes = result["tx_hashes"]
+                actual_amount = result["assets_raw"] / 10**cfg.asset_decimals
+                full_redeem = result["full_redeem"]
+
+            log_amount = actual_amount if actual_amount is not None else amount
+            await _log_event(user_id, wallet_id, vault_key, "withdraw", log_amount, tx_hashes[-1])
+            if actual_amount is None:
+                amount_text = "all funds"
+            else:
+                # Report what was ACTUALLY redeemed, never the typed request.
+                amount_text = f"{actual_amount:.6f} {cfg.asset_symbol}"
+                if full_redeem:
+                    amount_text += " (your full position)"
             text = (
                 f"✅ *Withdrawal submitted!*\n\n"
                 f"Withdrew *{amount_text}* from {cfg.display_name}.\n\n"
