@@ -22,6 +22,7 @@ import {
 	autopilotAdminRoutes,
 	autopilotRoutes,
 	billingRoutes,
+	clobRoutes,
 	createPythonProxyRoutes,
 	createTerminalSwapProxyRoutes,
 	dataRoutes,
@@ -220,6 +221,11 @@ export function createApp(config: AppConfig) {
 	// Unauthenticated by design: decisions, refusals, positions and P&L are the
 	// product. Control lives on /admin/autopilot behind X-Admin-Key.
 	app.route('/v1/autopilot', autopilotRoutes)
+
+	// CLOB dev lane — headless-exchange order routes (in-memory engine,
+	// suwappu-clob semantics). Reads public; mutations require agent bearer
+	// auth inside clobRoutes.
+	app.route('/v1/clob', clobRoutes)
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)
