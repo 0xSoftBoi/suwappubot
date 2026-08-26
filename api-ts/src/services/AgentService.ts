@@ -290,7 +290,12 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 				try: () => db.select().from(agents).where(eq(agents.name, name)),
 				catch: (e) =>
 					new DatabaseError({
-						message: `Failed to get agent by name: ${e}`,
+						// Drizzle's query error stringifies without the driver error;
+						// surface the Postgres cause or the failure is undebuggable
+						// from logs (schema drift shows up here first).
+						message: `Failed to get agent by name: ${e}${
+							(e as Error)?.cause ? ` — cause: ${(e as Error).cause}` : ''
+						}`,
 						cause: e,
 					}),
 			})
