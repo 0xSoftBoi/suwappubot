@@ -16,6 +16,18 @@ from typing import Optional
 
 from bot.config.tokens import TOKENS
 
+# Address-based gating index — required because a pasted contract address
+# (paste-to-trade) never resolves to a TOKENS symbol lookup, so the
+# symbol-only check below misses it entirely for gated tokens like USTB/USCC.
+# Keyed on (chain, lowercased address) since the same symbol/token can have
+# different addresses (or gating status) per chain.
+_GATED_ADDRESSES: frozenset[tuple[str, str]] = frozenset(
+    (chain, addr.lower())
+    for t in TOKENS.values()
+    if t.transfer_gated
+    for chain, addr in t.addresses.items()
+)
+
 
 @dataclass
 class ProtocolConfig:
@@ -114,24 +126,40 @@ def get_protocol_for_token(symbol: str) -> Optional[ProtocolConfig]:
     return None
 
 
-def is_gated_token(symbol: str) -> bool:
-    """True if `symbol` is a TOKENS entry with an on-chain transfer allowlist.
+def is_gated_token(symbol: str, chain: Optional[str] = None) -> bool:
+    """True if `symbol` (or a pasted contract address) is transfer-gated.
 
     Reads TokenConfig.transfer_gated directly. Tolerates unknown symbols
     (returns False rather than raising) and is case-insensitive, matching
     how bot/config/tokens.py's own lookup helpers resolve symbols.
+
+    `symbol` may also be a raw pasted contract address (paste-to-trade) that
+    never resolves to a TOKENS entry via the symbol lookup below — in that
+    case, check it against the address-based gating index instead. When
+    `chain` is given, only that chain's gated addresses are checked; when
+    omitted, the address is checked against gated addresses on any chain.
     """
     if not symbol:
         return False
-    token = TOKENS.get(symbol.strip().upper())
+    symbol = symbol.strip()
+    token = TOKENS.get(symbol.upper())
     if token is None:
         # Fall back to a case-insensitive scan since TOKENS keys aren't all
         # uppercase (e.g. "USDe", "stETH") — mirrors get_token_by_symbol's
         # intent without assuming every registry key is upper-cased.
         for key, candidate in TOKENS.items():
-            if key.lower() == symbol.strip().lower():
+            if key.lower() == symbol.lower():
                 token = candidate
                 break
-    if token is None:
-        return False
-    return token.transfer_gated
+    if token is not None:
+        return token.transfer_gated
+
+    # Not a known symbol — if it looks like a pasted address, check it
+    # against the address-based gating index (paste-to-trade path).
+    if (symbol.startswith("0x") or symbol.startswith("0X")) and len(symbol) >= 42:
+        addr = symbol.lower()
+        if chain:
+            return (chain.lower(), addr) in _GATED_ADDRESSES
+        return any(gated_addr == addr for _chain, gated_addr in _GATED_ADDRESSES)
+
+    return False

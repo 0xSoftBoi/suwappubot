@@ -248,7 +248,14 @@ TOKENS: dict[str, TokenConfig] = {
     # vault share). Accrues protocol yield, so its redemption value drifts
     # above $1 (~$1.23 as of 2026-08-26) rather than holding a $1 peg like
     # USDe — NOT a stablecoin.
-    "sUSDe": TokenConfig(
+    # NOTE: dict key is "SUSDE" (uppercase) NOT "sUSDe" — get_token_address(),
+    # get_token_by_symbol(), and get_token_decimals() all do symbol.upper()
+    # lookups against TOKENS, so a mixed-case key here is unreachable via any
+    # of them (dead entry). symbol="sUSDe" below is unaffected and still
+    # drives display text. Mirrors api-ts tokenRegistry.ts, which already
+    # keys this SUSDE. The pre-existing USDe/stETH/wstETH/cbETH/rETH mixed-case
+    # keys have the same defect but are out of scope for this fix.
+    "SUSDE": TokenConfig(
         symbol="sUSDe",
         name="Ethena Staked USDe",
         decimals=18,
@@ -755,9 +762,13 @@ TOKENS: dict[str, TokenConfig] = {
     # Ethereum mainnet only here — Superstate also has USTB/USCC-equivalent
     # deployments on Solana and Plume, but those addresses were NOT verified
     # on-chain for this change, so they are intentionally omitted.
+    # NOTE: names below use the current on-chain name() (issuer rebranded from
+    # "Superstate" branding to Invesco/Bitwise sub-brands) — Superstate is
+    # still the protocol/issuer of record (superstate.co) and remains the
+    # PROTOCOLS entry + gated_note context.
     "USTB": TokenConfig(
         symbol="USTB",
-        name="Superstate Short Duration US Gov Securities Fund",
+        name="Invesco Short Duration US Government Securities Fund",
         decimals=6,
         addresses={
             "ethereum": "0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e",
@@ -773,7 +784,7 @@ TOKENS: dict[str, TokenConfig] = {
     ),
     "USCC": TokenConfig(
         symbol="USCC",
-        name="Superstate Crypto Carry Fund",
+        name="Bitwise Crypto Carry Fund",
         decimals=6,
         addresses={
             "ethereum": "0x14d60E7FDC0D71d8611742720E4C50E7a974020c",
