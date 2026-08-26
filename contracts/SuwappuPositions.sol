@@ -115,6 +115,18 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     ///         capped at.
     uint16 public goldDiscountFractionBps = 5500;
 
+    /// @notice Basis points last passed to `_setDefaultRoyalty`, tracked here
+    ///         because ERC2981 does not expose a getter for it. `setTreasury`
+    ///         reads this to re-point the royalty receiver at the new treasury
+    ///         with the SAME rate — otherwise a treasury rotation would silently
+    ///         leave secondary royalties flowing to whatever address was set at
+    ///         deploy (or last manually retuned) forever.
+    ///
+    /// INVARIANT: royalties follow treasury unless explicitly retuned afterwards
+    /// via `setDefaultRoyalty`, which also updates this value so a later
+    /// `setTreasury` call keeps using the retuned rate rather than reverting to 200.
+    uint16 public defaultRoyaltyBps = 200;
+
     struct Position {
         uint8 tickerIndex; // index into the sorted ROBINHOOD_EQUITIES registry
         uint96 entryPrice; // USDG per unit, 1e18. 0 == minted while unpriced
@@ -261,6 +273,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     error PriceZero();
     error UnpricedAtMint();
     error FreePhaseUnbounded();
+    error OpenPhaseUnbounded();
     error RenounceDisabled();
 
     constructor(
@@ -493,7 +506,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // supply. (Both entry points are nonReentrant too — this is the belt
         // behind the braces.)
         totalSupply = supply + quantity;
-        uint32 mintedAt = uint32(block.timestamp);
+        uint32 mintedAt = SafeCast.toUint32(block.timestamp);
         // Entry price is stamped once and immutable by design, and `oracle` is
         // owner-settable at any time, so narrow it with a checked cast rather
         // than silently recording a wrapped value forever.
@@ -884,15 +897,21 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     /// @notice One-way door: after this NO token can ever be minted again, not by
     ///         the public and not by the owner. Supply becomes provably final,
-    ///         which is the difference between "10,000 max" and "10,000, and here
+    ///         which is the difference between "4,444 max" and "4,444, and here
     ///         is the transaction proving no more can exist".
     function closeMintingForever() external onlyOwner {
         mintingClosedForever = true;
         emit MintingClosedForever(totalSupply);
     }
 
+    /// @dev Also updates `defaultRoyaltyBps` so a later `setTreasury` re-points
+    ///      royalties at this rate rather than reverting to the constructor
+    ///      default. `feeNumerator` is bps (ERC2981's denominator is 10_000),
+    ///      so it always fits uint16; SafeCast makes that explicit rather than
+    ///      truncating silently if that ever stops being true.
     function setDefaultRoyalty(address receiver, uint96 feeNumerator) external onlyOwner {
         _setDefaultRoyalty(receiver, feeNumerator);
+        defaultRoyaltyBps = SafeCast.toUint16(feeNumerator);
     }
 
     /// @notice Point the contract at USDG and the treasury. Post-deploy setters
@@ -903,9 +922,17 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         _usdg3009 = IERC3009(token);
     }
 
+    /// @dev INVARIANT: royalties follow treasury. Ownable2Step's ownership
+    ///      transfer does NOT move the ERC-2981 receiver, and the constructor
+    ///      stamps `initialOwner` (the deploy key) as that receiver — a treasury
+    ///      set post-deploy without this line would leave secondary royalties
+    ///      paying the deploy key forever. Re-points at the CURRENT
+    ///      `defaultRoyaltyBps`, so an owner who has since retuned the rate via
+    ///      `setDefaultRoyalty` keeps that rate rather than reverting to 200.
     function setTreasury(address t) external onlyOwner {
         if (t == address(0)) revert PaymentNotConfigured();
         treasury = t;
+        _setDefaultRoyalty(t, defaultRoyaltyBps);
     }
 
     function setOracle(address o) external onlyOwner {
@@ -955,6 +982,16 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // free phase goes through `configureFreePhase` where the word "free"
         // appears in the call the owner signs.
         if (price == 0) revert PriceZero();
+        // Mirrors configureFreePhase's FreePhaseUnbounded guard. An OPEN
+        // (merkleRoot == 0) priced phase with allocation == 0 means "up to
+        // MAX_SUPPLY" — for Phase.Gold that would permanently stamp an
+        // unbounded run of 55%-off entitlements rather than the capped 555-card
+        // edition the economics are priced around. Require BOTH bounds, same as
+        // the free-phase door: a wallet cap alone is not a bound when there is
+        // no allowlist limiting how many distinct wallets can mint.
+        if (merkleRoot == bytes32(0) && (walletCap == 0 || allocation == 0)) {
+            revert OpenPhaseUnbounded();
+        }
         phaseConfig[phase] = PhaseConfig(
             merkleRoot, price, walletCap, allocation, startsAt, endsAt
         );

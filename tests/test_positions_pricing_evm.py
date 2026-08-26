@@ -55,7 +55,9 @@ def env():
     pos.functions.sealRegistry().transact({"from": owner})
     usdg = wire_payments(w3, art, pos, owner, owner, alice, deploy)
     now = w3.eth.get_block("latest").timestamp
-    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 50, 0, now - 1, 0).transact(
+    # allocation 4_444 (== MAX_SUPPLY), not 0: an open (no-merkle-root) priced
+    # phase now requires both bounds — see OpenPhaseUnbounded in configurePhase.
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 50, 4_444, now - 1, 0).transact(
         {"from": owner}
     )
     return w3, pos, feed, owner, alice, usdg
