@@ -5,8 +5,8 @@
     "access": "public",
     "provenance": true
   },
-  "description": "TypeScript client for the Suwappu cross-chain DEX API",
-  "homepage": "https://github.com/0xSoftBoi/suwappubot/tree/main/packages/sdk#readme",
+  "description": "Official TypeScript SDK + CLI for Suwappu — cross-chain DEX quotes, swaps, portfolios, perps, prediction markets, and agent wallet controls.",
+  "homepage": "https://suwappu.bot",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0xSoftBoi/suwappubot.git",
@@ -18,11 +18,13 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "suwappu": "./dist/cli/index.js"
@@ -30,8 +32,12 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -44,8 +50,21 @@
     "cross-chain",
     "swap",
     "defi",
-    "sdk"
+    "sdk",
+    "cli",
+    "agent",
+    "ai-agent",
+    "telegram",
+    "stablecoin",
+    "solana",
+    "evm",
+    "perps",
+    "hyperliquid",
+    "polymarket",
+    "morpho",
+    "typescript"
   ],
+  "author": "Suwappu",
   "license": "MIT",
   "dependencies": {
     "cli-table3": "^0.6.5",

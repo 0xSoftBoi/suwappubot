@@ -106,6 +106,9 @@ function simulationCheckStatus(value: unknown): SwapSimulation["checks"][number]
  * `code` is the machine-parseable `error_code` field from the response body
  * (e.g. `INVALID_API_KEY`, `RATE_LIMITED`), when the API returns one.
  * Undefined for older API responses or bodies that aren't JSON.
+ *
+ * `status` is `0` for requests that never reached the API — a client-side
+ * timeout (`code: "timeout"`) or network failure (`code: "network_error"`).
  */
 export class SuwappuError extends Error {
   readonly status: number;
@@ -130,9 +133,13 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+/** Default per-request timeout (ms) applied when `SuwappuConfig.timeoutMs` is not set. */
+export const DEFAULT_TIMEOUT_MS = 30_000;
+
 export class Suwappu {
   private readonly apiKey: string;
   private readonly baseUrl: string;
+  private readonly timeoutMs: number;
 
   /** Hyperliquid perpetuals. */
   readonly perps: PerpsNamespace;
@@ -151,12 +158,22 @@ export class Suwappu {
   /** Org-wide kill switch. Requires an org API key. */
   readonly killswitch: KillSwitchNamespace;
 
+  /**
+   * @param config `apiKey` falls back to the `SUWAPPU_API_KEY` env var, and
+   *   `baseUrl` falls back to `SUWAPPU_API_URL`, then {@link DEFAULT_BASE_URL}.
+   *   `timeoutMs` (default {@link DEFAULT_TIMEOUT_MS}) applies per request;
+   *   pass `0` to disable.
+   */
   constructor(config: SuwappuConfig = {}) {
     this.apiKey =
       config.apiKey ??
       (typeof process !== "undefined" ? process.env?.SUWAPPU_API_KEY : undefined) ??
       "";
-    this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
+    this.baseUrl =
+      config.baseUrl ??
+      (typeof process !== "undefined" ? process.env?.SUWAPPU_API_URL : undefined) ??
+      DEFAULT_BASE_URL;
+    this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     this.perps = new PerpsNamespace(this);
     this.predict = new PredictNamespace(this);
@@ -188,11 +205,17 @@ export class Suwappu {
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     Object.assign(headers, options.headers);
 
-    const res = await fetch(url, {
-      method,
-      headers,
-      ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers,
+        signal: this._timeoutSignal(),
+        ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
+      });
+    } catch (err) {
+      throw this._wrapFetchError(err);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -207,6 +230,23 @@ export class Suwappu {
     }
 
     return (await res.json()) as T;
+  }
+
+  /** @internal `AbortSignal.timeout` derived from `config.timeoutMs`, or undefined when disabled. */
+  private _timeoutSignal(): AbortSignal | undefined {
+    return this.timeoutMs > 0 ? AbortSignal.timeout(this.timeoutMs) : undefined;
+  }
+
+  /** @internal Normalize a fetch-level abort/network failure into a SuwappuError with status 0. */
+  private _wrapFetchError(err: unknown): SuwappuError {
+    const timedOut =
+      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    const message = timedOut
+      ? `Request timed out after ${this.timeoutMs}ms`
+      : err instanceof Error
+        ? err.message
+        : String(err);
+    return new SuwappuError(0, message, timedOut ? "timeout" : "network_error");
   }
 
   /** @internal Like `_request`, but returns the raw response text (used for `format=csv`). */
@@ -225,7 +265,12 @@ export class Suwappu {
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     Object.assign(headers, options.headers);
 
-    const res = await fetch(url, { method, headers });
+    let res: Response;
+    try {
+      res = await fetch(url, { method, headers, signal: this._timeoutSignal() });
+    } catch (err) {
+      throw this._wrapFetchError(err);
+    }
     const text = await res.text();
     if (!res.ok) {
       let code: string | undefined;
@@ -346,7 +391,6 @@ export class Suwappu {
     });
   }
 
-  /** GET /v1/agent/swap/status/:swapId */
   /**
    * POST /v1/agent/swap/simulate — dry-run a swap without broadcasting.
    *
@@ -424,6 +468,7 @@ export class Suwappu {
     };
   }
 
+  /** GET /v1/agent/swap/status/:swapId — poll a managed swap record by id. */
   async getSwapStatus(swapId: string | number): Promise<SwapStatus> {
     const data = await this._request<Record<string, any>>(
       "GET",
@@ -504,6 +549,7 @@ export class Suwappu {
     };
   }
 
+  /** GET /v1/agent/portfolio?wallet_address=&chain= — token balances for a wallet, all chains unless `chain` is set. */
   async getPortfolio(walletAddress: string, chain?: string): Promise<TokenBalance[]> {
     const data = await this._request<{ balances?: any[] }>("GET", "/v1/agent/portfolio", {
       params: { wallet_address: walletAddress, chain },
@@ -516,6 +562,7 @@ export class Suwappu {
     }));
   }
 
+  /** GET /v1/agent/prices?symbols=&chain= — USD price + 24h change for a comma-separated symbol list (e.g. "ETH,USDC"). */
   async getPrices(symbols: string, chain?: string): Promise<TokenPrice[]> {
     const data = await this._request<{ prices?: Record<string, any> }>(
       "GET",
@@ -529,11 +576,16 @@ export class Suwappu {
     }));
   }
 
+  /**
+   * GET /v1/agent/chains — the current supported chain set. Use this instead
+   * of hard-coding a chain count or list; it changes as chains are added.
+   */
   async listChains(): Promise<Chain[]> {
     const data = await this._request<{ chains?: Chain[] }>("GET", "/v1/agent/chains");
     return data.chains ?? [];
   }
 
+  /** GET /v1/agent/tokens?chain=&search= — list or search the supported token set for a chain. */
   async listTokens(chain: string, search?: string): Promise<Token[]> {
     const data = await this._request<{ tokens?: Token[] } | Token[]>("GET", "/v1/agent/tokens", {
       params: { chain, search },

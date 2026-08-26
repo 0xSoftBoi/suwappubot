@@ -10,8 +10,14 @@
 export interface SuwappuConfig {
   /** API key. Falls back to the SUWAPPU_API_KEY env var. */
   apiKey?: string;
-  /** API base URL. Defaults to https://api.suwappu.bot. */
+  /** API base URL. Defaults to https://api.suwappu.bot. Falls back to the SUWAPPU_API_URL env var. */
   baseUrl?: string;
+  /**
+   * Per-request timeout in milliseconds. Applied to every HTTP request made
+   * by this client (not the persistent `subscribeLive()` WebSocket).
+   * Defaults to 30000 (30s). Set to 0 to disable.
+   */
+  timeoutMs?: number;
 }
 
 // --- Swap ---

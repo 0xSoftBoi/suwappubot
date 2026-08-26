@@ -19,6 +19,7 @@ export {
   SuwappuApiError,
   createClient,
   DEFAULT_BASE_URL,
+  DEFAULT_TIMEOUT_MS,
   ApprovalsNamespace,
   AuditNamespace,
   KillSwitchNamespace,
