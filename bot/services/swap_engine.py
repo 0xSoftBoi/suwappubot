@@ -1509,6 +1509,24 @@ class SwapEngine:
         if cached is not None:
             return cached
 
+        # Allowlist-gated tokens (e.g. Superstate RWA funds) quote fine but
+        # settlement reverts for non-allowlisted wallets. Fail fast here,
+        # before racing any provider, rather than let a doomed quote win the
+        # race and fail later at execution.
+        from bot.config.protocols import is_gated_token
+        from bot.config.tokens import get_token_by_symbol
+
+        for gated_symbol in (from_token, to_token):
+            if is_gated_token(gated_symbol):
+                token = get_token_by_symbol(gated_symbol)
+                note = (
+                    token.gated_note
+                    if token and token.gated_note
+                    else f"{gated_symbol} is an allowlist-gated token — transfers revert for "
+                    "non-allowlisted wallets."
+                )
+                raise SwapError(f"{gated_symbol} is allowlist-gated: {note}")
+
         if self._is_tron_cross_chain(from_chain, to_chain):
             raise SwapError(
                 "Cross-chain swaps from/to TRON are not yet supported. Phase 2 will add TRON bridging."
