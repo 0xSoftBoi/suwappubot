@@ -7,15 +7,52 @@ on:
     branches: [main, dev]
 
 concurrency:
-  group: test-${{ github.ref }}
-  cancel-in-progress: true
+  group: test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Superseded PR runs are noise. Main/dev runs are deployment evidence and must
+  # finish so Railway's Wait for CI can make a decision for each pushed commit.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Select affected CI lanes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.domains.outputs.python }}
+      api_ts: ${{ steps.domains.outputs.api_ts }}
+      terminal: ${{ steps.domains.outputs.terminal }}
+      mobile: ${{ steps.domains.outputs.mobile }}
+      showcase: ${{ steps.domains.outputs.showcase }}
+      migration: ${{ steps.domains.outputs.migration }}
+      docs: ${{ steps.domains.outputs.docs }}
+      sdk: ${{ steps.domains.outputs.sdk }}
+      webapp: ${{ steps.domains.outputs.webapp }}
+      dependencies: ${{ steps.domains.outputs.dependencies }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: domains
+        name: Calculate changed domains
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/ci_changed_domains.py --base "$BASE_SHA" --head "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
+
+  deployment-contract:
+    name: Railway deployment contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: python3 scripts/validate_railway_services.py
+
   # ---------------------------------------------------------------------------
   # Python — lint, type-check, tests, coverage
   # ---------------------------------------------------------------------------
   python-quality:
     name: Python quality
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: test-token
@@ -23,7 +60,7 @@ jobs:
       DATABASE_URL: "sqlite:///test.db"
       KMS_PROVIDER: dev
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-python@v7
         with:
@@ -70,12 +107,14 @@ jobs:
   # ---------------------------------------------------------------------------
   typescript-quality:
     name: TypeScript quality
+    needs: changes
+    if: needs.changes.outputs.api_ts == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: api-ts
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -99,37 +138,19 @@ jobs:
       - name: Build production bundle
         run: bun run build
 
-      # Published product numbers (chain counts, router count) are derived from
-      # bot/ and api-ts/ by showcase/scripts/generate-stats.mjs. They cannot be
-      # regenerated at deploy time — showcase/Dockerfile builds from a context
-      # scoped to showcase/, so those sources are absent in the container (that
-      # broke the Railway build once). This is therefore the only place drift is
-      # caught: it regenerates and fails if the committed JSON or the i18n
-      # message catalogs disagree with the code that actually ships.
-      # NOT continue-on-error — publishing a wrong number is a real defect.
-      - name: Showcase stats drift check
-        working-directory: showcase
-        run: bun run stats:check
-
-      - name: Install showcase dependencies
-        working-directory: showcase
-        run: bun install --frozen-lockfile
-
-      - name: Showcase production build
-        working-directory: showcase
-        run: bun run build
-
   # ---------------------------------------------------------------------------
   # Terminal — unit tests + the exact Vite production compile
   # ---------------------------------------------------------------------------
   terminal-production-build:
     name: Terminal production build
+    needs: changes
+    if: needs.changes.outputs.terminal == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: terminal
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -149,12 +170,14 @@ jobs:
   # ---------------------------------------------------------------------------
   mobile-quality:
     name: Gecko mobile quality
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: mobile
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -174,13 +197,15 @@ jobs:
 
   ios-native-build:
     name: Gecko iOS native build (Xcode 26)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-26
     timeout-minutes: 30
     defaults:
       run:
         working-directory: mobile
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -213,12 +238,14 @@ jobs:
   # ---------------------------------------------------------------------------
   showcase-production-build:
     name: Showcase production build
+    needs: changes
+    if: needs.changes.outputs.showcase == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: showcase
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -227,11 +254,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Published product numbers are derived from bot/ and api-ts/ sources.
+      # The path selector includes those exact source files in this lane.
+      - name: Showcase stats drift check
+        run: bun run stats:check
+
       - name: Build with the Railway production command
         run: bun run build
 
   api-ts-shared-db-migration:
     name: API shared-DB migration contract
+    needs: changes
+    if: needs.changes.outputs.migration == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -247,7 +281,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Reproduce Python-owned recovery column before Drizzle migration
         run: >-
@@ -275,9 +309,11 @@ jobs:
   # ---------------------------------------------------------------------------
   docs-contract:
     name: Builder docs contract
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-node@v7
         with:
@@ -298,9 +334,11 @@ jobs:
   # ---------------------------------------------------------------------------
   sdk-package-contract:
     name: SDK package contract
+    needs: changes
+    if: needs.changes.outputs.sdk == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -334,12 +372,14 @@ jobs:
   # ---------------------------------------------------------------------------
   webapp-quality:
     name: Webapp quality
+    needs: changes
+    if: needs.changes.outputs.webapp == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: webapp
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-node@v7
         with:
@@ -367,9 +407,11 @@ jobs:
   # ---------------------------------------------------------------------------
   dependency-scan:
     name: Dependency security scan
+    needs: changes
+    if: needs.changes.outputs.dependencies == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # Audit the exact locked graph that the Python service installs. Running
       # bare pip-audit here audits the runner/tool environment instead.
@@ -454,3 +496,53 @@ jobs:
             status=1
           fi
           exit "$status"
+
+  # This is the only check branch rules and Railway need to require. It always
+  # exists, even when every expensive lane is correctly skipped.
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs:
+      - changes
+      - deployment-contract
+      - python-quality
+      - typescript-quality
+      - terminal-production-build
+      - mobile-quality
+      - ios-native-build
+      - showcase-production-build
+      - api-ts-shared-db-migration
+      - docs-contract
+      - sdk-package-contract
+      - webapp-quality
+      - dependency-scan
+    runs-on: ubuntu-latest
+    env:
+      CHANGES: ${{ needs.changes.result }}
+      DEPLOYMENT: ${{ needs.deployment-contract.result }}
+      PYTHON: ${{ needs.python-quality.result }}
+      API_TS: ${{ needs.typescript-quality.result }}
+      TERMINAL: ${{ needs.terminal-production-build.result }}
+      MOBILE: ${{ needs.mobile-quality.result }}
+      IOS: ${{ needs.ios-native-build.result }}
+      SHOWCASE: ${{ needs.showcase-production-build.result }}
+      MIGRATION: ${{ needs.api-ts-shared-db-migration.result }}
+      DOCS: ${{ needs.docs-contract.result }}
+      SDK: ${{ needs.sdk-package-contract.result }}
+      WEBAPP: ${{ needs.webapp-quality.result }}
+      DEPENDENCIES: ${{ needs.dependency-scan.result }}
+    steps:
+      - name: Enforce selected job results
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for name in CHANGES DEPLOYMENT PYTHON API_TS TERMINAL MOBILE IOS SHOWCASE MIGRATION DOCS SDK WEBAPP DEPENDENCIES; do
+            result="${!name}"
+            printf '%-14s %s\n' "$name" "$result"
+            case "$result" in
+              success|skipped) ;;
+              *) failed=1 ;;
+            esac
+          done
+          exit "$failed"
