@@ -35,8 +35,10 @@ console.log(await client.listChains());
 ```
 
 The API key falls back to `SUWAPPU_API_KEY` when it is not passed to the
-constructor. The base URL defaults to `https://api.suwappu.bot` and can be
-overridden with `{ baseUrl }`.
+constructor. The base URL defaults to `https://api.suwappu.bot`, falls back
+to `SUWAPPU_API_URL`, and can be overridden explicitly with `{ baseUrl }`.
+Every request has a 30s timeout by default — override with `{ timeoutMs }`
+(`0` disables it).
 
 ## API surface
 
@@ -357,6 +359,11 @@ import { Suwappu, SuwappuError } from "@suwappu/sdk";
 try {
   await client.getQuote({ from: "X", to: "Y", chain: "base", amount: "1" });
 } catch (err) {
-  if (err instanceof SuwappuError) console.error(err.status, err.body);
+  if (err instanceof SuwappuError) console.error(err.status, err.code, err.body);
 }
 ```
+
+`err.status` is `0` for requests that never reached the API — a client-side
+timeout (`err.code === "timeout"`) or network failure
+(`err.code === "network_error"`). Any other value is the HTTP status the
+API returned.
