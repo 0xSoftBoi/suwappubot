@@ -437,14 +437,29 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof, gold=False):
         # ground entirely: every gold plate shares one black-gold field, and
         # sector survives only in the engraving's second-pass ink. A tint-only
         # variant read as "warm sector" at 190px, not as a tier.
-        field = _mix(CHARCOAL, GOLD, 0.12)
+        # The mix is 0.24, not the 0.12 first cut, and the number is measured
+        # rather than taste. Sector grounds are luminance-normalised to ~0.0165,
+        # and at 0.12 the gold ground landed on #26221c — ONE RGB unit from the
+        # Crypto & Fintech ground (#26221b) and 2.4 from Energy & Materials.
+        # ~14% of the standard supply was shipping on a ground the paid edition
+        # could not be told apart from: the exact "gold reads as a warm sector
+        # tint" failure this branch exists to prevent. 0.24 puts the field 32+
+        # RGB units off every one of the ten sectors and roughly doubles its
+        # luminance, so gold is a different METAL, not a warmer anodising —
+        # while ivory body ink still clears 10:1.
+        field = _mix(CHARCOAL, GOLD, 0.24)
         hero = _mix(GOLD, IVORY, 0.35)
         if priced and ret_bps < -200:
-            hero = "#bfa9a2"  # same warm ash as the base plate — a loss is a loss
+            # A loss on a gold plate stays in the gold family — the base plate's
+            # warm ash read as plain grey here and dropped the card out of its
+            # own edition. Struck darker than a gain instead: the edition is
+            # carried by hue, the result by luminance, and the minus sign and
+            # grade caption still do the semantic work. Expensive, not alarming.
+            hero = _mix(GOLD, "#6f6258", 0.55)
         return {
             "field": field,
             "field2": _mix(field, "#000000", 0.35),
-            "edge": _mix(field, GOLD, 0.22),
+            "edge": _mix(field, GOLD, 0.30),
             "rim": _mix(GOLD, "#8a6f3c", 0.35),
             "body": IVORY,
             "quiet": _mix(GOLD, GRAPHITE, 0.45),
@@ -452,17 +467,27 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof, gold=False):
             "mark": b["accent"],
         }
     if proof:  # Gilt proof — the rare plate that leaves the dark: ivory, dark ink
-        field = _mix(b["bg"], sector_col, 0.07)
+        # A Gold plate that also rolls proof still has to read as Founders' Gold.
+        # About 1 in 40 does, so ~14 of the 555 paid cards were landing on the
+        # standard ivory proof with the edition visible only in a hairline — a
+        # purchased tier that sometimes isn't the tier is a defect, not a
+        # surprise. So gold takes the proof as a GILT proof: the same rare
+        # inversion, struck on champagne with bronze ink instead of on ivory.
+        field = _mix(b["bg"], GOLD if gold else sector_col, 0.22 if gold else 0.07)
         hero = _mix(accent, b["text"], 0.55)
         if priced and ret_bps >= 2500:
             hero = _mix(b["green"], accent, 0.25)
         elif priced and ret_bps < -200:
             hero = "#8f3a44"
+        if gold:
+            # Bronze ink on champagne — warm on warm, so the plate stays inside
+            # the edition instead of borrowing the base proof's oxblood/jade.
+            hero = _mix(hero, "#6b4f22", 0.45)
         return {
             "field": field,
-            "field2": _mix(field, "#eae3d5", 0.55),
-            "edge": _mix(field, "#d8d0c0", 0.60),
-            "rim": _mix("#9c8b62", sector_col, 0.25),
+            "field2": _mix(field, "#e6d7ae" if gold else "#eae3d5", 0.55),
+            "edge": _mix(field, "#d8c79c" if gold else "#d8d0c0", 0.60),
+            "rim": _mix("#9c8b62", GOLD if gold else sector_col, 0.25),
             "body": b["text"],
             "quiet": b["text-2"],
             "hero": hero,
@@ -906,14 +931,18 @@ def render_card(
             )
         )
     else:
+        # The unpriced word was hardcoded grey, so a Founders' Gold plate with no
+        # basis stamped printed its one large element in base-plate ink and fell
+        # out of the edition entirely — the worst case in the whole gold space.
+        unp, unp2 = ("#a09889", "#7a7367")
+        if gold:
+            unp, unp2 = _mix(GOLD, IVORY, 0.30), _mix(GOLD, GRAPHITE, 0.50)
         p.append(
             f'<text x="{W_ / 2}" y="{cy + 26}" font-family="{SERIF}" font-size="82" '
-            f'font-weight="bold" fill="#a09889" text-anchor="middle" '
+            f'font-weight="bold" fill="{unp}" text-anchor="middle" '
             f'letter-spacing="-1">Unpriced</text>'
         )
-        p.append(
-            _small_caps("no basis stamped", W_ / 2, cy + 70, 12, "#7a7367", 5.0, anchor="middle")
-        )
+        p.append(_small_caps("no basis stamped", W_ / 2, cy + 70, 12, unp2, 5.0, anchor="middle"))
 
     # ── foot: one quiet line. The seal, gauge band and rosette stamp are
     # gone — a real card carries no instrument cluster. ─────────────────────
@@ -953,13 +982,18 @@ def render_card(
     )
     if gold:
         # The double-struck rim is the edition's silhouette signature: a second
-        # gold hairline inset from the card edge. At 190px it reads as a heavier,
+        # gold line inset from the card edge. At 190px it reads as a heavier,
         # deliberate frame — the one structural cue that survives every
         # downscale, which is why it marks the edition and not a mood.
+        # 3.2, not the 1.4 first cut: 1.4 on a 1000px plate is 0.27px in a
+        # marketplace grid cell, i.e. gone, and a base Founder-rank plate already
+        # carries a gold OUTER rim — so at thumbnail size the two tiers were the
+        # same card. 3.2 resolves to a real second line and the double rim, not
+        # the colour, is what separates the paid edition from an early mint.
         p.append(
             f'<rect x="{CR_X + 10}" y="{CR_Y + 10}" width="{CR_W - 20}" '
             f'height="{CR_H - 20}" rx="{CR_R - 8}" fill="none" '
-            f'stroke="{_mix(GOLD, "#ffffff", 0.15)}" stroke-width="1.4" opacity="0.9"/>'
+            f'stroke="{_mix(GOLD, "#ffffff", 0.15)}" stroke-width="3.2" opacity="0.95"/>'
         )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
