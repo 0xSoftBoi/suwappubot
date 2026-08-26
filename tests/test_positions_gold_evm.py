@@ -132,9 +132,11 @@ def test_royalty_receiver_follows_treasury(env):
     treasury moved. See the source-text pin in
     tests/test_position_cards.py::test_royalty_receiver_follows_treasury."""
     w3, pos, feed, owner, alice, treasury, usdg = env
-    # constructor default: initialOwner (the deploy key), NOT treasury
+    # the fixture's wire_payments already called setTreasury(treasury), so the
+    # receiver must have LEFT the deploy key by now — that move is the fix
     receiver, _amount = pos.functions.royaltyInfo(1, 10**18).call()
-    assert receiver == owner
+    assert receiver == treasury
+    assert receiver != owner
 
     new_treasury = w3.eth.accounts[4]
     pos.functions.setTreasury(new_treasury).transact({"from": owner})

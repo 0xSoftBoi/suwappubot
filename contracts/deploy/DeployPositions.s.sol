@@ -89,7 +89,7 @@ contract DeployPositions is Script {
         console.log("sequencer uptime feed:", sequencer);
         console.log("next: setEthUsdFeed(0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9)");
         console.log("      setFallbackWeiPerUsdCent(...)  // used only if the feed is stale");
-        console.log("      configurePhase() per phase — price is USD CENTS, not wei (Gold too, index 4)");
+        console.log("      configurePhase() per phase - price is USD CENTS, not wei (Gold too, index 4)");
         console.log("      default royalty is already 2% (200 bps), set in the constructor;");
         console.log("      setTreasury(...) re-points royalties automatically (receiver follows");
         console.log("      treasury); setDefaultRoyalty(receiver, bps) only if retuning the rate");
