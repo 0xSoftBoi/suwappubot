@@ -287,7 +287,8 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo, USDG on Robinhood Chain).
 			// USDG MUST stay here: it is 6dp on-chain, and defaulting it to 18 would
 			// misprice every Robinhood Chain quote by 1e12.
-			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG'])
+			// USTB/USCC (Superstate fund tokens) are 6dp on-chain like USDC.
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG', 'USTB', 'USCC'])
 
 			if (chainTokens && chainTokens[normalized]) {
 				return {
