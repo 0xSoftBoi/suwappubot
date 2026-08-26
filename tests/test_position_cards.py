@@ -652,8 +652,11 @@ def test_abi_artifact_has_the_gold_and_royalty_interface():
         "defaultRoyaltyBps",
     }
     for name in must_have:
+        # covers explicit functions (isGold, discountFor, ...), public
+        # state-var getters the compiler auto-generates (goldDiscountFractionBps,
+        # defaultRoyaltyBps), and public mappings (goldBalance).
         assert re.search(
-            rf"\bfunction {name}\b|\buint16 public {name}\b", sol
+            rf"\bfunction {name}\b|\bpublic\b[^;{{]*\b{name}\b", sol
         ), f"{name} not found in the contract source — pin is stale"
         assert name in abi_funcs, f"{name} missing from the ABI artifact"
 
