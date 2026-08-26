@@ -2,7 +2,16 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "deploy/Dockerfile.testnet-runner"
+    "dockerfilePath": "deploy/Dockerfile.testnet-runner",
+    "watchPatterns": [
+      "/scripts/**",
+      "/bot/**",
+      "/deploy/Dockerfile.testnet-runner",
+      "/contracts/test/artifacts.json",
+      "/nft/position-cards/*.json",
+      "/requirements.txt",
+      "/railway.testnet-runner.json"
+    ]
   },
   "deploy": {
     "restartPolicyType": "NEVER"

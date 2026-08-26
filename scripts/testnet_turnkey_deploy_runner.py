@@ -21,6 +21,10 @@ Flow:
   5. Verify getters and print an explorer link per contract.
 
 Exit 0 with a clear log either way — this is a job, not a daemon.
+
+Railway note: this service's watchPatterns must cover scripts/ and bot/, or a
+pushed fix is SKIPPED rather than built (it defaulted to a manual-deploy-only
+sentinel and silently ignored a real fix once).
 """
 
 import asyncio
