@@ -455,7 +455,12 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof, gold=False):
             # own edition. Struck darker than a gain instead: the edition is
             # carried by hue, the result by luminance, and the minus sign and
             # grade caption still do the semantic work. Expensive, not alarming.
-            hero = _mix(GOLD, "#6f6258", 0.55)
+            # 0.30 is the floor, not a preference: 0.55 struck a handsomer
+            # bronze but put the hero numeral at 3.58:1 on the gold ground, and
+            # the sweep measures the whole output space rather than trusting a
+            # contact sheet. 0.30 holds 4.78:1 and still sits a clear 2.8 stops
+            # under a gold gain (7.62:1), so win and loss stay legible apart.
+            hero = _mix(GOLD, "#6f6258", 0.30)
         return {
             "field": field,
             "field2": _mix(field, "#000000", 0.35),
@@ -900,8 +905,10 @@ def render_card(
     # low-magnitude plate had its entire engraving covered — every losing card
     # in the grid read as a dark smudge with one faint ring left showing. This
     # clears the middle band where the numeral sits and leaves the outer rings.
+    # ry covers the caption line at cy+84 — at ry = rad*0.5 the caption sat past
+    # the falloff on dense engravings and read as mush.
     p.append(
-        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad * 0.88:.0f}" ry="{rad * 0.5:.0f}" '
+        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad * 0.88:.0f}" ry="{rad * 0.62:.0f}" '
         f'fill="url(#clear)"/>'
     )
     if priced:
@@ -924,9 +931,10 @@ def render_card(
                 f"since entry · {grade['name']}",
                 W_ / 2,
                 cy + 84,
-                12,
-                _mix(hero_col, body_col, 0.35),
+                13.5,
+                _mix(hero_col, body_col, 0.25),
                 6.0,
+                "bold",
                 anchor="middle",
             )
         )
@@ -974,6 +982,9 @@ def render_card(
 
     # the light sheen sweeps the finished plate, then the silhouette is rimmed
     # in the tier metal — the last two strokes of the machining
+    # the vignette was defined and never painted — plates read lightest at the
+    # bottom-right corner instead of darkening under one lamp
+    p.append(f'<rect width="{W_}" height="{H_}" fill="url(#vig)"/>')
     p.append(f'<rect width="{W_}" height="{H_}" fill="url(#sheen)"/>')
     p.append("</g>")
     p.append(
