@@ -53,7 +53,7 @@ def test_caps_cover_priced_tickers_and_sum_to_supply():
     cfg = render.load_config()
     caps = cfg["ticker_caps"]
     assert sorted(caps) == sorted(feeds()), "caps must cover exactly the priced tickers"
-    assert sum(caps.values()) == cfg["collection"]["supply"] == 10_000
+    assert sum(caps.values()) == cfg["collection"]["supply"] == 4_444
     assert min(caps.values()) > 0, "a ticker with cap 0 could never be minted"
 
 
@@ -92,7 +92,7 @@ def test_deploy_args_match_priced_order():
     tickers, caps, tokens, total, aggs = deploy_args.build()
     reg, fd = registry(), feeds()
     assert tickers == sorted(fd)
-    assert total == 10_000
+    assert total == 4_444
     assert len(caps) == len(tokens) == len(aggs) == 35
     for i, t in enumerate(tickers):
         assert tokens[i] == reg[t][0], f"{t} mapped to the wrong ERC-20"
@@ -185,12 +185,14 @@ def test_metadata_never_claims_equity_or_payout():
 
 
 def test_early_mint_badges_are_rank_ordered():
+    """Rescaled to 4,444 supply — economics.early_mint_badge_ranks: Founder 222,
+    Early 888 (same 5% / 20% proportions as the old 500/2000 thresholds)."""
     cfg = render.load_config()
     assert render.badge_for(cfg, 1) == "Founder"
-    assert render.badge_for(cfg, 500) == "Founder"
-    assert render.badge_for(cfg, 501) == "Early"
-    assert render.badge_for(cfg, 2000) == "Early"
-    assert render.badge_for(cfg, 2001) is None
+    assert render.badge_for(cfg, 222) == "Founder"
+    assert render.badge_for(cfg, 223) == "Early"
+    assert render.badge_for(cfg, 888) == "Early"
+    assert render.badge_for(cfg, 889) is None
 
 
 # ── 4. the fee wiring ─────────────────────────────────────────────────────────
@@ -297,6 +299,32 @@ def test_config_contract_and_backstop_all_agree_on_the_discount():
     # two caps diverge, one of them is silently doing nothing.
     assert cfg_fraction <= MAX_CARD_DISCOUNT_FRACTION
     assert on_chain_cap == MAX_CARD_DISCOUNT_FRACTION
+
+
+def test_config_contract_and_backstop_all_agree_on_the_gold_discount():
+    """Same three-way pin as the base rate, for Founders' Gold: config.json,
+    the on-chain default, and the service clamp must not drift independently."""
+    import re
+
+    from bot.services.position_cards_service import MAX_CARD_DISCOUNT_FRACTION
+
+    cfg_fraction = render.load_config()["economics"]["gold_discount_fraction"]
+
+    src = _positions_src()
+    m = re.search(r"uint16\s+public\s+goldDiscountFractionBps\s*=\s*(\d+)\s*;", src)
+    assert m, "goldDiscountFractionBps default not found in SuwappuPositions.sol"
+    on_chain_fraction = int(m.group(1)) / 10_000.0
+
+    assert cfg_fraction == on_chain_fraction == 0.55
+    # Gold must beat base but stay inside the same ceiling as the base rate —
+    # a Gold discount above MAX_HOLD_DISCOUNT_FRACTION_BPS would let an owner
+    # exceed the bound the base rate is held to.
+    hold_fraction = render.load_config()["economics"]["hold_discount_fraction"]
+    assert hold_fraction < cfg_fraction <= MAX_CARD_DISCOUNT_FRACTION
+    cap = re.search(
+        r"uint16\s+public\s+constant\s+MAX_HOLD_DISCOUNT_FRACTION_BPS\s*=\s*(\d+)\s*;", src
+    )
+    assert int(cap.group(1)) / 10_000.0 >= on_chain_fraction
 
 
 # ── 5. the oracle ─────────────────────────────────────────────────────────────
@@ -475,7 +503,7 @@ def test_phase_allocations_fit_the_supply():
     cfg = render.load_config()
     mint = cfg["mint"]
     total = sum(p["allocation"] for p in mint["phases"].values()) + mint["team_reserve"]
-    assert total == cfg["collection"]["supply"] == 10_000
+    assert total == cfg["collection"]["supply"] == 4_444
 
 
 def test_team_reserve_is_bounded_on_chain():
@@ -483,6 +511,68 @@ def test_team_reserve_is_bounded_on_chain():
     cfg = render.load_config()
     assert f"RESERVE_MAX = {cfg['mint']['team_reserve']};" in sol
     assert "if (reserveMinted + quantity > RESERVE_MAX) revert ReserveExhausted();" in sol
+
+
+def test_supply_and_reserve_constants_match_config():
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    cfg = render.load_config()
+    assert f"MAX_SUPPLY = {cfg['collection']['supply']};" in sol
+    assert "MAX_SUPPLY = 4_444;" in sol
+    assert "RESERVE_MAX = 45;" in sol
+    # scaled down from 50 for the smaller supply — the widest single-phase
+    # grant (Public, walletCap 5) plus headroom for minting across phases
+    assert "MAX_PER_WALLET = 20;" in sol
+
+
+def test_gold_phase_is_appended_at_the_end_of_the_enum():
+    """Founder/Allowlist/Public must keep their existing indices (1/2/3) —
+    config.json's phase `index` values are the contract enum ordinals, and
+    latecomers to an already-configured phase would be silently redirected if
+    the enum were reordered instead of appended to."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    assert "enum Phase { Closed, Founder, Allowlist, Public, Gold }" in sol
+    cfg = render.load_config()["mint"]["phases"]
+    assert (cfg["Founder"]["index"], cfg["Allowlist"]["index"], cfg["Public"]["index"]) == (
+        1,
+        2,
+        3,
+    )
+    assert cfg["Gold"]["index"] == 4
+
+
+def test_gold_is_stamped_at_mint_and_tracked_per_holder():
+    """Gold is earned by minting in Phase.Gold, never by transferring a card in
+    — struct field, `goldBalance` mapping, and the `_update` hook that keeps it
+    live across mint/transfer/burn must all exist together."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    assert "bool isGold;" in sol
+    assert "function isGold(uint256 tokenId) public view returns (bool)" in sol
+    assert "mapping(address => uint256) public goldBalance;" in sol
+    assert "function _update(address to, uint256 tokenId, address auth)" in sol
+    assert "if (from != address(0)) goldBalance[from] -= 1;" in sol
+    assert "if (to != address(0)) goldBalance[to] += 1;" in sol
+    # stamped from the phase the mint actually ran in, not trusted from calldata
+    assert "phase == Phase.Gold" in sol
+
+
+def test_discount_for_prefers_gold_and_needs_no_token_ids():
+    """The bot's discount lookup now calls discountFor(address) directly —
+    goldBalance/balanceOf are native ERC-721 state, so a stale indexer can no
+    longer under-count a Gold holder's perk."""
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    assert "function discountFor(address holder) external view returns (uint16)" in sol
+    assert "if (goldBalance[holder] > 0) return goldDiscountFractionBps;" in sol
+    assert "if (balanceOf(holder) > 0) return holdDiscountFractionBps;" in sol
+
+    src = open(os.path.join(REPO, "bot", "services", "position_cards_service.py")).read()
+    assert "discountFor" in src
+    assert "discountFractionBpsFor" not in src, "service must not still call the old ABI"
+
+
+def test_royalty_is_set_by_default_in_the_constructor():
+    sol = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
+    cfg = render.load_config()
+    assert f"_setDefaultRoyalty(initialOwner, {cfg['economics']['royalty_bps']});" in sol
 
 
 def test_no_tx_origin_bot_gate():

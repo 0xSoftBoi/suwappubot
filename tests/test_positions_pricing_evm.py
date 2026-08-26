@@ -76,7 +76,7 @@ def test_mint_end_is_a_promise_the_contract_keeps(env):
 
 
 def test_close_forever_stops_the_owner_too(env):
-    """'10,000 max' is a claim; a one-way close is proof."""
+    """'4,444 max' is a claim; a one-way close is proof."""
     w3, pos, feed, owner, alice, usdg = env
     pos.functions.closeMintingForever().transact({"from": owner})
     assert pos.functions.mintingClosedForever().call() is True
@@ -144,7 +144,7 @@ def test_mint_state_is_one_call(env):
     assert price_cents == CENTS
     assert price_usdg == pos.functions.quote(PUBLIC, 1).call()
     assert wallet_cap == 50 and wallet_minted == 0 and wallet_remaining == 50
-    assert ticker_remaining > 0 and minted == 0 and supply_remaining == 10_000
+    assert ticker_remaining > 0 and minted == 0 and supply_remaining == 4_444
     assert (is_paused, ended, closed) == (False, False, False)
 
     # it tracks reality after a mint
@@ -153,7 +153,7 @@ def test_mint_state_is_one_call(env):
     # Indices shifted down by one when `pricedByFeed` left the struct with the
     # ETH feed it described.
     assert st2[9] == 2 and st2[10] == 48  # walletMinted / walletRemaining
-    assert st2[12] == 2 and st2[13] == 9_998  # minted / supplyRemaining
+    assert st2[12] == 2 and st2[13] == 4_442  # minted / supplyRemaining
     assert st2[11] == ticker_remaining - 2
 
     # and reflects lifecycle without extra calls
