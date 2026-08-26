@@ -57,6 +57,19 @@ lane. That lane overlaps our stack directly — but we hold pieces they don't.
 - **2026-08-26** — LTP attestation plan filed
   (`plans/clob-settlement-attestation.md`): batch root → existing 32 B
   payload-root slot, `SUWAPPU-CLOB-SETTLEMENT-V1` DST pinned per LTP-A-022.
+- **2026-08-26** — `/v1/clob/*` dev lane shipped in api-ts (in-memory
+  engine mirroring suwappu-clob semantics + byte-identical batch roots)
+  and **functionally verified live on the Railway dev deployment**
+  (`api-ts-dev.up.railway.app`): two agents registered, book seeded,
+  price-time-priority cross filled 5@102 then 3@103 at maker prices,
+  FOK killed atomically, post-only rejected on cross, cancel enforced
+  ownership (403 for non-owner), and the settlement window netted to
+  conserving deltas (+8/−819 vs −8/+819) under batch root `4900b163…`.
+  Live debugging also surfaced and fixed three real dev-DB drift bugs:
+  `agents.organization_id` and `agents.last_active_at` missing from the
+  Python runtime migration, and `agents.is_active`/`uuid` lacking the
+  server defaults the Drizzle insert assumes (fresh registrations 401ed
+  as inactive). All three fixes are additive migrations now on `dev`.
 
 ## Next wiring (in priority order)
 
