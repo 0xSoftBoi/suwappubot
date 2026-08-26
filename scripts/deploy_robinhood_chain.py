@@ -156,6 +156,26 @@ def main():
     return _broadcast(w3, art, plan, a, net, deployer, owner, gas_price)
 
 
+_LOOP = None
+
+
+def _run(coro):
+    """Run a coroutine on ONE long-lived loop for the whole process.
+
+    asyncio.run() per transaction closes its loop on the way out, but the
+    Turnkey client caches a shared aiohttp session bound to the loop that
+    created it — so contract #2 died with "Event loop is closed" after #1
+    deployed fine. One loop keeps that session valid across every signature.
+    """
+    global _LOOP
+    import asyncio
+
+    if _LOOP is None or _LOOP.is_closed():
+        _LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(_LOOP)
+    return _LOOP.run_until_complete(coro)
+
+
 async def _turnkey_sign(unsigned_hex: str, address: str) -> str:
     from bot.services.turnkey_client import get_turnkey_client
 
@@ -202,7 +222,7 @@ def _broadcast(w3, art, plan, a, net, deployer, owner, gas_price):
             # rlp.encode(unsigned) is the EIP-155 preimage Turnkey expects —
             # same bytes wallet.py's _serialize_evm_transaction hands it. The
             # object has no .encode() of its own (it is an rlp.Serializable).
-            signed_hex = asyncio.run(_turnkey_sign(to_hex(rlp.encode(unsigned)), deployer))
+            signed_hex = _run(_turnkey_sign(to_hex(rlp.encode(unsigned)), deployer))
             raw = signed_hex if signed_hex.startswith("0x") else "0x" + signed_hex
             tx_hash = w3.eth.send_raw_transaction(raw)
         else:

@@ -47,6 +47,20 @@ PHASE_PUBLIC, PHASE_GOLD = 3, 4
 ZERO_ROOT = b"\x00" * 32
 
 
+_LOOP = None
+
+
+def run_async(coro):
+    """One long-lived loop for the whole job — see deploy_robinhood_chain._run.
+    The Turnkey client's aiohttp session is bound to the loop that made it, so
+    asyncio.run() per wiring step would close it out from under the next one."""
+    global _LOOP
+    if _LOOP is None or _LOOP.is_closed():
+        _LOOP = asyncio.new_event_loop()
+        asyncio.set_event_loop(_LOOP)
+    return _LOOP.run_until_complete(coro)
+
+
 def w3conn():
     from web3 import Web3
 
@@ -127,7 +141,7 @@ async def send_via_turnkey(w3, fn, signer, nonce, gas_price):
 
 def main():
     w3 = w3conn()
-    accounts = asyncio.run(evm_accounts())
+    accounts = run_async(evm_accounts())
     if not accounts:
         print("Turnkey org has no EVM accounts — create one with /hw new <label> evm")
         return 0
@@ -212,7 +226,7 @@ def main():
         ),
     ]
     for label, fn in steps:
-        h = asyncio.run(send_via_turnkey(w3, fn, signer, nonce, gas_price))
+        h = run_async(send_via_turnkey(w3, fn, signer, nonce, gas_price))
         print(f"  {label:24} {h}")
         nonce += 1
 
