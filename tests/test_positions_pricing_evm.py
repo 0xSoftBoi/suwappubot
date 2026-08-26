@@ -211,8 +211,14 @@ def test_max_per_wallet_is_actually_enforced(env):
     cap", so a misconfigured phase was unbounded per wallet."""
     w3, pos, feed, owner, alice, usdg = env
     now = w3.eth.get_block("latest").timestamp
-    # a phase with NO wallet cap and no allowlist: previously unbounded
-    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 0, 0, now - 1, 0).transact(
+    # A phase whose OWN wallet cap/allocation are set well above MAX_PER_WALLET
+    # so neither constrains this test — the point is that the GLOBAL
+    # MAX_PER_WALLET still bites even though the phase itself barely limits.
+    # walletCap/allocation can no longer both be 0 here: configurePhase now
+    # rejects an open (no-merkle-root) phase with either bound unset (see
+    # OpenPhaseUnbounded), which is exactly the "previously unbounded"
+    # configuration this test used to construct on purpose.
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 999, 4_444, now - 1, 0).transact(
         {"from": owner}
     )
     cap = pos.functions.MAX_PER_WALLET().call()

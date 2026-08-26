@@ -91,7 +91,8 @@ contract DeployPositions is Script {
         console.log("      setFallbackWeiPerUsdCent(...)  // used only if the feed is stale");
         console.log("      configurePhase() per phase — price is USD CENTS, not wei (Gold too, index 4)");
         console.log("      default royalty is already 2% (200 bps), set in the constructor;");
-        console.log("      setDefaultRoyalty(treasury, bps) only if retuning it");
+        console.log("      setTreasury(...) re-points royalties automatically (receiver follows");
+        console.log("      treasury); setDefaultRoyalty(receiver, bps) only if retuning the rate");
         console.log("      announceEnd(...) then closeMintingForever() when done");
         console.log("  roots come from: python3 nft/position-cards/build_allowlist.py --from-db");
         console.log("sanity: oracle.debugPrice(<token>) should return a non-zero price1e18");
