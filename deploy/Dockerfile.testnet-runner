@@ -1,0 +1,24 @@
+# One-shot Robinhood-testnet deploy runner. Runs scripts/testnet_turnkey_deploy_runner.py
+# next to the Turnkey secrets (Railway variable references), signs in the enclave,
+# deploys + wires the Positions collection on chain 46630, prints addresses, exits.
+#
+# Deliberately mirrors api/Dockerfile.railway's copied-subset layout, PLUS the
+# pieces that image omits and this job needs: scripts/, the compiled contract
+# artifacts, and the collection config.
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
+COPY bot/ /app/bot/
+COPY database/ /app/database/
+COPY scripts/deploy_robinhood_chain.py /app/scripts/
+COPY scripts/testnet_turnkey_deploy_runner.py /app/scripts/
+COPY contracts/test/artifacts.json /app/contracts/test/artifacts.json
+COPY nft/position-cards/config.json /app/nft/position-cards/config.json
+COPY nft/position-cards/deploy_args.json /app/nft/position-cards/deploy_args.json
+
+CMD ["python3", "scripts/testnet_turnkey_deploy_runner.py"]
