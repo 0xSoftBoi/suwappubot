@@ -66,7 +66,7 @@ contract DeployPositions is Script {
             tokens[i] = rawTokens[i];
             sum += rawCaps[i];
         }
-        require(sum == 10_000, "caps must sum to 10000");
+        require(sum == 4_444, "caps must sum to 4444");
 
         vm.startBroadcast(pk);
 
@@ -89,8 +89,9 @@ contract DeployPositions is Script {
         console.log("sequencer uptime feed:", sequencer);
         console.log("next: setEthUsdFeed(0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9)");
         console.log("      setFallbackWeiPerUsdCent(...)  // used only if the feed is stale");
-        console.log("      configurePhase() per phase — price is USD CENTS, not wei");
-        console.log("      setDefaultRoyalty(treasury, 500)  // 5% secondary");
+        console.log("      configurePhase() per phase — price is USD CENTS, not wei (Gold too, index 4)");
+        console.log("      default royalty is already 2% (200 bps), set in the constructor;");
+        console.log("      setDefaultRoyalty(treasury, bps) only if retuning it");
         console.log("      announceEnd(...) then closeMintingForever() when done");
         console.log("  roots come from: python3 nft/position-cards/build_allowlist.py --from-db");
         console.log("sanity: oracle.debugPrice(<token>) should return a non-zero price1e18");

@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /**
- * @title SuwappuPositions — 10,000 live position cards on Robinhood Chain
+ * @title SuwappuPositions — 4,444 live position cards on Robinhood Chain
  *
  * Chain 4663 (Arbitrum Orbit / Nitro, native gas ETH). Testnet 46630.
  *
@@ -85,9 +85,13 @@ interface IPositionOracle {
 
 contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
-    uint256 public constant MAX_SUPPLY = 10_000;
+    uint256 public constant MAX_SUPPLY = 4_444;
     uint256 public constant TICKER_COUNT = 35;
-    uint256 public constant MAX_PER_WALLET = 50;
+    /// @notice Retuned for the 4,444 supply. The widest single grant any phase
+    ///         hands out is Public's walletCap of 5; 20 leaves headroom for a
+    ///         holder who mints across multiple phases without reopening the
+    ///         old 50-card (>1% of supply) single-wallet ceiling.
+    uint256 public constant MAX_PER_WALLET = 20;
 
     /// @notice Swap-fee discount granted by holding any Position, expressed in
     ///         basis points OF THE TIER RATE the holder is already on (10000 =
@@ -101,10 +105,20 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     uint16 public holdDiscountFractionBps = 4000;
     uint16 public constant MAX_HOLD_DISCOUNT_FRACTION_BPS = 6000;
 
+    /// @notice Swap-fee discount for a Founders' Gold holder, same unit as
+    ///         holdDiscountFractionBps (5500 == 55% off the tier rate). Gold is
+    ///         stamped per token at mint (Phase.Gold only, never rolled), so this
+    ///         is the ceiling of what any holder can reach — mirrors
+    ///         economics.gold_discount_fraction in nft/position-cards/config.json.
+    ///         Bounded by the same MAX_HOLD_DISCOUNT_FRACTION_BPS clamp as the
+    ///         base rate so one discount cannot be tuned above what the other is
+    ///         capped at.
+    uint16 public goldDiscountFractionBps = 5500;
+
     struct Position {
         uint8 tickerIndex; // index into the sorted ROBINHOOD_EQUITIES registry
         uint96 entryPrice; // USDG per unit, 1e18. 0 == minted while unpriced
-        uint40 mintedAt; // block timestamp
+        uint32 mintedAt; // block timestamp — uint32 lasts to year 2106, freeing 8 bits for isGold below
         uint16 mintRank; // 1-based order of mint across the whole collection
         // Corporate-action multiplier observed at mint, 1e18 == unadjusted.
         //
@@ -116,8 +130,12 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // immutable field with no restamp path. uint96 holds ~7.9e28, four
         // orders of magnitude above the clamp.
         //
-        // Slot still packs exactly: 8 + 96 + 40 + 16 + 96 = 256 bits.
+        // Slot still packs exactly: 8 + 96 + 32 + 16 + 96 + 8 = 256 bits.
         uint96 entryMultiplier;
+        // Stamped true only when minted in Phase.Gold, immutable like every
+        // other field here — Gold is earned by WHEN you minted, not bought
+        // after the fact by transferring in a random card.
+        bool isGold;
     }
 
     /// @notice Immutable per-ticker supply caps, sealed at construction.
@@ -131,6 +149,12 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     mapping(uint256 => Position) private _positions;
     mapping(address => uint256) public minted;
+
+    /// @notice Live count of Gold cards each address currently holds. Maintained
+    ///         in `_update` on every mint, transfer and burn — never derived by
+    ///         re-scanning positions — so `discountFor` is a single SLOAD, not a
+    ///         loop over an indexer's token-id list.
+    mapping(address => uint256) public goldBalance;
 
     uint256 public totalSupply;
 
@@ -169,7 +193,11 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     ///         Founder   — the Suwappu snapshot (XP, volume, referrals)
     ///         Allowlist — active traders and partners
     ///         Public    — anyone
-    enum Phase { Closed, Founder, Allowlist, Public }
+    ///         Gold      — priced, open, Founders' Gold edition (appended at the
+    ///                     END so Founder/Allowlist/Public keep their existing
+    ///                     enum indices; ordering here is declaration order, not
+    ///                     sale order, which is set at configurePhase time)
+    enum Phase { Closed, Founder, Allowlist, Public, Gold }
 
     struct PhaseConfig {
         bytes32 merkleRoot; // 0 == open phase, no proof required
@@ -186,7 +214,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     /// @notice Team/treasury reserve. BOUNDED at construction — an unbounded
     ///         owner mint is a rug vector and was a recurring 2021-22 complaint.
-    uint256 public constant RESERVE_MAX = 200;
+    uint256 public constant RESERVE_MAX = 45;
     uint256 public reserveMinted;
 
     string private _renderBaseURI;
@@ -201,6 +229,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     event PausedSet(bool paused);
     event PhaseConfigured(Phase indexed phase, bytes32 merkleRoot, uint96 price, uint16 walletCap, uint16 allocation, uint64 startsAt, uint64 endsAt);
     event HoldDiscountSet(uint16 fractionBps);
+    event GoldDiscountSet(uint16 fractionBps);
     event BaseURISet(string baseURI);
 
     error PhaseNotOpen();
@@ -248,6 +277,11 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         }
         if (sum != MAX_SUPPLY) revert BadCaps();
         _renderBaseURI = renderBaseURI;
+        // Default 2% (200 bps) — the only royalty verified on-chain in the
+        // Robinhood Chain market research. `setDefaultRoyalty` stays available
+        // for later tuning; this just means a deploy is never left at the
+        // OpenZeppelin default of 0.
+        _setDefaultRoyalty(initialOwner, 200);
     }
 
     // ─── Mint ─────────────────────────────────────────────────────────────────
@@ -414,13 +448,13 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
         mintedInPhase[phase][minter] += quantity;
         phaseMinted[phase] += quantity;
-        _mintRun(minter, tickerIndex, quantity, entry);
+        _mintRun(minter, tickerIndex, quantity, entry, phase == Phase.Gold);
     }
 
     /// @notice Treasury / airdrop mint, bounded by RESERVE_MAX.
     /// @dev Honours `mintEndTime` and `paused` exactly as `mint()` does.
     ///      `announceEnd` is described as a promise the contract keeps rather
-    ///      than a tweet; an owner who can still airdrop 200 reserve cards after
+    ///      than a tweet; an owner who can still airdrop 45 reserve cards after
     ///      the announced end is not keeping it.
     function ownerMint(address to, uint8 tickerIndex, uint256 quantity)
         external
@@ -436,12 +470,18 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         if (totalSupply + quantity > MAX_SUPPLY) revert SoldOut();
         if (tickerMinted[tickerIndex] + quantity > tickerCap[tickerIndex]) revert TickerSoldOut();
         reserveMinted += quantity;
-        _mintRun(to, tickerIndex, quantity, _oraclePrice(tickerIndex));
+        // Reserve mints are never Gold — Gold is earned only by paying into
+        // Phase.Gold, never handed out from the team allocation.
+        _mintRun(to, tickerIndex, quantity, _oraclePrice(tickerIndex), false);
     }
 
     /// @param entry Oracle price already read by the caller — passed in rather
     ///        than re-read so a mint pays for exactly one oracle round-trip.
-    function _mintRun(address to, uint8 tickerIndex, uint256 quantity, uint256 entry) internal {
+    /// @param gold Whether this run is minting Phase.Gold cards; stamped onto
+    ///        every token produced and never derived after the fact.
+    function _mintRun(address to, uint8 tickerIndex, uint256 quantity, uint256 entry, bool gold)
+        internal
+    {
         minted[to] += quantity;
         tickerMinted[tickerIndex] += uint16(quantity);
         // GAS: hold the counter in memory and write it once. Reading and writing
@@ -453,7 +493,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // supply. (Both entry points are nonReentrant too — this is the belt
         // behind the braces.)
         totalSupply = supply + quantity;
-        uint40 mintedAt = uint40(block.timestamp);
+        uint32 mintedAt = uint32(block.timestamp);
         // Entry price is stamped once and immutable by design, and `oracle` is
         // owner-settable at any time, so narrow it with a checked cast rather
         // than silently recording a wrapped value forever.
@@ -468,7 +508,8 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
                 entryPrice: entryPrice,
                 mintedAt: mintedAt,
                 mintRank: uint16(tokenId),
-                entryMultiplier: entryMul
+                entryMultiplier: entryMul,
+                isGold: gold
             });
             _safeMint(to, tokenId);
             emit Minted(tokenId, to, tickerIndex, entry);
@@ -631,6 +672,12 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         return _oraclePrice(positionOf(tokenId).tickerIndex);
     }
 
+    /// @notice Whether `tokenId` was minted in Phase.Gold. Stamped once at mint
+    ///         and immutable — transferring a non-Gold card in cannot make it Gold.
+    function isGold(uint256 tokenId) public view returns (bool) {
+        return positionOf(tokenId).isGold;
+    }
+
     /// @notice The stamped entry price restated on TODAY's basis.
     ///
     /// @dev    These are licensed equities, so they split. When one does, the
@@ -748,6 +795,9 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     ///         here, so ids sourced from an indexer can only ever be ignored —
     ///         never inflate the discount. Flat per holder (not per card) so
     ///         stacking cards cannot compound the giveaway.
+    /// @dev    Does NOT distinguish Gold — kept for callers already wired to the
+    ///         indexer-supplied-ids shape. `discountFor` below is Gold-aware and
+    ///         needs no token-id list at all, since balances are tracked directly.
     function discountFractionBpsFor(address owner, uint256[] calldata tokenIds)
         external
         view
@@ -758,6 +808,23 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
                 return holdDiscountFractionBps;
             }
         }
+        return 0;
+    }
+
+    /// @notice The best discount `holder` qualifies for right now, in basis
+    ///         points OF THE TIER RATE. Gold beats the base rate; base beats
+    ///         nothing. Reads `goldBalance`/`balanceOf` directly — no token-id
+    ///         list, no indexer, so this can never be fed a stale or partial set
+    ///         and under-count a holder's Gold card.
+    /// @dev    Best-single-card, not additive: goldBalance > 0 always returns
+    ///         goldDiscountFractionBps regardless of how many other cards the
+    ///         holder has, matching discountFractionBpsFor's flat-per-holder rule.
+    function discountFor(address holder) external view returns (uint16) {
+        // balanceOf(address(0)) reverts in ERC721 — guard rather than let a
+        // zero-address probe revert the whole eth_call.
+        if (holder == address(0)) return 0;
+        if (goldBalance[holder] > 0) return goldDiscountFractionBps;
+        if (balanceOf(holder) > 0) return holdDiscountFractionBps;
         return 0;
     }
 
@@ -858,6 +925,15 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         emit HoldDiscountSet(fractionBps);
     }
 
+    /// @param fractionBps Same unit and same clamp as setHoldDiscountFractionBps
+    ///        — bounded by MAX_HOLD_DISCOUNT_FRACTION_BPS so Gold can never be
+    ///        tuned into an unbounded fee giveaway either.
+    function setGoldDiscountFractionBps(uint16 fractionBps) external onlyOwner {
+        if (fractionBps > MAX_HOLD_DISCOUNT_FRACTION_BPS) revert DiscountTooHigh();
+        goldDiscountFractionBps = fractionBps;
+        emit GoldDiscountSet(fractionBps);
+    }
+
     /// @notice Configure a phase. Set `merkleRoot` to 0 for an open phase.
     /// @dev    `allocation` is what stops the classic failure of an allowlist that
     ///         is larger than the supply reserved for it: the phase simply cannot
@@ -905,14 +981,14 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
         // the whole allocation; require at least one of the two.
         // An open free phase must be bounded by ALLOCATION, not just a wallet
         // cap: allocation == 0 means "up to MAX_SUPPLY", so `walletCap = 1` with
-        // no allowlist still hands the entire 10,000 to 10,000 fresh addresses
-        // for gas. MAX_PER_WALLET is per-address and does nothing here.
+        // no allowlist still hands the entire supply to that many fresh
+        // addresses for gas. MAX_PER_WALLET is per-address and does nothing here.
         // An open (unallowlisted) free phase needs BOTH bounds. A wallet cap
         // alone is not a bound: allocation == 0 means "up to MAX_SUPPLY", so
-        // walletCap = 1 with no allowlist still hands the whole 10,000 to
-        // 10,000 fresh addresses for gas, and MAX_PER_WALLET is per-address so
-        // it does nothing here. An allocation alone is not a bound either —
-        // one address takes the lot.
+        // walletCap = 1 with no allowlist still hands the whole supply to that
+        // many fresh addresses for gas, and MAX_PER_WALLET is per-address so it
+        // does nothing here. An allocation alone is not a bound either — one
+        // address takes the lot.
         if (merkleRoot == bytes32(0) && (walletCap == 0 || allocation == 0)) {
             revert FreePhaseUnbounded();
         }
@@ -934,6 +1010,23 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     function _baseURI() internal view override returns (string memory) {
         return _renderBaseURI;
+    }
+
+    /// @notice Keeps `goldBalance` correct across every path ERC721 moves a
+    ///         token through — mint (from == 0), transfer, and burn (to == 0) —
+    ///         in ONE place, so a discount can never be read against a stale
+    ///         balance no matter which function moved the card.
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        override
+        returns (address)
+    {
+        address from = super._update(to, tokenId, auth);
+        if (_positions[tokenId].isGold) {
+            if (from != address(0)) goldBalance[from] -= 1;
+            if (to != address(0)) goldBalance[to] += 1;
+        }
+        return from;
     }
 
     function supportsInterface(bytes4 interfaceId)
