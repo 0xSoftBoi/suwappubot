@@ -22,6 +22,20 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
 		DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
 		WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+		// DeFi protocol tokens (verified on-chain via Blockscout, 2026-08-26).
+		// Keys are UPPERCASE because TokenService.resolveToken uppercases the
+		// input symbol before this lookup — 'sUSDe' as a key would never match.
+		SUSDE: '0x9D39A5DE30e57443BfF2A8307A4256c8797A3497', // Ethena Staked USDe (ERC-4626, 18dp)
+		ENA: '0x57e114B691Db790C35207b2e685D4A43181e6061',
+		PENDLE: '0x808507121B80c02388fAd14726482e061B8da827',
+		MORPHO: '0x58D97B57BB95320F9a05dC918Aef65434969c2B2',
+		// Superstate fund tokens — allowlist-gated (transfers revert unless the
+		// wallet is Superstate-KYC'd). 6dp; mirrored in bot/config/tokens.py
+		// with transfer_gated=True. Kept here so the reference API can serve
+		// canonical addresses, but GATED_TOKEN_SYMBOLS below stops resolveToken
+		// from ever offering them to the swap path.
+		USTB: '0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e',
+		USCC: '0x14d60E7FDC0D71d8611742720E4C50E7a974020c',
 	},
 	// Optimism
 	10: {
@@ -96,6 +110,13 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
 	},
 }
+
+// Allowlist-gated tokens (on-chain transfer allowlists — settlement reverts
+// for non-allowlisted wallets, so quoting/building swaps for them is a trap).
+// TokenService.resolveToken refuses these on every chain; the Python engine
+// enforces the same via TokenConfig.transfer_gated. Keys are UPPERCASE to
+// match resolveToken's symbol normalization.
+export const GATED_TOKEN_SYMBOLS: ReadonlySet<string> = new Set(['USTB', 'USCC'])
 
 // Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
 // into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.

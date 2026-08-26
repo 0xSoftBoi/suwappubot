@@ -277,6 +277,7 @@ from bot.handlers.copy import (
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.savings import savings_conversation_handler
+from bot.handlers.earn import earn_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
@@ -531,6 +532,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(battle_conversation_handler)  # MONEY-PATH: gamified /battle
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
+    application.add_handler(
+        earn_conversation_handler
+    )  # Cross-protocol ERC-4626 earn /earn (Ethena, Sky, Morpho, ...)
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(p2p_conversation_handler)  # P2P marketplace /p2p
@@ -856,6 +860,7 @@ async def post_init(application) -> None:
             BotCommand("pos", "💼 Positions & PnL"),
             BotCommand("w", "👛 Wallets"),
             BotCommand("save", "🏦 Earn yield on idle USDC"),
+            BotCommand("earn", "🌾 Cross-protocol yield (Ethena, Sky, Morpho...)"),
             BotCommand("a", "🔔 Price alerts"),
             BotCommand("check", "🛡️ Token safety check"),
             BotCommand("chart", "📈 Candlestick chart"),

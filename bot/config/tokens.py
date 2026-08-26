@@ -14,6 +14,11 @@ class TokenConfig:
     addresses: dict[str, str]  # chain_name -> token_address
     logo_emoji: str
     is_stablecoin: bool = True
+    # True for ERC-20s that enforce an on-chain transfer allowlist (e.g.
+    # Superstate RWA funds): transfers revert for non-allowlisted wallets even
+    # though quoting works fine. See bot/config/protocols.py:is_gated_token().
+    transfer_gated: bool = False
+    gated_note: Optional[str] = None
 
 
 # Native token address placeholder (used by Li.Fi)
@@ -238,6 +243,37 @@ TOKENS: dict[str, TokenConfig] = {
             "base": "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
         },
         logo_emoji="🟣",
+    ),
+    # sUSDe — ERC-4626 yield-bearing wrapper over USDe above (Ethena's staked
+    # vault share). Accrues protocol yield, so its redemption value drifts
+    # above $1 (~$1.23 as of 2026-08-26) rather than holding a $1 peg like
+    # USDe — NOT a stablecoin.
+    # NOTE: dict key is "SUSDE" (uppercase) NOT "sUSDe" — get_token_address(),
+    # get_token_by_symbol(), and get_token_decimals() all do symbol.upper()
+    # lookups against TOKENS, so a mixed-case key here is unreachable via any
+    # of them (dead entry). symbol="sUSDe" below is unaffected and still
+    # drives display text. Mirrors api-ts tokenRegistry.ts, which already
+    # keys this SUSDE. The pre-existing USDe/stETH/wstETH/cbETH/rETH mixed-case
+    # keys have the same defect but are out of scope for this fix.
+    "SUSDE": TokenConfig(
+        symbol="sUSDe",
+        name="Ethena Staked USDe",
+        decimals=18,
+        addresses={
+            "ethereum": "0x9D39A5DE30e57443BfF2A8307A4256c8797A3497",
+        },
+        logo_emoji="🟣",
+        is_stablecoin=False,
+    ),
+    "ENA": TokenConfig(
+        symbol="ENA",
+        name="Ethena",
+        decimals=18,
+        addresses={
+            "ethereum": "0x57e114B691Db790C35207b2e685D4A43181e6061",
+        },
+        logo_emoji="🟣",
+        is_stablecoin=False,
     ),
     # === Tempo TIP-20 Stablecoins (mainnet live March 18, 2026) ===
     # NOTE: These are TIP-20 tokens, NOT ERC-20. Circle USDC and Tether USDT
@@ -600,6 +636,30 @@ TOKENS: dict[str, TokenConfig] = {
         logo_emoji="👻",
         is_stablecoin=False,
     ),
+    "PENDLE": TokenConfig(
+        symbol="PENDLE",
+        name="Pendle",
+        decimals=18,
+        addresses={
+            "ethereum": "0x808507121B80c02388fAd14726482e061B8da827",
+        },
+        logo_emoji="👻",
+        is_stablecoin=False,
+    ),
+    # Governance token of Morpho lending. Verified EIP-1967 proxy. Morpho's
+    # actual borrow/earn integration (cbBTC/USDC market + vaults on Base)
+    # lives in bot/config/morpho_config.py + bot/services/morpho_api.py — this
+    # entry is only the swappable ERC-20, not that integration.
+    "MORPHO": TokenConfig(
+        symbol="MORPHO",
+        name="Morpho",
+        decimals=18,
+        addresses={
+            "ethereum": "0x58D97B57BB95320F9a05dC918Aef65434969c2B2",
+        },
+        logo_emoji="👻",
+        is_stablecoin=False,
+    ),
     "CRV": TokenConfig(
         symbol="CRV",
         name="Curve DAO",
@@ -691,6 +751,52 @@ TOKENS: dict[str, TokenConfig] = {
         },
         logo_emoji="🪙",
         is_stablecoin=False,
+    ),
+    # === Superstate tokenized funds (RWA, allowlist-gated) ===
+    # Superstate (superstate.co) funds enforce an on-chain KYC allowlist on
+    # the ERC-20 itself: quoting/pricing works normally, but the transfer
+    # underlying settlement REVERTS for any wallet that is not allowlisted
+    # with Superstate (qualified purchasers only). transfer_gated=True below
+    # drives the swap-engine guard in bot/services/swap_engine.py that fails
+    # a quote fast instead of racing providers toward a doomed settlement.
+    # Ethereum mainnet only here — Superstate also has USTB/USCC-equivalent
+    # deployments on Solana and Plume, but those addresses were NOT verified
+    # on-chain for this change, so they are intentionally omitted.
+    # NOTE: names below use the current on-chain name() (issuer rebranded from
+    # "Superstate" branding to Invesco/Bitwise sub-brands) — Superstate is
+    # still the protocol/issuer of record (superstate.co) and remains the
+    # PROTOCOLS entry + gated_note context.
+    "USTB": TokenConfig(
+        symbol="USTB",
+        name="Invesco Short Duration US Government Securities Fund",
+        decimals=6,
+        addresses={
+            "ethereum": "0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e",
+        },
+        logo_emoji="🏦",
+        is_stablecoin=False,
+        transfer_gated=True,
+        gated_note=(
+            "Superstate allowlist — transfers revert unless the wallet is "
+            "KYC-allowlisted with Superstate (qualified purchasers only). "
+            "See superstate.co/ustb"
+        ),
+    ),
+    "USCC": TokenConfig(
+        symbol="USCC",
+        name="Bitwise Crypto Carry Fund",
+        decimals=6,
+        addresses={
+            "ethereum": "0x14d60E7FDC0D71d8611742720E4C50E7a974020c",
+        },
+        logo_emoji="🏦",
+        is_stablecoin=False,
+        transfer_gated=True,
+        gated_note=(
+            "Superstate allowlist — transfers revert unless the wallet is "
+            "KYC-allowlisted with Superstate (qualified purchasers only). "
+            "See superstate.co/uscc"
+        ),
     ),
     # === L2 Native Tokens ===
     "ZK": TokenConfig(

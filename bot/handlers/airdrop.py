@@ -73,7 +73,16 @@ _CANCEL_KB = InlineKeyboardMarkup(
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_CHAINS = ["ethereum", "base", "polygon", "bsc", "arbitrum", "optimism", "solana"]
+_SUPPORTED_CHAINS = [
+    "ethereum",
+    "base",
+    "polygon",
+    "bsc",
+    "arbitrum",
+    "optimism",
+    "robinhood",
+    "solana",
+]
 
 
 def _resolve_db_user(telegram_id: int) -> tuple[int, str] | tuple[None, None]:

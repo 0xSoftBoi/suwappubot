@@ -49,6 +49,7 @@ CAT_SIMULATION_REVERT = "simulation_revert"
 CAT_USER_REJECTED = "user_rejected"
 CAT_NO_ROUTE = "no_route"
 CAT_UNSUPPORTED = "unsupported"
+CAT_ALLOWLIST_GATED = "allowlist_gated"
 CAT_UNKNOWN = "unknown"
 
 
@@ -207,6 +208,17 @@ _CATEGORY_COPY: dict[str, dict[str, Any]] = {
         "action_payload": {"retry": True, "button_text": "🔄 Try again"},
         "is_fund_loss": False,
     },
+    CAT_ALLOWLIST_GATED: {
+        "title": "This token requires KYC allowlisting",
+        "explanation": (
+            "{TOKEN} is a real-world-asset fund token — transfers only settle "
+            "for wallets that are KYC-allowlisted with the issuer (qualified "
+            "purchasers only). Your funds are safe — nothing was spent.{GATED_NOTE}"
+        ),
+        "next_action": "Get allowlisted with the issuer, or pick a different token.",
+        "action_payload": {"retry": False},
+        "is_fund_loss": False,
+    },
     CAT_UNKNOWN: {
         "title": "We hit a snag completing your swap",
         "explanation": (
@@ -263,6 +275,14 @@ _SUBSTRING_RULES: list[tuple[str, tuple[str, ...]]] = [
     (
         CAT_ALLOWANCE_MISSING,
         ("approval failed", "allowance", "not approved", "approve "),
+    ),
+    # Allowlist-gated RWA fund token (engine: swap_engine._assert_not_gated,
+    # "... is allowlist-gated: ..."). Must beat the generic "revert" needle
+    # in the simulation-revert rule below, since the gated message itself
+    # says "transfers revert for non-allowlisted wallets".
+    (
+        CAT_ALLOWLIST_GATED,
+        ("allowlist-gated", "allowlist gated", "kyc allowlist", "kyc-allowlisted"),
     ),
     # Slippage / price movement / expired quote (validator: "Quote expired", "Slippage tolerance ...").
     (
@@ -424,12 +444,27 @@ def classify_swap_failure(
         if raw_reason:
             reason = f"\n\nReason: {str(raw_reason).strip()[:140]}"
 
+    # Name the issuing protocol + docs link for a gated-token refusal. Cheap,
+    # config-only lookup — no RPC here (live allowlist status, if any, is
+    # appended by the async handler layer after this returns).
+    gated_note = ""
+    if category == CAT_ALLOWLIST_GATED:
+        try:
+            from bot.config.protocols import get_protocol_for_token
+
+            protocol = get_protocol_for_token(token)
+            if protocol:
+                gated_note = f"\n\n{protocol.name}: {protocol.notes} ({protocol.docs_url})"
+        except Exception:  # pragma: no cover - defensive, never block a diagnosis
+            pass
+
     def _fill(value: str) -> str:
         filled = (
             value.replace("{NATIVE}", native)
             .replace("{CHAIN}", chain_label)
             .replace("{TOKEN}", token)
             .replace("{REASON}", reason)
+            .replace("{GATED_NOTE}", gated_note)
         )
         # Sentence-case the leading character. Templates that begin with a
         # substituted value (e.g. "{CHAIN} took too long") would otherwise

@@ -11,7 +11,16 @@ from bot.services.whatsapp_conversation import ConversationState
 logger = logging.getLogger(__name__)
 
 # Top-level chains shown in swap selection (most popular first)
-_POPULAR_EVM = ["ethereum", "arbitrum", "base", "polygon", "optimism", "bsc", "avalanche"]
+_POPULAR_EVM = [
+    "ethereum",
+    "arbitrum",
+    "base",
+    "robinhood",
+    "polygon",
+    "optimism",
+    "bsc",
+    "avalanche",
+]
 _ALL_CHAINS = _POPULAR_EVM + ["solana"]
 
 

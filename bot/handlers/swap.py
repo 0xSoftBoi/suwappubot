@@ -131,6 +131,50 @@ async def _render_swap_failure(edit, exc_or_message, context: ContextTypes.DEFAU
         ),
     }
     guidance = classify_swap_failure(exc_or_message, ctx)
+
+    # Superstate-gated refusal: append the caller's LIVE on-chain allowlist
+    # status. Advisory only — cannot change the fact that the swap was
+    # already refused (guidance.category is fixed above); a lookup failure
+    # renders "status unavailable", never a false "not allowlisted".
+    if guidance.category == "allowlist_gated":
+        try:
+            wallet_id = (swap_data.get("selected_wallets") or [swap_data.get("wallet_id")])[0]
+            wallet_address = None
+            if wallet_id:
+                with get_session() as session:
+                    wallet = session.query(Wallet).filter(Wallet.id == wallet_id).first()
+                    wallet_address = wallet.address if wallet else None
+            # The gated token may be either side: selling USTB (from_token) or
+            # — the common case — BUYING it (to_token). Pick whichever side is
+            # actually gated, else the read is done against an unrelated token
+            # (e.g. USDC) and always degrades to "unavailable".
+            from bot.config.protocols import is_gated_token
+
+            token = None
+            for candidate, candidate_chain in (
+                (swap_data.get("from_token"), swap_data.get("from_chain")),
+                (swap_data.get("to_token"), swap_data.get("to_chain")),
+            ):
+                if candidate and is_gated_token(candidate, candidate_chain):
+                    token = candidate
+                    break
+            if wallet_address and token:
+                from bot.services.superstate_service import superstate_service
+
+                allowed = await asyncio.to_thread(
+                    superstate_service.is_allowlisted, token, wallet_address
+                )
+                if allowed is True:
+                    status_line = "✅ This wallet IS allowlisted."
+                elif allowed is False:
+                    status_line = "❌ This wallet is NOT allowlisted — swaps will revert."
+                else:
+                    status_line = "Allowlist status unavailable right now."
+                guidance.explanation = f"{guidance.explanation}\n\n{status_line}"
+        except Exception:
+            # Best-effort enrichment only — never mask the underlying refusal.
+            pass
+
     try:
         await edit(
             guidance.to_message(),

@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from 'effect'
 import {
 	COMMON_TOKENS,
+	GATED_TOKEN_SYMBOLS,
 	ROBINHOOD_TOKEN_DECIMALS,
 	TEMPO_TOKEN_DECIMALS,
 } from '../config/tokenRegistry'
@@ -282,12 +283,22 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 		Effect.gen(function* () {
 			const normalized = symbol.toUpperCase().trim()
 
+			// Allowlist-gated tokens (Superstate USTB/USCC): quoting works but
+			// settlement reverts for non-Superstate-KYC'd wallets, so refusing
+			// resolution here (null → callers' "Token not found" path) is the
+			// honest answer on every chain. Also stops the Li.Fi fallback from
+			// resolving them behind our back.
+			if (GATED_TOKEN_SYMBOLS.has(normalized)) {
+				return null
+			}
+
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
 			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo, USDG on Robinhood Chain).
 			// USDG MUST stay here: it is 6dp on-chain, and defaulting it to 18 would
 			// misprice every Robinhood Chain quote by 1e12.
-			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG'])
+			// USTB/USCC (Superstate fund tokens) are 6dp on-chain like USDC.
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG', 'USTB', 'USCC'])
 
 			if (chainTokens && chainTokens[normalized]) {
 				return {
