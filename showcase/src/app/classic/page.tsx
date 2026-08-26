@@ -15,6 +15,15 @@ import { TELEGRAM_URL, WHATSAPP_URL, WHATSAPP_ENABLED } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import productStats from '@/data/stats.generated.json';
 import styles from '../home.module.css';
+import type { Metadata } from 'next';
+
+// Archived previous homepage (see showcase/CLAUDE.md: "reference only").
+// Duplicates the real homepage's content/structured data, so it must stay
+// out of search results — the live "/" is the canonical page.
+export const metadata: Metadata = {
+  title: 'Classic (archived) | Suwappu',
+  robots: { index: false, follow: false },
+};
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
 export const revalidate = 60;
