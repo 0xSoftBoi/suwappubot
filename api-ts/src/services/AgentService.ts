@@ -146,6 +146,11 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 							apiKeyHash,
 							callbackUrl: params.callbackUrl || null,
 							metadata: params.metadata || null,
+							// Explicit rather than relying on a DB-level default: on
+							// databases created by the legacy Python path the column
+							// has no server default, and a NULL here reads as
+							// inactive → the fresh key 401s on first use.
+							isActive: true,
 						})
 						.returning(),
 				catch: (e) => {
