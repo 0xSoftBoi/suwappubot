@@ -5,24 +5,43 @@
  * deliberately NOT wired to gate swap, withdrawal, fee, or subscription
  * logic (see task description — do not add such a dependency here).
  *
- * --- Verification (per zkPass docs) ---
- * 1. Allocator check: hash (taskId, schemaId, validatorAddress) via
- *    ABI-encode + keccak256, then EIP-191 personal-sign-recover
- *    `allocatorSignature` over that hash. Recovered address MUST equal the
- *    configured zkPass allocator address.
- * 2. Validator check: hash (taskId, schemaId, uHash, publicFieldsHash[,
- *    recipient]) the same way, then recover `validatorSignature`'s signer.
- *    Recovered address MUST equal `validatorAddress` from the proof itself.
+ * --- Verification: VERIFIED against zkPass's own primary sources, not the
+ * (lossy, paraphrased) hosted docs. Ground truth used:
+ *   - github.com/zkPassOfficial/Transgate-JS-SDK, lib/types.d.ts and
+ *     lib/index.js (`checkTaskInfoForEVM` / `verifyEVMMessageSignature`) —
+ *     the shipped SDK's own client-side reference checks.
+ *   - github.com/zkPassOfficial/zkpass-tutorial-examples,
+ *     contracts/contracts/ProofVerifier.sol + Common.sol (the `Proof`
+ *     struct field order) and contracts/test/ProofVerifier.js — a REAL,
+ *     PASSING unit test with a real taskId/schemaId/signature fixture.
+ *   - Reproduced that exact fixture locally with viem (see PR description /
+ *     commit message): both `allocatorSignature` and `validatorSignature`
+ *     recover to the exact expected addresses. This is not a best-effort
+ *     reading of a doc summary — it is a byte-for-byte confirmed match
+ *     against zkPass's own shipped, tested reference implementation.
+ *
+ * 1. Allocator check: encode (taskId as bytes32, schemaId as bytes32,
+ *    validatorAddress as address) via standard ABI encoding (`abi.encode`,
+ *    i.e. NOT packed), keccak256 it, then EIP-191 personal-sign-recover
+ *    `allocatorSignature` over that 32-byte hash. Recovered address MUST
+ *    equal the fixed zkPass allocator address.
+ * 2. Validator check: same ABI-encode + keccak256 + EIP-191-recover over
+ *    (taskId, schemaId, uHash, publicFieldsHash, recipient) — ALWAYS five
+ *    fields in that exact order (per the `ProofVerifier.sol` Solidity
+ *    struct/function signature); `recipient` is the zero address when the
+ *    client didn't bind a wallet address into the proof (Solidity's
+ *    `address` type has no "absent" state — it defaults to zero). Recovered
+ *    address MUST equal `validatorAddress` from the proof itself.
  * Only if BOTH checks pass is the proof valid.
  *
- * AMBIGUITY WARNING: zkPass's own docs describe this in web3.js terms
- * without a full literal code example pinning down the exact ABI parameter
- * types. The types used below (`string` for taskId/schemaId, `address` for
- * validatorAddress/recipient) are a best-effort, natural reading of the
- * field types — NOT confirmed byte-for-byte against zkPass's own source or
- * SDK. This MUST be validated against a real TransGate test proof (from
- * zkpass.org's testnet/demo schema) before this is trusted for anything
- * beyond informational display.
+ * taskId/schemaId encoding: zkPass's real schema/task IDs are 32-character,
+ * no-dash hex-look-alike strings (e.g. "c7eab8b7d7e44b05b41b613fe548edf5"),
+ * NOT the dash-formatted 36-char UUIDs shown as illustrative examples in
+ * some docs pages — encoding a 36-char UUID as bytes32 overflows and
+ * throws (confirmed by executing the real `web3.eth.abi.encodeParameters`
+ * call against the actual pinned `web3` dependency). We hex-encode the raw
+ * UTF-8 bytes and require the result to fit exactly in 32 bytes; anything
+ * that doesn't fit throws and is caught by the fail-closed wrapper below.
  *
  * This function deliberately FAILS CLOSED: any exception, missing field, or
  * address mismatch results in `{ isValid: false }` rather than failing open.
@@ -34,21 +53,27 @@ import {
 	keccak256,
 	parseAbiParameters,
 	recoverMessageAddress,
+	stringToHex,
+	zeroAddress,
 } from 'viem'
 import { desc, eq } from 'drizzle-orm'
 import type { DbClient } from '../db/client'
 import { type NewZkpassVerification, zkpassVerifications } from '../db/schema/zkpass'
 
-/** Fixed zkPass allocator address per zkPass docs. Env-overridable. */
+/** Fixed zkPass allocator address (Transgate-JS-SDK `constants.ts`: EVMTaskAllocator). Env-overridable. */
 export const DEFAULT_ZKPASS_ALLOCATOR_ADDRESS: Address =
 	'0x19a567b3b212a5b35bA0E3B600FbEd5c2eE9083d'
 
 export interface ZkPassProofResult {
 	taskId: string
+	// Not part of the SDK's `launch()` return value (confirmed via
+	// Transgate-JS-SDK's `Result` type) — the caller must supply the
+	// schemaId it used to call `launch(schemaId, ...)` alongside the result.
 	schemaId: string
 	uHash: string
 	publicFieldsHash: string
-	publicFields: Record<string, unknown>
+	// Confirmed array, not object, per Transgate-JS-SDK `Result.publicFields: any[]`.
+	publicFields: unknown[]
 	validatorAddress: string
 	validatorSignature: string
 	allocatorAddress: string
@@ -78,7 +103,7 @@ export function parseZkPassProofBody(body: unknown): ZkPassProofResult | null {
 	for (const key of requiredStrings) {
 		if (typeof b[key] !== 'string' || (b[key] as string).length === 0) return null
 	}
-	if (b.publicFields !== undefined && typeof b.publicFields !== 'object') return null
+	if (b.publicFields !== undefined && !Array.isArray(b.publicFields)) return null
 	if (b.recipient !== undefined && typeof b.recipient !== 'string') return null
 
 	return {
@@ -86,7 +111,7 @@ export function parseZkPassProofBody(body: unknown): ZkPassProofResult | null {
 		schemaId: b.schemaId as string,
 		uHash: b.uHash as string,
 		publicFieldsHash: b.publicFieldsHash as string,
-		publicFields: (b.publicFields as Record<string, unknown>) ?? {},
+		publicFields: (b.publicFields as unknown[]) ?? [],
 		validatorAddress: b.validatorAddress as string,
 		validatorSignature: b.validatorSignature as string,
 		allocatorAddress: b.allocatorAddress as string,
@@ -96,9 +121,20 @@ export function parseZkPassProofBody(body: unknown): ZkPassProofResult | null {
 }
 
 /**
+ * Hex-encode a zkPass taskId/schemaId string as a bytes32 ABI value.
+ * Real IDs are exactly 32 UTF-8 bytes (see file header) — anything else
+ * throws, which the caller treats as a fail-closed invalid proof rather
+ * than silently truncating or padding to a different value than whatever
+ * the validator actually signed.
+ */
+function idToBytes32(value: string): `0x${string}` {
+	return stringToHex(value, { size: 32 })
+}
+
+/**
  * Verify a zkPass TransGate proof result server-side. Fails closed on any
  * exception, missing field, or address mismatch. See file header for the
- * ambiguity caveat on exact ABI types.
+ * verified source of the hashing/encoding algorithm.
  */
 export async function verifyZkPassProof(
 	proof: ZkPassProofResult,
@@ -114,12 +150,25 @@ export async function verifyZkPassProof(
 		if (proof.recipient && !isAddress(proof.recipient)) {
 			return { isValid: false, reason: 'recipient is not a valid address' }
 		}
+		if (!/^0x[0-9a-fA-F]{64}$/.test(proof.uHash)) {
+			return { isValid: false, reason: 'uHash is not a 32-byte hex value' }
+		}
+		if (!/^0x[0-9a-fA-F]{64}$/.test(proof.publicFieldsHash)) {
+			return { isValid: false, reason: 'publicFieldsHash is not a 32-byte hex value' }
+		}
 
-		// --- Step 1: allocator check ---
+		const taskIdHex = idToBytes32(proof.taskId)
+		const schemaIdHex = idToBytes32(proof.schemaId)
+		// Solidity's `address recipient` field has no "absent" state — it
+		// defaults to the zero address when the client didn't bind a wallet
+		// address into the proof. Matches Common.sol's `Proof` struct.
+		const recipient = (proof.recipient as Address | undefined) ?? zeroAddress
+
+		// --- Step 1: allocator check --- (taskId, schemaId, validatorAddress)
 		const allocatorParamsHash = keccak256(
-			encodeAbiParameters(parseAbiParameters('string, string, address'), [
-				proof.taskId,
-				proof.schemaId,
+			encodeAbiParameters(parseAbiParameters('bytes32, bytes32, address'), [
+				taskIdHex,
+				schemaIdHex,
 				proof.validatorAddress as Address,
 			]),
 		)
@@ -131,25 +180,16 @@ export async function verifyZkPassProof(
 			return { isValid: false, reason: 'allocator signature does not match expected allocator address' }
 		}
 
-		// --- Step 2: validator check ---
-		const validatorParamsHash = proof.recipient
-			? keccak256(
-					encodeAbiParameters(parseAbiParameters('string, string, string, string, address'), [
-						proof.taskId,
-						proof.schemaId,
-						proof.uHash,
-						proof.publicFieldsHash,
-						proof.recipient as Address,
-					]),
-				)
-			: keccak256(
-					encodeAbiParameters(parseAbiParameters('string, string, string, string'), [
-						proof.taskId,
-						proof.schemaId,
-						proof.uHash,
-						proof.publicFieldsHash,
-					]),
-				)
+		// --- Step 2: validator check --- (taskId, schemaId, uHash, publicFieldsHash, recipient)
+		const validatorParamsHash = keccak256(
+			encodeAbiParameters(parseAbiParameters('bytes32, bytes32, bytes32, bytes32, address'), [
+				taskIdHex,
+				schemaIdHex,
+				proof.uHash as `0x${string}`,
+				proof.publicFieldsHash as `0x${string}`,
+				recipient,
+			]),
+		)
 		const recoveredValidator = await recoverMessageAddress({
 			message: { raw: validatorParamsHash },
 			signature: proof.validatorSignature as `0x${string}`,
@@ -193,7 +233,7 @@ export async function saveZkPassVerification(
 		taskId: proof.taskId,
 		uHash: proof.uHash,
 		publicFieldsHash: proof.publicFieldsHash,
-		publicFields: JSON.stringify(proof.publicFields ?? {}),
+		publicFields: JSON.stringify(proof.publicFields ?? []),
 		validatorAddress: proof.validatorAddress,
 		recipient: proof.recipient ?? null,
 		isValid,

@@ -4,6 +4,23 @@ import { api } from '../../lib/api'
 import { openExternalLink, isTelegramWebApp } from '../../lib/telegram'
 import type { ZkPassStatus } from '../../types/api'
 
+// The SDK's own `launch()` signature returns `Promise<unknown>` (it can also
+// resolve to a `TransgateError` instance when the allocator/validator task
+// check fails) — this narrows the success shape per Transgate-JS-SDK's
+// `Result` type (lib/types.d.ts) so we can safely spread it into the verify
+// request body below.
+interface TransgateProofResult {
+  taskId: string
+  uHash: string
+  publicFields: unknown[]
+  publicFieldsHash: string
+  validatorAddress: string
+  validatorSignature: string
+  allocatorAddress: string
+  allocatorSignature: string
+  recipient?: string
+}
+
 /**
  * Self-contained "Verify with zkPass" card for the Settings screen.
  *
@@ -56,8 +73,16 @@ export function ZkPassVerifyCard() {
         return
       }
 
-      const result = await connector.launch(config.schemaId, undefined)
-      const verifyResult = await api.verifyZkPass(result)
+      const result = (await connector.launch(config.schemaId, undefined)) as TransgateProofResult
+      if (!result || typeof result !== 'object' || !('taskId' in result)) {
+        setError(t('settings.identityCancelled'))
+        return
+      }
+      // The SDK's launch() result does not echo back the schemaId used to
+      // request it (confirmed against Transgate-JS-SDK's `Result` type) —
+      // the backend's signature verification needs it, so it must be sent
+      // alongside the raw result explicitly.
+      const verifyResult = await api.verifyZkPass({ ...result, schemaId: config.schemaId })
       setStatus((prev) => ({
         verified: verifyResult.isValid,
         verifiedAt: verifyResult.isValid ? new Date().toISOString() : prev?.verifiedAt ?? null,
