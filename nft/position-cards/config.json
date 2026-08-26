@@ -2,7 +2,8 @@
  "collection": {
   "name": "Suwappu Positions",
   "symbol": "POS",
-  "supply": 10000,
+  "supply": 4444,
+  "_supply_comment": "4,444 — retuned 2026-08-26 from 10,000 against real Robinhood Chain data (docs/research/robinhood-chain-nft-*.md). The chain's strongest collection (StonkBrokers, sold out, ~$22.5K floor, $4.7M volume) is 4,444; the floor-durability band observed on chain 4663 is 4,000-6,000. 7.7k-10k supplies build breadth only with free mints and hold no floor.",
   "external_url": "https://suwappu.bot/positions",
   "tagline": "Pick one of the 35 tokenized equities with a live Chainlink feed on Robinhood Chain. Your entry price is stamped on-chain forever.",
   "chain": {
@@ -18,11 +19,16 @@
  "economics": {
   "_comment": "Fee discount for holding any Position, PROPORTIONAL to whatever rate the holder is already on — not a flat number of bps off the swap. 0.40 = 40% off your rate. A flat bps subtraction was tried first and collapsed the tier ladder: 40 bps off unevenly-spaced tiers (FREE 100 / PRO 50 / PREMIUM 30 / ENTERPRISE 10) floored PRO and PREMIUM to the same rate as ENTERPRISE, so a card made a $29.99 plan worth exactly what a $9.99 one was. Proportional keeps them apart: FREE 100->60, PRO 50->30, PREMIUM 30->18. NOT OFFERED ON ENTERPRISE — that tier is contracted pricing, negotiated per customer, and a card anyone can buy on the secondary market must not move a rate that was agreed in a contract. Self-serve tiers are additionally floored at the ENTERPRISE rate, so a perk can match contracted pricing but never beat it. On FREE this is unchanged from the original flat-40-bps design: $4 saved per $1,000 swapped, so an active trader recoups a mint in ~$4k of volume. REVENUE TRADEOFF: deliberately material — a 5% token is not worth minting. Mirrored on-chain by holdDiscountFractionBps (basis points OF THE TIER RATE, 4000 = 40%) and clamped by MAX_CARD_DISCOUNT_FRACTION in bot/services/position_cards_service.py; tests/test_position_cards.py pins all three together, and tests/test_fee_service.py pins the ENTERPRISE exclusion.",
   "hold_discount_fraction": 0.4,
-  "max_discount_fraction": 0.4,
+  "_gold_comment": "Founders' Gold tier perk: 55% off the tier rate (under the on-chain MAX_HOLD_DISCOUNT_FRACTION_BPS = 6000 ceiling and the bot's MAX_CARD_DISCOUNT_FRACTION clamp). Gold is stamped per token at mint (Phase.Gold), never rolled — the StonkBrokers/Gremlin lesson: real utility inside the token is what held the only durable floors on chain 4663. A holder's discount is the best single card they hold: gold 55%, else 40%. Per holder, not per card — stacking cannot compound it.",
+  "gold_discount_fraction": 0.55,
+  "max_discount_fraction": 0.55,
+  "_royalty_comment": "ERC-2981 default royalty in bps. 2% is the only royalty verified on-chain in the Robinhood Chain market research (Robinhood Punks); the chain norm is 2-5%, and undercutting to the verified floor keeps secondary friction lowest.",
+  "royalty_bps": 200,
   "early_mint_badge_ranks": {
-   "Founder": 500,
-   "Early": 2000
-  }
+   "Founder": 222,
+   "Early": 888
+  },
+  "_badge_comment": "Rank badges rescaled to 4,444 supply at the original proportions (5% / 20%). Badges are earned by mint rank; the Gold EDITION is a separate, purchased, per-token stamp — the two never collide."
  },
  "sectors": {
   "Semiconductors": [
@@ -94,42 +100,43 @@
   "Consumer": "#86b894",
   "Index & Commodity": "#a8a8ad"
  },
+ "_ticker_caps_comment": "Rescaled from the 10,000-card caps to sum exactly 4,444 (largest-remainder, floor 10 for the thinnest names) — relative depth weights preserved.",
  "ticker_caps": {
-  "AAPL": 510,
-  "AMD": 255,
-  "AMZN": 509,
-  "ASML": 255,
-  "BABA": 136,
-  "CLSK": 138,
-  "COIN": 509,
-  "CRCL": 255,
-  "CRWV": 255,
-  "DELL": 138,
-  "EWY": 136,
-  "GME": 255,
-  "GOOGL": 509,
-  "INTC": 255,
-  "IONQ": 255,
-  "META": 509,
-  "MSFT": 509,
-  "MSTR": 509,
-  "MU": 255,
-  "NBIS": 138,
-  "NVDA": 509,
-  "ORCL": 255,
-  "PLTR": 509,
-  "QQQ": 509,
-  "RGTI": 67,
-  "RKLB": 67,
-  "SGOV": 136,
-  "SLV": 136,
-  "SNDK": 67,
-  "SPCX": 23,
-  "SPY": 509,
-  "TSLA": 509,
-  "TSM": 255,
-  "USAR": 23,
-  "USO": 136
+  "AAPL": 227,
+  "AMD": 113,
+  "AMZN": 226,
+  "ASML": 113,
+  "BABA": 61,
+  "CLSK": 62,
+  "COIN": 226,
+  "CRCL": 113,
+  "CRWV": 113,
+  "DELL": 62,
+  "EWY": 61,
+  "GME": 113,
+  "GOOGL": 226,
+  "INTC": 113,
+  "IONQ": 113,
+  "META": 226,
+  "MSFT": 226,
+  "MSTR": 226,
+  "MU": 113,
+  "NBIS": 62,
+  "NVDA": 226,
+  "ORCL": 113,
+  "PLTR": 226,
+  "QQQ": 226,
+  "RGTI": 30,
+  "RKLB": 30,
+  "SGOV": 61,
+  "SLV": 61,
+  "SNDK": 30,
+  "SPCX": 10,
+  "SPY": 226,
+  "TSLA": 226,
+  "TSM": 113,
+  "USAR": 10,
+  "USO": 61
  },
  "grades": [
   {
@@ -164,35 +171,44 @@
   }
  ],
  "mint": {
-  "_comment": "Phase plan. Allocations sum to MAX_SUPPLY minus the 200-card team reserve. The allocation per phase is what prevents the classic failure of an allowlist bigger than the supply behind it — the phase cannot oversell, so latecomers get a clean revert instead of a gas war.",
+  "_comment": "Phase plan, retuned 2026-08-26 against real Robinhood Chain sale data (docs/research/robinhood-chain-nft-market-research.md). Allocations sum to MAX_SUPPLY minus the 45-card team reserve; a phase cannot oversell, so latecomers get a clean revert instead of a gas war. Structure mirrors the only pattern on chain 4663 that produced BOTH a fast sellout and real revenue — Spritehood's two-tier: a cheap broad tier plus a premium tier at ~12% of units carrying ~50% of revenue ($17/$117 there; $19/$119 here). At sellout: 3,400 x $19 = $64.6k standard + 555 x $119 = $66.0k Gold — Gold is 50.5% of revenue on 12.5% of supply. The free Founder claim shrinks from 1,500 (34% of the old collection — a giveaway that scale of free kills the floor) to 444 earned claims: on 4663, free/burn-gated tiers reliably drive sellouts but hold no price, so free is a gate, not the majority. Recommended sale order: Founder claim -> Gold + Allowlist -> Public (timing is set at configurePhase time; the index is the contract enum value, not the order).",
   "phases": {
    "Founder": {
     "index": 1,
-    "allocation": 1500,
-    "wallet_cap": 3,
+    "allocation": 444,
+    "wallet_cap": 1,
     "who": "Earned: XP level gold/platinum, >= $50k lifetime volume, or >= 5 referrals",
-    "note": "Free. These are the users who already built the product's volume.",
+    "note": "Free claim. These are the users who already built the product's volume. Cap 1: 444 distinct earned holders, matching the 0.8-0.9+ holder/supply ratios every healthy 4663 collection shows.",
     "price_usd_cents": 0,
     "free": true
    },
    "Allowlist": {
     "index": 2,
-    "allocation": 4000,
+    "allocation": 1555,
     "wallet_cap": 2,
     "who": "Earned: >= 5 swaps, >= $1k lifetime volume, or >= 1 referral",
-    "price_usd_cents": 2000,
+    "price_usd_cents": 1900,
     "free": false
    },
    "Public": {
     "index": 3,
-    "allocation": 4300,
+    "allocation": 1845,
     "wallet_cap": 5,
     "who": "Anyone",
-    "price_usd_cents": 4000,
+    "price_usd_cents": 1900,
+    "free": false
+   },
+   "Gold": {
+    "index": 4,
+    "allocation": 555,
+    "wallet_cap": 2,
+    "who": "Anyone — Founders' Gold edition",
+    "note": "The premium tier: stamped Gold on-chain per token at mint, struck in gold on the plate, and carrying the 55% fee discount. Priced at $119 against Spritehood's verified $117 premium.",
+    "price_usd_cents": 11900,
     "free": false
    }
   },
-  "team_reserve": 200,
+  "team_reserve": 45,
   "_price_comment": "USD CENTS, not ETH. SuwappuPositions prices in cents (uint96) and converts to wei at mint time through the ETH/USD Chainlink feed, so a card costs the same $20 whether ETH is at $2k or $4k. The previous price_eth fields were the wrong unit: fed to configurePhase() they would truncate to 0 cents, and 0 now reverts with PriceZero. A deliberately free phase (Founder) goes through configureFreePhase() instead."
  },
  "brand": {

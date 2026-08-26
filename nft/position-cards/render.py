@@ -420,7 +420,7 @@ def metal_for(badge: str | None, sector_col: str) -> str:
     return _mix("#6e7176", sector_col, 0.18)
 
 
-def palette(cfg, sector_col, accent, ret_bps, priced, proof):
+def palette(cfg, sector_col, accent, ret_bps, priced, proof, gold=False):
     """Every colour a plate uses, in one place.
 
     Extracted because render_card and card_traits were each computing this
@@ -429,6 +429,28 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     turning up in this repo. One function, both callers.
     """
     b = cfg["brand"]
+    if gold and not proof:
+        # Founders' Gold — the purchased edition, not a trait roll. The edition
+        # must read from across a marketplace wall the way Spritehood's
+        # group-bound skins do (the one mechanic on chain 4663 that carried
+        # 50% of a $1.28M mint on 12% of supply), so the SECTOR tint leaves the
+        # ground entirely: every gold plate shares one black-gold field, and
+        # sector survives only in the engraving's second-pass ink. A tint-only
+        # variant read as "warm sector" at 190px, not as a tier.
+        field = _mix(CHARCOAL, GOLD, 0.12)
+        hero = _mix(GOLD, IVORY, 0.35)
+        if priced and ret_bps < -200:
+            hero = "#bfa9a2"  # same warm ash as the base plate — a loss is a loss
+        return {
+            "field": field,
+            "field2": _mix(field, "#000000", 0.35),
+            "edge": _mix(field, GOLD, 0.22),
+            "rim": _mix(GOLD, "#8a6f3c", 0.35),
+            "body": IVORY,
+            "quiet": _mix(GOLD, GRAPHITE, 0.45),
+            "hero": hero,
+            "mark": b["accent"],
+        }
     if proof:  # Gilt proof — the rare plate that leaves the dark: ivory, dark ink
         field = _mix(b["bg"], sector_col, 0.07)
         hero = _mix(accent, b["text"], 0.55)
@@ -485,7 +507,7 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     }
 
 
-def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
+def card_traits(cfg, registry, token_id, ticker, entry, price, rank, gold=False):
     """The structural choices a plate resolves to, plus its legibility numbers.
 
     Long-form generative work cannot rely on the artist culling weak outputs —
@@ -506,13 +528,14 @@ def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
     if mag < 0.02:
         allowed = ["medallion"]
     proof = (seed >> 44) % 40 == 0
-    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
+    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof, gold)
     return {
         "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
         "ink": INKS[(seed >> 32) % len(INKS)],
         "composition": allowed[(seed >> 36) % len(allowed)],
         "field_state": _field_state(seed)[0],
         "proof": proof,
+        "gold": gold,
         "sector": sector,
         "grade": grade["name"],
         "hero_contrast": round(contrast(pal["hero"], pal["field"]), 2),
@@ -529,6 +552,7 @@ def render_card(
     price: float | None,
     rank: int,
     minted_at: datetime | None = None,
+    gold: bool = False,
 ) -> str:
     """Render one position card as an engraved plate.
 
@@ -562,7 +586,8 @@ def render_card(
     grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced", "accent": "#8d8577"}
     accent = grade["accent"]
     badge = badge_for(cfg, rank)
-    disc_pct = int(round(cfg["economics"]["hold_discount_fraction"] * 100))
+    disc_key = "gold_discount_fraction" if gold else "hold_discount_fraction"
+    disc_pct = int(round(cfg["economics"][disc_key] * 100))
     seed = _seed(ticker, token_id, entry)
 
     # ── STRUCTURAL modes, not parameter jitter ──────────────────────────────
@@ -606,7 +631,7 @@ def render_card(
     # rare inversion is the "Gilt proof": an ivory plate in dark ink, the way a
     # black-tie house prints its daytime stationery.
     b = cfg["brand"]
-    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
+    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof, gold)
     field, field2, edge_col = pal["field"], pal["field2"], pal["edge"]
     rim, body_col, quiet, hero_col, mark_col = (
         pal["rim"],
@@ -617,7 +642,9 @@ def render_card(
     )
     # Furniture metal. On the ivory Gilt proof the raw metals are too close to
     # the ground, so they are struck darker there.
-    metal = metal_for(badge, sector_col)
+    # A purchased Gold plate is furnished in gold whatever its mint rank — the
+    # edition was paid for, the badge is still earned by being early.
+    metal = GOLD if gold else metal_for(badge, sector_col)
     if proof:
         metal = _mix(metal, b["text"], 0.40)
     faint = _mix(quiet, field, 0.35)  # small print: legible, deliberately quiet
@@ -793,7 +820,12 @@ def render_card(
     )
     # The tier line always prints — at 190px an absent label reads as a broken
     # card, not a base one. 13px vanished in a grid cell; 17px survives.
-    p.append(_small_caps(badge or "Member", IR, 154, 17, metal, 3.2, "bold", anchor="end"))
+    # A Gold plate names its EDITION here; the rank badge still prints beside it
+    # when earned, so a rank-1 gold card carries both facts.
+    tier_line = "Founders' Gold" if gold else (badge or "Member")
+    if gold and badge:
+        tier_line = f"{badge} · Founders' Gold"
+    p.append(_small_caps(tier_line, IR, 154, 17, metal, 3.2, "bold", anchor="end"))
 
     # ── ticker: at 190px this and one number ARE the card ───────────────────
     # Embossed, not printed: a shadow struck below-right and a highlight
@@ -911,6 +943,16 @@ def render_card(
         f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
         f'fill="none" stroke="url(#mgrad)" stroke-width="2.5"/>'
     )
+    if gold:
+        # The double-struck rim is the edition's silhouette signature: a second
+        # gold hairline inset from the card edge. At 190px it reads as a heavier,
+        # deliberate frame — the one structural cue that survives every
+        # downscale, which is why it marks the edition and not a mood.
+        p.append(
+            f'<rect x="{CR_X + 10}" y="{CR_Y + 10}" width="{CR_W - 20}" '
+            f'height="{CR_H - 20}" rx="{CR_R - 8}" fill="none" '
+            f'stroke="{_mix(GOLD, "#ffffff", 0.15)}" stroke-width="1.4" opacity="0.9"/>'
+        )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
         f'viewBox="0 0 {W_} {H_}" role="img" aria-label="{esc(ticker)} position card">'
@@ -919,7 +961,7 @@ def render_card(
     )
 
 
-def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_at=None):
+def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_at=None, gold=False):
     """ERC-721 metadata for a live position. Regenerated on every fetch — the
     return and grade move with the market, so this is deliberately dynamic."""
     addr, decimals, company = registry[ticker]
@@ -938,6 +980,7 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
     ]
     if badge:
         attrs.append({"trait_type": "Badge", "value": badge})
+    attrs.append({"trait_type": "Edition", "value": "Founders' Gold" if gold else "Standard"})
     if priced:
         attrs += [
             {"trait_type": "Entry Price", "value": round(entry, 4)},
@@ -956,16 +999,19 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
             }
         )
 
+    supply_s = f"{col['supply']:,}"
+    disc_key = "gold_discount_fraction" if gold else "hold_discount_fraction"
+    disc_pct = int(round(cfg["economics"][disc_key] * 100))
+    edition_s = " Struck in the Founders' Gold edition." if gold else ""
     if priced:
         desc = (
             f"A position on {company} ({ticker}) opened on Robinhood Chain at "
             f"${fmt_px(entry)}. Currently ${fmt_px(price)} — "
             f"{'up' if ret_bps >= 0 else 'down'} {abs(ret_bps) / 100:.1f}%. "
-            f"Mint rank {rank} of 10,000.\n\n"
+            f"Mint rank {rank} of {supply_s}.{edition_s}\n\n"
             f"The entry price was stamped on-chain at mint and can never change; the "
             f"card re-renders against the live price, so what you see is the call you "
-            f"actually made. Holding it takes "
-            f"{int(round(cfg['economics']['hold_discount_fraction'] * 100))}% off your "
+            f"actually made. Holding it takes {disc_pct}% off your "
             f"Suwappu swap fee on the Free, Pro and Premium plans (Enterprise pricing "
             f"is contracted separately).\n\n"
             f"{col['compliance']}"
@@ -974,7 +1020,7 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
         desc = (
             f"A position on {company} ({ticker}) on Robinhood Chain, minted while no "
             f"oracle price was available, so no entry basis was stamped and no return "
-            f"is tracked. Mint rank {rank} of 10,000.\n\n{col['compliance']}"
+            f"is tracked. Mint rank {rank} of {supply_s}.{edition_s}\n\n{col['compliance']}"
         )
 
     return {
@@ -1010,19 +1056,24 @@ if __name__ == "__main__":
         # chain 4663 (see feeds.json / verify_feeds.py). Entries are illustrative
         # basis points in time, since nothing has been minted yet.
         feeds = json.load(open(os.path.join(HERE, "feeds.json")))["feeds"]
+        # (ticker, entry/price ratio, rank, gold) — ranks span the 4,444 space
+        # and both badge cut-offs (222 / 888); two gold plates so the edition
+        # is judged in the same contact sheet as the base plate.
         samples = [
-            ("NVDA", 0.42, 1),
-            ("SPCX", 0.28, 318),
-            ("AAPL", 1.06, 1804),
-            ("IONQ", 1.19, 5522),
-            ("GME", 1.55, 9310),
-            ("TSLA", None, 7781),
+            ("NVDA", 0.42, 1, True),
+            ("SPCX", 0.28, 318, False),
+            ("AAPL", 1.06, 1804, False),
+            ("IONQ", 1.19, 3522, False),
+            ("GME", 1.55, 4310, True),
+            ("TSLA", None, 3781, False),
         ]
-        for i, (tk, ratio, rank) in enumerate(samples, start=1):
+        for i, (tk, ratio, rank, gold) in enumerate(samples, start=1):
             price = feeds[tk]["verified_price_usd"]
             entry = round(price * ratio, 2) if ratio else None
             minted = datetime(2026, 8, 1 + (i % 12), 9, 0, tzinfo=timezone.utc)
-            svg = render_card(cfg, registry, i, tk, entry, price if ratio else None, rank, minted)
+            svg = render_card(
+                cfg, registry, i, tk, entry, price if ratio else None, rank, minted, gold=gold
+            )
             open(os.path.join(args.out, f"{tk}.svg"), "w").write(svg)
         print(f"gallery -> {args.out} (current prices are live feed values)")
     else:

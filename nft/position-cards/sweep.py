@@ -47,7 +47,7 @@ from render import (  # noqa: E402
     sector_of,
 )
 
-SUPPLY = 10_000
+SUPPLY = 4_444
 SHARD = 500
 STATE_DIR = os.path.join(HERE, ".sweep")
 STATE = os.path.join(STATE_DIR, "state.json")
@@ -118,16 +118,23 @@ def n_corpus(inp):
     rows = []
     for token_id in range(1, SUPPLY + 1):
         ticker = alloc[token_id - 1]
+        # Gold is a mint-time fact (Phase.Gold), not derivable from the id, so
+        # the corpus assigns it deterministically at the real edition density —
+        # every 8th card, ~555 of 4,444 — crossing every grade, the unpriced
+        # path and both badge cut-offs, so gold legibility is proven across the
+        # whole state space rather than on a hero shot.
+        gold = token_id % 8 == 3
         # every 37th card is unpriced: the oracle-outage path is a real state
         # (priceOf returns 0 and the card must render UNPRICED, not blow up)
         if token_id % 37 == 0:
-            rows.append({"token_id": token_id, "ticker": ticker, "ret_bps": None})
+            rows.append({"token_id": token_id, "ticker": ticker, "ret_bps": None, "gold": gold})
             continue
         rows.append(
             {
                 "token_id": token_id,
                 "ticker": ticker,
                 "ret_bps": ladder[token_id % len(ladder)],
+                "gold": gold,
             }
         )
     return rows
@@ -149,8 +156,9 @@ def render_one(cfg, registry, row):
         entry = price = None
     else:
         entry, price = _entry_and_price(row["ret_bps"])
-    svg = render_card(cfg, registry, tid, ticker, entry, price, tid, minted_at)
-    meta = build_metadata(cfg, registry, tid, ticker, entry, price, tid, minted_at)
+    gold = row.get("gold", False)
+    svg = render_card(cfg, registry, tid, ticker, entry, price, tid, minted_at, gold=gold)
+    meta = build_metadata(cfg, registry, tid, ticker, entry, price, tid, minted_at, gold=gold)
     return svg, meta
 
 
@@ -216,12 +224,15 @@ def validate(cfg, registry, row, svg, meta) -> list:
     want_badge = badge_for(cfg, tid)
     if traits.get("Badge") != want_badge:
         bad.append(f"#{tid} badge {traits.get('Badge')!r} != {want_badge!r}")
+    want_edition = "Founders' Gold" if row.get("gold") else "Standard"
+    if traits.get("Edition") != want_edition:
+        bad.append(f"#{tid} edition {traits.get('Edition')!r} != {want_edition!r}")
 
     # 5. quality floor: every plate must be legible, whatever structural mode
     #    it resolved to. A proof plate struck in a light accent fell to 2.93:1
     #    before this check existed.
     entry, price = (None, None) if row["ret_bps"] is None else _entry_and_price(row["ret_bps"])
-    tr = card_traits(cfg, registry, tid, ticker, entry, price, tid)
+    tr = card_traits(cfg, registry, tid, ticker, entry, price, tid, gold=row.get("gold", False))
     if tr["hero_contrast"] < MIN_HERO_CONTRAST:
         bad.append(f"#{tid} hero contrast {tr['hero_contrast']} < {MIN_HERO_CONTRAST}")
     if tr["body_contrast"] < MIN_BODY_CONTRAST:
