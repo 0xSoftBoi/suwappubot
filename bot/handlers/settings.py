@@ -34,6 +34,7 @@ _SUPPORTED_CHAINS = (
     "arbitrum",
     "optimism",
     "base",
+    "robinhood",
     "solana",
     "avalanche",
     "tron",
