@@ -420,7 +420,7 @@ def metal_for(badge: str | None, sector_col: str) -> str:
     return _mix("#6e7176", sector_col, 0.18)
 
 
-def palette(cfg, sector_col, accent, ret_bps, priced, proof):
+def palette(cfg, sector_col, accent, ret_bps, priced, proof, gold=False):
     """Every colour a plate uses, in one place.
 
     Extracted because render_card and card_traits were each computing this
@@ -429,18 +429,70 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     turning up in this repo. One function, both callers.
     """
     b = cfg["brand"]
+    if gold and not proof:
+        # Founders' Gold — the purchased edition, not a trait roll. The edition
+        # must read from across a marketplace wall the way Spritehood's
+        # group-bound skins do (the one mechanic on chain 4663 that carried
+        # 50% of a $1.28M mint on 12% of supply), so the SECTOR tint leaves the
+        # ground entirely: every gold plate shares one black-gold field, and
+        # sector survives only in the engraving's second-pass ink. A tint-only
+        # variant read as "warm sector" at 190px, not as a tier.
+        # The mix is 0.24, not the 0.12 first cut, and the number is measured
+        # rather than taste. Sector grounds are luminance-normalised to ~0.0165,
+        # and at 0.12 the gold ground landed on #26221c — ONE RGB unit from the
+        # Crypto & Fintech ground (#26221b) and 2.4 from Energy & Materials.
+        # ~14% of the standard supply was shipping on a ground the paid edition
+        # could not be told apart from: the exact "gold reads as a warm sector
+        # tint" failure this branch exists to prevent. 0.24 puts the field 32+
+        # RGB units off every one of the ten sectors and roughly doubles its
+        # luminance, so gold is a different METAL, not a warmer anodising —
+        # while ivory body ink still clears 10:1.
+        field = _mix(CHARCOAL, GOLD, 0.24)
+        hero = _mix(GOLD, IVORY, 0.35)
+        if priced and ret_bps < -200:
+            # A loss on a gold plate stays in the gold family — the base plate's
+            # warm ash read as plain grey here and dropped the card out of its
+            # own edition. Struck darker than a gain instead: the edition is
+            # carried by hue, the result by luminance, and the minus sign and
+            # grade caption still do the semantic work. Expensive, not alarming.
+            # 0.30 is the floor, not a preference: 0.55 struck a handsomer
+            # bronze but put the hero numeral at 3.58:1 on the gold ground, and
+            # the sweep measures the whole output space rather than trusting a
+            # contact sheet. 0.30 holds 4.78:1 and still sits a clear 2.8 stops
+            # under a gold gain (7.62:1), so win and loss stay legible apart.
+            hero = _mix(GOLD, "#6f6258", 0.30)
+        return {
+            "field": field,
+            "field2": _mix(field, "#000000", 0.35),
+            "edge": _mix(field, GOLD, 0.30),
+            "rim": _mix(GOLD, "#8a6f3c", 0.35),
+            "body": IVORY,
+            "quiet": _mix(GOLD, GRAPHITE, 0.45),
+            "hero": hero,
+            "mark": b["accent"],
+        }
     if proof:  # Gilt proof — the rare plate that leaves the dark: ivory, dark ink
-        field = _mix(b["bg"], sector_col, 0.07)
+        # A Gold plate that also rolls proof still has to read as Founders' Gold.
+        # About 1 in 40 does, so ~14 of the 555 paid cards were landing on the
+        # standard ivory proof with the edition visible only in a hairline — a
+        # purchased tier that sometimes isn't the tier is a defect, not a
+        # surprise. So gold takes the proof as a GILT proof: the same rare
+        # inversion, struck on champagne with bronze ink instead of on ivory.
+        field = _mix(b["bg"], GOLD if gold else sector_col, 0.22 if gold else 0.07)
         hero = _mix(accent, b["text"], 0.55)
         if priced and ret_bps >= 2500:
             hero = _mix(b["green"], accent, 0.25)
         elif priced and ret_bps < -200:
             hero = "#8f3a44"
+        if gold:
+            # Bronze ink on champagne — warm on warm, so the plate stays inside
+            # the edition instead of borrowing the base proof's oxblood/jade.
+            hero = _mix(hero, "#6b4f22", 0.45)
         return {
             "field": field,
-            "field2": _mix(field, "#eae3d5", 0.55),
-            "edge": _mix(field, "#d8d0c0", 0.60),
-            "rim": _mix("#9c8b62", sector_col, 0.25),
+            "field2": _mix(field, "#e6d7ae" if gold else "#eae3d5", 0.55),
+            "edge": _mix(field, "#d8c79c" if gold else "#d8d0c0", 0.60),
+            "rim": _mix("#9c8b62", GOLD if gold else sector_col, 0.25),
             "body": b["text"],
             "quiet": b["text-2"],
             "hero": hero,
@@ -485,7 +537,7 @@ def palette(cfg, sector_col, accent, ret_bps, priced, proof):
     }
 
 
-def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
+def card_traits(cfg, registry, token_id, ticker, entry, price, rank, gold=False):
     """The structural choices a plate resolves to, plus its legibility numbers.
 
     Long-form generative work cannot rely on the artist culling weak outputs —
@@ -506,13 +558,14 @@ def card_traits(cfg, registry, token_id, ticker, entry, price, rank):
     if mag < 0.02:
         allowed = ["medallion"]
     proof = (seed >> 44) % 40 == 0
-    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
+    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof, gold)
     return {
         "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
         "ink": INKS[(seed >> 32) % len(INKS)],
         "composition": allowed[(seed >> 36) % len(allowed)],
         "field_state": _field_state(seed)[0],
         "proof": proof,
+        "gold": gold,
         "sector": sector,
         "grade": grade["name"],
         "hero_contrast": round(contrast(pal["hero"], pal["field"]), 2),
@@ -529,6 +582,7 @@ def render_card(
     price: float | None,
     rank: int,
     minted_at: datetime | None = None,
+    gold: bool = False,
 ) -> str:
     """Render one position card as an engraved plate.
 
@@ -562,7 +616,8 @@ def render_card(
     grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced", "accent": "#8d8577"}
     accent = grade["accent"]
     badge = badge_for(cfg, rank)
-    disc_pct = int(round(cfg["economics"]["hold_discount_fraction"] * 100))
+    disc_key = "gold_discount_fraction" if gold else "hold_discount_fraction"
+    disc_pct = int(round(cfg["economics"][disc_key] * 100))
     seed = _seed(ticker, token_id, entry)
 
     # ── STRUCTURAL modes, not parameter jitter ──────────────────────────────
@@ -606,7 +661,7 @@ def render_card(
     # rare inversion is the "Gilt proof": an ivory plate in dark ink, the way a
     # black-tie house prints its daytime stationery.
     b = cfg["brand"]
-    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof)
+    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof, gold)
     field, field2, edge_col = pal["field"], pal["field2"], pal["edge"]
     rim, body_col, quiet, hero_col, mark_col = (
         pal["rim"],
@@ -617,7 +672,9 @@ def render_card(
     )
     # Furniture metal. On the ivory Gilt proof the raw metals are too close to
     # the ground, so they are struck darker there.
-    metal = metal_for(badge, sector_col)
+    # A purchased Gold plate is furnished in gold whatever its mint rank — the
+    # edition was paid for, the badge is still earned by being early.
+    metal = GOLD if gold else metal_for(badge, sector_col)
     if proof:
         metal = _mix(metal, b["text"], 0.40)
     faint = _mix(quiet, field, 0.35)  # small print: legible, deliberately quiet
@@ -747,7 +804,15 @@ def render_card(
         f'<g clip-path="url(#card)">',
         f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
         f'<rect width="{W_}" height="{H_}" fill="url(#brush)"/>',
-        f'<rect width="{W_}" height="{H_}" filter="url(#grain)"/>',
+        # fill="none" is load-bearing, not tidiness. A filtered rect with no fill
+        # defaults to BLACK, and cairosvg/librsvg — what a lot of indexers
+        # rasterize on-chain SVGs with — ignore <filter> entirely and paint that
+        # black over the whole card. That erased the plate gradient everywhere,
+        # flattened the Founders' Gold ground to plain black, and turned the
+        # ivory Gilt proof into a black plate with invisible dark ink. Same class
+        # of bug as the currentColor note below. feTurbulence generates its own
+        # image and never reads SourceGraphic, so a browser renders identically.
+        f'<rect width="{W_}" height="{H_}" fill="none" filter="url(#grain)"/>',
         f'<ellipse cx="{eng_cx}" cy="{eng_cy}" rx="{eng_r + 150}" ry="{eng_r + 140}" '
         f'fill="url(#bloom)"/>',
     ]
@@ -793,7 +858,12 @@ def render_card(
     )
     # The tier line always prints — at 190px an absent label reads as a broken
     # card, not a base one. 13px vanished in a grid cell; 17px survives.
-    p.append(_small_caps(badge or "Member", IR, 154, 17, metal, 3.2, "bold", anchor="end"))
+    # A Gold plate names its EDITION here; the rank badge still prints beside it
+    # when earned, so a rank-1 gold card carries both facts.
+    tier_line = "Founders' Gold" if gold else (badge or "Member")
+    if gold and badge:
+        tier_line = f"{badge} · Founders' Gold"
+    p.append(_small_caps(tier_line, IR, 154, 17, metal, 3.2, "bold", anchor="end"))
 
     # ── ticker: at 190px this and one number ARE the card ───────────────────
     # Embossed, not printed: a shadow struck below-right and a highlight
@@ -835,8 +905,10 @@ def render_card(
     # low-magnitude plate had its entire engraving covered — every losing card
     # in the grid read as a dark smudge with one faint ring left showing. This
     # clears the middle band where the numeral sits and leaves the outer rings.
+    # ry covers the caption line at cy+84 — at ry = rad*0.5 the caption sat past
+    # the falloff on dense engravings and read as mush.
     p.append(
-        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad * 0.88:.0f}" ry="{rad * 0.5:.0f}" '
+        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad * 0.88:.0f}" ry="{rad * 0.62:.0f}" '
         f'fill="url(#clear)"/>'
     )
     if priced:
@@ -859,21 +931,26 @@ def render_card(
                 f"since entry · {grade['name']}",
                 W_ / 2,
                 cy + 84,
-                12,
-                _mix(hero_col, body_col, 0.35),
+                13.5,
+                _mix(hero_col, body_col, 0.25),
                 6.0,
+                "bold",
                 anchor="middle",
             )
         )
     else:
+        # The unpriced word was hardcoded grey, so a Founders' Gold plate with no
+        # basis stamped printed its one large element in base-plate ink and fell
+        # out of the edition entirely — the worst case in the whole gold space.
+        unp, unp2 = ("#a09889", "#7a7367")
+        if gold:
+            unp, unp2 = _mix(GOLD, IVORY, 0.30), _mix(GOLD, GRAPHITE, 0.50)
         p.append(
             f'<text x="{W_ / 2}" y="{cy + 26}" font-family="{SERIF}" font-size="82" '
-            f'font-weight="bold" fill="#a09889" text-anchor="middle" '
+            f'font-weight="bold" fill="{unp}" text-anchor="middle" '
             f'letter-spacing="-1">Unpriced</text>'
         )
-        p.append(
-            _small_caps("no basis stamped", W_ / 2, cy + 70, 12, "#7a7367", 5.0, anchor="middle")
-        )
+        p.append(_small_caps("no basis stamped", W_ / 2, cy + 70, 12, unp2, 5.0, anchor="middle"))
 
     # ── foot: one quiet line. The seal, gauge band and rosette stamp are
     # gone — a real card carries no instrument cluster. ─────────────────────
@@ -905,12 +982,30 @@ def render_card(
 
     # the light sheen sweeps the finished plate, then the silhouette is rimmed
     # in the tier metal — the last two strokes of the machining
+    # the vignette was defined and never painted — plates read lightest at the
+    # bottom-right corner instead of darkening under one lamp
+    p.append(f'<rect width="{W_}" height="{H_}" fill="url(#vig)"/>')
     p.append(f'<rect width="{W_}" height="{H_}" fill="url(#sheen)"/>')
     p.append("</g>")
     p.append(
         f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
         f'fill="none" stroke="url(#mgrad)" stroke-width="2.5"/>'
     )
+    if gold:
+        # The double-struck rim is the edition's silhouette signature: a second
+        # gold line inset from the card edge. At 190px it reads as a heavier,
+        # deliberate frame — the one structural cue that survives every
+        # downscale, which is why it marks the edition and not a mood.
+        # 3.2, not the 1.4 first cut: 1.4 on a 1000px plate is 0.27px in a
+        # marketplace grid cell, i.e. gone, and a base Founder-rank plate already
+        # carries a gold OUTER rim — so at thumbnail size the two tiers were the
+        # same card. 3.2 resolves to a real second line and the double rim, not
+        # the colour, is what separates the paid edition from an early mint.
+        p.append(
+            f'<rect x="{CR_X + 10}" y="{CR_Y + 10}" width="{CR_W - 20}" '
+            f'height="{CR_H - 20}" rx="{CR_R - 8}" fill="none" '
+            f'stroke="{_mix(GOLD, "#ffffff", 0.15)}" stroke-width="3.2" opacity="0.95"/>'
+        )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
         f'viewBox="0 0 {W_} {H_}" role="img" aria-label="{esc(ticker)} position card">'
@@ -919,7 +1014,7 @@ def render_card(
     )
 
 
-def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_at=None):
+def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_at=None, gold=False):
     """ERC-721 metadata for a live position. Regenerated on every fetch — the
     return and grade move with the market, so this is deliberately dynamic."""
     addr, decimals, company = registry[ticker]
@@ -938,6 +1033,7 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
     ]
     if badge:
         attrs.append({"trait_type": "Badge", "value": badge})
+    attrs.append({"trait_type": "Edition", "value": "Founders' Gold" if gold else "Standard"})
     if priced:
         attrs += [
             {"trait_type": "Entry Price", "value": round(entry, 4)},
@@ -956,16 +1052,19 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
             }
         )
 
+    supply_s = f"{col['supply']:,}"
+    disc_key = "gold_discount_fraction" if gold else "hold_discount_fraction"
+    disc_pct = int(round(cfg["economics"][disc_key] * 100))
+    edition_s = " Struck in the Founders' Gold edition." if gold else ""
     if priced:
         desc = (
             f"A position on {company} ({ticker}) opened on Robinhood Chain at "
             f"${fmt_px(entry)}. Currently ${fmt_px(price)} — "
             f"{'up' if ret_bps >= 0 else 'down'} {abs(ret_bps) / 100:.1f}%. "
-            f"Mint rank {rank} of 10,000.\n\n"
+            f"Mint rank {rank} of {supply_s}.{edition_s}\n\n"
             f"The entry price was stamped on-chain at mint and can never change; the "
             f"card re-renders against the live price, so what you see is the call you "
-            f"actually made. Holding it takes "
-            f"{int(round(cfg['economics']['hold_discount_fraction'] * 100))}% off your "
+            f"actually made. Holding it takes {disc_pct}% off your "
             f"Suwappu swap fee on the Free, Pro and Premium plans (Enterprise pricing "
             f"is contracted separately).\n\n"
             f"{col['compliance']}"
@@ -974,7 +1073,7 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
         desc = (
             f"A position on {company} ({ticker}) on Robinhood Chain, minted while no "
             f"oracle price was available, so no entry basis was stamped and no return "
-            f"is tracked. Mint rank {rank} of 10,000.\n\n{col['compliance']}"
+            f"is tracked. Mint rank {rank} of {supply_s}.{edition_s}\n\n{col['compliance']}"
         )
 
     return {
@@ -1010,19 +1109,24 @@ if __name__ == "__main__":
         # chain 4663 (see feeds.json / verify_feeds.py). Entries are illustrative
         # basis points in time, since nothing has been minted yet.
         feeds = json.load(open(os.path.join(HERE, "feeds.json")))["feeds"]
+        # (ticker, entry/price ratio, rank, gold) — ranks span the 4,444 space
+        # and both badge cut-offs (222 / 888); two gold plates so the edition
+        # is judged in the same contact sheet as the base plate.
         samples = [
-            ("NVDA", 0.42, 1),
-            ("SPCX", 0.28, 318),
-            ("AAPL", 1.06, 1804),
-            ("IONQ", 1.19, 5522),
-            ("GME", 1.55, 9310),
-            ("TSLA", None, 7781),
+            ("NVDA", 0.42, 1, True),
+            ("SPCX", 0.28, 318, False),
+            ("AAPL", 1.06, 1804, False),
+            ("IONQ", 1.19, 3522, False),
+            ("GME", 1.55, 4310, True),
+            ("TSLA", None, 3781, False),
         ]
-        for i, (tk, ratio, rank) in enumerate(samples, start=1):
+        for i, (tk, ratio, rank, gold) in enumerate(samples, start=1):
             price = feeds[tk]["verified_price_usd"]
             entry = round(price * ratio, 2) if ratio else None
             minted = datetime(2026, 8, 1 + (i % 12), 9, 0, tzinfo=timezone.utc)
-            svg = render_card(cfg, registry, i, tk, entry, price if ratio else None, rank, minted)
+            svg = render_card(
+                cfg, registry, i, tk, entry, price if ratio else None, rank, minted, gold=gold
+            )
             open(os.path.join(args.out, f"{tk}.svg"), "w").write(svg)
         print(f"gallery -> {args.out} (current prices are live feed values)")
     else:

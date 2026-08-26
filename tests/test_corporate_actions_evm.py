@@ -59,7 +59,9 @@ def env():
     usdg = wire_payments(w3, art, pos, owner, owner, alice, deploy)
     pos.functions.setOracle(oracle.address).transact({"from": owner})
     now = w3.eth.get_block("latest").timestamp
-    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 50, 0, now - 1, 0).transact(
+    # allocation 4_444 (== MAX_SUPPLY), not 0: an open (no-merkle-root) priced
+    # phase now requires both bounds — see OpenPhaseUnbounded in configurePhase.
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 50, 4_444, now - 1, 0).transact(
         {"from": owner}
     )
     return w3, pos, oracle, stock, equity_feed, owner, alice, usdg
@@ -231,15 +233,17 @@ def test_a_large_split_cannot_truncate_the_stamped_multiplier(env):
 
 
 def test_the_position_struct_still_packs_into_one_slot():
-    """The widening must not have quietly cost a storage slot: 8 + 96 + 40 + 16
-    + 96 = 256 bits exactly."""
+    """The widening must not have quietly cost a storage slot: 8 + 96 + 32 + 16
+    + 96 + 8 (bool isGold) = 256 bits exactly."""
     src = open(os.path.join(REPO, "contracts", "SuwappuPositions.sol")).read()
     struct = src[
         src.index("struct Position {") : src.index(  # noqa: E203
             "}", src.index("struct Position {")
         )  # noqa: E203
     ]  # noqa: E203
-    bits = sum(int(w) for w in __import__("re").findall(r"uint(\d+)\s+\w+;", struct))
+    re = __import__("re")
+    bits = sum(int(w) for w in re.findall(r"uint(\d+)\s+\w+;", struct))
+    bits += 8 * len(re.findall(r"bool\s+\w+;", struct))
     assert bits == 256, f"Position is {bits} bits — no longer one slot"
 
 

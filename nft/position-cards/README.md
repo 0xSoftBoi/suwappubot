@@ -1,7 +1,22 @@
-# Suwappu Positions — 10,000 live position cards on Robinhood Chain
+# Suwappu Positions — 4,444 live position cards on Robinhood Chain
 
 **Pick a ticker. Your entry price is stamped on-chain forever. The card shows your
 live P&L.**
+
+## Renumbered against real market data (2026-08-26)
+
+Every number below was retuned against verified Robinhood Chain ground truth —
+on-chain holder data pulled via Blockscout and cited sale data for every major
+collection on chain 4663. Full evidence: `docs/research/robinhood-chain-nft-ground-data.md`
+and `docs/research/robinhood-chain-nft-market-research.md`. The short version:
+
+| Decision | Evidence |
+|---|---|
+| **Supply 10,000 → 4,444** | The chain's floor-durability band is 4,000–6,000; its flagship (StonkBrokers, sold out, ~$22.5K floor, $4.7M volume) is exactly 4,444. 7.7k–10k supplies on 4663 only distribute via free mints and hold no floor. |
+| **Two-tier pricing: $19 standard / $119 Founders' Gold** | The only pattern that produced both a fast sellout *and* real revenue (Spritehood: $17/$117, 53-minute sellout, $1.28M — premium was 12.4% of units and 50.4% of revenue). Our Gold: 12.5% of supply, 50.5% of sellout revenue. The old $40 public price was ~2x the chain norm. |
+| **Free Founder claim 1,500 → 444, cap 1** | Free/burn-gated tiers on 4663 reliably sell out but hold no price — free is a gate for the users who built the volume, not a third of the collection. Cap 1 matches the 0.8–0.9+ holder/supply ratios every healthy collection shows. |
+| **Founders' Gold stamped on-chain per token** | Real utility inside the token is what held the only durable floors on the chain (StonkBrokers' token-bound value; Gremlin Cartel's revenue share → 18x floor). Gold carries a 55% fee discount vs the standard 40%. |
+| **2% ERC-2981 royalty** | The only royalty verified on-chain in the research (Robinhood Punks). Chain norm 2–5%; we take the verified floor. |
 
 ## The design language: a card, not a poster
 
@@ -9,12 +24,18 @@ The plate is a luxury card in the **Amex Centurion / Robinhood Gold** lineage �
 Soho House meets web3, built for adults:
 
 - **Matte near-black ground.** The sector colour is anodised into the charcoal at
-  15%, so a wall of 10,000 still sorts into ten families by eye, but each family
+  15%, so a wall of 4,444 still sorts into ten families by eye, but each family
   reads as a tinted metal, never as candy.
-- **Status is struck metal, earned by mint rank.** Founder cards (first 500) are
-  furnished in **gold** — border, serial, seal ring; Early (first 2,000) in
+- **Status is struck metal, earned by mint rank.** Founder cards (first 222) are
+  furnished in **gold** — border, serial, seal ring; Early (first 888) in
   **platinum**; everyone else in graphite. Like the card that matters in a wallet,
   the tier is visible across a table without reading a word.
+- **Founders' Gold is its own edition, not a badge.** The purchased premium tier
+  (555 plates, stamped `Phase.Gold` on-chain at mint) leaves the sector-tinted
+  ground entirely: one shared black-gold field, gold engraving ink, gold
+  furniture whatever the rank, and a second inset gold hairline on the
+  silhouette. This is the Spritehood group→skin lesson ported — the tier IS the
+  visual identity, legible in a 190px grid without a trait table.
 - **Tone-on-tone engraving.** The engine-turned ground stays (it is the anti-copy
   ornament of real scrip), cut quiet the way the Centurion's engraving is.
 - **A restrained accent ramp.** Gains climb jade → champagne with the grade;
@@ -92,10 +113,15 @@ Applying what the 2021–23 drops got right — and what they got wrong.
 
 | Phase | Who | Alloc | Cap | Price |
 |---|---|---:|---:|---:|
-| **Founder** | Earned: gold+ XP level, ≥$50k lifetime volume, or ≥5 referrals | 1,500 | 3 | free |
-| **Allowlist** | Earned: ≥5 swaps, ≥$1k volume, or ≥1 referral | 4,000 | 2 | 0.004 ETH |
-| **Public** | Anyone | 4,300 | 5 | 0.008 ETH |
-| _Team reserve_ | Bounded on-chain by `RESERVE_MAX` | 200 | — | — |
+| **Founder** | Earned: gold+ XP level, ≥$50k lifetime volume, or ≥5 referrals | 444 | 1 | free |
+| **Allowlist** | Earned: ≥5 swaps, ≥$1k volume, or ≥1 referral | 1,555 | 2 | $19 |
+| **Public** | Anyone | 1,845 | 5 | $19 |
+| **Founders' Gold** | Anyone — premium edition, stamped on-chain per token | 555 | 2 | $119 |
+| _Team reserve_ | Bounded on-chain by `RESERVE_MAX` | 45 | — | — |
+
+Recommended order: Founder claim → Gold + Allowlist → Public. At sellout the
+standard tiers gross $64.6k and Gold $66.0k — the Spritehood premium revenue
+split (~50% of revenue on ~12% of units), reproduced deliberately.
 
 **The spot is earned, not farmed.** Every threshold reads signals the bot already
 tracks — XP level, lifetime volume, swap count, referrals. No retweet-for-allowlist,
@@ -132,14 +158,15 @@ they've earned and, if they haven't, exactly what's missing.
 
 ## Mechanics
 
-- **10,000 cards, 35 priced tickers, per-ticker caps.** Popular names run out first;
+- **4,444 cards, 35 priced tickers, per-ticker caps.** Popular names run out first;
   scarcity is first-come on the name you want.
 - **Entry stamped at mint** from the Chainlink oracle. If a feed is stale, paused, or the
   sequencer is down, the card stamps `0` and renders honestly as `UNPRICED` rather than
   inventing a basis — the mint can't be bricked by an oracle outage.
 - **Grades** track live return: Underwater → Flat → In Profit → Runner → Multiple → Moonshot.
-- **Badges** for mint rank: `Founder` (first 500), `Early` (first 2,000).
-- **Perk:** −40% off your swap fee, whatever tier you're on, flat **per holder, not per
+- **Badges** for mint rank: `Founder` (first 222), `Early` (first 888).
+- **Perk:** −40% off your swap fee (−55% on a Founders' Gold plate — the best
+  single card you hold decides, per holder), whatever tier you're on, flat **per holder, not per
   card**, so stacking cards can't compound it. Proportional, not a flat number of bps —
   on FREE (100 bps) that's 60 bps ($4 back per $1,000, unchanged from the original flat
   design); on PRO (50 bps) it's 30 bps; PREMIUM (30 bps) is 18 bps; ENTERPRISE (10 bps) is
@@ -241,7 +268,7 @@ two_hand) plus classes and generated names with founder-exclusive variants — a
 system, not a PFP. Ours is a live P&L card, which is a different (and chain-native) bet;
 the lesson taken is the *depth* of trait composition, not the fantasy subject matter.
 
-## The 10,000-card sweep
+## The 4,444-card sweep
 
 ```bash
 python3 nft/position-cards/sweep.py --plan   # print the graph
@@ -275,9 +302,10 @@ away from (see the table at the top). Cards are composed at fetch time from real
 state: your stamped entry, the live Chainlink price, your mint rank.
 
 What *can* be settled before the mint is that the renderer is correct and total.
-The sweep walks a deterministic corpus of all 10,000 tokens covering every
-ticker, every grade boundary and the bp below it, both mint-badge cut-offs and
-the unpriced path, then checks each card for:
+The sweep walks a deterministic corpus of all 4,444 tokens covering every
+ticker, every grade boundary and the bp below it, both mint-badge cut-offs, the
+unpriced path and the Founders' Gold edition at its real density (every 8th
+card, ~555 of 4,444), then checks each card for:
 
 | Check | Why it is in the list |
 |---|---|
@@ -290,7 +318,8 @@ the unpriced path, then checks each card for:
 | No two cards identical in a shard | Identical bytes mean the token id never reached the canvas |
 | Disclaimer present, no equity language | A card reading as a claim on a real security is the one failure not fixable after the mint |
 
-Current run: **10,000/10,000 rendered, 0 problems** — 35 tickers, 10 sectors,
-all 6 grades plus Unpriced, 500 Founder / 1,500 Early, 10,000 distinct card
-hashes. `tests/test_positions_sweep.py` injects each defect above and asserts the
+Current run: see `.sweep/` after `python3 nft/position-cards/sweep.py --all` —
+the renumbered corpus (4,444 tokens, 222 Founder / 888 Early badges, ~555 gold)
+must pass 0-problems before any deploy; the previous 10,000-card corpus ran
+clean end to end. `tests/test_positions_sweep.py` injects each defect above and asserts the
 sweep catches it, so the validators cannot quietly rot into decoration.
