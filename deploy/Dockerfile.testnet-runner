@@ -10,6 +10,14 @@ FROM python:3.12-slim-bookworm
 WORKDIR /app
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
 
+# same toolchain the api image builds with — requirements.txt has a git+https
+# dependency and native builds
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
