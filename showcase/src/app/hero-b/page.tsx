@@ -2,7 +2,8 @@ import LiveQuote from '@/components/LiveQuote';
 import SummerNav from '@/components/SummerNav';
 import './hero-b.css';
 
-export const metadata = { title: 'Hero B - warm brand' };
+// Dead hero experiment (see showcase/CLAUDE.md) — never linked, must not be indexed.
+export const metadata = { title: 'Hero B - warm brand', robots: { index: false, follow: false } };
 
 export default function HeroB() {
   return (

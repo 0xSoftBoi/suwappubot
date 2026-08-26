@@ -19,6 +19,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '/security', priority: 0.8, freq: 'monthly' },
     { path: '/solutions', priority: 0.8, freq: 'monthly' },
     { path: '/compare', priority: 0.8, freq: 'monthly' },
+    { path: '/products', priority: 0.7, freq: 'monthly' },
+    { path: '/autopilot', priority: 0.6, freq: 'weekly' },
+    { path: '/reserve', priority: 0.6, freq: 'weekly' },
+    { path: '/contact', priority: 0.6, freq: 'monthly' },
     { path: '/changelog', priority: 0.7, freq: 'weekly' },
     { path: '/research', priority: 0.7, freq: 'weekly' },
     // Landing page for the released datasets; carries Dataset structured data,
@@ -29,6 +33,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '/status', priority: 0.4, freq: 'daily' },
     { path: '/legal/terms', priority: 0.3, freq: 'yearly' },
     { path: '/legal/privacy', priority: 0.3, freq: 'yearly' },
+    { path: '/legal/risk', priority: 0.3, freq: 'yearly' },
   ];
 
   const staticPages: MetadataRoute.Sitemap = staticRoutes.map((r) => ({

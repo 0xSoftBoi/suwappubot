@@ -4,7 +4,8 @@ import Reveal from '@/components/Reveal';
 import RouteField from '@/components/RouteField';
 import './hero-e.css';
 
-export const metadata = { title: 'Hero E - field + grid + routes' };
+// Dead hero experiment (see showcase/CLAUDE.md) — never linked, must not be indexed.
+export const metadata = { title: 'Hero E - field + grid + routes', robots: { index: false, follow: false } };
 
 /** Verified product facts. Numerals render tabular. */
 const RAIL = [
