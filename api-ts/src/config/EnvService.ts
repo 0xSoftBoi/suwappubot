@@ -29,6 +29,16 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://api.turnkey.com',
 	}),
 
+	// zkPass (zkpass.org) TransGate identity/data verification — informational
+	// profile feature only, not wired to any money-path gate. See
+	// services/ZkPassService.ts.
+	ZKPASS_APP_ID: Schema.optional(Schema.String),
+	ZKPASS_SCHEMA_ID: Schema.optional(Schema.String),
+	// zkPass's allocator signing address. Env-configurable since zkPass may
+	// rotate it or use a different one per environment. Defaults to the
+	// documented fixed allocator address.
+	ZKPASS_ALLOCATOR_ADDRESS: Schema.optional(Schema.String),
+
 	// JWT
 	JWT_SECRET: Schema.optional(Schema.String),
 

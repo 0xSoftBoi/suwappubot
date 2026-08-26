@@ -94,6 +94,24 @@ export interface UpdatePreferencesResponse {
   preferences: UserPreferences
 }
 
+// zkPass identity verification
+
+export interface ZkPassConfig {
+  appId: string
+  schemaId: string
+}
+
+export interface ZkPassStatus {
+  verified: boolean
+  verifiedAt: string | null
+  schemaId: string | null
+}
+
+export interface ZkPassVerifyResult {
+  isValid: boolean
+  taskId: string
+}
+
 // Portfolio PnL analytics
 
 export interface PnlDataPoint {

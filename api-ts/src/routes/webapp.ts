@@ -2324,6 +2324,111 @@ webappRoutes.post('/passkey/wallets', telegramAuth(), async (c) => {
 	return c.json(result.right)
 })
 
+// === zkPass (zkpass.org) Identity Verification Routes ===
+// Native, standalone feature. Stores the server-verified RESULT of a
+// client-side zkPass TransGate proof. Informational/profile-level only —
+// NOT wired to gate swap, withdrawal, fee, or subscription logic.
+import {
+	DEFAULT_ZKPASS_ALLOCATOR_ADDRESS,
+	getZkPassStatus,
+	parseZkPassProofBody,
+	saveZkPassVerification,
+	verifyZkPassProof,
+} from '../services/ZkPassService'
+
+// POST /webapp/me/zkpass/verify - Verify a client-generated TransGate proof
+protectedWebapp.post('/zkpass/verify', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+	const body = await c.req.json().catch(() => null)
+
+	const proof = parseZkPassProofBody(body)
+	if (!proof) {
+		return c.json(
+			{ error: 'Malformed zkPass proof: missing required fields' },
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			const userService = yield* UserService
+
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const db = yield* requireDb
+
+			const allocatorAddress = env.ZKPASS_ALLOCATOR_ADDRESS || DEFAULT_ZKPASS_ALLOCATOR_ADDRESS
+
+			const outcome = yield* Effect.tryPromise({
+				try: () => verifyZkPassProof(proof, allocatorAddress),
+				catch: (e) => new Error(`zkPass verification failed: ${e}`),
+			})
+
+			yield* Effect.tryPromise({
+				try: () => saveZkPassVerification(db, userOption.value.id, proof, outcome.isValid),
+				catch: (e) => new Error(`Failed to save zkPass verification: ${e}`),
+			})
+
+			return { isValid: outcome.isValid, taskId: proof.taskId }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/zkpass/status - Current user's zkPass verification status
+protectedWebapp.get('/zkpass/status', async (c) => {
+	const telegramUser = c.get('telegramUser') as TelegramUser
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const userService = yield* UserService
+			const userOption = yield* userService.getUserByTelegramId(telegramUser.id)
+			if (Option.isNone(userOption)) {
+				return yield* Effect.fail(new Error('User not found'))
+			}
+			const db = yield* requireDb
+
+			const row = yield* Effect.tryPromise({
+				try: () => getZkPassStatus(db, userOption.value.id),
+				catch: (e) => new Error(`zkPass status lookup failed: ${e}`),
+			})
+
+			return {
+				verified: row?.isValid ?? false,
+				verifiedAt: row?.verifiedAt?.toISOString() ?? null,
+				schemaId: row?.schemaId ?? null,
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		return c.json({ error: result.left.message }, 500)
+	}
+	return c.json(result.right)
+})
+
+// GET /webapp/me/zkpass/config - App/schema IDs for the frontend TransGate SDK
+protectedWebapp.get('/zkpass/config', async (c) => {
+	const result = await runEffect(
+		Effect.gen(function* () {
+			const env = yield* EnvService
+			return {
+				appId: env.ZKPASS_APP_ID ?? null,
+				schemaId: env.ZKPASS_SCHEMA_ID ?? null,
+			}
+		}),
+	)
+
+	return c.json(result)
+})
+
 // Mount protected routes at both /me and /users/me for backward compatibility
 webappRoutes.route('/me', protectedWebapp)
 webappRoutes.route('/users/me', protectedWebapp)

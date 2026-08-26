@@ -5,11 +5,12 @@ import { AppLayout, AppHeader } from '../components/layout'
 import { SettingsItem, ToggleItem } from '../components/ui'
 import { WalletCard } from '../components/cards'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
+import { ZkPassVerifyCard } from '../components/zkpass/ZkPassVerifyCard'
 import { useAuth, formatAddress } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import type { UserPreferences, LinkedWalletInfo, UserProfile } from '../types/api'
 
-type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas' | 'desktop'
+type SettingsView = 'main' | 'slippage' | 'notifications' | 'wallets' | 'gas' | 'desktop' | 'identity'
 
 const isDesktop = !!(
   typeof window !== 'undefined' &&
@@ -340,6 +341,17 @@ export function Settings() {
     )
   }
 
+  if (view === 'identity') {
+    return (
+      <AppLayout
+        header={<AppHeader title={t('settings.identityTitle')} showBack onBack={() => setView('main')} />}
+        activeNav="settings"
+      >
+        <ZkPassVerifyCard />
+      </AppLayout>
+    )
+  }
+
   // Desktop Settings View
   if (view === 'desktop') {
     const rpc = (window as any).__electrobun?.rpc
@@ -531,6 +543,12 @@ export function Settings() {
               value={String(wallets.length)}
               hasArrow
               onClick={() => setView('wallets')}
+            />
+            <SettingsItem
+              icon="🪪"
+              label={t('settings.identity')}
+              hasArrow
+              onClick={() => setView('identity')}
             />
           </div>
         </div>

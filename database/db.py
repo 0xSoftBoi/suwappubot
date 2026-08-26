@@ -606,6 +606,9 @@ def _ensure_schema(db_engine) -> None:
 
     # --- agent billing: agent_credits, agent_credit_topups, agent_subscriptions ---
     _create_agent_billing_tables(db_engine, inspector, is_sqlite)
+
+    # --- zkpass_verifications: client-side zkPass TransGate proof results ---
+    _create_zkpass_verifications_table(db_engine, inspector, is_sqlite)
     # MUST run after the CREATEs above, and needs a fresh inspector so it sees
     # tables this boot just created. Was previously nested in the unrelated
     # `if "users" in tables:` block and ran BEFORE them — a no-op on a fresh DB
@@ -2846,6 +2849,67 @@ def _create_agent_billing_tables(db_engine, inspector, is_sqlite: bool) -> None:
             text(
                 "CREATE INDEX IF NOT EXISTS ix_agent_subscriptions_agent_id "
                 "ON agent_subscriptions(agent_id)"
+            )
+        )
+
+
+def _create_zkpass_verifications_table(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the zkpass_verifications table idempotently.
+
+    Stores the server-verified result of a client-side zkPass TransGate
+    identity/data proof (see api-ts/src/db/schema/zkpass.ts and
+    services/ZkPassService.ts). Informational/profile-level only — deliberately
+    NOT wired to gate any money-path feature (swap, withdrawal, fees,
+    subscriptions). Defined in api-ts's Drizzle schema, but drizzle-kit is
+    tablesFilter-scoped away from shared/python-owned tables, so python-api
+    (the authority for the shared DB) creates it here. Additive + idempotent.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    with db_engine.begin() as conn:
+        if "zkpass_verifications" not in tables:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS zkpass_verifications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        schema_id VARCHAR(255) NOT NULL,
+                        task_id VARCHAR(255) NOT NULL UNIQUE,
+                        u_hash VARCHAR(255),
+                        public_fields_hash VARCHAR(255),
+                        public_fields TEXT,
+                        validator_address VARCHAR(255),
+                        recipient VARCHAR(255),
+                        is_valid BOOLEAN NOT NULL DEFAULT 0,
+                        verified_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS zkpass_verifications (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        schema_id VARCHAR(255) NOT NULL,
+                        task_id VARCHAR(255) NOT NULL UNIQUE,
+                        u_hash VARCHAR(255),
+                        public_fields_hash VARCHAR(255),
+                        public_fields TEXT,
+                        validator_address VARCHAR(255),
+                        recipient VARCHAR(255),
+                        is_valid BOOLEAN NOT NULL DEFAULT FALSE,
+                        verified_at TIMESTAMP DEFAULT NOW(),
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS zkpass_verifications_user_idx "
+                "ON zkpass_verifications(user_id)"
             )
         )
 

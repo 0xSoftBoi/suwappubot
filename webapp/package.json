@@ -22,6 +22,7 @@
     "@turnkey/sdk-browser": "^5.15.1",
     "@turnkey/viem": "^0.14.32",
     "@twa-dev/sdk": "^7.10.0",
+    "@zkpass/transgate-js-sdk": "^0.4.5",
     "framer-motion": "^12.43.0",
     "i18next": "^26.3.6",
     "lightweight-charts": "^5.1.0",

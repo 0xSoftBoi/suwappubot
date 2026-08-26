@@ -27,7 +27,19 @@
     "notificationsDesc": "Enable all notifications",
     "linkedWallets": "Linked Wallets",
     "slippage": "Slippage",
-    "gas": "Gas Settings"
+    "gas": "Gas Settings",
+    "identity": "Identity Verification",
+    "identityTitle": "Identity Verification",
+    "identityVerified": "Verified",
+    "identityUnverified": "Not verified",
+    "identityDescription": "Verify your identity privately with zkPass. Your data stays with you — only a zero-knowledge proof is shared.",
+    "identityVerifyButton": "Verify with zkPass",
+    "identityVerifying": "Verifying...",
+    "identityExtensionRequired": "The zkPass TransGate browser extension is required for verification. This only works in a desktop or mobile browser tab, not inside Telegram's built-in view.",
+    "identityOpenInBrowser": "Open in Browser",
+    "identityCancelled": "Verification was cancelled or could not be completed. Please try again.",
+    "identityLoadError": "Couldn't load verification status. Please try again.",
+    "identitySchema": "Schema"
   },
   "swap": {
     "title": "Swap",

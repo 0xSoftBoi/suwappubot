@@ -7,7 +7,7 @@
  */
 import { getInitData } from './telegram'
 import { getAuthToken } from './auth'
-import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl, SupportTicket, TicketKind } from '../types/api'
+import type { Portfolio, Swap, ApiError, HealthStatus, UserPreferencesResponse, UpdatePreferencesResponse, UserPreferences, PortfolioPnl, SupportTicket, TicketKind, ZkPassConfig, ZkPassStatus, ZkPassVerifyResult } from '../types/api'
 import type { LinkedWallet, AuthChallenge, LinkWalletResponse } from '../types/auth'
 import type { SwapToken, SwapQuote, SwapQuoteRequest, SwapExecuteRequest, SwapExecuteResult, SwapStatusResponse } from '../types/swap'
 import type { SimulationResult } from '../types/simulation'
@@ -440,6 +440,32 @@ class ApiClient {
     return this.fetch<UpdatePreferencesResponse>('/webapp/users/me/preferences', {
       method: 'PUT',
       body: JSON.stringify(preferences),
+    })
+  }
+
+  // === zkPass Identity Verification ===
+
+  /**
+   * Get zkPass TransGate config (appId, schemaId) for launching verification
+   */
+  async getZkPassConfig(): Promise<ZkPassConfig> {
+    return this.fetch<ZkPassConfig>('/webapp/me/zkpass/config')
+  }
+
+  /**
+   * Get the current user's zkPass verification status
+   */
+  async getZkPassStatus(): Promise<ZkPassStatus> {
+    return this.fetch<ZkPassStatus>('/webapp/me/zkpass/status')
+  }
+
+  /**
+   * Submit a zkPass TransGate proof result for backend validation
+   */
+  async verifyZkPass(proof: unknown): Promise<ZkPassVerifyResult> {
+    return this.fetch<ZkPassVerifyResult>('/webapp/me/zkpass/verify', {
+      method: 'POST',
+      body: JSON.stringify(proof),
     })
   }
 

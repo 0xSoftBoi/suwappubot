@@ -65,6 +65,7 @@ from .market_data import (
     PredictionSnapshot,
     LendMetric,
 )
+from .zkpass import ZkPassVerification
 
 __all__ = [
     "User",
@@ -148,4 +149,6 @@ __all__ = [
     "PerpMetric",
     "PredictionSnapshot",
     "LendMetric",
+    # zkPass TransGate identity/data verification results
+    "ZkPassVerification",
 ]
