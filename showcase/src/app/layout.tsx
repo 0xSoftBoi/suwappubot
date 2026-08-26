@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
 import AttributionCapture from '@/components/AttributionCapture';
+import OrganizationSchema from '@/components/OrganizationSchema';
 import './summer-token-vars.css';
 import './globals.css';
 import './institutional.css';
@@ -136,6 +137,7 @@ export default async function RootLayout({
       </head>
       <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>
+        <OrganizationSchema />
         <Analytics />
         <AttributionCapture />
         <NextIntlClientProvider locale={locale} messages={messages}>

@@ -28,18 +28,8 @@ export default function StructuredData() {
         'User-signed execution with TEE-backed and self-custody key options',
       ],
     },
-    // Organization
-    {
-      '@context': 'https://schema.org',
-      '@type': 'Organization',
-      name: 'Suwappu',
-      url: 'https://suwappu.bot',
-      sameAs: [
-        'https://x.com/suwappubot',
-        'https://t.me/suwappu_bot',
-        'https://github.com/0xSoftBoi/suwappubot',
-      ],
-    },
+    // Organization is emitted site-wide from the root layout
+    // (@/components/OrganizationSchema), not per-page — see that file.
     // API documentation
     {
       '@context': 'https://schema.org',
