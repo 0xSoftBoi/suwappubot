@@ -3,7 +3,11 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "webapp/Dockerfile",
-    "watchPatterns": ["webapp/**", "packages/design-tokens/**"],
+    "watchPatterns": [
+      "/webapp/**",
+      "/packages/design-tokens/**",
+      "/railway.webapp.json"
+    ],
     "buildArgs": {
       "VITE_TURNKEY_ORG_ID": "${{ secrets.VITE_TURNKEY_ORG_ID }}",
       "VITE_TURNKEY_PROXY_URL": "${{ secrets.VITE_TURNKEY_PROXY_URL }}",

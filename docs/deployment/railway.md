@@ -1,5 +1,9 @@
 # Railway deployment
 
+> This is the original migration history. For the current service policy, selective CI,
+> watch paths, and Railway's 2026 IaC transition, use
+> [Railway build reliability](build-reliability.md) and `railway.services.json`.
+
 Migration target: **Superposition's Railway Pro org** (off AWS). This documents how each
 service is built and what it needs. The AWS Dockerfiles, `buildspec.yml`s, and GitHub
 Actions are intentionally left in place for reversibility — nothing here deletes them.
@@ -20,12 +24,12 @@ to read). Set them as below.
 | **python-api** (FastAPI + Telegram bot) | `/` (repo root) | `railway.python-api.json` | `$PORT` (CMD expands it) | New self-contained image + `requirements.txt`. The old `api/Dockerfile` needs the private ECR base — do **not** use it on Railway. |
 | **api-ts** (Hono + Effect) | `api-ts` | `railway.json` (auto-detected) | `$PORT` (`Bun.serve({port: env.PORT})`) | Existing Dockerfile works as-is (public ECR base, no AWS auth). |
 | **terminal** (Vite + nginx) | `/` (repo root) | `railway.terminal.json` | **80** (nginx hardcodes `listen 80`) | Build context is repo root (copies `packages/design-tokens`). Set Railway **target port = 80**. `VITE_API_URL` is baked at build time — see below. |
-| **showcase** (Next.js) | `showcase` | `railway.json` (auto-detected) | `$PORT` (`next start`) | Existing Dockerfile works as-is. |
+| **showcase** (Next.js) | `/` (repo root) | `railway.showcase.json` | `$PORT` (`next start`) | Requires the root context for `packages/design-tokens`. |
 
 Why distinct filenames for python-api and terminal: both build from repo root (Root
 Directory `/`), so they'd both auto-pick a single `/railway.json`. Giving each its own file
-+ pointing the service's Config path at it keeps them separate. api-ts and showcase use
-their subdirectory as Root Directory, so a plain `railway.json` there is auto-detected.
++ pointing the service's Config path at it keeps them separate. Only api-ts uses an
+isolated subdirectory root; showcase shares root packages and must build from `/`.
 `dockerfilePath` in each file is relative to that service's Root Directory.
 
 > Build bases use `public.ecr.aws/...` which is **publicly pullable without AWS auth**
@@ -128,10 +132,10 @@ publicly.
 
 ## CI/CD — GitHub Action
 
-`.github/workflows/deploy-railway.yml` deploys on push to `main` (→ production) and `dev`
-(→ development), and via manual `workflow_dispatch` (pick service + environment). It only
-deploys services whose files changed (same path scoping as the `watchPatterns`); a manual
-run can target one service or `all`.
+`.github/workflows/deploy-railway.yml` is an emergency/manual `workflow_dispatch` path.
+Normal main/dev deployments come from Railway's native GitHub integration after focused
+watch paths and Wait for CI approve the commit. A manual run can target one service or
+`all`; it does not create a second push-triggered deployment.
 
 **One-time setup:**
 1. In Railway, create a **project token** per environment (Project → Settings → Tokens),
@@ -178,7 +182,7 @@ Workspace **Eric Manganaro's Projects** (= Superposition), project **suwappu**
    | python-api | `/` | `/railway.python-api.json` |
    | api-ts | `api-ts` | `/api-ts/railway.json` |
    | terminal | `/` | `/railway.terminal.json` |
-   | showcase | `showcase` | `/showcase/railway.json` |
+   | showcase | `/` | `/railway.showcase.json` |
    (Config path does **not** follow Root Directory — give the absolute repo path.)
 2. **Source**: connect the GitHub repo `0xSoftBoi/suwappubot` to each service (Settings →
    Source), or deploy via the GitHub Action / `railway up`. If you use native GitHub
@@ -218,9 +222,8 @@ Triggered all four via `railway up` (CLI). Build validation:
 Fixes applied this run (committed):
 - `api-ts/Dockerfile`: bun was under `/root/.bun`; non-root `USER bun` can't traverse
   `/root` → `bun: Permission denied`. Now installed to `/usr/local`. (Helps AWS too.)
-- `api-ts/railway.json`, `showcase/railway.json`: removed `watchPatterns`. With a subdir
-  build root, repo-root-relative patterns (`api-ts/**`) never match → Railway skipped the
-  build. python-api/terminal keep theirs (their build root *is* repo root).
+- Historical note: watch paths are repository-root relative even when Root Directory is
+  set. The current policy uses `/api-ts/**` for api-ts and root-context paths for showcase.
 
 Deploy mechanics learned (for future CLI deploys):
 - `railway up` (no path) for repo-root services (python-api, terminal) + a
