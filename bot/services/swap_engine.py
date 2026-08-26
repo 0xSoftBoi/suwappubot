@@ -1462,19 +1462,25 @@ class SwapEngine:
         for gated_symbol, gated_chain in ((from_token, from_chain), (to_token, to_chain)):
             if is_gated_token(gated_symbol, gated_chain):
                 token = get_token_by_symbol(gated_symbol)
+                fund_name = f" ({token.name})" if token and token.name else ""
                 if token and token.gated_note:
                     note = token.gated_note
                 elif token:
                     note = (
-                        f"{gated_symbol} is an allowlist-gated token — transfers revert for "
-                        "non-allowlisted wallets."
+                        "This is a Superstate tokenized fund — transfers require KYC "
+                        "allowlisting with Superstate (qualified purchasers only) and "
+                        "revert for non-allowlisted wallets. Get onboarded at superstate.co."
                     )
                 else:
                     note = (
                         f"{gated_symbol} is an allowlist-gated token address — transfers revert "
                         "for non-allowlisted wallets."
                     )
-                raise SwapError(f"{gated_symbol} is allowlist-gated: {note}")
+                # This guard is intentionally cheap/synchronous — it sits in the hot
+                # quote path — and never consults live allowlist status. That advisory
+                # check (superstate_service.is_allowlisted) belongs in the handler
+                # layer, not here: an RPC hiccup must never look like a bypass signal.
+                raise SwapError(f"{gated_symbol}{fund_name} is allowlist-gated: {note}")
 
     async def _get_quote_impl(
         self,
