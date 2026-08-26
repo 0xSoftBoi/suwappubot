@@ -1195,6 +1195,23 @@ def _add_agent_drizzle_columns(db_engine, inspector, table_name: str, is_sqlite:
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
 
+    # Server-side defaults Drizzle relies on: api-ts inserts omit is_active and
+    # uuid, expecting DB defaults. The legacy-created table has none, so rows
+    # inserted by api-ts got NULLs — and a NULL is_active reads as inactive,
+    # 401ing the freshly registered agent. Idempotent: SET DEFAULT is
+    # re-runnable and the backfills only touch NULLs (an intentionally
+    # deactivated agent is FALSE, never NULL).
+    if not is_sqlite:
+        with db_engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN is_active SET DEFAULT TRUE"))
+            conn.execute(text(f"UPDATE {table_name} SET is_active = TRUE WHERE is_active IS NULL"))
+            conn.execute(
+                text(f"ALTER TABLE {table_name} ALTER COLUMN uuid SET DEFAULT gen_random_uuid()")
+            )
+            conn.execute(
+                text(f"UPDATE {table_name} SET uuid = gen_random_uuid() WHERE uuid IS NULL")
+            )
+
     # Unique index on uuid
     with db_engine.begin() as conn:
         conn.execute(
