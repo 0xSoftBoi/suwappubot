@@ -76,13 +76,13 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             head = (
                 "🏆 *You're on the Founder list*\n\n"
                 f"Earned by: {', '.join(al['reasons'])}\n"
-                "*3 cards, free* — Founder mints first."
+                "*1 card, free* — Founder mints first."
             )
         elif phase == "Allowlist":
             head = (
                 "✅ *You're on the allowlist*\n\n"
                 f"Earned by: {', '.join(al['reasons'])}\n"
-                "*2 cards at 0.004 ETH* — before public."
+                "*Up to 2 cards at $19* — before public."
             )
         else:
             nxt = []
@@ -111,8 +111,10 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             "permanent record of the call you made, and it re-renders against the live "
             "price forever.\n\n"
             "*Holding one takes 40% off your swap fee on Free, Pro and Premium* — "
-            "on Free that's $4 back per $1,000 traded (100 bps → 60 bps).\n\n"
-            "_Collectible cards. Not equity, not a security, pays nothing._"
+            "on Free that's $4 back per $1,000 traded (100 bps → 60 bps). "
+            "*Founders' Gold* ($119, the premium tier) takes *55%* off instead.\n\n"
+            "_4,444 cards total. Collectible cards. Not equity, not a security, pays "
+            "nothing._"
         )
     else:
         # Another DB round-trip — same rule, off the loop.
@@ -120,7 +122,8 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
         cards = await position_cards_service.get_positions(address)
         lines = [f"🃏 *Your position cards* — {len(cards)}\n"]
         for pos in cards[:10]:
-            lines.append(f"`#{pos['token_id']:<5}` {_fmt_return(pos):>8}  {pos['grade']}")
+            marker = " 🏆 FOUNDERS' GOLD" if pos.get("gold") else ""
+            lines.append(f"`#{pos['token_id']:<5}` {_fmt_return(pos):>8}  {pos['grade']}{marker}")
         if len(cards) > 10:
             lines.append(f"_…and {len(cards) - 10} more_")
         lines.append(f"\nSwap fee discount: *−{discount_fraction * 100:.0f}%* on every swap")

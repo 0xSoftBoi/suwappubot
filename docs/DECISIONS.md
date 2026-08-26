@@ -163,3 +163,18 @@ ADRs 0001–0005.
 
 ---
 *Add new entries via PR. Keep each entry under ~8 lines.*
+
+### NFT collection numbers come from chain-native ground data, not instinct
+- **What**: Suwappu Positions was renumbered 10,000 → 4,444 with two-tier
+  $19/$119 pricing and a 555-card on-chain-stamped Founders' Gold edition,
+  against verified Robinhood Chain data (Blockscout top-50 by holders +
+  cited sale economics for every major 4663 collection). Free mints there
+  buy distribution, never floor; premium tiers at ~12% of units carry ~50%
+  of revenue (Spritehood); durable floors only come from utility inside the
+  token (StonkBrokers, Gremlin Cartel). Evidence and numbers:
+  `docs/research/robinhood-chain-nft-*.md`, rationale in
+  `nft/position-cards/README.md` and config comments.
+- **Also**: an SVG `<rect filter=...>` with no fill defaults to black and
+  cairosvg/librsvg (marketplace indexers) drop the filter — the whole
+  collection rasterized as black rectangles until the art-director pass
+  caught it. Always rasterize through cairosvg before shipping card art.

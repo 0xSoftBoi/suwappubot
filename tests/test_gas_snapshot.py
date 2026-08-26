@@ -117,7 +117,11 @@ def test_positions_mint_gas_within_ceilings(w3):
     # Public phase: no merkle root, $20 a card, generous caps. Priced, not free —
     # a 0-price phase is rejected outright now, and measuring a free mint would
     # miss the oracle read and the last-good-price cache the real path pays for.
-    pos.functions.configurePhase(3, b"\x00" * 32, 2000, 50, 0, now - 1, 0).transact({"from": owner})
+    # allocation 4_444 (== MAX_SUPPLY), not 0: an open (no-merkle-root) priced
+    # phase now requires both bounds — see OpenPhaseUnbounded in configurePhase.
+    pos.functions.configurePhase(3, b"\x00" * 32, 2000, 50, 4_444, now - 1, 0).transact(
+        {"from": owner}
+    )
 
     payer = signer_for(w3, alice)
 

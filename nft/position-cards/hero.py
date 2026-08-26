@@ -209,7 +209,7 @@ def build():
     p.append(caps("40% off every swap", 96, 1112, 14, IVORY, 4.5, "bold"))
     p.append(
         caps(
-            "struck 02 aug 2026 · rank 1 of 10,000",
+            "struck 02 aug 2026 · rank 1 of 4,444",
             W - 96,
             1112,
             11,
