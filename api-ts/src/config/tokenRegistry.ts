@@ -31,7 +31,9 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		MORPHO: '0x58D97B57BB95320F9a05dC918Aef65434969c2B2',
 		// Superstate fund tokens — allowlist-gated (transfers revert unless the
 		// wallet is Superstate-KYC'd). 6dp; mirrored in bot/config/tokens.py
-		// with transfer_gated=True and guarded in the Python swap engine.
+		// with transfer_gated=True. Kept here so the reference API can serve
+		// canonical addresses, but GATED_TOKEN_SYMBOLS below stops resolveToken
+		// from ever offering them to the swap path.
 		USTB: '0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e',
 		USCC: '0x14d60E7FDC0D71d8611742720E4C50E7a974020c',
 	},
@@ -108,6 +110,13 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
 	},
 }
+
+// Allowlist-gated tokens (on-chain transfer allowlists — settlement reverts
+// for non-allowlisted wallets, so quoting/building swaps for them is a trap).
+// TokenService.resolveToken refuses these on every chain; the Python engine
+// enforces the same via TokenConfig.transfer_gated. Keys are UPPERCASE to
+// match resolveToken's symbol normalization.
+export const GATED_TOKEN_SYMBOLS: ReadonlySet<string> = new Set(['USTB', 'USCC'])
 
 // Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
 // into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.

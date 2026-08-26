@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from 'effect'
 import {
 	COMMON_TOKENS,
+	GATED_TOKEN_SYMBOLS,
 	ROBINHOOD_TOKEN_DECIMALS,
 	TEMPO_TOKEN_DECIMALS,
 } from '../config/tokenRegistry'
@@ -281,6 +282,15 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 	resolveToken: (symbol: string, chainId: number) =>
 		Effect.gen(function* () {
 			const normalized = symbol.toUpperCase().trim()
+
+			// Allowlist-gated tokens (Superstate USTB/USCC): quoting works but
+			// settlement reverts for non-Superstate-KYC'd wallets, so refusing
+			// resolution here (null → callers' "Token not found" path) is the
+			// honest answer on every chain. Also stops the Li.Fi fallback from
+			// resolving them behind our back.
+			if (GATED_TOKEN_SYMBOLS.has(normalized)) {
+				return null
+			}
 
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
