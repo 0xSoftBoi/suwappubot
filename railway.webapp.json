@@ -7,13 +7,7 @@
       "/webapp/**",
       "/packages/design-tokens/**",
       "/railway.webapp.json"
-    ],
-    "buildArgs": {
-      "VITE_TURNKEY_ORG_ID": "${{ secrets.VITE_TURNKEY_ORG_ID }}",
-      "VITE_TURNKEY_PROXY_URL": "${{ secrets.VITE_TURNKEY_PROXY_URL }}",
-      "VITE_TURNKEY_RP_ID": "${{ secrets.VITE_TURNKEY_RP_ID }}",
-      "VITE_ALCHEMY_API_KEY": "${{ secrets.VITE_ALCHEMY_API_KEY }}"
-    }
+    ]
   },
   "deploy": {
     "healthcheckPath": "/health",

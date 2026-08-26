@@ -78,9 +78,16 @@ zero-downtime for services without a volume
 python-api, api-ts, python-worker, showcase and webapp have **no volume**
 (only Postgres does), so moving them is a free, downtime-free change.
 
-**Recommendation:** move `api-ts` and `python-worker` to `us-east4-eqdc4a` to
-sit with Postgres. This is a production change and is **not** applied by this
-commit — see §6.
+**Applied in this commit, as code.** `api-ts/railway.json` and
+`railway.python-worker.json` now pin `multiRegionConfig` to
+`us-east4-eqdc4a`, co-locating both with Postgres. Expressing the move as
+config rather than a dashboard click means it lands through normal review and
+is revertible with a git revert. It takes effect on the next deploy of each
+service from `main`.
+
+Note both files previously carried a top-level `numReplicas: 1` *and* now need
+region placement; `numReplicas` is expressed **inside** `multiRegionConfig`, so
+the top-level key was removed to avoid two sources of replica count.
 
 ## 4. Migration path off Config as Code
 
@@ -200,18 +207,87 @@ instances produce **duplicate messages to users** (see the "Polling vs Webhook"
 gotcha in `CLAUDE.md`). Overlap on these two is only safe once webhook mode is
 confirmed on for both. Leave the `0` and the comment in place.
 
-**Not applied — needs a human decision (production changes):**
+Worth knowing: `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS` **defaults to `0`**
+(<https://docs.railway.com/variables/reference#user-provided-configuration-variables>).
+So before this change *no* service here had any deploy overlap — the
+zero-downtime win is real, not a no-op.
 
-1. Move `api-ts` + `python-worker` to `us-east4-eqdc4a` (§3).
-2. Set `RAILWAY_CONFIG_FILE` on python-api / terminal / webapp, or go straight
-   to IaC (§2).
-3. Run the IaC migration before **2026-12-01** (§1, §4).
-4. Decide the fate of the two orphaned files, `railway.monitor.json` and
+**Also wired in — the live Config File setting.** The bootstrapping problem in
+§2 cannot be fixed from inside the config file itself (a file that isn't read
+can't tell Railway to read it), so it was applied directly to the service:
+python-api → `railway.python-api.json`, terminal → `railway.terminal.json`,
+webapp → `railway.webapp.json`, via the service's Config File setting. This
+does not trigger a redeploy; it applies on each service's next deployment.
+
+**Still open — deliberately not done here:**
+
+1. Run the IaC migration before **2026-12-01** (§1, §4). This needs an
+   authenticated `railway` CLI to run `config pull` against live state; it
+   cannot be hand-authored safely (omit means delete across 22 services).
+2. Set `VITE_TURNKEY_PROXY_URL` on the webapp service if the Turnkey proxy is
+   intended (§7) — it is a config value nobody here can invent.
+3. Decide the fate of the two orphaned files, `railway.monitor.json` and
    `railway.suwappubot.json` — no matching service exists in the project. They
    are left in place rather than deleted, because a service may be intended
    later; if not, delete them so they stop reading as live config.
+4. Optional build-speed win, not taken: Railway supports Dockerfile cache
+   mounts (`--mount=type=cache,id=s/<service id>-<path>,target=<path>`,
+   <https://docs.railway.com/builds/dockerfiles#cache-mounts>). A pip cache on
+   `api/Dockerfile.railway` would cut Python build times, but that Dockerfile
+   has a long history of build breakage and the id must be pinned to a single
+   service id while two services share the file. Not worth the risk without a
+   reason to touch it.
 
-## 7. Postgres: an armed CVE remediation
+## 7. Bug: the `buildArgs` blocks were invalid and did nothing
+
+`railway.webapp.json` and `railway.terminal.json` carried a `build.buildArgs`
+block of the form:
+
+```json
+"buildArgs": { "VITE_TURNKEY_ORG_ID": "${{ secrets.VITE_TURNKEY_ORG_ID }}" }
+```
+
+Two independent things are wrong with it, both verified against the docs:
+
+1. **`buildArgs` is not a Config-as-Code field.** The full list of supported keys
+   (<https://docs.railway.com/config-as-code/reference>) is `builder`,
+   `watchPatterns`, `buildCommand`, `dockerfilePath`, `railpackVersion`,
+   `startCommand`, `preDeployCommand`, `multiRegionConfig`, `healthcheckPath`,
+   `healthcheckTimeout`, `restartPolicyType`, `restartPolicyMaxRetries`,
+   `cronSchedule`, `overlapSeconds`, `drainingSeconds`, and `environments`.
+   There is no `buildArgs`.
+2. **`secrets` is not a Railway namespace.** Railway's template syntax is
+   `${{NAMESPACE.VAR}}` where the namespace is `shared` or a *service name*
+   (<https://docs.railway.com/variables/reference#template-syntax>).
+   `secrets.` is GitHub Actions syntax that leaked in.
+
+Checked directly against the published schema
+(`curl https://railway.com/railway.schema.json`): `build` accepts only
+`builder`, `buildCommand`, `dockerfilePath`, `nixpacksConfigPath`,
+`nixpacksPlan`, `nixpacksVersion`, `railpackVersion`, `watchPatterns` — no
+`buildArgs`. The schema leaves `additionalProperties` unset, which in JSON
+Schema means unknown keys are **ignored, not rejected**. That is why this has
+sat there harmlessly instead of failing a build, and why it was invisible.
+
+The real mechanism, which already works: Railway injects service variables into
+the build, and the Dockerfile picks them up by declaring `ARG`
+(<https://docs.railway.com/builds/dockerfiles#using-variables-at-build-time>).
+`webapp/Dockerfile:26-35` and `terminal/Dockerfile:22-23` already do exactly
+that, and the matching `VITE_*` service variables are set on both services. So
+the feature was never broken — the JSON was simply inert. **Both blocks are
+removed in this commit** rather than left to imply a mechanism that does not
+exist.
+
+One genuine gap this surfaced: `webapp/Dockerfile` declares
+`ARG VITE_TURNKEY_PROXY_URL`, but that variable is **not** set on the webapp
+service (its live vars are `VITE_API_URL`, `VITE_TURNKEY_ORG_ID`,
+`VITE_TURNKEY_RP_ID`, `VITE_ALCHEMY_API_KEY`, `RAILWAY_DOCKERFILE_PATH`). It
+therefore builds empty and `webapp/src/lib/turnkey-client.ts:12` falls back to
+`https://api.turnkey.com` — the app talks to Turnkey directly instead of
+through the proxy. Not an outage, but it is silently not the configured
+behaviour. Set the variable on the webapp service if the proxy is intended.
+
+## 8. Postgres: an armed CVE remediation
 
 `Postgres` runs `ghcr.io/railwayapp-templates/postgres-ssl:18` at `18.4`, with
 auto-updates set to `type: vuln`, `tagMode: sha`. There is an **armed

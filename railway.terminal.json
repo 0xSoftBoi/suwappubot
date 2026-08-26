@@ -7,10 +7,7 @@
       "/terminal/**",
       "/packages/design-tokens/**",
       "/railway.terminal.json"
-    ],
-    "buildArgs": {
-      "VITE_WC_PROJECT_ID": "${{ secrets.VITE_WC_PROJECT_ID }}"
-    }
+    ]
   },
   "deploy": {
     "healthcheckPath": "/health",
