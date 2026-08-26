@@ -827,6 +827,11 @@ def _ensure_schema(db_engine) -> None:
     if "swap_transactions" in tables:
         _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite)
 
+    # --- savings_events: venue column for /earn (ERC-4626) vault attribution,
+    # so `action` can stay a short deposit/withdraw enum that fits its column ---
+    if "savings_events" in tables:
+        _add_savings_events_venue_column(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1417,6 +1422,25 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
             logger.info("Created savings_events table")
     except Exception as e:
         logger.warning(f"Failed to create savings_events table: {e}")
+
+
+def _add_savings_events_venue_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add savings_events.venue (nullable) so /earn can log a short, fixed
+    action ("deposit"/"withdraw") that fits the existing action VARCHAR(16)
+    while still carrying vault attribution. See bot/handlers/earn.py._log_event.
+    """
+    try:
+        cols = [c["name"] for c in inspector.get_columns("savings_events")]
+        if "venue" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE savings_events ADD COLUMN venue VARCHAR(32)"
+            else:
+                ddl = "ALTER TABLE savings_events ADD COLUMN IF NOT EXISTS venue VARCHAR(32)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added savings_events.venue")
+    except Exception as e:
+        logger.warning(f"Could not add savings_events.venue: {e}")
 
 
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:

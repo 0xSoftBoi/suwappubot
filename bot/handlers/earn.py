@@ -81,7 +81,8 @@ async def _log_event(user_id, wallet_id, vault_key, action, amount, tx_hash):
                     wallet_id=wallet_id,
                     chain=cfg.chain if cfg else "unknown",
                     token=cfg.asset_symbol if cfg else "?",
-                    action=f"earn_{vault_key}_{action}",
+                    action=action,  # "deposit" / "withdraw" — must fit action VARCHAR(16)
+                    venue=vault_key,
                     amount=(Decimal(str(amount)) if amount is not None else None),
                     tx_hash=(
                         ("0x" + tx_hash) if tx_hash and not tx_hash.startswith("0x") else tx_hash

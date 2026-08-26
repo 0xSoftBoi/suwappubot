@@ -55,7 +55,27 @@ AVG_BLOCK_SECONDS: Dict[str, float] = {
 
 APY_LOOKBACK_SECONDS = 7 * 24 * 3600  # ~7 days
 APY_CACHE_TTL_SECONDS = 3600  # ~1h for a successfully computed APY
-APY_NONE_CACHE_TTL_SECONDS = 300  # ~5min for "unavailable" — retry sooner, but don't hammer RPCs
+# Archive-RPC rejection (see _historical_share_price docstring) is a property
+# of the endpoint's config, not a transient blip — retrying every 5 minutes
+# just re-hammers the same rejecting endpoints on every /earn render and adds
+# thread-pool pressure (fix for earn.py cold-cache latency). 30 min still
+# recovers promptly if an operator swaps in an archive-capable endpoint.
+APY_NONE_CACHE_TTL_SECONDS = 1800  # ~30min for "unavailable"
+
+# Below this, a single block-timestamp's granularity/estimation error can
+# dominate the growth ratio when annualized — refuse rather than annualize.
+MIN_APY_ELAPSED_SECONDS = 24 * 3600  # ~24h
+# An honest ERC-4626 share-price APY is never this high; treat a reading
+# above it as a bad/stale historical sample (wrong block, dust vault, RPC
+# lying) rather than fabricate a headline number. "APY is measured, never
+# invented" — this is the ceiling half of that guarantee.
+APY_CEILING = 2.0  # 200%
+
+# A partial-withdraw request within this fraction of the live full position
+# value redeems the ENTIRE share balance instead — no dust left behind, and
+# no ambiguity between "redeem some" and "redeem everything" (fix for the
+# earn.py partial-withdraw-drains-everything defect).
+FULL_REDEEM_EPSILON = 0.005
 
 ERC4626_ABI = [
     {
@@ -98,6 +118,13 @@ ERC4626_ABI = [
         "type": "function",
         "stateMutability": "view",
         "inputs": [{"name": "shares", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+    {
+        "name": "convertToShares",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "assets", "type": "uint256"}],
         "outputs": [{"name": "", "type": "uint256"}],
     },
     {
@@ -377,14 +404,19 @@ class VaultService:
         """
         if now_price <= 0 or past_price <= 0 or elapsed_seconds <= 0:
             return None
+        if elapsed_seconds < MIN_APY_ELAPSED_SECONDS:
+            return None
         days = elapsed_seconds / 86400.0
         if days <= 0:
             return None
         growth = now_price / past_price
         try:
-            return (growth ** (365.0 / days)) - 1.0
+            apy = (growth ** (365.0 / days)) - 1.0
         except (OverflowError, ValueError):
             return None
+        if apy > APY_CEILING:
+            return None
+        return apy
 
     def _historical_share_price(
         self, cfg: VaultConfig, one_share: int, latest_block_number: int, latest_timestamp: int
@@ -528,15 +560,160 @@ class VaultService:
                     f"{balance / 10**cfg.asset_decimals:.6f} but tried to deposit "
                     f"{assets_raw / 10**cfg.asset_decimals:.6f}."
                 )
-            approve_fn = self._erc20(web3, cfg.asset_address).functions.approve(
-                vault_addr, assets_raw
-            )
+            token = self._erc20(web3, cfg.asset_address)
+            approve_fn = token.functions.approve(vault_addr, assets_raw)
             deposit_fn = self._vault_contract(web3, vault_addr).functions.deposit(assets_raw, owner)
-            tx_hashes = self._send_seq(web3, wallet, [approve_fn, deposit_fn], chain_id)
+
+            tx_hashes: list = []
+            tx_hashes.append(self._build_and_send(web3, wallet, approve_fn, chain_id))
+            try:
+                tx_hashes.append(self._build_and_send(web3, wallet, deposit_fn, chain_id))
+            except _SentTx:
+                # Receipt wait itself failed (e.g. fee-spike timeout) — on-chain
+                # state is genuinely ambiguous, the deposit tx may still land.
+                # Do NOT touch the allowance; _run_write's generic _SentTx
+                # message ("submitted but confirmation timed out") already
+                # covers this and a blind revoke here could race a pending fill.
+                raise
+            except VaultError:
+                # Deposit reverted on-chain with a receipt in hand (status=0):
+                # the approve is CONFIRMED and its allowance is live even
+                # though the deposit itself moved no funds. Best-effort revoke
+                # so we don't leave a standing spend approval behind; a revoke
+                # failure must not mask the real deposit failure.
+                try:
+                    revoke_fn = token.functions.approve(vault_addr, 0)
+                    self._build_and_send(web3, wallet, revoke_fn, chain_id)
+                except Exception as revoke_err:
+                    logger.warning(f"vault deposit: allowance revoke skipped: {revoke_err}")
+                raise VaultError(
+                    "Deposit failed on-chain. Your principal was not moved, but a "
+                    "spending approval may briefly have been live — we attempted "
+                    "to revoke it automatically. Try again shortly."
+                )
             logger.info(f"vault deposit: {assets_raw} → {cfg.key} txs={tx_hashes}")
             return tx_hashes
 
         return self._run_write(cfg.chain, _op, "vault deposit")
+
+    @staticmethod
+    def _resolve_withdrawal_shares(
+        balance: int, live_position_assets: int, requested_assets_raw: int, shares_for_assets: int
+    ) -> tuple:
+        """Pure decision, shared by preview_withdrawal (confirm screen) and
+        withdraw_assets (execute) so the two screens can never disagree.
+
+        All four inputs must come from ONE live read (same balanceOf +
+        convertToAssets/convertToShares call, never a snapshot from an
+        earlier screen). Returns (shares_to_redeem, is_full_redeem):
+          - empty position → (0, False);
+          - request within FULL_REDEEM_EPSILON of the live full position
+            value → redeem the ENTIRE balance (no dust left behind, and the
+            confirm screen must say so explicitly rather than showing a
+            pro-rata estimate that isn't what will actually happen);
+          - otherwise → shares_for_assets (convertToShares at live price),
+            floored at 1 share (a sub-dust request against a real position
+            must still move something — never "Nothing to withdraw") and
+            capped at the live balance (never oversend).
+        """
+        if balance <= 0 or live_position_assets <= 0:
+            return 0, False
+        if requested_assets_raw >= live_position_assets * (1 - FULL_REDEEM_EPSILON):
+            return balance, True
+        shares = shares_for_assets if shares_for_assets > 0 else 1
+        return min(shares, balance), False
+
+    def preview_withdrawal(self, vault_key: str, address: str, assets_raw: int) -> Dict[str, Any]:
+        """Read-only preview of what withdraw_assets(assets_raw) would ACTUALLY
+        do right now, using the identical live-price rule (see
+        _resolve_withdrawal_shares) — so confirm and execute never disagree."""
+        cfg = _require_vault(vault_key)
+        assets_raw = int(assets_raw)
+        owner = Web3.to_checksum_address(address)
+        vault_addr = Web3.to_checksum_address(cfg.vault_address)
+
+        def _op(web3: Web3) -> Dict[str, Any]:
+            v = self._vault_contract(web3, vault_addr)
+            balance = int(v.functions.balanceOf(owner).call())
+            live_position_assets = (
+                int(v.functions.convertToAssets(balance).call()) if balance else 0
+            )
+            shares_for_assets = (
+                int(v.functions.convertToShares(assets_raw).call())
+                if assets_raw > 0 and live_position_assets > 0
+                else 0
+            )
+            shares, full_redeem = self._resolve_withdrawal_shares(
+                balance, live_position_assets, assets_raw, shares_for_assets
+            )
+            actual_assets_raw = int(v.functions.convertToAssets(shares).call()) if shares else 0
+            return {
+                "shares_raw": shares,
+                "assets_raw": actual_assets_raw,
+                "full_redeem": full_redeem,
+            }
+
+        try:
+            return self._failover(cfg.chain, _op)
+        except VaultError:
+            raise
+        except Exception as e:
+            logger.warning(f"vault preview_withdrawal failed for {vault_key}: {e}")
+            raise VaultError("Could not preview this withdrawal. Try again shortly.")
+
+    def withdraw_assets(self, wallet, vault_key: str, assets_raw: int) -> Dict[str, Any]:
+        """Withdraw a TARGET ASSET amount (not a share count). Reads
+        balanceOf(owner) AND convertToAssets/convertToShares LIVE inside a
+        single _op — never from a number captured on an earlier screen — and
+        applies the same rule as preview_withdrawal (_resolve_withdrawal_shares)
+        so what actually gets redeemed always matches what the confirm screen
+        promised, modulo intra-tx price movement.
+
+        Returns {"tx_hashes": [...], "shares_raw": int, "assets_raw": int,
+        "full_redeem": bool}. "assets_raw" is the amount THIS call actually
+        redeems (computed from the same live price as the shares, immediately
+        before signing) — report this to the user, not their typed request.
+        """
+        cfg = _require_vault(vault_key)
+        assets_raw = int(assets_raw)
+        if assets_raw <= 0:
+            raise VaultError("Withdrawal amount must be greater than zero.")
+        owner = Web3.to_checksum_address(wallet.address)
+        vault_addr = Web3.to_checksum_address(cfg.vault_address)
+        chain_id = CHAIN_IDS.get(cfg.chain)
+        if chain_id is None:
+            raise VaultError(f"Unsupported chain '{cfg.chain}' for this vault.")
+
+        def _op(web3: Web3) -> Dict[str, Any]:
+            v = self._vault_contract(web3, vault_addr)
+            balance = int(v.functions.balanceOf(owner).call())
+            if balance <= 0:
+                raise VaultError("Nothing to withdraw from this vault.")
+            live_position_assets = int(v.functions.convertToAssets(balance).call())
+            if live_position_assets <= 0:
+                raise VaultError("Nothing to withdraw from this vault.")
+            shares_for_assets = int(v.functions.convertToShares(assets_raw).call())
+            shares, full_redeem = self._resolve_withdrawal_shares(
+                balance, live_position_assets, assets_raw, shares_for_assets
+            )
+            if shares <= 0:
+                raise VaultError("Nothing to withdraw from this vault.")
+            actual_assets_raw = int(v.functions.convertToAssets(shares).call())
+
+            fn = v.functions.redeem(shares, owner, owner)
+            tx_hash = self._build_and_send(web3, wallet, fn, chain_id)
+            logger.info(
+                f"vault withdraw_assets: requested={assets_raw} shares={shares} "
+                f"actual={actual_assets_raw} full_redeem={full_redeem} → {cfg.key} tx={tx_hash}"
+            )
+            return {
+                "tx_hashes": [tx_hash],
+                "shares_raw": shares,
+                "assets_raw": actual_assets_raw,
+                "full_redeem": full_redeem,
+            }
+
+        return self._run_write(cfg.chain, _op, "vault withdrawal")
 
     def withdraw(self, wallet, vault_key: str, shares_raw: Optional[int] = None) -> list:
         """redeem(shares, owner, owner). shares_raw=None → redeem the full,
