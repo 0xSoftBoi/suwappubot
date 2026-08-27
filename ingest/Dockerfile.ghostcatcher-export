@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY ingest/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY ingest/ghostcatcher_export.py /app/ghostcatcher_export.py
+RUN useradd -r -u 10001 exporter && chown -R exporter:exporter /app
+USER exporter
+CMD ["python","/app/ghostcatcher_export.py"]
