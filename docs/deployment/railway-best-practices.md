@@ -97,6 +97,35 @@ whole project, and this project has 22 services (`signal-lab`,
 testnet runners, `suwappu-relayer`, `suwappu-bridge`, `Postgres`, `Redis`, …).
 A hand-authored file that forgets one of them plans its deletion.
 
+There is a second, harder reason, verified 2026-08-27 against the live project.
+The documented TypeScript DSL **cannot express** production Postgres's current
+source config. Live state is:
+
+```json
+"autoUpdates": {
+  "type": "vuln", "tagMode": "sha",
+  "schedule": [{"day": 6, "startHour": 10, "endHour": 24},
+               {"day": 0, "startHour": 0,  "endHour": 18}],
+  "remediationNotice": {"cveId": "CVE-2026-15741", "severity": "HIGH",
+                        "armedAt": "2026-08-25T00:04:59Z"}
+}
+```
+
+`autoUpdates.type` in the IaC reference accepts only `disabled`, `patch`, or
+`minor` — there is no `vuln`, no `tagMode`, no `schedule`, no
+`remediationNotice`. The same applies to `haConversionConfig`. Hand-transcribing
+Postgres into `image(..., { autoUpdates: { type: "patch" } })` would therefore
+**silently disarm the CVE remediation window described in §8**. Only
+`railway config pull` — which Railway generates and guarantees round-trips
+clean — preserves it.
+
+**CI enforces both of these.** `scripts/validate_railway_services.py` (run
+unconditionally by the *Railway deployment contract* lane) fails the build if a
+committed `.railway/railway.ts` omits any service in `railway.services.json`, or
+if CaC files still exist once the manifest is flipped to `managed`. It also
+fails from **45 days out** (2026-10-17) if the file still doesn't exist, so the
+cutoff can't arrive unnoticed. Until then it prints a countdown notice.
+
 Generate it from live state instead:
 
 ```bash
