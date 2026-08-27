@@ -1,0 +1,1 @@
+Trigger api-ts-marketdata dev redeploy after correcting watch path. Production is unaffected.
