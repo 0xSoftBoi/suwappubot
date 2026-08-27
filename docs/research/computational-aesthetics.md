@@ -10,7 +10,7 @@ in this file as evidence.** Several widely-repeated metrics here have weak or
 contested empirical support, and at least one (rule-of-thirds as a quality
 *predictor*) is undermined by the data in its own source paper.
 
-# Computational Aesthetics & Pixel-Art Verification — Literature Reference
+## Reference (as compiled)
 
 Compiled for: generative pixel-art trading cards, 64x80 grid, <=16 colour
 palette, must read at 190px thumbnail. Priority: implementable in pure
