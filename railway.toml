@@ -1,0 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "ingest/Dockerfile.ghostcatcher-export"
+
+[deploy]
+startCommand = "python /app/ghostcatcher_export.py"
+restartPolicyType = "NEVER"
