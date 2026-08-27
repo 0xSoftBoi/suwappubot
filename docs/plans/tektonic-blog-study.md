@@ -255,6 +255,7 @@ backed by a run recorded in the commit message or the linked report.
 | W3.1 canonical correction | done | `docs/plans/tektonic-w3-canonical-correction.md` |
 | W3.4 validation gate | done | 4 defect classes caught at the right step |
 | W3.4 gate in CI | done | blocking step in `Tests & Quality Gates` |
+| Schema conformance gate | done | catches SQL drift from `bot/models/` in CI |
 | W4.3 adaptive rendering | done | simulated convergence, no oscillation |
 | W4.4 perf hygiene | done | 2 missing visibility pauses; 120 renders/s removed |
 | W4.5 live reduced-motion | done | `lib/motionPreference.ts` |
@@ -277,6 +278,18 @@ not a control.
   wrong: `alert_service` is the user-facing *price* alert service. Reconciliation failure
   is operational, so it goes where `health_monitor` sends its alerts —
   `support_notifier.post_admin_update`.
+- **`scripts/audit/schema_conformance.py`** closes the risk the reconciler introduced.
+  The replay and analytics SQL reads production tables by hand rather than through the
+  ORM — deliberately, so the replayer runs anywhere a `DATABASE_URL` does — but that
+  means a column rename in `bot/models/` cannot break it at import time or in tests. It
+  breaks it at 03:00, as a log line. The gate materialises the real 126-table schema
+  from `Base.metadata`, seeds the seven tables our readers touch, and runs all five
+  extractors, both snapshot loaders and all five views against it. Seeding is the part
+  that matters: an extractor over an empty table proves the SQL names real columns but
+  never runs the Python that reads the row, and half the mapping lives in
+  `row["realized_to_amount_usd"]` rather than in the SELECT. All five extractors return
+  a real event, so that path is exercised. Verified to catch drift both ways — a renamed
+  extractor column and a renamed view column each fail it, exit 1.
 - **CI**: the asset gate is a blocking step, scoped to `nft/` (mint assets) rather than
   `art/`, because the size budget it enforces is a wallet/marketplace constraint that
   would wrongly fail the posters in `art/`. The money-precision scan runs advisory

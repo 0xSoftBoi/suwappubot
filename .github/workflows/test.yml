@@ -84,6 +84,14 @@ jobs:
       - name: Env contract drift check (.env.schema)
         run: python3 scripts/check_env_schema.py
 
+      # Blocking. The replay and analytics SQL reads production tables by hand rather
+      # than through the ORM (so the replayer runs anywhere a DATABASE_URL does), which
+      # means a column rename in bot/models/ cannot break it at import time — it breaks
+      # it at 03:00 in the nightly reconciler, as a log line nobody reads. This
+      # materialises the real schema, seeds it, and runs every extractor and view.
+      - name: Replay/analytics schema conformance
+        run: python3 scripts/audit/schema_conformance.py
+
       # Blocking. A card whose fill points at a renamed gradient renders black in
       # every wallet and marketplace, raises nothing, and stays wrong until a human
       # happens to look at it — the visual equivalent of the boot-import crash CI
