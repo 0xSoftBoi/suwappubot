@@ -63,6 +63,9 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 }
 
 // In-memory quote cache as fallback when Redis is not available
+// Receiver used to price unauthenticated previews. Never signs anything.
+const PREVIEW_PLACEHOLDER_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+
 const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
 const QUOTE_TTL_MS = QUOTE_TTL * 1000
 
@@ -286,6 +289,127 @@ publicSwapRoutes.get('/tokens', ipRateLimit(), async (c) => {
 	if (Either.isLeft(result)) {
 		logger.error({ err: result.left }, '[PublicSwap] Failed to fetch tokens')
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+/**
+ * GET /public/swap/preview
+ *
+ * Indicative, unauthenticated cross-chain route preview. This exists for the
+ * WebMCP surface (showcase `/agent-terminal`), where a browser agent must be
+ * able to price a swap with no credential at all.
+ *
+ * MONEY-PATH NOTE: this is deliberately NOT executable. The quote is never
+ * written to the quote cache and no `transactionRequest`/`txData` is returned,
+ * so a preview quoteId can never be handed to POST /public/swap/execute (which
+ * resolves quotes from the cache and would 404). Pricing uses a placeholder
+ * receiver unless the caller names `fromAddress`, and the returned quoteId is
+ * prefixed so it can't be mistaken for an executable one.
+ */
+publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
+	const fromChain = c.req.query('fromChain')
+	const toChain = c.req.query('toChain') || fromChain
+	const fromToken = c.req.query('fromToken')
+	const toToken = c.req.query('toToken')
+	const fromAmount = c.req.query('fromAmount')
+	const slippageParam = c.req.query('slippage')
+	const orderParam = (c.req.query('order') || 'RECOMMENDED').toUpperCase()
+	const fromAddressParam = c.req.query('fromAddress')
+
+	if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
+		return c.json(
+			{
+				error: 'Validation Error',
+				message: 'fromChain, toChain, fromToken, toToken and fromAmount are required',
+			},
+			400,
+		)
+	}
+
+	if (!/^\d*\.?\d+$/.test(fromAmount) || Number(fromAmount) <= 0) {
+		return c.json(
+			{ error: 'Validation Error', message: 'fromAmount must be a positive decimal number' },
+			400,
+		)
+	}
+
+	const ORDERS = ['RECOMMENDED', 'FASTEST', 'CHEAPEST', 'SAFEST'] as const
+	if (!ORDERS.includes(orderParam as (typeof ORDERS)[number])) {
+		return c.json(
+			{ error: 'Validation Error', message: `order must be one of ${ORDERS.join(', ')}` },
+			400,
+		)
+	}
+
+	// Only a well-formed EVM address is ever forwarded; anything else falls back
+	// to the placeholder so a malformed value can't reach the aggregator.
+	const fromAddress =
+		fromAddressParam && /^0x[a-fA-F0-9]{40}$/.test(fromAddressParam)
+			? fromAddressParam
+			: PREVIEW_PLACEHOLDER_ADDRESS
+
+	const slippage = slippageParam ? Number.parseFloat(slippageParam) : DEFAULT_SLIPPAGE
+	if (!Number.isFinite(slippage) || slippage <= 0 || slippage > 0.5) {
+		return c.json(
+			{ error: 'Validation Error', message: 'slippage must be a fraction between 0 and 0.5' },
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const swapService = yield* SwapService
+			const quote = yield* swapService
+				.getQuote({
+					fromChain,
+					toChain,
+					fromToken,
+					toToken,
+					fromAmount,
+					fromAddress,
+					slippage,
+					order: orderParam as (typeof ORDERS)[number],
+				})
+				.pipe(
+					Effect.mapError((e) =>
+						e instanceof ValidationError ? e : new ValidationError({ message: e.message }),
+					),
+				)
+
+			return {
+				indicative: true,
+				executable: false,
+				previewId: `preview_${quote.quoteId}`,
+				order: orderParam,
+				fromChain: quote.fromChain,
+				toChain: quote.toChain,
+				fromToken: quote.fromToken,
+				toToken: quote.toToken,
+				fromAmount: quote.fromAmount,
+				fromAmountUsd: quote.fromAmountUsd,
+				toAmount: quote.toAmount,
+				toAmountMin: quote.toAmountMin,
+				toAmountUsd: quote.toAmountUsd,
+				exchangeRate: quote.exchangeRate,
+				priceImpact: quote.priceImpact,
+				estimatedGasUsd: quote.estimatedGasUsd,
+				bridgeFeeUsd: quote.bridgeFeeUsd,
+				estimatedDurationSeconds: quote.estimatedDuration,
+				slippage: quote.slippage,
+				route: quote.route,
+				pricedFor: fromAddress,
+				notice:
+					'Indicative preview only. Not executable and not tied to a wallet — ' +
+					'the human must confirm and sign the real swap.',
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left as any)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)
