@@ -29,6 +29,13 @@ SOLANA_WS_TIMEOUT = 90.0
 FAST_POLL_INTERVAL = 3
 FAST_POLL_AGE_SECONDS = 30
 
+# Bound on concurrently-live Solana websocket confirmation watchers. Entries
+# already evict correctly via add_done_callback (see _maybe_start_ws_watcher)
+# — this is not a leak fix, just a ceiling on peak concurrency. Past the cap,
+# new watchers are skipped and the HTTP polling backstop (the designed
+# fallback per _maybe_start_ws_watcher's docstring) picks up that tx instead.
+MAX_WS_WATCHERS = 256
+
 
 class TransactionPoller:
     """Background service to poll and update transaction statuses."""
@@ -288,6 +295,13 @@ class TransactionPoller:
                 return  # cross-chain handled by Li.Fi status polling
             chain = get_chain_by_name(tx_dict["from_chain"])
             if not chain or chain.chain_type != ChainType.SOLANA:
+                return
+            if len(self._ws_watchers) >= MAX_WS_WATCHERS:
+                logger.debug(
+                    "ws watcher cap (%s) reached, tx %s falls back to polling",
+                    MAX_WS_WATCHERS,
+                    tx_id,
+                )
                 return
 
             ws_url = ws_confirm.derive_ws_url(rpc_manager.get_rpc_url("solana"))
