@@ -18,32 +18,39 @@ and `docs/research/robinhood-chain-nft-market-research.md`. The short version:
 | **Founders' Gold stamped on-chain per token** | Real utility inside the token is what held the only durable floors on the chain (StonkBrokers' token-bound value; Gremlin Cartel's revenue share → 18x floor). Gold carries a 55% fee discount vs the standard 40%. |
 | **2% ERC-2981 royalty** | The only royalty verified on-chain in the research (Robinhood Punks). Chain norm 2–5%; we take the verified floor. |
 
-## The design language: a card, not a poster
+## The design language: pixel art, because that is what this chain is
 
-The plate is a luxury card in the **Amex Centurion / Robinhood Gold** lineage —
-Soho House meets web3, built for adults:
+Chain 4663's NFT market is a pixel-art market. StonkBrokers, Robinhood Punks,
+Gremlin Cartel and Gogh Punks are all pixel PFPs and they are the collections
+with the volume (`docs/research/robinhood-chain-nft-market-research.md`). An
+earlier iteration of this collection was an engraved luxury plate — a nice
+object that did not speak the chain's language. This does.
 
-- **Matte near-black ground.** The sector colour is anodised into the charcoal at
-  15%, so a wall of 4,444 still sorts into ten families by eye, but each family
-  reads as a tinted metal, never as candy.
-- **Status is struck metal, earned by mint rank.** Founder cards (first 222) are
-  furnished in **gold** — border, serial, seal ring; Early (first 888) in
-  **platinum**; everyone else in graphite. Like the card that matters in a wallet,
-  the tier is visible across a table without reading a word.
-- **Founders' Gold is its own edition, not a badge.** The purchased premium tier
-  (555 plates, stamped `Phase.Gold` on-chain at mint) leaves the sector-tinted
-  ground entirely: one shared black-gold field, gold engraving ink, gold
-  furniture whatever the rank, and a second inset gold hairline on the
-  silhouette. This is the Spritehood group→skin lesson ported — the tier IS the
-  visual identity, legible in a 190px grid without a trait table.
-- **Tone-on-tone engraving.** The engine-turned ground stays (it is the anti-copy
-  ornament of real scrip), cut quiet the way the Centurion's engraving is.
-- **A restrained accent ramp.** Gains climb jade → champagne with the grade;
-  losses take a muted oxblood — expensive, not alarming. The one saturated
-  element on the plate is the small pink Suwappu mark.
-- **The rare state is the "Gilt proof"** (~1 in 40): an ivory plate struck in dark
-  ink, the way a black-tie house prints its daytime stationery. Legible as rare
-  from across a grid, no trait table needed.
+The engine is `pixelart.py`: a 64x80 logical grid at 16 SVG units per pixel
+(1024x1280, 4:5), indexed colour, no anti-aliasing anywhere. Six constraints
+drive every decision, and the sweep enforces all of them on all 4,444 cards:
+
+| Constraint | How it is met, and how it is proven |
+|---|---|
+| **Clear silhouette, instant readability** | **The position IS the animal.** Up is a bull, down is a bear, flat is a bull with its eyes shut, unpriced is dormant. Horns vs round ears read at the ~7px the creature survives to in a marketplace grid — before a digit is legible. The sweep asserts the animal always agrees with the return. |
+| **Tight palette, 4–16 colours** | Cells hold palette *keys*, not colours, so a sixteenth colour has nowhere to go. Cards land at 13–14. `test_no_card_exceeds_the_palette_ceiling` samples the corpus. |
+| **Intentional clusters, no stray pixels** | Shapes are filled primitives with a traced outline; nothing is scattered. Backgrounds are authored patterns, never noise. Stray pixels are counted with 8-connectivity (a contour outline climbing a diagonal touches only at corners — that is correct pixel art, not a defect) and the sweep requires **zero**. |
+| **Consistent lighting, hue-shifted shading** | One light, fixed upper-left, for every sprite in the collection. `ramp()` rotates hue *cool* into shadow and *warm* into light rather than just darkening — the difference between a form and a grey smudge. Shading follows the contour (rim light + shadow crescent); an early cut used a straight diagonal gradient and it sliced a hard edge across the animal's face. |
+| **Right detail for the resolution** | At 38px a bull is a silhouette, not an illustration. The return is rounded to whole percent — a decimal point costs 6px of a 64px card and tells a collector nothing the animal has not already said. There is no room for the grade name and it is not forced on: the animal, the accent hue and the sign carry it, and the metadata carries it exactly. |
+| **Every pixel deliberate** | No noise functions, no texture filters, no random dither. The one seeded element (the starfield) places 2x2 clusters, because a 1px star is exactly the stray the brief bans. |
+
+Two composition rules the cards earned the hard way:
+
+- **The animal is the card.** The first cut spent 35% of the height on two lines
+  of type and left the creature a third of the card; it read as a label with a
+  mascot. The wordmark came off the face entirely — it lives in `<title>` and
+  the metadata, and at 64px the brand is the *art*, not five pixels of word.
+- **Type gets a plate.** 1px type sitting directly on a 1px pattern shreds both.
+  The card splits: patterned field with the animal above, a solid plate carrying
+  the numbers below.
+
+**Founders' Gold** is a full palette swap plus a double-struck frame, not a
+recolour — the paid edition has to read as its own object across a grid.
 
 ## Why the previous design didn't work
 
@@ -164,6 +171,8 @@ they've earned and, if they haven't, exactly what's missing.
   sequencer is down, the card stamps `0` and renders honestly as `UNPRICED` rather than
   inventing a basis — the mint can't be bricked by an oracle outage.
 - **Grades** track live return: Underwater → Flat → In Profit → Runner → Multiple → Moonshot.
+  On the card the grade is carried by the **animal** and the accent hue, not by a
+  label — see the design table above.
 - **Badges** for mint rank: `Founder` (first 222), `Early` (first 888).
 - **Perk:** −40% off your swap fee (−55% on a Founders' Gold plate — the best
   single card you hold decides, per holder), whatever tier you're on, flat **per holder, not per
@@ -193,12 +202,13 @@ The disclaimer is asserted by tests, printed on every card and carried in every 
 | File | Purpose |
 |------|---------|
 | `config.json` | Per-ticker caps, sector map, grades, economics |
+| `pixelart.py` | The pixel-art engine — grid, indexed palette, 5x7 font, creature sprites, patterns |
 | `render.py` | Live card renderer + dynamic metadata builder |
 | `build_deploy_args.py` | Constructor args in canonical registry order |
 | `feeds.json` | The 35 verified Chainlink feeds — aggregator, decimals, heartbeat, on-chain `description()` |
 | `verify_feeds.py` | Re-verifies every feed against the live chain; non-zero exit gates a deploy |
 | `deploy_args.json` | Committed caps + ERC-20 + aggregator addresses (freshness asserted by tests) |
-| `preview/` | Sample cards across the grade range |
+| `preview/` | Sample cards across the grade range, both editions |
 
 ## Run
 
@@ -317,9 +327,12 @@ card, ~555 of 4,444), then checks each card for:
 | Byte-identical across two renders | Marketplaces cache the first fetch; drift splits the art in two |
 | No two cards identical in a shard | Identical bytes mean the token id never reached the canvas |
 | Disclaimer present, no equity language | A card reading as a claim on a real security is the one failure not fixable after the mint |
+| **Palette within the 16-colour ceiling** | The tight palette is the look; one card leaking a seventeenth colour breaks the family |
+| **Zero stray pixels** | A lone pixel is the tell of generated pixel art, and the sprite chops the background patterns — a real failure mode, not a theoretical one |
+| **The animal agrees with the position** | The silhouette is the card's only claim about the P&L. A bull on a losing card would be the collection lying about the one thing it reports |
 
-Current run: see `.sweep/` after `python3 nft/position-cards/sweep.py --all` —
-the renumbered corpus (4,444 tokens, 222 Founder / 888 Early badges, ~555 gold)
-must pass 0-problems before any deploy; the previous 10,000-card corpus ran
-clean end to end. `tests/test_positions_sweep.py` injects each defect above and asserts the
-sweep catches it, so the validators cannot quietly rot into decoration.
+Current run: **4,444/4,444 rendered, 0 problems** — 35 tickers, 10 sectors, all 6
+grades plus Unpriced, 222 Founder / 888 Early badges, ~555 gold, every card
+13–14 colours with zero strays. `tests/test_positions_sweep.py` (25 tests)
+injects each defect above and asserts the sweep catches it, so the validators
+cannot quietly rot into decoration.

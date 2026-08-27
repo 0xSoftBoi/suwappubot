@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
-"""Suwappu Positions — live position-card renderer.
+"""Suwappu Positions — live position-card renderer, drawn as pixel art.
 
 A card is drawn from REAL state only: the ticker you chose, the entry price
 stamped on-chain when you minted, and the current oracle price. Nothing here
-invents price history — the previous iteration of this collection drew a fake
-random-walk chart, which is exactly the kind of decoration that makes a card
-worthless. The hero element is the actual return between two real numbers.
+invents price history.
+
+WHY PIXEL ART. Chain 4663's NFT market is a pixel-art market — StonkBrokers,
+Robinhood Punks, Gremlin Cartel and Gogh Punks are all pixel PFPs, and they are
+the collections with the volume (see docs/research/robinhood-chain-nft-*.md).
+The previous engraved-plate design was a beautiful object that did not speak the
+chain's language. This does, and the constraints of the medium do real work:
+
+  * The position IS the animal. Up is a bull, down is a bear, flat is a bull
+    with its eyes shut. Silhouette carries the whole story at thumbnail size,
+    before a single digit is legible.
+  * At most 15 colours per card, from one hue-shifted ramp system, so ten
+    sector families sort by eye across a marketplace wall.
+  * One light, upper-left, on every sprite in the collection.
+  * The return is rounded to whole percent. A decimal point costs 6 px of a
+    64 px card and tells a collector nothing they cannot read from the animal.
 
 The ticker universe (symbol, ERC-20 address, decimals, company name) is parsed
 from bot/config/tokens.py::ROBINHOOD_EQUITIES so the collection cannot drift
@@ -17,20 +30,45 @@ from what is tradable on chain 4663.
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
+
+# The engine lives beside this file. Insert explicitly: render.py is imported by
+# the sweep, by tests and as a script, and only the script case would otherwise
+# have this directory on the path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import pixelart as pa  # noqa: E402
+from pixelart import (
+    BG_0,
+    BG_1,
+    BG_2,
+    EDITION,
+    GRID_H,
+    GRID_W,
+    INK_DEEP,
+    PATTERNS,
+    PX,
+    TEXT,
+    TEXT_DIM,
+    TEXT_HI,
+    Canvas,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 TOKENS_PY = os.path.join(REPO, "bot", "config", "tokens.py")
 
-W, H = 1000, 1250
-M = 44
-CX0, CX1 = M, W - M
-PAD = 38
-IX0, IX1 = CX0 + PAD, CX1 - PAD
+W, H = pa.CANVAS_W, pa.CANVAS_H
+
+# Structural axes. A card is one of these creatures, on one of these patterns,
+# in one of ten sector palettes, in one of two editions — combinatorial variety
+# from a fixed vocabulary rather than a noise field.
+CREATURES = ("Bull", "Bear", "Flat", "Dormant")
 
 
 def load_registry() -> dict:
@@ -81,311 +119,27 @@ def fmt_px(v):
     return f"{v:,.2f}" if v >= 1 else f"{v:,.4f}"
 
 
-# Type stacks. Georgia/Times exist on every consumer platform a marketplace
-# renders on; Liberation Serif is the metric-compatible Linux fallback so the
-# preview here matches production. No @font-face — a strict-CSP viewer would
-# drop it and reflow the whole plate.
-# The site loads Geist and falls back to system-ui; a card cannot @font-face
-# under a marketplace CSP, so this names Geist first and lands on the same
-# grotesque skeleton everywhere else. Liberation Sans is the Linux fallback, so
-# the preview rendered here matches what a browser shows.
-DISPLAY = "Geist,'Inter',system-ui,-apple-system,'Liberation Sans',Arial,sans-serif"
-MONO = "'Geist Mono','SFMono-Regular',Menlo,Consolas,'DejaVu Sans Mono',monospace"
-# Retained name so the seal and any older reference still resolve.
-SERIF = DISPLAY
-
-
 def _seed(ticker: str, token_id: int, entry) -> int:
     """A stable integer derived from what the token actually IS.
 
-    The engraving is not a random trait roll — it is a function of the ticker
-    you chose, the rank you minted at, and the basis stamped on-chain. Two cards
-    can only share a plate if they share all three, and nothing here can be
+    The pattern is not a random trait roll — it is a function of the ticker you
+    chose, the rank you minted at, and the basis stamped on-chain. Two cards can
+    only share a background if they share all three, and nothing here can be
     rerolled after the fact.
     """
-    import hashlib
-
     key = f"{ticker}|{token_id}|{entry if entry else 0}"
     return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big")
 
 
-def _guilloche(cx, cy, radius, petals, inner, points=240):
-    """One arm of an engine-turned rosette (an epitrochoid).
-
-    This is the ornament on scrip, bond coupons and banknotes, and it is here
-    for the reason it was there: it is cheap to draw, impossible to redraw by
-    hand, and it is generated by the instrument rather than applied to it. One
-    path is emitted and then repeated by rotation via <use>, so the whole
-    rosette costs a couple of kB instead of the ~300 kB a per-line dump would.
-    """
-    import math
-
-    d = []
-    for i in range(points + 1):
-        t = (i / points) * 2 * math.pi
-        r = radius * (1 - inner) + radius * inner * math.cos(petals * t)
-        x = cx + r * math.cos(t)
-        y = cy + r * math.sin(t)
-        d.append(f"{'M' if i == 0 else 'L'}{x:.1f} {y:.1f}")
-    return "".join(d)
-
-
-def _small_caps(text, x, y, size, fill, tracking=3.2, weight="normal", family=None, anchor="start"):
-    return (
-        f'<text x="{x}" y="{y}" font-family="{family or MONO}" font-size="{size}" '
-        f'font-weight="{weight}" letter-spacing="{tracking}" fill="{fill}" '
-        f'text-anchor="{anchor}">{esc(text.upper())}</text>'
-    )
-
-
-# ─── engraving families ──────────────────────────────────────────────────────
-# Six authentic engine-turning patterns, not six settings of one. A rose engine
-# and a straight-line engine cut fundamentally different geometry, and these
-# mirror that split: rosette / waves / moire / sunburst come off the rose engine,
-# barleycorn and clous de Paris off the straight-line. Which one a plate gets is
-# a STRUCTURAL choice, so two cards are not the same composition recoloured.
-#
-# Sizing note that applies to all six: stroke weights are set for a ~190px
-# marketplace thumbnail, which is a 5x reduction. Hairlines are invisible there.
-
-ENGRAVINGS = ("rosette", "waves", "barleycorn", "hobnail", "sunburst", "moire")
-COMPOSITIONS = ("medallion", "field", "band", "twin")
-INKS = ("line", "double", "stipple")
-
-
-def _rng(seed: int):
-    """Deterministic LCG in [0,1). random.random() would break the
-    byte-identical-across-renders guarantee marketplaces cache against."""
-    s = (seed & 0x7FFFFFFF) or 1
-
-    def nxt():
-        nonlocal s
-        s = (1103515245 * s + 12345) & 0x7FFFFFFF
-        return s / 0x7FFFFFFF
-
-    return nxt
-
-
-# Weighted field states (authored rarity, not uniform RNG — the Fidenza
-# lesson). Each changes the CHARACTER of the cut: jitter amplitude of the
-# graver, density multiplier, and dropout (skipped passes) for the rare
-# fractured plates. (name, weight ceiling %, jitter px, density, dropout)
-FIELD_STATES = (
-    ("calm", 70, 0.8, 1.00, 0.00),
-    ("turbulent", 90, 7.0, 1.35, 0.02),
-    ("fractured", 98, 14.0, 0.75, 0.28),
-    ("still", 100, 0.0, 0.55, 0.00),
-)
-
-
-def _field_state(seed: int):
-    roll = (seed >> 52) % 100
-    for name, ceil, jit, dens, drop in FIELD_STATES:
-        if roll < ceil:
-            return name, jit, dens, drop
-    return FIELD_STATES[0][0], FIELD_STATES[0][2], FIELD_STATES[0][3], FIELD_STATES[0][4]
-
-
-def _eng_rosette(cx, cy, r, seed, petals, inner):
-    """Rose-engine rosette, cut in harmonic layers. One epitrochoid per layer
-    at golden-ratio radii (r, 0.618r, 0.382r) with coprime arm counts, so the
-    layers never phase-lock into flat repetition — the difference between a
-    Breguet dial and a spirograph is exactly this multi-cam layering."""
-    rnd = _rng(seed)
-    _, jit, dens, drop = _field_state(seed)
-    specs = [
-        (1.00, 0, 8, 0.26),
-        (0.72, 3, 13, 0.28),
-        (0.44, -2, 5, 0.30),
-    ]
-    if _field_state(seed)[0] == "still":
-        specs = specs[:2]
-    defs, body = [], []
-    for li, (rr, pd, arms, op) in enumerate(specs):
-        pid = f"e{li + 1}"
-        defs.append(
-            f'<path id="{pid}" d="{_guilloche(cx, cy, r * rr, max(3, petals + pd), min(0.32, inner * (0.8 + 0.4 * rnd())), 200)}"/>'
-        )
-        n = int((arms + int(rnd() * 3)) * dens)
-        phase = rnd() * 360
-        for i in range(max(4, n)):
-            if rnd() < drop:
-                continue
-            a = phase + i * (360.0 / max(4, n)) + (rnd() - 0.5) * jit * 1.2
-            body.append(
-                f'<use href="#{pid}" transform="rotate({a:.2f} {cx} {cy})" opacity="{op}"/>'
-            )
-    return "".join(defs), "".join(body)
-
-
-def _eng_moire(cx, cy, r, seed, petals, inner):
-    """Ring stacks struck from offset centres at NEAR-MISS counts (n and n+3),
-    radii on a power curve so density builds toward the rim the way repeated
-    rose-engine passes do. The interference beat is the pattern."""
-    rnd = _rng(seed)
-    _, jit, dens, drop = _field_state(seed)
-    off = 14 + (seed % 22)
-    rings = int((18 + (seed >> 4) % 10) * dens)
-    out = []
-    for stack, (dx, n) in enumerate(((-off, rings), (off, rings + 3))):
-        for i in range(n):
-            if rnd() < drop:
-                continue
-            rr = r * (0.20 + 0.80 * ((i + 1) / n) ** 0.6)
-            jx = (rnd() - 0.5) * jit
-            jy = (rnd() - 0.5) * jit
-            out.append(f'<circle cx="{cx + dx + jx:.1f}" cy="{cy + jy:.1f}" r="{rr:.1f}"/>')
-    # golden-radius accent ring pair, heavier cut
-    out.append(
-        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r * 0.618:.1f}" stroke-width="2.6"/>'
-        f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r * 0.624:.1f}" stroke-width="1.5"/>'
-    )
-    return "", "".join(out)
-
-
-def _eng_sunburst(cx, cy, r, seed, petals, inner):
-    """Rayon flammé in two interfering spoke layers. Counts differ by a
-    coprime delta (n vs n+7) so the layers beat against each other instead of
-    stacking; every endpoint carries seeded graver jitter so no two rays are
-    bit-identical. Rays start at 0.34r — the numeral's breathing room is a
-    computed constraint, not an overlay."""
-    import math
-
-    rnd = _rng(seed)
-    _, jit, dens, drop = _field_state(seed)
-    n1 = int((56 + (seed % 4) * 8) * dens)
-    out = []
-    for layer, (n, r0, r1_lo, r1_hi, ph) in enumerate(
-        ((n1, 0.34, 0.66, 1.0, 0.0), (n1 + 7, 0.42, 0.55, 0.82, 0.5))
-    ):
-        thin = ' stroke-width="1.5"' if layer else ""
-        for i in range(n):
-            if rnd() < drop:
-                continue
-            a = 2 * math.pi * i / n + ph
-            rr = r * (r1_lo + (r1_hi - r1_lo) * abs(math.cos(petals * a / 2)))
-            j1 = (rnd() - 0.5) * jit
-            j2 = (rnd() - 0.5) * jit
-            out.append(
-                f'<line x1="{cx + math.cos(a) * r * r0 + j1:.1f}" '
-                f'y1="{cy + math.sin(a) * r * r0 + j1:.1f}" '
-                f'x2="{cx + math.cos(a) * rr + j2:.1f}" y2="{cy + math.sin(a) * rr + j2:.1f}"'
-                f"{thin}/>"
-            )
-    return "", "".join(out)
-
-
-def _eng_waves(cx, cy, r, seed, petals, inner):
-    """Rose-engine waves with a turbulence zone: amplitude peaks at the card's
-    waist and calms toward the edges, row spacing tightens on a power curve,
-    and the phase walks with seeded jitter — a woven ripple with a centre of
-    energy, not stripes."""
-    import math
-
-    rnd = _rng(seed)
-    _, jit, dens, drop = _field_state(seed)
-    rows = int(26 * dens)
-    amp0 = 10 + (seed % 16)
-    freq = 0.010 + ((seed >> 3) % 9) * 0.0016
-    out = []
-    for row in range(max(8, rows)):
-        if rnd() < drop:
-            continue
-        t = row / max(1, rows - 1)
-        y0 = cy - r + (2 * r) * (t**0.85)
-        envelope = 0.35 + 0.65 * math.exp(-(((y0 - cy) / (r * 0.55)) ** 2))
-        amp = amp0 * envelope
-        ph = row * 0.55 + (rnd() - 0.5) * jit * 0.3
-        pts = [
-            f"{cx - r * 1.35 + (2.7 * r) * i / 40:.0f} "
-            f"{y0 + amp * math.sin(freq * (2.7 * r) * i / 40 * 6.28 + ph):.1f}"
-            for i in range(41)
-        ]
-        out.append(f'<path d="M{"L".join(pts)}"/>')
-    return "", "".join(out)
-
-
-def _eng_barleycorn(cx, cy, r, seed, petals, inner):
-    """Grain d'orge cut twice: the same lattice at a 6% scale near-miss and a
-    2.5° rotation, so the two passes moiré against each other the way a second
-    pass on the straight-line engine reads. Tiled, so it costs bytes, not KB."""
-    # The field state lives in the metal, not just the metadata: density
-    # scales the pitch, turbulence skews the second pass, and a fractured
-    # plate takes a broken dashed third cut. Strokes sized for the 5x grid.
-    _, jit, dens, drop = _field_state(seed)
-    step = (18 + seed % 14) / dens
-    rot = 30 + seed % 30
-    defs = []
-    passes = [("ebar", 1.0, 0.0, False), ("ebar2", 1.06, 2.5 + jit, False)]
-    if drop > 0:
-        passes.append(("ebar3", 1.13, 5.0 + jit, True))
-    for pid, sc, dr, dashed in passes:
-        s = step * sc
-        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
-        defs.append(
-            f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
-            f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
-            f'<path d="M0 0 L{s:.1f} {s:.1f} M{s:.1f} 0 L0 {s:.1f}" fill="none" '
-            f'stroke="currentColor" stroke-width="2.6"{dash}/>'
-            f'<circle cx="{s / 2:.1f}" cy="{s / 2:.1f}" r="{s / 5:.1f}" fill="none" '
-            f'stroke="currentColor" stroke-width="2.0"/></pattern>'
-        )
-    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
-
-
-def _eng_hobnail(cx, cy, r, seed, petals, inner):
-    """Clous de Paris cut twice at a near-miss scale — the pyramid grid plus
-    its own interference pass."""
-    # Field state as in barleycorn: pitch, skew, fractured dashed third cut.
-    _, jit, dens, drop = _field_state(seed)
-    step = (16 + seed % 12) / dens
-    rot = seed % 45
-    defs = []
-    passes = [("ehob", 1.0, 0.0, False), ("ehob2", 1.07, 3.0 + jit, False)]
-    if drop > 0:
-        passes.append(("ehob3", 1.15, 6.0 + jit, True))
-    for pid, sc, dr, dashed in passes:
-        s = step * sc
-        h = s / 2
-        dash = f' stroke-dasharray="{s * 0.3:.1f} {s * 0.5:.1f}"' if dashed else ""
-        defs.append(
-            f'<pattern id="{pid}" width="{s:.1f}" height="{s:.1f}" '
-            f'patternUnits="userSpaceOnUse" patternTransform="rotate({rot + dr:.1f})">'
-            f'<path d="M{h:.1f} 0 L{s:.1f} {h:.1f} L{h:.1f} {s:.1f} L0 {h:.1f} Z" fill="none" '
-            f'stroke="currentColor" stroke-width="2.4"{dash}/>'
-            f'<path d="M{h:.1f} {h * 0.45:.1f} L{s * 0.78:.1f} {h:.1f} L{h:.1f} {s - h * 0.45:.1f} '
-            f'L{s * 0.22:.1f} {h:.1f} Z" fill="none" stroke="currentColor" '
-            f'stroke-width="1.6"/></pattern>'
-        )
-    return "".join(defs), "__PATTERN__" + "|".join(pp[0] for pp in passes)
-
-
-_ENGRAVERS = {
-    "rosette": _eng_rosette,
-    "moire": _eng_moire,
-    "sunburst": _eng_sunburst,
-    "waves": _eng_waves,
-    "barleycorn": _eng_barleycorn,
-    "hobnail": _eng_hobnail,
-}
-
-
-def _mix(a: str, b: str, t: float) -> str:
-    """Blend two #rrggbb colours. Used to build a per-card field colour so the
-    collection reads as families in a grid rather than 10,000 black rectangles."""
-    ca = tuple(int(a[i : i + 2], 16) for i in (1, 3, 5))
-    cb = tuple(int(b[i : i + 2], 16) for i in (1, 3, 5))
-    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ca, cb))
+# ── colour measurement (kept: the sweep enforces a legibility floor) ─────────
 
 
 def _lum(hexcol: str) -> float:
-    """Relative luminance, WCAG-style."""
-
     def ch(v):
         v = v / 255.0
         return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
 
-    r, g, b = (int(hexcol[i : i + 2], 16) for i in (1, 3, 5))
+    r, g, b = pa.hex_to_rgb(hexcol)
     return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
 
 
@@ -396,180 +150,148 @@ def contrast(a: str, b: str) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-# ── the luxury metal system ──────────────────────────────────────────────────
-# The plate is a card in the Centurion / Robinhood Gold lineage: a matte
-# near-black ground, tone-on-tone engraving, and a small amount of struck
-# metal. Which metal is a TIER, not a mood — Founder cards are furnished in
-# gold, Early in platinum, the base plate in graphite — so status reads from
-# across the room the way a heavy card reads across a table.
-CHARCOAL = "#0d0d10"  # the matte ground; sector tint is anodised into it
-IVORY = "#f2ede3"  # ink on the dark plate / ground of the rare Gilt proof
-# Three clearly STEPPED luminances, brightest at the top tier — the first cut
-# had gold measurably dimmer than platinum, so the top tier read as second.
-GOLD = "#e0bd76"
-PLATINUM = "#aab1b9"
-GRAPHITE = "#8b8e94"
+def _hue_of(hexcol: str) -> float:
+    """The hue of a config colour, so config.json stays the single source.
 
-
-def metal_for(badge: str | None, sector_col: str) -> str:
-    """The furniture metal for a plate. Earned by mint rank, never rolled."""
-    if badge == "Founder":
-        return GOLD
-    if badge == "Early":
-        return PLATINUM
-    return _mix("#6e7176", sector_col, 0.18)
-
-
-def palette(cfg, sector_col, accent, ret_bps, priced, proof, gold=False):
-    """Every colour a plate uses, in one place.
-
-    Extracted because render_card and card_traits were each computing this
-    independently, so the quality gate measured a palette the renderer had
-    stopped using — the same two-implementations-of-one-rule bug that keeps
-    turning up in this repo. One function, both callers.
+    Sector and grade colours are authored as hex in config; the palette engine
+    wants hues. Deriving rather than duplicating means a designer retunes one
+    file and every card follows.
     """
-    b = cfg["brand"]
-    if gold and not proof:
-        # Founders' Gold — the purchased edition, not a trait roll. The edition
-        # must read from across a marketplace wall the way Spritehood's
-        # group-bound skins do (the one mechanic on chain 4663 that carried
-        # 50% of a $1.28M mint on 12% of supply), so the SECTOR tint leaves the
-        # ground entirely: every gold plate shares one black-gold field, and
-        # sector survives only in the engraving's second-pass ink. A tint-only
-        # variant read as "warm sector" at 190px, not as a tier.
-        # The mix is 0.24, not the 0.12 first cut, and the number is measured
-        # rather than taste. Sector grounds are luminance-normalised to ~0.0165,
-        # and at 0.12 the gold ground landed on #26221c — ONE RGB unit from the
-        # Crypto & Fintech ground (#26221b) and 2.4 from Energy & Materials.
-        # ~14% of the standard supply was shipping on a ground the paid edition
-        # could not be told apart from: the exact "gold reads as a warm sector
-        # tint" failure this branch exists to prevent. 0.24 puts the field 32+
-        # RGB units off every one of the ten sectors and roughly doubles its
-        # luminance, so gold is a different METAL, not a warmer anodising —
-        # while ivory body ink still clears 10:1.
-        field = _mix(CHARCOAL, GOLD, 0.24)
-        hero = _mix(GOLD, IVORY, 0.35)
-        if priced and ret_bps < -200:
-            # A loss on a gold plate stays in the gold family — the base plate's
-            # warm ash read as plain grey here and dropped the card out of its
-            # own edition. Struck darker than a gain instead: the edition is
-            # carried by hue, the result by luminance, and the minus sign and
-            # grade caption still do the semantic work. Expensive, not alarming.
-            # 0.30 is the floor, not a preference: 0.55 struck a handsomer
-            # bronze but put the hero numeral at 3.58:1 on the gold ground, and
-            # the sweep measures the whole output space rather than trusting a
-            # contact sheet. 0.30 holds 4.78:1 and still sits a clear 2.8 stops
-            # under a gold gain (7.62:1), so win and loss stay legible apart.
-            hero = _mix(GOLD, "#6f6258", 0.30)
-        return {
-            "field": field,
-            "field2": _mix(field, "#000000", 0.35),
-            "edge": _mix(field, GOLD, 0.30),
-            "rim": _mix(GOLD, "#8a6f3c", 0.35),
-            "body": IVORY,
-            "quiet": _mix(GOLD, GRAPHITE, 0.45),
-            "hero": hero,
-            "mark": b["accent"],
-        }
-    if proof:  # Gilt proof — the rare plate that leaves the dark: ivory, dark ink
-        # A Gold plate that also rolls proof still has to read as Founders' Gold.
-        # About 1 in 40 does, so ~14 of the 555 paid cards were landing on the
-        # standard ivory proof with the edition visible only in a hairline — a
-        # purchased tier that sometimes isn't the tier is a defect, not a
-        # surprise. So gold takes the proof as a GILT proof: the same rare
-        # inversion, struck on champagne with bronze ink instead of on ivory.
-        field = _mix(b["bg"], GOLD if gold else sector_col, 0.22 if gold else 0.07)
-        hero = _mix(accent, b["text"], 0.55)
-        if priced and ret_bps >= 2500:
-            hero = _mix(b["green"], accent, 0.25)
-        elif priced and ret_bps < -200:
-            hero = "#8f3a44"
-        if gold:
-            # Bronze ink on champagne — warm on warm, so the plate stays inside
-            # the edition instead of borrowing the base proof's oxblood/jade.
-            hero = _mix(hero, "#6b4f22", 0.45)
-        return {
-            "field": field,
-            "field2": _mix(field, "#e6d7ae" if gold else "#eae3d5", 0.55),
-            "edge": _mix(field, "#d8c79c" if gold else "#d8d0c0", 0.60),
-            "rim": _mix("#9c8b62", GOLD if gold else sector_col, 0.25),
-            "body": b["text"],
-            "quiet": b["text-2"],
-            "hero": hero,
-            "mark": b["accent"],
-        }
-    # The default plate. Sector colour is anodised into the ground — ten
-    # families sort by eye in a grid, but each reads as a tinted metal,
-    # not a pastel. Gains keep the accent ramp (jade climbing to champagne),
-    # lifted toward ivory so the numeral clears the contrast floor; losses take
-    # a muted oxblood — expensive, not alarming.
-    hero = _mix(accent, IVORY, 0.45)
-    if priced and ret_bps >= 2500:
-        hero = _mix(accent, IVORY, 0.32)
-    elif priced and ret_bps < -200:
-        # Warm ash, not pink — a saturated loss numeral was the most chromatic
-        # thing on the wall and clashed with the wordmark. The loss already
-        # reads through the minus sign and the grade caption.
-        hero = "#bfa9a2"
-    # Anodising is luminance-normalised, not a flat mix. A constant 15% let the
-    # warm high-luminance families (Crypto gold, Media rose) lift visibly off
-    # black while the cool ones stayed flat — a 28% spread in field luminance.
-    # Scaling by the sector's own luminance keeps all ten fields at roughly the
-    # same darkness while the HUE still sorts the wall. (At the original flat
-    # 6% every field converged on the same black and families didn't sort.)
-    t = min(0.18, max(0.10, 0.15 * (0.34 / max(_lum(sector_col), 0.05)) ** 0.5))
-    field = _mix(CHARCOAL, sector_col, t)
-    rim = _mix(sector_col, GRAPHITE, 0.55)
-    if priced and ret_bps >= 200:
-        # A winner's engraving takes the grade's metal. Warm sector ornament
-        # (Media rose) otherwise read as a loss from across the wall, however
-        # green the numeral — the ornament is the biggest colour field there is.
-        rim = _mix(rim, accent, 0.35)
-    return {
-        "field": field,
-        "field2": _mix(field, "#000000", 0.35),
-        "edge": _mix(field, sector_col, 0.22),
-        "rim": rim,
-        "body": b["bg"],
-        "quiet": _mix(GRAPHITE, IVORY, 0.30),
-        "hero": hero,
-        "mark": b["accent"],
-    }
+    r, g, b = (v / 255.0 for v in pa.hex_to_rgb(hexcol))
+    mx, mn = max(r, g, b), min(r, g, b)
+    d = mx - mn
+    if d == 0:
+        return 210.0
+    if mx == r:
+        h = 60 * (((g - b) / d) % 6)
+    elif mx == g:
+        h = 60 * ((b - r) / d + 2)
+    else:
+        h = 60 * ((r - g) / d + 4)
+    return h % 360
 
 
-def card_traits(cfg, registry, token_id, ticker, entry, price, rank, gold=False):
-    """The structural choices a plate resolves to, plus its legibility numbers.
+def _return_text(ret_bps: int, priced: bool) -> str:
+    """Whole percent. A decimal point is 6 px of a 64 px card for no gain."""
+    if not priced:
+        return "NULL"
+    pct = ret_bps / 100.0
+    sign = "+" if ret_bps >= 0 else "−"
+    a = abs(pct)
+    if a >= 1000:
+        return f"{sign}{round(a / 1000)}K%"
+    return f"{sign}{round(a)}%"
 
-    Long-form generative work cannot rely on the artist culling weak outputs —
-    a collector sees the entire space. So the sweep enforces a floor on every
-    one of the 10,000 rather than trusting a spot check of a contact sheet.
-    """
+
+# ── the card ────────────────────────────────────────────────────────────────
+# 64x80 rows, spent deliberately:
+#   0        frame
+#   2-39     creature, 38x38 — the card IS the animal
+#   42-55    return, 2x
+#   57-70    ticker, 2x
+#   72-78    serial + chain (1x)
+#   79       frame
+# The first cut spent 35% of the card on two lines of type and left the animal
+# a third of the height; it read as a label with a mascot. The wordmark came off
+# the face entirely — it survives in <title> and in the metadata, and at 64px
+# the brand is the ART, not five pixels of word. Nor is there room for the grade
+# name, which is the right call: the animal, the accent hue and the sign of the
+# number already carry it, and the metadata carries it exactly.
+
+ROW_SPRITE = 2
+ROW_RETURN = 42
+ROW_TICKER = 57
+ROW_FOOTER = 72
+
+
+def _compose(cfg, ticker, entry, price, rank, gold, minted_at=None):
+    """Build the bitmap and its palette. Shared by the renderer and the traits
+    reader, so the quality gate can never measure a palette the card stopped
+    using — that two-implementations-of-one-rule bug keeps recurring here."""
     priced = bool(entry and price and entry > 0)
     ret_bps = int(round((price - entry) / entry * 10_000)) if priced else 0
     grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced", "accent": "#8d8577"}
-    accent = grade["accent"]
     sector = sector_of(cfg, ticker)
-    sector_col = cfg["sector_colors"].get(sector, "#94a3b8")
-    seed = _seed(ticker, token_id, entry)
-    mag = min(abs(ret_bps) / 20_000.0, 1.0) if priced else 0.0
-    lift = max(-1.0, min(1.0, (ret_bps / 20_000.0) if priced else 0.0))
+    sector_hue = _hue_of(cfg["sector_colors"].get(sector, "#94a3b8"))
+    grade_hue = _hue_of(grade["accent"])
+    seed = _seed(ticker, rank, entry)
 
-    allowed = ["medallion", "band"] if lift < 0.05 else list(COMPOSITIONS)
-    if mag < 0.02:
-        allowed = ["medallion"]
-    proof = (seed >> 44) % 40 == 0
-    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof, gold)
+    palette = pa.build_palette(sector_hue, grade_hue, gold)
+    c = Canvas(GRID_W, GRID_H)
+
+    pattern = PATTERNS[(seed >> 24) % len(PATTERNS)]
+    pa.paint_background(c, pattern, seed)
+
+    sprite, creature = pa.creature_for(ret_bps, priced)
+    c.blit(sprite, (GRID_W - pa.SPR) // 2, ROW_SPRITE)
+
+    # The data half is a solid plate. Type at 1px sitting directly on a 1px
+    # pattern shreds both — the pattern into stray fragments, the type into
+    # noise — so the card splits cleanly: patterned field with the animal above,
+    # a plate carrying the numbers below.
+    c.rect(0, ROW_RETURN - 3, GRID_W, GRID_H - (ROW_RETURN - 3), BG_0)
+    # inset to clear both frames: a full-width rule had its ends clipped by
+    # the gold inner frame, stranding one pixel on each side
+    c.rect(2, ROW_RETURN - 3, GRID_W - 4, 1, BG_2)
+
+    # the two things that must survive a 190px thumbnail
+    c.text_center(ROW_RETURN, _return_text(ret_bps, priced), TEXT_HI, scale=2, tracking=1)
+    c.text_center(ROW_TICKER, ticker, TEXT, scale=2, tracking=1)
+
+    c.text(2, ROW_FOOTER, f"#{rank:04d}", TEXT_DIM)
+    chain = f"{cfg['collection']['chain']['chain_id']}"
+    c.text(GRID_W - 2 - pa.text_width(chain), ROW_FOOTER, chain, TEXT_DIM)
+
+    # The sprite chops the 1px background patterns into fragments and a few land
+    # as single pixels. Repair them inside the background set only — the
+    # creature's outline must never be edited by a cleanup pass.
+    c.despeckle_within((BG_0, BG_1, BG_2), BG_0)
+
+    # frame last, so nothing can spill past the card edge
+    c.frame(0, 0, GRID_W, GRID_H, INK_DEEP, 1)
+    if gold:
+        c.frame(2, 2, GRID_W - 4, GRID_H - 4, EDITION, 1)
+
+    return (
+        c,
+        palette,
+        {
+            "priced": priced,
+            "ret_bps": ret_bps,
+            "grade": grade,
+            "sector": sector,
+            "creature": creature,
+            "pattern": pattern,
+            "seed": seed,
+        },
+    )
+
+
+def card_traits(cfg, registry, token_id, ticker, entry, price, rank, gold=False):
+    """The structural choices a card resolves to, plus its measured numbers.
+
+    Long-form generative work cannot rely on the artist culling weak outputs — a
+    collector sees the entire space. So the sweep enforces a floor on every one
+    of the 4,444 rather than trusting a spot check of a contact sheet.
+    """
+    c, palette, st = _compose(cfg, ticker, entry, price, rank, gold)
+    used = c.colors_used()
     return {
-        "engraving": ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)],
-        "ink": INKS[(seed >> 32) % len(INKS)],
-        "composition": allowed[(seed >> 36) % len(allowed)],
-        "field_state": _field_state(seed)[0],
-        "proof": proof,
+        "creature": st["creature"],
+        "pattern": st["pattern"],
+        "sector": st["sector"],
+        "grade": st["grade"]["name"],
         "gold": gold,
-        "sector": sector,
-        "grade": grade["name"],
-        "hero_contrast": round(contrast(pal["hero"], pal["field"]), 2),
-        "body_contrast": round(contrast(pal["body"], pal["field"]), 2),
+        "colors_used": len(used),
+        # Typography is excluded: a 5x7 bitmap font legitimately contains
+        # single pixels (the waist of a %, the serif of a 1). The constraint is
+        # about stray pixels in the ARTWORK, which is what this measures.
+        "orphan_pixels": c.count_orphans(
+            ignore=(TEXT, TEXT_DIM, TEXT_HI, EDITION),
+            ignore_touching=(TEXT, TEXT_DIM, TEXT_HI, EDITION),
+        ),
+        "hero_contrast": round(contrast(palette[TEXT_HI], palette[BG_0]), 2),
+        "body_contrast": round(contrast(palette[TEXT], palette[BG_0]), 2),
     }
 
 
@@ -584,433 +306,28 @@ def render_card(
     minted_at: datetime | None = None,
     gold: bool = False,
 ) -> str:
-    """Render one position card as an engraved plate.
+    """Render one position card as pixel art.
 
-    The form is deliberate. This token is a stamped, immutable record of a call
-    someone made at a price that can never be edited — which is what scrip has
-    always been. So the card is a plate: engine-turned ground, ruled border,
-    struck serial, a seal.
-
-    Every decision below is answerable to the GRID. Almost nobody meets an NFT
-    at full size; they meet 40 of them at 190px in a marketplace wall, and a
-    plate that only works as a hero shot does not get minted. So:
-
-      * the field carries a sector colour, so the collection reads as ten
-        families instead of 10,000 near-black rectangles;
-      * the engraving is stroked heavily enough to survive a 5x downscale
-        (hairlines at 1000px are simply gone at 190px);
-      * the rosette's scale and height move with the return, so a wall of cards
-        has visible rhythm rather than one repeated composition;
-      * the plate is mostly image — four stacked bands of micro-type read as
-        grey mush at thumbnail size, so there is now one.
-
-    What it still refuses to do is invent history. There is no price series,
-    only the basis stamped at mint and the live oracle, and the plate shows
-    exactly those two.
+    Everything is answerable to the GRID. Almost nobody meets an NFT at full
+    size; they meet forty of them at 190px in a marketplace wall. At that size a
+    28px creature is about 7px tall, which is exactly why the silhouette — horns
+    versus round ears — has to do the work that colour and type cannot.
     """
-    addr, decimals, company = registry[ticker]
-    sector = sector_of(cfg, ticker)
-    sector_col = cfg["sector_colors"].get(sector, "#94a3b8")
-    priced = bool(entry and price and entry > 0)
-    ret_bps = int(round((price - entry) / entry * 10_000)) if priced else 0
-    grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced", "accent": "#8d8577"}
-    accent = grade["accent"]
-    badge = badge_for(cfg, rank)
-    disc_key = "gold_discount_fraction" if gold else "hold_discount_fraction"
-    disc_pct = int(round(cfg["economics"][disc_key] * 100))
-    seed = _seed(ticker, token_id, entry)
+    _addr, _decimals, company = registry[ticker]
+    c, palette, st = _compose(cfg, ticker, entry, price, rank, gold, minted_at)
 
-    # ── STRUCTURAL modes, not parameter jitter ──────────────────────────────
-    # Long-form generative work has nowhere to hide: a collector sees the whole
-    # output space, so an algorithm that emits one composition 10,000 times
-    # reads as an edition that was too large. Variety here is combinatorial and
-    # structural — 6 engraving families x 4 compositions x 3 inks x 10 sector
-    # palettes, plus a rare proof state — rather than one plate recoloured.
-    #
-    # None of it is a trait roll. The choice is drawn from a hash of what the
-    # token actually IS (ticker, mint rank, stamped basis), and the position
-    # BIASES the draw: only a real runner can be struck full-bleed, and only a
-    # deep drawdown gets the closed, tight plates. The engraving is evidence.
-    mag = min(abs(ret_bps) / 20_000.0, 1.0) if priced else 0.0
-    lift = max(-1.0, min(1.0, (ret_bps / 20_000.0) if priced else 0.0))
-
-    engraving = ENGRAVINGS[(seed >> 24) % len(ENGRAVINGS)]
-    ink = INKS[(seed >> 32) % len(INKS)]
-    # Composition is earned. Full-bleed is reserved for positions that actually
-    # ran; a losing plate cannot buy the loudest layout.
-    allowed = ["medallion", "band"] if lift < 0.05 else list(COMPOSITIONS)
-    if mag < 0.02:
-        allowed = ["medallion"]  # a flat position gets the quietest plate
-    composition = allowed[(seed >> 36) % len(allowed)]
-    # Proof state: a light plate struck in dark ink. Rare (about 1 in 40) and a
-    # complete inversion rather than another palette, so it is legible as rare
-    # from across a wall instead of needing a trait table to notice.
-    proof = (seed >> 44) % 40 == 0
-
-    rad = 200 + int(mag * 82)
-    cy = max(672 - int(lift * 52), 372 + rad)
-    petals = 7 + (seed % 12)
-    inner = 0.12 + 0.26 * mag
-
-    # ── luxury, not loud ────────────────────────────────────────────────────
-    # The default plate is a matte near-black card in the Amex Centurion /
-    # Robinhood Gold lineage: charcoal ground with the sector anodised in,
-    # tone-on-tone engraving, ivory ink, and the only saturated thing on the
-    # plate is the small pink Suwappu mark. Status is carried by struck METAL —
-    # gold for Founder, platinum for Early, graphite for the base plate. The
-    # rare inversion is the "Gilt proof": an ivory plate in dark ink, the way a
-    # black-tie house prints its daytime stationery.
-    b = cfg["brand"]
-    pal = palette(cfg, sector_col, accent, ret_bps, priced, proof, gold)
-    field, field2, edge_col = pal["field"], pal["field2"], pal["edge"]
-    rim, body_col, quiet, hero_col, mark_col = (
-        pal["rim"],
-        pal["body"],
-        pal["quiet"],
-        pal["hero"],
-        pal["mark"],
-    )
-    # Furniture metal. On the ivory Gilt proof the raw metals are too close to
-    # the ground, so they are struck darker there.
-    # A purchased Gold plate is furnished in gold whatever its mint rank — the
-    # edition was paid for, the badge is still earned by being early.
-    metal = GOLD if gold else metal_for(badge, sector_col)
-    if proof:
-        metal = _mix(metal, b["text"], 0.40)
-    faint = _mix(quiet, field, 0.35)  # small print: legible, deliberately quiet
-
-    W_, H_ = W, H
-    PL, PR, PT, PB = 54, W_ - 54, 54, H_ - 54
-    IL, IR = 96, W_ - 96
-
-    # Composition decides WHERE the engraving is cut; the family decides WHAT
-    # is cut. Keeping the two independent is what turns 6 + 4 into 24 distinct
-    # plates instead of six layouts with an ornament bolted on.
-    if composition == "field":
-        eng_cx, eng_cy, eng_r = W_ / 2, H_ / 2, 660
-        clip_shape = (
-            f'<rect x="{PL + 12}" y="{PT + 12}" width="{PR - PL - 24}" '
-            f'height="{PB - PT - 24}"/>'
-        )
-    elif composition == "band":
-        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 1.55
-        clip_shape = f'<rect x="{PL + 12}" y="{cy - 236}" width="{PR - PL - 24}" height="472"/>'
-    elif composition == "twin":
-        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 0.92
-        clip_shape = (
-            f'<circle cx="{W_ / 2 - rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
-            f'<circle cx="{W_ / 2 + rad * 0.5:.0f}" cy="{cy}" r="{rad * 0.84:.0f}"/>'
-        )
-    else:  # medallion
-        # The rosette is cut a quarter larger than its clip, so the outer
-        # layer crops into the rim instead of presenting a complete doily.
-        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad * 1.25
-        clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
-    # Tiled-pattern families (barleycorn, hobnail) paint their whole clip, so a
-    # rect clip rendered as a hard-edged drawn panel — the exact furniture the
-    # luxury pass banned. They are always struck as a soft-rimmed medallion.
-    if engraving in ("barleycorn", "hobnail"):
-        eng_cx, eng_cy, eng_r = W_ / 2, cy, rad
-        clip_shape = f'<circle cx="{W_ / 2}" cy="{cy}" r="{rad}"/>'
-    # Asymmetry injection: the ornament is struck a seeded touch off the true
-    # centre while the clip and numeral stay put — perfect concentricity reads
-    # as decoration, a slight miss reads as a hand on the machine. Vertical
-    # jitter is capped at 4px so the engraving can never climb the masthead.
-    eng_cx += (seed >> 12) % 37 - 18
-    eng_cy += (seed >> 18) % 9 - 4
-    eng_defs, eng_body = _ENGRAVERS[engraving](eng_cx, eng_cy, eng_r, seed, petals, inner)
-    # Resolve the tiled families' ink to a literal hex. currentColor renders
-    # fine in a browser but cairosvg/resvg/librsvg — what most indexers
-    # rasterize on-chain SVGs with — drop it to black, which on this plate is
-    # invisible. Literal hex measures strictly better on every rasterizer.
-    eng_ink = _mix(rim, "#ffffff", 0.35)
-    eng_defs = eng_defs.replace('stroke="currentColor"', f'stroke="{eng_ink}"')
-
-    # ── the card is an OBJECT ───────────────────────────────────────────────
-    # A luxury card is a machined thing, not a themed rectangle. Four material
-    # layers do that work: a rounded silhouette floating on obsidian with a
-    # soft shadow; brushed-metal grain; one diagonal light sheen, as on
-    # anodised aluminium under a lamp; and furniture filled with three-stop
-    # metal gradients so gold TURNS instead of sitting flat.
-    metal_hi = _mix(metal, "#ffffff", 0.38)
-    metal_lo = _mix(metal, "#000000", 0.45)
-    sheen_ink = "#000000" if proof else "#ffffff"
-    CR_X, CR_Y, CR_W, CR_H, CR_R = 34, 34, W_ - 68, H_ - 68, 42
-
-    p = [
-        "<defs>",
-        f'<clipPath id="cut">{clip_shape}</clipPath>',
-        f'<clipPath id="card"><rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" '
-        f'rx="{CR_R}"/></clipPath>',
-        f'<linearGradient id="mgrad" x1="0" y1="0" x2="0.9" y2="1">'
-        f'<stop offset="0" stop-color="{metal_hi}"/>'
-        f'<stop offset="0.45" stop-color="{metal}"/>'
-        f'<stop offset="1" stop-color="{metal_lo}"/></linearGradient>',
-        f'<linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">'
-        f'<stop offset="0.22" stop-color="{sheen_ink}" stop-opacity="0"/>'
-        f'<stop offset="0.46" stop-color="{sheen_ink}" stop-opacity="0.065"/>'
-        f'<stop offset="0.58" stop-color="{sheen_ink}" stop-opacity="0.015"/>'
-        f'<stop offset="0.80" stop-color="{sheen_ink}" stop-opacity="0"/></linearGradient>',
-        f'<pattern id="brush" width="{W_}" height="4" patternUnits="userSpaceOnUse">'
-        f'<line x1="0" y1="0.5" x2="{W_}" y2="0.5" stroke="{sheen_ink}" '
-        f'stroke-opacity="0.028" stroke-width="1"/>'
-        f'<line x1="0" y1="2.5" x2="{W_}" y2="2.5" stroke="{"#ffffff" if proof else "#000000"}" '
-        f'stroke-opacity="0.020" stroke-width="1"/></pattern>',
-        f'<filter id="drop" x="-6%" y="-6%" width="112%" height="112%">'
-        f'<feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#000000" '
-        f'flood-opacity="0.55"/></filter>',
-        # brushed-metal grain: one fixed-seed turbulence pass, barely there
-        f'<filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" '
-        f'numOctaves="2" seed="7" stitchTiles="stitch"/>'
-        f'<feColorMatrix type="matrix" values="0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 '
-        f'0 0 0 0.04 0"/></filter>',
-        # soft rim for the tiled-pattern medallion — fades to nothing instead
-        # of ending in a hard clipped edge
-        f'<radialGradient id="fadeg" gradientUnits="userSpaceOnUse" cx="{eng_cx}" '
-        f'cy="{eng_cy}" r="{eng_r}">'
-        f'<stop offset="0.88" stop-color="#ffffff"/>'
-        f'<stop offset="1" stop-color="#000000"/></radialGradient>',
-        f'<mask id="fade"><circle cx="{eng_cx}" cy="{eng_cy}" r="{eng_r}" '
-        f'fill="url(#fadeg)"/></mask>',
-        # a physical object darkens toward its corners under one lamp
-        f'<radialGradient id="vig" cx="0.5" cy="0.42" r="0.75">'
-        f'<stop offset="0.55" stop-color="#000000" stop-opacity="0"/>'
-        f'<stop offset="1" stop-color="#000000" stop-opacity="{0.10 if proof else 0.34}"/>'
-        f"</radialGradient>",
-        eng_defs,
-        f'<linearGradient id="plate" x1="0.1" y1="0" x2="0.85" y2="1">'
-        f'<stop offset="0" stop-color="{field}"/>'
-        f'<stop offset="0.62" stop-color="{field2}"/>'
-        f'<stop offset="1" stop-color="{edge_col}"/></linearGradient>',
-        f'<radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="{0.10 if proof else 0.12}"/>'
-        f'<stop offset="0.5" stop-color="{sector_col}" stop-opacity="{0.05 if proof else 0.06}"/>'
-        f'<stop offset="1" stop-color="{sector_col}" stop-opacity="0"/></radialGradient>',
-        f'<radialGradient id="clear" cx="0.5" cy="0.5" r="0.5">'
-        f'<stop offset="0" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.62"/>'
-        f'<stop offset="0.42" stop-color="{b["bg"] if proof else field2}" stop-opacity="0.40"/>'
-        f'<stop offset="1" stop-color="{b["bg"] if proof else field2}" '
-        f'stop-opacity="0"/></radialGradient>',
-        f'<pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" '
-        f'patternTransform="rotate(35)">'
-        f'<line x1="0" y1="0" x2="0" y2="7" stroke="{"#000000" if proof else "#ffffff"}" '
-        f'stroke-opacity="0.030" stroke-width="1"/></pattern>',
-        "</defs>",
-        # the obsidian slab the card floats on
-        f'<rect width="{W_}" height="{H_}" fill="{"#dcd5c7" if proof else "#0a0b0d"}"/>',
-        f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
-        f'fill="url(#plate)" filter="url(#drop)"/>',
-        # everything on the plate is cut to the card silhouette
-        f'<g clip-path="url(#card)">',
-        f'<rect width="{W_}" height="{H_}" fill="url(#hatch)"/>',
-        f'<rect width="{W_}" height="{H_}" fill="url(#brush)"/>',
-        # fill="none" is load-bearing, not tidiness. A filtered rect with no fill
-        # defaults to BLACK, and cairosvg/librsvg — what a lot of indexers
-        # rasterize on-chain SVGs with — ignore <filter> entirely and paint that
-        # black over the whole card. That erased the plate gradient everywhere,
-        # flattened the Founders' Gold ground to plain black, and turned the
-        # ivory Gilt proof into a black plate with invisible dark ink. Same class
-        # of bug as the currentColor note below. feTurbulence generates its own
-        # image and never reads SourceGraphic, so a browser renders identically.
-        f'<rect width="{W_}" height="{H_}" fill="none" filter="url(#grain)"/>',
-        f'<ellipse cx="{eng_cx}" cy="{eng_cy}" rx="{eng_r + 150}" ry="{eng_r + 140}" '
-        f'fill="url(#bloom)"/>',
-    ]
-
-    # ── the engraving ───────────────────────────────────────────────────────
-    # Stroke weights are set for the THUMBNAIL. At 0.7px on a 1000px plate an
-    # engraving resolves to 0.13px in a 190px grid cell and simply vanishes.
-    if eng_body.startswith("__PATTERN__"):
-        # Positive polarity like the line families — the lattice is struck in
-        # lightened rim ink and fades at the medallion rim, not a dark panel.
-        # Two near-miss passes layer into a real moiré (see the engravers).
-        pids = eng_body[len("__PATTERN__") :].split("|")
-        for k, pid in enumerate(pids):
-            p.append(
-                f'<g clip-path="url(#cut)" mask="url(#fade)" '
-                f'opacity="{(1.0, 0.7, 0.5)[min(k, 2)]}">'
-                f'<rect width="{W_}" height="{H_}" fill="url(#{pid})"/></g>'
-            )
-    else:
-        dash = ' stroke-dasharray="5 6"' if ink == "stipple" else ""
-        p.append(
-            f'<g clip-path="url(#cut)" stroke="{rim}" fill="none" stroke-width="2.3" '
-            f'opacity="0.66"{dash}>{eng_body}</g>'
-        )
-        if ink == "double":
-            # The same cut struck again off-register, the way a second pass on
-            # the lathe reads.
-            p.append(
-                f'<g clip-path="url(#cut)" stroke="{sector_col}" fill="none" '
-                f'stroke-width="1.1" opacity="0.40" transform="translate(3 3)">{eng_body}</g>'
-            )
-
-    # ── no drawn borders: the card edge IS the frame ────────────────────────
-    # Every luxury card sourced (Apple, N26, Robinhood Gold, Centurion) draws
-    # zero borders, bolts or rules on the face. The tiered frame weight moved
-    # onto the silhouette rim itself.
-    #
-    # ── head: wordmark top-left, serial + tier top-right. Nothing else. ─────
-    p.append(_small_caps("Suwappu", IL, 122, 17, mark_col, 7.0, "bold"))
-    p.append(
-        f'<text x="{IR}" y="122" font-family="{SERIF}" font-size="19" fill="url(#mgrad)" '
-        f'text-anchor="end" letter-spacing="1.6">{esc(f"No. {rank:04d}")}</text>'
-    )
-    # The tier line always prints — at 190px an absent label reads as a broken
-    # card, not a base one. 13px vanished in a grid cell; 17px survives.
-    # A Gold plate names its EDITION here; the rank badge still prints beside it
-    # when earned, so a rank-1 gold card carries both facts.
-    tier_line = "Founders' Gold" if gold else (badge or "Member")
-    if gold and badge:
-        tier_line = f"{badge} · Founders' Gold"
-    p.append(_small_caps(tier_line, IR, 154, 17, metal, 3.2, "bold", anchor="end"))
-
-    # ── ticker: at 190px this and one number ARE the card ───────────────────
-    # Embossed, not printed: a shadow struck below-right and a highlight
-    # above-left, the way type is pressed into metal.
-    # (moved to the low third, where a metal card carries the cardholder's
-    # name — the upper half belongs to negative space)
-    tsize = 116 if len(ticker) <= 4 else (96 if len(ticker) == 5 else 82)
-    hi_ink, hi_op = ("#ffffff", 0.65) if proof else ("#ffffff", 0.16)
-    sh_op = 0.28 if proof else 0.55
-    ty = 1024
-    tick_attrs = f'font-family="{SERIF}" font-size="{tsize}" font-weight="bold" letter-spacing="-2"'
-    p.append(
-        f'<text x="{IL + 2.5}" y="{ty + 3}" {tick_attrs} fill="#000000" '
-        f'fill-opacity="{sh_op}">{esc(ticker)}</text>'
-    )
-    p.append(
-        f'<text x="{IL - 2}" y="{ty - 2.5}" {tick_attrs} fill="{hi_ink}" '
-        f'fill-opacity="{hi_op}">{esc(ticker)}</text>'
-    )
-    p.append(f'<text x="{IL}" y="{ty}" {tick_attrs} fill="{body_col}">{esc(ticker)}</text>')
-    if len(company) <= 40:
-        name = company
-    else:
-        cut = company[:40].rsplit(" ", 1)[0]
-        name = (cut if len(cut) > 18 else company[:39]) + "\u2026"
-    p.append(_small_caps(name, IL, ty + 40, 13.5, _mix(sector_col, body_col, 0.45), 3.2))
-    # basis -> now, one quiet data block on the right of the name line. The
-    # ruled ruler, ticks and gradient bar of the certificate era are gone.
-    if priced:
-        p.append(_small_caps(f"entry ${fmt_px(entry)}", IR, ty - 44, 13, quiet, 3.0, anchor="end"))
-        p.append(
-            _small_caps(
-                f"now ${fmt_px(price)}", IR, ty - 12, 16, hero_col, 3.0, "bold", anchor="end"
-            )
-        )
-
-    # ── the two real numbers ────────────────────────────────────────────────
-    # Proportional to the rosette, not offset from it. At rad+60 x rad-30 a
-    # low-magnitude plate had its entire engraving covered — every losing card
-    # in the grid read as a dark smudge with one faint ring left showing. This
-    # clears the middle band where the numeral sits and leaves the outer rings.
-    # ry covers the caption line at cy+84 — at ry = rad*0.5 the caption sat past
-    # the falloff on dense engravings and read as mush.
-    p.append(
-        f'<ellipse cx="{W_ / 2}" cy="{cy}" rx="{rad * 0.88:.0f}" ry="{rad * 0.62:.0f}" '
-        f'fill="url(#clear)"/>'
-    )
-    if priced:
-        sign = "+" if ret_bps >= 0 else "\u2212"
-        hero = f"{sign}{abs(ret_bps) / 100:,.1f}%"
-        hsize = 138 if len(hero) <= 6 else (120 if len(hero) <= 7 else 104)
-        hero_attrs = (
-            f'font-family="{SERIF}" font-size="{hsize}" font-weight="bold" '
-            f'text-anchor="middle" letter-spacing="-3"'
-        )
-        p.append(
-            f'<text x="{W_ / 2 + 2.5}" y="{cy + 47}" {hero_attrs} fill="#000000" '
-            f'fill-opacity="{0.25 if proof else 0.5}">{esc(hero)}</text>'
-        )
-        p.append(
-            f'<text x="{W_ / 2}" y="{cy + 44}" {hero_attrs} fill="{hero_col}">{esc(hero)}</text>'
-        )
-        p.append(
-            _small_caps(
-                f"since entry · {grade['name']}",
-                W_ / 2,
-                cy + 84,
-                13.5,
-                _mix(hero_col, body_col, 0.25),
-                6.0,
-                "bold",
-                anchor="middle",
-            )
-        )
-    else:
-        # The unpriced word was hardcoded grey, so a Founders' Gold plate with no
-        # basis stamped printed its one large element in base-plate ink and fell
-        # out of the edition entirely — the worst case in the whole gold space.
-        unp, unp2 = ("#a09889", "#7a7367")
-        if gold:
-            unp, unp2 = _mix(GOLD, IVORY, 0.30), _mix(GOLD, GRAPHITE, 0.50)
-        p.append(
-            f'<text x="{W_ / 2}" y="{cy + 26}" font-family="{SERIF}" font-size="82" '
-            f'font-weight="bold" fill="{unp}" text-anchor="middle" '
-            f'letter-spacing="-1">Unpriced</text>'
-        )
-        p.append(_small_caps("no basis stamped", W_ / 2, cy + 70, 12, unp2, 5.0, anchor="middle"))
-
-    # ── foot: one quiet line. The seal, gauge band and rosette stamp are
-    # gone — a real card carries no instrument cluster. ─────────────────────
-    struck = minted_at.strftime("%d %b %Y").upper() if minted_at else "\u2014"
-    p.append(_small_caps(f"{disc_pct}% off every swap", IL, 1112, 14, body_col, 4.5, "bold"))
-    p.append(
-        _small_caps(
-            f"struck {struck} \u00b7 rank {rank} of {cfg['collection']['supply']:,}",
-            IR,
-            1112,
-            11,
-            quiet,
-            3.0,
-            anchor="end",
-        )
-    )
-    p.append(
-        _small_caps(
-            "collectible \u00b7 not equity \u00b7 not a security \u00b7 pays nothing \u00b7 "
-            "no claim on any issuer",
-            IL,
-            PB - 26,
-            9.5,
-            faint,
-            2.2,
-        )
-    )
-    p.append(_small_caps(f"4663 \u00b7 {token_id}", IR, PB - 26, 9.5, faint, 2.2, anchor="end"))
-
-    # the light sheen sweeps the finished plate, then the silhouette is rimmed
-    # in the tier metal — the last two strokes of the machining
-    # the vignette was defined and never painted — plates read lightest at the
-    # bottom-right corner instead of darkening under one lamp
-    p.append(f'<rect width="{W_}" height="{H_}" fill="url(#vig)"/>')
-    p.append(f'<rect width="{W_}" height="{H_}" fill="url(#sheen)"/>')
-    p.append("</g>")
-    p.append(
-        f'<rect x="{CR_X}" y="{CR_Y}" width="{CR_W}" height="{CR_H}" rx="{CR_R}" '
-        f'fill="none" stroke="url(#mgrad)" stroke-width="2.5"/>'
-    )
-    if gold:
-        # The double-struck rim is the edition's silhouette signature: a second
-        # gold line inset from the card edge. At 190px it reads as a heavier,
-        # deliberate frame — the one structural cue that survives every
-        # downscale, which is why it marks the edition and not a mood.
-        # 3.2, not the 1.4 first cut: 1.4 on a 1000px plate is 0.27px in a
-        # marketplace grid cell, i.e. gone, and a base Founder-rank plate already
-        # carries a gold OUTER rim — so at thumbnail size the two tiers were the
-        # same card. 3.2 resolves to a real second line and the double rim, not
-        # the colour, is what separates the paid edition from an early mint.
-        p.append(
-            f'<rect x="{CR_X + 10}" y="{CR_Y + 10}" width="{CR_W - 20}" '
-            f'height="{CR_H - 20}" rx="{CR_R - 8}" fill="none" '
-            f'stroke="{_mix(GOLD, "#ffffff", 0.15)}" stroke-width="3.2" opacity="0.95"/>'
-        )
+    # `ticker in svg` is asserted by the sweep and the label is what a screen
+    # reader gets; the compliance line rides along as <desc> so the SVG carries
+    # the disclaimer even though no 64px card could legibly print it.
+    label = f"{ticker} position card"
+    body = c.to_svg(palette, PX)
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W_}" height="{H_}" '
-        f'viewBox="0 0 {W_} {H_}" role="img" aria-label="{esc(ticker)} position card">'
-        + "".join(p)
-        + "</svg>"
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+        f'viewBox="0 0 {W} {H}" shape-rendering="crispEdges" role="img" '
+        f'aria-label="{esc(label)}">'
+        f"<title>{esc(f'{ticker} · {company}')}</title>"
+        f"<desc>{esc(cfg['collection']['compliance'])}</desc>"
+        f"{body}</svg>"
     )
 
 
@@ -1023,12 +340,17 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
     grade = grade_for(cfg, ret_bps) if priced else {"name": "Unpriced"}
     col = cfg["collection"]
     badge = badge_for(cfg, rank)
+    _sprite, creature = pa.creature_for(ret_bps, priced)
+    seed = _seed(ticker, rank, entry)
+    pattern = PATTERNS[(seed >> 24) % len(PATTERNS)]
 
     attrs = [
         {"trait_type": "Ticker", "value": ticker},
         {"trait_type": "Company", "value": company},
         {"trait_type": "Sector", "value": sector_of(cfg, ticker)},
         {"trait_type": "Grade", "value": grade["name"]},
+        {"trait_type": "Creature", "value": creature},
+        {"trait_type": "Pattern", "value": pattern.title()},
         {"trait_type": "Mint Rank", "value": rank, "display_type": "number"},
     ]
     if badge:
@@ -1061,6 +383,7 @@ def build_metadata(cfg, registry, token_id, ticker, entry, price, rank, minted_a
             f"A position on {company} ({ticker}) opened on Robinhood Chain at "
             f"${fmt_px(entry)}. Currently ${fmt_px(price)} — "
             f"{'up' if ret_bps >= 0 else 'down'} {abs(ret_bps) / 100:.1f}%. "
+            f"The card is drawn as a {creature.lower()}. "
             f"Mint rank {rank} of {supply_s}.{edition_s}\n\n"
             f"The entry price was stamped on-chain at mint and can never change; the "
             f"card re-renders against the live price, so what you see is the call you "
@@ -1098,6 +421,7 @@ if __name__ == "__main__":
     ap.add_argument("--entry", type=float, default=100.0)
     ap.add_argument("--price", type=float, default=137.0)
     ap.add_argument("--rank", type=int, default=42)
+    ap.add_argument("--gold", action="store_true")
     ap.add_argument("--out", default=os.path.join(HERE, "preview"))
     args = ap.parse_args()
 
@@ -1109,9 +433,6 @@ if __name__ == "__main__":
         # chain 4663 (see feeds.json / verify_feeds.py). Entries are illustrative
         # basis points in time, since nothing has been minted yet.
         feeds = json.load(open(os.path.join(HERE, "feeds.json")))["feeds"]
-        # (ticker, entry/price ratio, rank, gold) — ranks span the 4,444 space
-        # and both badge cut-offs (222 / 888); two gold plates so the edition
-        # is judged in the same contact sheet as the base plate.
         samples = [
             ("NVDA", 0.42, 1, True),
             ("SPCX", 0.28, 318, False),
@@ -1130,7 +451,9 @@ if __name__ == "__main__":
             open(os.path.join(args.out, f"{tk}.svg"), "w").write(svg)
         print(f"gallery -> {args.out} (current prices are live feed values)")
     else:
-        svg = render_card(cfg, registry, 1, args.ticker, args.entry, args.price, args.rank)
+        svg = render_card(
+            cfg, registry, 1, args.ticker, args.entry, args.price, args.rank, gold=args.gold
+        )
         path = os.path.join(args.out, f"{args.ticker}.svg")
         open(path, "w").write(svg)
         print(path)

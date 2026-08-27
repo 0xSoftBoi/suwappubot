@@ -33,10 +33,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from graph import Graph  # noqa: E402
+from pixelart import PALETTE_CEILING, PATTERNS  # noqa: E402
 from render import (  # noqa: E402
-    COMPOSITIONS,
-    ENGRAVINGS,
-    INKS,
+    CREATURES,
     badge_for,
     build_metadata,
     card_traits,
@@ -237,11 +236,24 @@ def validate(cfg, registry, row, svg, meta) -> list:
         bad.append(f"#{tid} hero contrast {tr['hero_contrast']} < {MIN_HERO_CONTRAST}")
     if tr["body_contrast"] < MIN_BODY_CONTRAST:
         bad.append(f"#{tid} body contrast {tr['body_contrast']} < {MIN_BODY_CONTRAST}")
-    if tr["engraving"] not in ENGRAVINGS or tr["composition"] not in COMPOSITIONS:
+    if tr["creature"] not in CREATURES or tr["pattern"] not in PATTERNS:
         bad.append(f"#{tid} resolved to an unknown structural mode: {tr}")
-    # A losing position must not be able to buy the loudest composition.
-    if row["ret_bps"] is not None and row["ret_bps"] < 1000 and tr["composition"] == "field":
-        bad.append(f"#{tid} full-bleed on a {row['ret_bps']}bps position")
+    # The six pixel-art constraints, enforced on every card rather than eyeballed
+    # on a contact sheet. A collector sees the whole output space, so "95% good"
+    # is not a shipping state.
+    if tr["colors_used"] > PALETTE_CEILING:
+        bad.append(f"#{tid} uses {tr['colors_used']} colours, ceiling is {PALETTE_CEILING}")
+    if tr["orphan_pixels"]:
+        bad.append(f"#{tid} has {tr['orphan_pixels']} stray pixel(s)")
+    # The animal must agree with the position. A bull on a losing card would be
+    # the collection lying about the only thing it reports.
+    want = (
+        "Dormant"
+        if row["ret_bps"] is None
+        else "Bull" if row["ret_bps"] >= 200 else "Bear" if row["ret_bps"] <= -200 else "Flat"
+    )
+    if tr["creature"] != want:
+        bad.append(f"#{tid} drew a {tr['creature']} at {row['ret_bps']}bps, expected {want}")
 
     # 6. compliance: a collectible must never read as a claim on a real security
     disclaimer = cfg["collection"]["compliance"]
@@ -313,11 +325,18 @@ def run_shard(cfg, registry, corpus, index: int, st: dict) -> dict:
                 key = f"{a['trait_type']}:{a['value']}"
                 traits[key] = traits.get(key, 0) + 1
         e, pr = (None, None) if row["ret_bps"] is None else _entry_and_price(row["ret_bps"])
-        tr = card_traits(cfg, registry, row["token_id"], row["ticker"], e, pr, row["token_id"])
-        for k in ("engraving", "composition", "ink"):
+        tr = card_traits(
+            cfg,
+            registry,
+            row["token_id"],
+            row["ticker"],
+            e,
+            pr,
+            row["token_id"],
+            gold=row.get("gold", False),
+        )
+        for k in ("creature", "pattern"):
             traits[f"{k}:{tr[k]}"] = traits.get(f"{k}:{tr[k]}", 0) + 1
-        if tr["proof"]:
-            traits["proof:yes"] = traits.get("proof:yes", 0) + 1
         lines.append(
             json.dumps(
                 {

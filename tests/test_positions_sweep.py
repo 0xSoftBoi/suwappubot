@@ -105,9 +105,15 @@ def test_a_clean_card_reports_nothing(sweep, ctx):
 
 def test_malformed_svg_is_caught(sweep, ctx):
     """An unescaped & in a company name is the classic way a whole collection
-    renders as a broken-image icon in every wallet at once."""
+    renders as a broken-image icon in every wallet at once.
+
+    Injected into <path>: the pixel-art renderer emits one path per colour and
+    no <text> at all, so the old injection target silently no-opped and this
+    test passed against a card it had not actually broken.
+    """
     cfg, registry, row, svg, meta = _one(sweep, ctx)
-    broken = svg.replace("<text", "<text foo=bar", 1)
+    broken = svg.replace("<path", "<path foo=bar", 1)
+    assert broken != svg, "injection target missing — the test would not test anything"
     problems = sweep.validate(cfg, registry, row, broken, meta)
     assert any("not well-formed" in p for p in problems), problems
 
@@ -314,3 +320,76 @@ def test_a_downstream_node_reruns_when_its_dependency_changes(graph_mod, tmp_pat
 
     assert build(lambda _: [1, 2, 3]).run("summary")["summary"] == 3
     assert build(lambda _: [1, 2, 3, 4]).run("summary")["summary"] == 4
+
+
+# ── the pixel-art constraints hold across the collection ─────────────────────
+# These assert the RULES on real cards rather than injecting a defect: the
+# constraints are properties of every output, so sampling the corpus is the
+# honest test. A validator that only ever sees clean input is decoration.
+
+
+def _sample(corpus, n=60):
+    step = max(1, len(corpus) // n)
+    return corpus[::step]
+
+
+def test_no_card_exceeds_the_palette_ceiling(sweep, ctx):
+    """4-16 colours is the constraint the whole look is built on. Indexed cells
+    make it structural, and this proves it holds for gold and standard alike."""
+    cfg, registry, corpus = ctx
+    from pixelart import PALETTE_CEILING
+
+    for row in _sample(corpus):
+        e, pr = (None, None) if row["ret_bps"] is None else sweep._entry_and_price(row["ret_bps"])
+        tr = sweep.card_traits(
+            cfg,
+            registry,
+            row["token_id"],
+            row["ticker"],
+            e,
+            pr,
+            row["token_id"],
+            gold=row.get("gold", False),
+        )
+        assert 4 <= tr["colors_used"] <= PALETTE_CEILING, (row["token_id"], tr["colors_used"])
+
+
+def test_no_card_has_stray_pixels(sweep, ctx):
+    """Every pixel deliberate. A lone pixel is the tell of generated pixel art,
+    and the background patterns get chopped by the sprite, so this is a real
+    failure mode rather than a theoretical one."""
+    cfg, registry, corpus = ctx
+    for row in _sample(corpus):
+        e, pr = (None, None) if row["ret_bps"] is None else sweep._entry_and_price(row["ret_bps"])
+        tr = sweep.card_traits(
+            cfg,
+            registry,
+            row["token_id"],
+            row["ticker"],
+            e,
+            pr,
+            row["token_id"],
+            gold=row.get("gold", False),
+        )
+        assert tr["orphan_pixels"] == 0, (row["token_id"], tr["orphan_pixels"])
+
+
+def test_the_animal_always_agrees_with_the_position(sweep, ctx):
+    """The silhouette is the card's only claim about the position. A bull on a
+    losing card would be the collection lying about the one thing it reports."""
+    cfg, registry, corpus = ctx
+    for row in _sample(corpus):
+        e, pr = (None, None) if row["ret_bps"] is None else sweep._entry_and_price(row["ret_bps"])
+        tr = sweep.card_traits(
+            cfg,
+            registry,
+            row["token_id"],
+            row["ticker"],
+            e,
+            pr,
+            row["token_id"],
+            gold=row.get("gold", False),
+        )
+        r = row["ret_bps"]
+        want = "Dormant" if r is None else "Bull" if r >= 200 else "Bear" if r <= -200 else "Flat"
+        assert tr["creature"] == want, (row["token_id"], r, tr["creature"])
