@@ -4,5 +4,6 @@ builder = "DOCKERFILE"
 dockerfilePath = "ingest/Dockerfile.ghostcatcher-export"
 
 [deploy]
-startCommand = "python /app/ghostcatcher_export.py"
-restartPolicyType = "NEVER"
+startCommand = "python /app/ghostcatcher_snapshot_server.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 2
