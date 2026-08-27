@@ -176,6 +176,27 @@ library Ink {
         return j == 0 ? "?" : string(o);
     }
 
+    /// @notice Lowercase hex of `n` bytes taken from the top of `v`.
+    /// @dev    No checksum casing: a codehash has no checksum and an address
+    ///         drawn beside one should be read the same way. These are struck on
+    ///         a plate to be COMPARED against `eth_getCode`, not to be typed.
+    function hex16(uint256 v, uint256 n) internal pure returns (string memory) {
+        bytes memory H = "0123456789abcdef";
+        bytes memory o = new bytes(n * 2);
+        for (uint256 i = 0; i < n * 2; i++) {
+            o[n * 2 - 1 - i] = H[(v >> (4 * i)) & 0xf];
+        }
+        return string(o);
+    }
+
+    function hexAddr(address a) internal pure returns (string memory) {
+        return string.concat("0x", hex16(uint256(uint160(a)), 20));
+    }
+
+    function hexHash(bytes32 h) internal pure returns (string memory) {
+        return hex16(uint256(h), 32);
+    }
+
     /// @notice A unix second as "2026-09-30".
     /// @dev    Hinnant's civil-from-days, shifted to an era beginning 0000-03-01
     ///         so leap years fall at the end of the cycle and the month/day

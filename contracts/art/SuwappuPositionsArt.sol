@@ -538,7 +538,7 @@ contract SuwappuPositionsArt is ISuwappuCardRenderer {
 
     function _type(Card memory c, Plate memory p, uint8 sector)
         internal
-        pure
+        view
         returns (string memory)
     {
         string memory ticker = Ink.esc(c.ticker, 6);
@@ -604,18 +604,29 @@ contract SuwappuPositionsArt is ISuwappuCardRenderer {
         return fit > 840 ? 840 : fit;
     }
 
-    function _footer(Card memory c, Plate memory p) internal pure returns (string memory) {
+    function _footer(Card memory c, Plate memory p) internal view returns (string memory) {
+        return string.concat(_prices(c, p), _marks(c, p));
+    }
+
+    function _prices(Card memory c, Plate memory p) internal pure returns (string memory) {
         return string.concat(
             "<line x1='620' x2='5380' y1='7060' y2='7060' stroke='",
             Hue.str(p.quiet),
             "' stroke-width='7' stroke-opacity='0.38'/>",
             _caps(620, 7320, 130, p.quiet, "start", "ENTRY"),
-            _fig(620, 7620, 260, p.body, "start", c.entryPrice == 0 ? "--" : Ink.money(c.entryPrice)),
+            _fig(
+                620, 7620, 260, p.body, "start", c.entryPrice == 0 ? "--" : Ink.money(c.entryPrice)
+            ),
             _caps(5380, 7320, 130, p.quiet, "end", "MARK"),
-            _fig(5380, 7620, 260, p.body, "end", c.spotPrice == 0 ? "--" : Ink.money(c.spotPrice)),
+            _fig(5380, 7620, 260, p.body, "end", c.spotPrice == 0 ? "--" : Ink.money(c.spotPrice))
+        );
+    }
+
+    function _marks(Card memory c, Plate memory p) internal view returns (string memory) {
+        return string.concat(
             _caps(
                 3000,
-                7960,
+                7830,
                 140,
                 p.metal,
                 "middle",
@@ -624,12 +635,28 @@ contract SuwappuPositionsArt is ISuwappuCardRenderer {
                     unicode"  ·  ",
                     _badgeCaps(c.mintRank)
                 )
+            ),
+            // The engraver's mark, struck small at the foot of the plate:
+            // the first eight hex of THIS renderer's own codehash. The renderer
+            // is swappable by design, so a plate should say which machine struck
+            // it — and anyone can check the claim with one EXTCODEHASH. It is
+            // the collection's own answer to "which contract drew this", asked
+            // and answered on the plate rather than in a README.
+            _caps(
+                3000,
+                7990,
+                100,
+                Hue.mix(p.quiet, p.field, 470),
+                "middle",
+                string.concat(
+                    "STRUCK BY ", Ink.hex16(uint256(address(this).codehash) >> 224, 4)
+                )
             )
         );
     }
 
     /// @notice The plate, struck.
-    function svg(Card memory c) public pure returns (string memory) {
+    function svg(Card memory c) public view returns (string memory) {
         uint8 sector = _sectorIndex(c.tickerIndex);
         Plate memory p = _palette(c, sector);
         Cut memory k = _cut(c);
@@ -657,7 +684,7 @@ contract SuwappuPositionsArt is ISuwappuCardRenderer {
     }
 
     /// @notice ERC-721 metadata for one card, complete, with nothing hosted.
-    function tokenURI(Card calldata c) external pure returns (string memory) {
+    function tokenURI(Card calldata c) external view returns (string memory) {
         uint8 sector = _sectorIndex(c.tickerIndex);
         Cut memory k = _cut(c);
         string memory ticker = Ink.esc(c.ticker, 6);

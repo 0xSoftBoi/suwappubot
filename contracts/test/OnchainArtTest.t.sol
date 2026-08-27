@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../art/SuwappuPositionsArt.sol";
 import "../art/SuwappuMembershipArt.sol";
+import "../art/SuwappuCodex.sol";
 import "../SuwappuPositions.sol";
 import "./ArtMocks.sol";
 
@@ -92,6 +93,15 @@ contract OnchainArtTest is Test {
     }
 
     // ─── A symbol read from another contract is data, never markup ────────────
+
+    /// @dev The plate names the machine that struck it. A renderer swap must be
+    ///      visible on the card, or "swappable renderer" is an unauditable claim.
+    function test_thePlateNamesItsEngraver() public {
+        SuwappuPositionsArt other = new SuwappuPositionsArt();
+        assertTrue(_indexOf(art.svg(_card()), "STRUCK BY") > 0);
+        // Same source, same codehash, same mark — the mark identifies the CODE.
+        assertEq(keccak256(bytes(art.svg(_card()))), keccak256(bytes(other.svg(_card()))));
+    }
 
     function test_hostileTickerCannotInjectMarkup() public view {
         Card memory c = _card();
@@ -339,5 +349,128 @@ contract PositionsRendererTest is Test {
         pos.setRenderer(address(art));
         vm.expectRevert();
         pos.tokenURI(2);
+    }
+}
+
+
+/**
+ * @title The contract as its own subject
+ *
+ * The Codex's whole factual claim is that it reads INSTRUCTIONS, not bytes. A
+ * byte histogram of `PUSH32 <32 x 0x55>` reports thirty-two SSTOREs in a
+ * contract that has none, and a portrait built on that is decoration with a
+ * false caption. These are the tests that make the caption true.
+ */
+contract SuwappuCodexTest is Test {
+    SuwappuCodex codex;
+    SuwappuPositionsArt art;
+
+    uint256 constant DATA = 0;
+    uint256 constant STACK = 1;
+    uint256 constant STORAGE = 4;
+    uint256 constant FLOW = 5;
+    uint256 constant EXTERNAL = 6;
+
+    function setUp() public {
+        codex = new SuwappuCodex();
+        art = new SuwappuPositionsArt();
+    }
+
+    /// @dev A real deployment rather than `vm.etch`, so the bytes under test are
+    ///      read back out of the state trie exactly the way a subject's are.
+    function _withRuntime(bytes memory runtime) internal returns (address a) {
+        bytes memory n = abi.encodePacked(uint16(runtime.length));
+        bytes memory init = abi.encodePacked(
+            hex"61", n, hex"600e600039", hex"61", n, hex"6000f3", runtime
+        );
+        assembly {
+            a := create(0, add(init, 0x20), mload(init))
+        }
+        require(a != address(0), "deploy failed");
+    }
+
+    function _census(address a) internal view returns (uint256[] memory) {
+        return codex.census(a);
+    }
+
+    function test_pushOperandsAreDataNotInstructions() public {
+        bytes memory code = abi.encodePacked(hex"7f", bytes32(type(uint256).max / 255 * 0x55));
+        // 0x55 is SSTORE. Thirty-two of them, as the operand of one PUSH32.
+        uint256[] memory c = _census(_withRuntime(code));
+        assertEq(c[STORAGE], 0, "read PUSH data as storage writes");
+        assertEq(c[STACK], 1, "the PUSH itself");
+        assertEq(c[DATA], 32, "the operand");
+    }
+
+    function test_aGenuineStoreIsCounted() public {
+        uint256[] memory c = _census(_withRuntime(hex"6001600255"));
+        assertEq(c[STORAGE], 1);
+        assertEq(c[STACK], 2);
+    }
+
+    /// @dev Every Solidity build ends in a CBOR block whose last two bytes are
+    ///      its length. Swept as code it would put a band of phantom
+    ///      instructions at the foot of every plate.
+    function test_compilerMetadataIsData() public {
+        bytes memory meta = new bytes(20);
+        for (uint256 i = 0; i < 20; i++) {
+            meta[i] = hex"55"; // twenty bytes that look exactly like SSTORE
+        }
+        uint256[] memory c =
+            _census(_withRuntime(abi.encodePacked(hex"600150", meta, uint16(20))));
+        assertEq(c[STORAGE], 0);
+    }
+
+    function test_everyWayOutIsExternal() public {
+        bytes1[6] memory ops = [bytes1(hex"f0"), hex"f1", hex"f4", hex"fa", hex"ff", hex"a2"];
+        for (uint256 i = 0; i < ops.length; i++) {
+            assertEq(_census(_withRuntime(abi.encodePacked(ops[i])))[EXTERNAL], 1);
+        }
+    }
+
+    // ─── The claim the plate makes about this repository ──────────────────────
+
+    function test_theRenderersAreProvablyPure() public view {
+        assertEq(_census(address(art))[STORAGE], 0, "a renderer must write nothing");
+        assertEq(_census(address(art))[EXTERNAL], 0, "a renderer must call nobody");
+        assertEq(_census(address(codex))[EXTERNAL], 0);
+    }
+
+    function test_theSelfPortraitIsOfItself() public view {
+        string memory self = codex.selfPortrait();
+        assertTrue(_has(self, "SELF PORTRAIT"));
+        assertTrue(_has(self, "<svg"));
+        assertTrue(_has(self, "</svg>"));
+        // Drawn from the code at this address, so it names this address.
+        assertTrue(_has(self, Ink.hexAddr(address(codex))));
+        assertFalse(_has(codex.portrait(address(art)), "SELF PORTRAIT"));
+    }
+
+    function test_aPortraitOfNothingIsRefused() public {
+        vm.expectRevert(SuwappuCodex.NotAContract.selector);
+        codex.portrait(address(0xdeadbeef));
+    }
+
+    function test_tokenURIIsASelfContainedDataURI() public view {
+        string memory uri = codex.tokenURI(address(art));
+        assertTrue(_has(uri, "data:application/json;base64,"));
+        assertTrue(bytes(uri).length > 5000);
+    }
+
+    function _has(string memory hay, string memory needle) internal pure returns (bool) {
+        bytes memory h = bytes(hay);
+        bytes memory n = bytes(needle);
+        if (n.length == 0 || h.length < n.length) return false;
+        for (uint256 i = 0; i + n.length <= h.length; i++) {
+            bool ok = true;
+            for (uint256 j = 0; j < n.length; j++) {
+                if (h[i + j] != n[j]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) return true;
+        }
+        return false;
     }
 }

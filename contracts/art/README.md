@@ -9,6 +9,7 @@ for it. There is no URL in the metadata and nothing to keep paying for.
 SuwappuArt.sol              Trig · Hue · Ink · Root — the instruments
 SuwappuPositionsArt.sol     the position plate  (600 x 840, portrait)
 SuwappuMembershipArt.sol    the member's plate  (860 x 540, landscape)
+SuwappuCodex.sol            the contract as its own subject
 ```
 
 ## Why bother
@@ -83,3 +84,70 @@ a local EVM, decodes the data URI the way a marketplace does, rasterises it and
 lays out a contact sheet — including a 190px thumbnail grid, which is the size
 this work is actually judged at. On-chain art that has only been asserted about
 has not been reviewed.
+
+
+---
+
+# SuwappuCodex — the contract as its own subject
+
+The plates above are art a contract **makes**. `SuwappuCodex` is art a contract
+**is**.
+
+There is one way a smart contract can be the artwork rather than the vending
+machine in front of it, and it is not decoration: the thing on the wall has to be
+the machine. So the Codex reads deployed bytecode — its own, or any address's —
+walks it as instructions, and strikes the result as a plate. `selfPortrait()` is
+the piece: the engraver reads its own body out of the state trie and draws it,
+and every byte in the drawing is a byte you can fetch with `eth_getCode` and
+compare. Change one line of the source and the portrait changes, because the
+portrait *is* the compilation.
+
+### The reduction rule
+
+A cell covers a few dozen bytes — call it fifteen instructions. Reduce that by
+simple majority and every cell of every contract comes back STACK or DATA,
+because that is what bytecode is mostly made of. The first cut did exactly that:
+`SuwappuPositions`, which writes state in a couple of hundred places and hands
+control outward in twenty-one, rendered without one gold or oxblood cell on it.
+
+So: **majority for the texture, promotion for the two things worth finding.** If
+anything in a slice hands control outside the contract it is drawn oxblood; else
+if anything in it touches storage it is drawn gold; else it is drawn as whatever
+it is mostly doing. Rarity is the subject — a single `SSTORE` in forty bytes of
+stack shuffling is the fact about those forty bytes.
+
+The census rule under the field is **not** promoted. It is the plain proportions,
+unedited, so the plate carries both truths at once: a field composed for
+significance, and a bar showing what the contract is actually made of. The legend
+prints instruction counts, not percentages, because "STORE 0.0%" for the one
+thing a reader most wants to count is the wrong unit, not a rounding problem.
+
+### What it turns out to show
+
+Run `contracts/preview/preview.py` and put the three renderers next to
+`SuwappuPositions`. The renderers have **zero** gold and **zero** oxblood: they
+write nothing and call nobody, visibly, at a glance. `SuwappuPositions` is
+covered in both. A pure function and a custodian do not look remotely alike, and
+you do not have to read either one to tell them apart.
+
+That is also why the position card now carries an engraver's mark — `STRUCK BY`
+plus the first eight hex of the renderer's own codehash. The renderer is
+swappable by design, so the plate should say which machine struck it, and anyone
+can check the claim with one `EXTCODEHASH`.
+
+### What it is not
+
+**Not a disassembler, and honest about it.** This is a linear sweep: it starts at
+byte zero and walks forward, PUSH-aware — which is what a disassembler does
+before it knows the jump graph. That gets right the thing a naive byte histogram
+gets wrong (`PUSH32 <32 x 0x55>` is one instruction and thirty-two bytes of data,
+not thirty-two `SSTORE`s, and that single fact is why most bytecode art is
+noise). But a linear sweep cannot know which regions are never executed. Solidity
+stores long string constants inside the runtime code and reaches them with
+`CODECOPY`; swept linearly those bytes decode as plausible instructions, so a
+contract carrying a lot of text shows a scatter of phantom ones. Recursive
+descent would fix it and does not fit in a view call.
+
+`census(address)` is public so the reading can be checked without decoding a
+picture. If a plate says a contract never writes state, that is the number to
+verify it against.

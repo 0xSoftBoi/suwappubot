@@ -60,6 +60,7 @@ def compile_all() -> None:
             "--overwrite",
             "art/SuwappuPositionsArt.sol",
             "art/SuwappuMembershipArt.sol",
+            "art/SuwappuCodex.sol",
         ],
         cwd=CONTRACTS,
         check=True,
@@ -113,14 +114,15 @@ def chain_and_deploy():
         used[0] = receipt.gas_used
         return comp.output, gas
 
-    def deploy(name):
-        state_vm = chain.get_vm()
-        nonce = state_vm.state.get_nonce(me)
-        code = open(os.path.join(BUILD, name + ".bin")).read().strip()
-        send(constants.CREATE_CONTRACT_ADDRESS, decode_hex(code))
+    def deploy_raw(code: bytes):
+        nonce = chain.get_vm().state.get_nonce(me)
+        send(constants.CREATE_CONTRACT_ADDRESS, code)
         return keccak(rlp.encode([me, nonce]))[12:]
 
-    return deploy, send, keccak
+    def deploy(name):
+        return deploy_raw(decode_hex(open(os.path.join(BUILD, name + ".bin")).read().strip()))
+
+    return deploy, send, keccak, deploy_raw
 
 
 def word(v: int) -> bytes:
@@ -331,15 +333,69 @@ def check_invariants(art, send, sel):
     print("  invariants: self-contained, injection-safe, total, live, deterministic  OK")
 
 
+def deploy_runtime(send, deploy_raw, runtime: bytes):
+    """A contract whose RUNTIME code is exactly `runtime`.
+
+    A real deployment rather than a cheatcode, so the bytes under test are read
+    back out of the state trie exactly the way any subject's are.
+    """
+    n = len(runtime).to_bytes(2, "big")
+    return deploy_raw(b"\x61" + n + b"\x60\x0e\x60\x00\x39\x61" + n + b"\x60\x00\xf3" + runtime)
+
+
+DATA, STACK, MATH, MEM, STORE, FLOW, EXT, ENV = range(8)
+
+
+def check_codex(codex, art, send, sel, deploy_raw):
+    """The Codex's one factual claim: it reads instructions, not bytes.
+
+    Everything the plate asserts rests on this. A byte histogram of
+    `PUSH32 <32 x 0x55>` reports thirty-two SSTOREs in a contract that has none,
+    and a portrait built on that is decoration with a false caption.
+    """
+
+    def census(addr):
+        out, _ = send(codex, sel("census(address)") + b"\x00" * 12 + addr)
+        off = int.from_bytes(out[:32], "big")
+        n = int.from_bytes(out[off : off + 32], "big")
+        return [int.from_bytes(out[off + 32 + 32 * i : off + 64 + 32 * i], "big") for i in range(n)]
+
+    c = census(deploy_runtime(send, deploy_raw, bytes([0x7F]) + bytes([0x55]) * 32))
+    assert (c[STORE], c[STACK], c[DATA]) == (0, 1, 32), c
+
+    c = census(deploy_runtime(send, deploy_raw, bytes([0x60, 1, 0x60, 2, 0x55])))
+    assert (c[STORE], c[STACK]) == (1, 2), c
+
+    # Twenty bytes that look exactly like SSTORE, in the compiler's metadata slot.
+    meta = bytes([0x55]) * 20
+    c = census(
+        deploy_runtime(
+            send, deploy_raw, bytes([0x60, 1, 0x50]) + meta + len(meta).to_bytes(2, "big")
+        )
+    )
+    assert c[STORE] == 0, c
+
+    for op in (0xF0, 0xF1, 0xF4, 0xFA, 0xFF, 0xA2):
+        assert census(deploy_runtime(send, deploy_raw, bytes([op])))[EXT] == 1, op
+
+    # And the claim the collection's own plates make about themselves.
+    assert census(art)[STORE] == 0, "the renderer writes state"
+    assert census(art)[EXT] == 0, "the renderer calls out"
+    assert census(codex)[EXT] == 0, "the codex calls out"
+    print("  codex: PUSH-aware, metadata-aware, and the renderers are provably pure  OK")
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     compile_all()
-    deploy, send, keccak = chain_and_deploy()
+    deploy, send, keccak, deploy_raw = chain_and_deploy()
     sel = lambda sig: keccak(text=sig)[:4]
     art = deploy("SuwappuPositionsArt")
     passes = deploy("SuwappuMembershipArt")
+    codex = deploy("SuwappuCodex")
 
     check_invariants(art, send, sel)
+    check_codex(codex, art, send, sel, deploy_raw)
 
     import cairosvg
     from PIL import Image
@@ -375,6 +431,23 @@ def main():
         drawn.append((name, svg))
         print(f"  {name:18s} {len(svg):6d}B svg  {meta['name']}")
     sheet(drawn, 520, 327, 2, os.path.join(OUT, "memberships.png"))
+
+    # The codex: the contracts themselves, drawn from their own deployed code.
+    # Three pure renderers and, for contrast, a contract that actually custodies
+    # something — the difference is meant to be visible from across a room.
+    drawn = []
+    for name, subject in (
+        ("codex-self-portrait", codex),
+        ("codex-positions-art", art),
+        ("codex-membership-art", passes),
+    ):
+        out, _ = send(codex, sel("portrait(address)") + b"\x00" * 12 + subject)
+        svg = read_string(out)
+        assert svg.startswith("<svg") and svg.endswith("</svg>")
+        open(os.path.join(OUT, name + ".svg"), "w").write(svg)
+        drawn.append((name, svg))
+        print(f"  {name:20s} {len(svg):6d}B svg")
+    sheet(drawn, 400, 560, 3, os.path.join(OUT, "codex.png"))
 
     # The real test of a collection is the wall, not the hero shot.
     sheet(

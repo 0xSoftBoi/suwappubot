@@ -197,3 +197,23 @@ ADRs 0001–0005.
   (3) a `<pattern>` pitch under ~1 display pixel is the same as no grain at all;
   (4) money at two decimals printed `$0.04` for both entry and mark on
   sub-dollar tickers and read as a bug — four decimals under $1.
+
+### A contract can only be the artwork if the artwork is the contract (2026-08)
+- **What**: `contracts/art/SuwappuCodex.sol` draws a portrait of deployed
+  bytecode — its own via `selfPortrait()`, or any address's — read out of the
+  state trie at call time. Position cards now also carry `STRUCK BY <codehash8>`,
+  the mark of the renderer that drew them.
+- **Why**: "the contract is art" is decoration unless the thing being looked at
+  is the machine. A portrait of the compilation cannot be faked or restated: it
+  changes when the source changes, and anyone can check it with `eth_getCode`.
+- **What it bought us, concretely**: the three renderers show ZERO storage writes
+  and ZERO outward calls on their plates; `SuwappuPositions` is covered in both.
+  A pure function and a custodian are now distinguishable across a room without
+  reading either. `census(address)` exposes the same numbers for verification.
+- **Gotchas paid for here**: (1) classify bytes by opcode table and
+  `PUSH32 <32 x 0x55>` reports thirty-two SSTOREs in a contract with none — walk
+  PUSH properly or the picture is noise with a false caption; (2) reduce a cell
+  by simple majority and every cell of every contract is STACK or DATA, so the
+  rare-and-consequential must be PROMOTED, not averaged away; (3) it is a linear
+  sweep, so Solidity string constants living in the code section decode as
+  phantom instructions — say so rather than claiming disassembly.
