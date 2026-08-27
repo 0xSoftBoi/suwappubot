@@ -178,3 +178,22 @@ ADRs 0001–0005.
   cairosvg/librsvg (marketplace indexers) drop the filter — the whole
   collection rasterized as black rectangles until the art-director pass
   caught it. Always rasterize through cairosvg before shipping card art.
+
+### The card is drawn by the contract, not fetched from us (2026-08)
+- **What**: `SuwappuPositions` and `SuwappuMembership` now render their own SVG
+  and metadata on-chain (`contracts/art/`), behind a swappable renderer address
+  that falls back to the base URI when unset. No IPFS, no render server, no
+  pinning bill.
+- **Why**: the collection's claim is that a card is bound to a live oracle price
+  with nothing in between. A renderer behind a domain makes that false the first
+  time the domain lapses; a pinned JPEG makes it false immediately.
+- **Consequence if ignored**: a "live" card that is actually a cached image of a
+  price from mint day, and a collection whose art dies with the hosting bill.
+- **Gotchas paid for here**: (1) the ticker is `symbol()` on someone else's
+  ERC-20 — escape it or it is markup injection into your own SVG, and decode the
+  bytes32 shape too or real tokens render as `#12`; (2) emitting one path per
+  guilloche pass cost ~4x the SVG and millions of gas for a byte-identical
+  picture — cut the figure once and re-chuck it with `<use>`/`scale`/`rotate`;
+  (3) a `<pattern>` pitch under ~1 display pixel is the same as no grain at all;
+  (4) money at two decimals printed `$0.04` for both entry and mark on
+  sub-dollar tickers and read as a bug — four decimals under $1.

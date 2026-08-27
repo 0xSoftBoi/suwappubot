@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "./art/SuwappuPositionsArt.sol";
 
 /**
  * @title SuwappuPositions — 4,444 live position cards on Robinhood Chain
@@ -231,6 +233,21 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     string private _renderBaseURI;
 
+    /// @notice The on-chain engraver. When set, `tokenURI` draws the whole card
+    ///         — SVG, metadata, attributes — inside this transaction, and the
+    ///         collection depends on no server, no gateway and no pinning bill.
+    ///
+    ///         MUTABLE, deliberately, and it is the only honest choice: the art
+    ///         is a live function of an oracle price, so the thing that computes
+    ///         it is code that may need fixing. A frozen renderer with a bug in
+    ///         it would freeze the bug into 4,444 tokens. What it CANNOT do is
+    ///         change what the card says: ticker, entry price, mint rank and
+    ///         edition are stamped in `_positions` and every renderer reads the
+    ///         same stamped values. Set it to address(0) and `tokenURI` falls
+    ///         back to `_renderBaseURI`, so a mis-set renderer is recoverable
+    ///         rather than terminal.
+    ISuwappuCardRenderer public renderer;
+
     event Minted(uint256 indexed tokenId, address indexed to, uint8 tickerIndex, uint256 entryPrice);
     event OracleSet(address oracle);
     event RegistrySealed();
@@ -243,6 +260,7 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
     event HoldDiscountSet(uint16 fractionBps);
     event GoldDiscountSet(uint16 fractionBps);
     event BaseURISet(string baseURI);
+    event RendererSet(address renderer);
 
     error PhaseNotOpen();
     error NotAllowlisted();
@@ -1047,6 +1065,71 @@ contract SuwappuPositions is ERC721, ERC2981, Ownable2Step, ReentrancyGuard {
 
     function _baseURI() internal view override returns (string memory) {
         return _renderBaseURI;
+    }
+
+    /// @notice Point the collection at an on-chain engraver, or at address(0) to
+    ///         fall back to the base URI.
+    function setRenderer(address r) external onlyOwner {
+        renderer = ISuwappuCardRenderer(r);
+        emit RendererSet(r);
+    }
+
+    /// @notice The ticker as the equity token itself spells it.
+    /// @dev    Read from the ERC-20's own `symbol()` rather than stored here.
+    ///         The registry is sealed at construction, so this is the same
+    ///         string for the life of the collection — and it is the referenced
+    ///         instrument's own name for itself, not a copy of it that could
+    ///         drift. `staticcall`, not an interface call, because `symbol()`
+    ///         is optional in ERC-20 and several real tokens return bytes32:
+    ///         both shapes decode here, and anything else degrades to the
+    ///         ticker index instead of reverting the whole render.
+    function tickerSymbol(uint8 tickerIndex) public view returns (string memory) {
+        if (tickerIndex >= TICKER_COUNT) return "?";
+        address token = tickerToken[tickerIndex];
+        if (token != address(0)) {
+            (bool ok, bytes memory data) =
+                token.staticcall(abi.encodeWithSignature("symbol()"));
+            if (ok && data.length >= 64) return abi.decode(data, (string));
+            if (ok && data.length == 32) {
+                uint256 n;
+                while (n < 32 && data[n] != 0) n++;
+                bytes memory b = new bytes(n);
+                for (uint256 i = 0; i < n; i++) b[i] = data[i];
+                if (n != 0) return string(b);
+            }
+        }
+        return string.concat("#", Strings.toString(tickerIndex));
+    }
+
+    /// @notice Everything the engraver needs, assembled from what was stamped at
+    ///         mint plus what the oracle says right now.
+    function cardOf(uint256 tokenId) public view returns (Card memory) {
+        Position memory p = positionOf(tokenId);
+        (int256 bps, bool priced) = returnBps(tokenId);
+        return Card({
+            tokenId: tokenId,
+            ticker: tickerSymbol(p.tickerIndex),
+            tickerIndex: p.tickerIndex,
+            entryPrice: uint256(p.entryPrice),
+            spotPrice: _oraclePrice(p.tickerIndex),
+            returnBps: bps,
+            priced: priced,
+            gradeIndex: this.grade(tokenId),
+            mintRank: p.mintRank,
+            isGold: p.isGold,
+            mintedAt: p.mintedAt,
+            maxSupply: MAX_SUPPLY
+        });
+    }
+
+    /// @notice The card. Drawn on-chain when a renderer is set, from a base URI
+    ///         otherwise.
+    /// @dev    `positionOf` reverts UnknownToken for an unminted id, which keeps
+    ///         the ERC-721 requirement that tokenURI reject nonexistent tokens.
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        ISuwappuCardRenderer r = renderer;
+        if (address(r) == address(0)) return super.tokenURI(tokenId);
+        return r.tokenURI(cardOf(tokenId));
     }
 
     /// @notice Keeps `goldBalance` correct across every path ERC721 moves a

@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "./art/SuwappuMembershipArt.sol";
 
 /**
  * @title SuwappuMembership — Suwappu subscriptions as soulbound NFTs on Robinhood Chain
@@ -137,6 +138,21 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     mapping(uint256 => Membership) private _memberships;
     mapping(address => uint256) public tokenOf; // 0 == no membership yet
 
+    /// @notice When each membership was first minted. Written once, never again.
+    /// @dev    A separate mapping rather than a fourth field on `Membership`,
+    ///         which would have been free (the packed slot has 88 bits spare) but
+    ///         would also have changed the tuple `membershipOf` returns and
+    ///         broken every off-chain decoder already reading it. One cold SSTORE
+    ///         at mint is the honest price of the card being able to say when you
+    ///         joined — and it is paid once per member, never on renewal.
+    mapping(uint256 => uint64) public issuedAt;
+
+    /// @notice The on-chain engraver. Set it and `tokenURI` draws the member's
+    ///         plate inside the call — no host, no gateway, nothing to lapse.
+    ///         address(0) falls back to ERC-721's base URI, so a mis-set renderer
+    ///         is recoverable rather than terminal.
+    ISuwappuPassRenderer public renderer;
+
     /// @notice Per-payer counter mixed into the subscription nonce, so the same
     ///         (tier, periods) purchase can be made again — renewals, top-ups,
     ///         a second month of the same plan. Incremented on every settled
@@ -159,6 +175,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     event TimeGranted(uint256 indexed tokenId, Tier tier, uint64 duration);
     event TreasurySet(address treasury);
     event PriceSet(Tier tier, uint256 pricePerPeriod);
+    event RendererSet(address renderer);
     event BaseURISet(string baseURI);
 
     error AlreadyMember();
@@ -402,6 +419,7 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
         if (tokenOf[to] != 0) revert AlreadyMember();
         tokenId = ++totalSupply;
         tokenOf[to] = tokenId;
+        issuedAt[tokenId] = uint64(block.timestamp);
         // GAS: no `_memberships[tokenId] = Membership(Tier.Free, 0, 0)` — a fresh
         // mapping slot is already zero, and token ids are never reused (no burn,
         // totalSupply only increments), so the write was a no-op SSTORE.
@@ -437,6 +455,37 @@ contract SuwappuMembership is ERC721, Ownable, ReentrancyGuard {
     function expiresAt(uint256 tokenId) external view returns (uint64) {
         _requireOwned(tokenId);
         return _memberships[tokenId].expiresAt;
+    }
+
+    /// @notice Point the collection at an on-chain engraver, or at address(0) to
+    ///         fall back to the base URI.
+    function setRenderer(address r) external onlyOwner {
+        renderer = ISuwappuPassRenderer(r);
+        emit RendererSet(r);
+    }
+
+    /// @notice Everything the engraver needs, read at the moment of the call.
+    /// @dev    `nowTs` is passed in rather than read inside the renderer so the
+    ///         renderer stays `pure`: the same inputs draw the same plate for
+    ///         anyone, forever, and a preview of "what will this look like in
+    ///         March" is a call away instead of a fork.
+    function passOf(uint256 tokenId) public view returns (Pass memory) {
+        _requireOwned(tokenId);
+        Membership memory m = _memberships[tokenId];
+        return Pass({
+            tokenId: tokenId,
+            tier: uint8(m.tier),
+            expiresAt: m.expiresAt,
+            issuedAt: issuedAt[tokenId],
+            nowTs: uint64(block.timestamp)
+        });
+    }
+
+    /// @notice The member's plate. Drawn on-chain when a renderer is set.
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        ISuwappuPassRenderer r = renderer;
+        if (address(r) == address(0)) return super.tokenURI(tokenId);
+        return r.tokenURI(passOf(tokenId));
     }
 
     // ─── Admin ────────────────────────────────────────────────────────────────
