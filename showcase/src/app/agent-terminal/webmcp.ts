@@ -247,7 +247,7 @@ export async function registerDeskTools(
     {
       name: 'preview_swap',
       description:
-        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration and the route used. Indicative only: this never creates a transaction.',
+        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the route used, and the mandate verdict for this exact trade. Use this directly when the human asks what something is worth — it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -292,7 +292,7 @@ export async function registerDeskTools(
     {
       name: 'compare_routes',
       description:
-        'Price the same swap four ways — RECOMMENDED, FASTEST, CHEAPEST and SAFEST — and render the comparison on the page so the human can see the trade-off between output, cost and settlement time before deciding.',
+        'Price the same swap four ways — RECOMMENDED, FASTEST, CHEAPEST and SAFEST — and render the comparison on the page so the human can see the trade-off between output, cost and settlement time before deciding. Use this directly when the human asks to compare routes or what speed costs them; no other call is needed first.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -496,7 +496,7 @@ export async function registerDeskTools(
     {
       name: 'read_mandate',
       description:
-        'Read the human\'s standing mandate: per-trade and daily USD caps, allowed chains, allowed tokens to buy, and ceilings on price impact and slippage — plus how much of today\'s budget is already spoken for. Read this FIRST. It tells you what the human will and will not accept, so you stop proposing trades they were always going to refuse.',
+        'Read the human\'s standing mandate: per-trade and daily USD caps, allowed chains, allowed tokens to buy, ceilings on price impact and slippage, and how much of today\'s budget is already spoken for. Call it when the human asks what they have authorised, or when you are about to argue for changing a rule. You do NOT need it before quoting — preview_swap, compare_routes and check_mandate each attach the mandate verdict to their own result.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: wrap('read_mandate', () => ctrl.readMandate()),

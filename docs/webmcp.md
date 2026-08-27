@@ -182,9 +182,13 @@ There are now **15 cases across 16 tools**. `webmcp:evals` resolves each case's 
 and invokes the tool on the live page, asserting it exists, accepts the shape
 and returns without error — currently **15/15 clean**. It means `evals.json`
 cannot rot: rename a tool or tighten a schema and CI fails long before an agent
-meets it. The LLM half — does the *model* pick the right tool — needs a model
-key and has not been run in this environment; that is stated rather than
-implied.
+meets it. The LLM half — does the *model* pick the right tool — scores **12/15 (80%)**
+on Gemini, and caught a real flaw on its first run: `read_mandate`'s description
+opened with "Read this FIRST", and the model obeyed that over the user's actual
+request, calling it when someone plainly asked for a price. The imperative is
+gone and `preview_swap` went fail → pass. Full breakdown, including the three
+remaining misses and why they are recorded as misses rather than explained away,
+is in `showcase/webmcp/README.md`.
 
 ## Spec notes
 
