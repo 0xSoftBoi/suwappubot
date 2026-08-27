@@ -71,25 +71,43 @@ RPC circuit OPEN https://optimism.drpc.org (60s, rate_limited_429)
 RPC circuit OPEN https://sei.drpc.org (60s, http_500)
 ```
 
-Two separate problems stacked:
+**Root cause — two bugs in `rpc_manager.py` that compound into an infinite hot loop:**
 
-1. **`tempo` is permanently broken and permanently retried.** Every `tempo` RPC reverts
-   with `TIP20 token error: Uninitialized`. Both endpoints trip, "All RPCs circuit-open
-   for tempo" fires, the breaker expires, and the loop retries — continuously, for the
-   full 7-day window. This is a config error being paid for as CPU 24/7.
-2. **Free public dRPC endpoints are rate-limiting us** (`http_429` on base, optimism,
-   arbitrum; `http_500` on sei, worldchain). The retry-on-429 loop is the CPU burn.
-   `ALCHEMY_API_KEY` and `HELIUS_API_KEY` are already set on these services — the paid
-   providers exist but public dRPC is still in the rotation ahead of, or alongside, them.
+1. **The circuit breaker never sheds traffic; it only reorders it.**
+   `_select_endpoint()` (`bot/services/rpc_manager.py:606-638`) filters to healthy
+   endpoints at line 617 — but when *all* endpoints for a chain are open, lines 619-625
+   log `All RPCs circuit-open for {chain}` and then **return the dead endpoint anyway**
+   (`min(endpoints, key=circuit_open_until)`). The call proceeds to a known-failing host.
+   For a chain where every endpoint fails permanently, there is no state that stops the
+   retries.
+
+2. **Deterministic contract reverts are counted as endpoint ill-health.**
+   `execution reverted: TIP20 token error: Uninitialized` is an *application* error — the
+   EVM ran the call and the contract reverted. It is deterministic and fails identically
+   on every endpoint. Counting it as endpoint failure trips all `tempo` breakers, which
+   lands in bug 1, which retries forever. `tempo` is configured at
+   `bot/config/chains.py:237`.
+
+Together: a misconfigured contract on one chain generates unbounded CPU across the whole
+worker, 24/7, and the breaker that exists to prevent exactly this is structurally unable to.
+
+Separately, **free public dRPC endpoints are rate-limiting us** (`http_429` on base,
+optimism, arbitrum; `http_500` on sei, worldchain) while `ALCHEMY_API_KEY` and
+`HELIUS_API_KEY` are set on these services — paid providers exist but public dRPC is
+still in the rotation.
+
+> **Correction to an earlier draft of this audit:** the backoff ladder is *not* a flat
+> 30s. `record_failure` escalates 30s → 600s (`rpc_manager.py:393-395`) with dedicated
+> longer cooldowns for quota/gone endpoints. The ladder is sound; bug 1 defeats it.
 
 **Actions**
-- Drop `tempo` from the worker's polled-chain set until the TIP20 contract issue is
-  fixed. Fixing only this removes a large fraction of the log volume and its CPU.
-- On a `429`/`500` from a public endpoint, back off *the endpoint* for minutes, not 30s,
-  and prefer the keyed Alchemy/Helius provider rather than round-robining back into a
-  rate-limited free one.
-- Fold the RPC-health signal into `health_monitor` so a permanently-open breaker pages
-  once instead of costing CPU silently forever.
+- Fix bug 2: don't open circuits on `execution reverted` / JSON-RPC code 3.
+- Fix bug 1: `_select_endpoint` should raise when all circuits are open so callers
+  degrade that chain, instead of calling a dead host.
+- Prefer the keyed Alchemy/Helius provider over round-robining back into a rate-limited
+  free endpoint.
+- Fold RPC health into `health_monitor` so a permanently-open breaker pages once instead
+  of costing CPU silently forever.
 
 ### F2 — `python-worker` spiked to 31.7 GB against a 32 GB ceiling
 **Severity: high (reliability + spend) · unbounded downside**
@@ -108,16 +126,16 @@ modelled $36); and a repeat gets the worker OOM-killed, which silently stops
 
 **Leak candidates**, from a code trace of the 20 background services `python-worker` runs:
 
-| Candidate | Location | Why |
+| Candidate | Location | Assessment |
 |---|---|---|
-| `_ws_watchers: dict[int, asyncio.Task]` | `bot/services/tx_poller.py:45` | **Most likely.** One websocket watcher Task per pending Solana tx, **no cap and no eviction**. Tasks pin their whole frame; if watchers aren't cancelled on tx completion this grows monotonically for the life of the process — exactly the observed shape. |
-| `_quote_flights: dict` | `bot/services/swap_engine.py:796` | No cap, no TTL; lives as long as the Flight object. |
-| `_recent_launches` | `bot/services/launch_detector.py:182` | Capped at 1000 w/ 1h TTL — bounded, so *not* the 30 GB source, but worth ~30–100 MB. |
-| `_tick_size_cache`, `membership_service._cache`, `position_cards_service._holdings` | various | All grow unbounded; small individually. |
+| `_quote_flights: dict` | `bot/services/swap_engine.py:796` | **Leading candidate.** No cap, no TTL; entries live as long as the Flight object. |
+| `_tick_size_cache`, `membership_service._cache`, `position_cards_service._holdings` | various | Grow unbounded, no eviction. Small individually; collectively unbounded. |
+| `_recent_launches` | `bot/services/launch_detector.py:182` | Capped at 1000 w/ 1h TTL — bounded. Worth ~30–100 MB, **not** the 30 GB source. |
+| ~~`_ws_watchers`~~ | `bot/services/tx_poller.py:45` | **Ruled out.** An earlier draft of this audit called this the most likely leak. That was wrong: line 299 registers `task.add_done_callback(...pop(_id))`, so entries *are* evicted on completion. The only real gap is the absence of a concurrency cap. |
 
 **Actions**
-- Start at `tx_poller.py:45` — audit that every `_ws_watchers` entry is cancelled and
-  popped on tx resolution, and add a hard cap with eviction regardless.
+- Start at `swap_engine.py:796` (`_quote_flights`) and the uncapped service caches.
+- Add a hard cap to `_ws_watchers` for bounded worst-case concurrency (not for the leak).
 - Set an explicit memory limit well below 32 GB (2–4 GB) on `python-worker`. A fast
   crash-and-restart is strictly cheaper than a 30 GB balloon, and `ON_FAILURE` restart
   is already configured.
@@ -293,7 +311,7 @@ by F4.
 | 6 | Set explicit limits on all services | insurance | low |
 | 7 | Pin `ENABLE_BACKGROUND_SERVICES=false` on `python-api` (F3b) | prevents 2× prod | low |
 | 8 | Retire `signal-lab` (both envs) if unowned | 1.3 | low — verify owner |
-| 9 | Fix the `tx_poller` `_ws_watchers` leak (F2) | spike-driven | medium |
+| 9 | Fix the `swap_engine._quote_flights` leak (F2) | spike-driven | medium |
 | 10 | Make the 500ms loops adaptive (F3c) | 2–5 | medium |
 | 11 | Add a lock around the lifespan so 2× is impossible (F3b) | insurance | medium |
 
@@ -304,7 +322,42 @@ Items 4, 6, 7, and 11 save nothing today. They are there because the two most ex
 things in this project are not line items: a worker that reached 99% of a 32 GB ceiling,
 and a money-path that double-executes if one variable goes unset.
 
-## 4. Coverage / QA
+## 4. Actions taken (2026-08-27)
+
+Applied via the Railway MCP connection during this audit:
+
+| Change | Target | Status |
+|---|---|---|
+| `ENABLE_BACKGROUND_SERVICES=false` (explicit) | `python-api` / production | Set, **`skipDeploys`** — takes effect on next deploy |
+| `ENABLE_BACKGROUND_SERVICES=true` (explicit) | `python-api` / dev | Set, **`skipDeploys`** — takes effect on next deploy |
+| `sleepApplication=true` | `market-data-capture`, `api-ts-marketdata`, `webapp-marketdata`, `terminal-marketdata` (dev) | Set — takes effect on next deploy |
+
+**On the variable pinning**: dev was pinned to `true`, not `false`. Dev has no
+`python-worker`; its `python-api` *is* the worker and was relying on the `True` default.
+Pinning it `true` achieves the actual goal — nothing depends on a default any more —
+without silently stopping every background loop in dev. Deploys were skipped
+deliberately so production does not take an unscheduled restart; both values match the
+current effective behaviour, so the pin is a no-op until the next natural deploy.
+
+### Still outstanding — not possible through this connection
+
+The Railway MCP surface has **no `delete-service` tool** (only volumes, buckets, TCP
+proxies, and feature flags can be deleted), and `update-service` **does not expose CPU or
+memory limits** — it covers build/start/healthcheck/sleep/cron/restart/watch only, and
+its own description notes that scaling is out of scope.
+
+So these two approved items need the dashboard or the `railway` CLI:
+
+1. **Delete the four dead dev services.** App-sleep was applied as a reversible stopgap,
+   but sleep only activates on the next deployment — and `market-data-capture`'s source
+   branch no longer exists, so it may not redeploy cleanly. Deleting is both the
+   intended end state and the more reliable one. Railway dashboard → `dev` → service →
+   Settings → Delete Service.
+2. **Set resource limits** per F3. Dashboard → service → Settings → Resources. Suggested:
+   `python-worker` 4 GB / 2 vCPU (peak was 31.7 GB), `python-api` 2 GB / 1 vCPU,
+   `api-ts` 1 GB / 1 vCPU, static surfaces 512 MB / 0.5 vCPU.
+
+## 5. Coverage / QA
 
 **Covered**: all 22 services across both environments, 7-day metrics for CPU, memory,
 disk, and egress; service config and variable *names* for `python-api` and
