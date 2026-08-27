@@ -19,6 +19,7 @@ import {
 	type QuoteParams,
 	RedisService,
 	type RedisServiceInterface,
+	resolveChainId,
 	type SwapQuote,
 	SwapService,
 	TOKEN_LIST_TTL,
@@ -133,6 +134,55 @@ export function assertQuoteReceiverMatchesWallet(
 		}
 	}
 	return { ok: true }
+}
+
+/**
+ * Human-readable amount -> base units, in integer math.
+ *
+ * MONEY-PATH: never via Number(). "0.1" at 18 decimals is not representable in
+ * a float, and rounding an amount before it reaches the aggregator quietly
+ * misprices the trade. Digits are shifted as strings and combined as BigInt.
+ */
+export function toBaseUnits(amount: string, decimals: number): string {
+	if (!/^\d*\.?\d+$/.test(amount)) throw new Error(`Invalid amount: ${amount}`)
+	const [whole, frac = ''] = amount.split('.')
+	if (frac.length > decimals) {
+		// Refuse to silently truncate precision the caller asked for.
+		throw new Error(`Amount has more than ${decimals} decimal places: ${amount}`)
+	}
+	const padded = frac.padEnd(decimals, '0')
+	return (BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(padded || '0')).toString()
+}
+
+/**
+ * Resolves a token's decimals from Li.Fi. The preview endpoint takes amounts
+ * the way a person says them ("0.05"), but Li.Fi wants base units, and the
+ * conversion is meaningless without decimals for that exact token on that exact
+ * chain — USDC is 6 on Base and 18 elsewhere, so a shared default would be wrong.
+ */
+const decimalsCache = new Map<string, { decimals: number; expiry: number }>()
+const DECIMALS_TTL_MS = 60 * 60 * 1000
+
+async function resolveTokenDecimals(chain: string, token: string): Promise<number> {
+	const chainId = resolveChainId(chain)
+	const key = `${chainId}:${token.toLowerCase()}`
+	const cached = decimalsCache.get(key)
+	if (cached && Date.now() < cached.expiry) return cached.decimals
+
+	const url = `https://li.quest/v1/token?chain=${encodeURIComponent(String(chainId))}&token=${encodeURIComponent(token)}`
+	const res = await fetch(url, {
+		headers: {
+			Accept: 'application/json',
+			...(process.env.LIFI_API_KEY && { 'x-lifi-api-key': process.env.LIFI_API_KEY }),
+		},
+	})
+	if (!res.ok) throw new Error(`Could not resolve token "${token}" on ${chain}`)
+	const body = (await res.json()) as { decimals?: number; symbol?: string }
+	if (typeof body.decimals !== 'number') {
+		throw new Error(`Token "${token}" on ${chain} has no decimals in the Li.Fi registry`)
+	}
+	decimalsCache.set(key, { decimals: body.decimals, expiry: Date.now() + DECIMALS_TTL_MS })
+	return body.decimals
 }
 
 // ─── Public Routes (IP rate-limited, no auth) ───
@@ -301,6 +351,12 @@ publicSwapRoutes.get('/tokens', ipRateLimit(), async (c) => {
  * WebMCP surface (showcase `/agent-terminal`), where a browser agent must be
  * able to price a swap with no credential at all.
  *
+ * `fromAmount` is HUMAN-READABLE ("0.05"), unlike the authenticated /quote
+ * route which takes base units. Agents and people both say "half an ETH", not
+ * "5e17", so the endpoint resolves the token's decimals and converts. The
+ * response echoes the human amount back and carries `fromAmountBaseUnits` and
+ * `fromTokenDecimals` alongside it for anything that needs exact integers.
+ *
  * MONEY-PATH NOTE: this is deliberately NOT executable. The quote is never
  * written to the quote cache and no `transactionRequest`/`txData` is returned,
  * so a preview quoteId can never be handed to POST /public/swap/execute (which
@@ -358,6 +414,23 @@ publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
 		)
 	}
 
+	// Li.Fi prices in base units; the desk and any agent speak human amounts.
+	// Convert here rather than pushing the decimals problem onto every caller.
+	let fromAmountBaseUnits: string
+	let fromTokenDecimals: number
+	try {
+		fromTokenDecimals = await resolveTokenDecimals(fromChain, fromToken)
+		fromAmountBaseUnits = toBaseUnits(fromAmount, fromTokenDecimals)
+	} catch (e) {
+		return c.json(
+			{
+				error: 'Validation Error',
+				message: e instanceof Error ? e.message : String(e),
+			},
+			400,
+		)
+	}
+
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const swapService = yield* SwapService
@@ -367,7 +440,7 @@ publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
 					toChain,
 					fromToken,
 					toToken,
-					fromAmount,
+					fromAmount: fromAmountBaseUnits,
 					fromAddress,
 					slippage,
 					order: orderParam as (typeof ORDERS)[number],
@@ -387,7 +460,11 @@ publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
 				toChain: quote.toChain,
 				fromToken: quote.fromToken,
 				toToken: quote.toToken,
-				fromAmount: quote.fromAmount,
+				// Echo the amount the caller asked for. Li.Fi answers in base
+				// units; handing that back would have every UI render 5e16 ETH.
+				fromAmount,
+				fromAmountBaseUnits: quote.fromAmount,
+				fromTokenDecimals,
 				fromAmountUsd: quote.fromAmountUsd,
 				toAmount: quote.toAmount,
 				toAmountMin: quote.toAmountMin,
