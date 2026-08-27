@@ -29,10 +29,53 @@ and invokes the tool on the live page, asserting it exists, accepts the shape an
 returns without error. **15/15 clean.** It exists so `evals.json` cannot rot:
 rename a tool or tighten a schema and this fails long before an agent meets it.
 
-`webmcp:evals:llm` is the half that needs a model. It puts an LLM in front of
-`tools.schema.json` and checks that the natural-language request selects the
-right tool with the right arguments. **Not yet run** — no model key has been
-available in the environment where this was built. Stated rather than implied.
+### `webmcp:evals:llm` — measured results
+
+This is the half that needs a model: it puts an LLM in front of
+`tools.schema.json` and checks that a natural-language request selects the right
+tool with the right arguments.
+
+**Result: 12/15 (80%)** on Gemini, first-call-exact.
+
+| | |
+| --- | --- |
+| Run 1 | `gemini-3.5-flash`, single step — 9/13 of the cases that reached the model |
+| Run 2 | `gemini-3.6-flash`, `--max-steps 4`, re-running the 6 unresolved cases — `compare_routes`, `propose_plan` and `read_desk` all pass |
+| Combined best-known per case | **12 pass / 3 miss / 15** |
+
+Free-tier quota is 5 requests per minute and **20 per day per model**, so the
+suite has to be run in chunks; two cases in run 1 never reached the model at all
+(429) and were resolved in run 2 on a model with its own quota.
+
+#### What it caught
+
+The eval paid for itself on its first run. `read_mandate`'s description used to
+open with **"Read this FIRST."** — and the model obeyed that imperative over the
+user's actual request, calling `read_mandate` when someone plainly asked *"price
+0.05 ETH into USDC"*. An instruction in a tool description outranks user intent.
+
+The fix was to delete the imperative and state the real relationship instead:
+`preview_swap`, `compare_routes` and `check_mandate` each already attach the
+mandate verdict to their own result, so there is nothing to read first.
+`preview_swap` went from fail to pass on the next run.
+
+#### The 3 remaining misses, honestly
+
+All three are the model taking a **sensible precursor step** that the harness
+scores as wrong because it grades the first call:
+
+| Case | Wanted | Model called first |
+| --- | --- | --- |
+| Propose a trade with a rationale | `propose_swap` | `check_mandate` |
+| Propose a price alert | `propose_price_alert` | `get_prices` |
+| Propose amending the envelope | `amend_mandate` | `read_mandate` |
+
+Checking the mandate before proposing is *literally what `propose_swap`'s own
+description tells the agent to do*, and reading the current rules before arguing
+to change them is what you would want. These are arguably the eval expectations
+being too strict rather than the tools being wrong — but they are recorded as
+misses rather than explained away, because a score you adjust after seeing it
+is not a measurement.
 
 ## Spec conformance
 
