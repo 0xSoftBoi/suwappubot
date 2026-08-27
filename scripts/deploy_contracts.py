@@ -45,10 +45,10 @@ NETWORKS = {
         "name": "Base Sepolia",
         "chain_id": 84532,
         "rpc_url": os.environ.get("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
-        "usdc":    "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-        "usdcx":   "0xC821107bE6E8eD189F3fe05AD06C496243b53B55",  # our wrapper of test USDC
+        "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "usdcx": "0xC821107bE6E8eD189F3fe05AD06C496243b53B55",  # our wrapper of test USDC
         "sf_host": "0x109412E3C84f0539b43d39dB691B08c90f58dC7c",
-        "sf_gda":  "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",  # GDAv1Forwarder (universal)
+        "sf_gda": "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",  # GDAv1Forwarder (universal)
         "uni_pos": "0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2",
         "uni_factory": "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
         "explorer": "https://sepolia.basescan.org",
@@ -57,10 +57,10 @@ NETWORKS = {
         "name": "Base Mainnet",
         "chain_id": 8453,
         "rpc_url": "https://mainnet.base.org",
-        "usdc":    "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "usdcx":   "0xD04383398dD2426297da660F9CCA3d439AF9ce1b",
+        "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "usdcx": "0xD04383398dD2426297da660F9CCA3d439AF9ce1b",
         "sf_host": "0x4C073B3baB862572842bFB01F7B1FA40B61D1A06",
-        "sf_gda":  "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",
+        "sf_gda": "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08",
         "uni_pos": "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f",
         "uni_factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
         "explorer": "https://basescan.org",
@@ -72,6 +72,7 @@ DEPLOY_LOG = ROOT / "scripts" / "deployed_addresses.json"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def load_standalone_deployer():
     """
@@ -107,26 +108,39 @@ def load_artifact(contract_name: str) -> tuple[list, str]:
     return abi, bytecode
 
 
-def deploy_contract(web3, wallet, private_key: str, abi: list, bytecode: str,
-                    constructor_args: list, label: str, chain_id: int) -> str:
+def deploy_contract(
+    web3,
+    wallet,
+    private_key: str,
+    abi: list,
+    bytecode: str,
+    constructor_args: list,
+    label: str,
+    chain_id: int,
+) -> str:
     """Deploy a contract and return its address."""
     from eth_account import Account
+
     contract = web3.eth.contract(abi=abi, bytecode=bytecode)
-    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address), 'pending')
+    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address), "pending")
     gas_price = int(web3.eth.gas_price * 1.15)
 
-    tx = contract.constructor(*constructor_args).build_transaction({
-        "from": web3.to_checksum_address(wallet.address),
-        "nonce": nonce,
-        "gasPrice": gas_price,
-        "chainId": chain_id,
-    })
+    tx = contract.constructor(*constructor_args).build_transaction(
+        {
+            "from": web3.to_checksum_address(wallet.address),
+            "nonce": nonce,
+            "gasPrice": gas_price,
+            "chainId": chain_id,
+        }
+    )
     tx["gas"] = int(web3.eth.estimate_gas(tx) * 1.2)  # 20% buffer
 
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
     signed = Account.sign_transaction(tx, private_key)
-    tx_hash = web3.eth.send_raw_transaction(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
+    tx_hash = web3.eth.send_raw_transaction(
+        getattr(signed, "raw_transaction", None) or signed.rawTransaction
+    )
 
     logger.info(f"  Deploying {label}... tx={tx_hash.hex()[:20]}...")
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
@@ -142,19 +156,24 @@ def deploy_contract(web3, wallet, private_key: str, abi: list, bytecode: str,
 def send_tx(web3, wallet, private_key: str, contract_fn, label: str, chain_id: int):
     """Send a state-changing transaction."""
     from eth_account import Account
-    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address), 'pending')
+
+    nonce = web3.eth.get_transaction_count(web3.to_checksum_address(wallet.address), "pending")
     gas_price = int(web3.eth.gas_price * 1.15)
-    tx = contract_fn.build_transaction({
-        "from": web3.to_checksum_address(wallet.address),
-        "nonce": nonce,
-        "gasPrice": gas_price,
-        "chainId": chain_id,
-    })
+    tx = contract_fn.build_transaction(
+        {
+            "from": web3.to_checksum_address(wallet.address),
+            "nonce": nonce,
+            "gasPrice": gas_price,
+            "chainId": chain_id,
+        }
+    )
     tx["gas"] = int(web3.eth.estimate_gas(tx) * 1.2)
     if not private_key.startswith("0x"):
         private_key = "0x" + private_key
     signed = Account.sign_transaction(tx, private_key)
-    tx_hash = web3.eth.send_raw_transaction(getattr(signed, "raw_transaction", None) or signed.rawTransaction)
+    tx_hash = web3.eth.send_raw_transaction(
+        getattr(signed, "raw_transaction", None) or signed.rawTransaction
+    )
     receipt = web3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
     if receipt.status != 1:
         raise RuntimeError(f"{label} failed (tx={tx_hash.hex()})")
@@ -164,16 +183,24 @@ def send_tx(web3, wallet, private_key: str, contract_fn, label: str, chain_id: i
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy Suwappu contracts")
     parser.add_argument("--network", choices=["testnet", "mainnet"], default="testnet")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Load wallet and check balance without deploying")
-    parser.add_argument("--from-bot-wallet", action="store_true",
-                        help="Use the treasury_vault HotWallet from the bot DB "
-                             "(run on Railway where DB + KMS exist)")
-    parser.add_argument("--wallet-name", default="treasury_vault",
-                        help="HotWallet.name when using --from-bot-wallet")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Load wallet and check balance without deploying"
+    )
+    parser.add_argument(
+        "--from-bot-wallet",
+        action="store_true",
+        help="Use the treasury_vault HotWallet from the bot DB "
+        "(run on Railway where DB + KMS exist)",
+    )
+    parser.add_argument(
+        "--wallet-name",
+        default="treasury_vault",
+        help="HotWallet.name when using --from-bot-wallet",
+    )
     args = parser.parse_args()
 
     net = NETWORKS[args.network]
@@ -193,13 +220,12 @@ def main():
         from bot.config.settings import settings
         from bot.models.custodial import HotWallet
         from bot.services.hot_wallet import hot_wallet_service
+
         if not init_db(settings.database_url):
             logger.error("DB init failed. Is DATABASE_URL set?")
             sys.exit(1)
         with get_session() as session:
-            db_wallet = session.query(HotWallet).filter(
-                HotWallet.name == args.wallet_name
-            ).first()
+            db_wallet = session.query(HotWallet).filter(HotWallet.name == args.wallet_name).first()
             if not db_wallet:
                 logger.error(f"Hot wallet '{args.wallet_name}' not found in DB.")
                 sys.exit(1)
@@ -218,7 +244,11 @@ def main():
     eth_balance = web3.from_wei(balance, "ether")
     logger.info(f"Balance:  {eth_balance:.6f} ETH")
 
-    faucet = "https://www.alchemy.com/faucets/base-sepolia" if args.network == "testnet" else "(fund from treasury)"
+    faucet = (
+        "https://www.alchemy.com/faucets/base-sepolia"
+        if args.network == "testnet"
+        else "(fund from treasury)"
+    )
     if eth_balance < Decimal("0.005"):
         logger.error(
             f"Insufficient ETH for gas (have {eth_balance:.6f}, need ~0.005).\n"
@@ -234,26 +264,33 @@ def main():
 
     # Load artifacts
     logger.info("Loading compiled artifacts...")
-    suwp_abi, suwp_bytecode             = load_artifact("SUWP")
-    staking_abi, staking_bytecode        = load_artifact("SuwppuStaking")
-    bonds_abi, bonds_bytecode            = load_artifact("SuwppuBonds")
+    suwp_abi, suwp_bytecode = load_artifact("SUWP")
+    staking_abi, staking_bytecode = load_artifact("SuwppuStaking")
+    bonds_abi, bonds_bytecode = load_artifact("SuwppuBonds")
 
     chain_id = net["chain_id"]
 
     # ── 1. Deploy SUWP token ──────────────────────────────────────────────────
     logger.info("\n[1/5] Deploying SUWP token...")
     suwp_address = deploy_contract(
-        web3, wallet, private_key,
-        suwp_abi, suwp_bytecode,
+        web3,
+        wallet,
+        private_key,
+        suwp_abi,
+        suwp_bytecode,
         [deployer_address],  # admin
-        "SUWP", chain_id,
+        "SUWP",
+        chain_id,
     )
 
     # ── 2. Deploy SuwppuStaking ───────────────────────────────────────────────
     logger.info("\n[2/5] Deploying SuwppuStaking...")
     staking_address = deploy_contract(
-        web3, wallet, private_key,
-        staking_abi, staking_bytecode,
+        web3,
+        wallet,
+        private_key,
+        staking_abi,
+        staking_bytecode,
         [
             Web3.to_checksum_address(suwp_address),
             Web3.to_checksum_address(net["usdc"]),
@@ -262,14 +299,18 @@ def main():
             Web3.to_checksum_address(net["sf_gda"]),
             deployer_address,
         ],
-        "SuwppuStaking", chain_id,
+        "SuwppuStaking",
+        chain_id,
     )
 
     # ── 3. Deploy SuwppuBonds ─────────────────────────────────────────────────
     logger.info("\n[3/5] Deploying SuwppuBonds...")
     bonds_address = deploy_contract(
-        web3, wallet, private_key,
-        bonds_abi, bonds_bytecode,
+        web3,
+        wallet,
+        private_key,
+        bonds_abi,
+        bonds_bytecode,
         [
             Web3.to_checksum_address(suwp_address),
             Web3.to_checksum_address(net["usdc"]),
@@ -277,27 +318,41 @@ def main():
             Web3.to_checksum_address(net["uni_factory"]),
             deployer_address,
         ],
-        "SuwppuBonds", chain_id,
+        "SuwppuBonds",
+        chain_id,
     )
 
     # ── 4. Grant MINTER_ROLE to Staking + Bonds ───────────────────────────────
     logger.info("\n[4/5] Granting MINTER_ROLE...")
-    suwp_contract = web3.eth.contract(
-        address=Web3.to_checksum_address(suwp_address), abi=suwp_abi
-    )
+    suwp_contract = web3.eth.contract(address=Web3.to_checksum_address(suwp_address), abi=suwp_abi)
     MINTER_ROLE = web3.keccak(text="MINTER_ROLE")
-    send_tx(web3, wallet, private_key,
-            suwp_contract.functions.grantRole(MINTER_ROLE, Web3.to_checksum_address(staking_address)),
-            "grantRole(MINTER_ROLE → Staking)", chain_id)
-    send_tx(web3, wallet, private_key,
-            suwp_contract.functions.grantRole(MINTER_ROLE, Web3.to_checksum_address(bonds_address)),
-            "grantRole(MINTER_ROLE → Bonds)", chain_id)
+    send_tx(
+        web3,
+        wallet,
+        private_key,
+        suwp_contract.functions.grantRole(MINTER_ROLE, Web3.to_checksum_address(staking_address)),
+        "grantRole(MINTER_ROLE → Staking)",
+        chain_id,
+    )
+    send_tx(
+        web3,
+        wallet,
+        private_key,
+        suwp_contract.functions.grantRole(MINTER_ROLE, Web3.to_checksum_address(bonds_address)),
+        "grantRole(MINTER_ROLE → Bonds)",
+        chain_id,
+    )
 
     # ── 5. Mint test SUWP ─────────────────────────────────────────────────────
     logger.info("\n[5/5] Minting 1M SUWP to deployer for testing...")
-    send_tx(web3, wallet, private_key,
-            suwp_contract.functions.mint(deployer_address, 1_000_000 * 10**18, "testnet_initial"),
-            "mint 1M SUWP", chain_id)
+    send_tx(
+        web3,
+        wallet,
+        private_key,
+        suwp_contract.functions.mint(deployer_address, 1_000_000 * 10**18, "testnet_initial"),
+        "mint 1M SUWP",
+        chain_id,
+    )
 
     # ── Save addresses ────────────────────────────────────────────────────────
     deployed = {

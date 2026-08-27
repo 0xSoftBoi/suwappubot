@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence
 
-from scripts.replay._money import d, q_points, q_usd
+from scripts.replay._money import q_points, q_usd
 
 # --- Event taxonomy -------------------------------------------------------------------
 

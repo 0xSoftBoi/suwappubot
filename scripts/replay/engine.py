@@ -21,9 +21,9 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Iterable, Optional, Sequence
+from typing import Callable, Optional, Sequence
 
-from scripts.replay._money import d, q_points, q_usd
+from scripts.replay._money import q_points, q_usd
 from scripts.replay.canonical import CanonicalEvent
 
 # Default cadence and tolerance. Both are deliberately explicit rather than inferred:

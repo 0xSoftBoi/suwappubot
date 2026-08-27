@@ -25,6 +25,7 @@ Run it with BOTH configs available:
 
 After it reports 0 remaining, flip the service `KMS_PROVIDER=aws` and redeploy.
 """
+
 import argparse
 import os
 import sys
@@ -44,7 +45,7 @@ from sqlalchemy import and_, or_
 
 
 def _is_aws_wrapped(kms_key_id) -> bool:
-    kid = (kms_key_id or "")
+    kid = kms_key_id or ""
     return kid.startswith("arn:aws") or kid.startswith("alias/")
 
 
@@ -112,9 +113,12 @@ def main() -> int:
                 # Round-trip verify the AWS-wrapped blob BEFORE writing anything.
                 check = decrypt_private_key_v2(
                     decode_from_db(
-                        fields["encrypted_private_key"], fields["encryption_scheme"],
-                        fields["kms_wrapped_dek"], fields["aesgcm_nonce"],
-                        fields["kms_key_id"], fields["key_version"],
+                        fields["encrypted_private_key"],
+                        fields["encryption_scheme"],
+                        fields["kms_wrapped_dek"],
+                        fields["aesgcm_nonce"],
+                        fields["kms_key_id"],
+                        fields["key_version"],
                     ),
                     kms_client=aws,
                 )

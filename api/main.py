@@ -384,6 +384,15 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
+        # Nightly money-path reconciliation: replays the canonical event stream against
+        # the aggregates we maintain incrementally and alerts admins on divergence past
+        # the published epsilon (docs/DECISIONS.md). Optional — a reconciliation report
+        # is worth having, never worth blocking startup for.
+        with _track_degraded("ledger_reconciler", "⚠️ Ledger reconciler failed to start"):
+            from bot.services.ledger_reconciler import ledger_reconciler
+
+            await ledger_reconciler.start(bot=bot_app.bot if bot_initialized else None)
+        await asyncio.sleep(2)
         # Market data capture (candles for the Historical API). No-op unless
         # market_data_capture_enabled (default True).
         await market_data_service.start()
@@ -550,6 +559,12 @@ async def lifespan(app: FastAPI):
         await order_service.stop()
         await tx_poller.stop()
         await withdraw_reconciler.stop()
+        try:
+            from bot.services.ledger_reconciler import ledger_reconciler
+
+            await ledger_reconciler.stop()
+        except Exception as e:  # noqa: BLE001 - shutdown must not raise
+            logger.warning(f"Ledger reconciler stop failed: {e}")
         await health_monitor.stop()
         await balance_refresher.stop()
         await approval_notifier.stop()

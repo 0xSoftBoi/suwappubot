@@ -30,8 +30,8 @@ import ast
 import json
 import os
 import re
-import sys
-from dataclasses import asdict, dataclass, field
+
+from dataclasses import asdict, dataclass
 from typing import Iterable, Iterator, Optional
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

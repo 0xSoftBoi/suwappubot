@@ -243,6 +243,7 @@ backed by a run recorded in the commit message or the linked report.
 | W1.1 canonical event schema | done | `scripts/replay/canonical.py` |
 | W1.2 replay engine | done | 3,467 events / 40 accounts / ~384k ev-s |
 | W1.3 checkpoint validation | done | injected +7 drift halts, exits 1 |
+| W1.3 nightly job + alerting | done | `bot/services/ledger_reconciler.py`, wired in lifespan |
 | W1.4 fixed-point audit + fix | done | `docs/plans/tektonic-w1-money-precision-audit.md` |
 | W1.5 acceptance number recorded | done | `docs/DECISIONS.md` |
 | W2.1 atomic state | done | fixed in `referral_service`; enforced in every view |
@@ -253,9 +254,34 @@ backed by a run recorded in the commit message or the linked report.
 | W2.6 filter at extraction | done | predicates live in the view bodies |
 | W3.1 canonical correction | done | `docs/plans/tektonic-w3-canonical-correction.md` |
 | W3.4 validation gate | done | 4 defect classes caught at the right step |
+| W3.4 gate in CI | done | blocking step in `Tests & Quality Gates` |
 | W4.3 adaptive rendering | done | simulated convergence, no oscillation |
 | W4.4 perf hygiene | done | 2 missing visibility pauses; 120 renders/s removed |
 | W4.5 live reduced-motion | done | `lib/motionPreference.ts` |
+
+### Wiring (second pass)
+
+The first pass built the tools but connected two of them to nothing, which is the
+failure mode the plan itself warns about — a reconciliation nobody runs is a document,
+not a control.
+
+- **`bot/services/ledger_reconciler.py`** replays the previous day's window once a day
+  and alerts admins on divergence past the published epsilon, with the reproduce command
+  in the alert. Started and stopped in `api/main.py`'s lifespan under `_track_degraded`,
+  so a reconciler failure degrades rather than blocking boot. It collects every
+  divergence rather than halting at the first — a nightly report that stops at one bad
+  account says nothing about blast radius, and there is nobody there to re-run it.
+  It also reports a clean run roughly weekly, because a monitor that only ever speaks on
+  failure is indistinguishable from one that died.
+- **Alert channel correction.** The plan said "alerts through `alert_service`". That was
+  wrong: `alert_service` is the user-facing *price* alert service. Reconciliation failure
+  is operational, so it goes where `health_monitor` sends its alerts —
+  `support_notifier.post_admin_update`.
+- **CI**: the asset gate is a blocking step, scoped to `nft/` (mint assets) rather than
+  `art/`, because the size budget it enforces is a wallet/marketplace constraint that
+  would wrongly fail the posters in `art/`. The money-precision scan runs advisory
+  (`continue-on-error`) — gating on a heuristic with known false positives only teaches
+  people to ignore it.
 
 ### Deliberately not done, and why
 

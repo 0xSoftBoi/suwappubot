@@ -84,6 +84,24 @@ jobs:
       - name: Env contract drift check (.env.schema)
         run: python3 scripts/check_env_schema.py
 
+      # Blocking. A card whose fill points at a renamed gradient renders black in
+      # every wallet and marketplace, raises nothing, and stays wrong until a human
+      # happens to look at it — the visual equivalent of the boot-import crash CI
+      # already cannot catch. Stdlib only, so it needs no extra install step.
+      #
+      # Scoped to nft/ (mint assets) rather than art/. The size budget it enforces is
+      # a wallet/marketplace constraint on minted SVG; art/ holds posters and
+      # generative pieces that are not minted and that the budget would wrongly fail.
+      - name: Generated-asset gate (SVG)
+        run: python3 scripts/art/validate_asset.py nft --quiet
+
+      # Advisory. A heuristic report on money handled outside Decimal and aggregates
+      # missing a success predicate; it has known false positives, so gating on it
+      # would only train people to ignore it.
+      - name: Money precision report
+        run: python3 scripts/audit/money_precision_scan.py --limit 15
+        continue-on-error: true
+
       - name: Run tests with coverage
         run: |
           pytest tests/ \
