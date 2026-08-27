@@ -19,13 +19,30 @@ Implemented here:
                       mush when squinted, no amount of hue fixes it. Measured in
                       OKLab L, not WCAG luminance — see oklab.py for why.
 
+  colorfulness()      Hasler & Süsstrunk, "Measuring Colorfulness in Natural
+                      Images", SPIE HVEI VIII, 2003. Reported correlation
+                      ~0.95 against human ratings — the best-validated simple
+                      metric in this literature. Six lines, no assumptions
+                      about photography (no blur/DOF terms), so it transfers
+                      to flat art cleanly.
+
   harmony_score()     Cohen-Or et al., "Color Harmonization", SIGGRAPH 2006.
                       Scores a palette's hue distribution against the harmonic
                       templates (i, V, L, I, T, Y, X) — a formal, testable
                       definition of colour harmony rather than an opinion.
                       https://doi.org/10.1145/1179352.1141933
 
-CAVEAT, stated up front: spectral-residual saliency was validated on natural
+CAVEATS, stated up front, because a metric quoted without them is worse than
+no metric. O'Donovan et al. (SIGGRAPH 2011) showed template-only harmony
+underperforms a learned model, so harmony_score is a heuristic and not ground
+truth. The Cohen-Or sector widths used below (18 deg / 93.6 deg) come from
+consistent third-party reimplementations, NOT re-derived from the primary PDF —
+treat them as unverified. And rule-of-thirds style position metrics are
+deliberately absent: Datta et al.'s own 2006 data ranks them among the WEAKEST
+predictors of rated quality, so enforcing thirds is a style choice here, never
+evidence.
+
+On saliency specifically: spectral-residual saliency was validated on natural
 photographs. Flat, high-contrast, text-bearing vector art is out of its training
 distribution, and it has no notion of semantics (it does not know an eye is an
 eye). It is used here only as a coarse, relative check — "is the intended focal
@@ -108,7 +125,12 @@ def salience_of_region(gray: np.ndarray, box) -> float:
 # Four tiers, the classic value study. Boundaries in OKLab L, which is
 # perceptually uniform, so these are equal perceptual steps — the same
 # boundaries in WCAG luminance would be badly bunched at the dark end.
-VALUE_TIERS = (("dark", 0.00, 0.32), ("shadow", 0.32, 0.52), ("light", 0.52, 0.74), ("bright", 0.74, 1.01))
+VALUE_TIERS = (
+    ("dark", 0.00, 0.32),
+    ("shadow", 0.32, 0.52),
+    ("light", 0.52, 0.74),
+    ("bright", 0.74, 1.01),
+)
 
 
 def value_histogram(grid, palette: dict) -> dict:
@@ -204,3 +226,156 @@ def canvas_to_gray(grid, palette: dict) -> np.ndarray:
     Ls = {k: oklab_lightness(v) for k, v in palette.items()}
     Ls[0] = 0.0
     return np.array([[Ls.get(v, 0.0) for v in row] for row in grid], dtype=float)
+
+
+# ── Hasler & Süsstrunk 2003: colourfulness ──────────────────────────────────
+
+
+def colorfulness(palette: dict, weights: dict = None) -> float:
+    """Hasler & Süsstrunk colourfulness, optionally weighted by pixel coverage.
+
+    rg = R - G, yb = 0.5(R + G) - B, then
+        sqrt(std(rg)^2 + std(yb)^2) + 0.3 * sqrt(mean(rg)^2 + mean(yb)^2)
+
+    Reported r ~ 0.95 against human ratings. Used here as a floor check, not a
+    target: a card that measures muddy will read muddy at 190px, but a high
+    score is not a claim that the card is good.
+
+    Hasler & Süsstrunk's own interpretation scale, for reading the number:
+    <15 not colourful, 15-33 slightly, 33-45 moderately, 45-59 averagely,
+    59-82 quite, 82-109 highly, >109 extremely.
+
+    Weighting by coverage matters — an unweighted palette score would treat a
+    two-pixel accent as equal to the ground, which is exactly the mistake that
+    lets a card look drab while its palette measures vivid.
+    """
+    import numpy as _np
+
+    from oklab import hex_to_rgb01
+
+    cols, ws = [], []
+    for k, hexcol in palette.items():
+        w = 1.0 if weights is None else float(weights.get(k, 0.0))
+        if w <= 0:
+            continue
+        cols.append([c * 255.0 for c in hex_to_rgb01(hexcol)])
+        ws.append(w)
+    if not cols:
+        return 0.0
+    arr = _np.array(cols)
+    w = _np.array(ws, dtype=float)
+    w /= w.sum()
+    R, G, B = arr[:, 0], arr[:, 1], arr[:, 2]
+    rg = R - G
+    yb = 0.5 * (R + G) - B
+
+    def _m(x):
+        return float((x * w).sum())
+
+    def _sd(x):
+        return float(_np.sqrt(((x - _m(x)) ** 2 * w).sum()))
+
+    return _sd(rg) ** 2 + _sd(yb) ** 2 and (
+        math.sqrt(_sd(rg) ** 2 + _sd(yb) ** 2) + 0.3 * math.sqrt(_m(rg) ** 2 + _m(yb) ** 2)
+    )
+
+
+def coverage(grid) -> dict:
+    """How many cells each palette key actually occupies."""
+    out = {}
+    for row in grid:
+        for v in row:
+            if v:
+                out[v] = out.get(v, 0) + 1
+    return out
+
+
+# ── Ulichney 1993: void-and-cluster blue-noise dither matrix ────────────────
+
+
+def void_and_cluster(size: int = 16, sigma: float = 1.5, seed: int = 1) -> np.ndarray:
+    """A tileable blue-noise threshold matrix, ranks 0..size*size-1.
+
+    Why blue noise rather than Bayer: the human contrast-sensitivity function
+    is low-pass, so it is far more sensitive to low and mid spatial frequencies
+    than high ones. Blue noise pushes the dither pattern's energy ABOVE that
+    sensitive band, so it reads as smooth tone. Bayer/ordered dithering puts
+    strong periodic energy squarely inside the sensitive band, which is why it
+    reads as a visible crosshatch. This part of Ulichney is uncontested.
+
+    Toroidal (wrap-around) filtering throughout, so the tile repeats seamlessly
+    across a card with no seam at the join.
+    """
+    rng = np.random.default_rng(seed)
+    n = size * size
+    binary = np.zeros((size, size), dtype=bool)
+    for idx in rng.permutation(n)[: max(1, int(0.1 * n))]:
+        binary.flat[idx] = True
+
+    def density(b):
+        return _wrap_gaussian(b.astype(float), sigma)
+
+    # phase 1: break up the random seed into an even (blue-noise) prototype
+    while True:
+        d = density(binary)
+        tight = np.where(binary, d, -np.inf).argmax()
+        binary.flat[tight] = False
+        d = density(binary)
+        void = np.where(~binary, d, np.inf).argmin()
+        if void == tight:
+            binary.flat[tight] = True
+            break
+        binary.flat[void] = True
+
+    prototype = binary.copy()
+    rank = np.full((size, size), -1, dtype=int)
+
+    # phase 2: rank DOWN from the prototype — repeatedly remove the tightest
+    # cluster, so the earliest-removed pixel gets the lowest threshold
+    work = prototype.copy()
+    for r in range(int(work.sum()) - 1, -1, -1):
+        d = density(work)
+        tight = np.where(work, d, -np.inf).argmax()
+        work.flat[tight] = False
+        rank.flat[tight] = r
+
+    # phase 3: rank UP — repeatedly fill the largest void
+    work = prototype.copy()
+    for r in range(int(prototype.sum()), n):
+        d = density(work)
+        void = np.where(~work, d, np.inf).argmin()
+        work.flat[void] = True
+        rank.flat[void] = r
+    return rank
+
+
+def _wrap_gaussian(a: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian filter with toroidal wrap, via the FFT (exact and fast)."""
+    size = a.shape[0]
+    y, x = np.mgrid[0:size, 0:size]
+    y = np.minimum(y, size - y)
+    x = np.minimum(x, size - x)
+    k = np.exp(-(x**2 + y**2) / (2 * sigma**2))
+    k /= k.sum()
+    return np.real(np.fft.ifft2(np.fft.fft2(a) * np.fft.fft2(k)))
+
+
+def blue_noise_quality(matrix: np.ndarray) -> float:
+    """Mean nearest-neighbour distance between the first 10% of ranks.
+
+    A blue-noise matrix spaces its early ranks evenly; white noise clumps them.
+    Higher is better, and it is the cheapest way to prove the generator did not
+    silently produce white noise.
+    """
+    size = matrix.shape[0]
+    pts = np.argwhere(matrix < max(2, int(0.1 * matrix.size)))
+    if len(pts) < 2:
+        return 0.0
+    ds = []
+    for i, p in enumerate(pts):
+        d = np.abs(pts - p)
+        d = np.minimum(d, size - d)  # toroidal
+        dist = np.hypot(d[:, 0], d[:, 1])
+        dist[i] = np.inf
+        ds.append(dist.min())
+    return float(np.mean(ds))

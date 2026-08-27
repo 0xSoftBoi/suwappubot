@@ -51,9 +51,7 @@ def hex_to_rgb01(h: str):
 
 
 def rgb01_to_hex(r: float, g: float, b: float) -> str:
-    return "#" + "".join(
-        f"{max(0, min(255, round(v * 255))):02x}" for v in (r, g, b)
-    )
+    return "#" + "".join(f"{max(0, min(255, round(v * 255))):02x}" for v in (r, g, b))
 
 
 # ── OKLab ───────────────────────────────────────────────────────────────────

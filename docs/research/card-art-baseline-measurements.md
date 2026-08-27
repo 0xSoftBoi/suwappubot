@@ -90,6 +90,41 @@ Re-scored against only the discriminating narrow templates (`i`, `V`, `L`, `I`):
 Lesson for the rebuild: report the narrow-template fit, and never quote a metric
 whose permissive mode makes failure impossible.
 
+## 6. The palette measures vivid; the card measures drab
+
+Hasler & Süsstrunk colourfulness (SPIE 2003, r~0.95 against human ratings),
+computed two ways — over the palette swatches, and weighted by how much of the
+canvas each colour actually covers:
+
+| Card | palette | coverage-weighted | verdict on their scale |
+|---|---|---|---|
+| NVDA (standard) | 52.3 | **21.6** | "slightly colourful" |
+| SPY (standard) | 47.0 | **19.9** | "slightly colourful" |
+| GME (gold) | 68.1 | 44.6 | "moderately colourful" |
+
+The standard cards lose **~60% of their measured colourfulness** once area is
+accounted for: the vivid entries exist in the palette but occupy almost none of
+the card, which is a precise statement of the "muddy" impression. This is the
+same failure Gerstner et al. compensate for with a deliberate chroma boost after
+quantization — low-resolution quantized art reads more desaturated than its
+palette suggests.
+
+## 7. Blue-noise dithering is available and measurably correct
+
+Implemented Ulichney's void-and-cluster (SPIE 1993) and verified it produces a
+real blue-noise spectrum rather than white noise:
+
+| Measure | void-and-cluster | white noise |
+|---|---|---|
+| mean nearest-neighbour distance, first 10% of ranks | **2.674** | 1.913 |
+| low-frequency energy share (radius <= 3 of 16x16 spectrum) | **0.004** | 0.129 |
+
+32x less low-frequency energy. That is the whole point: the contrast-sensitivity
+function is low-pass, so pushing dither energy to high frequencies makes the
+pattern read as smooth tone instead of visible crosshatch. This gives the
+rebuild a way to imply intermediate values without spending palette slots —
+directly addressing defect 3 (the missing midtones).
+
 ## Known-wrong by craft theory, independent of the above
 
 - The darkest value sits on the **contour**. A core shadow (terminator) belongs
