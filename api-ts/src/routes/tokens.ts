@@ -98,6 +98,54 @@ const CHAIN_ALIASES: Record<string, string> = {
 }
 
 /**
+ * GET /webapp/tokens/popular?chain=ethereum
+ * Compatibility endpoint for the standalone Terminal token selector.
+ * The Terminal expects a bare SwapToken[] rather than the Mini App's
+ * { chainId, tokens } envelope returned by /webapp/swap/tokens.
+ */
+tokenRoutes.get('/popular', async (c) => {
+	const chain = c.req.query('chain')?.trim().toLowerCase() || 'ethereum'
+	const chainId = CHAIN_ALIASES[chain] ?? chain
+
+	try {
+		const response = await fetch(`https://li.quest/v1/tokens?chains=${encodeURIComponent(chainId)}`, {
+			headers: {
+				Accept: 'application/json',
+				...(process.env.LIFI_API_KEY && { 'x-lifi-api-key': process.env.LIFI_API_KEY }),
+			},
+		})
+
+		if (!response.ok) {
+			throw new Error(`Li.Fi API error: ${response.statusText}`)
+		}
+
+		const data = (await response.json()) as {
+			tokens: Record<string, Array<{
+				address: string
+				symbol: string
+				decimals: number
+				name: string
+				chainId: number
+				logoURI?: string
+			}>>
+		}
+
+		const tokens = data.tokens[chainId] || []
+		return c.json(tokens.slice(0, 50).map((token) => ({
+			symbol: token.symbol,
+			name: token.name,
+			address: token.address,
+			chain,
+			decimals: token.decimals,
+			logoUrl: token.logoURI,
+		})))
+	} catch (error) {
+		logger.error({ err: error, chain, chainId }, '[TokenRoutes] Popular tokens error')
+		return c.json({ error: 'Failed to fetch popular tokens' }, 500)
+	}
+})
+
+/**
  * GET /webapp/tokens/lookup?address=0x...&chain=1
  * Look up a single token by contract address (defaults to Ethereum mainnet
  * if no chain is given). Backs the webapp's paste-address quick-lookup UI
