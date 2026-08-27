@@ -41,8 +41,11 @@ export interface SwapPreview {
   fromAmountBaseUnits?: string;
   fromTokenDecimals?: number;
   fromAmountUsd: string;
+  /** Human-readable, like fromAmount — base units live alongside. */
   toAmount: string;
   toAmountMin: string;
+  toAmountBaseUnits?: string;
+  toAmountMinBaseUnits?: string;
   toAmountUsd: string;
   exchangeRate: string;
   priceImpact: string;
