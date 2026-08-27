@@ -100,7 +100,7 @@ compliance certification** unless a separate artifact explicitly says otherwise.
   snapshot and source-branch caveats.
 - [Railway](deployment/railway.md) — deployment configuration and migration history.
 - [Railway build reliability](deployment/build-reliability.md) — CI gate, watch paths, service lifecycle, and IaC transition.
-- [Railway best practices](deployment/railway-best-practices.md) — **2026-08 audit**: Config-as-Code deprecation (cutoff 2026-12-01) + `.railway/railway.ts` migration runbook, verified config drift, cross-region DB latency, zero-downtime settings.
+- [Railway best practices](deployment/railway-best-practices.md) — **2026-08 audit**: Config-as-Code deprecation (cutoff 2026-12-01) + Infrastructure-as-Code migration runbook, verified config drift, cross-region DB latency, zero-downtime settings.
 - [Railway cost audit](deployment/railway-cost-audit.md) — **2026-08-27 snapshot**: modelled per-service spend across both environments (~$122/mo), the `python-worker` RPC retry storm and 31.7 GB memory spike, six idle dev services, and a ranked reduction plan.
 - [Monitoring](deployment/monitoring.md) — observability layers and blind spots.
 - [Self-healing loop](deployment/self-healing-loop.md) — bounded recovery design.

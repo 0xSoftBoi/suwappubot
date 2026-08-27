@@ -295,3 +295,154 @@ remediation notice for CVE-2026-15741 (HIGH)**, armed `2026-08-25`, inside a
 weekend maintenance window (Sat 10:00–24:00, Sun 00:00–18:00). Expect a
 Postgres restart in that window. This is Railway acting correctly — just don't
 mistake the resulting blip for an app incident.
+
+---
+
+# Round 2 — data durability and network exposure (2026-08-26)
+
+The first pass audited *deployment* config. This pass looks at the two things
+that actually lose money or data. Both findings below are verified against the
+live production project, and both outrank every item in the "Still open" list.
+
+## 9. P0 — Point-in-Time Recovery is OFF on production Postgres
+
+Railway Postgres supports [PITR](https://docs.railway.com/volumes/point-in-time-recovery):
+`pgBackRest` archives every WAL segment to a Railway bucket, with a weekly full
+plus daily incremental base backup and roughly a **4-week restore window**.
+
+**It is not enabled here.** Enabling PITR sets `WAL_ARCHIVE_*` env vars on the
+Postgres service. The live variable list is:
+
+```
+DATABASE_PUBLIC_URL, DATABASE_URL, PGDATA, PGDATABASE, PGHOST, PGPASSWORD,
+PGPORT, PGUSER, POSTGRES_DB, POSTGRES_PASSWORD, POSTGRES_USER,
+RAILWAY_DEPLOYMENT_DRAINING_SECONDS, SSL_CERT_DAYS
+```
+
+No `WAL_ARCHIVE_*`. No `Postgres-PITR` bucket exists in the project either.
+
+Why this is the top item for *this* codebase specifically:
+
+- The database holds **encrypted wallet material** (`kms_aesgcm_v2` envelope
+  DEKs), user balances, referral/XP accounting, and order state. Losing a day
+  of it is not a "restore from staging" situation.
+- There is **no Alembic**. `database/db.py::_ensure_schema()` mutates the
+  production schema **at boot, on every deploy**. The migrations are additive
+  and idempotent by convention — but "by convention" is exactly what PITR
+  exists to backstop. One bad `_ensure_schema()` edit runs against prod with no
+  point-in-time undo.
+- Postgres is **single-node** (`numReplicas: 1`, not the `postgres-ha` cluster
+  the service is capable of converting to). No replica, no failover, and
+  currently no PITR — the volume is the only copy.
+
+The image is on the major tag `postgres-ssl:18`, which is what PITR requires
+(a minor pin like `:18.4` breaks it). So enabling is a clean path.
+
+**Recommendation: enable PITR.** Exact steps — either one works:
+
+```bash
+# CLI (not installed in the audit container; run from a linked checkout)
+railway login && railway link          # project=suwappu, env=production
+railway postgres pitr status  --service postgres    # confirm it reports OFF
+railway postgres pitr enable  --service postgres
+railway postgres pitr status  --service postgres    # archiver healthy?
+```
+
+Or: Railway dashboard → **Postgres** → **Backups** tab → **Enable PITR**.
+
+It creates the bucket, sets the archive vars and redeploys once.
+
+> **Not done by the audit.** Enabling PITR was attempted from this session and
+> blocked by the environment's permission policy. It was deliberately **not**
+> worked around by hand-setting `WAL_ARCHIVE_*` — Railway's flow also creates
+> the backing bucket and wires its credentials, so setting the vars alone would
+> produce a service that looks configured and archives nothing. This needs a
+> human with dashboard or CLI access.
+
+Expect one brief restart of the database when it redeploys — single-node
+Postgres has no replica to fail over to. Worth pairing with the already-armed
+CVE-2026-15741 auto-update window (§8) so it costs one restart, not two. Cost is bucket storage + egress on
+zstd-compressed WAL — a few GB/day under steady write load, and the
+`expire` job stabilises the bucket at ~4 weeks. Note the window starts at the
+first post-enable base backup: **it is not retroactive**, so the sooner it is
+on, the sooner it is useful.
+
+## 10. P1 — Postgres is exposed to the public internet
+
+The Postgres service has an **ACTIVE public TCP proxy**:
+
+```
+kodama.proxy.rlwy.net:13450  ->  applicationPort 5432   syncStatus: ACTIVE
+```
+
+and correspondingly publishes `DATABASE_PUBLIC_URL`. So the production
+database is reachable from anywhere on the internet, with the Postgres
+password as the only control — no IP allowlist, no network boundary.
+
+Railway's own guidance is to keep service-to-service traffic on
+[private networking](https://docs.railway.com/networking/tcp-proxy#tcp-with-private-networking)
+via `*.railway.internal` precisely so it is not "exposed to the public
+internet". The service already has a private endpoint (`privateNetworkEndpoint:
+postgres`), so in-project consumers do not need the proxy.
+
+A public proxy is legitimate for `pg_dump`/`psql` from a laptop and for the
+documented one-time data migration — but it is a standing hole kept open for
+occasional use.
+
+**That dependency check has now been done, and it found one.**
+`scripts/verify_auth.sh:30` reads `DATABASE_PUBLIC_URL` out of
+`railway variables --service postgres` and connects SQLAlchemy straight to
+production over the public proxy to look up a real user id:
+
+```bash
+DBURL=$(railway variables --service postgres --kv | grep '^DATABASE_PUBLIC_URL=' | cut -d= -f2-)
+# ... sa.create_engine('$DBURL') ; SELECT id FROM users ORDER BY id LIMIT 1
+```
+
+So **deleting the proxy outright would break that script.** Revised
+recommendation, in preference order:
+
+1. **Best — move the check inside the network.** `verify_auth.sh` is an ops
+   script; run it as a one-off Railway job (or against
+   `postgres.railway.internal`) and it needs no public endpoint at all. Then
+   delete the proxy.
+2. **If it has to keep working from a laptop today** — keep the proxy, but
+   treat `kodama.proxy.rlwy.net:13450` as a tracked exposure: rotate
+   `POSTGRES_PASSWORD` on a schedule, and note that the script reads a
+   production `users` row over the open internet every time it runs.
+
+Do **not** simply delete the proxy without doing (1) first — the earlier draft
+of this section said "remove it", and that was written before this dependency
+was checked. It is recorded here so the next person does not repeat the
+mistake.
+
+> Note: a raw TCP connect from the audit container failed, but that proves
+> nothing — this environment's egress goes through an HTTPS agent proxy that
+> will not carry arbitrary TCP. Railway reporting the proxy `ACTIVE` is the
+> authoritative signal, not that negative result.
+
+## 11. Not verified — private networking for service-to-service calls
+
+`api-ts` has `INTERNAL_API_URL` set, and `docs/deployment/railway.md` says it
+should point at python-api's `*.railway.internal` host. **This could not be
+confirmed**: the audit connection returns variable names with
+`valuesRedacted: true`, so the value is not readable here.
+
+Worth a manual look — if it points at a public `*.up.railway.app` domain
+instead, every internal signing call is making a public round trip it does not
+need to, and Railway lists exactly that as a cause of
+[slow applications](https://docs.railway.com/deployments/troubleshooting/slow-deployments#not-using-private-networking).
+The service already has `RAILWAY_PRIVATE_DOMAIN` available to use.
+
+## Priority
+
+| # | Item | Severity | Effort |
+|---|------|----------|--------|
+| 9 | Enable Postgres PITR | **P0** — data loss is unrecoverable | one click, not retroactive |
+| 10 | Move `verify_auth.sh` off the public proxy, then remove it | **P1** — standing exposure | script change first, *not* a blind delete |
+| 11 | Confirm `INTERNAL_API_URL` is `.railway.internal` | P2 — latency | one look |
+| 1 | IaC migration (§4) | P2 — hard deadline 2026-12-01 | ~an hour with the CLI |
+| 2 | Set `VITE_TURNKEY_PROXY_URL` (§7) | P3 — wrong-but-working | needs the value |
+| 3 | Delete the orphaned config files (§2) | P3 — tidiness | trivial |
+
+Ranked by what is unrecoverable if it goes wrong, not by what is quickest.
