@@ -1,3 +1,4 @@
+# GhostCatcher read-only research export service
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "ingest/Dockerfile.ghostcatcher-export"
