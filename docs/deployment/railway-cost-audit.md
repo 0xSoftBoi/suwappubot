@@ -268,11 +268,35 @@ in one week ≈ +$1.40/mo added every month if unchecked). Dev additionally spik
 | `signal-lab-prod` | 0.0000019 | 5.8e-11 GB |
 | `suwappu-bridge` (prod) | 0.0000048 | 8.4e-7 GB |
 
-The dollars are trivial. The signal is not: `webapp` and `terminal` are user-facing
-production surfaces serving effectively **no traffic for a week**. Either that is the
-true product state, or something upstream (DNS, Telegram Mini App config, a domain
-pointing elsewhere) is routing users away from them. Worth confirming before treating
-it as a cost item.
+The dollars are trivial. The signal is not — and the HTTP logs explain it.
+
+**Neither `webapp` nor `terminal` has a custom domain.** Both are reachable only at their
+generated Railway subdomains (`webapp-production-897e.up.railway.app`,
+`terminal-production-7906.up.railway.app`); `customDomains` is empty for both.
+
+A full sample of `webapp`'s inbound HTTP over the window:
+
+| Source | Path | Note |
+|---|---|---|
+| `curl/8.5.0`, `suwappu-status/1` | `/health`, `/` | our own monitors |
+| Googlebot | `/robots.txt` | crawler |
+| `91.92.241.196` | `/.git/HEAD`, `/.git/config` ×4 | **vulnerability scanner — correctly 403'd** |
+| 2 residential IPs | `/` | stray hits |
+
+That is the entire week: health checks, a crawler, a scanner, and two strays. There is no
+user traffic because there is no branded URL pointing at these services.
+
+`vercel.json` sets `"deploymentEnabled": false`, so the webapp is not being served from
+Vercel instead — and the `/webapp/*` paths in CI are api-ts routes on `api.suwappu.bot`,
+not this service. So these are not shadowed by another deployment; they are simply
+unrouted.
+
+**This is a product question, not a cost one.** Either both surfaces are pre-launch (in
+which case the $1.67/mo is fine and this is just a note), or users are meant to reach
+them and cannot. Worth answering before anything else here.
+
+*(Minor security note: the `/.git/` probe was correctly refused with 403. No action
+needed — recorded only because it appeared in the same sample.)*
 
 `signal-lab-prod` is flat-lined at 0.032 GB with no egress and no CPU — it is deployed
 from the feature branch `feat/pump-onchain-ingest` and appears to be doing nothing in
