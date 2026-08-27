@@ -116,5 +116,5 @@ current inventory; the long migration runbook should not be used as a service ca
 7. **Keep historical migration notes labeled as history.** They are useful evidence but
    should never masquerade as the current runtime.
 
-See also: [Monitoring](monitoring.md) · [Railway runbook](railway.md) ·
+See also: [Build reliability](build-reliability.md) · [Monitoring](monitoring.md) · [Railway runbook](railway.md) ·
 [Architecture overview](../architecture/OVERVIEW.md) · [Incident process](../incidents/README.md)
