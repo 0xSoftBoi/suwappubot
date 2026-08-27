@@ -19,6 +19,7 @@ bun run dev                # serve the desk on :4321 first
 bun run webmcp:schemas     # re-export schemas from the live page
 bun run webmcp:evals       # deterministic — executes every case for real, no API key
 bun run webmcp:smoke       # 41 behavioural assertions on the human-in-the-loop contract
+bun run webmcp:spec        # 11 spec-conformance checks against Google's own polyfill
 
 GOOGLE_AI=<key> bun run webmcp:evals:llm   # Google's LLM harness
 ```
@@ -32,6 +33,25 @@ rename a tool or tighten a schema and this fails long before an agent meets it.
 `tools.schema.json` and checks that the natural-language request selects the
 right tool with the right arguments. **Not yet run** — no model key has been
 available in the environment where this was built. Stated rather than implied.
+
+## Spec conformance
+
+`bun run webmcp:spec` is the check that isn't marking its own homework.
+`webmcp-smoke` drives the desk through a hand-rolled `modelContext` stub, which
+proves our behaviour but not that we match the spec — a stub can be wrong in the
+same direction as the code it tests. So `webmcp-spec-check.mjs` injects
+`vendor/webmcp-polyfill.js`, taken verbatim from
+[GoogleChromeLabs/webmcp-tools](https://github.com/GoogleChromeLabs/webmcp-tools),
+and drives the page the way a real agent does: `getTools()` for discovery,
+`executeTool()` for invocation, and the `toolchange` event for live updates.
+
+**11/11 passing**, including that a `toolchange` event actually fires when
+`request_override` appears — a spec behaviour the desk claims and had never
+proved until it ran against a reference implementation.
+
+The native API needs Chrome 146+; the Chromium available in this build
+environment is 141, so the reference polyfill is the closest available witness.
+Verifying in ChatGPT's in-app browser is still an open item.
 
 ## The cases that matter
 
