@@ -36,7 +36,10 @@ export interface SwapPreview {
   toChain: string;
   fromToken: { address: string; symbol: string; decimals: number };
   toToken: { address: string; symbol: string; decimals: number };
+  /** Human-readable, as requested — the API echoes it back rather than wei. */
   fromAmount: string;
+  fromAmountBaseUnits?: string;
+  fromTokenDecimals?: number;
   fromAmountUsd: string;
   toAmount: string;
   toAmountMin: string;
