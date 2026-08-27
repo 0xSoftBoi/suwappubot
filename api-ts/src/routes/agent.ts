@@ -18,7 +18,7 @@ import { type SpendPermission, validateSpendPermission } from '../lib/spendPermi
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
-import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { DatabaseError, ExternalServiceError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
@@ -112,6 +112,66 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	if (!isEvmAddress(addr)) return false
 	const owned = getAgentWalletAddress(agent)
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
+}
+
+type ManagedAgentWalletIdentity = {
+	address: string
+	subOrgId: string
+	walletId?: string
+	accountId?: string
+}
+
+// Version 1 existed while callers could still forge agent metadata. Version 2
+// is only written after reserved-key enforcement and provider attestation.
+const MANAGED_WALLET_IDENTITY_VERSION = 2
+
+/**
+ * Read the durable Turnkey identity stored before Python provisioning. Keeping
+ * this separate from the Python row IDs lets a retry resume the same wallet
+ * after a timeout instead of minting another Turnkey wallet.
+ */
+export function managedAgentWalletIdentityFromMetadata(
+	metadata: unknown,
+): ManagedAgentWalletIdentity | null {
+	const value = (metadata || {}) as Record<string, unknown>
+	const address = value.wallet_address
+	const subOrgId = value.wallet_sub_org_id
+	const walletId = value.turnkey_wallet_id
+	const accountId = value.turnkey_account_id
+	if (!isEvmAddress(address) || typeof subOrgId !== 'string' || !subOrgId) {
+		return null
+	}
+	return {
+		address,
+		subOrgId,
+		...(typeof walletId === 'string' && walletId ? { walletId } : {}),
+		...(typeof accountId === 'string' && accountId ? { accountId } : {}),
+	}
+}
+
+function positiveSafeInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function withoutManagedWalletProvisionLease(
+	metadata: Record<string, unknown>,
+): Record<string, unknown> {
+	const {
+		managed_wallet_provision_token: _token,
+		managed_wallet_provision_started_at: _startedAt,
+		...rest
+	} = metadata
+	return rest
+}
+
+export function managedAgentWalletIsProvisioned(metadata: unknown): boolean {
+	const value = (metadata || {}) as Record<string, unknown>
+	return (
+		managedAgentWalletIdentityFromMetadata(value) !== null &&
+		value.managed_wallet_identity_version === MANAGED_WALLET_IDENTITY_VERSION &&
+		positiveSafeInteger(value.internal_user_id) &&
+		positiveSafeInteger(value.internal_wallet_id)
+	)
 }
 
 /**
@@ -2383,62 +2443,189 @@ agentRoutes.post('/wallets', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const turnkeyService = yield* TurnkeyService
+			const agentService = yield* AgentService
+			let wallet: ManagedAgentWalletIdentity | null = null
+			let walletMetadata: Record<string, unknown> | null = null
+			let created = false
 
-			// Create wallet for agent
-			const wallet = yield* turnkeyService
-				.createAgentWallet(agent.id, 'evm')
-				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
+			// An exact JSONB compare-and-set publishes a provisioning lease before
+			// contacting Turnkey. Only the winner can mint; concurrent callers reload
+			// and resume the identity published by that winner.
+			for (let attempt = 0; attempt < 120 && !wallet; attempt++) {
+				const currentOption = yield* agentService.getAgentById(agent.id)
+				if (Option.isNone(currentOption)) {
+					return yield* Effect.fail(new NotFoundError({ message: 'Agent not found' }))
+				}
+				const currentMetadata = (currentOption.value.metadata as Record<string, unknown>) || {}
+				const currentWallet = managedAgentWalletIdentityFromMetadata(currentMetadata)
+				if (currentWallet) {
+					// No pre-existing metadata is trusted without provider attestation.
+					// This includes the retired v1 marker, which was caller-writable.
+					// Turnkey must attest both deterministic org ownership and address membership.
+					wallet = yield* turnkeyService
+						.verifyAgentWallet(agent.id, currentWallet.subOrgId, currentWallet.address, 'evm')
+						.pipe(Effect.mapError((e) => new ExternalServiceError({
+							message: 'Managed wallet requires operator repair: provider ownership could not be verified',
+							service: 'turnkey',
+							cause: e,
+						})))
+					walletMetadata = {
+						...withoutManagedWalletProvisionLease(currentMetadata),
+						wallet_address: wallet.address,
+						wallet_sub_org_id: wallet.subOrgId,
+						turnkey_wallet_id: wallet.walletId,
+						...(wallet.accountId && { turnkey_account_id: wallet.accountId }),
+					}
+					const published = yield* agentService.compareAndSetMetadata(
+						agent.id,
+						currentOption.value.metadata as Record<string, unknown> | null,
+						walletMetadata,
+					)
+					if (Option.isNone(published)) {
+						wallet = null
+						walletMetadata = null
+					}
+					continue
+				}
 
+				const activeToken = currentMetadata.managed_wallet_provision_token
+				const startedAt = Date.parse(String(currentMetadata.managed_wallet_provision_started_at || ''))
+				if (typeof activeToken === 'string') {
+					if (Date.now() - startedAt < 120_000) {
+						yield* Effect.sleep('25 millis')
+						continue
+					}
+					return yield* Effect.fail(new DatabaseError({
+						message: 'Managed wallet provisioning lease is stale; operator repair is required',
+					}))
+				}
+
+				const token = crypto.randomUUID()
+				const claimedMetadata = {
+					...currentMetadata,
+					managed_wallet_provision_token: token,
+					managed_wallet_provision_started_at: new Date().toISOString(),
+				}
+				const claimed = yield* agentService.compareAndSetMetadata(
+					agent.id,
+					currentOption.value.metadata as Record<string, unknown> | null,
+					claimedMetadata,
+				)
+				if (Option.isNone(claimed)) continue
+
+				const createdWallet = yield* turnkeyService
+					.createAgentWallet(agent.id, 'evm')
+					.pipe(Effect.mapError((e) => new ExternalServiceError({
+						message: 'Failed to create managed wallet',
+						service: 'turnkey',
+						cause: e,
+					})))
+				walletMetadata = {
+					...withoutManagedWalletProvisionLease(currentMetadata),
+					wallet_address: createdWallet.address,
+					wallet_sub_org_id: createdWallet.subOrgId,
+					turnkey_wallet_id: createdWallet.walletId,
+					...(createdWallet.accountId && { turnkey_account_id: createdWallet.accountId }),
+				}
+				const published = yield* agentService.compareAndSetMetadata(agent.id, claimedMetadata, walletMetadata)
+				if (Option.isNone(published)) {
+					return yield* Effect.fail(new DatabaseError({
+						message: 'Managed wallet was created but its provisioning lease was lost; operator repair is required',
+					}))
+				}
+				wallet = createdWallet
+				created = true
+			}
+
+			if (!wallet || !walletMetadata) {
+				return yield* Effect.fail(new DatabaseError({ message: 'Managed wallet provisioning is already in progress' }))
+			}
 			// Call internal Python API to provision a User + Wallet row for swap execution
 			const env = yield* EnvService
-			let internalUserId: number | undefined
-			let internalWalletId: number | undefined
+			if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) {
+				return yield* Effect.fail(new ExternalServiceError({
+					message: 'Managed wallet provisioning is not configured',
+					service: 'python-internal-api',
+				}))
+			}
 
-			if (env.INTERNAL_API_KEY && env.INTERNAL_API_URL) {
-				const provisionResult = yield* Effect.tryPromise({
-					try: async () => {
-						const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								'X-Internal-Key': env.INTERNAL_API_KEY!,
-							},
-							body: JSON.stringify({
-								agent_uuid: agent.uuid,
-								chain_type: 'evm',
-								turnkey_wallet_id: wallet.walletId,
-								turnkey_sub_org_id: wallet.subOrgId,
-							}),
-							signal: AbortSignal.timeout(15_000),
-						})
-						if (res.ok) {
-							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
-						}
-						return null
+			const provisionResult = yield* Effect.tryPromise({
+				try: async () => {
+					const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'X-Internal-Key': env.INTERNAL_API_KEY!,
+						},
+						body: JSON.stringify({
+							agent_uuid: agent.uuid,
+							chain_type: 'evm',
+							turnkey_wallet_id: wallet.walletId,
+							turnkey_sub_org_id: wallet.subOrgId,
+							turnkey_account_id: wallet.accountId,
+							address: wallet.address,
+						}),
+						signal: AbortSignal.timeout(15_000),
+					})
+					if (!res.ok) throw new Error(`Python provisioning returned HTTP ${res.status}`)
+					const body = (await res.json()) as {
+						internal_user_id?: unknown
+						internal_wallet_id?: unknown
+						address?: unknown
+					}
+					if (
+						!positiveSafeInteger(body.internal_user_id) ||
+						!positiveSafeInteger(body.internal_wallet_id) ||
+						!isEvmAddress(body.address) ||
+						body.address.toLowerCase() !== wallet.address.toLowerCase()
+					) {
+						throw new Error('Python provisioning returned a mismatched wallet identity')
+					}
+					return {
+						internalUserId: body.internal_user_id,
+						internalWalletId: body.internal_wallet_id,
+					}
+				},
+				catch: (e) => new ExternalServiceError({
+					message: 'Failed to register managed wallet for execution',
+					service: 'python-internal-api',
+					cause: e,
+				}),
+			})
+
+			// Mark consistency only after Python returns the same provider address.
+			for (let attempt = 0; attempt < 10; attempt++) {
+				const currentOption = yield* agentService.getAgentById(agent.id)
+				if (Option.isNone(currentOption)) {
+					return yield* Effect.fail(new NotFoundError({ message: 'Agent not found' }))
+				}
+				const currentMetadata = (currentOption.value.metadata as Record<string, unknown>) || {}
+				const currentWallet = managedAgentWalletIdentityFromMetadata(currentMetadata)
+				if (!currentWallet || currentWallet.address.toLowerCase() !== wallet.address.toLowerCase() || currentWallet.subOrgId !== wallet.subOrgId) {
+					return yield* Effect.fail(new DatabaseError({ message: 'Managed wallet identity changed during provisioning' }))
+				}
+				if (
+					managedAgentWalletIsProvisioned(currentMetadata) &&
+					currentMetadata.internal_user_id === provisionResult.internalUserId &&
+					currentMetadata.internal_wallet_id === provisionResult.internalWalletId
+				) break
+				const completed = yield* agentService.compareAndSetMetadata(
+					agent.id,
+					currentOption.value.metadata as Record<string, unknown> | null,
+					{
+						...currentMetadata,
+						internal_user_id: provisionResult.internalUserId,
+						internal_wallet_id: provisionResult.internalWalletId,
+						managed_wallet_identity_version: MANAGED_WALLET_IDENTITY_VERSION,
 					},
-					catch: () => null, // Non-fatal
-				}).pipe(Effect.catchAll(() => Effect.succeed(null)))
-
-				if (provisionResult) {
-					internalUserId = provisionResult.internal_user_id
-					internalWalletId = provisionResult.internal_wallet_id
+				)
+				if (Option.isSome(completed)) break
+				if (attempt === 9) {
+					return yield* Effect.fail(new DatabaseError({ message: 'Failed to finalize managed wallet identity' }))
 				}
 			}
 
-			// Store wallet address in agent metadata
-			const agentService = yield* AgentService
-			const existingMetadata = (agent.metadata as Record<string, unknown>) || {}
-			yield* agentService.updateAgent(agent.id, {
-				metadata: {
-					...existingMetadata,
-					wallet_address: wallet.address,
-					wallet_sub_org_id: wallet.subOrgId,
-					...(internalUserId !== undefined && { internal_user_id: internalUserId }),
-					...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
-				},
-			})
-
-			return wallet
+			return { wallet, resumed: !created }
 		}),
 	)
 
@@ -2447,7 +2634,7 @@ agentRoutes.post('/wallets', async (c) => {
 		return c.json(body, status)
 	}
 
-	const wallet = result.right
+	const { wallet, resumed } = result.right
 
 	return c.json(
 		{
@@ -2457,9 +2644,11 @@ agentRoutes.post('/wallets', async (c) => {
 				chain_type: 'evm',
 				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc'],
 			},
-			message: 'Wallet created. Fund it to start swapping.',
+			message: resumed
+				? 'Managed wallet provisioning completed.'
+				: 'Wallet created. Fund it to start swapping.',
 		},
-		201,
+		resumed ? 200 : 201,
 	)
 })
 
