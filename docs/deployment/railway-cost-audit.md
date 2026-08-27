@@ -124,18 +124,39 @@ average rate for its duration (this is the main reason the real invoice may exce
 modelled $36); and a repeat gets the worker OOM-killed, which silently stops
 `fee_sweeper`, `order_service`, and `tx_poller`.
 
-**Leak candidates**, from a code trace of the 20 background services `python-worker` runs:
+**It was a discrete event, not an ongoing leak.** Bisecting the metrics window localises it:
 
-| Candidate | Location | Assessment |
+| Window (back from 2026-08-27 01:35Z) | max memory |
+|---|---:|
+| 24h | 1.856 GB |
+| 72h | 1.856 GB |
+| 84h | 1.856 GB |
+| **96h** | **1.856 GB** |
+| **120h** | **31.685 GB** |
+| 168h | 31.685 GB |
+
+The spike therefore occurred **between 96h and 120h ago — roughly 2026-08-22 to 08-23** — and memory has been flat at ~1.6 GB (max 1.86) for the four days since. This is a single excursion, not a monotonic climb.
+
+**Both static leak candidates were checked and both were wrong:**
+
+| Candidate | Location | Verdict |
 |---|---|---|
-| `_quote_flights: dict` | `bot/services/swap_engine.py:796` | **Leading candidate.** No cap, no TTL; entries live as long as the Flight object. |
-| `_tick_size_cache`, `membership_service._cache`, `position_cards_service._holdings` | various | Grow unbounded, no eviction. Small individually; collectively unbounded. |
-| `_recent_launches` | `bot/services/launch_detector.py:182` | Capped at 1000 w/ 1h TTL — bounded. Worth ~30–100 MB, **not** the 30 GB source. |
-| ~~`_ws_watchers`~~ | `bot/services/tx_poller.py:45` | **Ruled out.** An earlier draft of this audit called this the most likely leak. That was wrong: line 299 registers `task.add_done_callback(...pop(_id))`, so entries *are* evicted on completion. The only real gap is the absence of a concurrency cap. |
+| ~~`_ws_watchers`~~ | `tx_poller.py:45` | **Ruled out** — line 299 registers `task.add_done_callback(...pop(_id))`; entries evict on completion. |
+| ~~`_quote_flights`~~ | `swap_engine.py:796` | **Ruled out** — the `finally` at lines 1434-1438 decrements `waiters` and pops the key when the last waiter finishes. It is a bounded in-flight coalescing registry. |
+| `_recent_launches` | `launch_detector.py:182` | Bounded (1000 items, 1h TTL). Worth ~30–100 MB at most. |
+| `_tick_size_cache`, `membership_service._cache`, `position_cards_service._holdings` | various | Genuinely uncapped, but small — no plausible path to 30 GB. |
 
-**Actions**
-- Start at `swap_engine.py:796` (`_quote_flights`) and the uncapped service caches.
-- Add a hard cap to `_ws_watchers` for bounded worst-case concurrency (not for the leak).
+**So the cause is not identified, and reading more code is unlikely to find it.** A 30 GB
+excursion that resolved on its own and has not recurred in 96 hours does not match any
+of the unbounded-container patterns above; it looks more like one pathological input
+(an enormous RPC response buffered in full, a runaway batch) than a steady accumulation.
+Pinning it would need a heap profile or the logs from that window, not static analysis.
+
+**Action — cap the outcome rather than hunt the cause.** This is precisely the case for
+F3's memory limit: a 4 GB ceiling on `python-worker` bounds the blast radius whether or
+not the cause is ever found, and the service already restarts `ON_FAILURE`. Add an alert
+at `MEMORY_USAGE_GB > 2`; if it fires, capture a heap profile *then*, with the condition
+live, instead of guessing at it cold.
 - Set an explicit memory limit well below 32 GB (2–4 GB) on `python-worker`. A fast
   crash-and-restart is strictly cheaper than a 30 GB balloon, and `ON_FAILURE` restart
   is already configured.
@@ -335,7 +356,7 @@ by F4.
 | 6 | Set explicit limits on all services | insurance | low |
 | 7 | Pin `ENABLE_BACKGROUND_SERVICES=false` on `python-api` (F3b) | prevents 2× prod | low |
 | 8 | Retire `signal-lab` (both envs) if unowned | 1.3 | low — verify owner |
-| 9 | Fix the `swap_engine._quote_flights` leak (F2) | spike-driven | medium |
+| 9 | ~~Fix the memory leak~~ — no leak found; cap via #4 instead (F2) | — | — |
 | 10 | Make the 500ms loops adaptive (F3c) | 2–5 | medium |
 | 11 | Add a lock around the lifespan so 2× is impossible (F3b) | insurance | medium |
 
@@ -405,9 +426,15 @@ So these two approved items need the dashboard or the `railway` CLI:
    branch no longer exists, so it may not redeploy cleanly. Deleting is both the
    intended end state and the more reliable one. Railway dashboard → `dev` → service →
    Settings → Delete Service.
-2. **Set resource limits** per F3. Dashboard → service → Settings → Resources. Suggested:
-   `python-worker` 4 GB / 2 vCPU (peak was 31.7 GB), `python-api` 2 GB / 1 vCPU,
-   `api-ts` 1 GB / 1 vCPU, static surfaces 512 MB / 0.5 vCPU.
+2. **Set resource limits** per F3 — now the *primary* mitigation for F2, since no leak was
+   found and a cap bounds the outcome regardless of cause. Dashboard → service →
+   Settings → Resources. Suggested: `python-worker` 4 GB / 2 vCPU (peak was 31.7 GB),
+   `python-api` 2 GB / 1 vCPU, `api-ts` 1 GB / 1 vCPU, static surfaces 512 MB / 0.5 vCPU.
+
+   Confirmed unreachable programmatically: `update-service` has no resource field
+   ("Scaling (replicas/regions) and source changes are not handled by this tool"), and
+   the `railway-agent` fallback returns "Agent usage limit reached". Dashboard or
+   `railway` CLI only.
 
 ## 5. Coverage / QA
 
