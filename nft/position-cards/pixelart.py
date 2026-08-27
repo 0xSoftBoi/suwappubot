@@ -522,11 +522,17 @@ def _depth(c: Canvas, val: int):
 
 
 def _shade(c: Canvas, cx: float, cy: float, rx: float, ry: float, body, lit_bias: float = 0.0):
-    """Four tones placed by CONTOUR: lit rim, body, mid, shadow crescent.
+    """Four tones banded by how far each cell faces the lamp, not by depth.
 
-    One light, fixed upper-left, for every sprite in the collection. The rim and
-    the crescent both hug the silhouette, so the form turns instead of being
-    sliced in half.
+    Depth-first banding was the first cut and it failed: giving the whole
+    one-pixel rim the brightest tone drew a pale wire around 60% of the
+    silhouette and left the entire interior on one flat mid tone. A ramp that
+    only shows up as an outline is not shading, it is a second outline.
+
+    So `lit` — the dot product with the one lamp — picks the band, and depth
+    does the two jobs a dot product cannot: keep the core shadow ON the contour
+    by pulling the unlit rim one step darker, and stop the highlight from
+    leaking to the edge. That is what makes four colours read as a sphere.
     """
     lo, mid, hi, top = body
     d = _depth(c, lo)
@@ -535,13 +541,15 @@ def _shade(c: Canvas, cx: float, cy: float, rx: float, ry: float, body, lit_bias
         nx = (x + 0.5 - cx) / rx
         ny = (y + 0.5 - cy) / ry
         lit = (nx * LIGHT[0] + ny * LIGHT[1]) / 1.4 + lit_bias
-        depth = d[y][x]
-        if depth <= 1:
-            c.g[y][x] = top if lit > 0.10 else lo
-        elif depth == 2:
-            c.g[y][x] = hi if lit > 0.25 else mid
+        if d[y][x] <= 2:
+            # the shell: darkest tone lives here and only here, as a crescent
+            # hugging the unlit contour. That crescent IS the turn of the form.
+            v = hi if lit > 0.30 else lo if lit < -0.14 else mid
         else:
-            c.g[y][x] = hi if lit > 0.55 else mid
+            # the interior never reaches the darkest tone, so the terminator is
+            # a one-step change instead of a hard diagonal slash across a face
+            v = top if lit > 0.46 else hi if lit > 0.02 else mid
+        c.g[y][x] = v
 
 
 def _horn(c: Canvas, pts, t0, t1):
@@ -635,29 +643,50 @@ def bear() -> Canvas:
     """
     c = Canvas(SPR, SPR)
     cx = SPR / 2.0
-    # ears first, so the skull ellipse drawn over them eats their inner half
+    # ears first and the skull over them, so the skull eats their inner half and
+    # they leave a bump on the silhouette instead of two floating balloons
     for s in (-1, 1):
-        c.disc(cx + s * _u(6.9), _u(8.4), _u(3.0), BODY_0)
-    # skull: wider than tall, jaw squared off by a second box below the brow
-    c.ellipse(cx, _u(15.0), _u(8.6), _u(7.2), BODY_0)
-    c.rect(int(cx - _u(6.6)), int(_u(15.0)), int(_u(13.2)), int(_u(6.4)), BODY_0)
-    c.ellipse(cx, _u(20.4), _u(6.6), _u(3.6), BODY_0)
-    _shade(c, cx, _u(14.6), _u(9.2), _u(8.6), (BODY_0, BODY_1, BODY_2, BODY_3))
+        c.disc(cx + s * _u(7.2), _u(7.6), _u(3.2), BODY_0)
+    # skull: wider than tall, jaw squared off below the brow. A bear is mass.
+    c.ellipse(cx, _u(14.0), _u(9.0), _u(7.4), BODY_0)
+    c.rect(int(cx - _u(7.4)), int(_u(13.0)), int(_u(14.8)), int(_u(7.0)), BODY_0)
+    c.ellipse(cx, _u(19.6), _u(7.4), _u(4.2), BODY_0)
+    _shade(c, cx, _u(13.6), _u(9.6), _u(9.0), (BODY_0, BODY_1, BODY_2, BODY_3))
+    # Ears are re-stated AFTER shading. Shaded as part of the head mass they
+    # sit far enough up-left to catch the full highlight, and the left one then
+    # reads as a pale disc floating off the silhouette. Two fixed tones plus one
+    # lit edge makes them read as the same pair of ears on every card.
     for s in (-1, 1):
-        c.disc(cx + s * _u(7.0), _u(8.2), _u(1.5), HORN_0)
-    # brow: two dark rows, and the scowl comes from them meeting the eye tops
-    for dy in (0, 1):
-        for x in range(int(cx - _u(7)), int(cx + _u(7))):
-            if c.g[int(_u(11.6)) + dy][x] in (BODY_1, BODY_2, BODY_3):
-                c.g[int(_u(11.6)) + dy][x] = BODY_0
-    _eyes(c, cx, int(_u(15)), True)
-    # muzzle: mid-tone, wide and low, with a lit top edge and a broad nose
-    c.ellipse(cx, _u(21.4), _u(4.2), _u(2.9), HORN_0)
-    c.rect(int(cx - _u(2.4)), int(_u(19.2)), int(_u(4.8)), 1, HORN_1)
-    c.rect(int(cx - _u(1.6)), int(_u(19.9)), int(_u(3.2)), 2, INK_DEEP)
+        c.disc(cx + s * _u(7.2), _u(7.6), _u(2.9), BODY_1)
+        c.disc(cx + s * _u(7.2), _u(7.8), _u(1.5), HORN_0)
+        c.disc(cx + s * _u(7.2) - 1, _u(7.6) - 1, _u(1.1), BODY_2)
+    # brow: angled DOWN toward the nose, which is the whole scowl. A level band
+    # run ear to ear is not a brow, it is a visor — that was the first cut.
+    for i in range(int(_u(5.6))):
+        for s in (-1, 1):
+            x = int(cx + s * (i + 1))
+            for dy in (0, 1):
+                yy = int(_u(11.8)) + dy + (1 if i > _u(3.4) else 0)
+                if c.g[yy][x] in (BODY_1, BODY_2, BODY_3):
+                    c.g[yy][x] = BODY_0
+    _eyes(c, cx, int(_u(13.8)), True)
+    # muzzle: one light wedge carrying one dark nose. Any bigger and it is a
+    # beard — that pale blob was what made the first bear read as a mouse.
+    c.ellipse(cx, _u(20.6), _u(3.4), _u(2.4), HORN_0)
+    c.ellipse(cx - 1, _u(20.0), _u(2.4), _u(1.5), HORN_1)
+    c.rect(int(cx - _u(1.8)), int(_u(18.9)), int(_u(3.6)), 2, INK_DEEP)
     c.outline([BODY_0, BODY_1, BODY_2, BODY_3, HORN_0, HORN_1], INK_DEEP)
     c.despeckle(protect=(INK_DEEP, EYE))
+    # A hornless head is shorter than a horned one, so left where it was drawn
+    # the bear sat with four empty rows above it and the bull had none. On a
+    # wall that reads as two different sprite sizes. Lift it onto the bull's
+    # optical centre; the two animals have to look like one collection.
+    _lift(c, 2)
     return c
+
+
+def _lift(c: Canvas, rows: int):
+    c.g = c.g[rows:] + [[TRANSPARENT] * c.w for _ in range(rows)]
 
 
 def creature_for(ret_bps, priced: bool) -> tuple:

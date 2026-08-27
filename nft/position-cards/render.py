@@ -184,24 +184,33 @@ def _return_text(ret_bps: int, priced: bool) -> str:
 
 
 # ── the card ────────────────────────────────────────────────────────────────
-# 64x80 rows, spent deliberately:
-#   0        frame
-#   2-39     creature, 38x38 — the card IS the animal
-#   42-55    return, 2x
-#   57-70    ticker, 2x
-#   72-78    serial + chain (1x)
-#   79       frame
-# The first cut spent 35% of the card on two lines of type and left the animal
-# a third of the height; it read as a label with a mascot. The wordmark came off
-# the face entirely — it survives in <title> and in the metadata, and at 64px
-# the brand is the ART, not five pixels of word. Nor is there room for the grade
-# name, which is the right call: the animal, the accent hue and the sign of the
-# number already carry it, and the metadata carries it exactly.
+# 64x80 rows, spent deliberately. Every gap below is load-bearing:
+#   0        ink frame
+#   1        edition frame (gold only), cols 1 and 62
+#   2-36     creature, 38x38 blitted at row 1 — the card IS the animal
+#   38       rule
+#   40-53    return, 2x
+#   56-69    ticker, 2x        <- two clear rows above, not one
+#   71-77    serial + chain, 1x
+#   78       edition frame (gold only)
+#   79       ink frame
+# Two corrections against the first cut. The edition frame was inset 2, which
+# put its bottom edge on row 77 — straight THROUGH the serial number, so every
+# gold card shipped with a line ruled across "#0001". It now runs at inset 1,
+# which also reads as a heavier gold edge at 190px, where a hairline inset
+# vanishes. And the two 2x lines were one row apart: at thumbnail size that is
+# a quarter of a pixel and the return and the ticker fused into a single slab.
+#
+# The wordmark stays off the face — it survives in <title> and in the metadata,
+# and at 64px the brand is the ART, not five pixels of word. Nor is there room
+# for the grade name, which is the right call: the animal, the accent hue and
+# the sign of the number already carry it, and the metadata carries it exactly.
 
-ROW_SPRITE = 2
-ROW_RETURN = 42
-ROW_TICKER = 57
-ROW_FOOTER = 72
+ROW_SPRITE = 1
+ROW_RETURN = 40
+ROW_TICKER = 56
+ROW_FOOTER = 71
+FOOTER_INSET = 3  # clears the edition frame at col 1 with a pixel to spare
 
 
 def _compose(cfg, ticker, entry, price, rank, gold, minted_at=None):
@@ -229,18 +238,18 @@ def _compose(cfg, ticker, entry, price, rank, gold, minted_at=None):
     # pattern shreds both — the pattern into stray fragments, the type into
     # noise — so the card splits cleanly: patterned field with the animal above,
     # a plate carrying the numbers below.
-    c.rect(0, ROW_RETURN - 3, GRID_W, GRID_H - (ROW_RETURN - 3), BG_0)
+    c.rect(0, ROW_RETURN - 2, GRID_W, GRID_H - (ROW_RETURN - 2), BG_0)
     # inset to clear both frames: a full-width rule had its ends clipped by
     # the gold inner frame, stranding one pixel on each side
-    c.rect(2, ROW_RETURN - 3, GRID_W - 4, 1, BG_2)
+    c.rect(3, ROW_RETURN - 2, GRID_W - 6, 1, BG_2)
 
     # the two things that must survive a 190px thumbnail
     c.text_center(ROW_RETURN, _return_text(ret_bps, priced), TEXT_HI, scale=2, tracking=1)
     c.text_center(ROW_TICKER, ticker, TEXT, scale=2, tracking=1)
 
-    c.text(2, ROW_FOOTER, f"#{rank:04d}", TEXT_DIM)
+    c.text(FOOTER_INSET, ROW_FOOTER, f"#{rank:04d}", TEXT_DIM)
     chain = f"{cfg['collection']['chain']['chain_id']}"
-    c.text(GRID_W - 2 - pa.text_width(chain), ROW_FOOTER, chain, TEXT_DIM)
+    c.text(GRID_W - FOOTER_INSET - pa.text_width(chain), ROW_FOOTER, chain, TEXT_DIM)
 
     # The sprite chops the 1px background patterns into fragments and a few land
     # as single pixels. Repair them inside the background set only — the
@@ -250,7 +259,7 @@ def _compose(cfg, ticker, entry, price, rank, gold, minted_at=None):
     # frame last, so nothing can spill past the card edge
     c.frame(0, 0, GRID_W, GRID_H, INK_DEEP, 1)
     if gold:
-        c.frame(2, 2, GRID_W - 4, GRID_H - 4, EDITION, 1)
+        c.frame(1, 1, GRID_W - 2, GRID_H - 2, EDITION, 1)
 
     return (
         c,
