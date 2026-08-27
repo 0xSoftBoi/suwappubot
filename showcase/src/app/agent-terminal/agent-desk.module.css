@@ -1,0 +1,799 @@
+/* Agent Desk — WebMCP surface. Uses the "summer" token set so it renders as
+   the same brand as the rest of the site. No CSS reset is emitting site-wide
+   (see showcase/CLAUDE.md), so every box sets its own box-sizing/margins. */
+
+.desk,
+.desk *,
+.desk *::before,
+.desk *::after {
+  box-sizing: border-box;
+}
+
+.desk {
+  --ink: var(--suwappu-summer-ink, #17324a);
+  --muted: var(--suwappu-summer-muted, #4f6f7f);
+  --line: var(--suwappu-summer-line, #b9dfe9);
+  --accent: var(--suwappu-summer-accent-deep, #0284c7);
+  --bull: var(--suwappu-summer-bull, #22c55e);
+  --bear: var(--suwappu-summer-bear, #ef4444);
+  --persimmon: var(--suwappu-summer-persimmon, #e58d2b);
+
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 20px 72px;
+  color: var(--ink);
+  font-family: var(--font-archivo, system-ui, sans-serif);
+}
+
+/* ── status bar ───────────────────────────────────────────────── */
+
+.statusBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--suwappu-summer-radius-panel, 12px);
+  background: var(--suwappu-summer-inset-background, #f5fcff);
+}
+
+.pill {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: nowrap;
+}
+
+.pillOn {
+  background: rgba(34, 197, 94, 0.14);
+  color: #14663a;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.pillWait {
+  background: rgba(244, 201, 99, 0.18);
+  color: #7a5410;
+  border: 1px solid rgba(229, 141, 43, 0.35);
+}
+
+.pillOff {
+  background: rgba(79, 111, 127, 0.1);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.statusCopy {
+  flex: 1 1 320px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ── layout ───────────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+/* Mandate + ticket sit side by side; approvals and the log run full width. */
+.grid > :nth-child(3),
+.grid > :nth-child(4) {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid > :nth-child(3),
+  .grid > :nth-child(4) {
+    grid-column: auto;
+  }
+}
+
+.panel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--suwappu-summer-radius-panel, 12px);
+  background: var(--suwappu-summer-panel-background, #fff);
+}
+
+.panelTitle {
+  margin: 0 0 4px;
+  font-family: var(--font-newsreader, Georgia, serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.panelNote {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ── ticket ───────────────────────────────────────────────────── */
+
+.ticketGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .ticketGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field > span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.field input,
+.field select,
+.note {
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--suwappu-summer-radius-control, 8px);
+  background: var(--suwappu-summer-control-background, #fff);
+}
+
+.field input:focus,
+.field select:focus,
+.note:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.primary,
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border-radius: var(--suwappu-summer-radius-control, 8px);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.primary {
+  color: #fff;
+  background: var(--suwappu-summer-button-background, #0ea5e9);
+}
+
+.primary:hover {
+  background: var(--suwappu-summer-button-background-hover, #0284c7);
+}
+
+.ghost {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--suwappu-summer-control-background, #fff);
+}
+
+.ghost:hover {
+  background: var(--suwappu-summer-control-background-hover, #eef9ff);
+}
+
+.primary:disabled,
+.ghost:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── quote ────────────────────────────────────────────────────── */
+
+.quote {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+  padding: 14px;
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: var(--suwappu-summer-inset-background, #f2fbff);
+}
+
+.quote > div {
+  min-width: 0;
+}
+
+.quote dt {
+  margin: 0 0 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.quote dd {
+  margin: 0;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.big {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.tableWrap {
+  margin-top: 18px;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 9px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.table thead th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.finePrint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.error {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border-radius: var(--suwappu-summer-radius-card, 6px);
+  background: rgba(239, 68, 68, 0.09);
+  color: #9a1c1c;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ── proposals ────────────────────────────────────────────────── */
+
+.proposalList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+}
+
+.proposal {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: var(--suwappu-summer-card-background, #fff);
+}
+
+.s_pending {
+  border-left-color: var(--persimmon);
+}
+.s_approved {
+  border-left-color: var(--bull);
+}
+.s_rejected {
+  border-left-color: var(--bear);
+}
+.s_expired {
+  border-left-color: var(--muted);
+  opacity: 0.7;
+}
+
+.proposalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.proposalKind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.proposalStatus {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.proposalLine {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.rationale {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--line);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.decide {
+  margin-top: 12px;
+}
+
+.humanNote {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.handoff {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.handoffTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* ── activity ─────────────────────────────────────────────────── */
+
+.toolChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+
+.toolChips li {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--muted);
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.log li {
+  display: grid;
+  grid-template-columns: 62px 52px minmax(0, auto) minmax(0, 1fr);
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+
+@media (max-width: 560px) {
+  .log li {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+  .logDetail {
+    grid-column: 1 / -1;
+  }
+}
+
+.logTime {
+  color: var(--muted);
+}
+
+.logActor {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.logActor[data-actor='agent'] {
+  color: var(--accent);
+}
+
+.logActor[data-actor='human'] {
+  color: var(--persimmon);
+}
+
+.logLabel {
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.logDetail {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.logError .logDetail,
+.logError .logLabel {
+  color: #9a1c1c;
+}
+
+/* ── marketing sections on the same page ──────────────────────── */
+
+.sectionLead {
+  max-width: 62ch;
+  margin: 0 0 22px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+.cardGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 8px;
+}
+
+.card {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: var(--suwappu-summer-card-background, #fff);
+}
+
+.card h3 {
+  margin: 6px 0 8px;
+  font-size: 17px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.card p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+.promptList {
+  margin: 0 0 20px;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+  max-width: 70ch;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── mandate ──────────────────────────────────────────────────── */
+
+.mandatePanel {
+  border-color: var(--suwappu-summer-line-strong, #42b8d7);
+}
+
+.mandateHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mandateHead > div {
+  min-width: 0;
+}
+
+.budget {
+  margin: 4px 0 16px;
+}
+
+.budgetBar {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(79, 111, 127, 0.14);
+}
+
+.budgetBar > span {
+  display: block;
+  height: 100%;
+  background: var(--suwappu-summer-button-background, #0ea5e9);
+  transition: width 220ms ease;
+}
+
+.budgetCopy {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.budgetCopy strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.mandateList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.mandateList li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mandateList span {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.mandateList strong {
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
+}
+
+/* ── mandate violations + override ────────────────────────────── */
+
+.s_blocked {
+  border-left-color: var(--bear);
+  background: linear-gradient(
+    180deg,
+    rgba(239, 68, 68, 0.05) 0%,
+    var(--suwappu-summer-card-background, #fff) 60%
+  );
+}
+
+.violations {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--suwappu-summer-radius-card, 6px);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.violationsTitle {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9a1c1c;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.violations ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.violations span {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: nowrap;
+}
+
+.overrideCard {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--persimmon);
+  border-radius: var(--suwappu-summer-radius-card, 6px);
+  background: rgba(244, 201, 99, 0.12);
+}
+
+.overrideTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ── plans ────────────────────────────────────────────────────── */
+
+.planSteps {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.planSteps li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.planIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(2, 132, 199, 0.12);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.planNote {
+  color: var(--muted);
+}
+
+.planTotal {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+/* ── mandate amendment diff ───────────────────────────────────── */
+
+.diffList {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--suwappu-summer-radius-card, 6px);
+  background: var(--suwappu-summer-inset-background, #f2fbff);
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.diffList li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diffField {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  min-width: 132px;
+}
+
+.diffFrom {
+  text-decoration: line-through;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.diffTo {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.diffTag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* A loosened rule is the one the human must not skim past. */
+.diffList li[data-direction='looser'] .diffTag {
+  background: rgba(239, 68, 68, 0.14);
+  color: #9a1c1c;
+}
+
+.diffList li[data-direction='tighter'] .diffTag {
+  background: rgba(34, 197, 94, 0.16);
+  color: #14663a;
+}
+
+.diffList li[data-direction='changed'] .diffTag {
+  background: rgba(79, 111, 127, 0.12);
+  color: var(--muted);
+}
