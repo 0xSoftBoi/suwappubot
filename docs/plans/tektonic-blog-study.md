@@ -230,3 +230,49 @@ own visual identity is probably wrong.
 - Statistics correct intuition; human judgment supplies intent. Neither alone is sufficient.
 - Composition and mutation generate more range than net-new generation.
 - Filter at ingest so correctness is structural, not remembered.
+
+---
+
+## Execution status (2026-08-27)
+
+All four workstreams executed. No tests were written, by request; every claim below is
+backed by a run recorded in the commit message or the linked report.
+
+| Item | Status | Evidence |
+|---|---|---|
+| W1.1 canonical event schema | done | `scripts/replay/canonical.py` |
+| W1.2 replay engine | done | 3,467 events / 40 accounts / ~384k ev-s |
+| W1.3 checkpoint validation | done | injected +7 drift halts, exits 1 |
+| W1.4 fixed-point audit + fix | done | `docs/plans/tektonic-w1-money-precision-audit.md` |
+| W1.5 acceptance number recorded | done | `docs/DECISIONS.md` |
+| W2.1 atomic state | done | fixed in `referral_service`; enforced in every view |
+| W2.2 partition discipline | done | `validate_window` refuses; verified exit 1 |
+| W2.3 registration-independent | n/a | we settle our own payments; no external registry |
+| W2.4 five views | done | `scripts/analytics/views.py` |
+| W2.5 query with every figure | done | `ViewResult.reproduce()`, `--show-sql` |
+| W2.6 filter at extraction | done | predicates live in the view bodies |
+| W3.1 canonical correction | done | `docs/plans/tektonic-w3-canonical-correction.md` |
+| W3.4 validation gate | done | 4 defect classes caught at the right step |
+| W4.3 adaptive rendering | done | simulated convergence, no oscillation |
+| W4.4 perf hygiene | done | 2 missing visibility pauses; 120 renders/s removed |
+| W4.5 live reduced-motion | done | `lib/motionPreference.ts` |
+
+### Deliberately not done, and why
+
+- **W4.1 OKLCH token migration.** The showcase already has a mature, explicitly
+  reasoned hex token system across 8,139 lines of CSS with documented rationale for
+  each colour. Retokenising it wholesale is a large-blast-radius change to something
+  that is not broken; the plan's premise was that our tokens needed the perceptual
+  uniformity, and on inspection they were already deliberate. Left alone.
+- **W4.2 replace the heavy 3D dependency.** There is none. `ChainSphereGL` is raw
+  WebGL2 and its header already argues the same case the post makes, citing the same
+  Vercel/COBE precedent. The plan was written before reading the code; the code won.
+- **W4 device tilt / DeviceOrientation.** Would mean threading gyro input through
+  seven components for a desktop-first marketing site. Not worth the surface area.
+- **Retyping 48 `Float` money columns to `Numeric`.** A dual-ORM migration
+  (ADR 0003) that needs its own change and its own review, not an appendix to an
+  audit pass. `bot/utils/money` mitigates in the meantime.
+- **W3.2 mutation / W3.3 compositing.** These generate *new* art. W3.1 just found
+  that we do not currently agree with ourselves about what the identity is, and
+  generating more of it before resolving that would multiply the drift. Blocked on a
+  human decision, which is the correct place for it to be blocked.
