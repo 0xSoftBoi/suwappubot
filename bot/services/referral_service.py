@@ -434,13 +434,23 @@ class ReferralService:
                 # NOTE: this guard may prevent reward recording even though a rebate slot
                 # was already consumed (by consume_referee_rebate above). That is intentional —
                 # the rebate is on the CHARGED FEE, not on the reward earned by the referrer.
-                from bot.models.swap import SwapTransaction
+                from bot.models.swap import SwapStatus, SwapTransaction
 
+                # MONEY-PATH / atomic state: only swaps that actually settled count
+                # toward the gate. "submitted" means broadcast but unconfirmed — it can
+                # still revert, and crediting it lets a referee cross the payout
+                # threshold on volume that never existed, unlocking referrer rewards
+                # that then have to be clawed back or eaten.
+                #
+                # This is the constraint Tektonic enforce at ingest (tx.err = '' on
+                # Solana, receipt_status = 1 on Base) to get "exactly 0.00% inflation
+                # from reverted or failed executions". A threshold computed over
+                # in-flight rows is inflated by construction.
                 referee_volume = (
                     session.query(func.sum(SwapTransaction.from_amount_usd))
                     .filter(
                         SwapTransaction.user_id == referee_id,
-                        SwapTransaction.status.in_(["completed", "submitted"]),
+                        SwapTransaction.status == SwapStatus.COMPLETED.value,
                         SwapTransaction.from_amount_usd.isnot(None),
                     )
                     .scalar()
