@@ -155,6 +155,22 @@ export function toBaseUnits(amount: string, decimals: number): string {
 }
 
 /**
+ * Base units -> human-readable, in integer math for the same reason as above.
+ *
+ * The mirror of toBaseUnits: Li.Fi answers in base units, and a UI that prints
+ * them raw shows "122966842 USDC" for what is actually 122.97. Trailing zeros
+ * are trimmed so the number reads the way a person would write it.
+ */
+export function fromBaseUnits(amount: string, decimals: number): string {
+	if (!/^\d+$/.test(amount)) return amount
+	if (decimals === 0) return amount
+	const padded = amount.padStart(decimals + 1, '0')
+	const whole = padded.slice(0, -decimals)
+	const frac = padded.slice(-decimals).replace(/0+$/, '')
+	return frac ? `${whole}.${frac}` : whole
+}
+
+/**
  * Resolves a token's decimals from Li.Fi. The preview endpoint takes amounts
  * the way a person says them ("0.05"), but Li.Fi wants base units, and the
  * conversion is meaningless without decimals for that exact token on that exact
@@ -466,8 +482,13 @@ publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
 				fromAmountBaseUnits: quote.fromAmount,
 				fromTokenDecimals,
 				fromAmountUsd: quote.fromAmountUsd,
-				toAmount: quote.toAmount,
-				toAmountMin: quote.toAmountMin,
+				// Same reason fromAmount is echoed human-readable: base units in a
+				// UI read as absurd numbers, and the desk shows this to a person
+				// who is deciding whether to approve it.
+				toAmount: fromBaseUnits(quote.toAmount, quote.toToken.decimals),
+				toAmountMin: fromBaseUnits(quote.toAmountMin, quote.toToken.decimals),
+				toAmountBaseUnits: quote.toAmount,
+				toAmountMinBaseUnits: quote.toAmountMin,
 				toAmountUsd: quote.toAmountUsd,
 				exchangeRate: quote.exchangeRate,
 				priceImpact: quote.priceImpact,
