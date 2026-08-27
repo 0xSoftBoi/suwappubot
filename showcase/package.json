@@ -14,6 +14,9 @@
     "start": "next start",
     "lint": "next lint",
     "webmcp:smoke": "node scripts/webmcp-smoke.mjs",
+    "webmcp:schemas": "node scripts/export-tool-schemas.mjs",
+    "webmcp:evals": "node scripts/evals-smoke.mjs",
+    "webmcp:evals:llm": "npx --yes webmcp-evals@0.0.3 local -t webmcp/tools.schema.json -e webmcp/evals.json",
     "qa:browserbase": "node scripts/browserbase-production-qa.mjs",
     "test:docs": "bunx playwright test",
     "test:docs:ui": "bunx playwright test --ui"

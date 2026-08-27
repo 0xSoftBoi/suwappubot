@@ -125,6 +125,43 @@ that the handoff appears only after approval and refuses a replay, that a plan's
 headroom already reflects the earlier approval, and that the receipt preserves
 the rationale, the breach and the override argument.
 
+## Evals: measuring whether an agent can actually use this
+
+Claiming good tool design is cheap. The Chrome team ships
+[`webmcp-evals`](https://github.com/GoogleChromeLabs/webmcp-tools/tree/main/webmcp-evals),
+an official harness that puts a real LLM in front of a tool schema and checks
+that a natural-language request produces the *right tool call with the right
+arguments*. We wrote a suite for it.
+
+- `showcase/webmcp/tools.schema.json` — the 13 static tool schemas, **exported
+  from the live page** by `bun run webmcp:schemas`, never hand-written, so the
+  eval target cannot drift from what an agent really sees.
+- `showcase/webmcp/evals.json` — 12 cases in Google's format, written as things
+  a person would actually say ("What am I actually letting you do here?",
+  "Don't put it in front of me yet, just check").
+
+Two of those cases are the ones that matter, because they test *restraint*
+rather than capability:
+
+| Case | What it proves |
+| --- | --- |
+| "Would swapping 2 ETH fit my rules? Don't put it in front of me yet, just check." | The agent reaches for `check_mandate`, not `propose_swap` — it dry-runs silently instead of spending the human's attention. |
+| "Give me the whole thing as one approval, not two." | The agent reaches for `propose_plan` rather than firing two proposals. |
+
+```bash
+bun run webmcp:schemas     # re-export schemas from the live page
+bun run webmcp:evals       # deterministic: execute every case for real, no API key
+bun run webmcp:evals:llm   # Google's LLM harness (needs OPENAI_API_KEY or GOOGLE_AI)
+```
+
+`webmcp:evals` resolves each case's matcher constraints to concrete arguments
+and invokes the tool on the live page, asserting it exists, accepts the shape
+and returns without error — currently **12/12 clean**. It means `evals.json`
+cannot rot: rename a tool or tighten a schema and CI fails long before an agent
+meets it. The LLM half — does the *model* pick the right tool — needs a model
+key and has not been run in this environment; that is stated rather than
+implied.
+
 ## Spec notes
 
 The `modelContext` getter moved from `navigator` to `document` in the May 2026
