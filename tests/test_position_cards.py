@@ -32,6 +32,7 @@ def _load(name, path):
 
 render = _load("positions_render", os.path.join(POS, "render.py"))
 deploy_args = _load("positions_args", os.path.join(POS, "build_deploy_args.py"))
+pa = render.pa  # the pixel-art engine (nft/position-cards/pixelart.py)
 
 
 def registry():
@@ -142,33 +143,46 @@ def test_contract_ticker_count_matches_collection():
 
 
 def test_return_and_grade_track_real_prices():
+    """The grade and the creature must move with the REAL price, not a fixed
+    label. The old plate proved this by grepping the struck seal text; a
+    pixel card draws its return as a bitmap glyph rather than an SVG text
+    node, so there is no substring left to grep. Assert against the same
+    underlying numbers instead, through the traits reader and the metadata,
+    both of which resolve through the one shared `_compose`."""
     cfg, reg = render.load_config(), render.load_registry()
-    svg = render.render_card(cfg, reg, 1, "NVDA", entry=100.0, price=200.0, rank=7)
-    assert "+100.0%" in svg
-    # The grade is STRUCK INTO THE SEAL, so it is set in caps. Compare
-    # case-insensitively: the durable property is that the card states its
-    # grade, not which case the seal happens to use.
-    assert "multiple" in svg.lower()  # 10,000 bps
-    down = render.render_card(cfg, reg, 2, "NVDA", entry=100.0, price=50.0, rank=8)
-    assert "−50.0%" in down
-    assert "underwater" in down.lower()
+    up = render.card_traits(cfg, reg, 1, "NVDA", entry=100.0, price=200.0, rank=7)
+    assert up["grade"] == "Multiple"  # +10,000 bps
+    assert up["creature"] == "Bull"
+    meta_up = render.build_metadata(cfg, reg, 1, "NVDA", 100.0, 200.0, 7)
+    ret_up = next(a for a in meta_up["attributes"] if a["trait_type"] == "Return %")
+    assert ret_up["value"] == 100.0
+
+    down = render.card_traits(cfg, reg, 2, "NVDA", entry=100.0, price=50.0, rank=8)
+    assert down["grade"] == "Underwater"
+    assert down["creature"] == "Bear"
+    meta_down = render.build_metadata(cfg, reg, 2, "NVDA", 100.0, 50.0, 8)
+    ret_down = next(a for a in meta_down["attributes"] if a["trait_type"] == "Return %")
+    assert ret_down["value"] == -50.0
 
 
 def test_unpriced_card_claims_no_return():
+    """An unpriced mint stamped no basis on-chain, so the card must not imply
+    a return of any kind — not a fabricated 0%, not a grade, not an animal
+    earned by a position that never existed. `_compose` is the single place
+    the return/grade/creature are derived, so read its state directly rather
+    than grepping SVG text that pixel art no longer emits."""
     cfg, reg = render.load_config(), render.load_registry()
-    svg = render.render_card(cfg, reg, 3, "TSLA", entry=None, price=None, rank=99)
-    assert "unpriced" in svg.lower()
-    assert "RETURN SINCE ENTRY" not in svg, "unpriced card must not show a return figure"
-    # No basis was stamped, so the plate must say so rather than imply a flat 0%.
-    assert "NO BASIS STAMPED" in svg
-    # Look for a RENDERED figure, not any '%' anywhere: startOffset="50%" is an
-    # SVG attribute and matched the naive check, which is a false positive, not
-    # a leak. Percentages only ever appear as the hero numeral's text node.
-    import re
+    _, _, unpriced_state = render._compose(cfg, "TSLA", None, None, 99, False)
+    assert unpriced_state["priced"] is False
+    assert unpriced_state["ret_bps"] == 0, "an unpriced card must not invent a return figure"
+    assert unpriced_state["grade"]["name"] == "Unpriced"
+    assert unpriced_state["creature"] == "Dormant", "unpriced must not earn a directional animal"
 
-    assert not re.search(r">[+\u2212-]?\d+(\.\d+)?%<", svg), "a return figure leaked"
-    priced = render.render_card(cfg, reg, 4, "TSLA", entry=100.0, price=130.0, rank=99)
-    assert re.search(r">[+\u2212-]?\d+(\.\d+)?%<", priced), "the check cannot detect a figure"
+    _, _, priced_state = render._compose(cfg, "TSLA", 100.0, 130.0, 99, False)
+    assert priced_state["priced"] is True
+    assert priced_state["ret_bps"] == 3000
+    assert priced_state["creature"] == "Bull"
+
     meta = render.build_metadata(cfg, reg, 3, "TSLA", None, None, 99)
     assert meta["name"].endswith("Unpriced")
     assert all(a["trait_type"] != "Return %" for a in meta["attributes"])
@@ -1232,15 +1246,21 @@ def test_every_plate_is_distinct_even_at_identical_price_and_grade():
 
 
 def test_the_plate_carries_no_invented_price_history():
-    """The card has exactly two real numbers — the basis stamped at mint and the
-    live oracle. The previous collection drew a fake random-walk chart of a
-    trade that never happened; nothing here may reintroduce one."""
+    """The card has exactly two real numbers feeding it — the basis stamped
+    at mint and the live oracle price — and nothing else. The previous
+    collection drew a fake random-walk chart of a trade that never happened;
+    a pixel-art card that grew one back would show up as extra plotted
+    geometry. Pixel art draws numbers, but never a SERIES: at most one
+    <path> per palette colour (the palette ceiling), never a polyline of
+    plotted points."""
     cfg, reg = render.load_config(), render.load_registry()
     svg = render.render_card(cfg, reg, 1, "NVDA", 92.11, 219.32, 1)
-    assert "92.11" in svg and "219.32" in svg
     # a fabricated series would need many plotted points in a polyline
     assert "<polyline" not in svg
-    assert svg.count("<path") <= 6, "unexpected path count — is something drawing a series?"
+    traits = render.card_traits(cfg, reg, 1, "NVDA", 92.11, 219.32, 1)
+    # exactly one <path> per colour actually used — never more elements than
+    # colours, which is what a plotted price series would add
+    assert svg.count("<path") == traits["colors_used"] <= pa.PALETTE_CEILING
 
 
 def test_no_external_resources_are_referenced():
@@ -1263,38 +1283,60 @@ def test_no_external_resources_are_referenced():
 
 def test_the_engraving_survives_a_thumbnail():
     """Almost nobody meets an NFT at full size — they meet forty of them at
-    ~190px on a marketplace wall. The first cut stroked the rosette at 0.7px on
-    a 1000px plate, which resolves to 0.13px in a grid cell: the entire
-    engraving vanished and every card read as a black rectangle with a word and
-    a number on it."""
-    import re
-
+    ~190px on a marketplace wall. At that size, 16 SVG units per logical
+    pixel resolves to roughly 3 screen px (190/1024 * 16 ~= 3). The first
+    engraved-plate cut stroked a rosette at 0.13px effective and the whole
+    thing vanished; pixel art's equivalent failure is a creature too small
+    to read, or body tones too close to separate once each logical pixel is
+    only ~3 screen px. Assert both: the animal occupies a meaningful share
+    of the card, and its body tones are measurably distinguishable."""
     cfg, reg = render.load_config(), render.load_registry()
-    svg = render.render_card(cfg, reg, 1, "NVDA", 100.0, 200.0, 1)
-    widths = [float(w) for w in re.findall(r'stroke-width="([\d.]+)"', svg)]
-    engraving = [w for w in widths if w >= 1.5]
-    assert engraving, "no stroke heavy enough to survive a 5x downscale"
-    # a 190px cell is a 5.26x reduction; 1.5px is the floor that stays visible
-    assert max(widths) >= 2.4
+    canvas, palette, _ = render._compose(cfg, "NVDA", 100.0, 200.0, 1, False)
+    creature_vals = {pa.BODY_0, pa.BODY_1, pa.BODY_2, pa.BODY_3, pa.HORN_0, pa.HORN_1, pa.EYE}
+    creature_px = sum(1 for row in canvas.g for v in row if v in creature_vals)
+    total_px = canvas.w * canvas.h
+    assert creature_px / total_px > 0.05, "the creature is too small to survive a thumbnail"
+    # the shadow and the highlight of the body ramp must read as different
+    # tones, not collapse into one blob once each logical pixel is ~3px
+    assert render.contrast(palette[pa.BODY_0], palette[pa.BODY_3]) >= 1.5
 
 
 def test_the_field_colour_comes_from_the_sector():
-    """Ten sectors give the collection ten families, so a wall of 10,000 sorts
-    by eye instead of reading as one repeated black rectangle. Two tickers in
-    different sectors at an IDENTICAL return must not share a plate colour."""
+    """Ten sectors give the collection ten families, so a wall of cards
+    sorts by eye instead of reading as one repeated field. The literal hex
+    no longer appears anywhere in the SVG — sector_colors is now a HUE
+    anchor fed to build_palette, not ink — so assert via hue proximity: the
+    background hue a sector produces must sit near that sector's own hue,
+    and two different sectors at an IDENTICAL return must not converge on
+    the same ground hue."""
+
+    def hue_diff(h1, h2):
+        d = abs(h1 - h2) % 360
+        return min(d, 360 - d)
+
     cfg, reg = render.load_config(), render.load_registry()
-    a = render.render_card(cfg, reg, 1, "NVDA", 100.0, 130.0, 1)  # Semiconductors
-    b = render.render_card(cfg, reg, 1, "IONQ", 100.0, 130.0, 1)  # Quantum
-    assert cfg["sector_colors"]["Semiconductors"] in a
-    assert cfg["sector_colors"]["Quantum"] in b
-    assert a.split('id="plate"')[1][:200] != b.split('id="plate"')[1][:200]
+    sem_hue = render._hue_of(cfg["sector_colors"]["Semiconductors"])
+    qua_hue = render._hue_of(cfg["sector_colors"]["Quantum"])
+    _, pal_a, _ = render._compose(cfg, "NVDA", 100.0, 130.0, 1, False)  # Semiconductors
+    _, pal_b, _ = render._compose(cfg, "IONQ", 100.0, 130.0, 1, False)  # Quantum
+    bg_hue_a = render._hue_of(pal_a[pa.BG_0])
+    bg_hue_b = render._hue_of(pal_b[pa.BG_0])
+
+    # build_palette shifts the background hue by a fixed ramp amount, so the
+    # card's ground must stay close to its OWN sector's hue anchor
+    assert hue_diff(sem_hue, bg_hue_a) <= 30, "background hue drifted from its own sector"
+    assert hue_diff(qua_hue, bg_hue_b) <= 30, "background hue drifted from its own sector"
+    # and two different sectors must not land on the same ground colour
+    assert hue_diff(bg_hue_a, bg_hue_b) > 30, "different sectors converged on one field colour"
 
 
 def test_the_output_space_is_structurally_combinatorial_not_one_recoloured_plate():
-    """Long-form work has nowhere to hide: a collector sees the whole space, so
-    one composition emitted 10,000 times reads as an edition that was too large.
-    Every engraving family, composition and ink must actually appear, and no
-    single mode may dominate its axis."""
+    """Long-form work has nowhere to hide: a collector sees the whole space,
+    so one composition emitted thousands of times reads as an edition that
+    was too small a set of ideas. Every creature, background pattern and
+    sector must actually appear across the run, patterns must not skew
+    toward one background, and the paid Gold edition must show up as a real
+    second axis — not one plate recoloured for the whole collection."""
     import collections
     import json
 
@@ -1307,43 +1349,49 @@ def test_the_output_space_is_structurally_combinatorial_not_one_recoloured_plate
     n = 3000
     for i in range(1, n + 1):
         r = ratios[i % len(ratios)]
+        gold = i % 8 == 0
         t = render.card_traits(
-            cfg, reg, i, order[i % len(order)], 100.0 / r if r else None, 100.0 if r else None, i
+            cfg,
+            reg,
+            i,
+            order[i % len(order)],
+            100.0 / r if r else None,
+            100.0 if r else None,
+            i,
+            gold=gold,
         )
-        seen[("eng", t["engraving"])] += 1
-        seen[("comp", t["composition"])] += 1
-        seen[("ink", t["ink"])] += 1
-        seen[("proof", t["proof"])] += 1
+        seen[("creature", t["creature"])] += 1
+        seen[("pattern", t["pattern"])] += 1
+        seen[("sector", t["sector"])] += 1
+        seen[("gold", t["gold"])] += 1
 
-    assert {k[1] for k in seen if k[0] == "eng"} == set(render.ENGRAVINGS)
-    assert {k[1] for k in seen if k[0] == "comp"} == set(render.COMPOSITIONS)
-    assert {k[1] for k in seen if k[0] == "ink"} == set(render.INKS)
-    # no engraving family may run away with the collection
-    for fam in render.ENGRAVINGS:
-        share = seen[("eng", fam)] / n
-        assert 0.10 < share < 0.25, f"{fam} is {share:.0%} of the space"
-    # the proof plate must be rare but real
-    assert 0.005 < seen[("proof", True)] / n < 0.08
+    # every structural axis must be fully populated, not partially rolled
+    assert {k[1] for k in seen if k[0] == "creature"} == set(render.CREATURES)
+    assert {k[1] for k in seen if k[0] == "pattern"} == set(pa.PATTERNS)
+    assert {k[1] for k in seen if k[0] == "sector"} == set(cfg["sectors"])
+    assert seen[("gold", True)] > 0 and seen[("gold", False)] > 0, "gold never appears as an axis"
+
+    # patterns are hash-derived and must not skew toward one background
+    for pat in pa.PATTERNS:
+        share = seen[("pattern", pat)] / n
+        assert 0.10 < share < 0.30, f"{pat} background is {share:.0%} of the space"
 
 
 def test_the_loudest_composition_has_to_be_earned():
-    """Structure is drawn from what the token IS, and the position biases the
-    draw — a losing plate cannot buy the full-bleed layout."""
+    """The card's loudest signal — which animal it draws — has to be earned
+    by the position, never bought or rolled: no seed can turn a real loss
+    into a Bull, and no seed can turn a real >=200bps gain into a Bear.
+    Flat sits strictly between the two and never reaches either extreme."""
     cfg, reg = render.load_config(), render.load_registry()
     for tid in range(1, 400):
-        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 60.0, tid)
-        assert t["composition"] in ("medallion", "band"), t
-    # and a flat position gets the quietest plate of all
+        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 60.0, tid)  # -40%, a real loser
+        assert t["creature"] == "Bear", t
+    for tid in range(1, 400):
+        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 900.0, tid)  # +800%, a real runner
+        assert t["creature"] == "Bull", t
     for tid in range(1, 200):
-        assert render.card_traits(cfg, reg, tid, "NVDA", 100.0, 100.05, tid)["composition"] == (
-            "medallion"
-        )
-    # while a real runner can reach every composition
-    reached = {
-        render.card_traits(cfg, reg, t, "NVDA", 100.0, 900.0, t)["composition"]
-        for t in range(1, 400)
-    }
-    assert reached == set(render.COMPOSITIONS)
+        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 100.05, tid)  # +5bps, flat
+        assert t["creature"] == "Flat", t
 
 
 def test_every_plate_clears_a_legibility_floor():
@@ -1370,35 +1418,47 @@ def test_every_plate_clears_a_legibility_floor():
 
 
 def test_structure_is_derived_from_the_token_not_rolled():
-    """Same ticker, rank and basis must always resolve to the same plate; change
-    any one of them and the structure may move. This is what makes the engraving
-    evidence rather than a trait roll."""
+    """The background pattern is a deterministic hash of (ticker, rank,
+    entry price) — the same call always resolves to the same pattern, and
+    moving any one of the three inputs can move it. This is what makes the
+    pattern evidence of which token you hold rather than a trait roll."""
     cfg, reg = render.load_config(), render.load_registry()
     a = render.card_traits(cfg, reg, 42, "NVDA", 100.0, 300.0, 42)
-    assert a == render.card_traits(cfg, reg, 42, "NVDA", 100.0, 300.0, 42)
-    changed = {
-        tuple(sorted(render.card_traits(cfg, reg, t, "NVDA", 100.0, 300.0, t).items()))
-        for t in range(1, 60)
+    assert a == render.card_traits(cfg, reg, 42, "NVDA", 100.0, 300.0, 42), "not deterministic"
+
+    patterns_by_rank = {
+        render.card_traits(cfg, reg, t, "NVDA", 100.0, 300.0, t)["pattern"] for t in range(1, 60)
     }
-    assert len(changed) > 12, "rank does not move the structure"
+    assert len(patterns_by_rank) > 1, "rank never moves the pattern"
+
+    patterns_by_entry = {
+        render.card_traits(cfg, reg, 42, "NVDA", entry, 300.0, 42)["pattern"]
+        for entry in (10.0, 25.0, 50.0, 75.0, 100.0, 150.0, 200.0)
+    }
+    assert len(patterns_by_entry) > 1, "entry price never moves the pattern"
+
+    # the seed feeding the pattern is the documented hash of the token's own
+    # identity, not an independent per-render roll
+    assert render._seed("NVDA", 42, 100.0) == render._seed("NVDA", 42, 100.0)
+    assert render._seed("NVDA", 42, 100.0) != render._seed("NVDA", 43, 100.0)
 
 
 def test_the_engraving_never_climbs_into_the_masthead():
-    """A big winner both rises and grows; unclamped the two compounded until the
-    engraving ran up through the issuer line."""
-    import re
-
+    """A big winner both rises and grows; unclamped the two could compound
+    until the creature intruded into the data plate below it. There is no
+    masthead any more — the data plate carries the return, ticker and
+    footer — so assert directly against the grid that no creature colour
+    ever appears at or below where the data plate begins, at any return
+    magnitude."""
     cfg, reg = render.load_config(), render.load_registry()
+    creature_vals = {pa.BODY_0, pa.BODY_1, pa.BODY_2, pa.BODY_3, pa.HORN_0, pa.HORN_1, pa.EYE}
     for ratio in (0.2, 0.5, 1.0, 1.5, 3, 6, 12, 40):
-        svg = render.render_card(cfg, reg, 1, "SPCX", 100.0, 100.0 * ratio, 1)
-        clip = re.search(r'<clipPath id="cut">(.*?)</clipPath>', svg).group(1)
-        for cy_, r_ in re.findall(r'<circle cx="[\d.-]+" cy="([\d.]+)" r="([\d.]+)"', clip):
-            assert float(cy_) - float(r_) > 366, f"clip reached {float(cy_) - float(r_):.0f}"
-        for y_, h_ in re.findall(r'<rect x="[\d.-]+" y="([\d.-]+)"[^/]*height="([\d.]+)"', clip):
-            assert float(y_) > 60, f"band clip started at {y_}"
-
-
-# ── the card is a brand surface, not a mood board ────────────────────────────
+        canvas, _, _ = render._compose(cfg, "SPCX", 100.0, 100.0 * ratio, 1, False)
+        for y in range(render.ROW_RETURN - 3, canvas.h):
+            for x in range(canvas.w):
+                assert (
+                    canvas.g[y][x] not in creature_vals
+                ), f"creature colour leaked into the data plate at row {y}, ratio {ratio}"
 
 
 def test_the_plate_uses_the_real_brand_tokens_and_cannot_drift():
@@ -1435,52 +1495,87 @@ def test_the_plate_uses_the_real_brand_tokens_and_cannot_drift():
 
 
 def test_the_default_plate_is_dark_and_the_gilt_proof_is_rare():
-    """The collection is a luxury card in the Amex Centurion / Robinhood Gold
-    lineage: the default plate is matte near-black with the sector anodised in,
-    and the RARE state is the ivory Gilt proof struck in dark ink. (This is the
-    second deliberate inversion of this axis — the light-default build read as
-    stationery, not as a card you'd hand across a table.)"""
+    """The collection is a luxury card: the default plate is matte
+    near-black with the sector's hue anodised in, and FOUNDERS' GOLD is a
+    second, visibly distinct palette a holder pays for and mints
+    explicitly — not a rare trait rolled onto the standard plate. (The old
+    engraved design's rare state, the Gilt proof, WAS a roll on the same
+    plate; Gold here is a purchased edition axis, so its rarity is enforced
+    by price, not dice.)"""
     cfg, reg = render.load_config(), render.load_registry()
-    light = dark = 0
-    for tid in range(1, 400):
-        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 130.0, tid)
-        pal = render.palette(
-            cfg, cfg["sector_colors"]["Semiconductors"], "#5da97f", 3000, True, t["proof"]
-        )
-        if render._lum(pal["field"]) > 0.5:
-            light += 1
-        else:
-            dark += 1
-    assert dark > light * 8, f"{light} light of {light + dark} — the dark plate is not the default"
-    assert light > 0, "the Gilt proof never appears"
+    for tid in range(1, 50):
+        _, pal, _ = render._compose(cfg, "NVDA", 100.0, 130.0, tid, False)
+        assert render._lum(pal[pa.BG_0]) < 0.25, "the standard plate is not dark"
+
+    # gold is a purchased stamp: nothing in the position or the seed can turn
+    # it on, only the caller explicitly asking for it can
+    for tid in range(1, 200):
+        t = render.card_traits(cfg, reg, tid, "NVDA", 100.0, 130.0, tid, gold=False)
+        assert t["gold"] is False
+
+    # and when it IS purchased, it reads as a different object, not a recolour
+    def _rgb_dist(a, b):
+        ar, ag, ab = pa.hex_to_rgb(a)
+        br, bg, bb = pa.hex_to_rgb(b)
+        return ((ar - br) ** 2 + (ag - bg) ** 2 + (ab - bb) ** 2) ** 0.5
+
+    for ticker in ("NVDA", "IONQ", "GME", "SPY", "USAR"):
+        _, standard_pal, _ = render._compose(cfg, ticker, 100.0, 130.0, 1, False)
+        _, gold_pal, _ = render._compose(cfg, ticker, 100.0, 130.0, 1, True)
+        assert _rgb_dist(standard_pal[pa.BODY_1], gold_pal[pa.BODY_1]) > 30, ticker
 
 
 def test_the_metal_is_earned_by_rank_and_the_mark_stays_brand_pink():
-    """Status is carried by struck metal — gold for Founder, platinum for
-    Early, graphite otherwise — and the one saturated element on the plate is
-    the small pink Suwappu mark."""
+    """Struck metal and the pink Suwappu mark are gone from the card FACE
+    now that the card is pixel art, but the underlying claim has to
+    survive the rewrite: status is earned by mint rank, it is a separate
+    axis from the paid Gold edition, and buying Gold neither grants nor
+    erases a rank badge it was not earned."""
     cfg, reg = render.load_config(), render.load_registry()
-    up = render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 1)
-    assert cfg["brand"]["accent"] in up, "the Suwappu mark is not in brand pink"
-    sector = cfg["sector_colors"]["Semiconductors"]
-    assert render.metal_for("Founder", sector) == render.GOLD
-    assert render.metal_for("Early", sector) == render.PLATINUM
-    base = render.metal_for(None, sector)
-    assert base not in (render.GOLD, render.PLATINUM)
-    # the founder card is literally furnished in gold; a public one is not
-    assert render.GOLD in render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 1)
-    assert render.GOLD not in render.render_card(cfg, reg, 1, "NVDA", 100.0, 400.0, 9000)
-    # and the gain numeral still clears the floor on the dark ground
-    pal = render.palette(cfg, sector, "#59c19a", 30000, True, False)
-    assert render.contrast(pal["hero"], pal["field"]) >= 4.0
+    assert render.badge_for(cfg, 1) == "Founder"
+    assert render.badge_for(cfg, 222) == "Founder"
+    assert render.badge_for(cfg, 223) == "Early"
+    assert render.badge_for(cfg, 888) == "Early"
+    assert render.badge_for(cfg, 889) is None
+
+    founder_meta = render.build_metadata(cfg, reg, 1, "NVDA", 100.0, 400.0, 1)
+    badges = [a["value"] for a in founder_meta["attributes"] if a["trait_type"] == "Badge"]
+    assert badges == ["Founder"]
+
+    public_meta = render.build_metadata(cfg, reg, 1, "NVDA", 100.0, 400.0, 9000)
+    assert all(a["trait_type"] != "Badge" for a in public_meta["attributes"])
+
+    # buying gold is a separate axis: it never grants or removes a rank badge
+    gold_founder_meta = render.build_metadata(cfg, reg, 1, "NVDA", 100.0, 400.0, 1, gold=True)
+    gold_badges = [
+        a["value"] for a in gold_founder_meta["attributes"] if a["trait_type"] == "Badge"
+    ]
+    assert gold_badges == ["Founder"]
+    gold_public_meta = render.build_metadata(cfg, reg, 1, "NVDA", 100.0, 400.0, 9000, gold=True)
+    assert all(a["trait_type"] != "Badge" for a in gold_public_meta["attributes"])
+    edition = [a["value"] for a in gold_public_meta["attributes"] if a["trait_type"] == "Edition"]
+    assert edition == ["Founders' Gold"]
 
 
 def test_the_palette_has_exactly_one_implementation():
-    """render_card and card_traits each computed the palette independently, so
-    the quality gate was measuring colours the renderer had stopped using."""
+    """card_traits and render_card each computed the palette independently
+    before this, so the quality gate (the sweep's contrast/orphan checks)
+    was measuring colours the actual SVG had stopped using. Both must go
+    through the one shared `_compose`, which is the only place
+    `build_palette` may be called, so a quality gate can never measure a
+    palette the card stopped using."""
     src = open(os.path.join(REPO, "nft", "position-cards", "render.py")).read()
-    assert src.count("def palette(") == 1
-    body = src[src.index("def card_traits(") : src.index("def render_card(")]  # noqa: E203
-    assert "palette(cfg," in body, "card_traits does not use the shared palette"
-    rc = src[src.index("def render_card(") :]  # noqa: E203
-    assert "palette(cfg," in rc, "render_card does not use the shared palette"
+    assert src.count("def _compose(") == 1
+
+    body = src[src.index("def card_traits(") : src.index("def render_card(")]
+    assert "_compose(" in body, "card_traits does not go through the shared _compose"
+
+    rc = src[src.index("def render_card(") :]
+    assert "_compose(" in rc, "render_card does not go through the shared _compose"
+
+    # and build_palette (the actual colour engine) is called from nowhere
+    # else in this file — neither reader nor renderer may bypass _compose
+    compose_src = src[src.index("def _compose(") : src.index("def card_traits(")]
+    assert "build_palette(" in compose_src
+    non_compose_src = src.replace(compose_src, "")
+    assert "build_palette(" not in non_compose_src, "build_palette is called outside _compose"
