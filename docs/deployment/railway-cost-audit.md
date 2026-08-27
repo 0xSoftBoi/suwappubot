@@ -363,6 +363,34 @@ without silently stopping every background loop in dev. Deploys were skipped
 deliberately so production does not take an unscheduled restart; both values match the
 current effective behaviour, so the pin is a no-op until the next natural deploy.
 
+### Caller-safety verification for the `_select_endpoint` change
+
+`_select_endpoint` was changed to raise where it previously returned a dead endpoint,
+and **no caller was modified**. That claim was checked rather than assumed (AST analysis
+over every file calling `get_rpc_url`, ~39 sites):
+
+- **The exception was always there.** Previously, an all-circuits-open chain returned a
+  dead URL and the subsequent HTTP call raised `aiohttp.ClientError` from the same
+  function. The change moves the raise a few lines earlier and changes its *type*. No
+  call site is newly exposed to an exception.
+- **Raising earlier is strictly safer for partial state.** It now fires before any
+  network I/O, so no request can have been broadcast before the failure.
+- **The only regression signature would be a handler catching `aiohttp.ClientError` (or
+  `TimeoutError`) narrowly, without `Exception`/`OSError`/`ConnectionError`.** Scanned
+  for exactly that across all files calling `get_rpc_url`: **none exists.**
+- Money path confirmed guarded: all four swap executors (`_execute_jupiter_swap`,
+  `_execute_lifi_swap`, `_execute_okx_dex_swap`, `_execute_jito_swap`) are called inside
+  `execute_swap()`'s `except Exception`. `tx_poller._poll_loop` catches `Exception`, so
+  the background loop survives a dead chain.
+- The cited convention is real: `wallet.py:970` and `wallet.py:1003` already catch
+  `ConnectionError` explicitly, which is why `AllEndpointsUnavailable` subclasses it.
+
+Residual: `get_solana_all_balances` (`wallet.py:916,926`),
+`snipe_executor._execute_pump_fun_snipe`, and `bulk_pay._execute_solana_sequential`
+have no in-file handler and propagate to cross-module callers. They were equally exposed
+before the change, so this is pre-existing rather than introduced — but they are the
+places to look first if a dead chain ever surfaces as a user-visible traceback.
+
 ### Still outstanding — not possible through this connection
 
 The Railway MCP surface has **no `delete-service` tool** (only volumes, buckets, TCP
