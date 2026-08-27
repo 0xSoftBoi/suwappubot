@@ -12,15 +12,23 @@ import {
   type SwapPreview,
 } from './deskApi';
 import {
+  DEFAULT_MANDATE,
+  describeMandate,
+  evaluateMandate,
+  type Mandate,
+  type MandateVerdict,
+} from './mandate';
+import {
   getModelContext,
   registerDeskTools,
   registerHandoffTool,
+  registerOverrideTool,
   type DeskController,
   type ModelContextLike,
 } from './webmcp';
 import styles from './agent-desk.module.css';
 
-// ── Types ───────────────────────────────────────────────────────────
+// ── Model ───────────────────────────────────────────────────────────
 
 interface Ticket {
   fromChain: string;
@@ -32,21 +40,35 @@ interface Ticket {
   order: RouteOrder;
 }
 
-interface SwapProposalBody extends Ticket {
+interface SwapBody extends Ticket {
   preview: SwapPreview | null;
   previewError: string | null;
 }
 
-interface AlertProposalBody {
+interface AlertBody {
   symbol: string;
   direction: 'above' | 'below';
   targetPrice: number;
   spotAtProposal: number | null;
 }
 
+interface PlanStep {
+  kind: 'swap' | 'alert';
+  note: string | null;
+  swap?: SwapBody;
+  alert?: AlertBody;
+  verdict: MandateVerdict | null;
+}
+
+interface Override {
+  argument: string;
+  askedAt: number;
+  granted: boolean | null;
+}
+
 interface Proposal {
   id: string;
-  kind: 'swap' | 'alert';
+  kind: 'swap' | 'alert' | 'plan';
   rationale: string;
   createdAt: number;
   expiresAt: number;
@@ -54,8 +76,11 @@ interface Proposal {
   humanNote: string | null;
   decidedAt: number | null;
   consumedAt: number | null;
-  swap?: SwapProposalBody;
-  alert?: AlertProposalBody;
+  swap?: SwapBody;
+  alert?: AlertBody;
+  plan?: { steps: PlanStep[]; combinedUsd: number | null };
+  verdict: MandateVerdict | null;
+  override: Override | null;
 }
 
 interface ActivityEntry {
@@ -69,6 +94,7 @@ interface ActivityEntry {
 
 const PROPOSAL_TTL_MS = 10 * 60 * 1000;
 const MAX_WAIT_SECONDS = 120;
+const MANDATE_KEY = 'suwappu.desk.mandate.v1';
 const STABLES = new Set(['USDC', 'USDT', 'DAI', 'USDS', 'FRAX', 'USDE']);
 
 const DEFAULT_TICKET: Ticket = {
@@ -76,16 +102,16 @@ const DEFAULT_TICKET: Ticket = {
   toChain: 'base',
   fromToken: 'ETH',
   toToken: 'USDC',
-  amount: '0.25',
+  amount: '0.05',
   slippagePercent: 0.5,
   order: 'RECOMMENDED',
 };
 
 let idSeq = 0;
-function nextId(prefix: string): string {
+const nextId = (prefix: string) => {
   idSeq += 1;
   return `${prefix}_${Date.now().toString(36)}${idSeq.toString(36)}`;
-}
+};
 
 function fmtUsd(value: string | number | null | undefined): string {
   const n = typeof value === 'string' ? Number.parseFloat(value) : value;
@@ -103,21 +129,35 @@ function fmtAmount(value: string | undefined): string {
 
 function fmtDuration(seconds: number | undefined): string {
   if (!seconds || !Number.isFinite(seconds)) return '—';
-  if (seconds < 90) return `${Math.round(seconds)}s`;
-  return `${Math.round(seconds / 60)} min`;
+  return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`;
 }
 
-function clock(at: number): string {
-  return new Date(at).toLocaleTimeString('en-US', { hour12: false });
+const clock = (at: number) =>
+  new Date(at).toLocaleTimeString('en-US', { hour12: false });
+
+const num = (v: string | null | undefined): number | null => {
+  const n = Number.parseFloat(v ?? '');
+  return Number.isFinite(n) ? n : null;
+};
+
+const dayKey = (at: number) => new Date(at).toISOString().slice(0, 10);
+
+/** Notional of a proposal in USD, or null when nothing could be priced. */
+function notionalOf(p: Proposal): number | null {
+  if (p.kind === 'swap') return num(p.swap?.preview?.fromAmountUsd);
+  if (p.kind === 'plan') return p.plan?.combinedUsd ?? null;
+  return 0;
 }
+
+/** A proposal the desk will not let the human approve as things stand. */
+const isBlocked = (p: Proposal) =>
+  Boolean(p.verdict && !p.verdict.withinMandate && p.override?.granted !== true);
 
 /**
- * The signing handoff. Suwappu never signs from this page — these are the two
- * real surfaces that own the user's keys, pre-filled with the approved trade.
- * `/alert-swap` prefills the terminal's ticket and still requires the human to
- * tap Buy/Sell; the bot command is copy-ready for Telegram.
+ * The signing handoff. Nothing here signs — these are the surfaces that own
+ * the user's keys, pre-filled with the approved trade.
  */
-function buildHandoff(swap: SwapProposalBody) {
+function buildHandoff(swap: SwapBody) {
   const side = STABLES.has(swap.toToken.toUpperCase()) ? 'sell' : 'buy';
   const terminalUrl = `${TERMINAL_URL}/alert-swap?${new URLSearchParams({
     token: swap.fromToken,
@@ -126,10 +166,10 @@ function buildHandoff(swap: SwapProposalBody) {
     amount: swap.amount,
     ref: 'webmcp-desk',
   })}`;
-  const sameChain = swap.fromChain === swap.toChain;
-  const telegramCommand = sameChain
-    ? `/s ${swap.amount} ${swap.fromToken} ${swap.toToken}`
-    : `/s ${swap.amount} ${swap.fromToken} ${swap.fromChain} ${swap.toToken} ${swap.toChain}`;
+  const telegramCommand =
+    swap.fromChain === swap.toChain
+      ? `/s ${swap.amount} ${swap.fromToken} ${swap.toToken}`
+      : `/s ${swap.amount} ${swap.fromToken} ${swap.fromChain} ${swap.toToken} ${swap.toChain}`;
   return { terminalUrl, telegramCommand, telegramUrl: TELEGRAM_URL };
 }
 
@@ -137,6 +177,7 @@ function buildHandoff(swap: SwapProposalBody) {
 
 export default function AgentDesk() {
   const [ticket, setTicket] = useState<Ticket>(DEFAULT_TICKET);
+  const [mandate, setMandate] = useState<Mandate>(DEFAULT_MANDATE);
   const [preview, setPreview] = useState<SwapPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -152,9 +193,10 @@ export default function AgentDesk() {
   }>({ state: 'checking', tools: [] });
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [mandateOpen, setMandateOpen] = useState(false);
 
-  // Live mirrors so the tool handlers (registered once) always read fresh state.
   const ticketRef = useRef(ticket);
+  const mandateRef = useRef(mandate);
   const previewRef = useRef(preview);
   const comparisonRef = useRef(comparison);
   const proposalsRef = useRef(proposals);
@@ -162,6 +204,9 @@ export default function AgentDesk() {
   useEffect(() => {
     ticketRef.current = ticket;
   }, [ticket]);
+  useEffect(() => {
+    mandateRef.current = mandate;
+  }, [mandate]);
   useEffect(() => {
     previewRef.current = preview;
   }, [preview]);
@@ -172,12 +217,11 @@ export default function AgentDesk() {
     activityRef.current = activity;
   }, [activity]);
 
-  // proposalId -> resolvers waiting inside check_approval(waitSeconds)
   const waiters = useRef(new Map<string, Set<(p: Proposal) => void>>());
 
   /**
-   * Proposals are the one piece of state a tool call reads *and* writes inside
-   * a single turn (propose -> approve -> hand off), so the ref is updated
+   * Proposals are the one piece of state a tool call reads *and* writes within
+   * a single turn (propose → approve → hand off), so the ref is updated
    * synchronously on commit rather than from an effect. An effect-lagged ref
    * let a replayed open_signing_handoff see an unconsumed approval.
    */
@@ -194,10 +238,10 @@ export default function AgentDesk() {
   const log = useCallback(
     (actor: ActivityEntry['actor'], label: string, detail: string, isError = false) => {
       setActivity((prev) =>
-        [
-          { id: nextId('act'), at: Date.now(), actor, label, detail, isError },
-          ...prev,
-        ].slice(0, 60),
+        [{ id: nextId('act'), at: Date.now(), actor, label, detail, isError }, ...prev].slice(
+          0,
+          80,
+        ),
       );
     },
     [],
@@ -210,14 +254,63 @@ export default function AgentDesk() {
     waiters.current.delete(proposal.id);
   }, []);
 
-  // ── Data helpers shared by the UI and the tools ───────────────────
+  // Mandate persists per browser so a returning human keeps their envelope.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(MANDATE_KEY);
+      if (raw) setMandate({ ...DEFAULT_MANDATE, ...(JSON.parse(raw) as Partial<Mandate>) });
+    } catch {
+      /* private mode, blocked storage — the default mandate is fine */
+    }
+  }, []);
 
-  const runPreview = useCallback(
-    async (t: Ticket, signal?: AbortSignal): Promise<SwapPreview> => {
-      setPreviewBusy(true);
-      setPreviewError(null);
+  const updateMandate = useCallback(
+    (patch: Partial<Mandate>) => {
+      setMandate((prev) => {
+        const next = { ...prev, ...patch };
+        mandateRef.current = next;
+        try {
+          window.localStorage.setItem(MANDATE_KEY, JSON.stringify(next));
+        } catch {
+          /* not fatal */
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  /** USD approved today. Drives the daily-cap headroom the agent reads. */
+  const spentToday = useCallback((list: Proposal[] = proposalsRef.current): number => {
+    const today = dayKey(Date.now());
+    return list
+      .filter((p) => p.status === 'approved' && dayKey(p.decidedAt ?? p.createdAt) === today)
+      .reduce((sum, p) => sum + (notionalOf(p) ?? 0), 0);
+  }, []);
+
+  const judge = useCallback(
+    (body: SwapBody): MandateVerdict =>
+      evaluateMandate(
+        mandateRef.current,
+        {
+          notionalUsd: num(body.preview?.fromAmountUsd),
+          fromChain: body.fromChain,
+          toChain: body.toChain,
+          toToken: body.toToken,
+          priceImpactPercent: num(body.preview?.priceImpact),
+          slippagePercent: body.slippagePercent,
+        },
+        spentToday(),
+      ),
+    [spentToday],
+  );
+
+  // ── Pricing ──────────────────────────────────────────────────────
+
+  const priceOne = useCallback(
+    async (t: Ticket, signal?: AbortSignal): Promise<SwapBody> => {
       try {
-        const result = await previewSwap(
+        const p = await previewSwap(
           {
             fromChain: t.fromChain,
             toChain: t.toChain,
@@ -229,19 +322,37 @@ export default function AgentDesk() {
           },
           signal,
         );
-        setPreview(result);
-        setComparison(null);
-        return result;
+        return { ...t, preview: p, previewError: null };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setPreview(null);
-        setPreviewError(message);
-        throw error;
+        return {
+          ...t,
+          preview: null,
+          previewError: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    [],
+  );
+
+  const runPreview = useCallback(
+    async (t: Ticket, signal?: AbortSignal): Promise<SwapPreview> => {
+      setPreviewBusy(true);
+      setPreviewError(null);
+      try {
+        const body = await priceOne(t, signal);
+        if (!body.preview) {
+          setPreview(null);
+          setPreviewError(body.previewError);
+          throw new Error(body.previewError ?? 'Could not price this trade');
+        }
+        setPreview(body.preview);
+        setComparison(null);
+        return body.preview;
       } finally {
         setPreviewBusy(false);
       }
     },
-    [],
+    [priceOne],
   );
 
   const runComparison = useCallback(
@@ -252,27 +363,8 @@ export default function AgentDesk() {
       try {
         const rows = await Promise.all(
           orders.map(async (order) => {
-            try {
-              const p = await previewSwap(
-                {
-                  fromChain: t.fromChain,
-                  toChain: t.toChain,
-                  fromToken: t.fromToken,
-                  toToken: t.toToken,
-                  fromAmount: t.amount,
-                  slippage: t.slippagePercent / 100,
-                  order,
-                },
-                signal,
-              );
-              return { order, preview: p, error: null };
-            } catch (error) {
-              return {
-                order,
-                preview: null,
-                error: error instanceof Error ? error.message : String(error),
-              };
-            }
+            const body = await priceOne({ ...t, order }, signal);
+            return { order, preview: body.preview, error: body.previewError };
           }),
         );
         setComparison(rows);
@@ -283,16 +375,20 @@ export default function AgentDesk() {
         setPreviewBusy(false);
       }
     },
-    [],
+    [priceOne],
   );
 
   // ── Human actions ────────────────────────────────────────────────
 
   const decide = useCallback(
     (id: string, status: 'approved' | 'rejected') => {
+      const current = proposalsRef.current.find((p) => p.id === id);
+      if (!current || current.status !== 'pending') return;
+      if (status === 'approved' && isBlocked(current)) return;
+
       const next = commitProposals((prev) =>
         prev.map((p) =>
-          p.id === id && p.status === 'pending'
+          p.id === id
             ? {
                 ...p,
                 status,
@@ -303,7 +399,7 @@ export default function AgentDesk() {
         ),
       );
       const decided = next.find((p) => p.id === id);
-      if (decided && decided.status === status) {
+      if (decided) {
         settle(decided);
         log(
           'human',
@@ -315,7 +411,24 @@ export default function AgentDesk() {
     [commitProposals, log, noteDraft, settle],
   );
 
-  // Expire stale pending proposals so an agent waiting on one is never stuck.
+  const decideOverride = useCallback(
+    (id: string, granted: boolean) => {
+      commitProposals((prev) =>
+        prev.map((p) =>
+          p.id === id && p.override
+            ? { ...p, override: { ...p.override, granted } }
+            : p,
+        ),
+      );
+      log(
+        'human',
+        granted ? 'Granted override' : 'Denied override',
+        `${id} — mandate exception ${granted ? 'allowed once' : 'refused'}`,
+      );
+    },
+    [commitProposals, log],
+  );
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = Date.now();
@@ -337,24 +450,89 @@ export default function AgentDesk() {
   }, [commitProposals, settle]);
 
   useEffect(() => {
-    let alive = true;
-    listChains()
-      .then((r) => alive && setChains(r.chains ?? []))
+    const ac = new AbortController();
+    listChains(ac.signal)
+      .then((r) => setChains(r.chains ?? []))
       .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
+    return () => ac.abort();
   }, []);
 
-  // ── The controller the WebMCP tools drive ────────────────────────
+  // ── Receipt ──────────────────────────────────────────────────────
+
+  const buildReceipt = useCallback(() => {
+    const list = proposalsRef.current;
+    return {
+      generatedAt: new Date().toISOString(),
+      surface: 'Suwappu Agent Desk (WebMCP)',
+      custody:
+        'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
+      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      proposals: list.map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        createdAt: new Date(p.createdAt).toISOString(),
+        agentRationale: p.rationale,
+        notionalUsd: notionalOf(p),
+        mandate: p.verdict
+          ? {
+              withinMandate: p.verdict.withinMandate,
+              violations: p.verdict.violations,
+            }
+          : null,
+        override: p.override,
+        humanDecision: p.status,
+        humanNote: p.humanNote,
+        decidedAt: p.decidedAt ? new Date(p.decidedAt).toISOString() : null,
+        handedOffAt: p.consumedAt ? new Date(p.consumedAt).toISOString() : null,
+      })),
+      toolCalls: activityRef.current
+        .filter((a) => a.actor === 'agent')
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: a.detail }))
+        .reverse(),
+    };
+  }, [spentToday]);
+
+  const downloadReceipt = useCallback(() => {
+    const blob = new Blob([JSON.stringify(buildReceipt(), null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `suwappu-agent-desk-receipt-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [buildReceipt]);
+
+  // ── Controller ───────────────────────────────────────────────────
 
   const controller = useMemo<DeskController>(() => {
+    const describeVerdict = (v: MandateVerdict | null) =>
+      v
+        ? {
+            withinMandate: v.withinMandate,
+            violations: v.violations.map((x) => ({
+              rule: x.rule,
+              why: x.message,
+              limit: x.limit,
+              actual: x.actual,
+            })),
+            dailyRemainingUsd: v.headroom.dailyRemainingUsd,
+          }
+        : null;
+
     const describeProposal = (p: Proposal) => ({
       proposalId: p.id,
       kind: p.kind,
       status: p.status,
       rationale: p.rationale,
       humanNote: p.humanNote,
+      notionalUsd: notionalOf(p),
+      mandate: describeVerdict(p.verdict),
+      blocked: isBlocked(p),
+      override: p.override,
       createdAt: new Date(p.createdAt).toISOString(),
       expiresAt: new Date(p.expiresAt).toISOString(),
       ...(p.swap
@@ -362,8 +540,6 @@ export default function AgentDesk() {
             swap: {
               sell: `${p.swap.amount} ${p.swap.fromToken} on ${p.swap.fromChain}`,
               buy: `${p.swap.toToken} on ${p.swap.toChain}`,
-              slippagePercent: p.swap.slippagePercent,
-              order: p.swap.order,
               indicativeOut: p.swap.preview
                 ? `${fmtAmount(p.swap.preview.toAmount)} ${p.swap.preview.toToken.symbol}`
                 : null,
@@ -376,11 +552,43 @@ export default function AgentDesk() {
             alert: {
               watch: p.alert.symbol,
               fires: `${p.alert.direction} ${fmtUsd(p.alert.targetPrice)}`,
-              spotAtProposal: p.alert.spotAtProposal,
+            },
+          }
+        : {}),
+      ...(p.plan
+        ? {
+            plan: {
+              combinedUsd: p.plan.combinedUsd,
+              steps: p.plan.steps.map((s, i) => ({
+                step: i + 1,
+                kind: s.kind,
+                note: s.note,
+                summary: s.swap
+                  ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                  : s.alert
+                    ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
+                    : null,
+                mandate: describeVerdict(s.verdict),
+              })),
             },
           }
         : {}),
     });
+
+    const addProposal = (proposal: Proposal) => {
+      commitProposals((prev) => [proposal, ...prev]);
+      return {
+        proposalId: proposal.id,
+        status: isBlocked(proposal)
+          ? 'blocked_by_mandate_awaiting_human'
+          : 'awaiting_human_approval',
+        mandate: describeVerdict(proposal.verdict),
+        expiresAt: new Date(proposal.expiresAt).toISOString(),
+        next: isBlocked(proposal)
+          ? 'Approve is LOCKED — this breaks the human\'s mandate. Either propose something inside the envelope, or call request_override with your argument for bending the named rule.'
+          : 'Call check_approval with this proposalId (waitSeconds up to 120). Nothing has been signed or sent.',
+      };
+    };
 
     return {
       async listChains(signal) {
@@ -405,13 +613,17 @@ export default function AgentDesk() {
             chain: t.chain,
             decimals: t.decimals,
           })),
+          caution:
+            'Tickers are not unique. Confirm the address with the human before proposing a trade into an unfamiliar token.',
         };
       },
 
       async getPrices({ symbols }, signal) {
         const prices = await getPrices(symbols, signal);
-        const missing = symbols.filter((s) => prices[s.toLowerCase()] === undefined);
-        return { prices, unavailable: missing };
+        return {
+          prices,
+          unavailable: symbols.filter((s) => prices[s.toLowerCase()] === undefined),
+        };
       },
 
       async previewSwap(args, signal) {
@@ -426,6 +638,7 @@ export default function AgentDesk() {
         };
         setTicket(next);
         const p = await runPreview(next, signal);
+        const verdict = judge({ ...next, preview: p, previewError: null });
         return {
           sold: `${fmtAmount(p.fromAmount)} ${p.fromToken.symbol} (${fmtUsd(p.fromAmountUsd)})`,
           received: `${fmtAmount(p.toAmount)} ${p.toToken.symbol} (${fmtUsd(p.toAmountUsd)})`,
@@ -439,7 +652,7 @@ export default function AgentDesk() {
           order: p.order,
           slippagePercent: p.slippage * 100,
           executable: false,
-          note: 'Shown on the page. To act on it, call propose_swap — the human approves before anything is signed.',
+          mandate: describeVerdict(verdict),
         };
       },
 
@@ -476,6 +689,7 @@ export default function AgentDesk() {
         const p = previewRef.current;
         return {
           ticket: t,
+          mandate: describeMandate(mandateRef.current, spentToday()),
           latestQuote: p
             ? {
                 out: `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
@@ -487,7 +701,9 @@ export default function AgentDesk() {
           routeComparison:
             comparisonRef.current?.map((r) => ({
               order: r.order,
-              out: r.preview ? `${fmtAmount(r.preview.toAmount)} ${r.preview.toToken.symbol}` : null,
+              out: r.preview
+                ? `${fmtAmount(r.preview.toAmount)} ${r.preview.toToken.symbol}`
+                : null,
             })) ?? null,
           proposals: proposalsRef.current.map(describeProposal),
           recentActivity: activityRef.current.slice(0, 12).map((a) => ({
@@ -498,11 +714,41 @@ export default function AgentDesk() {
         };
       },
 
+      readMandate() {
+        return describeMandate(mandateRef.current, spentToday());
+      },
+
+      async checkMandate(args, signal) {
+        const t: Ticket = {
+          fromChain: args.fromChain,
+          toChain: args.toChain || args.fromChain,
+          fromToken: args.fromToken,
+          toToken: args.toToken,
+          amount: args.amount,
+          slippagePercent: args.slippagePercent ?? ticketRef.current.slippagePercent,
+          order: 'RECOMMENDED',
+        };
+        const body = await priceOne(t, signal);
+        const verdict = judge(body);
+        return {
+          checked: `${t.amount} ${t.fromToken} (${t.fromChain}) → ${t.toToken} (${t.toChain})`,
+          notionalUsd: num(body.preview?.fromAmountUsd),
+          pricingError: body.previewError,
+          ...describeVerdict(verdict),
+          advice: verdict.withinMandate
+            ? 'Inside the envelope. Safe to propose.'
+            : 'Outside the envelope. Adjust size, chain or token and check again — or propose it anyway and argue for an override.',
+          silent: true,
+        };
+      },
+
       async proposeSwap(args) {
         if (!args.rationale.trim()) {
-          throw new Error('rationale is required — the human has to read why you want this trade.');
+          throw new Error(
+            'rationale is required — the human has to read why you want this trade.',
+          );
         }
-        const body: Ticket = {
+        const t: Ticket = {
           fromChain: args.fromChain,
           toChain: args.toChain || args.fromChain,
           fromToken: args.fromToken,
@@ -511,16 +757,15 @@ export default function AgentDesk() {
           slippagePercent: args.slippagePercent ?? ticketRef.current.slippagePercent,
           order: (args.order as RouteOrder) ?? 'RECOMMENDED',
         };
-        setTicket(body);
-
-        let priced: SwapPreview | null = null;
-        let pricingError: string | null = null;
-        try {
-          priced = await runPreview(body);
-        } catch (error) {
-          pricingError = error instanceof Error ? error.message : String(error);
+        setTicket(t);
+        const body = await priceOne(t);
+        if (body.preview) {
+          setPreview(body.preview);
+          setComparison(null);
+          setPreviewError(null);
+        } else {
+          setPreviewError(body.previewError);
         }
-
         const proposal: Proposal = {
           id: nextId('prop'),
           kind: 'swap',
@@ -531,22 +776,133 @@ export default function AgentDesk() {
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
-          swap: { ...body, preview: priced, previewError: pricingError },
+          swap: body,
+          verdict: judge(body),
+          override: null,
         };
-        commitProposals((prev) => [proposal, ...prev]);
         return {
-          proposalId: proposal.id,
-          status: 'awaiting_human_approval',
-          expiresAt: new Date(proposal.expiresAt).toISOString(),
+          ...addProposal(proposal),
           shownToHuman: {
-            sell: `${body.amount} ${body.fromToken} on ${body.fromChain}`,
-            buy: `${body.toToken} on ${body.toChain}`,
-            indicativeOut: priced
-              ? `${fmtAmount(priced.toAmount)} ${priced.toToken.symbol}`
+            sell: `${t.amount} ${t.fromToken} on ${t.fromChain}`,
+            buy: `${t.toToken} on ${t.toChain}`,
+            indicativeOut: body.preview
+              ? `${fmtAmount(body.preview.toAmount)} ${body.preview.toToken.symbol}`
               : null,
-            pricingError,
+            pricingError: body.previewError,
           },
-          next: 'Call check_approval with this proposalId (waitSeconds up to 120) to learn what the human decided. Nothing has been signed or sent.',
+        };
+      },
+
+      async proposePlan(args) {
+        if (!args.rationale.trim()) throw new Error('rationale is required');
+        if (args.steps.length === 0) throw new Error('a plan needs at least one step');
+        if (args.steps.length > 5) throw new Error('a plan is capped at 5 steps');
+
+        const steps: PlanStep[] = [];
+        for (const raw of args.steps) {
+          const kind = String(raw.kind ?? 'swap') === 'alert' ? 'alert' : 'swap';
+          const note = raw.note ? String(raw.note) : null;
+          if (kind === 'swap') {
+            const t: Ticket = {
+              fromChain: String(raw.fromChain ?? ticketRef.current.fromChain),
+              toChain: String(raw.toChain ?? raw.fromChain ?? ticketRef.current.toChain),
+              fromToken: String(raw.fromToken ?? ''),
+              toToken: String(raw.toToken ?? ''),
+              amount: String(raw.amount ?? ''),
+              slippagePercent:
+                typeof raw.slippagePercent === 'number'
+                  ? raw.slippagePercent
+                  : ticketRef.current.slippagePercent,
+              order: 'RECOMMENDED',
+            };
+            if (!t.fromToken || !t.toToken || !t.amount) {
+              throw new Error('every swap step needs fromToken, toToken and amount');
+            }
+            const body = await priceOne(t);
+            steps.push({ kind, note, swap: body, verdict: judge(body) });
+          } else {
+            const symbol = String(raw.symbol ?? '').toUpperCase();
+            const direction = String(raw.direction ?? 'above');
+            const targetPrice = Number(raw.targetPrice);
+            if (!symbol || !Number.isFinite(targetPrice)) {
+              throw new Error('every alert step needs symbol and targetPrice');
+            }
+            steps.push({
+              kind,
+              note,
+              alert: {
+                symbol,
+                direction: direction === 'below' ? 'below' : 'above',
+                targetPrice,
+                spotAtProposal: null,
+              },
+              verdict: null,
+            });
+          }
+        }
+
+        const priced = steps
+          .map((s) => num(s.swap?.preview?.fromAmountUsd))
+          .filter((n): n is number => n !== null);
+        const combinedUsd = priced.length > 0 ? priced.reduce((a, b) => a + b, 0) : null;
+
+        // The plan is judged as one trade: the human approves the whole thing,
+        // so the daily cap has to see the combined notional, not each leg.
+        const rollup = evaluateMandate(
+          mandateRef.current,
+          {
+            notionalUsd: combinedUsd,
+            fromChain: steps.find((s) => s.swap)?.swap?.fromChain ?? '',
+            toChain: steps.find((s) => s.swap)?.swap?.toChain ?? '',
+            toToken: steps.find((s) => s.swap)?.swap?.toToken ?? '',
+            priceImpactPercent: Math.max(
+              ...steps.map((s) => num(s.swap?.preview?.priceImpact) ?? 0),
+              0,
+            ),
+            slippagePercent: Math.max(
+              ...steps.map((s) => s.swap?.slippagePercent ?? 0),
+              0,
+            ),
+          },
+          spentToday(),
+        );
+        // Any step that fails on its own fails the plan.
+        for (const s of steps) {
+          if (s.verdict && !s.verdict.withinMandate) {
+            for (const v of s.verdict.violations) {
+              if (!rollup.violations.some((x) => x.rule === v.rule && x.actual === v.actual)) {
+                rollup.violations.push(v);
+              }
+            }
+          }
+        }
+        rollup.withinMandate = rollup.violations.length === 0;
+
+        const proposal: Proposal = {
+          id: nextId('plan'),
+          kind: 'plan',
+          rationale: args.rationale.trim(),
+          createdAt: Date.now(),
+          expiresAt: Date.now() + PROPOSAL_TTL_MS,
+          status: 'pending',
+          humanNote: null,
+          decidedAt: null,
+          consumedAt: null,
+          plan: { steps, combinedUsd },
+          verdict: rollup,
+          override: null,
+        };
+        return {
+          ...addProposal(proposal),
+          shownToHuman: {
+            steps: steps.length,
+            combinedUsd,
+            legs: steps.map((s) =>
+              s.swap
+                ? `${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
+                : `alert ${s.alert?.symbol} ${s.alert?.direction} ${s.alert?.targetPrice}`,
+            ),
+          },
         };
       },
 
@@ -581,17 +937,47 @@ export default function AgentDesk() {
             targetPrice: args.targetPrice,
             spotAtProposal: spot,
           },
+          verdict: null,
+          override: null,
         };
-        commitProposals((prev) => [proposal, ...prev]);
         return {
-          proposalId: proposal.id,
-          status: 'awaiting_human_approval',
+          ...addProposal(proposal),
           shownToHuman: {
             watch: proposal.alert?.symbol,
             fires: `${args.direction} ${fmtUsd(args.targetPrice)}`,
             spotNow: spot,
           },
-          next: 'Call check_approval with this proposalId.',
+        };
+      },
+
+      async requestOverride({ proposalId, argument }) {
+        const proposal = proposalsRef.current.find((p) => p.id === proposalId);
+        if (!proposal) throw new Error(`No proposal with id ${proposalId}`);
+        if (!isBlocked(proposal)) {
+          throw new Error(
+            'That proposal is not blocked by the mandate — no override is needed.',
+          );
+        }
+        if (proposal.override) {
+          throw new Error(
+            'You already asked for an override on this proposal. Wait for the human, or propose something inside the envelope.',
+          );
+        }
+        if (!argument.trim()) {
+          throw new Error('argument is required — say why the rule should be bent.');
+        }
+        commitProposals((prev) =>
+          prev.map((p) =>
+            p.id === proposalId
+              ? { ...p, override: { argument: argument.trim(), askedAt: Date.now(), granted: null } }
+              : p,
+          ),
+        );
+        return {
+          proposalId,
+          status: 'override_requested',
+          brokenRules: proposal.verdict?.violations.map((v) => v.rule) ?? [],
+          next: 'The human sees your argument beside the rule you broke. Poll check_approval — if they deny the override, Approve stays locked and you should propose something that fits instead.',
         };
       },
 
@@ -604,7 +990,7 @@ export default function AgentDesk() {
         const describe = (p: Proposal) => ({
           ...describeProposal(p),
           decision: p.status,
-          canHandOff: p.status === 'approved' && p.consumedAt === null,
+          canHandOff: p.status === 'approved' && p.consumedAt === null && p.kind !== 'alert',
         });
         if (current.status !== 'pending' || waitSeconds <= 0) {
           return Promise.resolve(describe(current));
@@ -613,21 +999,23 @@ export default function AgentDesk() {
         const waitMs = Math.min(Math.max(waitSeconds, 1), MAX_WAIT_SECONDS) * 1000;
         return new Promise((resolve) => {
           let done = false;
-          const finish = (p: Proposal) => {
-            if (done) return;
-            done = true;
+          const cleanup = () => {
             window.clearTimeout(timer);
             signal?.removeEventListener('abort', onAbort);
             waiters.current.get(proposalId)?.delete(finish);
+          };
+          const finish = (p: Proposal) => {
+            if (done) return;
+            done = true;
+            cleanup();
             resolve(describe(p));
           };
           const onAbort = () => finish(find() ?? current);
           const timer = window.setTimeout(() => {
-            const latest = find() ?? current;
             if (done) return;
             done = true;
-            signal?.removeEventListener('abort', onAbort);
-            waiters.current.get(proposalId)?.delete(finish);
+            cleanup();
+            const latest = find() ?? current;
             resolve({
               ...describe(latest),
               timedOut: latest.status === 'pending',
@@ -653,20 +1041,36 @@ export default function AgentDesk() {
             `Proposal ${proposalId} is ${proposal.status}, not approved. A human must approve it first.`,
           );
         }
-        if (!proposal.swap) throw new Error('Only swap proposals have a signing handoff.');
         if (proposal.consumedAt !== null) {
           throw new Error('That approval was already handed off. Propose the trade again.');
+        }
+        const legs =
+          proposal.kind === 'plan'
+            ? (proposal.plan?.steps ?? []).filter((s) => s.swap).map((s) => s.swap as SwapBody)
+            : proposal.swap
+              ? [proposal.swap]
+              : [];
+        if (legs.length === 0) {
+          throw new Error('Only swap proposals and plans containing a swap have a handoff.');
         }
         commitProposals((prev) =>
           prev.map((p) => (p.id === proposalId ? { ...p, consumedAt: Date.now() } : p)),
         );
-        const handoff = buildHandoff(proposal.swap);
         return {
           proposalId,
-          handoff,
+          handoff: legs.map(buildHandoff),
           custody:
-            'Suwappu does not sign from this page. Both links open a surface the human controls, pre-filled with the approved trade; they still confirm and sign there.',
+            'Suwappu does not sign from this page. Each link opens a surface the human controls, pre-filled with the approved trade; they still confirm and sign there. A plan hands off one link per leg, in order.',
         };
+      },
+
+      exportReceipt({ download }) {
+        const receipt = buildReceipt();
+        if (download) {
+          downloadReceipt();
+          log('agent', 'Receipt downloaded', 'agent handed the human a copy of the session');
+        }
+        return receipt;
       },
 
       onToolCall(name, args) {
@@ -677,7 +1081,17 @@ export default function AgentDesk() {
         log('agent', `← ${name}`, summary, isError);
       },
     };
-  }, [commitProposals, log, runComparison, runPreview]);
+  }, [
+    buildReceipt,
+    commitProposals,
+    downloadReceipt,
+    judge,
+    log,
+    priceOne,
+    runComparison,
+    runPreview,
+    spentToday,
+  ]);
 
   // ── Registration ─────────────────────────────────────────────────
 
@@ -717,42 +1131,23 @@ export default function AgentDesk() {
     };
   }, [controller, log]);
 
-  // The signing handoff tool only exists while an approved, unspent swap
-  // proposal is on the desk — dynamic registration is the point: an agent
-  // cannot reach for a tool the human has not unlocked.
+  /**
+   * Two tools exist only when the human's state makes them meaningful. This is
+   * the point of dynamic registration: the agent's options narrow and widen
+   * with what the human has actually allowed.
+   */
   const hasUnlockedHandoff = proposals.some(
-    (p) => p.kind === 'swap' && p.status === 'approved' && p.consumedAt === null,
+    (p) =>
+      p.kind !== 'alert' && p.status === 'approved' && p.consumedAt === null,
   );
-  useEffect(() => {
-    const ctx = ctxRef.current;
-    if (!ctx || !hasUnlockedHandoff) return;
-    let dispose: (() => void) | null = null;
-    let cancelled = false;
-    registerHandoffTool(ctx, controller)
-      .then((d) => {
-        if (cancelled) {
-          d();
-          return;
-        }
-        dispose = d;
-        setMcp((prev) =>
-          prev.tools.includes('open_signing_handoff')
-            ? prev
-            : { ...prev, tools: [...prev.tools, 'open_signing_handoff'] },
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      dispose?.();
-      setMcp((prev) => ({
-        ...prev,
-        tools: prev.tools.filter((t) => t !== 'open_signing_handoff'),
-      }));
-    };
-  }, [controller, hasUnlockedHandoff]);
+  const hasBlockedProposal = proposals.some(
+    (p) => p.status === 'pending' && isBlocked(p) && !p.override,
+  );
 
-  // ── Manual (no-agent) controls — the page works without WebMCP ────
+  useDynamicTool(ctxRef, controller, hasUnlockedHandoff, registerHandoffTool, 'open_signing_handoff', setMcp);
+  useDynamicTool(ctxRef, controller, hasBlockedProposal, registerOverrideTool, 'request_override', setMcp);
+
+  // ── Manual controls ──────────────────────────────────────────────
 
   const onManualQuote = async () => {
     log('human', 'Manual quote', `${ticket.amount} ${ticket.fromToken} → ${ticket.toToken}`);
@@ -773,8 +1168,12 @@ export default function AgentDesk() {
     }
   };
 
-  const chainKeys = chains.length > 0 ? chains.map((c) => c.key) : ['base', 'ethereum', 'arbitrum'];
+  const chainKeys =
+    chains.length > 0 ? chains.map((c) => c.key) : ['base', 'ethereum', 'arbitrum'];
   const pending = proposals.filter((p) => p.status === 'pending');
+  const spent = spentToday(proposals);
+  const remaining = Math.max(0, mandate.dailyUsdCap - spent);
+  const usedPct = Math.min(100, mandate.dailyUsdCap > 0 ? (spent / mandate.dailyUsdCap) * 100 : 0);
 
   return (
     <div className={styles.desk}>
@@ -796,12 +1195,144 @@ export default function AgentDesk() {
         </span>
         <p className={styles.statusCopy}>
           {mcp.state === 'connected'
-            ? 'An agent in this browser can research and propose trades here. It cannot sign anything — you approve every proposal below.'
+            ? 'An agent in this browser can read your mandate, price routes and propose trades against it. It cannot sign, and it cannot approve.'
             : 'Open this page in the ChatGPT desktop app’s browser (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
         </p>
       </section>
 
       <div className={styles.grid}>
+        {/* ── Mandate ────────────────────────────────────────────── */}
+        <section className={`${styles.panel} ${styles.mandatePanel}`}>
+          <div className={styles.mandateHead}>
+            <div>
+              <h2 className={styles.panelTitle}>Your mandate</h2>
+              <p className={styles.panelNote}>
+                The envelope you write and the agent reads before it proposes anything.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={styles.ghost}
+              onClick={() => setMandateOpen((v) => !v)}
+              aria-expanded={mandateOpen}
+            >
+              {mandateOpen ? 'Done' : 'Edit'}
+            </button>
+          </div>
+
+          <div className={styles.budget}>
+            <div className={styles.budgetBar}>
+              <span style={{ width: `${usedPct}%` }} />
+            </div>
+            <p className={styles.budgetCopy}>
+              <strong>{fmtUsd(remaining)}</strong> of {fmtUsd(mandate.dailyUsdCap)} left today ·
+              max {fmtUsd(mandate.perTradeUsdCap)} per trade · impact ≤{' '}
+              {mandate.maxPriceImpactPercent}% · slippage ≤ {mandate.maxSlippagePercent}%
+            </p>
+          </div>
+
+          {mandateOpen ? (
+            <div className={styles.ticketGrid}>
+              <label className={styles.field}>
+                <span>Per trade $</span>
+                <input
+                  value={String(mandate.perTradeUsdCap)}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    updateMandate({ perTradeUsdCap: Number.parseFloat(e.target.value) || 0 })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Per day $</span>
+                <input
+                  value={String(mandate.dailyUsdCap)}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    updateMandate({ dailyUsdCap: Number.parseFloat(e.target.value) || 0 })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Max impact %</span>
+                <input
+                  value={String(mandate.maxPriceImpactPercent)}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    updateMandate({
+                      maxPriceImpactPercent: Number.parseFloat(e.target.value) || 0,
+                    })
+                  }
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Max slippage %</span>
+                <input
+                  value={String(mandate.maxSlippagePercent)}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    updateMandate({
+                      maxSlippagePercent: Number.parseFloat(e.target.value) || 0,
+                    })
+                  }
+                />
+              </label>
+              <label className={`${styles.field} ${styles.fieldWide}`}>
+                <span>Chains it may touch (blank = any)</span>
+                <input
+                  value={mandate.allowedChains.join(', ')}
+                  onChange={(e) =>
+                    updateMandate({
+                      allowedChains: e.target.value
+                        .split(',')
+                        .map((x) => x.trim().toLowerCase())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </label>
+              <label className={`${styles.field} ${styles.fieldWide}`}>
+                <span>Tokens it may buy (blank = any)</span>
+                <input
+                  value={mandate.allowedBuyTokens.join(', ')}
+                  onChange={(e) =>
+                    updateMandate({
+                      allowedBuyTokens: e.target.value
+                        .split(',')
+                        .map((x) => x.trim().toUpperCase())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </label>
+            </div>
+          ) : (
+            <ul className={styles.mandateList}>
+              <li>
+                <span>Chains</span>
+                <strong>
+                  {mandate.allowedChains.length ? mandate.allowedChains.join(' · ') : 'any'}
+                </strong>
+              </li>
+              <li>
+                <span>May buy</span>
+                <strong>
+                  {mandate.allowedBuyTokens.length
+                    ? mandate.allowedBuyTokens.join(' · ')
+                    : 'any token'}
+                </strong>
+              </li>
+            </ul>
+          )}
+
+          <p className={styles.finePrint}>
+            This desk never executes, so the mandate cannot physically cap spending — it governs
+            what the page will put in front of you and what the agent is told before it asks.
+            Binding limits live in Suwappu’s server-side wallet spending policies. Stored in this
+            browser only.
+          </p>
+        </section>
+
         {/* ── Ticket ─────────────────────────────────────────────── */}
         <section className={styles.panel}>
           <h2 className={styles.panelTitle}>Ticket</h2>
@@ -876,7 +1407,12 @@ export default function AgentDesk() {
             </label>
           </div>
           <div className={styles.actions}>
-            <button type="button" className={styles.primary} onClick={onManualQuote} disabled={previewBusy}>
+            <button
+              type="button"
+              className={styles.primary}
+              onClick={onManualQuote}
+              disabled={previewBusy}
+            >
               {previewBusy ? 'Pricing…' : 'Price it'}
             </button>
             <button
@@ -966,7 +1502,7 @@ export default function AgentDesk() {
             </div>
           )}
           <p className={styles.finePrint}>
-            Quotes here are indicative and not executable. Nothing on this page can sign a
+            Quotes are indicative and not executable. Nothing on this page can sign a
             transaction.
           </p>
         </section>
@@ -977,31 +1513,54 @@ export default function AgentDesk() {
             Approvals{pending.length > 0 ? ` · ${pending.length} waiting` : ''}
           </h2>
           <p className={styles.panelNote}>
-            The agent proposes. You decide. Nothing is signed until you hand it to a wallet
-            surface you control.
+            The agent proposes. You decide. A proposal outside your mandate cannot be approved
+            until you grant an exception.
           </p>
           {proposals.length === 0 && (
             <p className={styles.empty}>
               No proposals yet. Ask your agent something like{' '}
-              <em>“compare routes for 0.5 ETH on Base into USDC on Arbitrum, then propose the
-              best one.”</em>
+              <em>
+                “read my mandate, then build me a plan to move some ETH into USDC on Arbitrum
+                without breaking it.”
+              </em>
             </p>
           )}
           <ul className={styles.proposalList}>
             {proposals.map((p) => {
-              const handoff = p.swap ? buildHandoff(p.swap) : null;
+              const blocked = isBlocked(p);
+              const legs =
+                p.kind === 'plan'
+                  ? (p.plan?.steps ?? []).filter((s) => s.swap).map((s) => s.swap as SwapBody)
+                  : p.swap
+                    ? [p.swap]
+                    : [];
               return (
-                <li key={p.id} className={`${styles.proposal} ${styles[`s_${p.status}`]}`}>
+                <li
+                  key={p.id}
+                  className={`${styles.proposal} ${
+                    blocked && p.status === 'pending' ? styles.s_blocked : styles[`s_${p.status}`]
+                  }`}
+                >
                   <header className={styles.proposalHead}>
                     <span className={styles.proposalKind}>
-                      {p.kind === 'swap' ? 'Swap proposal' : 'Alert proposal'}
+                      {p.kind === 'plan'
+                        ? `Plan · ${p.plan?.steps.length} steps`
+                        : p.kind === 'swap'
+                          ? 'Swap proposal'
+                          : 'Alert proposal'}
                     </span>
-                    <span className={styles.proposalStatus}>{p.status}</span>
+                    <span className={styles.proposalStatus}>
+                      {blocked && p.status === 'pending' ? 'blocked' : p.status}
+                    </span>
                   </header>
+
                   {p.swap && (
                     <p className={styles.proposalLine}>
-                      Sell <strong>{p.swap.amount} {p.swap.fromToken}</strong> on {p.swap.fromChain} →{' '}
-                      <strong>{p.swap.toToken}</strong> on {p.swap.toChain}
+                      Sell{' '}
+                      <strong>
+                        {p.swap.amount} {p.swap.fromToken}
+                      </strong>{' '}
+                      on {p.swap.fromChain} → <strong>{p.swap.toToken}</strong> on {p.swap.toChain}
                       {p.swap.preview && (
                         <>
                           {' '}
@@ -1014,7 +1573,47 @@ export default function AgentDesk() {
                       )}
                     </p>
                   )}
-                  {p.alert && (
+
+                  {p.plan && (
+                    <ol className={styles.planSteps}>
+                      {p.plan.steps.map((s, i) => (
+                        <li key={`${p.id}-${i}`}>
+                          <span className={styles.planIndex}>{i + 1}</span>
+                          <span>
+                            {s.swap ? (
+                              <>
+                                Sell{' '}
+                                <strong>
+                                  {s.swap.amount} {s.swap.fromToken}
+                                </strong>{' '}
+                                on {s.swap.fromChain} → <strong>{s.swap.toToken}</strong> on{' '}
+                                {s.swap.toChain}
+                                {s.swap.preview && (
+                                  <> · ≈ {fmtUsd(s.swap.preview.toAmountUsd)}</>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                Alert <strong>{s.alert?.symbol}</strong> {s.alert?.direction}{' '}
+                                <strong>{fmtUsd(s.alert?.targetPrice)}</strong>
+                              </>
+                            )}
+                            {s.note && <em className={styles.planNote}> — {s.note}</em>}
+                          </span>
+                        </li>
+                      ))}
+                      {p.plan.combinedUsd !== null && (
+                        <li className={styles.planTotal}>
+                          <span className={styles.planIndex}>Σ</span>
+                          <span>
+                            Combined notional <strong>{fmtUsd(p.plan.combinedUsd)}</strong>
+                          </span>
+                        </li>
+                      )}
+                    </ol>
+                  )}
+
+                  {p.alert && !p.plan && (
                     <p className={styles.proposalLine}>
                       Alert on <strong>{p.alert.symbol}</strong> when it goes {p.alert.direction}{' '}
                       <strong>{fmtUsd(p.alert.targetPrice)}</strong>
@@ -1023,9 +1622,49 @@ export default function AgentDesk() {
                       )}
                     </p>
                   )}
+
                   <blockquote className={styles.rationale}>{p.rationale}</blockquote>
-                  {p.swap?.previewError && (
-                    <p className={styles.error}>Could not price it: {p.swap.previewError}</p>
+
+                  {p.verdict && !p.verdict.withinMandate && (
+                    <div className={styles.violations}>
+                      <p className={styles.violationsTitle}>
+                        Breaks your mandate
+                        {p.override?.granted === true ? ' — you allowed it once' : ''}
+                      </p>
+                      <ul>
+                        {p.verdict.violations.map((v, i) => (
+                          <li key={`${p.id}-v-${i}`}>
+                            {v.message} <span>limit {v.limit}</span>{' '}
+                            <span>actual {v.actual}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {p.override && p.override.granted === null && (
+                    <div className={styles.overrideCard}>
+                      <p className={styles.overrideTitle}>
+                        Your agent is asking you to bend a rule
+                      </p>
+                      <blockquote className={styles.rationale}>{p.override.argument}</blockquote>
+                      <div className={styles.actions}>
+                        <button
+                          type="button"
+                          className={styles.primary}
+                          onClick={() => decideOverride(p.id, true)}
+                        >
+                          Allow once
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.ghost}
+                          onClick={() => decideOverride(p.id, false)}
+                        >
+                          Keep the rule
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {p.status === 'pending' && (
@@ -1043,8 +1682,14 @@ export default function AgentDesk() {
                           type="button"
                           className={styles.primary}
                           onClick={() => decide(p.id, 'approved')}
+                          disabled={blocked}
+                          title={
+                            blocked
+                              ? 'Locked: this proposal breaks your mandate. Allow the override, or edit your mandate.'
+                              : undefined
+                          }
                         >
-                          Approve
+                          {blocked ? 'Approve (locked)' : 'Approve'}
                         </button>
                         <button
                           type="button"
@@ -1059,34 +1704,34 @@ export default function AgentDesk() {
 
                   {p.humanNote && <p className={styles.humanNote}>You said: “{p.humanNote}”</p>}
 
-                  {p.status === 'approved' && p.kind === 'swap' && handoff && (
+                  {p.status === 'approved' && legs.length > 0 && (
                     <div className={styles.handoff}>
-                      <p className={styles.handoffTitle}>Sign it where you keep your keys</p>
-                      <div className={styles.actions}>
-                        <a
-                          className={styles.primary}
-                          href={handoff.terminalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Open in Terminal
-                        </a>
-                        <a
-                          className={styles.ghost}
-                          href={handoff.telegramUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Open Telegram bot
-                        </a>
-                        <button
-                          type="button"
-                          className={styles.ghost}
-                          onClick={() => copy(p.id, handoff.telegramCommand)}
-                        >
-                          {copied === p.id ? 'Copied' : `Copy ${handoff.telegramCommand}`}
-                        </button>
-                      </div>
+                      <p className={styles.handoffTitle}>
+                        Sign it where you keep your keys
+                        {legs.length > 1 ? ` · ${legs.length} legs, in order` : ''}
+                      </p>
+                      {legs.map((leg, i) => {
+                        const h = buildHandoff(leg);
+                        return (
+                          <div className={styles.actions} key={`${p.id}-h-${i}`}>
+                            <a
+                              className={styles.primary}
+                              href={h.terminalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {legs.length > 1 ? `Leg ${i + 1} in Terminal` : 'Open in Terminal'}
+                            </a>
+                            <button
+                              type="button"
+                              className={styles.ghost}
+                              onClick={() => copy(`${p.id}-${i}`, h.telegramCommand)}
+                            >
+                              {copied === `${p.id}-${i}` ? 'Copied' : `Copy ${h.telegramCommand}`}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1125,10 +1770,25 @@ export default function AgentDesk() {
 
         {/* ── Activity ───────────────────────────────────────────── */}
         <section className={styles.panel}>
-          <h2 className={styles.panelTitle}>Activity</h2>
-          <p className={styles.panelNote}>
-            Every tool call the agent makes on this page, in the open.
-          </p>
+          <div className={styles.mandateHead}>
+            <div>
+              <h2 className={styles.panelTitle}>Activity</h2>
+              <p className={styles.panelNote}>
+                Every tool call the agent makes on this page, in the open.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={styles.ghost}
+              onClick={() => {
+                downloadReceipt();
+                log('human', 'Receipt downloaded', 'session exported');
+              }}
+              disabled={proposals.length === 0 && activity.length === 0}
+            >
+              Download receipt
+            </button>
+          </div>
           {mcp.tools.length > 0 && (
             <ul className={styles.toolChips}>
               {mcp.tools.map((t) => (
@@ -1153,4 +1813,43 @@ export default function AgentDesk() {
       </div>
     </div>
   );
+}
+
+/**
+ * Register one tool for exactly as long as `active` holds. Extracted because
+ * the desk does this twice and the teardown ordering is easy to get wrong.
+ */
+function useDynamicTool(
+  ctxRef: React.RefObject<ModelContextLike | null>,
+  controller: DeskController,
+  active: boolean,
+  register: (ctx: ModelContextLike, ctrl: DeskController) => Promise<() => void>,
+  toolName: string,
+  setMcp: React.Dispatch<
+    React.SetStateAction<{ state: 'checking' | 'connected' | 'unsupported'; tools: string[] }>
+  >,
+) {
+  useEffect(() => {
+    const ctx = ctxRef.current;
+    if (!ctx || !active) return;
+    let dispose: (() => void) | null = null;
+    let cancelled = false;
+    register(ctx, controller)
+      .then((d) => {
+        if (cancelled) {
+          d();
+          return;
+        }
+        dispose = d;
+        setMcp((prev) =>
+          prev.tools.includes(toolName) ? prev : { ...prev, tools: [...prev.tools, toolName] },
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      dispose?.();
+      setMcp((prev) => ({ ...prev, tools: prev.tools.filter((t) => t !== toolName) }));
+    };
+  }, [active, controller, ctxRef, register, setMcp, toolName]);
 }

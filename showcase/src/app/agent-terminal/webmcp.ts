@@ -123,6 +123,24 @@ export interface DeskController {
     signal?: AbortSignal,
   ): Promise<unknown>;
   openSigningHandoff(args: { proposalId: string }): Promise<unknown>;
+  readMandate(): unknown;
+  checkMandate(
+    args: {
+      fromChain: string;
+      toChain: string;
+      fromToken: string;
+      toToken: string;
+      amount: string;
+      slippagePercent?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<unknown>;
+  proposePlan(args: {
+    rationale: string;
+    steps: Array<Record<string, unknown>>;
+  }): Promise<unknown>;
+  requestOverride(args: { proposalId: string; argument: string }): Promise<unknown>;
+  exportReceipt(args: { download?: boolean }): unknown;
   onToolCall(name: string, args: Record<string, unknown>): void;
   onToolResult(name: string, summary: string, isError: boolean): void;
 }
@@ -301,7 +319,7 @@ export async function registerDeskTools(
     {
       name: 'propose_swap',
       description:
-        'Propose a swap to the human. This does NOT execute anything: it places a signed-off-by-nobody proposal card on the page with your rationale, and the human must click Approve or Reject. Returns a proposalId. Poll it with check_approval, and only after approval will the signing handoff become available.',
+        'Propose a swap to the human. This does NOT execute anything: it places a proposal card on the page with your rationale, and the human must click Approve or Reject. Call check_mandate first — a proposal that breaks the mandate lands in red with Approve locked, and you will have to argue for it via request_override. Returns a proposalId; poll it with check_approval.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -370,6 +388,112 @@ export async function registerDeskTools(
           targetPrice: Number(a.targetPrice),
           rationale: String(a.rationale ?? ''),
         }),
+      ),
+    },
+    {
+      name: 'read_mandate',
+      description:
+        'Read the human\'s standing mandate: per-trade and daily USD caps, allowed chains, allowed tokens to buy, and ceilings on price impact and slippage — plus how much of today\'s budget is already spoken for. Read this FIRST. It tells you what the human will and will not accept, so you stop proposing trades they were always going to refuse.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true },
+      execute: wrap('read_mandate', () => ctrl.readMandate()),
+    },
+    {
+      name: 'check_mandate',
+      description:
+        'Dry-run a trade against the mandate before you propose it. Prices the trade, then returns whether it is inside the envelope and, if not, exactly which rules it breaks with the limit and the actual value. Cheap, silent, and does not put anything in front of the human — use it to iterate on size, chain or token until the trade fits.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fromChain: { type: 'string', description: CHAIN_KEYS },
+          toChain: { type: 'string', description: 'Destination chain key.' },
+          fromToken: { type: 'string', description: 'Token being sold.' },
+          toToken: { type: 'string', description: 'Token being bought.' },
+          amount: { type: 'string', description: 'Human-readable amount of fromToken.' },
+          slippagePercent: { type: 'number', description: 'Max slippage in percent.' },
+        },
+        required: ['fromChain', 'toChain', 'fromToken', 'toToken', 'amount'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: wrap('check_mandate', (a, o) =>
+        ctrl.checkMandate(
+          {
+            fromChain: String(a.fromChain ?? ''),
+            toChain: String(a.toChain ?? ''),
+            fromToken: String(a.fromToken ?? ''),
+            toToken: String(a.toToken ?? ''),
+            amount: String(a.amount ?? ''),
+            slippagePercent:
+              typeof a.slippagePercent === 'number' ? a.slippagePercent : undefined,
+          },
+          o?.signal,
+        ),
+      ),
+    },
+    {
+      name: 'propose_plan',
+      description:
+        'Propose a SEQUENCE of steps as one reviewable unit — for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Each step is priced and checked against the mandate individually, and the card shows the combined notional. Prefer this over several propose_swap calls whenever the steps only make sense together.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rationale: {
+            type: 'string',
+            description: 'Why this sequence, as a whole. The human reads this.',
+          },
+          steps: {
+            type: 'array',
+            maxItems: 5,
+            description: 'Between 1 and 5 steps, executed in order.',
+            items: {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', enum: ['swap', 'alert'] },
+                fromChain: { type: 'string', description: 'swap: source chain key.' },
+                toChain: { type: 'string', description: 'swap: destination chain key.' },
+                fromToken: { type: 'string', description: 'swap: token sold.' },
+                toToken: { type: 'string', description: 'swap: token bought.' },
+                amount: { type: 'string', description: 'swap: amount of fromToken.' },
+                slippagePercent: { type: 'number', description: 'swap: max slippage percent.' },
+                symbol: { type: 'string', description: 'alert: token symbol to watch.' },
+                direction: { type: 'string', enum: ['above', 'below'], description: 'alert: side.' },
+                targetPrice: { type: 'number', description: 'alert: USD target.' },
+                note: { type: 'string', description: 'One line on what this step is for.' },
+              },
+              required: ['kind'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['rationale', 'steps'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      execute: wrap('propose_plan', (a) =>
+        ctrl.proposePlan({
+          rationale: String(a.rationale ?? ''),
+          steps: Array.isArray(a.steps) ? (a.steps as Array<Record<string, unknown>>) : [],
+        }),
+      ),
+    },
+    {
+      name: 'export_receipt',
+      description:
+        'Return the full session receipt: every tool you called, every proposal with its rationale and mandate verdict, every human decision and note, and every signing handoff. Pass download:true to also hand the human a file. This is the audit trail for what you did and why.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          download: {
+            type: 'boolean',
+            description: 'Also save a copy to the human\'s machine. Defaults to false.',
+          },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: wrap('export_receipt', (a) =>
+        ctrl.exportReceipt({ download: a.download === true }),
       ),
     },
     {
@@ -446,6 +570,58 @@ export async function registerHandoffTool(
         try {
           const result = await ctrl.openSigningHandoff({
             proposalId: String((args ?? {}).proposalId ?? ''),
+          });
+          ctrl.onToolResult(name, summarize(result), false);
+          return ok(result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          ctrl.onToolResult(name, message, true);
+          return fail(message);
+        }
+      },
+    },
+    { signal: controller.signal },
+  );
+  return () => controller.abort();
+}
+
+/**
+ * Registered only while a proposal is blocked by the mandate. This is the
+ * negotiation channel: the agent cannot quietly route around the human's
+ * envelope, but it can *argue* with it, once, in the open, and the human sees
+ * that argument as its own card rather than as another Approve button.
+ */
+export async function registerOverrideTool(
+  ctx: ModelContextLike,
+  ctrl: DeskController,
+): Promise<() => void> {
+  const controller = new AbortController();
+  await ctx.registerTool(
+    {
+      name: 'request_override',
+      description:
+        "Ask the human to grant a one-time exception for a proposal your mandate check blocked. Say plainly which rule you want bent and why this trade is worth bending it for. They see your argument beside the rule you broke and can allow it once or deny it. Do not call this reflexively — an override you cannot justify costs you the next one. Only exists while a blocked proposal is on the desk.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          proposalId: { type: 'string', description: 'The blocked proposal.' },
+          argument: {
+            type: 'string',
+            description:
+              'Your case, in one or two sentences. Name the rule and why this trade justifies the exception.',
+          },
+        },
+        required: ['proposalId', 'argument'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      execute: async (args) => {
+        const name = 'request_override';
+        ctrl.onToolCall(name, args ?? {});
+        try {
+          const result = await ctrl.requestOverride({
+            proposalId: String((args ?? {}).proposalId ?? ''),
+            argument: String((args ?? {}).argument ?? ''),
           });
           ctrl.onToolResult(name, summarize(result), false);
           return ok(result);

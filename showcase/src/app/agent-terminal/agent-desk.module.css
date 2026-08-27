@@ -82,11 +82,13 @@
 .grid {
   display: grid;
   gap: 20px;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
 }
 
-.grid > :nth-child(3) {
+/* Mandate + ticket sit side by side; approvals and the log run full width. */
+.grid > :nth-child(3),
+.grid > :nth-child(4) {
   grid-column: 1 / -1;
 }
 
@@ -94,7 +96,8 @@
   .grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .grid > :nth-child(3) {
+  .grid > :nth-child(3),
+  .grid > :nth-child(4) {
     grid-column: auto;
   }
 }
@@ -315,6 +318,8 @@
   padding: 0;
   display: grid;
   gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
 }
 
 .proposal {
@@ -535,4 +540,193 @@
   max-width: 70ch;
   font-size: 15px;
   line-height: 1.6;
+}
+
+/* ── mandate ──────────────────────────────────────────────────── */
+
+.mandatePanel {
+  border-color: var(--suwappu-summer-line-strong, #42b8d7);
+}
+
+.mandateHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mandateHead > div {
+  min-width: 0;
+}
+
+.budget {
+  margin: 4px 0 16px;
+}
+
+.budgetBar {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(79, 111, 127, 0.14);
+}
+
+.budgetBar > span {
+  display: block;
+  height: 100%;
+  background: var(--suwappu-summer-button-background, #0ea5e9);
+  transition: width 220ms ease;
+}
+
+.budgetCopy {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.budgetCopy strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.mandateList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.mandateList li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mandateList span {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.mandateList strong {
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
+}
+
+/* ── mandate violations + override ────────────────────────────── */
+
+.s_blocked {
+  border-left-color: var(--bear);
+  background: linear-gradient(
+    180deg,
+    rgba(239, 68, 68, 0.05) 0%,
+    var(--suwappu-summer-card-background, #fff) 60%
+  );
+}
+
+.violations {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--suwappu-summer-radius-card, 6px);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.violationsTitle {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #9a1c1c;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.violations ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.violations span {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: nowrap;
+}
+
+.overrideCard {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--persimmon);
+  border-radius: var(--suwappu-summer-radius-card, 6px);
+  background: rgba(244, 201, 99, 0.12);
+}
+
+.overrideTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ── plans ────────────────────────────────────────────────────── */
+
+.planSteps {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.planSteps li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.planIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(2, 132, 199, 0.12);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.planNote {
+  color: var(--muted);
+}
+
+.planTotal {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }

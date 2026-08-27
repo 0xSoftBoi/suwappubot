@@ -3,55 +3,101 @@
 **Live surface:** `/agent-terminal` on the showcase site.
 **Code:** `showcase/src/app/agent-terminal/` + `GET /public/swap/preview` in `api-ts`.
 
-Suwappu already speaks to agents over REST, MCP and A2A — all of which require a
+Suwappu already speaks to agents over REST, MCP and A2A — all of which need a
 key and live outside the browser. The Agent Desk is the fourth door: a page that
-hands the routing engine to whatever agent is driving the user's browser, using
-the W3C Web Model Context API, with no key and no signup.
+hands the routing engine to whatever agent is driving the user's browser via the
+W3C Web Model Context API, with no key and no signup.
 
-## The problem it solves
+## The problem
 
-An agent that wants to trade for you today has two bad options: scrape a UI built
-for eyes, or be handed custody through an API key. The Desk takes neither. The
-agent gets *typed tools* over the same engine the product runs on, and the human
-keeps the two things that matter — the decision and the key.
+An agent that wants to trade for you today has two bad options: scrape a UI
+built for eyes, or take custody through an API key. Both are wrong — one is
+brittle, the other hands a language model your money.
+
+The Desk takes neither. The agent gets typed tools over the real engine. The
+human keeps the decision and the key. And between them sits the piece that is
+usually missing: **a mandate.**
+
+## The mandate
+
+Approving trades one at a time is the thing that makes agentic UX exhausting,
+and it scales badly — the tenth "are you sure?" gets clicked without reading.
+So the human writes an envelope once:
+
+- per-trade and per-day USD caps
+- which chains the agent may touch
+- which tokens it may buy
+- ceilings on price impact and slippage
+
+The agent can **read** it (`read_mandate`) and **dry-run against it**
+(`check_mandate`) silently and for free, so it sizes a trade to fit instead of
+showing you things you were always going to refuse. A proposal that breaks the
+envelope still appears — in red, with the exact rule, limit and actual value —
+but **Approve is disabled in the DOM** until the human resolves it.
+
+### The agent can argue, but it cannot route around you
+
+When something is blocked, the desk registers `request_override` — a tool that
+does not otherwise exist. The agent states its case for bending one named rule;
+the human sees that argument as its own card and either allows it once or keeps
+the rule. This is the interaction the challenge is really about: not a
+permission prompt, a negotiation.
+
+### Honest scope
+
+The desk does not execute, so the mandate **cannot physically cap spending** —
+a user who ignores the desk and signs in their wallet is outside its reach. It
+governs what this page puts in front of you and what the agent is told before it
+asks. Binding enforcement lives server-side in Suwappu's wallet spending
+policies (`POST /v1/agent/wallet/policy`), which gate managed execution. The
+mandate is the browser-side sibling of that idea, not a replacement. The code
+says so, and so does `read_mandate`'s own payload.
 
 ## Design rules
 
 1. **Read tools answer, write tools ask.** Every tool that costs money is a
-   *proposal*, not an action. `propose_swap` renders a card with the priced trade
-   and the agent's written rationale; it returns `awaiting_human_approval` and a
+   *proposal*. `propose_swap` / `propose_plan` return
+   `awaiting_human_approval` (or `blocked_by_mandate_awaiting_human`) and a
    `proposalId`. Nothing else happens.
-2. **The agent waits for a person, not a poll.** `check_approval(proposalId,
-   waitSeconds)` blocks up to 120s and resolves the instant the human clicks
-   Approve or Reject, carrying back any note they typed. Proposals expire after
-   10 minutes so an agent is never stuck.
-3. **Approval unlocks a tool that did not exist.** `open_signing_handoff` is
-   registered dynamically, only while an approved and unspent swap proposal is on
-   the desk, and unregistered the moment it is consumed. An agent cannot reach
-   for it speculatively — it is absent from the page's tool list.
-4. **This page never holds a key.** The handoff opens Terminal
-   (`/alert-swap`, which prefills the ticket and still requires the human to tap
-   Buy/Sell) or the Telegram bot with a copy-ready `/s` command. No signing code
-   ships to this page.
-5. **Everything the agent does is visible.** Each tool call and result is
-   appended to an on-page activity log, next to the ticket the agent is editing.
-6. **The page works without WebMCP.** Every tool has a human control. In a
-   browser with no `modelContext` the desk says so and stays fully usable.
+2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — bridge,
+   buy, set an alert — prices every leg, rolls them into one combined notional,
+   and asks for one approval. Agents think in plans; the desk lets them.
+3. **The agent waits for a person, not a poll.** `check_approval(proposalId,
+   waitSeconds)` blocks up to 120s and resolves the instant the human clicks,
+   carrying back any note they typed. Proposals expire after 10 minutes.
+4. **Tools appear and disappear with the human's state.** `request_override`
+   exists only while something is blocked; `open_signing_handoff` only while an
+   approved, unspent proposal is on the desk, and it refuses a replay once
+   consumed. An agent cannot reach for a tool the human has not unlocked.
+5. **This page never holds a key.** The handoff opens Terminal
+   (`/alert-swap`, which prefills the ticket and still requires a human tap) or
+   the Telegram bot with a copy-ready `/s` command. A plan hands off one link
+   per leg, in order.
+6. **Everything is on the record.** Each tool call streams into an on-page
+   activity log, and `export_receipt` (or the Download receipt button) emits the
+   whole session: every rationale, mandate verdict, override argument, human
+   decision and note.
+7. **The page works without WebMCP.** Every tool has a human control.
 
 ## Tools
 
 | Tool | Kind | What it does |
 | --- | --- | --- |
-| `list_chains` | read | Chains Suwappu can route across, with the keys other tools accept |
-| `find_token` | read | Resolve a ticker/address on a chain to a canonical address + decimals |
+| `read_mandate` | read | The human's envelope, plus today's remaining budget |
+| `check_mandate` | read | Silent dry-run: which rules a trade breaks, with limit vs actual |
+| `list_chains` | read | Chains Suwappu can route across |
+| `find_token` | read | Resolve a ticker/address to a canonical address + decimals |
 | `get_prices` | read | USD spot for major symbols |
-| `preview_swap` | read | Price a same-chain or cross-chain swap and render it on the desk |
-| `compare_routes` | read | The same swap priced RECOMMENDED / FASTEST / CHEAPEST / SAFEST |
-| `read_desk` | read | Ticket, live quote, all proposals and their state, recent activity |
-| `propose_swap` | propose | Put a priced trade + rationale in front of the human |
-| `propose_price_alert` | propose | Propose an alert to arm in the bot |
+| `preview_swap` | read | Price a swap, render it, attach the mandate verdict |
+| `compare_routes` | read | The same swap as RECOMMENDED / FASTEST / CHEAPEST / SAFEST |
+| `read_desk` | read | Ticket, quote, mandate headroom, proposals, activity |
+| `propose_swap` | propose | One trade + rationale in front of the human |
+| `propose_plan` | propose | An ordered multi-step plan as one approval |
+| `propose_price_alert` | propose | An alert to arm in the bot |
 | `check_approval` | read | Block on / poll the human's decision, with their note |
-| `open_signing_handoff` | unlocked | Only exists after approval; returns the signing links |
+| `request_override` | unlocked | Only while blocked: argue for bending one rule |
+| `open_signing_handoff` | unlocked | Only after approval: the signing links |
+| `export_receipt` | read | The full audit trail, optionally as a download |
 
 ## API
 
@@ -66,20 +112,24 @@ caller names one.
 
 ```bash
 cd showcase
-bun run dev                              # serve the desk
-bun run webmcp:smoke                     # drive the tools with a modelContext polyfill
+bun run dev            # serve the desk on :4321
+bun run webmcp:smoke   # 34 assertions against a modelContext polyfill
 ```
 
-`scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext`, then
-runs the whole loop: register → `preview_swap` → `propose_swap` → assert the
-handoff tool is *absent* → click Approve in the real UI → assert the blocked
-`check_approval` resolves with the human's note → assert the handoff tool
-appeared → consume it → assert a replay is refused.
+`scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
+drives the real page, asserting among other things that a mandate-breaking
+proposal reports itself blocked **and** that its Approve button is disabled in
+the DOM, that `request_override` does not exist until then, that a blocked
+`check_approval` resolves on the human's actual click with their note intact,
+that the handoff appears only after approval and refuses a replay, that a plan's
+headroom already reflects the earlier approval, and that the receipt preserves
+the rationale, the breach and the override argument.
 
 ## Spec notes
 
 The `modelContext` getter moved from `navigator` to `document` in the May 2026
 draft and `navigator.modelContext` is deprecated in Chromium 150, so
 `getModelContext()` feature-detects both and prefers `document`. Tools are
-registered with `{ signal }` so aborting one controller unregisters the whole
-set. The API is HTTPS-only.
+registered with `{ signal }` so aborting one controller unregisters a whole set
+— which is exactly how the two conditional tools come and go. Long-running
+`execute` callbacks honour `options.signal`. The API is HTTPS-only.
