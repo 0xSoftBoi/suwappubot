@@ -185,3 +185,142 @@ export function describeMandate(mandate: Mandate, spentTodayUsd: number) {
       'wallet spending policies server-side. Treat this as the human’s stated intent, and respect it.',
   };
 }
+
+// ── Amendment ───────────────────────────────────────────────────────
+
+export interface MandateAmendment {
+  perTradeUsdCap?: number;
+  dailyUsdCap?: number;
+  allowedChains?: string[];
+  allowedBuyTokens?: string[];
+  maxPriceImpactPercent?: number;
+  maxSlippagePercent?: number;
+}
+
+export interface AmendmentDiff {
+  field: keyof Mandate;
+  from: string;
+  to: string;
+  direction: 'looser' | 'tighter' | 'changed';
+}
+
+const asText = (v: unknown) => (Array.isArray(v) ? (v.length ? v.join(', ') : 'any') : String(v));
+
+/**
+ * Describes what an amendment would change, and — the part the human actually
+ * needs — whether each change *loosens* their guard rails or tightens them.
+ * An agent asking for more rope should never be able to phrase it as a tidy-up.
+ */
+export function diffAmendment(current: Mandate, amendment: MandateAmendment): AmendmentDiff[] {
+  const diffs: AmendmentDiff[] = [];
+  const numericLooserWhenHigher: (keyof Mandate)[] = [
+    'perTradeUsdCap',
+    'dailyUsdCap',
+    'maxPriceImpactPercent',
+    'maxSlippagePercent',
+  ];
+
+  for (const key of numericLooserWhenHigher) {
+    const next = amendment[key] as number | undefined;
+    if (next === undefined) continue;
+    const prev = current[key] as number;
+    if (next === prev) continue;
+    diffs.push({
+      field: key,
+      from: String(prev),
+      to: String(next),
+      direction: next > prev ? 'looser' : 'tighter',
+    });
+  }
+
+  for (const key of ['allowedChains', 'allowedBuyTokens'] as const) {
+    const next = amendment[key];
+    if (next === undefined) continue;
+    const prev = current[key];
+    if (asText(prev) === asText(next)) continue;
+    // An empty list means "no restriction", which is the loosest possible state.
+    const loosened = next.length === 0 || (prev.length > 0 && next.length > prev.length);
+    diffs.push({
+      field: key,
+      from: asText(prev),
+      to: asText(next),
+      direction: loosened ? 'looser' : next.length < prev.length ? 'tighter' : 'changed',
+    });
+  }
+
+  return diffs;
+}
+
+export function applyAmendment(current: Mandate, amendment: MandateAmendment): Mandate {
+  return {
+    ...current,
+    ...Object.fromEntries(Object.entries(amendment).filter(([, v]) => v !== undefined)),
+  };
+}
+
+// ── Compilation to enforceable policy ───────────────────────────────
+
+export interface WalletPolicyPayload {
+  type: 'spending_limit' | 'whitelist';
+  params: {
+    maxAmountWei?: string;
+    timeWindowSeconds?: number;
+    allowedAddresses?: string[];
+  };
+}
+
+/**
+ * Compiles the browser-side mandate into the request bodies Suwappu's
+ * `POST /v1/agent/wallet/policy` accepts — the endpoint that creates real
+ * Turnkey policies gating managed execution.
+ *
+ * This is the bridge between the envelope the human negotiated here and
+ * enforcement that actually binds. It produces the payloads; installing them
+ * needs an agent key, which this page deliberately never holds.
+ */
+export function compileToWalletPolicies(
+  mandate: Mandate,
+  ethUsd: number,
+  tokenAddresses: string[] = [],
+): { policies: WalletPolicyPayload[]; notes: string[] } {
+  const notes: string[] = [];
+  const policies: WalletPolicyPayload[] = [];
+
+  if (!Number.isFinite(ethUsd) || ethUsd <= 0) {
+    notes.push(
+      'No ETH price was available, so the USD caps could not be converted to wei. Re-run once get_prices succeeds.',
+    );
+  } else {
+    // Turnkey conditions are denominated in wei against the native asset, so a
+    // USD cap only exists as a policy once it is priced.
+    const toWei = (usd: number) =>
+      BigInt(Math.floor((usd / ethUsd) * 1e18)).toString();
+
+    policies.push({
+      type: 'spending_limit',
+      params: { maxAmountWei: toWei(mandate.dailyUsdCap), timeWindowSeconds: 86_400 },
+    });
+    notes.push(
+      `Daily cap ${mandate.dailyUsdCap} USD converted at ${ethUsd} USD/ETH. Re-compile when the price moves materially — the policy is fixed in wei, the cap you meant is in dollars.`,
+    );
+  }
+
+  if (tokenAddresses.length > 0) {
+    policies.push({
+      type: 'whitelist',
+      params: { allowedAddresses: tokenAddresses.map((a) => a.toLowerCase()) },
+    });
+  } else if (mandate.allowedBuyTokens.length > 0) {
+    notes.push(
+      'The token allow-list could not be compiled: a whitelist policy needs contract addresses, and only symbols were on the mandate. Resolve them with find_token first.',
+    );
+  }
+
+  if (mandate.perTradeUsdCap < mandate.dailyUsdCap) {
+    notes.push(
+      `Per-trade cap (${mandate.perTradeUsdCap} USD) has no direct Turnkey equivalent — Turnkey limits per transaction, and a time-windowed daily limit is the closest primitive. The per-trade rule stays enforced by the desk only.`,
+    );
+  }
+
+  return { policies, notes };
+}

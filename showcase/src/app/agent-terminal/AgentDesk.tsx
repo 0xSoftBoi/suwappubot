@@ -12,10 +12,15 @@ import {
   type SwapPreview,
 } from './deskApi';
 import {
+  applyAmendment,
+  compileToWalletPolicies,
   DEFAULT_MANDATE,
   describeMandate,
+  diffAmendment,
   evaluateMandate,
+  type AmendmentDiff,
   type Mandate,
+  type MandateAmendment,
   type MandateVerdict,
 } from './mandate';
 import {
@@ -66,9 +71,14 @@ interface Override {
   granted: boolean | null;
 }
 
+interface Amendment {
+  changes: MandateAmendment;
+  diffs: AmendmentDiff[];
+}
+
 interface Proposal {
   id: string;
-  kind: 'swap' | 'alert' | 'plan';
+  kind: 'swap' | 'alert' | 'plan' | 'mandate';
   rationale: string;
   createdAt: number;
   expiresAt: number;
@@ -79,6 +89,7 @@ interface Proposal {
   swap?: SwapBody;
   alert?: AlertBody;
   plan?: { steps: PlanStep[]; combinedUsd: number | null };
+  amendment?: Amendment;
   verdict: MandateVerdict | null;
   override: Override | null;
 }
@@ -146,7 +157,7 @@ const dayKey = (at: number) => new Date(at).toISOString().slice(0, 10);
 function notionalOf(p: Proposal): number | null {
   if (p.kind === 'swap') return num(p.swap?.preview?.fromAmountUsd);
   if (p.kind === 'plan') return p.plan?.combinedUsd ?? null;
-  return 0;
+  return 0; // alerts and mandate amendments move no money
 }
 
 /** A proposal the desk will not let the human approve as things stand. */
@@ -247,6 +258,22 @@ export default function AgentDesk() {
     [],
   );
 
+  const updateMandate = useCallback(
+    (patch: Partial<Mandate>) => {
+      setMandate((prev) => {
+        const next = { ...prev, ...patch };
+        mandateRef.current = next;
+        try {
+          window.localStorage.setItem(MANDATE_KEY, JSON.stringify(next));
+        } catch {
+          /* not fatal */
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const settle = useCallback((proposal: Proposal) => {
     const set = waiters.current.get(proposal.id);
     if (!set) return;
@@ -263,22 +290,6 @@ export default function AgentDesk() {
       /* private mode, blocked storage — the default mandate is fine */
     }
   }, []);
-
-  const updateMandate = useCallback(
-    (patch: Partial<Mandate>) => {
-      setMandate((prev) => {
-        const next = { ...prev, ...patch };
-        mandateRef.current = next;
-        try {
-          window.localStorage.setItem(MANDATE_KEY, JSON.stringify(next));
-        } catch {
-          /* not fatal */
-        }
-        return next;
-      });
-    },
-    [],
-  );
 
   /** USD approved today. Drives the daily-cap headroom the agent reads. */
   const spentToday = useCallback((list: Proposal[] = proposalsRef.current): number => {
@@ -400,6 +411,18 @@ export default function AgentDesk() {
       );
       const decided = next.find((p) => p.id === id);
       if (decided) {
+        // The one thing on this desk that completes in place: an approved
+        // amendment rewrites the envelope, here, now, and it persists.
+        if (status === 'approved' && decided.kind === 'mandate' && decided.amendment) {
+          updateMandate(decided.amendment.changes);
+          log(
+            'human',
+            'Mandate amended',
+            decided.amendment.diffs
+              .map((d) => `${d.field}: ${d.from} → ${d.to} (${d.direction})`)
+              .join('; '),
+          );
+        }
         settle(decided);
         log(
           'human',
@@ -408,7 +431,7 @@ export default function AgentDesk() {
         );
       }
     },
-    [commitProposals, log, noteDraft, settle],
+    [commitProposals, log, noteDraft, settle, updateMandate],
   );
 
   const decideOverride = useCallback(
@@ -505,6 +528,18 @@ export default function AgentDesk() {
     a.remove();
     URL.revokeObjectURL(url);
   }, [buildReceipt]);
+
+  const downloadJson = useCallback((data: unknown, prefix: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${prefix}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, []);
 
   // ── Controller ───────────────────────────────────────────────────
 
@@ -716,6 +751,137 @@ export default function AgentDesk() {
 
       readMandate() {
         return describeMandate(mandateRef.current, spentToday());
+      },
+
+      navigateDesk({ section }) {
+        const SECTIONS: Record<string, { id: string; purpose: string; tools: string[] }> = {
+          mandate: {
+            id: 'desk-mandate',
+            purpose: "The human's standing envelope and how much of today's budget is left.",
+            tools: ['read_mandate', 'check_mandate', 'amend_mandate', 'compile_mandate_to_policy'],
+          },
+          ticket: {
+            id: 'desk-ticket',
+            purpose: 'The trade form you and the human share, plus the live quote.',
+            tools: ['preview_swap', 'compare_routes', 'find_token', 'get_prices', 'list_chains'],
+          },
+          approvals: {
+            id: 'desk-approvals',
+            purpose: 'Proposals waiting on a human decision, with their mandate verdicts.',
+            tools: ['propose_swap', 'propose_plan', 'propose_price_alert', 'check_approval', 'request_override'],
+          },
+          activity: {
+            id: 'desk-activity',
+            purpose: 'The visible log of every tool call you have made here.',
+            tools: ['read_desk', 'export_receipt'],
+          },
+          'how-it-works': {
+            id: 'how-it-works',
+            purpose: 'The explainer for how a mandate becomes a trade.',
+            tools: [],
+          },
+          tools: { id: 'tools', purpose: 'The full catalogue of tools this page registers.', tools: [] },
+        };
+        const target = SECTIONS[section];
+        if (!target) {
+          return {
+            error: `Unknown section "${section}".`,
+            sections: Object.keys(SECTIONS),
+          };
+        }
+        const el = typeof document !== 'undefined' ? document.getElementById(target.id) : null;
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return {
+          movedTo: section,
+          purpose: target.purpose,
+          toolsForThisSection: target.tools,
+          visible: Boolean(el),
+        };
+      },
+
+      async amendMandate({ rationale, ...changes }) {
+        if (!rationale.trim()) {
+          throw new Error(
+            'rationale is required — you are asking to change the rules the human set.',
+          );
+        }
+        const diffs = diffAmendment(mandateRef.current, changes);
+        if (diffs.length === 0) {
+          throw new Error('That amendment would not change anything about the mandate.');
+        }
+        const proposal: Proposal = {
+          id: nextId('amend'),
+          kind: 'mandate',
+          rationale: rationale.trim(),
+          createdAt: Date.now(),
+          expiresAt: Date.now() + PROPOSAL_TTL_MS,
+          status: 'pending',
+          humanNote: null,
+          decidedAt: null,
+          consumedAt: null,
+          amendment: { changes, diffs },
+          verdict: null,
+          override: null,
+        };
+        commitProposals((prev) => [proposal, ...prev]);
+        return {
+          proposalId: proposal.id,
+          status: 'awaiting_human_approval',
+          changes: diffs.map((d) => ({
+            field: d.field,
+            from: d.from,
+            to: d.to,
+            direction: d.direction,
+          })),
+          loosens: diffs.filter((d) => d.direction === 'looser').map((d) => d.field),
+          next:
+            'The human sees a before/after diff with every loosened rule flagged. If they approve, the mandate changes here and persists — this is the one thing on the desk that completes in place. Poll check_approval.',
+        };
+      },
+
+      async compileMandateToPolicy({ download }) {
+        const mandateNow = mandateRef.current;
+        let ethUsd = 0;
+        try {
+          const prices = await getPrices(['ETH']);
+          ethUsd = prices.eth ?? 0;
+        } catch {
+          ethUsd = 0;
+        }
+
+        // A whitelist policy needs contract addresses, so resolve the symbols
+        // the human allowed into real addresses on their allowed chains.
+        const addresses: string[] = [];
+        const unresolved: string[] = [];
+        for (const symbol of mandateNow.allowedBuyTokens.slice(0, 8)) {
+          const chain = mandateNow.allowedChains[0] ?? 'base';
+          try {
+            const rows = await findTokens(symbol, chain);
+            const hit = rows.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
+            if (hit?.address && /^0x[a-fA-F0-9]{40}$/.test(hit.address)) addresses.push(hit.address);
+            else unresolved.push(symbol);
+          } catch {
+            unresolved.push(symbol);
+          }
+        }
+
+        const { policies, notes } = compileToWalletPolicies(mandateNow, ethUsd, addresses);
+        if (unresolved.length > 0) {
+          notes.push(`Could not resolve an address for: ${unresolved.join(', ')}.`);
+        }
+
+        const bundle = {
+          generatedAt: new Date().toISOString(),
+          source: 'Suwappu Agent Desk (WebMCP) — negotiated mandate',
+          endpoint: 'POST /v1/agent/wallet/policy',
+          authentication:
+            'Requires a Suwappu agent API key. This page never holds one, by design.',
+          mandate: describeMandate(mandateNow, spentToday()),
+          policies,
+          notes,
+        };
+        if (download) downloadJson(bundle, 'suwappu-wallet-policy');
+        return bundle;
       },
 
       async checkMandate(args, signal) {
@@ -1084,6 +1250,7 @@ export default function AgentDesk() {
   }, [
     buildReceipt,
     commitProposals,
+    downloadJson,
     downloadReceipt,
     judge,
     log,
@@ -1202,7 +1369,7 @@ export default function AgentDesk() {
 
       <div className={styles.grid}>
         {/* ── Mandate ────────────────────────────────────────────── */}
-        <section className={`${styles.panel} ${styles.mandatePanel}`}>
+        <section id="desk-mandate" className={`${styles.panel} ${styles.mandatePanel}`}>
           <div className={styles.mandateHead}>
             <div>
               <h2 className={styles.panelTitle}>Your mandate</h2>
@@ -1210,14 +1377,26 @@ export default function AgentDesk() {
                 The envelope you write and the agent reads before it proposes anything.
               </p>
             </div>
-            <button
-              type="button"
-              className={styles.ghost}
-              onClick={() => setMandateOpen((v) => !v)}
-              aria-expanded={mandateOpen}
-            >
-              {mandateOpen ? 'Done' : 'Edit'}
-            </button>
+            <div className={styles.actions} style={{ marginTop: 0 }}>
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => setMandateOpen((v) => !v)}
+                aria-expanded={mandateOpen}
+              >
+                {mandateOpen ? 'Done' : 'Edit'}
+              </button>
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={async () => {
+                  log('human', 'Compile mandate', 'to Suwappu wallet spending policies');
+                  await controller.compileMandateToPolicy({ download: true });
+                }}
+              >
+                Compile to policy
+              </button>
+            </div>
           </div>
 
           <div className={styles.budget}>
@@ -1334,7 +1513,7 @@ export default function AgentDesk() {
         </section>
 
         {/* ── Ticket ─────────────────────────────────────────────── */}
-        <section className={styles.panel}>
+        <section id="desk-ticket" className={styles.panel}>
           <h2 className={styles.panelTitle}>Ticket</h2>
           <p className={styles.panelNote}>
             Shared surface: you and the agent are editing the same ticket.
@@ -1508,7 +1687,7 @@ export default function AgentDesk() {
         </section>
 
         {/* ── Approvals ──────────────────────────────────────────── */}
-        <section className={styles.panel}>
+        <section id="desk-approvals" className={styles.panel}>
           <h2 className={styles.panelTitle}>
             Approvals{pending.length > 0 ? ` · ${pending.length} waiting` : ''}
           </h2>
@@ -1547,7 +1726,9 @@ export default function AgentDesk() {
                         ? `Plan · ${p.plan?.steps.length} steps`
                         : p.kind === 'swap'
                           ? 'Swap proposal'
-                          : 'Alert proposal'}
+                          : p.kind === 'mandate'
+                            ? 'Mandate amendment'
+                            : 'Alert proposal'}
                     </span>
                     <span className={styles.proposalStatus}>
                       {blocked && p.status === 'pending' ? 'blocked' : p.status}
@@ -1621,6 +1802,20 @@ export default function AgentDesk() {
                         <> · spot {fmtUsd(p.alert.spotAtProposal)}</>
                       )}
                     </p>
+                  )}
+
+                  {p.amendment && (
+                    <ul className={styles.diffList}>
+                      {p.amendment.diffs.map((d) => (
+                        <li key={`${p.id}-${d.field}`} data-direction={d.direction}>
+                          <span className={styles.diffField}>{d.field}</span>
+                          <span className={styles.diffFrom}>{d.from}</span>
+                          <span aria-hidden="true">→</span>
+                          <span className={styles.diffTo}>{d.to}</span>
+                          <span className={styles.diffTag}>{d.direction}</span>
+                        </li>
+                      ))}
+                    </ul>
                   )}
 
                   <blockquote className={styles.rationale}>{p.rationale}</blockquote>
@@ -1769,7 +1964,7 @@ export default function AgentDesk() {
         </section>
 
         {/* ── Activity ───────────────────────────────────────────── */}
-        <section className={styles.panel}>
+        <section id="desk-activity" className={styles.panel}>
           <div className={styles.mandateHead}>
             <div>
               <h2 className={styles.panelTitle}>Activity</h2>

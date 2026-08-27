@@ -268,6 +268,102 @@
       }
     },
     {
+      "name": "navigate_desk",
+      "description": "Move the human's view to a part of the desk and learn what lives there and which tools act on it. Use this to orient yourself before working, and to put the human's eyes on what you are about to talk about — pointing at the approvals queue before you explain a proposal beats describing it blind.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "section": {
+            "type": "string",
+            "enum": [
+              "mandate",
+              "ticket",
+              "approvals",
+              "activity",
+              "how-it-works",
+              "tools"
+            ],
+            "description": "mandate = the human's standing envelope and today's budget. ticket = the shared trade form and live quote. approvals = proposals waiting on a human decision. activity = the log of what you have done. how-it-works = the explainer. tools = the full tool catalogue."
+          }
+        },
+        "required": [
+          "section"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "amend_mandate",
+      "description": "Propose a change to the human's standing mandate itself — a different cap, another chain, one more token on the allow-list. This is how the envelope actually evolves: the human sees a before/after diff with every loosened rule flagged, and on approval the mandate CHANGES on the page and persists. Use it when the mandate is repeatedly getting in the way of trades the human clearly wants, and say what evidence made you ask. Do not use it to widen your own room without a reason you would defend out loud.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rationale": {
+            "type": "string",
+            "description": "Why the envelope should change, in the human's terms. Cite what happened — proposals that hit a cap, a chain they keep asking for."
+          },
+          "perTradeUsdCap": {
+            "type": "number",
+            "description": "New per-trade cap in USD."
+          },
+          "dailyUsdCap": {
+            "type": "number",
+            "description": "New daily cap in USD."
+          },
+          "allowedChains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Replacement chain allow-list. An empty array means any chain."
+          },
+          "allowedBuyTokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Replacement token allow-list. An empty array means any token."
+          },
+          "maxPriceImpactPercent": {
+            "type": "number",
+            "description": "New price-impact ceiling."
+          },
+          "maxSlippagePercent": {
+            "type": "number",
+            "description": "New slippage ceiling."
+          }
+        },
+        "required": [
+          "rationale"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "compile_mandate_to_policy",
+      "description": "Compile the negotiated mandate into Suwappu wallet spending-policy payloads — the request bodies POST /v1/agent/wallet/policy accepts to create real Turnkey policies that gate managed execution. This turns the envelope from something this page honours into something a server enforces. Returns the payloads plus honest notes about what did and did not survive compilation. Pass download:true to hand the human the file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "download": {
+            "type": "boolean",
+            "description": "Also save the compiled policy bundle to the human's machine."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
       "name": "read_mandate",
       "description": "Read the human's standing mandate: per-trade and daily USD caps, allowed chains, allowed tokens to buy, and ceilings on price impact and slippage — plus how much of today's budget is already spoken for. Read this FIRST. It tells you what the human will and will not accept, so you stop proposing trades they were always going to refuse.",
       "inputSchema": {

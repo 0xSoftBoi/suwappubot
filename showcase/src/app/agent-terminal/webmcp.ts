@@ -124,6 +124,17 @@ export interface DeskController {
   ): Promise<unknown>;
   openSigningHandoff(args: { proposalId: string }): Promise<unknown>;
   readMandate(): unknown;
+  navigateDesk(args: { section: string }): unknown;
+  amendMandate(args: {
+    rationale: string;
+    perTradeUsdCap?: number;
+    dailyUsdCap?: number;
+    allowedChains?: string[];
+    allowedBuyTokens?: string[];
+    maxPriceImpactPercent?: number;
+    maxSlippagePercent?: number;
+  }): Promise<unknown>;
+  compileMandateToPolicy(args: { download?: boolean }): Promise<unknown>;
   checkMandate(
     args: {
       fromChain: string;
@@ -388,6 +399,98 @@ export async function registerDeskTools(
           targetPrice: Number(a.targetPrice),
           rationale: String(a.rationale ?? ''),
         }),
+      ),
+    },
+    {
+      name: 'navigate_desk',
+      description:
+        "Move the human's view to a part of the desk and learn what lives there and which tools act on it. Use this to orient yourself before working, and to put the human's eyes on what you are about to talk about — pointing at the approvals queue before you explain a proposal beats describing it blind.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          section: {
+            type: 'string',
+            enum: ['mandate', 'ticket', 'approvals', 'activity', 'how-it-works', 'tools'],
+            description:
+              'mandate = the human\'s standing envelope and today\'s budget. ticket = the shared trade form and live quote. approvals = proposals waiting on a human decision. activity = the log of what you have done. how-it-works = the explainer. tools = the full tool catalogue.',
+          },
+        },
+        required: ['section'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: wrap('navigate_desk', (a) =>
+        ctrl.navigateDesk({ section: String(a.section ?? '') }),
+      ),
+    },
+    {
+      name: 'amend_mandate',
+      description:
+        "Propose a change to the human's standing mandate itself — a different cap, another chain, one more token on the allow-list. This is how the envelope actually evolves: the human sees a before/after diff with every loosened rule flagged, and on approval the mandate CHANGES on the page and persists. Use it when the mandate is repeatedly getting in the way of trades the human clearly wants, and say what evidence made you ask. Do not use it to widen your own room without a reason you would defend out loud.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rationale: {
+            type: 'string',
+            description:
+              'Why the envelope should change, in the human\'s terms. Cite what happened — proposals that hit a cap, a chain they keep asking for.',
+          },
+          perTradeUsdCap: { type: 'number', description: 'New per-trade cap in USD.' },
+          dailyUsdCap: { type: 'number', description: 'New daily cap in USD.' },
+          allowedChains: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Replacement chain allow-list. An empty array means any chain.',
+          },
+          allowedBuyTokens: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Replacement token allow-list. An empty array means any token.',
+          },
+          maxPriceImpactPercent: { type: 'number', description: 'New price-impact ceiling.' },
+          maxSlippagePercent: { type: 'number', description: 'New slippage ceiling.' },
+        },
+        required: ['rationale'],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      execute: wrap('amend_mandate', (a) =>
+        ctrl.amendMandate({
+          rationale: String(a.rationale ?? ''),
+          ...(typeof a.perTradeUsdCap === 'number' ? { perTradeUsdCap: a.perTradeUsdCap } : {}),
+          ...(typeof a.dailyUsdCap === 'number' ? { dailyUsdCap: a.dailyUsdCap } : {}),
+          ...(Array.isArray(a.allowedChains)
+            ? { allowedChains: a.allowedChains.map(String) }
+            : {}),
+          ...(Array.isArray(a.allowedBuyTokens)
+            ? { allowedBuyTokens: a.allowedBuyTokens.map(String) }
+            : {}),
+          ...(typeof a.maxPriceImpactPercent === 'number'
+            ? { maxPriceImpactPercent: a.maxPriceImpactPercent }
+            : {}),
+          ...(typeof a.maxSlippagePercent === 'number'
+            ? { maxSlippagePercent: a.maxSlippagePercent }
+            : {}),
+        }),
+      ),
+    },
+    {
+      name: 'compile_mandate_to_policy',
+      description:
+        "Compile the negotiated mandate into Suwappu wallet spending-policy payloads — the request bodies POST /v1/agent/wallet/policy accepts to create real Turnkey policies that gate managed execution. This turns the envelope from something this page honours into something a server enforces. Returns the payloads plus honest notes about what did and did not survive compilation. Pass download:true to hand the human the file.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          download: {
+            type: 'boolean',
+            description: 'Also save the compiled policy bundle to the human\'s machine.',
+          },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+      execute: wrap('compile_mandate_to_policy', (a) =>
+        ctrl.compileMandateToPolicy({ download: a.download === true }),
       ),
     },
     {

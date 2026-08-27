@@ -35,6 +35,24 @@ showing you things you were always going to refuse. A proposal that breaks the
 envelope still appears — in red, with the exact rule, limit and actual value —
 but **Approve is disabled in the DOM** until the human resolves it.
 
+### The envelope itself completes
+
+The criticism that kills most agent demos is that nothing ever finishes: the
+agent proposes, and then hands you a link. On this desk one thing finishes in
+place. `amend_mandate` lets the agent propose a change to the envelope itself —
+citing what happened, e.g. two proposals that hit the per-trade cap. The human
+sees a **before/after diff with every loosened rule flagged in red**, because an
+agent asking for more rope must never be able to phrase it as a tidy-up. Approve
+and the mandate really changes, persists, and governs the very next
+`check_mandate`.
+
+`compile_mandate_to_policy` then turns that negotiated envelope into
+`POST /v1/agent/wallet/policy` payloads — real Turnkey policies that gate
+managed execution server-side, where a browser page cannot reach. It reports
+honestly what did not survive the compile (a per-trade cap has no direct Turnkey
+equivalent; a token allow-list needs addresses, not symbols). You leave with a
+rule set, not a session.
+
 ### The agent can argue, but it cannot route around you
 
 When something is blocked, the desk registers `request_override` — a tool that
@@ -84,6 +102,9 @@ says so, and so does `read_mandate`'s own payload.
 | Tool | Kind | What it does |
 | --- | --- | --- |
 | `read_mandate` | read | The human's envelope, plus today's remaining budget |
+| `amend_mandate` | **completes** | Propose changing the envelope; approval rewrites it in place |
+| `compile_mandate_to_policy` | **completes** | Compile the envelope into enforceable wallet-policy payloads |
+| `navigate_desk` | read | Move the human's view to a section; report what lives there |
 | `check_mandate` | read | Silent dry-run: which rules a trade breaks, with limit vs actual |
 | `list_chains` | read | Chains Suwappu can route across |
 | `find_token` | read | Resolve a ticker/address to a canonical address + decimals |
@@ -117,13 +138,16 @@ bun run webmcp:smoke   # 34 assertions against a modelContext polyfill
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page, asserting among other things that a mandate-breaking
-proposal reports itself blocked **and** that its Approve button is disabled in
-the DOM, that `request_override` does not exist until then, that a blocked
-`check_approval` resolves on the human's actual click with their note intact,
-that the handoff appears only after approval and refuses a replay, that a plan's
-headroom already reflects the earlier approval, and that the receipt preserves
-the rationale, the breach and the override argument.
+drives the real page through **41 assertions**, among them: that a
+mandate-breaking proposal reports itself blocked **and** its Approve button is
+`disabled` in the DOM; that `request_override` does not exist until then; that a
+blocked `check_approval` resolves on the human's actual click with their note
+intact; that the handoff appears only after approval and retires once spent;
+that a plan's headroom already reflects the earlier approval; that an amendment
+**flags itself as loosening a rule**, leaves the mandate untouched while pending,
+and on approval actually rewrites it so the new envelope governs the next check;
+that the compiled policy bundle names its endpoint and states it holds no key;
+and that the receipt preserves every rationale, breach and override argument.
 
 ## Evals: measuring whether an agent can actually use this
 
@@ -133,10 +157,10 @@ an official harness that puts a real LLM in front of a tool schema and checks
 that a natural-language request produces the *right tool call with the right
 arguments*. We wrote a suite for it.
 
-- `showcase/webmcp/tools.schema.json` — the 13 static tool schemas, **exported
+- `showcase/webmcp/tools.schema.json` — the 16 static tool schemas, **exported
   from the live page** by `bun run webmcp:schemas`, never hand-written, so the
   eval target cannot drift from what an agent really sees.
-- `showcase/webmcp/evals.json` — 12 cases in Google's format, written as things
+- `showcase/webmcp/evals.json` — 15 cases in Google's format, written as things
   a person would actually say ("What am I actually letting you do here?",
   "Don't put it in front of me yet, just check").
 
@@ -154,9 +178,9 @@ bun run webmcp:evals       # deterministic: execute every case for real, no API 
 bun run webmcp:evals:llm   # Google's LLM harness (needs OPENAI_API_KEY or GOOGLE_AI)
 ```
 
-`webmcp:evals` resolves each case's matcher constraints to concrete arguments
+There are now **15 cases across 16 tools**. `webmcp:evals` resolves each case's matcher constraints to concrete arguments
 and invokes the tool on the live page, asserting it exists, accepts the shape
-and returns without error — currently **12/12 clean**. It means `evals.json`
+and returns without error — currently **15/15 clean**. It means `evals.json`
 cannot rot: rename a tool or tighten a schema and CI fails long before an agent
 meets it. The LLM half — does the *model* pick the right tool — needs a model
 key and has not been run in this environment; that is stated rather than

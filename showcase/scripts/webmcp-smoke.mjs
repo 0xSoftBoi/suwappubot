@@ -282,9 +282,70 @@ check(
   String(plan.mandate.dailyRemainingUsd),
 );
 
-// ── 8. the receipt ─────────────────────────────────────────────────
+// ── 8. the completion loop: the envelope really changes ────────────
+// This is the one thing on the desk that finishes in place. Everything else
+// ends in a handoff; an approved amendment rewrites the human's rules here.
+const before = await call('read_mandate');
+const amend = await call('amend_mandate', {
+  perTradeUsdCap: 500,
+  rationale: 'Two proposals hit your $250 cap in the last ten minutes; $500 matches what you actually approved.',
+});
+show('amend_mandate', amend);
+check(
+  'amendment flags that it loosens a rule',
+  Array.isArray(amend.loosens) && amend.loosens.includes('perTradeUsdCap'),
+  JSON.stringify(amend.loosens),
+);
+check(
+  'mandate is unchanged while the amendment is pending',
+  (await call('read_mandate')).perTradeUsdCap === before.perTradeUsdCap,
+);
+
+await page
+  .locator('li', { hasText: 'Two proposals hit your $250 cap' })
+  .getByRole('button', { name: /^Approve/ })
+  .click();
+
+const after = await call('read_mandate');
+check(
+  'approving the amendment actually rewrote the mandate',
+  after.perTradeUsdCap === 500 && before.perTradeUsdCap !== 500,
+  `${before.perTradeUsdCap} -> ${after.perTradeUsdCap}`,
+);
+check(
+  'the new envelope is live for the next mandate check',
+  (
+    await call('check_mandate', {
+      fromChain: 'base', toChain: 'base', fromToken: 'ETH', toToken: 'USDC', amount: '0.1',
+    })
+  ).notionalUsd <= 500,
+);
+
+// ── 9. compiling the envelope into enforceable policy ──────────────
+const compiled = await call('compile_mandate_to_policy', {});
+check(
+  'mandate compiles to a real wallet-policy payload',
+  Array.isArray(compiled.policies) &&
+    compiled.policies.some((p) => p.type === 'spending_limit' && p.params?.maxAmountWei),
+  JSON.stringify(compiled.policies).slice(0, 200),
+);
+check(
+  'compilation is honest about what it could not carry over',
+  Array.isArray(compiled.notes) && compiled.notes.length > 0,
+);
+check(
+  'compiled bundle names the endpoint and says it holds no key',
+  compiled.endpoint === 'POST /v1/agent/wallet/policy' &&
+    /never holds one/.test(compiled.authentication ?? ''),
+);
+
+// ── 10. the receipt ────────────────────────────────────────────────
 const receipt = await call('export_receipt', {});
-check('receipt lists both proposals', receipt.proposals.length === 2, String(receipt.proposals.length));
+check(
+  'receipt lists the swap, the plan and the amendment',
+  receipt.proposals.length === 3,
+  String(receipt.proposals.length),
+);
 const overridden = receipt.proposals.find((p) => p.id === blocked.proposalId);
 check('receipt keeps the agent rationale', Boolean(overridden?.agentRationale));
 check('receipt keeps the mandate breach', overridden?.mandate?.withinMandate === false);

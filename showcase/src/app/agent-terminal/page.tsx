@@ -24,6 +24,21 @@ const TOOLS = [
     body: 'Dry-run a trade against the mandate silently. Returns the exact rules it breaks, with limit and actual — so the agent iterates on size or chain instead of burning the human\u2019s attention.',
   },
   {
+    name: 'amend_mandate',
+    kind: 'completes',
+    body: 'The agent proposes a change to the envelope itself, citing what happened. You see a before/after diff with every loosened rule flagged in red. Approve and the mandate really changes, here, and persists — the one thing on this desk that finishes in place.',
+  },
+  {
+    name: 'compile_mandate_to_policy',
+    kind: 'completes',
+    body: 'Compiles the negotiated envelope into Suwappu wallet spending-policy payloads — the request bodies that create real Turnkey policies gating managed execution. Honest notes say what did not survive the compile.',
+  },
+  {
+    name: 'navigate_desk',
+    kind: 'read',
+    body: 'Moves the human\u2019s view to a section and reports what lives there and which tools act on it. Pointing at the approvals queue beats describing it blind.',
+  },
+  {
     name: 'list_chains',
     kind: 'read',
     body: 'Every chain Suwappu can route across, with chain keys the other tools accept.',
@@ -118,8 +133,18 @@ const STEPS = [
   },
   {
     n: '06',
+    title: 'The envelope itself evolves',
+    body: 'When a rule keeps blocking things you clearly want, the agent proposes amending it and cites the evidence. You see a diff with loosened rules flagged in red. Approve, and the mandate changes here — the one thing on this desk that finishes in place.',
+  },
+  {
+    n: '07',
+    title: 'It compiles into something that binds',
+    body: 'The negotiated envelope compiles to Suwappu wallet spending-policy payloads — real Turnkey policies that gate managed execution server-side, where a browser page cannot reach. You leave with a rule set, not a session.',
+  },
+  {
+    n: '08',
     title: 'You keep the receipt',
-    body: 'Every call, rationale, verdict and decision exports as one file. The record of what your agent did and why is yours, not a scrollback you lose.',
+    body: 'Every call, rationale, verdict, override argument and decision exports as one file. The record of what your agent did and why is yours, not a scrollback you lose.',
   },
 ];
 
@@ -134,8 +159,9 @@ export default function AgentTerminalPage() {
           <p className="mkt-hero__lead">
             Suwappu routes swaps across {stats.agentApiChains} chains. This page hands that engine to whatever
             agent is driving your browser as WebMCP site tools — bounded by an envelope you
-            write and it can read. It prices routes and proposes trades against your rules; you
-            approve, and signing never leaves a surface you control.
+            write and it can read. It prices real routes against your rules, argues when they
+            block something worth doing, and the envelope you end up with compiles into a
+            spending policy that binds server-side. Signing never leaves a surface you control.
           </p>
         </header>
 
@@ -175,7 +201,9 @@ export default function AgentTerminalPage() {
                     ? 'read-only'
                     : t.kind === 'propose'
                       ? 'needs human approval'
-                      : 'unlocked by approval'}
+                      : t.kind === 'completes'
+                        ? 'completes on this page'
+                        : 'unlocked by approval'}
                 </p>
               </article>
             ))}
@@ -201,6 +229,11 @@ export default function AgentTerminalPage() {
               “Propose 3 ETH into a token that isn’t on my allow-list, and make the case for why
               I should let you.”
             </li>
+            <li>
+              “My per-trade cap keeps blocking things I actually want — make the case for
+              raising it.”
+            </li>
+            <li>“Turn my rules into something my agent wallet will enforce server-side.”</li>
             <li>“Export the receipt for everything we just did.”</li>
           </ul>
           <p className={styles.sectionLead}>

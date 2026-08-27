@@ -54,6 +54,8 @@ const SEMANTIC_DEFAULTS = {
     ],
   },
   get_prices: { symbols: ['ETH'] },
+  navigate_desk: { section: 'mandate' },
+  amend_mandate: { perTradeUsdCap: 500, rationale: 'Sample amendment rationale.' },
 };
 
 let failures = 0;
