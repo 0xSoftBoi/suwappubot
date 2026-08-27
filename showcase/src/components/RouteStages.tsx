@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+
+import { pauseWhenHidden } from '@/lib/frameBudget';
+import { subscribeMotionPreference } from '@/lib/motionPreference';
+
 import { JOURNEYS } from './ChainSphereGL';
 
 /**
@@ -21,17 +25,47 @@ export default function RouteStages() {
   const [stage, setStage] = useState(0);
 
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     let raf = 0;
+    // Last values written to React, held in refs. The loop samples every frame but
+    // only calls setState when a value actually changes: the previous version pushed
+    // two state updates per frame, re-rendering this subtree 120 times a second to
+    // display a journey index that changes once every few seconds and a stage that
+    // changes three times per cycle. That is Tektonic's ref-based-updates rule -
+    // sample at frame rate, render at the rate the output changes.
+    let lastJ = -1;
+    let lastStage = -1;
+
     const tick = () => {
+      // Nothing to schedule against while the tab is hidden.
+      if (document.hidden) return;
       const t = performance.now();
-      setJ(Math.floor(t / CYCLE) % JOURNEYS.length);
+      const nextJ = Math.floor(t / CYCLE) % JOURNEYS.length;
       const p = (t % CYCLE) / CYCLE;
-      setStage(p < 0.28 ? 0 : p < 0.72 ? 1 : 2);
+      const nextStage = p < 0.28 ? 0 : p < 0.72 ? 1 : 2;
+
+      if (nextJ !== lastJ) { lastJ = nextJ; setJ(nextJ); }
+      if (nextStage !== lastStage) { lastStage = nextStage; setStage(nextStage); }
+
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+
+    const motion = subscribeMotionPreference((reduce) => {
+      cancelAnimationFrame(raf);
+      if (!reduce) raf = requestAnimationFrame(tick);
+    });
+    if (!motion.reduce) raf = requestAnimationFrame(tick);
+
+    const detachVisibility = pauseWhenHidden(() => {
+      if (motion.reduce) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(tick);
+    });
+
+    return () => {
+      cancelAnimationFrame(raf);
+      detachVisibility();
+      motion.detach();
+    };
   }, []);
 
   const journey = JOURNEYS[j];
