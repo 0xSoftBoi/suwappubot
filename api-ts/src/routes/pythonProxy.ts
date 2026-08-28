@@ -45,8 +45,8 @@ const TERMINAL_READ_ROUTES = new Set([
 
 // Copy-trading discovery is still served by Python with the response contract
 // consumed by the standalone Terminal. Only read-only discovery/profile paths
-// are bridged here. Following, settings, and trade execution remain outside
-// this allowlist until they are reviewed as spend-affecting actions.
+// are bridged here. Following, settings, and trade execution are handled by the
+// Terminal webapp gateway below because they use browser-session auth.
 const TERMINAL_COPY_READ_ROUTES = new Set([
 	'/webapp/copy-trading/top-traders',
 	'/webapp/copy-trading/feed',
@@ -58,6 +58,7 @@ const TERMINAL_COPY_READ_ROUTES = new Set([
 // transport across the api-ts production origin.
 const TERMINAL_SESSION_ROUTES = new Set([
 	'GET /terminal/wallet/summary',
+	'POST /terminal/wallet/withdraw',
 	'GET /terminal/perps/account',
 	'POST /terminal/perps/connect',
 	'GET /terminal/perps/positions',
@@ -81,11 +82,51 @@ const TERMINAL_BRIDGE_ROUTES = new Set([
 	'POST /webapp/bridge/record',
 ])
 
+// Standalone Terminal historically uses browser-session JWT/cookie auth for a
+// set of /webapp/* features that still live in Python. api-ts also mounts the
+// Telegram Mini App on /webapp/*; routing these after webappRoutes/stubs means
+// Terminal gets Telegram-auth failures or 501s before the compatibility layer
+// can run. This allowlist is deliberately exact and is mounted *before* the
+// Telegram routes. Telegram init-data always falls through untouched.
+const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
+	'GET /webapp/referrals',
+	'GET /webapp/referrals/stats',
+	'GET /webapp/referrals/code',
+	'GET /webapp/referrals/leaderboard',
+	'GET /webapp/copy-trading/top-traders',
+	'GET /webapp/copy-trading/feed',
+	'GET /webapp/copy-trading/following',
+	'GET /webapp/copy-trading/trades',
+	'GET /webapp/alerts',
+	'POST /webapp/alerts',
+	'GET /webapp/wallet-tracker/wallets',
+	'POST /webapp/wallet-tracker/wallets',
+	'GET /webapp/wallet-tracker/activities',
+	'GET /webapp/tweets/accounts',
+	'POST /webapp/tweets/accounts',
+	'GET /webapp/tweets/feed',
+	'GET /webapp/limit-orders',
+	'POST /webapp/limit-orders',
+	'GET /webapp/dca/orders',
+	'POST /webapp/dca/orders',
+	'GET /webapp/discovery/new',
+	'GET /webapp/discovery/trending',
+	'POST /webapp/solana/rpc',
+	'GET /webapp/solana/tx-history',
+])
+
 const OAUTH_ROUTE = /^\/auth\/oauth\/(google|twitter)\/(authorize|callback)$/
 const TERMINAL_TOKEN_INTEL_ROUTE = /^\/terminal\/intel\/[^/]+\/[^/]+$/
 const TERMINAL_DEVWATCH_DELETE_ROUTE = /^\/terminal\/intel\/devwatch\/\d+$/
 const TERMINAL_BRIDGE_TRANSFER_ROUTE = /^\/webapp\/bridge\/transfers\/\d+$/
-const TERMINAL_COPY_TRADER_ROUTE = /^\/webapp\/copy-trading\/traders\/[^/]+$/
+const TERMINAL_COPY_TRADER_ROUTE = /^\/webapp\/copy-trading\/traders\/\d+$/
+const TERMINAL_COPY_FOLLOW_ROUTE = /^\/webapp\/copy-trading\/(follow|unfollow)\/\d+$/
+const TERMINAL_COPY_SETTINGS_ROUTE = /^\/webapp\/copy-trading\/follow\/\d+\/settings$/
+const TERMINAL_ALERT_DELETE_ROUTE = /^\/webapp\/alerts\/\d+$/
+const TERMINAL_WALLET_TRACKER_DELETE_ROUTE = /^\/webapp\/wallet-tracker\/wallets\/[^/]+$/
+const TERMINAL_TWEET_DELETE_ROUTE = /^\/webapp\/tweets\/accounts\/[^/]+$/
+const TERMINAL_LIMIT_CANCEL_ROUTE = /^\/webapp\/limit-orders\/\d+\/cancel$/
+const TERMINAL_DCA_ACTION_ROUTE = /^\/webapp\/dca\/orders\/\d+\/(pause|cancel)$/
 const TERMINAL_SWAP_POST_ROUTES = new Set([
 	'/webapp/swap/quote',
 	'/webapp/swap/build',
@@ -111,6 +152,21 @@ export function isPythonProxyAllowed(method: string, path: string): boolean {
 		normalizedMethod === 'GET' &&
 		(TERMINAL_READ_ROUTES.has(path) || TERMINAL_TOKEN_INTEL_ROUTE.test(path))
 	)
+}
+
+export function isTerminalWebappProxyAllowed(method: string, path: string): boolean {
+	const normalizedMethod = method.toUpperCase()
+	const methodPath = `${normalizedMethod} ${path}`
+	if (TERMINAL_WEBAPP_EXACT_ROUTES.has(methodPath)) return true
+	if (normalizedMethod === 'GET' && TERMINAL_COPY_TRADER_ROUTE.test(path)) return true
+	if (normalizedMethod === 'POST' && TERMINAL_COPY_FOLLOW_ROUTE.test(path)) return true
+	if (normalizedMethod === 'PUT' && TERMINAL_COPY_SETTINGS_ROUTE.test(path)) return true
+	if (normalizedMethod === 'DELETE' && TERMINAL_ALERT_DELETE_ROUTE.test(path)) return true
+	if (normalizedMethod === 'DELETE' && TERMINAL_WALLET_TRACKER_DELETE_ROUTE.test(path)) return true
+	if (normalizedMethod === 'DELETE' && TERMINAL_TWEET_DELETE_ROUTE.test(path)) return true
+	if (normalizedMethod === 'POST' && TERMINAL_LIMIT_CANCEL_ROUTE.test(path)) return true
+	if (normalizedMethod === 'POST' && TERMINAL_DCA_ACTION_ROUTE.test(path)) return true
+	return false
 }
 
 export function isTerminalSwapProxyAllowed(method: string, path: string): boolean {
@@ -235,6 +291,31 @@ async function proxyToPython(c: Context, config: PythonProxyConfig, fetchImpl: F
 		statusText: upstream.statusText,
 		headers: responseHeaders(upstream),
 	})
+}
+
+/**
+ * Create a pre-/webapp compatibility gateway for the standalone Terminal.
+ * Telegram Mini App requests are identified by their signed init-data header
+ * and deliberately fall through to api-ts. Every non-Telegram route must still
+ * match the exact reviewed allowlist above; everything else falls through too.
+ */
+export function createTerminalWebappProxyRoutes(config: PythonProxyConfig) {
+	const routes = new Hono()
+	const fetchImpl = config.fetchImpl ?? fetch
+
+	routes.all('/webapp/*', async (c, next) => {
+		if (c.req.raw.headers.has('X-Telegram-Init-Data')) {
+			await next()
+			return
+		}
+		if (!isTerminalWebappProxyAllowed(c.req.method, c.req.path)) {
+			await next()
+			return
+		}
+		return proxyToPython(c, config, fetchImpl)
+	})
+
+	return routes
 }
 
 /**
