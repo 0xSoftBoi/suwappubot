@@ -212,6 +212,47 @@ class FeeService:
             logger.warning(f"Position-card discount lookup failed for user {user_id}: {e}")
             return 0.0
 
+    # Tier order used to compare a subscription tier against the holder-perk
+    # floor computed below — never let the perk DOWNGRADE a user already on a
+    # better paid tier.
+    _TIER_ORDER = {
+        SubscriptionTier.FREE: 0,
+        SubscriptionTier.PRO: 1,
+        SubscriptionTier.PREMIUM: 2,
+        SubscriptionTier.ENTERPRISE: 3,
+    }
+
+    def _community_token_tier_floor(self, user_id: "Optional[int]") -> "Optional[SubscriptionTier]":
+        """Minimum tier a $Suwappu community-token holder is entitled to.
+
+        Cache-only read (bot.services.wallet.get_cached_community_token_balance)
+        — this method must never perform RPC/DB I/O, since it runs on the
+        synchronous swap-pricing path. A cold cache (holder balance not warmed
+        for this user recently) resolves to None (no perk), exactly like a
+        disabled flag — it can never raise, and it can never grant a perk on
+        stale/absent data.
+
+        Returns PREMIUM at COMMUNITY_TOKEN_PREMIUM_THRESHOLD, PRO at
+        COMMUNITY_TOKEN_PRO_THRESHOLD, else None. GUARDRAIL: any lookup
+        failure must NEVER break fee calculation, so all errors are swallowed.
+        """
+        if not settings.COMMUNITY_TOKEN_ENABLED or user_id is None:
+            return None
+        try:
+            from bot.services.wallet import get_cached_community_token_balance
+
+            balance = get_cached_community_token_balance(user_id)
+            if balance is None:
+                return None
+            if balance >= Decimal(str(settings.COMMUNITY_TOKEN_PREMIUM_THRESHOLD)):
+                return SubscriptionTier.PREMIUM
+            if balance >= Decimal(str(settings.COMMUNITY_TOKEN_PRO_THRESHOLD)):
+                return SubscriptionTier.PRO
+            return None
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"community token tier lookup failed for user {user_id}: {e}")
+            return None
+
     def get_fee_decimal(
         self,
         tier: "Optional[SubscriptionTier]" = None,
@@ -252,8 +293,23 @@ class FeeService:
         derive from this method, the discount applies consistently everywhere and
         the referral fee-share (a % of the reduced fee) scales down with it.
         """
-        if tier is not None:
-            base = TIER_FEE_RATES.get(tier, DEFAULT_FEE_RATE)
+        # $Suwappu community-token holder perk (MONEY-PATH, off by default): bump
+        # the EFFECTIVE tier used for the base rate up to PRO/PREMIUM when the
+        # holder's cached balance clears a threshold. Never DOWNGRADES — only
+        # raises `effective_tier` above whatever subscription tier they're
+        # already on — and never reaches ENTERPRISE (contracted pricing), so it
+        # does not affect the ENTERPRISE exemption checks below, which still key
+        # off the original subscription `tier`.
+        holder_tier = self._community_token_tier_floor(user_id)
+        effective_tier = tier
+        if holder_tier is not None and (
+            effective_tier is None
+            or self._TIER_ORDER[holder_tier] > self._TIER_ORDER.get(effective_tier, 0)
+        ):
+            effective_tier = holder_tier
+
+        if effective_tier is not None:
+            base = TIER_FEE_RATES.get(effective_tier, DEFAULT_FEE_RATE)
         else:
             base = DEFAULT_FEE_RATE
         # ENTERPRISE is contracted pricing, negotiated per customer — it is not

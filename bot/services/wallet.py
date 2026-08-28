@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 import uuid
+from decimal import Decimal
 from typing import Optional
 from web3 import Web3
 from eth_account import Account
@@ -19,7 +20,7 @@ import aiohttp
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, get_chain_by_name, get_chain_by_id
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.utils.encryption import encrypt_private_key
 from bot.utils.envelope_crypto import (
@@ -134,6 +135,66 @@ ERC20_ABI = [
         "type": "function",
     },
 ]
+
+# $Suwappu community-token holder balance cache — module-level (not per-
+# WalletService-instance, since callers freely instantiate WalletService())
+# so the 60s TTL is shared no matter how many instances exist. Keyed by
+# user_id -> (fetched_at_monotonic_seconds, Decimal balance). This is the ONLY
+# caching layer for holder perks (no persistent holder flag is ever written
+# to the DB) — see docs/plans/suwappu-token-utility.md Phase 1.
+#
+# time.monotonic() (not time.time()) for the timestamp, matching the
+# _evm_rpc_call precedent above — immune to wall-clock jumps (NTP step, DST,
+# manual clock changes), which would otherwise let a TTL entry look
+# instantly-expired or falsely-fresh.
+_community_token_balance_cache: dict[int, tuple[float, Decimal]] = {}
+COMMUNITY_TOKEN_CACHE_TTL_SECONDS = 60
+# Hard cap on the cache so an unbounded stream of distinct user_ids (real
+# growth, or a bug/abuse pattern hammering distinct ids) can't grow this
+# dict forever — it is pure process memory, never persisted.
+COMMUNITY_TOKEN_CACHE_MAX_ENTRIES = 10_000
+
+
+def _store_community_token_balance(user_id: int, balance: Decimal) -> None:
+    """Write ``balance`` into the cache, pruning expired entries and
+    enforcing ``COMMUNITY_TOKEN_CACHE_MAX_ENTRIES`` (evicting the oldest
+    entries first) so the cache can never grow unbounded.
+    """
+    now = time.monotonic()
+
+    expired = [
+        uid
+        for uid, (ts, _bal) in _community_token_balance_cache.items()
+        if (now - ts) >= COMMUNITY_TOKEN_CACHE_TTL_SECONDS
+    ]
+    for uid in expired:
+        _community_token_balance_cache.pop(uid, None)
+
+    _community_token_balance_cache[user_id] = (now, balance)
+
+    overflow = len(_community_token_balance_cache) - COMMUNITY_TOKEN_CACHE_MAX_ENTRIES
+    if overflow > 0:
+        oldest_first = sorted(_community_token_balance_cache.items(), key=lambda kv: kv[1][0])
+        for uid, _entry in oldest_first[:overflow]:
+            _community_token_balance_cache.pop(uid, None)
+
+
+def get_cached_community_token_balance(user_id: int) -> Optional[Decimal]:
+    """Cache-only (no RPC) read of a user's $Suwappu balance.
+
+    Used by ``fee_service`` on its synchronous pricing path, which must never
+    perform I/O. Returns ``None`` on a cache miss or expiry — callers must
+    treat that as "no perk", not block waiting for a fetch. The cache is
+    populated by ``WalletService.get_community_token_balance`` (awaited on the
+    async swap-prewarm path, mirroring ``position_cards_service.warm_for_user``).
+    """
+    entry = _community_token_balance_cache.get(user_id)
+    if entry is None:
+        return None
+    fetched_at, balance = entry
+    if (time.monotonic() - fetched_at) >= COMMUNITY_TOKEN_CACHE_TTL_SECONDS:
+        return None
+    return balance
 
 
 class WalletService:
@@ -862,6 +923,90 @@ class WalletService:
             return int(result, 16) / (10**chain.native_decimals)
         except Exception:
             return 0.0
+
+    # === $Suwappu community-token holder balance (fee tier + XP perks) =====
+    # MONEY-PATH inputs (bot/services/fee_service.py, bot/services/points_service.py).
+    # Both are fail-safe by construction: any resolution/RPC error here returns
+    # Decimal(0), which downstream only ever means "no perk" — never an
+    # exception into the swap/fee/points call chain.
+
+    async def get_erc20_balance(
+        self, user_id: int, chain_id: int, token_address: str, decimals: int = 18
+    ) -> Decimal:
+        """Decimals-adjusted ERC-20 balance of ``token_address`` on ``chain_id``
+        for ``user_id``'s default EVM wallet.
+
+        ``decimals`` MUST be supplied by the caller (not auto-fetched via an
+        on-chain ``decimals()`` call): a malicious/broken token returning
+        ``0x0`` for ``decimals()`` would otherwise be read as 0 decimals,
+        inflating raw dust into a holder-tier-qualifying balance (fail-open).
+        Defaults to 18 (the ERC-20 norm) only as a last resort for callers
+        that don't know the token's real decimals.
+
+        Fail-safe: returns ``Decimal(0)`` if the chain is unknown, the user has
+        no EVM wallet, or the RPC call fails for any reason. Never raises.
+        """
+        try:
+            chain = get_chain_by_id(chain_id)
+            if not chain:
+                return Decimal(0)
+
+            wallet = self.get_default_wallet(user_id, ChainType.EVM.value)
+            if not wallet or not wallet.address:
+                return Decimal(0)
+
+            checksum_token = Web3.to_checksum_address(token_address)
+            padded_addr = wallet.address.lower().replace("0x", "").zfill(64)
+            balance_data = f"0x70a08231{padded_addr}"
+
+            result = await self._evm_rpc_call(
+                chain.name,
+                "eth_call",
+                [{"to": checksum_token, "data": balance_data}, "latest"],
+            )
+            if not result or not str(result).startswith("0x"):
+                return Decimal(0)
+            balance_raw = int(result, 16)
+
+            return Decimal(balance_raw) / (Decimal(10) ** decimals)
+        except Exception as e:
+            logger.debug(f"get_erc20_balance failed (user={user_id}, token={token_address}): {e}")
+            return Decimal(0)
+
+    async def get_community_token_balance(self, user_id: int) -> Decimal:
+        """$Suwappu community-token balance for ``user_id``, cached 60s.
+
+        Uses ``settings.COMMUNITY_TOKEN_DECIMALS`` explicitly (never an
+        on-chain ``decimals()`` lookup — see ``get_erc20_balance`` for why
+        trusting that RPC call is fail-open). Populates the module-level
+        ``_community_token_balance_cache`` so ``get_cached_community_token_balance``
+        (a synchronous, cache-only read used by fee_service, which must not do
+        I/O on its pricing path) can pick it up. Returns ``Decimal(0)`` — never
+        raises — when the feature flag is off or the fetch fails.
+        """
+        if not settings.COMMUNITY_TOKEN_ENABLED:
+            return Decimal(0)
+
+        cached = _community_token_balance_cache.get(user_id)
+        if (
+            cached is not None
+            and (time.monotonic() - cached[0]) < COMMUNITY_TOKEN_CACHE_TTL_SECONDS
+        ):
+            return cached[1]
+
+        try:
+            balance = await self.get_erc20_balance(
+                user_id,
+                settings.COMMUNITY_TOKEN_CHAIN_ID,
+                settings.COMMUNITY_TOKEN_ADDRESS,
+                decimals=settings.COMMUNITY_TOKEN_DECIMALS,
+            )
+        except Exception as e:
+            logger.debug(f"get_community_token_balance failed for user {user_id}: {e}")
+            balance = Decimal(0)
+
+        _store_community_token_balance(user_id, balance)
+        return balance
 
     async def _solana_rpc_post(
         self, session: aiohttp.ClientSession, payload: dict, context: str

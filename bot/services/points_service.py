@@ -16,6 +16,7 @@ from sqlalchemy import func, desc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from bot.config.settings import settings
 from bot.models.user import User
 from bot.models.points import (
     UserPoints,
@@ -112,6 +113,40 @@ class PointsService:
         with get_session() as session:
             return session.query(UserPoints).filter(UserPoints.id == account_id).first()
 
+    def _community_token_xp_multiplier(self, user_id: Optional[int]) -> float:
+        """XP multiplier for $Suwappu community-token holders (cache-only read).
+
+        Returns ``settings.COMMUNITY_TOKEN_XP_MULTIPLIER`` — the single source
+        of truth for the marketing-quoted "1.5x XP" figure — CLAMPED to
+        ``[1.0, 2.0]`` (floor 1.0 so a misconfigured/negative value can never
+        become a points PENALTY; cap 2.0 mirrors this file's
+        clamp-don't-trust convention for ``MAX_TICKER_BOOST_BPS``, since a
+        bad env value shouldn't be able to mint arbitrary XP) — when the
+        feature flag is on and the user's cached holder balance clears
+        ``COMMUNITY_TOKEN_PRO_THRESHOLD``. Otherwise returns ``1.0`` (no
+        change). Cache-only read (``bot.services.wallet.
+        get_cached_community_token_balance``) — never performs RPC/DB I/O on
+        this points-award path, and a cold cache resolves to no multiplier,
+        never a fetch/block. GUARDRAIL: any lookup failure must NEVER break
+        point awarding, so all errors are swallowed and 1.0 is returned.
+        """
+        if not settings.COMMUNITY_TOKEN_ENABLED or user_id is None:
+            return 1.0
+        try:
+            from decimal import Decimal
+
+            from bot.services.wallet import get_cached_community_token_balance
+
+            balance = get_cached_community_token_balance(user_id)
+            if balance is None:
+                return 1.0
+            if balance >= Decimal(str(settings.COMMUNITY_TOKEN_PRO_THRESHOLD)):
+                return min(max(settings.COMMUNITY_TOKEN_XP_MULTIPLIER, 1.0), 2.0)
+            return 1.0
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"community token XP multiplier lookup failed for user {user_id}: {e}")
+            return 1.0
+
     def award_points(
         self,
         user_id: int,
@@ -140,6 +175,18 @@ class PointsService:
         action_info = POINT_ACTIONS.get(action, {})
         points = amount if amount is not None else action_info.get("points", 0)
 
+        if points <= 0:
+            return 0, None
+
+        # $Suwappu community-token holder perk (off by default): int-rounded
+        # multiplier on the awarded points. Single choke point — every award
+        # path (swaps, check-ins, referrals, milestones) routes through here.
+        xp_multiplier = self._community_token_xp_multiplier(user_id)
+        if xp_multiplier != 1.0:
+            points = int(round(points * xp_multiplier))
+        # Belt-and-suspenders: the multiplier is clamped to [1.0, 2.0] above so
+        # this should be unreachable, but a zero/negative points result must
+        # never write a zero/negative-amount PointTransaction.
         if points <= 0:
             return 0, None
 
@@ -274,8 +321,12 @@ class PointsService:
             account.total_swaps += 1
             account.total_volume_usd += swap_amount_usd
 
-        # Award points
-        _, new_level = self.award_points(
+        # Award points. award_points may apply the $Suwappu community-token XP
+        # multiplier internally (int-rounded) — capture its return value
+        # (`points_awarded`) rather than echoing back the pre-multiplier
+        # `total_points`, so the caller (and the UI it drives) reports what
+        # was actually written to the account, not a stale pre-perk number.
+        points_awarded, new_level = self.award_points(
             user_id=user_id,
             action="swap",
             amount=total_points,
@@ -293,7 +344,7 @@ class PointsService:
         # Check milestones
         self._check_milestones(user_id)
 
-        return total_points, is_first_today, new_level
+        return points_awarded, is_first_today, new_level
 
     def daily_checkin(self, user_id: int) -> Tuple[int, int, bool, Optional[str]]:
         """

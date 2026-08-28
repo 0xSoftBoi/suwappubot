@@ -1634,6 +1634,55 @@ class Settings(BaseSettings):
         description="Require re-confirmation before Telegram/web approve decisions are honored",
     )
 
+    # $Suwappu community token holder utility (docs/plans/suwappu-token-utility.md,
+    # Phase 1). MONEY-PATH: gates a holder fee-tier bump and an XP multiplier.
+    # Master switch OFF by default — every perk stays inert until explicitly
+    # enabled. Balance checks (bot/services/wallet.py) are fail-safe: an RPC
+    # error or the flag being off both resolve to "no perk", never an
+    # exception into the swap/fee/points paths that consume them.
+    COMMUNITY_TOKEN_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Master switch for $Suwappu community-token holder perks (fee tier bump "
+            "+ XP multiplier). Default OFF."
+        ),
+    )
+    COMMUNITY_TOKEN_ADDRESS: str = Field(
+        default="0x26D58Ce71ace3A79346C43EDE802fF8F4fe55bA3",
+        description=(
+            "$Suwappu ERC-20 contract address (Base, Doppler proxy). NOTE: at least "
+            "one copycat 'SuwappuBot' token exists on another CA — confirm this is "
+            "still the canonical one before relying on it in user-facing copy."
+        ),
+    )
+    COMMUNITY_TOKEN_CHAIN_ID: int = Field(
+        default=8453, description="Chain id the community token lives on (Base)."
+    )
+    COMMUNITY_TOKEN_DECIMALS: int = Field(
+        default=18, description="Community token ERC-20 decimals."
+    )
+    COMMUNITY_TOKEN_PRO_THRESHOLD: float = Field(
+        default=20_000_000.0,
+        description=(
+            "Whole-token balance that unlocks the PRO fee rate for a holder who "
+            "isn't already on a better tier (~$50 at ~$0.0000024/token, 2026-08-28)."
+        ),
+    )
+    COMMUNITY_TOKEN_PREMIUM_THRESHOLD: float = Field(
+        default=100_000_000.0,
+        description=(
+            "Whole-token balance that unlocks the PREMIUM fee rate for a holder who "
+            "isn't already on a better tier (~$240 at ~$0.0000024/token, 2026-08-28)."
+        ),
+    )
+    COMMUNITY_TOKEN_XP_MULTIPLIER: float = Field(
+        default=1.5,
+        description=(
+            "XP multiplier applied to awarded points (int-rounded) for holders at or "
+            "above COMMUNITY_TOKEN_PRO_THRESHOLD."
+        ),
+    )
+
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
     )

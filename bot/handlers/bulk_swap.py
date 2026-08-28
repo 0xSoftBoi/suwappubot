@@ -586,6 +586,12 @@ async def _fetch_quotes_and_confirm(update: Update, ctx: ContextTypes.DEFAULT_TY
 
     # Resolve fee tier once
     user_tier = await x402_service.get_tier(user_id)
+    # Fire-and-forget: keep the $Suwappu community-token holder balance fresh
+    # (60s cache; no-op when COMMUNITY_TOKEN_ENABLED is off) so bulk swaps get
+    # the same holder-tier rate as the single-swap path. Best-effort — this
+    # call site has no post-confirmation award step to re-warm before, so it
+    # only ever benefits from whatever was warmed on a prior swap/confirm.
+    asyncio.create_task(wallet_service.get_community_token_balance(user_id))
     platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
 
     # Fetch all quotes in parallel

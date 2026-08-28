@@ -231,6 +231,10 @@ def _schedule_quote_prewarm(
             # warm has to happen here in the async path or the ticket perk silently
             # never applies.
             await position_cards_service.warm_for_user(user_id)
+            # Keep the $Suwappu community-token holder balance fresh — fee_service
+            # (and points_service's XP multiplier) read it from a 60s cache only.
+            # No-op (fast Decimal(0) return) when COMMUNITY_TOKEN_ENABLED is off.
+            await wallet_service.get_community_token_balance(user_id)
             # Pass user_id so the prewarmed quote is keyed under the SAME VIP/points-
             # adjusted bps the execution path uses (avoids a guaranteed cache miss).
             platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
@@ -1135,6 +1139,13 @@ async def wallets_confirmed_callback(update: Update, context: ContextTypes.DEFAU
         user_tier = await x402_service.get_tier(fee_user_id)
         # Keep the Position-card NFT discount fresh — fee_service reads it from cache only.
         await position_cards_service.warm_for_user(fee_user_id)
+        # Keep the $Suwappu community-token holder balance fresh (60s cache; no-op
+        # when COMMUNITY_TOKEN_ENABLED is off). Fire-and-forget: this is only a
+        # PRICING-display warm here — the balance actually used by the XP
+        # multiplier is re-warmed (awaited) right before the points award in
+        # _run_confirmed_swap, so this one must not add RPC latency to the
+        # user-facing confirm step.
+        asyncio.create_task(wallet_service.get_community_token_balance(fee_user_id))
         platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=fee_user_id)
 
         # Try the pre-warmed quote first (keyed on the reference wallet — the
@@ -1599,6 +1610,13 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
                     swap_data.get("from_token"),
                     swap_data.get("to_token"),
                 )
+                # Re-warm the $Suwappu community-token balance right before the
+                # points award: the confirm-step warms (wallets_confirmed_callback
+                # / swap_requote) are fire-and-forget and run well before 2FA, so
+                # by the time we get here their 60s TTL has typically expired.
+                # AWAITED (not fire-and-forget) — award_swap_points's XP
+                # multiplier needs the value now, not on a best-effort basis.
+                await wallet_service.get_community_token_balance(user_id)
                 points_earned, _, _ = points_service.award_swap_points(
                     user_id=user_id,
                     swap_amount_usd=swap_amount_usd,
@@ -1795,6 +1813,11 @@ async def swap_requote(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         user_tier = await x402_service.get_tier(user_id)
         # Keep the Position-card NFT discount fresh — fee_service reads it from cache only.
         await position_cards_service.warm_for_user(user_id)
+        # Keep the $Suwappu community-token holder balance fresh (60s cache; no-op
+        # when COMMUNITY_TOKEN_ENABLED is off). Fire-and-forget for the same
+        # reason as wallets_confirmed_callback — this is a pricing-display
+        # warm, not the award-time warm (see _run_confirmed_swap).
+        asyncio.create_task(wallet_service.get_community_token_balance(user_id))
         platform_fee_bps = fee_service.get_fee_bps(user_tier, user_id=user_id)
 
         quote = await swap_engine.get_quote(
