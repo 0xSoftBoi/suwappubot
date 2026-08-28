@@ -46,7 +46,7 @@ const TERMINAL_READ_ROUTES = new Set([
 // Copy-trading discovery is still served by Python with the response contract
 // consumed by the standalone Terminal. Only read-only discovery/profile paths
 // are bridged here. Following, settings, and trade execution are handled by the
-// Terminal webapp gateway below because they use browser-session auth.
+// pre-/webapp Terminal gateway below because they use browser-session auth.
 const TERMINAL_COPY_READ_ROUTES = new Set([
 	'/webapp/copy-trading/top-traders',
 	'/webapp/copy-trading/feed',
@@ -86,8 +86,9 @@ const TERMINAL_BRIDGE_ROUTES = new Set([
 // set of /webapp/* features that still live in Python. api-ts also mounts the
 // Telegram Mini App on /webapp/*; routing these after webappRoutes/stubs means
 // Terminal gets Telegram-auth failures or 501s before the compatibility layer
-// can run. This allowlist is deliberately exact and is mounted *before* the
-// Telegram routes. Telegram init-data always falls through untouched.
+// can run. This allowlist is deliberately exact and is consumed by the gateway
+// that app.ts already mounts before all native /webapp routers. Telegram
+// init-data always falls through untouched.
 const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'GET /webapp/referrals',
 	'GET /webapp/referrals/stats',
@@ -298,6 +299,10 @@ async function proxyToPython(c: Context, config: PythonProxyConfig, fetchImpl: F
  * Telegram Mini App requests are identified by their signed init-data header
  * and deliberately fall through to api-ts. Every non-Telegram route must still
  * match the exact reviewed allowlist above; everything else falls through too.
+ *
+ * This helper is exported for focused tests/reuse. Production currently gets
+ * the same behavior from createTerminalSwapProxyRoutes, which is already
+ * mounted in app.ts before the native /webapp routers.
  */
 export function createTerminalWebappProxyRoutes(config: PythonProxyConfig) {
 	const routes = new Hono()
@@ -340,18 +345,21 @@ export function createPythonProxyRoutes(config: PythonProxyConfig) {
 }
 
 /**
- * MONEY-PATH: standalone Terminal uses POST-based Python swap routes, while the
- * Telegram Mini App owns the overlapping api-ts swap surface. Mount this router
- * before swapRoutes: a Telegram init-data header deliberately falls through;
- * only the five exact standalone Terminal POSTs are forwarded to Python.
+ * Standalone Terminal compatibility gateway mounted before api-ts's native
+ * /webapp routers. It owns the five reviewed swap POSTs plus the exact legacy
+ * browser-session /webapp routes above. Telegram init-data always falls through,
+ * preserving the Mini App's native api-ts auth and route contracts.
  */
 export function createTerminalSwapProxyRoutes(config: PythonProxyConfig) {
 	const routes = new Hono()
 	const fetchImpl = config.fetchImpl ?? fetch
 
-	routes.all('/webapp/swap/*', async (c, next) => {
+	routes.all('/webapp/*', async (c, next) => {
 		const isTelegramRequest = c.req.raw.headers.has('X-Telegram-Init-Data')
-		if (isTelegramRequest || !isTerminalSwapProxyAllowed(c.req.method, c.req.path)) {
+		const allowed =
+			isTerminalSwapProxyAllowed(c.req.method, c.req.path) ||
+			isTerminalWebappProxyAllowed(c.req.method, c.req.path)
+		if (isTelegramRequest || !allowed) {
 			await next()
 			return
 		}
