@@ -7,9 +7,15 @@
     "was deployed as its own service. Add a service here and every probe picks",
     "it up.",
     "",
-    "`name` must match the Railway SERVICE name, so scripts/status.py can join",
-    "these probe targets onto the control-plane services it discovers and reuse",
-    "the URL from here instead of keeping a second per-service map.",
+    "For primary service probes, `name` should match the Railway SERVICE name so",
+    "scripts/status.py can join the URL onto control-plane service state. Extra",
+    "synthetic checks may use a descriptive suffix (for example terminal-contract);",
+    "the unattended uptime probe will execute them while status.py simply ignores",
+    "the unmatched synthetic name for control-plane joining.",
+    "",
+    "`expect_contains` is a lightweight response-contract assertion. Every listed",
+    "marker must appear in the successful response body; this catches a proxy that",
+    "returns SPA HTML with HTTP 200 or an API route that silently changes shape.",
     "",
     "Services with no public URL (python-worker, suwappu-relayer) cannot be",
     "probed over HTTP at all — they are covered by the Railway deploy webhook",
@@ -28,7 +34,27 @@
     },
     {
       "name": "terminal",
-      "url": "https://terminal-production-7906.up.railway.app/"
+      "url": "https://terminal-production-7906.up.railway.app/",
+      "expect_contains": [
+        "Suwappu"
+      ]
+    },
+    {
+      "name": "terminal-contract",
+      "url": "https://terminal-production-7906.up.railway.app/webapp/chains",
+      "expect_contains": [
+        "ethereum",
+        "solana"
+      ]
+    },
+    {
+      "name": "terminal-token-catalog",
+      "url": "https://terminal-production-7906.up.railway.app/webapp/tokens/popular?chain=ethereum",
+      "expect_contains": [
+        "symbol",
+        "address",
+        "chain"
+      ]
     },
     {
       "name": "showcase",
