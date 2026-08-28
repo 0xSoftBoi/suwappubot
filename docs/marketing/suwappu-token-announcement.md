@@ -43,6 +43,9 @@ and you'll get a token info card (contract, liquidity, holder data) + a buy opti
 
 We have no authority to declare any token "official" — verify independently before you trust any CA, including this one. And never trust a CA from a screenshot, a reply-guy, or a "presale" DM — including one that claims to be from us.
 
+**7/**
+Last thing, for the "ok but what IS Suwappu" crowd the coin brought in: we're the swap bot AI agents use too. Agents get quotes, simulate, and execute swaps through our MCP server and pay per-call over x402 — same engine you're using in Telegram. The coin found us mid-build. Docs for the agent side: [link to agent-clients docs].
+
 ---
 
 ## 2. Pinned disclaimer (plain language)

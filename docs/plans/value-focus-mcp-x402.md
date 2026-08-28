@@ -21,6 +21,14 @@ Suwappu already built the leading agent-trading stack (MCP + A2A + x402 + SDKs +
 
 0x charging agents $0.01/request is the proof the business model works; Suwappu's catalog is broader (swaps + perps + predictions + lending).
 
+## Tie-back to the viral mention (why this is one story, not two)
+
+The $Suwappu moment is the distribution event; the agent rails are the substance behind it. Connected explicitly:
+
+1. **The announcement thread carries the rails** — post 7 of the X thread (announcement doc) tells the coin-driven audience that the bot is also agent infrastructure (MCP + x402). Attention arrives for the meme, stays for the product.
+2. **Holder perks extend to the agent side (scoped, not built)**: $Suwappu holders who register an agent get an x402 credit bonus / discounted per-call pricing — mirrors the Telegram fee tiers, closes the Phase 1.5 parity gap *and* gives the token utility in the growing surface instead of only the legacy one. MONEY-PATH; build in api-ts after the testnet e2e passes, reusing the holder-balance check semantics from `bot/services/wallet.py` (60s cache, fail-safe no-perk).
+3. **Timing discipline**: agent-rails announcements and token-perk announcements ship together, once, with the disclosure block — not as a drip that looks like serial price-pumping.
+
 ## Execution order
 
 ### Now (this branch)
