@@ -1,0 +1,25 @@
+name: One-off SUWAPPU holder map
+on:
+  push:
+    branches:
+      - analysis/suwappu-holder-map-20260828
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map-holders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and profile Base holders
+        run: python3 scripts/oneoff_suwappu_holder_map.py
+      - name: Upload holder map
+        uses: actions/upload-artifact@v4
+        with:
+          name: suwappu-holder-map
+          path: holder-map-output/
+          if-no-files-found: error
+          retention-days: 1
