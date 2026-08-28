@@ -39,6 +39,10 @@ The one precedent that matches exactly: **Bonkbot × BONK** — a trading bot th
 3. **Holder XP multiplier**: e.g. 1.5× on `POINT_ACTIONS` (`bot/models/points.py:50–70`) while holding. Cheap, visible, no fund flows.
 4. **Webapp holder view**: `webapp/src/pages/TokenDetail.tsx` already renders price/chart via DexScreener — add a "holder perks" panel showing the user's balance vs. tier thresholds (`TokenBalance.tsx` exists).
 
+### Phase 1.5 — cross-stack parity (known gap, flagged by money-path review)
+- **api-ts computes fee bps independently** (`api-ts/src/services/SwapService.ts`, `VipService.ts`) and has no knowledge of `COMMUNITY_TOKEN_*`. Once the flag flips on, a holder pays discounted fees in Telegram but full fees via webapp/agent routes. Port the holder-tier floor to api-ts (`api-ts-dev`) before or shortly after enabling — or accept and document the divergence for launch week.
+- `swap_engine.py` and the snipe/copy/perps fee paths don't warm the balance cache; they fall back to no-perk (fail-safe, never undercharge) — port warms opportunistically.
+
 ### Phase 2 — sustained value ⚖️ (founder decision; strongest mechanism, highest care)
 - **Fee-funded buyback (Bonkbot model)**: route X% of bot fee revenue (collected by `fee_sweeper`, bot/services/fee_sweeper.py:7–35) into periodic market-buys of $Suwappu, then **burn or hold in a published transparent wallet**. This is the only mechanism proven to durably support a community coin — 100% of Bonkbot's fees buy-and-burn BONK. Start small (e.g. 10%), publish every tx hash. Requires: treasury wallet design → `security-auditor`, swap/burn execution → `chain-support`, and it's the most MONEY-PATH thing possible.
 - **XP → token sink**: redemption store (`bot/models/points.py:76`, 200 pts = $1) pays out in $Suwappu bought on-market — converts existing loyalty liability into steady buy pressure. Never mint/IOU — buy on market only.
