@@ -85,7 +85,7 @@ describe('Python Terminal compatibility gateway', () => {
 		expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
 	})
 
-	it('allows only reviewed auth, read, wallet, perps and bridge compatibility paths', () => {
+	it('allows only reviewed auth, read, wallet, trading, devwatch and bridge compatibility paths', () => {
 		for (const [method, path] of [
 			['POST', '/auth/turnkey/challenge'],
 			['POST', '/auth/solana/verify'],
@@ -99,6 +99,8 @@ describe('Python Terminal compatibility gateway', () => {
 			['GET', '/terminal/intel/health'],
 			['GET', '/terminal/intel/devwatch/hits'],
 			['GET', '/terminal/intel/base/0xabc'],
+			['POST', '/terminal/intel/devwatch'],
+			['DELETE', '/terminal/intel/devwatch/123'],
 			['GET', '/terminal/wallet/summary'],
 			['GET', '/terminal/perps/account'],
 			['POST', '/terminal/perps/connect'],
@@ -108,6 +110,9 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/terminal/perps/tpsl'],
 			['GET', '/terminal/perps/orders'],
 			['POST', '/terminal/perps/cancel'],
+			['GET', '/terminal/predict/positions'],
+			['POST', '/terminal/predict/order'],
+			['POST', '/terminal/predict/redeem'],
 			['POST', '/webapp/bridge/routes'],
 			['POST', '/webapp/bridge/build'],
 			['POST', '/webapp/bridge/record'],
@@ -122,9 +127,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/auth/oauth/google/link'],
 			['DELETE', '/auth/oauth/unlink/google'],
 			['POST', '/terminal/wallet/withdraw'],
-			['POST', '/terminal/predict/order'],
-			['POST', '/terminal/predict/redeem'],
-			['POST', '/terminal/intel/devwatch'],
+			['DELETE', '/terminal/intel/devwatch/not-a-number'],
 			['POST', '/webapp/dca'],
 			['DELETE', '/webapp/bridge/transfers/123'],
 			['GET', '/webapp/bridge/transfers/not-a-number'],
@@ -134,7 +137,7 @@ describe('Python Terminal compatibility gateway', () => {
 		}
 	})
 
-	it('proxies the reviewed perps and bridge money paths while forwarding end-user auth', async () => {
+	it('proxies reviewed session and bridge paths while forwarding end-user auth', async () => {
 		const seen: Array<{ method: string; path: string; auth: string | null }> = []
 		const routes = createPythonProxyRoutes({
 			baseUrl: PYTHON_URL,
@@ -152,6 +155,10 @@ describe('Python Terminal compatibility gateway', () => {
 		const requests = [
 			['GET', '/terminal/wallet/summary'],
 			['POST', '/terminal/perps/execute'],
+			['GET', '/terminal/predict/positions'],
+			['POST', '/terminal/predict/order'],
+			['POST', '/terminal/intel/devwatch'],
+			['DELETE', '/terminal/intel/devwatch/42'],
 			['POST', '/webapp/bridge/build'],
 			['GET', '/webapp/bridge/transfers/42'],
 		] as const
