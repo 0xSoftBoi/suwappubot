@@ -90,6 +90,8 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/webapp/tweets/accounts'],
 			['DELETE', '/webapp/tweets/accounts/suwappu'],
 			['GET', '/webapp/limit-orders'],
+			['GET', '/webapp/me/limit-orders'],
+			['GET', '/webapp/me/portfolio'],
 			['GET', '/webapp/dca/orders'],
 			['GET', '/webapp/discovery/new'],
 			['GET', '/webapp/discovery/trending'],
@@ -104,6 +106,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/webapp/copy-trading/unfollow/12'],
 			['PUT', '/webapp/copy-trading/follow/12/settings'],
 			['POST', '/webapp/limit-orders'],
+			['POST', '/webapp/me/limit-orders'],
 			['POST', '/webapp/limit-orders/2/cancel'],
 			['POST', '/webapp/dca/orders'],
 			['POST', '/webapp/dca/orders/2/pause'],
@@ -112,6 +115,28 @@ describe('Python Terminal compatibility gateway', () => {
 		] as const) {
 			expect(isTerminalWebappProxyAllowed(method, path)).toBe(false)
 		}
+	})
+
+	it('rewrites old Terminal read aliases onto the session-authenticated Python paths', async () => {
+		const seen: string[] = []
+		const app = new Hono().route(
+			'/',
+			createTerminalWebappProxyRoutes({
+				baseUrl: PYTHON_URL,
+				fetchImpl: async (input) => {
+					seen.push(new URL(String(input)).pathname)
+					return Response.json({ ok: true })
+				},
+			}),
+		)
+
+		for (const path of ['/webapp/me/portfolio', '/webapp/me/limit-orders']) {
+			const response = await app.request(path, {
+				headers: { Authorization: 'Bearer browser-session' },
+			})
+			expect(response.status).toBe(200)
+		}
+		expect(seen).toEqual(['/webapp/portfolio', '/webapp/limit-orders'])
 	})
 
 	it('pre-/webapp gateway proxies reviewed Terminal routes and falls through for Telegram', async () => {
@@ -155,7 +180,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/webapp/swap/quote'],
 			['GET', '/webapp/referrals/stats'],
 			['GET', '/webapp/alerts'],
-			['GET', '/webapp/dca/orders'],
+			['GET', '/webapp/me/portfolio'],
 		] as const) {
 			const response = await app.request(path, { method })
 			expect(response.status).toBe(200)
@@ -164,7 +189,7 @@ describe('Python Terminal compatibility gateway', () => {
 			'POST /webapp/swap/quote',
 			'GET /webapp/referrals/stats',
 			'GET /webapp/alerts',
-			'GET /webapp/dca/orders',
+			'GET /webapp/portfolio',
 		])
 	})
 
