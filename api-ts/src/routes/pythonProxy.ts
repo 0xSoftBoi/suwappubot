@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono'
-import { trustedSpendDecision } from '../middleware/trustedSpend'
+import { logger } from '../lib/logger'
+import { trustedControlDecision, trustedSpendDecision } from '../middleware/trustedSpend'
 
 /**
  * Browser-facing routes that still live in the Python service.
@@ -115,15 +116,19 @@ const TERMINAL_SWAP_POST_ROUTES = new Set([
 	'/webapp/swap/execute',
 ])
 
-// POST is also used for quote/build-style operations that do not sign,
-// broadcast, reserve funds, or mutate durable user trading state. Keep those
-// usable for pre-trade UX; trusted-session gating begins at record/execute.
-const NON_SPEND_POST_ROUTES = new Set([
-	'/webapp/swap/quote',
-	'/webapp/swap/build',
-	'/webapp/bridge/routes',
-	'/webapp/bridge/build',
-	'/webapp/solana/rpc',
+// These routes can directly authorize/sign/broadcast or mutate a live trading
+// venue. Keep this set exact: ordinary account-state mutations (alerts, tracked
+// wallets, tweet monitors, devwatch) rely on Python session auth but must NOT
+// demand wallet-control proof.
+const TRUSTED_SPEND_EXACT_ROUTES = new Set([
+	'POST /terminal/wallet/withdraw',
+	'POST /terminal/perps/connect',
+	'POST /terminal/perps/execute',
+	'POST /terminal/perps/close',
+	'POST /terminal/perps/tpsl',
+	'POST /terminal/perps/cancel',
+	'POST /webapp/swap/submit-jito',
+	'POST /webapp/swap/execute',
 ])
 
 export function isPythonProxyAllowed(method: string, path: string): boolean {
@@ -175,26 +180,54 @@ function terminalWebappTarget(path: string, method: string): ProxyTarget {
 	return {}
 }
 
-function requiresTrustedMutation(method: string, path: string): boolean {
-	const normalized = method.toUpperCase()
-	if (normalized === 'GET' || normalized === 'HEAD') return false
-	if (path.startsWith('/auth/')) return false
-	if (normalized === 'POST' && NON_SPEND_POST_ROUTES.has(path)) return false
-	return true
+function requiresTrustedSpend(method: string, path: string): boolean {
+	return TRUSTED_SPEND_EXACT_ROUTES.has(`${method.toUpperCase()} ${path}`)
+}
+
+function isRiskReducingControl(method: string, path: string): boolean {
+	const normalizedMethod = method.toUpperCase()
+	return (
+		(normalizedMethod === 'DELETE' && TERMINAL_LIMIT_ORDER_CANCEL_ROUTE.test(path)) ||
+		(normalizedMethod === 'POST' && TERMINAL_DCA_CONTROL_ROUTE.test(path))
+	)
 }
 
 function rejectUntrustedMutation(c: Context): Response | null {
-	if (!requiresTrustedMutation(c.req.method, c.req.path)) return null
-	const decision = trustedSpendDecision(c.req.raw)
-	if (decision.ok) return null
-	return c.json(
-		{
-			error: 'Trading proof required',
-			code: 'TRADING_PROOF_REQUIRED',
-			message: 'Reconnect with a wallet, passkey, or Telegram before authorizing this action.',
-		},
-		403,
-	)
+	if (requiresTrustedSpend(c.req.method, c.req.path)) {
+		const decision = trustedSpendDecision(c.req.raw)
+		if (decision.ok) return null
+		logger.warn(
+			{ event: 'trading_proof_denied', reason: decision.reason, method: c.req.method, path: c.req.path },
+			'[Auth] Protected Terminal action denied before authentication',
+		)
+		return c.json(
+			{
+				error: 'Trading proof required',
+				code: 'TRADING_PROOF_REQUIRED',
+				message: 'Reconnect with a wallet, passkey, or Telegram before authorizing this action.',
+			},
+			403,
+		)
+	}
+
+	if (isRiskReducingControl(c.req.method, c.req.path)) {
+		const decision = trustedControlDecision(c.req.raw)
+		if (decision.ok) return null
+		logger.warn(
+			{ event: 'control_auth_denied', reason: decision.reason, method: c.req.method, path: c.req.path },
+			'[Auth] Terminal stop control denied before authentication',
+		)
+		return c.json(
+			{
+				error: 'Authenticated session required',
+				code: 'CONTROL_AUTH_REQUIRED',
+				message: 'Sign in to pause or cancel this order.',
+			},
+			403,
+		)
+	}
+
+	return null
 }
 
 const REQUEST_HOP_BY_HOP_HEADERS = [
