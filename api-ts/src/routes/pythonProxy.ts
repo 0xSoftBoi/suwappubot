@@ -115,6 +115,17 @@ const TERMINAL_SWAP_POST_ROUTES = new Set([
 	'/webapp/swap/execute',
 ])
 
+// POST is also used for quote/build-style operations that do not sign,
+// broadcast, reserve funds, or mutate durable user trading state. Keep those
+// usable for pre-trade UX; trusted-session gating begins at record/execute.
+const NON_SPEND_POST_ROUTES = new Set([
+	'/webapp/swap/quote',
+	'/webapp/swap/build',
+	'/webapp/bridge/routes',
+	'/webapp/bridge/build',
+	'/webapp/solana/rpc',
+])
+
 export function isPythonProxyAllowed(method: string, path: string): boolean {
 	const normalizedMethod = method.toUpperCase()
 	const methodPath = `${normalizedMethod} ${path}`
@@ -164,18 +175,11 @@ function terminalWebappTarget(path: string, method: string): ProxyTarget {
 	return {}
 }
 
-/**
- * Authentication routes establish/refresh the session itself and therefore
- * cannot require trading proof. The Solana RPC proxy is a read operation over
- * POST. Every other allowed mutation through this browser compatibility layer
- * changes account/trading state and gets the stronger preflight before Python's
- * normal signature/session verification runs.
- */
 function requiresTrustedMutation(method: string, path: string): boolean {
 	const normalized = method.toUpperCase()
 	if (normalized === 'GET' || normalized === 'HEAD') return false
 	if (path.startsWith('/auth/')) return false
-	if (normalized === 'POST' && path === '/webapp/solana/rpc') return false
+	if (normalized === 'POST' && NON_SPEND_POST_ROUTES.has(path)) return false
 	return true
 }
 
