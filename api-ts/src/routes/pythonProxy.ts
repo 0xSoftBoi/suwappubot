@@ -44,21 +44,19 @@ const TERMINAL_READ_ROUTES = new Set([
 ])
 
 // Copy-trading discovery is still served by Python with the response contract
-// consumed by the standalone Terminal. Only read-only discovery/profile paths
-// are bridged here. Following, settings, and trade execution are handled by the
-// pre-/webapp Terminal gateway below because they use browser-session auth.
+// consumed by the standalone Terminal. Keep this compatibility layer read-only;
+// auto-copy/follow settings can become spend-affecting and remain closed here.
 const TERMINAL_COPY_READ_ROUTES = new Set([
 	'/webapp/copy-trading/top-traders',
 	'/webapp/copy-trading/feed',
 ])
 
 // Authenticated Terminal routes whose Python implementations are already the
-// canonical trading/wallet services used by the bot. These handlers validate
-// the end-user JWT/cookie themselves; the gateway only preserves the browser
-// transport across the api-ts production origin.
+// canonical services used by the browser session. This list contains the
+// existing perps contract plus read-only account state restored in this pass.
+// New money-moving routes are not added by compatibility hardening.
 const TERMINAL_SESSION_ROUTES = new Set([
 	'GET /terminal/wallet/summary',
-	'POST /terminal/wallet/withdraw',
 	'GET /terminal/perps/account',
 	'POST /terminal/perps/connect',
 	'GET /terminal/perps/positions',
@@ -68,8 +66,6 @@ const TERMINAL_SESSION_ROUTES = new Set([
 	'GET /terminal/perps/orders',
 	'POST /terminal/perps/cancel',
 	'GET /terminal/predict/positions',
-	'POST /terminal/predict/order',
-	'POST /terminal/predict/redeem',
 	'POST /terminal/intel/devwatch',
 ])
 
@@ -89,6 +85,9 @@ const TERMINAL_BRIDGE_ROUTES = new Set([
 // can run. This allowlist is deliberately exact and is consumed by the gateway
 // that app.ts already mounts before all native /webapp routers. Telegram
 // init-data always falls through untouched.
+//
+// This list intentionally restores read/state surfaces and non-transactional
+// controls only. Trading/withdrawal/automatic-copy actions remain fail-closed.
 const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'GET /webapp/referrals',
 	'GET /webapp/referrals/stats',
@@ -107,9 +106,7 @@ const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'POST /webapp/tweets/accounts',
 	'GET /webapp/tweets/feed',
 	'GET /webapp/limit-orders',
-	'POST /webapp/limit-orders',
 	'GET /webapp/dca/orders',
-	'POST /webapp/dca/orders',
 	'GET /webapp/discovery/new',
 	'GET /webapp/discovery/trending',
 	'POST /webapp/solana/rpc',
@@ -121,13 +118,9 @@ const TERMINAL_TOKEN_INTEL_ROUTE = /^\/terminal\/intel\/[^/]+\/[^/]+$/
 const TERMINAL_DEVWATCH_DELETE_ROUTE = /^\/terminal\/intel\/devwatch\/\d+$/
 const TERMINAL_BRIDGE_TRANSFER_ROUTE = /^\/webapp\/bridge\/transfers\/\d+$/
 const TERMINAL_COPY_TRADER_ROUTE = /^\/webapp\/copy-trading\/traders\/\d+$/
-const TERMINAL_COPY_FOLLOW_ROUTE = /^\/webapp\/copy-trading\/(follow|unfollow)\/\d+$/
-const TERMINAL_COPY_SETTINGS_ROUTE = /^\/webapp\/copy-trading\/follow\/\d+\/settings$/
 const TERMINAL_ALERT_DELETE_ROUTE = /^\/webapp\/alerts\/\d+$/
 const TERMINAL_WALLET_TRACKER_DELETE_ROUTE = /^\/webapp\/wallet-tracker\/wallets\/[^/]+$/
 const TERMINAL_TWEET_DELETE_ROUTE = /^\/webapp\/tweets\/accounts\/[^/]+$/
-const TERMINAL_LIMIT_CANCEL_ROUTE = /^\/webapp\/limit-orders\/\d+\/cancel$/
-const TERMINAL_DCA_ACTION_ROUTE = /^\/webapp\/dca\/orders\/\d+\/(pause|cancel)$/
 const TERMINAL_SWAP_POST_ROUTES = new Set([
 	'/webapp/swap/quote',
 	'/webapp/swap/build',
@@ -160,13 +153,9 @@ export function isTerminalWebappProxyAllowed(method: string, path: string): bool
 	const methodPath = `${normalizedMethod} ${path}`
 	if (TERMINAL_WEBAPP_EXACT_ROUTES.has(methodPath)) return true
 	if (normalizedMethod === 'GET' && TERMINAL_COPY_TRADER_ROUTE.test(path)) return true
-	if (normalizedMethod === 'POST' && TERMINAL_COPY_FOLLOW_ROUTE.test(path)) return true
-	if (normalizedMethod === 'PUT' && TERMINAL_COPY_SETTINGS_ROUTE.test(path)) return true
 	if (normalizedMethod === 'DELETE' && TERMINAL_ALERT_DELETE_ROUTE.test(path)) return true
 	if (normalizedMethod === 'DELETE' && TERMINAL_WALLET_TRACKER_DELETE_ROUTE.test(path)) return true
 	if (normalizedMethod === 'DELETE' && TERMINAL_TWEET_DELETE_ROUTE.test(path)) return true
-	if (normalizedMethod === 'POST' && TERMINAL_LIMIT_CANCEL_ROUTE.test(path)) return true
-	if (normalizedMethod === 'POST' && TERMINAL_DCA_ACTION_ROUTE.test(path)) return true
 	return false
 }
 
@@ -346,9 +335,9 @@ export function createPythonProxyRoutes(config: PythonProxyConfig) {
 
 /**
  * Standalone Terminal compatibility gateway mounted before api-ts's native
- * /webapp routers. It owns the five reviewed swap POSTs plus the exact legacy
- * browser-session /webapp routes above. Telegram init-data always falls through,
- * preserving the Mini App's native api-ts auth and route contracts.
+ * /webapp routers. It owns the existing reviewed swap POSTs plus the exact
+ * read/non-transactional legacy /webapp routes above. Telegram init-data always
+ * falls through, preserving the Mini App's native api-ts auth and contracts.
  */
 export function createTerminalSwapProxyRoutes(config: PythonProxyConfig) {
 	const routes = new Hono()
