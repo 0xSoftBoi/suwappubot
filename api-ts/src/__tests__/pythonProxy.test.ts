@@ -3,8 +3,10 @@ import { Hono } from 'hono'
 import {
 	createPythonProxyRoutes,
 	createTerminalSwapProxyRoutes,
+	createTerminalWebappProxyRoutes,
 	isPythonProxyAllowed,
 	isTerminalSwapProxyAllowed,
+	isTerminalWebappProxyAllowed,
 } from '../routes/pythonProxy'
 
 const PYTHON_URL = 'http://python-api.railway.internal:8000'
@@ -16,9 +18,7 @@ describe('Python Terminal compatibility gateway', () => {
 			baseUrl: PYTHON_URL,
 			fetchImpl: async (input, init) => {
 				calls += 1
-				expect(String(input)).toBe(
-					`${PYTHON_URL}/auth/turnkey/verify?source=terminal`,
-				)
+				expect(String(input)).toBe(`${PYTHON_URL}/auth/turnkey/verify?source=terminal`)
 				expect(init?.method).toBe('POST')
 				expect(init?.redirect).toBe('manual')
 
@@ -102,6 +102,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/terminal/intel/devwatch'],
 			['DELETE', '/terminal/intel/devwatch/123'],
 			['GET', '/terminal/wallet/summary'],
+			['POST', '/terminal/wallet/withdraw'],
 			['GET', '/terminal/perps/account'],
 			['POST', '/terminal/perps/connect'],
 			['GET', '/terminal/perps/positions'],
@@ -126,14 +127,49 @@ describe('Python Terminal compatibility gateway', () => {
 			['GET', '/auth/oauth/github/authorize'],
 			['POST', '/auth/oauth/google/link'],
 			['DELETE', '/auth/oauth/unlink/google'],
-			['POST', '/terminal/wallet/withdraw'],
+			['POST', '/terminal/wallet/admin-sweep'],
 			['DELETE', '/terminal/intel/devwatch/not-a-number'],
-			['POST', '/webapp/dca'],
 			['DELETE', '/webapp/bridge/transfers/123'],
 			['GET', '/webapp/bridge/transfers/not-a-number'],
-			['POST', '/webapp/points/rewards/1/redeem'],
 		] as const) {
 			expect(isPythonProxyAllowed(method, path)).toBe(false)
+		}
+	})
+
+	it('allows the standalone Terminal webapp contracts without widening arbitrary /webapp access', () => {
+		for (const [method, path] of [
+			['GET', '/webapp/referrals/stats'],
+			['GET', '/webapp/referrals'],
+			['GET', '/webapp/copy-trading/top-traders'],
+			['POST', '/webapp/copy-trading/follow/12'],
+			['POST', '/webapp/copy-trading/unfollow/12'],
+			['PUT', '/webapp/copy-trading/follow/12/settings'],
+			['GET', '/webapp/alerts'],
+			['POST', '/webapp/alerts'],
+			['DELETE', '/webapp/alerts/9'],
+			['GET', '/webapp/wallet-tracker/wallets'],
+			['DELETE', '/webapp/wallet-tracker/wallets/0xabc'],
+			['GET', '/webapp/tweets/accounts'],
+			['DELETE', '/webapp/tweets/accounts/suwappu'],
+			['GET', '/webapp/limit-orders'],
+			['POST', '/webapp/limit-orders'],
+			['POST', '/webapp/limit-orders/2/cancel'],
+			['GET', '/webapp/dca/orders'],
+			['POST', '/webapp/dca/orders/2/pause'],
+			['GET', '/webapp/discovery/new'],
+			['POST', '/webapp/solana/rpc'],
+		] as const) {
+			expect(isTerminalWebappProxyAllowed(method, path)).toBe(true)
+		}
+
+		for (const [method, path] of [
+			['POST', '/webapp/referrals'],
+			['DELETE', '/webapp/copy-trading/trades'],
+			['POST', '/webapp/points/rewards/1/redeem'],
+			['POST', '/webapp/admin/sweep'],
+			['DELETE', '/webapp/limit-orders/not-a-number/cancel'],
+		] as const) {
+			expect(isTerminalWebappProxyAllowed(method, path)).toBe(false)
 		}
 	})
 
@@ -154,6 +190,7 @@ describe('Python Terminal compatibility gateway', () => {
 		const app = new Hono().route('/', routes)
 		const requests = [
 			['GET', '/terminal/wallet/summary'],
+			['POST', '/terminal/wallet/withdraw'],
 			['POST', '/terminal/perps/execute'],
 			['GET', '/terminal/predict/positions'],
 			['POST', '/terminal/predict/order'],
@@ -181,7 +218,7 @@ describe('Python Terminal compatibility gateway', () => {
 		)
 	})
 
-	it('returns 404 without touching Python for an unreviewed money-changing Terminal route', async () => {
+	it('returns 404 without touching Python for an unreviewed Terminal money route', async () => {
 		let calls = 0
 		const routes = createPythonProxyRoutes({
 			baseUrl: PYTHON_URL,
@@ -192,16 +229,43 @@ describe('Python Terminal compatibility gateway', () => {
 		})
 		const app = new Hono().route('/', routes)
 
-		const response = await app.request('/terminal/wallet/withdraw', {
+		const response = await app.request('/terminal/wallet/admin-sweep', {
 			method: 'POST',
-			body: JSON.stringify({ amount: 'all' }),
+			body: '{}',
 		})
 
 		expect(response.status).toBe(404)
 		expect(calls).toBe(0)
 	})
 
-	it('proxies only the five POST routes in the standalone Terminal swap contract', async () => {
+	it('pre-/webapp gateway proxies reviewed Terminal routes and falls through for Telegram', async () => {
+		let pythonCalls = 0
+		const app = new Hono()
+		app.route(
+			'/',
+			createTerminalWebappProxyRoutes({
+				baseUrl: PYTHON_URL,
+				fetchImpl: async (input) => {
+					pythonCalls += 1
+					return Response.json({ source: 'python', path: new URL(String(input)).pathname })
+				},
+			}),
+		)
+		app.get('/webapp/alerts', (c) => c.json({ source: 'api-ts' }))
+
+		const terminal = await app.request('/webapp/alerts', {
+			headers: { Authorization: 'Bearer browser-session' },
+		})
+		expect(await terminal.json()).toEqual({ source: 'python', path: '/webapp/alerts' })
+
+		const telegram = await app.request('/webapp/alerts', {
+			headers: { 'X-Telegram-Init-Data': 'query_id=signed-telegram-data' },
+		})
+		expect(await telegram.json()).toEqual({ source: 'api-ts' })
+		expect(pythonCalls).toBe(1)
+	})
+
+	it('pre-mounted production gateway handles swap and reviewed legacy webapp routes', async () => {
 		const seen: string[] = []
 		const routes = createTerminalSwapProxyRoutes({
 			baseUrl: PYTHON_URL,
@@ -211,35 +275,27 @@ describe('Python Terminal compatibility gateway', () => {
 			},
 		})
 		const app = new Hono().route('/', routes)
-		const paths = [
-			'/webapp/swap/quote',
-			'/webapp/swap/build',
-			'/webapp/swap/record',
-			'/webapp/swap/submit-jito',
-			'/webapp/swap/execute',
-		]
-
-		for (const path of paths) {
-			expect(isTerminalSwapProxyAllowed('POST', path)).toBe(true)
-			const response = await app.request(path, { method: 'POST', body: '{}' })
-			expect(response.status).toBe(200)
-			expect(await response.json()).toEqual({ source: 'python' })
-		}
-
-		expect(seen).toEqual(paths.map((path) => `POST ${path}`))
 		for (const [method, path] of [
-			['GET', '/webapp/swap/quote'],
-			['POST', '/webapp/swap/status'],
-			['POST', '/webapp/bridge/build'],
+			['POST', '/webapp/swap/quote'],
+			['GET', '/webapp/referrals/stats'],
+			['POST', '/webapp/alerts'],
 			['POST', '/webapp/dca/orders'],
-			['POST', '/webapp/copy-trading/follow/1'],
-			['POST', '/webapp/points/rewards/1/redeem'],
 		] as const) {
-			expect(isTerminalSwapProxyAllowed(method, path)).toBe(false)
+			const response = await app.request(path, {
+				method,
+				...(method === 'POST' ? { body: '{}' } : {}),
+			})
+			expect(response.status).toBe(200)
 		}
+		expect(seen).toEqual([
+			'POST /webapp/swap/quote',
+			'GET /webapp/referrals/stats',
+			'POST /webapp/alerts',
+			'POST /webapp/dca/orders',
+		])
 	})
 
-	it('falls through to api-ts swap routes when Telegram init-data is present', async () => {
+	it('keeps Telegram swap requests on api-ts', async () => {
 		let pythonCalls = 0
 		const app = new Hono()
 		app.route(
@@ -270,7 +326,7 @@ describe('Python Terminal compatibility gateway', () => {
 		expect(pythonCalls).toBe(0)
 	})
 
-	it('lets non-POST swap requests fall through instead of widening the Python proxy', async () => {
+	it('lets unreviewed /webapp requests fall through instead of widening Python access', async () => {
 		let pythonCalls = 0
 		const app = new Hono()
 		app.route(
@@ -283,10 +339,9 @@ describe('Python Terminal compatibility gateway', () => {
 				},
 			}),
 		)
-		app.get('/webapp/swap/quote', (c) => c.json({ source: 'api-ts' }))
+		app.post('/webapp/admin/sweep', (c) => c.json({ source: 'api-ts' }))
 
-		const response = await app.request('/webapp/swap/quote')
-
+		const response = await app.request('/webapp/admin/sweep', { method: 'POST' })
 		expect(response.status).toBe(200)
 		expect(await response.json()).toEqual({ source: 'api-ts' })
 		expect(pythonCalls).toBe(0)
