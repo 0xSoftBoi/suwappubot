@@ -20,6 +20,12 @@ The fix has two halves:
    records it and raises a **dead-man's switch** alert if the heartbeat goes
    stale — that is what catches "the monitor stopped running".
 
+Endpoint entries may additionally declare ``expect_contains`` as a list of
+literal response-body markers. This is intentionally lightweight synthetic
+contract checking: a reverse proxy that accidentally serves index.html with
+HTTP 200 must not count as a healthy JSON API, and a removed Terminal API route
+must be detected even while the SPA shell itself still serves normally.
+
 Usage:
     python3 scripts/uptime_probe.py                    # probe prod, print result
     python3 scripts/uptime_probe.py --env dev
@@ -81,6 +87,19 @@ DEGRADED_RECHECKS = 2
 DEGRADED_RECHECK_DELAY = 60
 
 
+def _contract_failure(ep: dict, body: str) -> str | None:
+    """Return a concise reason when a successful HTTP response violates its probe contract."""
+    expected = ep.get("expect_contains") or []
+    if isinstance(expected, str):
+        expected = [expected]
+    missing = [marker for marker in expected if marker not in body]
+    if missing:
+        shown = ", ".join(repr(x) for x in missing[:3])
+        suffix = " …" if len(missing) > 3 else ""
+        return f"contract mismatch: missing {shown}{suffix}"
+    return None
+
+
 def check(ep: dict, rechecks: int = DEGRADED_RECHECKS) -> dict:
     """Probe one endpoint. Returns a result dict with ok/status/detail."""
     result = {"name": ep["name"], "url": ep["url"], "degraded": []}
@@ -94,6 +113,16 @@ def check(ep: dict, rechecks: int = DEGRADED_RECHECKS) -> dict:
             # A hard failure is already retried inside probe(); don't also burn
             # the recheck budget on it — report it immediately.
             result["detail"] = f"HTTP {status or 'unreachable'}"
+            return result
+
+        contract_error = _contract_failure(ep, body)
+        if contract_error:
+            # HTTP 200 with the wrong body is a hard synthetic failure, not a
+            # transient deep-health heartbeat. Typical causes are SPA fallback,
+            # a deleted/renamed route, or a response-shape regression.
+            result["ok"] = False
+            result["detail"] = contract_error
+            result["contract_failed"] = True
             return result
 
         # For endpoints exposing a deep payload, 200 is not enough — the body
@@ -255,7 +284,7 @@ def main() -> int:
             else:
                 mark = "OK  "
             detail = r.get("detail") or f"HTTP {r['status']}"
-            print(f"{mark} {r['name']:<14} {detail}")
+            print(f"{mark} {r['name']:<22} {detail}")
 
     if not all_ok:
         lines = [f"🩺 *Suwappu uptime probe failed* (`{args.env}`)"]
