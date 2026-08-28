@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """One-shot census for the community-launched SUWAPPU token on Base.
 
-Uses Blockscout's public API only. Emits one JSON object per current holder so
-Railway logs can be collected without adding application dependencies.
+Uses Blockscout's public API only. Emits one JSON object per current holder and
+also a compressed result bundle so the complete snapshot can be recovered from
+Railway logs without adding application dependencies.
 """
 
+import base64
 import concurrent.futures
+import gzip
 import json
 import time
 import urllib.parse
@@ -19,7 +22,7 @@ BASE = "https://base.blockscout.com"
 TOKEN = "0x26d58ce71ace3a79346c43ede802ff8f4fe55ba3"
 TOTAL_SUPPLY = Decimal(100_000_000_000)
 TIMEOUT = 20
-UA = "suwappu-holder-census/1.0"
+UA = "suwappu-holder-census/1.1"
 
 
 def get_json(url, retries=5):
@@ -100,7 +103,8 @@ def address_detail(addr):
         ]
         out = {k:d.get(k) for k in keys if d.get(k) is not None}
         for k in ("public_tags", "private_tags", "watchlist_names", "metadata"):
-            if d.get(k): out[k] = d.get(k)
+            if d.get(k):
+                out[k] = d.get(k)
         return out
     except Exception as e:
         return {"error": str(e)[:180]}
@@ -110,7 +114,6 @@ def enrich(item):
     a = item.get("address") or {}
     addr = (a.get("hash") or "").lower()
     raw = Decimal(str(item.get("value") or 0))
-    # Bankr token uses 18 decimals.
     bal = raw / (Decimal(10) ** 18)
     pct = (bal / TOTAL_SUPPLY) * 100
     profile = {
@@ -122,7 +125,6 @@ def enrich(item):
         "blockscout_is_contract": a.get("is_contract"),
         "blockscout_public_tags": a.get("public_tags") or [],
     }
-    # Do the independent calls concurrently for each holder.
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         f_detail = ex.submit(address_detail, addr)
         f_first = ex.submit(first_normal_tx, addr)
@@ -135,12 +137,22 @@ def enrich(item):
     return profile
 
 
+def emit_bundle(payload):
+    raw = json.dumps(payload, separators=(",",":"), sort_keys=True).encode("utf-8")
+    blob = base64.b64encode(gzip.compress(raw, compresslevel=9)).decode("ascii")
+    chunk_size = 3500
+    total = (len(blob) + chunk_size - 1) // chunk_size
+    for i in range(total):
+        chunk = blob[i * chunk_size:(i + 1) * chunk_size]
+        print(f"DATA {i + 1}/{total} {chunk}", flush=True)
+
+
 def main():
     holders = all_holders()
-    print("META " + json.dumps({"token":TOKEN,"holder_count":len(holders),"source":"base.blockscout.com","snapshot_unix":int(time.time())}, separators=(",",":")), flush=True)
+    meta = {"token":TOKEN,"holder_count":len(holders),"source":"base.blockscout.com","snapshot_unix":int(time.time())}
+    print("META " + json.dumps(meta, separators=(",",":")), flush=True)
 
     profiles = []
-    # Bound global concurrency to be polite to Blockscout while still finishing quickly.
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as ex:
         futs = [ex.submit(enrich, h) for h in holders]
         for i, f in enumerate(concurrent.futures.as_completed(futs), 1):
@@ -164,14 +176,23 @@ def main():
             fr = (ft.get("from") or "").lower()
             if fr and fr != p["address"]:
                 funders[fr] += 1
+
     summary = {
         "profiles": len(profiles),
         "contracts": contracts,
         "eoa_or_unknown": len(profiles)-contracts,
         "top_common_first_funders": funders.most_common(20),
-        "top20": [{"address":p["address"],"balance":p["balance"],"pct":p["pct_total_supply"],"name":p.get("blockscout_holder_name") or (p.get("address_detail") or {}).get("name"),"ens":p.get("blockscout_ens") or (p.get("address_detail") or {}).get("ens_domain_name"),"is_contract":p.get("blockscout_is_contract") or (p.get("address_detail") or {}).get("is_contract")} for p in profiles[:20]],
+        "top20": [{
+            "address":p["address"],
+            "balance":p["balance"],
+            "pct":p["pct_total_supply"],
+            "name":p.get("blockscout_holder_name") or (p.get("address_detail") or {}).get("name"),
+            "ens":p.get("blockscout_ens") or (p.get("address_detail") or {}).get("ens_domain_name"),
+            "is_contract":p.get("blockscout_is_contract") or (p.get("address_detail") or {}).get("is_contract")
+        } for p in profiles[:20]],
     }
     print("SUMMARY " + json.dumps(summary, separators=(",",":"), sort_keys=True), flush=True)
+    emit_bundle({"meta": meta, "summary": summary, "profiles": profiles})
 
 
 if __name__ == "__main__":
