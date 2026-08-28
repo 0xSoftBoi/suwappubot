@@ -106,6 +106,8 @@ const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'POST /webapp/tweets/accounts',
 	'GET /webapp/tweets/feed',
 	'GET /webapp/limit-orders',
+	'GET /webapp/me/limit-orders',
+	'GET /webapp/me/portfolio',
 	'GET /webapp/dca/orders',
 	'GET /webapp/discovery/new',
 	'GET /webapp/discovery/trending',
@@ -161,6 +163,17 @@ export function isTerminalWebappProxyAllowed(method: string, path: string): bool
 
 export function isTerminalSwapProxyAllowed(method: string, path: string): boolean {
 	return method.toUpperCase() === 'POST' && TERMINAL_SWAP_POST_ROUTES.has(path)
+}
+
+/**
+ * Terminal kept two older read URLs while Python standardized its standalone
+ * session API. Rewrite those *read-only* aliases at the gateway instead of
+ * changing the Telegram router or duplicating portfolio/limit-order logic.
+ */
+function terminalWebappTargetPath(path: string): string | undefined {
+	if (path === '/webapp/me/portfolio') return '/webapp/portfolio'
+	if (path === '/webapp/me/limit-orders') return '/webapp/limit-orders'
+	return undefined
 }
 
 const REQUEST_HOP_BY_HOP_HEADERS = [
@@ -248,12 +261,25 @@ function buildTarget(baseUrl: string, requestUrl: string): URL {
 	return base
 }
 
-async function proxyToPython(c: Context, config: PythonProxyConfig, fetchImpl: FetchLike) {
+function applyTargetPathOverride(target: URL, baseUrl: string, targetPath?: string): URL {
+	if (!targetPath) return target
+	const base = new URL(baseUrl)
+	const basePath = base.pathname === '/' ? '' : base.pathname.replace(/\/$/, '')
+	target.pathname = `${basePath}${targetPath}`
+	return target
+}
+
+async function proxyToPython(
+	c: Context,
+	config: PythonProxyConfig,
+	fetchImpl: FetchLike,
+	targetPath?: string,
+) {
 	if (!config.baseUrl) return c.json({ detail: 'Python API is not configured' }, 503)
 
 	let target: URL
 	try {
-		target = buildTarget(config.baseUrl, c.req.url)
+		target = applyTargetPathOverride(buildTarget(config.baseUrl, c.req.url), config.baseUrl, targetPath)
 	} catch {
 		return c.json({ detail: 'Python API is not configured' }, 503)
 	}
@@ -306,7 +332,7 @@ export function createTerminalWebappProxyRoutes(config: PythonProxyConfig) {
 			await next()
 			return
 		}
-		return proxyToPython(c, config, fetchImpl)
+		return proxyToPython(c, config, fetchImpl, terminalWebappTargetPath(c.req.path))
 	})
 
 	return routes
@@ -353,7 +379,7 @@ export function createTerminalSwapProxyRoutes(config: PythonProxyConfig) {
 			return
 		}
 
-		return proxyToPython(c, config, fetchImpl)
+		return proxyToPython(c, config, fetchImpl, terminalWebappTargetPath(c.req.path))
 	})
 
 	return routes
