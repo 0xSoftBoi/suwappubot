@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, os
+import csv, json, os
 from decimal import Decimal
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import suwappu_holder_census as c
@@ -29,8 +29,10 @@ def main():
           'first_block':f.get('block'),'first_source':src,'first_source_label':LABELS.get(src,''),'first_tx':f.get('tx_hash'),
           'latest_block':l.get('block'),'latest_counterparty':lastcp,'latest_counterparty_label':LABELS.get(lastcp,''),'latest_direction':l.get('direction')
         })
-    payload={'meta':{'token':c.TOKEN,'chain':'Base','block':latest,'transfer_logs':len(logs),'holders':len(rows),'total_supply_raw':str(supply)},'rows':rows}
-    with open('suwappu-holder-census.json','w') as f: json.dump(payload,f,indent=2)
-    print('SNAPSHOT_READY '+json.dumps(payload['meta']),flush=True)
+    meta={'token':c.TOKEN,'chain':'Base','block':latest,'transfer_logs':len(logs),'holders':len(rows),'total_supply_raw':str(supply)}
+    with open('suwappu-holder-census.json','w') as f: json.dump({'meta':meta,'rows':rows},f,indent=2)
+    with open('suwappu-holder-census.csv','w',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+    print('SNAPSHOT_READY '+json.dumps(meta),flush=True)
     ThreadingHTTPServer(('0.0.0.0',int(os.environ.get('PORT','8080'))),SimpleHTTPRequestHandler).serve_forever()
 if __name__=='__main__': main()
