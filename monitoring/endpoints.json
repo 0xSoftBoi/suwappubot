@@ -17,6 +17,11 @@
     "marker must appear in the successful response body; this catches a proxy that",
     "returns SPA HTML with HTTP 200 or an API route that silently changes shape.",
     "",
+    "Terminal /health is intentionally nginx-only liveness. /ready traverses the",
+    "same Railway private-DNS hop as real Terminal API traffic and delegates to",
+    "api-ts /health, so terminal-readiness catches an api-ts/database outage without",
+    "making Railway restart the otherwise healthy frontend container.",
+    "",
     "Services with no public URL (python-worker, suwappu-relayer) cannot be",
     "probed over HTTP at all — they are covered by the Railway deploy webhook",
     "and by `python3 scripts/status.py`, which reads the control plane."
@@ -37,6 +42,15 @@
       "url": "https://terminal-production-7906.up.railway.app/",
       "expect_contains": [
         "Suwappu"
+      ]
+    },
+    {
+      "name": "terminal-readiness",
+      "url": "https://terminal-production-7906.up.railway.app/ready",
+      "expect_contains": [
+        "suwappu-api-ts",
+        "\"status\":\"ok\"",
+        "source_fingerprint"
       ]
     },
     {
