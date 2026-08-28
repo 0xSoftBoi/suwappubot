@@ -43,7 +43,7 @@ describe('Python Terminal compatibility gateway', () => {
 		expect(calls).toBe(1)
 	})
 
-	it('allows reviewed Terminal session/read paths and keeps new money paths closed', () => {
+	it('allows reviewed Terminal session/read paths and keeps unreviewed money paths closed', () => {
 		for (const [method, path] of [
 			['GET', '/auth/me'],
 			['GET', '/terminal/chart/ohlcv'],
@@ -53,6 +53,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['POST', '/terminal/intel/devwatch'],
 			['DELETE', '/terminal/intel/devwatch/123'],
 			['GET', '/terminal/wallet/summary'],
+			['POST', '/terminal/wallet/withdraw'],
 			['GET', '/terminal/perps/account'],
 			['GET', '/terminal/perps/positions'],
 			['GET', '/terminal/predict/positions'],
@@ -63,14 +64,66 @@ describe('Python Terminal compatibility gateway', () => {
 		}
 
 		for (const [method, path] of [
-			['POST', '/terminal/wallet/withdraw'],
+			['GET', '/terminal/wallet/withdraw'],
+			['POST', '/terminal/wallet/admin-sweep'],
 			['POST', '/terminal/predict/order'],
 			['POST', '/terminal/predict/redeem'],
-			['POST', '/terminal/wallet/admin-sweep'],
 			['DELETE', '/terminal/intel/devwatch/not-a-number'],
 		] as const) {
 			expect(isPythonProxyAllowed(method, path)).toBe(false)
 		}
+	})
+
+	it('forwards the exact withdrawal body and browser session without broad wallet access', async () => {
+		let calls = 0
+		const app = new Hono().route(
+			'/',
+			createPythonProxyRoutes({
+				baseUrl: PYTHON_URL,
+				fetchImpl: async (input, init) => {
+					calls += 1
+					expect(String(input)).toBe(`${PYTHON_URL}/terminal/wallet/withdraw`)
+					expect(init?.method).toBe('POST')
+					const headers = new Headers(init?.headers)
+					expect(headers.get('Authorization')).toBe('Bearer browser-session')
+					expect(headers.get('X-Internal-Key')).toBeNull()
+					const raw = init?.body as ArrayBuffer
+					const payload = JSON.parse(new TextDecoder().decode(raw)) as Record<string, unknown>
+					expect(payload).toMatchObject({
+						chain: 'ethereum',
+						token: 'USDC',
+						amount: 12.5,
+						toAddress: '0x1111111111111111111111111111111111111111',
+						idempotency_key: 'withdrawal-intent-1',
+					})
+					return Response.json({ ok: true, txHash: '0xabc', status: 'submitted' })
+				},
+			}),
+		)
+
+		const response = await app.request('/terminal/wallet/withdraw', {
+			method: 'POST',
+			headers: {
+				Authorization: 'Bearer browser-session',
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				chain: 'ethereum',
+				token: 'USDC',
+				amount: 12.5,
+				toAddress: '0x1111111111111111111111111111111111111111',
+				idempotency_key: 'withdrawal-intent-1',
+			}),
+		})
+		expect(response.status).toBe(200)
+		expect(calls).toBe(1)
+
+		const closed = await app.request('/terminal/wallet/admin-sweep', {
+			method: 'POST',
+			body: '{}',
+		})
+		expect(closed.status).toBe(404)
+		expect(calls).toBe(1)
 	})
 
 	it('restores read/non-transactional standalone webapp contracts only', () => {
