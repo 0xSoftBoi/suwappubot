@@ -72,7 +72,7 @@ Risk-reduced structure if pursued:
 ## 9. Questions only real counsel can answer
 
 1. Does Ripple/the 2025 staff statement protect a *non-issuer's* public formulaic buyback-and-burn, or does that conduct create its own investment-contract analysis? (First-impression; crux.)
-2. Does Suwappu or any team member hold $Suwappu — amount, acquired how/when? Pre-announcement acquisition exposure?
+2. **ANSWERED 2026-08-28 — founder confirms a personal open-market purchase of $Suwappu, made before any public perks announcement.** Remaining for counsel: exposure from the pre-announcement timing specifically (founder bought knowing perks were in development — disclosure is drafted into the pinned post, but counsel should assess whether disclosure alone suffices or a cooling-off/no-sale undertaking should be formalized). Amount/date/wallet still to be filled into the disclosure by the founder.
 3. Company domicile / primary regulatory nexus? (Reframes everything above.)
 4. Is the swap-execution business itself required to hold MSB/CASP/VASP licensing, and does token marketing or a buyback change scope?
 5. Does routing fee revenue into market purchases implicate BSA-AML / proprietary-trading posture?
@@ -81,7 +81,8 @@ Risk-reduced structure if pursued:
 
 ## Ship gates derived from this memo
 
-- [ ] Founder answers the holdings question; disclaimer line filled in (either direction).
+- [~] Holdings question ANSWERED: founder personally bought on the open market pre-announcement. Disclosure block drafted into the pinned disclaimer (announcement doc) with a 14-day no-sale-around-announcements commitment — founder must fill [DATE]/[AMOUNT]/[X% of supply] (and ideally the wallet address) before posting. **Hard rule from here: never sell into or around an announcement window.**
+- [ ] Buyback gate hardened: founder's personal holdings make any company buyback a direct personal-enrichment fact pattern — Phase 2 counsel sign-off is now strictly non-negotiable, and counsel should be told about the holdings in the first conversation.
 - [ ] Redlined copy (this commit) is the only version that may be posted.
 - [x] "Safety Card" product-UI naming: checked repo-wide 2026-08-28 — the phrase does not appear in product code, only in the (now-redlined) marketing draft. No rename needed.
 - [ ] Discretion/revocability sentence mirrored into the bot ToS.

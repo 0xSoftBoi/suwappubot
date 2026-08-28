@@ -53,7 +53,9 @@ Nothing in this bot, our channels, or this thread is financial advice, an offer 
 
 The "holder perks" (swap-fee discount tiers, XP multiplier) are utility features of the Suwappu bot, not a return on the token and not tied to any roadmap for the token itself. They are feature-flagged, meaning we can change the thresholds, the rates, or turn them off, at our discretion, without notice. Holding $Suwappu does not make you an owner, partner, or stakeholder in Suwappu the product — it makes you eligible for a bot feature, same as any other in-app perk.
 
-[FOUNDER: confirm before posting — state team/company holdings either way. If true: "No Suwappu team member or company-controlled wallet currently holds $Suwappu." If anyone holds any, this must instead disclose it plainly, and the whole thread needs re-review.]
+Disclosure: Suwappu's founder (@0xSoftBoi) personally holds $Suwappu, bought on the open market with personal funds on [DATE — fill in], before this announcement ([AMOUNT] tokens, ~[X]% of supply — fill in; consider publishing the wallet address for full transparency). Nothing was received from the token's deployer or any allocation. The founder has committed not to sell any $Suwappu during, or within 14 days after, any Suwappu product announcement. No company-controlled wallet holds $Suwappu.
+
+[FOUNDER: fill the bracketed values before posting. If the company wallet ever acquires any, that last sentence must change the same day.]
 
 Do your own research. Only risk what you can afford to lose. If it's not obvious: this is not investment advice.
 
