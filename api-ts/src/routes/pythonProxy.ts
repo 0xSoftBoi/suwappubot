@@ -53,10 +53,17 @@ const TERMINAL_COPY_READ_ROUTES = new Set([
 
 // Authenticated Terminal routes whose Python implementations are already the
 // canonical services used by the browser session. This list contains the
-// existing perps contract plus read-only account state restored in this pass.
-// New money-moving routes are not added by compatibility hardening.
+// existing perps contract plus reviewed session-authenticated Terminal state.
+// Money-moving entries remain exact-path opt-ins and are only added when the
+// underlying Python handler already enforces its own transaction safety.
 const TERMINAL_SESSION_ROUTES = new Set([
 	'GET /terminal/wallet/summary',
+	// Custodial withdrawal is intentionally exposed only as this exact POST.
+	// Python requires a per-user idempotency_key, atomically claims it before
+	// reserving funds, and refuses duplicate sends. The browser now persists the
+	// key across uncertain network retries, so widening this route does not widen
+	// the rest of /terminal/wallet/*.
+	'POST /terminal/wallet/withdraw',
 	'GET /terminal/perps/account',
 	'POST /terminal/perps/connect',
 	'GET /terminal/perps/positions',
