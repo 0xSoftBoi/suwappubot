@@ -43,6 +43,15 @@ const TERMINAL_READ_ROUTES = new Set([
 	'/terminal/intel/devwatch/hits',
 ])
 
+// Copy-trading discovery is still served by Python with the response contract
+// consumed by the standalone Terminal. Only read-only discovery/profile paths
+// are bridged here. Following, settings, and trade execution remain outside
+// this allowlist until they are reviewed as spend-affecting actions.
+const TERMINAL_COPY_READ_ROUTES = new Set([
+	'/webapp/copy-trading/top-traders',
+	'/webapp/copy-trading/feed',
+])
+
 // Authenticated Terminal routes whose Python implementations are already the
 // canonical trading/wallet services used by the bot. These handlers validate
 // the end-user JWT/cookie themselves; the gateway only preserves the browser
@@ -71,6 +80,7 @@ const TERMINAL_BRIDGE_ROUTES = new Set([
 const OAUTH_ROUTE = /^\/auth\/oauth\/(google|twitter)\/(authorize|callback)$/
 const TERMINAL_TOKEN_INTEL_ROUTE = /^\/terminal\/intel\/[^/]+\/[^/]+$/
 const TERMINAL_BRIDGE_TRANSFER_ROUTE = /^\/webapp\/bridge\/transfers\/\d+$/
+const TERMINAL_COPY_TRADER_ROUTE = /^\/webapp\/copy-trading\/traders\/[^/]+$/
 const TERMINAL_SWAP_POST_ROUTES = new Set([
 	'/webapp/swap/quote',
 	'/webapp/swap/build',
@@ -87,6 +97,10 @@ export function isPythonProxyAllowed(method: string, path: string): boolean {
 	if (TERMINAL_BRIDGE_ROUTES.has(methodPath)) return true
 	if (normalizedMethod === 'GET' && OAUTH_ROUTE.test(path)) return true
 	if (normalizedMethod === 'GET' && TERMINAL_BRIDGE_TRANSFER_ROUTE.test(path)) return true
+	if (
+		normalizedMethod === 'GET' &&
+		(TERMINAL_COPY_READ_ROUTES.has(path) || TERMINAL_COPY_TRADER_ROUTE.test(path))
+	) return true
 	return (
 		normalizedMethod === 'GET' &&
 		(TERMINAL_READ_ROUTES.has(path) || TERMINAL_TOKEN_INTEL_ROUTE.test(path))
@@ -234,6 +248,7 @@ export function createPythonProxyRoutes(config: PythonProxyConfig) {
 	routes.all('/auth/*', proxy)
 	routes.all('/terminal/*', proxy)
 	routes.all('/webapp/bridge/*', proxy)
+	routes.all('/webapp/copy-trading/*', proxy)
 	return routes
 }
 
