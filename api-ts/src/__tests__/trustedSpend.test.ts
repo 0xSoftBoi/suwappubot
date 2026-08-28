@@ -34,36 +34,32 @@ describe('trusted spend preflight', () => {
 		}
 	})
 
-	it('accepts a server cookie only from explicit first-party browser origins', () => {
-		const trusted = new Request('https://api.suwappu.bot/public/swap/execute', {
-			method: 'POST',
-			headers: {
-				Cookie: 'other=x; suwappu_auth=server-session; theme=dark',
-				Origin: 'https://terminal.suwappu.bot',
-			},
-		})
-		expect(trustedSpendDecision(trusted)).toEqual({ ok: true, via: 'first_party_cookie' })
-
-		const crossSite = new Request('https://api.suwappu.bot/public/swap/execute', {
-			method: 'POST',
-			headers: { Cookie: 'suwappu_auth=server-session', Origin: 'https://evil.example' },
-		})
-		expect(trustedSpendDecision(crossSite)).toEqual({ ok: false, reason: 'untrusted_cookie_origin' })
+	it('rejects cookie-only sessions even from first-party origins', () => {
+		for (const src of ['weak', 'siwe', 'passkey']) {
+			const request = new Request('https://api.suwappu.bot/public/swap/execute', {
+				method: 'POST',
+				headers: {
+					Cookie: `suwappu_auth=${unsignedJwt(src)}`,
+					Origin: 'https://terminal.suwappu.bot',
+				},
+			})
+			expect(trustedSpendDecision(request)).toEqual({ ok: false, reason: 'missing_trading_proof' })
+		}
 	})
 
-	it('does not let a weak bearer hide behind a good cookie because downstream prefers Authorization', () => {
+	it('does not let a weak bearer hide behind a cookie', () => {
 		const request = new Request('https://api.suwappu.bot/public/swap/execute', {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${unsignedJwt('weak')}`,
-				Cookie: 'suwappu_auth=server-session',
+				Cookie: `suwappu_auth=${unsignedJwt('passkey')}`,
 				Origin: 'https://terminal.suwappu.bot',
 			},
 		})
 		expect(trustedSpendDecision(request)).toEqual({ ok: false, reason: 'weak_bearer' })
 	})
 
-	it('returns a stable 403 contract before a spend route runs', async () => {
+	it('returns a stable 403 contract before a protected route runs', async () => {
 		const app = new Hono()
 		app.use('/execute', trustedSpendPreflight())
 		app.post('/execute', (c) => c.json({ signed: true }))
@@ -74,5 +70,12 @@ describe('trusted spend preflight', () => {
 		})
 		expect(denied.status).toBe(403)
 		expect(await denied.json()).toMatchObject({ code: 'TRADING_PROOF_REQUIRED' })
+
+		const allowed = await app.request('/execute', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${unsignedJwt('passkey')}` },
+		})
+		expect(allowed.status).toBe(200)
+		expect(await allowed.json()).toEqual({ signed: true })
 	})
 })
