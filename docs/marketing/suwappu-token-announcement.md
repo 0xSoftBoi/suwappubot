@@ -15,15 +15,15 @@ Source: `docs/plans/suwappu-token-utility.md` §1, verified on-chain + Dexscreen
 **1/**
 Okay so a community coin called $Suwappu launched on Base yesterday, named after us. We didn't launch it, don't control the contract, and found out the same way you did — a chart going vertical with our name on it.
 
-Wild way to spend a Thursday. Thank you.
+We're not going to pretend that's not wild. We also can't and won't comment on the chart — here's what we're actually doing.
 
 **2/**
-For the people asking "is this real": the token is real, the community around it is real, we didn't mint it and we're not going to pretend we did. Full disclosure in the reply below — read it before you ape.
+For the people asking "is this real": the token is real, the community around it is real, we didn't mint it and we're not going to pretend we did. Full disclosure in the reply below — read it before you decide anything.
 
 **3/**
-What we *can* do: we're a swap bot. Base is one of our 7+ chains. So — holder perks, shipping now, feature-flagged while we watch it in prod:
+What we *can* do: we're a swap bot. Base is one of our 7+ chains. So — holder perks in our Telegram bot (Telegram only for now), shipping feature-flagged while we watch it in prod:
 
-→ Hold $Suwappu, your swap fee in the bot drops from FREE-tier (1%) toward PRO (0.5%) or PREMIUM (0.3%) rates
+→ Hold $Suwappu, your swap fee in our Telegram bot drops from FREE-tier (1%) toward PRO (0.5%) or PREMIUM (0.3%) rates
 → 1.5× XP on swaps while you hold
 
 Utility, not a promise about the chart.
@@ -34,14 +34,14 @@ Do the math yourself, always: PRO vs FREE saves you $5 in fee per $1,000 traded.
 **5/**
 One-tap: paste the CA into a DM with the bot, or run
 `/check 0x26D58Ce71ace3A79346C43EDE802fF8F4fe55bA3`
-and you'll get a safety card + buy option straight from Telegram.
+and you'll get a token info card (contract, liquidity, holder data) + a buy option straight from Telegram.
 
 **6/**
-⚠️ Copycats exist — at least one fake "SuwappuBot" token is already circulating on Base. The ONLY canonical CA is:
+⚠️ Copycats exist — at least one look-alike "SuwappuBot" token is already circulating on Base. The contract we've configured perks for, based on our own on-chain and community research as of Aug 28, is:
 
 `0x26D58Ce71ace3A79346C43EDE802fF8F4fe55bA3`
 
-Bookmark it. Don't trust a CA from a screenshot, a reply-guy, or a "presale" DM — including one that claims to be from us.
+We have no authority to declare any token "official" — verify independently before you trust any CA, including this one. And never trust a CA from a screenshot, a reply-guy, or a "presale" DM — including one that claims to be from us.
 
 ---
 
@@ -53,6 +53,8 @@ Nothing in this bot, our channels, or this thread is financial advice, an offer 
 
 The "holder perks" (swap-fee discount tiers, XP multiplier) are utility features of the Suwappu bot, not a return on the token and not tied to any roadmap for the token itself. They are feature-flagged, meaning we can change the thresholds, the rates, or turn them off, at our discretion, without notice. Holding $Suwappu does not make you an owner, partner, or stakeholder in Suwappu the product — it makes you eligible for a bot feature, same as any other in-app perk.
 
+[FOUNDER: confirm before posting — state team/company holdings either way. If true: "No Suwappu team member or company-controlled wallet currently holds $Suwappu." If anyone holds any, this must instead disclose it plainly, and the whole thread needs re-review.]
+
 Do your own research. Only risk what you can afford to lose. If it's not obvious: this is not investment advice.
 
 ---
@@ -63,13 +65,13 @@ Do your own research. Only risk what you can afford to lose. If it's not obvious
 
 A community token, $Suwappu, launched on Base referencing our name. We didn't create it and don't control the contract (full disclaimer pinned in the channel) — but we're shipping real utility for holders, feature-flagged and rolling out now:
 
-• Fee tiers — hold $Suwappu, your swap fee steps down from FREE (1%) toward PRO (0.5%) / PREMIUM (0.3%)
+• Fee tiers (Telegram bot only for now) — hold $Suwappu, your swap fee steps down from FREE (1%) toward PRO (0.5%) / PREMIUM (0.3%)
 • 1.5× XP on swaps while you hold
 
 Trade it in one step: paste the contract address into the bot, or send
 `/check 0x26D58Ce71ace3A79346C43EDE802fF8F4fe55bA3`
 
-⚠️ Canonical CA only — a copycat token is already circulating. Do not trust any other address, even one sent "from us."
+⚠️ Copycats are circulating — the address above is the one our perks are configured for, per our own research; we can't declare any token "official." Verify independently, and never trust an address DM'd to you, even one claiming to be "from us."
 
 Not financial advice. Perks are a bot feature and can change.
 
@@ -94,7 +96,8 @@ Not financial advice. Perks are a bot feature and can change.
 | $5 saved per $1,000 (PRO vs FREE) | (0.01 − 0.005) × 1,000 | derived from the same constants |
 | $7 saved per $1,000 (PREMIUM vs FREE) | (0.01 − 0.003) × 1,000 | derived from the same constants |
 | One-tap trade mechanic: paste CA or `/check <address>` | verified command | `bot/handlers/paste_trade.py:366-379` (`check_command`) |
-| 1.5× XP multiplier | proposed value, not yet a shipped constant | `docs/plans/suwappu-token-utility.md` §3 Phase 1.3 — flagged below |
+| 1.5× XP multiplier | shipped constant (clamped [1.0, 2.0] in code) | `bot/config/settings.py` `COMMUNITY_TOKEN_XP_MULTIPLIER`, applied in `bot/services/points_service.py` |
+| Holder thresholds | 20,000,000 → PRO; 100,000,000 → PREMIUM | `bot/config/settings.py` `COMMUNITY_TOKEN_PRO_THRESHOLD` / `COMMUNITY_TOKEN_PREMIUM_THRESHOLD` |
 
 ## What I deliberately did not claim, and why
 
