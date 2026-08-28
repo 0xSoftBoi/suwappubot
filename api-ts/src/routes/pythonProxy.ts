@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono'
+import { trustedSpendDecision } from '../middleware/trustedSpend'
 
 /**
  * Browser-facing routes that still live in the Python service.
@@ -43,23 +44,13 @@ const TERMINAL_READ_ROUTES = new Set([
 	'/terminal/intel/devwatch/hits',
 ])
 
-// Copy-trading discovery is still served by Python with the response contract
-// consumed by the standalone Terminal. Keep this compatibility layer read-only;
-// auto-copy/follow settings can become spend-affecting and remain closed here.
 const TERMINAL_COPY_READ_ROUTES = new Set([
 	'/webapp/copy-trading/top-traders',
 	'/webapp/copy-trading/feed',
 ])
 
-// Authenticated Terminal routes whose Python implementations are already the
-// canonical services used by the browser session. Money-moving entries remain
-// exact-path opt-ins and are only added when the Python handler enforces its own
-// transaction safety.
 const TERMINAL_SESSION_ROUTES = new Set([
 	'GET /terminal/wallet/summary',
-	// Python requires a per-user idempotency_key, atomically claims it before
-	// reserving funds, and refuses duplicate sends. The browser persists the key
-	// across uncertain network retries.
 	'POST /terminal/wallet/withdraw',
 	'GET /terminal/perps/account',
 	'POST /terminal/perps/connect',
@@ -73,19 +64,12 @@ const TERMINAL_SESSION_ROUTES = new Set([
 	'POST /terminal/intel/devwatch',
 ])
 
-// Cross-chain bridge execution is non-custodial: Python builds unsigned txs,
-// the connected browser wallet signs/broadcasts, and /record starts tracking.
 const TERMINAL_BRIDGE_ROUTES = new Set([
 	'POST /webapp/bridge/routes',
 	'POST /webapp/bridge/build',
 	'POST /webapp/bridge/record',
 ])
 
-// Standalone Terminal historically uses browser-session JWT/cookie auth for a
-// set of /webapp/* features that still live in Python. api-ts also mounts the
-// Telegram Mini App on /webapp/*; this exact allowlist is consumed by the
-// gateway mounted before native /webapp routers. Telegram init-data always
-// falls through untouched.
 const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'GET /webapp/referrals',
 	'GET /webapp/referrals/stats',
@@ -158,8 +142,6 @@ export function isTerminalWebappProxyAllowed(method: string, path: string): bool
 	if (normalizedMethod === 'DELETE' && TERMINAL_ALERT_DELETE_ROUTE.test(path)) return true
 	if (normalizedMethod === 'DELETE' && TERMINAL_WALLET_TRACKER_DELETE_ROUTE.test(path)) return true
 	if (normalizedMethod === 'DELETE' && TERMINAL_TWEET_DELETE_ROUTE.test(path)) return true
-	// These controls reduce/stop future automated execution. Their Python
-	// handlers independently scope the target row by both order id and user id.
 	if (normalizedMethod === 'DELETE' && TERMINAL_LIMIT_ORDER_CANCEL_ROUTE.test(path)) return true
 	if (normalizedMethod === 'POST' && TERMINAL_DCA_CONTROL_ROUTE.test(path)) return true
 	return false
@@ -171,7 +153,6 @@ export function isTerminalSwapProxyAllowed(method: string, path: string): boolea
 
 type ProxyTarget = { path?: string; method?: string }
 
-/** Map stale standalone Terminal URLs/methods onto the session-authenticated Python API. */
 function terminalWebappTarget(path: string, method: string): ProxyTarget {
 	if (path === '/webapp/me/portfolio') return { path: '/webapp/portfolio' }
 	if (path === '/webapp/me/limit-orders') return { path: '/webapp/limit-orders' }
@@ -183,30 +164,43 @@ function terminalWebappTarget(path: string, method: string): ProxyTarget {
 	return {}
 }
 
+/**
+ * Authentication routes establish/refresh the session itself and therefore
+ * cannot require trading proof. The Solana RPC proxy is a read operation over
+ * POST. Every other allowed mutation through this browser compatibility layer
+ * changes account/trading state and gets the stronger preflight before Python's
+ * normal signature/session verification runs.
+ */
+function requiresTrustedMutation(method: string, path: string): boolean {
+	const normalized = method.toUpperCase()
+	if (normalized === 'GET' || normalized === 'HEAD') return false
+	if (path.startsWith('/auth/')) return false
+	if (normalized === 'POST' && path === '/webapp/solana/rpc') return false
+	return true
+}
+
+function rejectUntrustedMutation(c: Context): Response | null {
+	if (!requiresTrustedMutation(c.req.method, c.req.path)) return null
+	const decision = trustedSpendDecision(c.req.raw)
+	if (decision.ok) return null
+	return c.json(
+		{
+			error: 'Trading proof required',
+			code: 'TRADING_PROOF_REQUIRED',
+			message: 'Reconnect with a wallet, passkey, or Telegram before authorizing this action.',
+		},
+		403,
+	)
+}
+
 const REQUEST_HOP_BY_HOP_HEADERS = [
-	'connection',
-	'content-length',
-	'host',
-	'keep-alive',
-	'proxy-authenticate',
-	'proxy-authorization',
-	'te',
-	'trailer',
-	'transfer-encoding',
-	'upgrade',
-	'accept-encoding',
+	'connection', 'content-length', 'host', 'keep-alive', 'proxy-authenticate',
+	'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'accept-encoding',
 ]
 
 const RESPONSE_HOP_BY_HOP_HEADERS = new Set([
-	'connection',
-	'content-length',
-	'keep-alive',
-	'proxy-authenticate',
-	'proxy-authorization',
-	'te',
-	'trailer',
-	'transfer-encoding',
-	'upgrade',
+	'connection', 'content-length', 'keep-alive', 'proxy-authenticate',
+	'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade',
 ])
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
@@ -219,7 +213,6 @@ export interface PythonProxyConfig {
 function outboundHeaders(request: Request): Headers {
 	const headers = new Headers(request.headers)
 	for (const name of REQUEST_HOP_BY_HOP_HEADERS) headers.delete(name)
-	// Never let a browser smuggle a service credential through this user-facing proxy.
 	headers.delete('x-internal-key')
 	return headers
 }
@@ -315,6 +308,8 @@ export function createTerminalWebappProxyRoutes(config: PythonProxyConfig) {
 			await next()
 			return
 		}
+		const rejected = rejectUntrustedMutation(c)
+		if (rejected) return rejected
 		return proxyToPython(c, config, fetchImpl, terminalWebappTarget(c.req.path, c.req.method))
 	})
 	return routes
@@ -326,6 +321,8 @@ export function createPythonProxyRoutes(config: PythonProxyConfig) {
 
 	const proxy = async (c: Context) => {
 		if (!isPythonProxyAllowed(c.req.method, c.req.path)) return c.notFound()
+		const rejected = rejectUntrustedMutation(c)
+		if (rejected) return rejected
 		return proxyToPython(c, config, fetchImpl)
 	}
 
@@ -349,6 +346,8 @@ export function createTerminalSwapProxyRoutes(config: PythonProxyConfig) {
 			await next()
 			return
 		}
+		const rejected = rejectUntrustedMutation(c)
+		if (rejected) return rejected
 		return proxyToPython(c, config, fetchImpl, terminalWebappTarget(c.req.path, c.req.method))
 	})
 	return routes
