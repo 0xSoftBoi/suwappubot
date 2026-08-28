@@ -9,6 +9,16 @@ import {
 } from '../routes/pythonProxy'
 
 const PYTHON_URL = 'http://python-api.railway.internal:8000'
+const TRUSTED_COOKIE_HEADERS = {
+	Cookie: 'suwappu_auth=browser-session',
+	Origin: 'https://terminal.suwappu.bot',
+}
+
+function unsignedJwt(src: string): string {
+	const encode = (value: object) =>
+		btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+	return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ userId: 123, src })}.signature`
+}
 
 describe('Python Terminal compatibility gateway', () => {
 	it('forwards end-user auth, origin, cookies, query and body without service credentials', async () => {
@@ -74,7 +84,7 @@ describe('Python Terminal compatibility gateway', () => {
 		}
 	})
 
-	it('forwards the exact withdrawal body and browser session without broad wallet access', async () => {
+	it('forwards replay-safe withdrawal only from a trusted trading session', async () => {
 		let calls = 0
 		const app = new Hono().route(
 			'/',
@@ -85,7 +95,7 @@ describe('Python Terminal compatibility gateway', () => {
 					expect(String(input)).toBe(`${PYTHON_URL}/terminal/wallet/withdraw`)
 					expect(init?.method).toBe('POST')
 					const headers = new Headers(init?.headers)
-					expect(headers.get('Authorization')).toBe('Bearer browser-session')
+					expect(headers.get('Cookie')).toBe('suwappu_auth=browser-session')
 					expect(headers.get('X-Internal-Key')).toBeNull()
 					const raw = init?.body as ArrayBuffer
 					const payload = JSON.parse(new TextDecoder().decode(raw)) as Record<string, unknown>
@@ -99,9 +109,17 @@ describe('Python Terminal compatibility gateway', () => {
 			}),
 		)
 
+		const weakDenied = await app.request('/terminal/wallet/withdraw', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${unsignedJwt('weak')}`, 'Content-Type': 'application/json' },
+			body: '{}',
+		})
+		expect(weakDenied.status).toBe(403)
+		expect(calls).toBe(0)
+
 		const response = await app.request('/terminal/wallet/withdraw', {
 			method: 'POST',
-			headers: { Authorization: 'Bearer browser-session', 'Content-Type': 'application/json' },
+			headers: { ...TRUSTED_COOKIE_HEADERS, 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				chain: 'ethereum', token: 'USDC', amount: 12.5,
 				toAddress: '0x1111111111111111111111111111111111111111',
@@ -180,7 +198,7 @@ describe('Python Terminal compatibility gateway', () => {
 		expect(seen).toEqual(['/webapp/portfolio', '/webapp/limit-orders'])
 	})
 
-	it('rewrites limit cancel and preserves DCA stop controls on the session backend', async () => {
+	it('rewrites limit cancel and preserves DCA stop controls only for trusted sessions', async () => {
 		const seen: string[] = []
 		const routes = createTerminalSwapProxyRoutes({
 			baseUrl: PYTHON_URL,
@@ -191,9 +209,21 @@ describe('Python Terminal compatibility gateway', () => {
 		})
 		const app = new Hono().route('/', routes)
 
-		const cancelLimit = await app.request('/webapp/me/limit-orders/42', { method: 'DELETE' })
-		const pauseDca = await app.request('/webapp/dca/orders/7/pause', { method: 'POST' })
-		const cancelDca = await app.request('/webapp/dca/orders/7/cancel', { method: 'POST' })
+		const weak = await app.request('/webapp/dca/orders/7/pause', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${unsignedJwt('weak')}` },
+		})
+		expect(weak.status).toBe(403)
+
+		const cancelLimit = await app.request('/webapp/me/limit-orders/42', {
+			method: 'DELETE', headers: TRUSTED_COOKIE_HEADERS,
+		})
+		const pauseDca = await app.request('/webapp/dca/orders/7/pause', {
+			method: 'POST', headers: TRUSTED_COOKIE_HEADERS,
+		})
+		const cancelDca = await app.request('/webapp/dca/orders/7/cancel', {
+			method: 'POST', headers: TRUSTED_COOKIE_HEADERS,
+		})
 		expect(cancelLimit.status).toBe(200)
 		expect(pauseDca.status).toBe(200)
 		expect(cancelDca.status).toBe(200)
@@ -204,7 +234,23 @@ describe('Python Terminal compatibility gateway', () => {
 		])
 	})
 
-	it('pre-/webapp gateway proxies reviewed Terminal routes and falls through for Telegram', async () => {
+	it('keeps quote/build-style POSTs usable without trading proof', async () => {
+		const seen: string[] = []
+		const app = new Hono().route('/', createTerminalSwapProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async (input, init) => {
+				seen.push(`${init?.method} ${new URL(String(input)).pathname}`)
+				return Response.json({ ok: true })
+			},
+		}))
+		const quote = await app.request('/webapp/swap/quote', { method: 'POST', body: '{}' })
+		const build = await app.request('/webapp/swap/build', { method: 'POST', body: '{}' })
+		expect(quote.status).toBe(200)
+		expect(build.status).toBe(200)
+		expect(seen).toEqual(['POST /webapp/swap/quote', 'POST /webapp/swap/build'])
+	})
+
+	it('pre-/webapp gateway proxies reviewed Terminal reads and falls through for Telegram', async () => {
 		let pythonCalls = 0
 		const app = new Hono()
 		app.route('/', createTerminalWebappProxyRoutes({
@@ -225,7 +271,7 @@ describe('Python Terminal compatibility gateway', () => {
 		expect(pythonCalls).toBe(1)
 	})
 
-	it('production pre-mounted gateway handles swap plus reviewed legacy reads', async () => {
+	it('production pre-mounted gateway handles swap quote plus reviewed legacy reads', async () => {
 		const seen: string[] = []
 		const routes = createTerminalSwapProxyRoutes({
 			baseUrl: PYTHON_URL,
