@@ -36,8 +36,6 @@ function withdrawalFingerprint(params: WithdrawParams): string {
 }
 
 function newIdempotencyKey(): string {
-  // Modern wallet browsers all expose crypto.randomUUID(); keep a secure
-  // fallback for embedded browsers that expose Web Crypto but not randomUUID.
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
@@ -48,29 +46,35 @@ function newIdempotencyKey(): string {
     const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
   }
-  // Fail closed rather than sending a withdrawal without replay protection.
   throw { detail: 'Secure withdrawal retry protection is unavailable in this browser.', status: 0 }
 }
 
 export function useWithdraw() {
   const qc = useQueryClient()
+  const { needsTradingProof } = useAuth()
 
   // Keep one key for one exact withdrawal intent until the server confirms it.
-  // If the network drops *after* Python reserved/sent the withdrawal, pressing
-  // confirm again reuses this key; the backend's unique idempotency claim then
-  // returns the already-submitted transaction instead of sending twice.
+  // If the network drops after submission, retrying the same intent reuses the
+  // same key so the backend can return the original result rather than repeat it.
   const intentRef = useRef<{ fingerprint: string; key: string } | null>(null)
 
   return useMutation({
     mutationFn: async (params: WithdrawParams): Promise<WithdrawResult> => {
+      // OAuth-only sessions prove account identity, not control of a trading
+      // credential. Keep the withdrawal boundary consistent with Swap/Perps/
+      // Predict: require the user to step up with wallet, passkey, or Telegram.
+      if (needsTradingProof) {
+        throw {
+          status: 403,
+          detail: 'Reconnect with a wallet, passkey, or Telegram before withdrawing.',
+        }
+      }
+
       const fingerprint = withdrawalFingerprint(params)
       if (!intentRef.current || intentRef.current.fingerprint !== fingerprint) {
         intentRef.current = { fingerprint, key: newIdempotencyKey() }
       }
 
-      // api.withdrawFunds JSON-stringifies its argument, so this additional
-      // snake_case field reaches the FastAPI WalletWithdrawBody even though the
-      // older public method signature intentionally stays source-compatible.
       const payload = {
         ...params,
         idempotency_key: intentRef.current.key,
@@ -81,10 +85,6 @@ export function useWithdraw() {
       } catch (error) {
         const e = error as WithdrawError
 
-        // A retry after a lost response is expected to hit the backend's
-        // idempotency guard. Recover the existing txHash and surface it as the
-        // original successful submission instead of telling the user to try a
-        // third time with a new transfer intent.
         if (e.status === 409 && e.detail && typeof e.detail === 'object') {
           const duplicate = e.detail as { message?: string; txHash?: string | null; status?: string | null }
           if (duplicate.txHash) {
@@ -103,8 +103,6 @@ export function useWithdraw() {
       }
     },
     onSuccess: () => {
-      // A completed response means the next identical user action is genuinely
-      // a new withdrawal and must get a fresh idempotency key.
       intentRef.current = null
       qc.invalidateQueries({ queryKey: ['wallet-summary'] })
       qc.invalidateQueries({ queryKey: ['portfolio'] })
