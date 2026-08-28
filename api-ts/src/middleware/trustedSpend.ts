@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono'
+import { logger } from '../lib/logger'
 
 const STRONG_SESSION_SOURCES = new Set(['siwe', 'telegram', 'passkey'])
 
@@ -47,6 +48,18 @@ export function trustedSpendPreflight() {
 	return async (c: Context, next: Next) => {
 		const decision = trustedSpendDecision(c.req.raw)
 		if (!decision.ok) {
+			// Deliberately omit Authorization, Cookie, request body, user/wallet ids,
+			// and query values. We only need enough metadata to distinguish a stale
+			// OAuth session from a missing step-up flow in production telemetry.
+			logger.warn(
+				{
+					event: 'trading_proof_denied',
+					reason: decision.reason,
+					method: c.req.method,
+					path: c.req.path,
+				},
+				'[Auth] Protected action denied before authentication',
+			)
 			return c.json(
 				{
 					error: 'Trading proof required',
