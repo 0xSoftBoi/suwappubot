@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import { Hono } from 'hono'
-import { bearerSessionSource, trustedSpendDecision, trustedSpendPreflight } from '../middleware/trustedSpend'
+import {
+	bearerSessionSource,
+	trustedControlDecision,
+	trustedSpendDecision,
+	trustedSpendPreflight,
+} from '../middleware/trustedSpend'
 
 function unsignedJwt(src?: string): string {
 	const encode = (value: object) =>
@@ -34,7 +39,7 @@ describe('trusted spend preflight', () => {
 		}
 	})
 
-	it('rejects cookie-only sessions even from first-party origins', () => {
+	it('rejects cookie-only sessions for spend actions even from first-party origins', () => {
 		for (const src of ['weak', 'siwe', 'passkey']) {
 			const request = new Request('https://api.suwappu.bot/public/swap/execute', {
 				method: 'POST',
@@ -47,7 +52,27 @@ describe('trusted spend preflight', () => {
 		}
 	})
 
-	it('does not let a weak bearer hide behind a cookie', () => {
+	it('allows first-party cookie sessions for pause/cancel controls but not cross-site requests', () => {
+		const firstParty = new Request('https://api.suwappu.bot/webapp/dca/orders/7/pause', {
+			method: 'POST',
+			headers: {
+				Cookie: `suwappu_auth=${unsignedJwt('weak')}`,
+				Origin: 'https://terminal.suwappu.bot',
+			},
+		})
+		expect(trustedControlDecision(firstParty)).toEqual({ ok: true, via: 'first_party_cookie' })
+
+		const crossSite = new Request('https://api.suwappu.bot/webapp/dca/orders/7/pause', {
+			method: 'POST',
+			headers: {
+				Cookie: `suwappu_auth=${unsignedJwt('weak')}`,
+				Origin: 'https://evil.example',
+			},
+		})
+		expect(trustedControlDecision(crossSite)).toEqual({ ok: false, reason: 'untrusted_origin' })
+	})
+
+	it('does not let a weak bearer hide behind a cookie for spend or stop controls', () => {
 		const request = new Request('https://api.suwappu.bot/public/swap/execute', {
 			method: 'POST',
 			headers: {
@@ -57,6 +82,7 @@ describe('trusted spend preflight', () => {
 			},
 		})
 		expect(trustedSpendDecision(request)).toEqual({ ok: false, reason: 'weak_bearer' })
+		expect(trustedControlDecision(request)).toEqual({ ok: false, reason: 'weak_bearer' })
 	})
 
 	it('returns a stable 403 contract before a protected route runs', async () => {
