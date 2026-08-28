@@ -2,6 +2,13 @@ import type { Context, Next } from 'hono'
 import { logger } from '../lib/logger'
 
 const STRONG_SESSION_SOURCES = new Set(['siwe', 'telegram', 'passkey'])
+const SESSION_COOKIE = 'suwappu_auth'
+const FIRST_PARTY_CONTROL_ORIGINS = new Set([
+	'https://terminal.suwappu.bot',
+	'https://suwappu.bot',
+	'https://www.suwappu.bot',
+	'https://app.suwappu.bot',
+])
 
 function decodeSource(token: string): string | null {
 	const parts = token.split('.')
@@ -14,6 +21,13 @@ function decodeSource(token: string): string | null {
 	} catch {
 		return null
 	}
+}
+
+function hasSessionCookie(cookieHeader: string | null): boolean {
+	if (!cookieHeader) return false
+	return cookieHeader
+		.split(';')
+		.some((part) => part.trim().startsWith(`${SESSION_COOKIE}=`) && part.trim().length > SESSION_COOKIE.length + 1)
 }
 
 /**
@@ -42,6 +56,37 @@ export function trustedSpendDecision(request: Request): TrustedSpendDecision {
 	const source = bearerSessionSource(authorization)
 	if (source && STRONG_SESSION_SOURCES.has(source)) return { ok: true, via: 'strong_bearer' }
 	return { ok: false, reason: 'weak_bearer' }
+}
+
+export type TrustedControlDecision =
+	| { ok: true; via: 'strong_bearer' | 'first_party_cookie' }
+	| { ok: false; reason: 'weak_bearer' | 'missing_session' | 'untrusted_origin' }
+
+/**
+ * Pause/cancel controls reduce future trading risk and do not sign or broadcast
+ * a transaction themselves. A first-party HttpOnly session cookie is enough for
+ * these controls, provided no weaker Authorization header is present and the
+ * browser Origin is one of our own surfaces. Python still verifies the cookie
+ * signature and order ownership downstream.
+ */
+export function trustedControlDecision(request: Request): TrustedControlDecision {
+	const authorization = request.headers.get('Authorization')
+	if (authorization) {
+		const source = bearerSessionSource(authorization)
+		if (source && STRONG_SESSION_SOURCES.has(source)) return { ok: true, via: 'strong_bearer' }
+		// Python prefers Authorization over Cookie; never let a weak bearer hide
+		// behind a good cookie or the downstream would authenticate the weak token.
+		return { ok: false, reason: 'weak_bearer' }
+	}
+
+	if (!hasSessionCookie(request.headers.get('Cookie'))) {
+		return { ok: false, reason: 'missing_session' }
+	}
+	const origin = request.headers.get('Origin')
+	if (!origin || !FIRST_PARTY_CONTROL_ORIGINS.has(origin)) {
+		return { ok: false, reason: 'untrusted_origin' }
+	}
+	return { ok: true, via: 'first_party_cookie' }
 }
 
 export function trustedSpendPreflight() {
