@@ -90,9 +90,7 @@ describe('Python Terminal compatibility gateway', () => {
 					const raw = init?.body as ArrayBuffer
 					const payload = JSON.parse(new TextDecoder().decode(raw)) as Record<string, unknown>
 					expect(payload).toMatchObject({
-						chain: 'ethereum',
-						token: 'USDC',
-						amount: 12.5,
+						chain: 'ethereum', token: 'USDC', amount: 12.5,
 						toAddress: '0x1111111111111111111111111111111111111111',
 						idempotency_key: 'withdrawal-intent-1',
 					})
@@ -103,14 +101,9 @@ describe('Python Terminal compatibility gateway', () => {
 
 		const response = await app.request('/terminal/wallet/withdraw', {
 			method: 'POST',
-			headers: {
-				Authorization: 'Bearer browser-session',
-				'Content-Type': 'application/json',
-			},
+			headers: { Authorization: 'Bearer browser-session', 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				chain: 'ethereum',
-				token: 'USDC',
-				amount: 12.5,
+				chain: 'ethereum', token: 'USDC', amount: 12.5,
 				toAddress: '0x1111111111111111111111111111111111111111',
 				idempotency_key: 'withdrawal-intent-1',
 			}),
@@ -118,15 +111,12 @@ describe('Python Terminal compatibility gateway', () => {
 		expect(response.status).toBe(200)
 		expect(calls).toBe(1)
 
-		const closed = await app.request('/terminal/wallet/admin-sweep', {
-			method: 'POST',
-			body: '{}',
-		})
+		const closed = await app.request('/terminal/wallet/admin-sweep', { method: 'POST', body: '{}' })
 		expect(closed.status).toBe(404)
 		expect(calls).toBe(1)
 	})
 
-	it('restores read/non-transactional standalone webapp contracts only', () => {
+	it('restores read/non-transactional and risk-reducing standalone webapp contracts only', () => {
 		for (const [method, path] of [
 			['GET', '/webapp/referrals/stats'],
 			['GET', '/webapp/referrals'],
@@ -144,8 +134,11 @@ describe('Python Terminal compatibility gateway', () => {
 			['DELETE', '/webapp/tweets/accounts/suwappu'],
 			['GET', '/webapp/limit-orders'],
 			['GET', '/webapp/me/limit-orders'],
+			['DELETE', '/webapp/me/limit-orders/42'],
 			['GET', '/webapp/me/portfolio'],
 			['GET', '/webapp/dca/orders'],
+			['POST', '/webapp/dca/orders/7/pause'],
+			['POST', '/webapp/dca/orders/7/cancel'],
 			['GET', '/webapp/discovery/new'],
 			['GET', '/webapp/discovery/trending'],
 			['POST', '/webapp/solana/rpc'],
@@ -160,9 +153,9 @@ describe('Python Terminal compatibility gateway', () => {
 			['PUT', '/webapp/copy-trading/follow/12/settings'],
 			['POST', '/webapp/limit-orders'],
 			['POST', '/webapp/me/limit-orders'],
-			['POST', '/webapp/limit-orders/2/cancel'],
+			['DELETE', '/webapp/me/limit-orders/not-a-number'],
 			['POST', '/webapp/dca/orders'],
-			['POST', '/webapp/dca/orders/2/pause'],
+			['POST', '/webapp/dca/orders/not-a-number/pause'],
 			['POST', '/webapp/points/rewards/1/redeem'],
 			['POST', '/webapp/admin/sweep'],
 		] as const) {
@@ -172,46 +165,59 @@ describe('Python Terminal compatibility gateway', () => {
 
 	it('rewrites old Terminal read aliases onto the session-authenticated Python paths', async () => {
 		const seen: string[] = []
-		const app = new Hono().route(
-			'/',
-			createTerminalWebappProxyRoutes({
-				baseUrl: PYTHON_URL,
-				fetchImpl: async (input) => {
-					seen.push(new URL(String(input)).pathname)
-					return Response.json({ ok: true })
-				},
-			}),
-		)
+		const app = new Hono().route('/', createTerminalWebappProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async (input) => {
+				seen.push(new URL(String(input)).pathname)
+				return Response.json({ ok: true })
+			},
+		}))
 
 		for (const path of ['/webapp/me/portfolio', '/webapp/me/limit-orders']) {
-			const response = await app.request(path, {
-				headers: { Authorization: 'Bearer browser-session' },
-			})
+			const response = await app.request(path, { headers: { Authorization: 'Bearer browser-session' } })
 			expect(response.status).toBe(200)
 		}
 		expect(seen).toEqual(['/webapp/portfolio', '/webapp/limit-orders'])
 	})
 
+	it('rewrites limit cancel and preserves DCA stop controls on the session backend', async () => {
+		const seen: string[] = []
+		const routes = createTerminalSwapProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async (input, init) => {
+				seen.push(`${init?.method} ${new URL(String(input)).pathname}`)
+				return Response.json({ success: true })
+			},
+		})
+		const app = new Hono().route('/', routes)
+
+		const cancelLimit = await app.request('/webapp/me/limit-orders/42', { method: 'DELETE' })
+		const pauseDca = await app.request('/webapp/dca/orders/7/pause', { method: 'POST' })
+		const cancelDca = await app.request('/webapp/dca/orders/7/cancel', { method: 'POST' })
+		expect(cancelLimit.status).toBe(200)
+		expect(pauseDca.status).toBe(200)
+		expect(cancelDca.status).toBe(200)
+		expect(seen).toEqual([
+			'POST /webapp/limit-orders/42/cancel',
+			'POST /webapp/dca/orders/7/pause',
+			'POST /webapp/dca/orders/7/cancel',
+		])
+	})
+
 	it('pre-/webapp gateway proxies reviewed Terminal routes and falls through for Telegram', async () => {
 		let pythonCalls = 0
 		const app = new Hono()
-		app.route(
-			'/',
-			createTerminalWebappProxyRoutes({
-				baseUrl: PYTHON_URL,
-				fetchImpl: async (input) => {
-					pythonCalls += 1
-					return Response.json({ source: 'python', path: new URL(String(input)).pathname })
-				},
-			}),
-		)
+		app.route('/', createTerminalWebappProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async (input) => {
+				pythonCalls += 1
+				return Response.json({ source: 'python', path: new URL(String(input)).pathname })
+			},
+		}))
 		app.get('/webapp/alerts', (c) => c.json({ source: 'api-ts' }))
 
-		const terminal = await app.request('/webapp/alerts', {
-			headers: { Authorization: 'Bearer browser-session' },
-		})
+		const terminal = await app.request('/webapp/alerts', { headers: { Authorization: 'Bearer browser-session' } })
 		expect(await terminal.json()).toEqual({ source: 'python', path: '/webapp/alerts' })
-
 		const telegram = await app.request('/webapp/alerts', {
 			headers: { 'X-Telegram-Init-Data': 'query_id=signed-telegram-data' },
 		})
@@ -249,16 +255,13 @@ describe('Python Terminal compatibility gateway', () => {
 	it('keeps Telegram requests on native api-ts routes', async () => {
 		let pythonCalls = 0
 		const app = new Hono()
-		app.route(
-			'/',
-			createTerminalSwapProxyRoutes({
-				baseUrl: PYTHON_URL,
-				fetchImpl: async () => {
-					pythonCalls += 1
-					return Response.json({ source: 'python' })
-				},
-			}),
-		)
+		app.route('/', createTerminalSwapProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async () => {
+				pythonCalls += 1
+				return Response.json({ source: 'python' })
+			},
+		}))
 		app.get('/webapp/alerts', (c) => c.json({ source: 'api-ts' }))
 		const response = await app.request('/webapp/alerts', {
 			headers: { 'X-Telegram-Init-Data': 'query_id=signed-telegram-data' },
@@ -270,16 +273,13 @@ describe('Python Terminal compatibility gateway', () => {
 	it('lets unreviewed /webapp requests fall through instead of widening Python access', async () => {
 		let pythonCalls = 0
 		const app = new Hono()
-		app.route(
-			'/',
-			createTerminalSwapProxyRoutes({
-				baseUrl: PYTHON_URL,
-				fetchImpl: async () => {
-					pythonCalls += 1
-					return Response.json({ source: 'python' })
-				},
-			}),
-		)
+		app.route('/', createTerminalSwapProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async () => {
+				pythonCalls += 1
+				return Response.json({ source: 'python' })
+			},
+		}))
 		app.post('/webapp/admin/sweep', (c) => c.json({ source: 'api-ts' }))
 		const response = await app.request('/webapp/admin/sweep', { method: 'POST' })
 		expect(await response.json()).toEqual({ source: 'api-ts' })
