@@ -81,9 +81,11 @@ tokenRoutes.get('/search', async (c) => {
 	const query = c.req.query('q')?.trim()
 	const terminalChain = c.req.query('chain')?.trim()
 	const chainsParam = c.req.query('chains')
+	const terminalMode = Boolean(terminalChain)
+	const minLength = terminalMode ? 1 : 2
 
-	if (!query || query.length < 2) {
-		return c.json({ error: 'Query must be at least 2 characters' }, 400)
+	if (!query || query.length < minLength) {
+		return c.json({ error: `Query must be at least ${minLength} character${minLength === 1 ? '' : 's'}` }, 400)
 	}
 
 	const chains = terminalChain
@@ -91,7 +93,6 @@ tokenRoutes.get('/search', async (c) => {
 		: chainsParam
 			? chainsParam.split(',').map((s) => resolveChainId(s))
 			: ['1', '137', '42161', '8453', '10']
-	const terminalMode = Boolean(terminalChain)
 	const cacheKey = `${terminalMode ? 'terminal' : 'webapp'}:${query.toLowerCase()}:${[...chains].sort().join(',')}`
 
 	const cached = tokenSearchCache.get(cacheKey)
