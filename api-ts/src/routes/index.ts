@@ -14,7 +14,11 @@ export { p2pRoutes } from './p2p'
 export { perpsRoutes } from './perps'
 export { predictRoutes } from './predict'
 export { publicSwapRoutes } from './publicSwap'
-export { createPythonProxyRoutes, createTerminalSwapProxyRoutes } from './pythonProxy'
+export {
+	createPythonProxyRoutes,
+	createTerminalSwapProxyRoutes,
+	createTerminalWebappProxyRoutes,
+} from './pythonProxy'
 export { rewardsRoutes } from './rewards'
 export { smartAccountRoutes } from './smartAccount'
 export { stakingRoutes } from './staking'
