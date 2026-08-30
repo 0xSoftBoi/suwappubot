@@ -3,17 +3,21 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile",
-    "watchPatterns": ["/api-ts/**"]
+    "watchPatterns": [
+      "/api-ts/**"
+    ]
   },
   "deploy": {
     "healthcheckPath": "/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 5,
     "multiRegionConfig": {
-      "us-east4-eqdc4a": { "numReplicas": 1 }
+      "us-east4-eqdc4a": {
+        "numReplicas": 1
+      }
     },
     "overlapSeconds": 30,
-    "drainingSeconds": 30
+    "drainingSeconds": 30,
+    "restartPolicyMaxRetries": 10
   }
 }

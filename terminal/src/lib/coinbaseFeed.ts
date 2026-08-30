@@ -176,7 +176,14 @@ class ProductFeed {
         return
       }
       if (msg.product_id && msg.product_id !== this.productId) return
-      this.handle(msg)
+      // One malformed or unexpected message must not kill the whole feed: an
+      // uncaught throw here leaves the socket open but the handler dead, so the
+      // book/tape silently freezes and the terminal looks down.
+      try {
+        this.handle(msg)
+      } catch (err) {
+        console.error('[coinbaseFeed] dropped message', err)
+      }
     }
 
     ws.onerror = () => {

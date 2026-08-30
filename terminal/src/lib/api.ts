@@ -108,10 +108,27 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['X-Dev-User-Id'] = '12345'
   }
 
+  // A hung backend (nginx holds the proxy open for up to 60s) left requests
+  // with no caller-supplied signal pending forever — the UI just froze with no
+  // error. Only add the timeout when the caller didn't pass its own signal, so
+  // TanStack's unmount/refetch cancellation keeps working untouched.
+  const timeoutSignal =
+    options.signal === undefined && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(20_000)
+      : undefined
+
   let res: Response
   try {
-    res = await fetch(`${BASE_URL}${path}`, { credentials: 'include', ...options, headers })
+    res = await fetch(`${BASE_URL}${path}`, {
+      credentials: 'include',
+      ...options,
+      headers,
+      ...(timeoutSignal ? { signal: timeoutSignal } : {}),
+    })
   } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      throw { detail: 'Suwappu is taking too long to respond. Try again.', status: 0 }
+    }
     // TanStack supplies an AbortSignal to quote/route queries. Preserve an
     // intentional cancellation instead of misreporting it as a network outage.
     if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
