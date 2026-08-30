@@ -291,6 +291,7 @@ Fast-moving infrastructure becomes unreliable when docs, config, and deployment 
 
 | Contract | Source of truth for |
 |---|---|
+| [`docs/reference/production-contracts.md`](docs/reference/production-contracts.md) | Deployed contract addresses, swap-fee tiers, referral fee-sharing ([JSON snapshot](docs/reference/contracts.json)) |
 | [`stats.generated.json`](showcase/src/data/stats.generated.json) | Public chain/router counts |
 | [`.env.schema`](.env.schema) | Environment-variable contract |
 | [`capabilities.yaml`](capabilities.yaml) | Optional capability/provider manifest |

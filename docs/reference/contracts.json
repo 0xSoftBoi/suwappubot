@@ -1,0 +1,57 @@
+{
+  "$schema_note": "Machine-readable snapshot of docs/reference/production-contracts.md. Regenerate whenever addresses or fee parameters change; the markdown page is the human-readable source.",
+  "verified_at": "2026-08-30",
+  "networks": {
+    "base-sepolia": {
+      "chainId": 84532,
+      "status": "testnet-live",
+      "explorer": "https://sepolia.basescan.org",
+      "contracts": {
+        "SUWP": "0x0b96a41a2a4c9b50097049d24f43848be3A892e8",
+        "SuwppuStaking": "0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17",
+        "SuwppuBonds": "0x9aCCf607AF27327B4940827a5c389F109847562D",
+        "SuperfluidGDAPool": "0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf"
+      },
+      "external": {
+        "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "USDCx": "0xC821107bE6E8eD189F3fe05AD06C496243b53B55",
+        "SuperfluidHost": "0x4C073B3baB862572842bFB01F7B1FA40B61D1A06",
+        "GDAv1Forwarder": "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08"
+      },
+      "owner": "0xfbe006d9364Cc59EcAaC0721552014f76354AadB"
+    },
+    "base-mainnet": {
+      "chainId": 8453,
+      "status": "not-deployed",
+      "note": "Gated on contracts/MAINNET_READINESS.md. Any address claimed as a Suwappu mainnet contract is not ours."
+    }
+  },
+  "fees": {
+    "swap_tiers_bps": { "free": 100, "pro": 50, "premium": 30, "enterprise": 10 },
+    "points_discount_max_fraction_of_tier": 0.6,
+    "points_discount_floor_bps": 10,
+    "position_card_discount_max_fraction": 0.4,
+    "referee_rebate_fraction": 0.1,
+    "referee_rebate_swaps": 5,
+    "absolute_floor_bps": 2,
+    "swap_min_usd": 1,
+    "swap_max_usd": 100000
+  },
+  "fee_sharing": {
+    "swap_commission_fraction": { "standard": 0.3, "power": 0.3, "elite": 0.4 },
+    "perps_commission_tiers": [
+      { "referee_volume_14d_usd_lt": 10000, "fraction_of_builder_fee": 0.2 },
+      { "referee_volume_14d_usd_lt": 50000, "fraction_of_builder_fee": 0.3 },
+      { "referee_volume_14d_usd_lt": 250000, "fraction_of_builder_fee": 0.4 },
+      { "referee_volume_14d_usd_lt": 1000000, "fraction_of_builder_fee": 0.55 },
+      { "referee_volume_14d_usd_gte": 1000000, "fraction_of_builder_fee": 0.8 }
+    ],
+    "milestone_bonuses_usd": { "5": 5, "10": 15, "20": 40, "50": 125, "100": 300 }
+  },
+  "fee_collection": {
+    "sweeper_interval_seconds": 3600,
+    "sweeper_min_usd": 1,
+    "hyperliquid_builder_fee_tenths_bps": 10,
+    "hyperliquid_builder_max_fee_rate": "0.1%"
+  }
+}

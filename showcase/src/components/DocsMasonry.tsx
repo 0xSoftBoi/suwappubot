@@ -11,6 +11,7 @@ const SECTION_ICONS: Record<string, string> = {
   'api-reference': 'EP',
   'protocols': 'A2',
   'chains-reference': 'CH',
+  'contracts': 'SC',
   'guides': 'GD',
 };
 

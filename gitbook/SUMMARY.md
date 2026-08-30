@@ -58,6 +58,11 @@
 * [EVM Chains](chains-reference/evm-chains.md)
 * [Solana](chains-reference/solana.md)
 
+## Contracts
+
+* [Production Contracts](contracts/README.md)
+* [Fees & Revenue Sharing](contracts/fees.md)
+
 ## Guides
 
 * [Overview](guides/README.md)

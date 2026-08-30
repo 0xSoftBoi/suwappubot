@@ -114,6 +114,10 @@ source of truth.
 
 Protocol/economics work can exist without being production execution authority.
 
+- **Production contracts reference**: [reference/production-contracts.md](reference/production-contracts.md)
+  — canonical deployed addresses, swap-fee tiers, referral fee-sharing, and
+  fee-collection parameters, with a machine-readable snapshot
+  ([reference/contracts.json](reference/contracts.json))
 - Protocol contracts: [`../contracts/`](../contracts/) and
   [`../contracts/MAINNET_READINESS.md`](../contracts/MAINNET_READINESS.md)
 - Economics/rewards: [`economics/`](economics/) · [`rewards/`](rewards/)
@@ -129,6 +133,7 @@ non-authoritative by definition.
 
 | Question | Source |
 |---|---|
+| Deployed contract addresses / fee & fee-sharing parameters | [reference/production-contracts.md](reference/production-contracts.md) + [reference/contracts.json](reference/contracts.json) (derived from `bot/services/fee_service.py`, `bot/services/referral_service.py`, `contracts/DEPLOYMENTS.md`) |
 | Platform/Agent chain + router counts | `showcase/src/data/stats.generated.json` |
 | Agent chain support | runtime discovery / `GET /v1/agent/chains` |
 | MCP catalog | runtime MCP discovery |

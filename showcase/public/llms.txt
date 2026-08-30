@@ -72,6 +72,10 @@ OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: ht
 - [Agentic Payments (x402)](https://suwappu.bot/docs/billing/agentic-payments.md): Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol: a paid endpoint or MCP tool call that would run you out of credits returns an HTTP `402 Payment Required` challenge inste
 - [Pricing](https://suwappu.bot/docs/billing/pricing.md): Suwappu combines three independent pricing dimensions: a **rate-limit tier** (requests/minute), **per-call metering** (credits, if you're on the free tier and metering is enabled), and a **swap execut
 
+## Contracts
+- [Production Contracts](https://suwappu.bot/docs/contracts/overview.md): Canonical reference for Suwappu's deployed smart contracts. Always verify the **chain ID** and the exact address against this page before signing any transaction.
+- [Fees & Revenue Sharing](https://suwappu.bot/docs/contracts/fees.md): Suwappu charges a tier-based fee on executed swaps and shares that revenue with referrers. One fee engine is the single source of truth across every chain and venue, so the rate you see here is the ra
+
 ## Changelog
 - [Changelog](https://suwappu.bot/docs/changelog/overview.md): Notable changes to the Suwappu agent API, SDK, and docs. Dates are in UTC. Breaking changes are called out explicitly; the API is versioned under `/v1/agent`.
 
