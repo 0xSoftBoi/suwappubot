@@ -44,6 +44,7 @@ function AgentQuote({ text }: { text: string }) {
   );
 }
 import styles from './agent-desk.module.css';
+import DeskFlow from './DeskFlow';
 
 // ── Model ───────────────────────────────────────────────────────────
 
@@ -217,6 +218,7 @@ export default function AgentDesk() {
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [mandateOpen, setMandateOpen] = useState(false);
+  const [lastTool, setLastTool] = useState<string | null>(null);
 
   const ticketRef = useRef(ticket);
   const mandateRef = useRef(mandate);
@@ -1252,6 +1254,7 @@ export default function AgentDesk() {
       },
 
       onToolCall(name, args) {
+        setLastTool(name);
         log('agent', `→ ${name}`, JSON.stringify(args));
       },
 
@@ -1395,6 +1398,8 @@ export default function AgentDesk() {
             : 'Open this page in ChatGPT Atlas (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
         </p>
       </section>
+
+      <DeskFlow lastTool={lastTool} />
 
       <div className={styles.grid}>
         {/* ── Mandate ────────────────────────────────────────────── */}

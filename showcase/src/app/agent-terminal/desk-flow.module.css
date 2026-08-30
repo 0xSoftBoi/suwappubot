@@ -1,0 +1,198 @@
+/* DeskFlow: a dark instrument panel embedded in the light page, the way a
+   code block is. Off-black, mono chrome, edges animated in the direction
+   authority moves. */
+
+.panel {
+  box-sizing: border-box;
+  margin-top: 18px;
+  padding: 14px 16px 12px;
+  border: 1px solid #24313a;
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: #0f1417;
+  color: #dbe6ea;
+}
+
+.head {
+  margin: 0 0 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  color: #8fa3ad;
+}
+
+.scroller {
+  overflow-x: auto;
+}
+
+.svg {
+  display: block;
+  min-width: 900px;
+  width: 100%;
+  height: auto;
+}
+
+.colTitle {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  fill: #64777f;
+}
+
+/* ── Edges ── */
+
+.edge {
+  fill: none;
+  stroke-width: 1.1;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.edge[data-kind='read'] {
+  stroke: #3fae6f;
+}
+
+.edge[data-kind='propose'] {
+  stroke: #e09b52;
+  stroke-width: 1.4;
+}
+
+.edge[data-kind='binds'] {
+  stroke: #45b3d6;
+  stroke-width: 1.6;
+}
+
+.edge[data-kind='gated'] {
+  stroke: #6b7d87;
+  stroke-dasharray: 3 5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .edge[data-kind='read'],
+  .edge[data-kind='propose'],
+  .edge[data-kind='binds'] {
+    stroke-dasharray: 7 9;
+    animation: deskflow-travel 1.4s linear infinite;
+  }
+
+  .edge[data-kind='binds'] {
+    animation-duration: 1.1s;
+  }
+}
+
+@keyframes deskflow-travel {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+.edge[data-dim] {
+  opacity: 0.08;
+}
+
+/* ── Nodes ── */
+
+.node rect {
+  fill: #171e23;
+  stroke: #2a3439;
+  stroke-width: 1;
+  transition: opacity 0.15s ease;
+}
+
+.node[data-gate] rect {
+  stroke: #45b3d6;
+}
+
+.node[data-gated] rect {
+  stroke-dasharray: 3 4;
+}
+
+.node[data-dim] {
+  opacity: 0.22;
+}
+
+.label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  fill: #dbe6ea;
+}
+
+.node[data-gate] .label {
+  fill: #9fd8ec;
+  letter-spacing: 0.08em;
+}
+
+.sub {
+  font-family: var(--font-archivo, system-ui, sans-serif);
+  font-size: 9px;
+  fill: #8fa3ad;
+}
+
+/* A tool the agent just called lights up. */
+.node[data-live] rect {
+  stroke: #e09b52;
+  stroke-width: 1.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .node[data-live] rect {
+    animation: deskflow-pulse 1.2s ease-out;
+  }
+}
+
+@keyframes deskflow-pulse {
+  0% {
+    fill: #3a2f1e;
+  }
+  100% {
+    fill: #171e23;
+  }
+}
+
+/* ── Legend ── */
+
+.legend {
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: #8fa3ad;
+}
+
+.legend span[data-kind]::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.legend span[data-kind='read']::before {
+  background: #3fae6f;
+}
+
+.legend span[data-kind='propose']::before {
+  background: #e09b52;
+}
+
+.legend span[data-kind='binds']::before {
+  background: #45b3d6;
+}
+
+.legend span[data-kind='gated']::before {
+  background: repeating-linear-gradient(90deg, #6b7d87 0 3px, transparent 3px 6px);
+}
+
+.legendNote {
+  margin-left: auto;
+  color: #64777f;
+}
+
+@media (max-width: 640px) {
+  .legendNote {
+    margin-left: 0;
+  }
+}
