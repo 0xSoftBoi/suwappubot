@@ -61,6 +61,12 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "  Update the doc alongside the rename/removal that stranded it."
     exit 1
   fi
+  echo "=== Contracts reference drift ==="
+  if ! python3 scripts/check_contracts_ref.py; then
+    echo "✗ docs/reference/contracts.json disagrees with fee/referral code or the docs pages."
+    echo "  Update docs/reference/ + gitbook/contracts/ alongside the code change."
+    exit 1
+  fi
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then

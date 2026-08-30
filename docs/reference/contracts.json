@@ -18,7 +18,13 @@
         "SuperfluidHost": "0x4C073B3baB862572842bFB01F7B1FA40B61D1A06",
         "GDAv1Forwarder": "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08"
       },
-      "owner": "0xfbe006d9364Cc59EcAaC0721552014f76354AadB"
+      "owner": "0xfbe006d9364Cc59EcAaC0721552014f76354AadB",
+      "token": {
+        "symbol": "SUWP",
+        "name": "Suwappu",
+        "decimals": 18,
+        "total_supply": "1000000"
+      }
     },
     "base-mainnet": {
       "chainId": 8453,
@@ -27,7 +33,12 @@
     }
   },
   "fees": {
-    "swap_tiers_bps": { "free": 100, "pro": 50, "premium": 30, "enterprise": 10 },
+    "swap_tiers_bps": {
+      "free": 100,
+      "pro": 50,
+      "premium": 30,
+      "enterprise": 10
+    },
     "points_discount_max_fraction_of_tier": 0.6,
     "points_discount_floor_bps": 10,
     "position_card_discount_max_fraction": 0.4,
@@ -38,20 +49,63 @@
     "swap_max_usd": 100000
   },
   "fee_sharing": {
-    "swap_commission_fraction": { "standard": 0.3, "power": 0.3, "elite": 0.4 },
+    "swap_commission_fraction": {
+      "standard": 0.3,
+      "power": 0.3,
+      "elite": 0.4
+    },
     "perps_commission_tiers": [
-      { "referee_volume_14d_usd_lt": 10000, "fraction_of_builder_fee": 0.2 },
-      { "referee_volume_14d_usd_lt": 50000, "fraction_of_builder_fee": 0.3 },
-      { "referee_volume_14d_usd_lt": 250000, "fraction_of_builder_fee": 0.4 },
-      { "referee_volume_14d_usd_lt": 1000000, "fraction_of_builder_fee": 0.55 },
-      { "referee_volume_14d_usd_gte": 1000000, "fraction_of_builder_fee": 0.8 }
+      {
+        "referee_volume_14d_usd_lt": 10000,
+        "fraction_of_builder_fee": 0.2
+      },
+      {
+        "referee_volume_14d_usd_lt": 50000,
+        "fraction_of_builder_fee": 0.3
+      },
+      {
+        "referee_volume_14d_usd_lt": 250000,
+        "fraction_of_builder_fee": 0.4
+      },
+      {
+        "referee_volume_14d_usd_lt": 1000000,
+        "fraction_of_builder_fee": 0.55
+      },
+      {
+        "referee_volume_14d_usd_gte": 1000000,
+        "fraction_of_builder_fee": 0.8
+      }
     ],
-    "milestone_bonuses_usd": { "5": 5, "10": 15, "20": 40, "50": 125, "100": 300 }
+    "milestone_bonuses_usd": {
+      "5": 5,
+      "10": 15,
+      "20": 40,
+      "50": 125,
+      "100": 300
+    }
   },
   "fee_collection": {
     "sweeper_interval_seconds": 3600,
     "sweeper_min_usd": 1,
     "hyperliquid_builder_fee_tenths_bps": 10,
     "hyperliquid_builder_max_fee_rate": "0.1%"
+  },
+  "onchain_verification": {
+    "method": "blockscout",
+    "chain_id": 84532,
+    "block": 46164700,
+    "block_timestamp": "2026-08-30T13:48:08Z",
+    "deployed_at": "2026-06-07",
+    "source_verified": {
+      "SUWP": false,
+      "SuwppuStaking": false,
+      "SuwppuBonds": false,
+      "SuperfluidGDAPool": true
+    },
+    "creation_tx": {
+      "SUWP": "0x756dd3eb5a5e38cdfb50e93c730488f3755ae122722edbd6aa093e1a49dadb5b",
+      "SuwppuStaking": "0x412f0c72e13cea44292c29203750f0d9deb080e40c2de31f56b414abcbcd8403",
+      "SuwppuBonds": "0x11628d89448587816a354a30ce6e9aafd3042d97f1ce836b69c4cbd48e112d4c"
+    }
   }
 }

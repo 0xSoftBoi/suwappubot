@@ -1,8 +1,10 @@
 # Production Contracts Reference
 
 > **Canonical addresses, fee configuration, and revenue-sharing parameters for Suwappu.**
-> Verified against repository code on **2026-08-30**. Machine-readable snapshot:
-> [`contracts.json`](contracts.json).
+> Fee parameters verified against repository code and addresses **verified on-chain via
+> Blockscout on August 30, 2026 at block 46,164,700** (Base Sepolia). Machine-readable
+> snapshot: [`contracts.json`](contracts.json). Drift-checked in CI by
+> `scripts/check_contracts_ref.py` (part of `scripts/verify.sh docs`).
 
 > ⚠️ **Verify before you sign.** Always confirm the **chain ID** and the exact contract
 > address against this page (or the JSON snapshot) before signing any transaction.
@@ -29,12 +31,28 @@
 Current hardened deployment (post-audit redeploy after fixing 4 critical + 7 high
 findings; supersedes all earlier testnet addresses).
 
-| Contract | Address |
-|----------|---------|
-| SUWP token | [`0x0b96a41a2a4c9b50097049d24f43848be3A892e8`](https://sepolia.basescan.org/address/0x0b96a41a2a4c9b50097049d24f43848be3A892e8) |
-| SuwppuStaking | [`0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17`](https://sepolia.basescan.org/address/0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17) |
-| SuwppuBonds | [`0x9aCCf607AF27327B4940827a5c389F109847562D`](https://sepolia.basescan.org/address/0x9aCCf607AF27327B4940827a5c389F109847562D) |
-| Superfluid GDA pool (reward streaming) | [`0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf`](https://sepolia.basescan.org/address/0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf) |
+All four addresses confirmed live on-chain (deployed June 7, 2026 by the Suwappu
+deployer; re-checked August 30, 2026 at block 46,164,700):
+
+| Contract | Address | Explorer source |
+|----------|---------|-----------------|
+| SUWP token (ERC-20 "Suwappu", 18 decimals, 1,000,000 supply) | [`0x0b96a41a2a4c9b50097049d24f43848be3A892e8`](https://sepolia.basescan.org/address/0x0b96a41a2a4c9b50097049d24f43848be3A892e8) | unverified |
+| SuwppuStaking | [`0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17`](https://sepolia.basescan.org/address/0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17) | unverified |
+| SuwppuBonds | [`0x9aCCf607AF27327B4940827a5c389F109847562D`](https://sepolia.basescan.org/address/0x9aCCf607AF27327B4940827a5c389F109847562D) | unverified |
+| Superfluid GDA pool (reward streaming) | [`0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf`](https://sepolia.basescan.org/address/0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf) | verified (BeaconProxy → `SuperfluidPool`) |
+
+> **Known gap:** explorer **source verification is not yet published** for the three
+> Suwappu-authored contracts (the on-chain bytecode is live and behavior-verified, but
+> the explorer cannot yet display matching source). Publishing verified source is a
+> pre-mainnet task; until then, match the source in [`contracts/`](../../contracts/)
+> against the creation transactions below.
+
+**Deployment provenance** (creation transactions, all sent by the deployer
+`0xfbe006d9364Cc59EcAaC0721552014f76354AadB`):
+
+- SUWP: [`0x756dd3eb…dadb5b`](https://sepolia.basescan.org/tx/0x756dd3eb5a5e38cdfb50e93c730488f3755ae122722edbd6aa093e1a49dadb5b)
+- SuwppuStaking (and its GDA pool, same tx): [`0x412f0c72…cd8403`](https://sepolia.basescan.org/tx/0x412f0c72e13cea44292c29203750f0d9deb080e40c2de31f56b414abcbcd8403)
+- SuwppuBonds: [`0x11628d89…12d4c`](https://sepolia.basescan.org/tx/0x11628d89448587816a354a30ce6e9aafd3042d97f1ce836b69c4cbd48e112d4c)
 
 **Verified live on-chain:** `MIN_STAKE` guard, per-call `forceApprove`, and the
 no-active-stream guard are all active; staking rewards stream per-second via Superfluid

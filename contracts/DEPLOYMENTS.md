@@ -12,7 +12,10 @@
 ## Current addresses — Base Sepolia (testnet), chain 84532
 
 Hardened redeploy after fixing 4 critical + 7 high audit findings. **These supersede
-all addresses in the history section.**
+all addresses in the history section.** Deployed 2026-06-07; re-verified on-chain
+(Blockscout) 2026-08-30 at block 46,164,700 — all four live, deployer confirmed.
+Explorer source verification for SUWP/Staking/Bonds is not yet published (pre-mainnet
+task); creation tx hashes are in `docs/reference/contracts.json`.
 
 | Contract | Address |
 |----------|---------|

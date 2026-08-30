@@ -4966,14 +4966,16 @@ Canonical reference for Suwappu's deployed smart contracts. Always verify the **
 
 ## Base Sepolia (testnet) — chain ID 84532
 
-Current hardened deployment, redeployed after fixing 4 critical + 7 high internal-audit findings. These supersede all earlier testnet addresses.
+Current hardened deployment, redeployed after fixing 4 critical + 7 high internal-audit findings. These supersede all earlier testnet addresses. All four addresses confirmed live on-chain — deployed June 7, 2026, **re-verified on-chain on August 30, 2026 at block 46,164,700**.
 
 | Contract | Address |
 |----------|---------|
-| SUWP token | [`0x0b96a41a2a4c9b50097049d24f43848be3A892e8`](https://sepolia.basescan.org/address/0x0b96a41a2a4c9b50097049d24f43848be3A892e8) |
+| SUWP token (ERC-20, 18 decimals, 1,000,000 supply) | [`0x0b96a41a2a4c9b50097049d24f43848be3A892e8`](https://sepolia.basescan.org/address/0x0b96a41a2a4c9b50097049d24f43848be3A892e8) |
 | SuwppuStaking | [`0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17`](https://sepolia.basescan.org/address/0xFA1142C788b6BC09CD16490dFEdAcEAFC505bA17) |
 | SuwppuBonds | [`0x9aCCf607AF27327B4940827a5c389F109847562D`](https://sepolia.basescan.org/address/0x9aCCf607AF27327B4940827a5c389F109847562D) |
 | Superfluid GDA pool (reward streaming) | [`0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf`](https://sepolia.basescan.org/address/0x924c4FA120d647B432D1E9F6e9632c2f4CEDfCFf) |
+
+Explorer **source verification is not yet published** for the three Suwappu-authored contracts (bytecode is live and behavior-verified; publishing matching source is a pre-mainnet task). The GDA pool is a verified `SuperfluidPool` beacon proxy. Creation transactions and the deployer address are listed in the machine-readable snapshot linked below.
 
 Verified live on-chain: `MIN_STAKE` guard, per-call `forceApprove`, and the no-active-stream guard are all active, and staking rewards stream per-second via Superfluid with claimable balances accruing continuously — no batch or claim step.
 
