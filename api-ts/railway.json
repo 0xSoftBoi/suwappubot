@@ -10,13 +10,14 @@
   "deploy": {
     "healthcheckPath": "/health",
     "healthcheckTimeout": 120,
-    "restartPolicyType": "ALWAYS",
+    "restartPolicyType": "ON_FAILURE",
     "multiRegionConfig": {
       "us-east4-eqdc4a": {
         "numReplicas": 1
       }
     },
     "overlapSeconds": 30,
-    "drainingSeconds": 30
+    "drainingSeconds": 30,
+    "restartPolicyMaxRetries": 10
   }
 }

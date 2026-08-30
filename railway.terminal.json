@@ -12,9 +12,10 @@
   "deploy": {
     "healthcheckPath": "/health",
     "healthcheckTimeout": 60,
-    "restartPolicyType": "ALWAYS",
+    "restartPolicyType": "ON_FAILURE",
     "numReplicas": 2,
     "overlapSeconds": 30,
-    "drainingSeconds": 30
+    "drainingSeconds": 30,
+    "restartPolicyMaxRetries": 10
   }
 }
