@@ -74,12 +74,27 @@ export interface PulseFeed {
   migrated: PulseToken[]
 }
 
+// Shared across all pollers: while set, fetchPulseFeed short-circuits without a
+// network call.
+let rateLimitedUntil = 0
+
 // Fetch live pairs for a chain and shape them into the two stages we can source
 // from DexScreener: `new` (most recently created) and `migrated` (highest 24h
 // volume — established/graduated tokens). `final_stretch` (pump.fun bonding
 // in-progress) needs a bonding-curve feed and is intentionally absent.
 export async function fetchPulseFeed(chain: string, limit = 30): Promise<PulseFeed> {
+  // DexScreener rate-limits per client IP. Every poller shares this cooldown so
+  // a 429 pauses the polling instead of re-hammering the limit every 30s —
+  // react-query keeps the last good data, so Pulse shows stale-but-present
+  // rows rather than an empty, dead-looking panel.
+  if (Date.now() < rateLimitedUntil) throw new Error('DexScreener rate-limited, backing off')
   const res = await fetch(`${DEX_SEARCH_URL}?q=${encodeURIComponent(chain)}`)
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get('retry-after'))
+    const waitSec = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 300) : 60
+    rateLimitedUntil = Date.now() + waitSec * 1000
+    throw new Error('DexScreener 429')
+  }
   if (!res.ok) throw new Error(`DexScreener ${res.status}`)
   const data = await res.json()
   const pairs: DexPair[] = dedupeByToken(

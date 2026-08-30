@@ -7,6 +7,7 @@ import { MarketRegimeStrip } from './components/market/MarketRegimeStrip'
 import { TradingLayout } from './components/layout/TradingLayout'
 import { HotkeysHelpOverlay } from './components/hotkeys/HotkeysHelpOverlay'
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { FirstRunChecklist } from './components/onboarding/FirstRunChecklist'
 
 // The live terminal is the latency-critical entrypoint. Route-only dashboards,
@@ -143,6 +144,10 @@ function TradingWorkspace() {
 export function App() {
   return (
     <BrowserRouter>
+      {/* Root boundary: panel-level boundaries exist, but a crash in the shell
+          itself (routing, layout, a bad market-data shape above the panels)
+          white-screened the whole terminal. */}
+      <ErrorBoundary label="Terminal">
       <Routes>
         {/* OAuth provider landing — must win over host-based branching so the
             callback forwards to the backend regardless of which origin (terminal
@@ -165,6 +170,7 @@ export function App() {
       )}
         />
       </Routes>
+      </ErrorBoundary>
       <HotkeysHelpOverlay />
       <Toaster
         position="bottom-right"
