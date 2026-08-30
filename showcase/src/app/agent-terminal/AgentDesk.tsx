@@ -1382,7 +1382,7 @@ export default function AgentDesk() {
         <p className={styles.statusCopy}>
           {mcp.state === 'connected'
             ? 'An agent in this browser can read your mandate, price routes and propose trades against it. It cannot sign, and it cannot approve.'
-            : 'Open this page in the ChatGPT desktop app’s browser (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
+            : 'Open this page in ChatGPT Atlas (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
         </p>
       </section>
 
@@ -1396,7 +1396,7 @@ export default function AgentDesk() {
                 The envelope you write and the agent reads before it proposes anything.
               </p>
             </div>
-            <div className={styles.actions} style={{ marginTop: 0 }}>
+            <div className={styles.mandateActions}>
               <button
                 type="button"
                 className={styles.ghost}
@@ -1407,7 +1407,7 @@ export default function AgentDesk() {
               </button>
               <button
                 type="button"
-                className={styles.ghost}
+                className={styles.primary}
                 onClick={async () => {
                   log('human', 'Compile mandate', 'to Suwappu wallet spending policies');
                   await controller.compileMandateToPolicy({ download: true });
@@ -2029,17 +2029,18 @@ export default function AgentDesk() {
                 Every tool call the agent makes on this page, in the open.
               </p>
             </div>
-            <button
-              type="button"
-              className={styles.ghost}
-              onClick={() => {
-                downloadReceipt();
-                log('human', 'Receipt downloaded', 'session exported');
-              }}
-              disabled={proposals.length === 0 && activity.length === 0}
-            >
-              Download receipt
-            </button>
+            {(proposals.length > 0 || activity.length > 0) && (
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => {
+                  downloadReceipt();
+                  log('human', 'Receipt downloaded', 'session exported');
+                }}
+              >
+                Download receipt
+              </button>
+            )}
           </div>
           {mcp.tools.length > 0 && (
             <ul className={styles.toolChips}>

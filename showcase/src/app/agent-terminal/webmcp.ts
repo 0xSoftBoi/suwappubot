@@ -2,7 +2,7 @@
  * WebMCP tool surface for the Suwappu Agent Desk.
  *
  * The Desk registers site tools with the W3C Web Model Context API so that an
- * agent inside the browser (ChatGPT desktop's built-in browser, or Chrome with
+ * agent inside the browser (ChatGPT Atlas, or Chrome with
  * WebMCP enabled) can research and *propose* onchain trades on this page —
  * while every state change that costs the human money stays behind an explicit,
  * human-clicked approval in the page UI.
