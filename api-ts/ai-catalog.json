@@ -50,6 +50,13 @@
       "url": "https://api.suwappu.bot/llms-full.txt"
     },
     {
+      "type": "webmcp-page",
+      "mediaType": "text/html",
+      "name": "Suwappu Agent Desk (WebMCP)",
+      "description": "In-browser agent surface: registers typed tools on document.modelContext (W3C Web Model Context API) for the agent driving the user's browser. Key-free and human-in-the-loop — read tools answer freely, spending tools only propose; a human approves on the page.",
+      "url": "https://suwappu.bot/agent-terminal"
+    },
+    {
       "type": "mcp-registry-entry",
       "mediaType": "application/vnd.mcp-registry.server+json",
       "name": "Suwappu MCP Registry Manifest",

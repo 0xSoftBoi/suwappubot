@@ -97,6 +97,28 @@ says so, and so does `read_mandate`'s own payload.
    decision and note.
 7. **The page works without WebMCP.** Every tool has a human control.
 
+## How an agent finds the desk
+
+Agent traffic is a first-class visitor here, so the desk is discoverable, not
+just callable. It is listed alongside Suwappu's other agent surfaces in the
+ARD manifest at `GET https://api.suwappu.bot/.well-known/ai-catalog.json`
+(resource type `webmcp-page`) and in `https://suwappu.bot/llms.txt`, next to
+the MCP server, A2A card and OpenAPI spec. An agent that lands anywhere in
+Suwappu's machine-readable surface learns the desk exists — and the reverse:
+`compile_mandate_to_policy` points browser agents at the API, whose pay-per-call
+metering runs over HTTP 402 (x402), so a key-less agent has both a policy
+envelope and a payment rail waiting for it.
+
+## Untrusted in both directions
+
+The WebMCP trust model cuts both ways and the desk honours both halves.
+Agent→page: every piece of agent-written free text (proposal rationales,
+override arguments) renders under an explicit "agent-written — unverified"
+label, quoted, never interpolated into the page's own voice. Page→agent: tool
+descriptions state facts instead of issuing imperatives — the LLM evals caught
+`read_mandate`'s "Read this FIRST." overriding user intent, and that class of
+instruction-injection-shaped description is now gone.
+
 ## Tools
 
 | Tool | Kind | What it does |

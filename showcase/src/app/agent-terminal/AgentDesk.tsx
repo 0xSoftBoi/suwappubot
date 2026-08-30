@@ -1818,7 +1818,10 @@ export default function AgentDesk() {
                     </ul>
                   )}
 
-                  <blockquote className={styles.rationale}>{p.rationale}</blockquote>
+                  <blockquote className={styles.rationale}>
+                    <span className={styles.agentText}>agent-written — unverified</span>
+                    {p.rationale}
+                  </blockquote>
 
                   {p.verdict && !p.verdict.withinMandate && (
                     <div className={styles.violations}>
@@ -1842,7 +1845,10 @@ export default function AgentDesk() {
                       <p className={styles.overrideTitle}>
                         Your agent is asking you to bend a rule
                       </p>
-                      <blockquote className={styles.rationale}>{p.override.argument}</blockquote>
+                      <blockquote className={styles.rationale}>
+                        <span className={styles.agentText}>agent-written — unverified</span>
+                        {p.override.argument}
+                      </blockquote>
                       <div className={styles.actions}>
                         <button
                           type="button"

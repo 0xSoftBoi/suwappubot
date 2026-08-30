@@ -316,6 +316,10 @@ export function compileToWalletPolicies(
     );
   }
 
+  notes.push(
+    'Installing these policies needs an agent key this page never holds. An agent without a subscription can still act under them: the API meters pay-per-call over HTTP 402 (x402), so the compiled envelope and the payment rail are both agent-native.',
+  );
+
   if (mandate.perTradeUsdCap < mandate.dailyUsdCap) {
     notes.push(
       `Per-trade cap (${mandate.perTradeUsdCap} USD) has no direct Turnkey equivalent — Turnkey limits per transaction, and a time-windowed daily limit is the closest primitive. The per-trade rule stays enforced by the desk only.`,

@@ -385,6 +385,19 @@
   font-style: italic;
 }
 
+/* Agent-supplied free text is untrusted content — always say so where it renders. */
+.agentText {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-style: normal;
+  font-family: var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
 .decide {
   margin-top: 12px;
 }
