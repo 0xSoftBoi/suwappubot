@@ -1,14 +1,12 @@
 """L4 deterministic replay engine with continuous checkpoint validation (W1.2/W1.3).
 
-The method is Tektonic's, from the October 10 ADL reconstruction: replay the canonical
-event stream against a snapshot anchor and hash the reconstructed state against ground
-truth *every N events*, halting on the first divergence beyond a stated epsilon. Their
-run held maximum divergence below $0.01 across 437,723 accounts at 847 checkpoints.
+Replays the canonical event stream against a snapshot anchor, hashing reconstructed
+state against ground truth every N events and halting on the first divergence past a
+stated epsilon.
 
-Why checkpoint continuously instead of comparing totals at the end: an end-of-run
-comparison tells you that something is wrong somewhere in three million events. A
-checkpoint every 100 events tells you *which* event broke it, which is the difference
-between a debugging session and a debugging week.
+Checkpointing continuously rather than comparing totals at the end is the whole design:
+an end-of-run total says something is wrong somewhere in the stream, a checkpoint every
+100 events says which event broke it.
 
 Money is carried in ``Decimal`` throughout (see ``bot/utils/money``); the only floats in
 this file are the ones SQLAlchemy hands back from ``Float`` columns, and they are
@@ -184,11 +182,9 @@ def load_points_snapshot(conn) -> dict[int, dict[str, Decimal]]:
 def load_opening_balances(conn, start: datetime) -> dict[int, dict[str, Decimal]]:
     """Reconstruct the point-in-time opening state at ``start`` from the event log.
 
-    Tektonic had a real L2 clearinghouse snapshot taken immediately before the cascade.
-    We have no historical point-in-time table, so we derive the equivalent by folding
-    every event before the window - which is the same object, computed rather than
-    stored, and has the useful side effect of exercising the same summation path over
-    the full history.
+    We keep no historical point-in-time aggregate, so the opening state is derived by
+    folding every event before the window: the same object, computed rather than stored,
+    with the side effect of exercising the summation path over the full history.
     """
     from sqlalchemy import text
 
@@ -246,8 +242,8 @@ class ReplayEngine:
     # -- state transitions ------------------------------------------------------------
     #
     # One handler per event kind, and an explicit failure for anything unhandled.
-    # Tektonic's fourth lesson: missing a single event category compounds downstream
-    # divergence exponentially, so an unknown kind must be loud, not a no-op.
+    # A silently skipped category does not cause a local error, it shifts every
+    # subsequent balance, so an unknown kind must be loud rather than a no-op.
 
     def apply(self, event: CanonicalEvent) -> AccountState:
         state = self.states.get(event.user_id)

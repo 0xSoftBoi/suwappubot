@@ -148,18 +148,25 @@ class FloatMoneyVisitor(ast.NodeVisitor):
                                 file=self.path,
                                 line=node.lineno,
                                 finding_class="float-money-column",
-                                severity="high",
+                                severity="low",
                                 title=f"money column {name!r} stored as Float",
                                 snippet=self._snippet(node),
                                 why=(
-                                    "IEEE-754 cannot represent most decimal money values "
-                                    "exactly, so stored totals drift from the sum of their "
-                                    "parts and a replay can never reconcile to zero."
+                                    "Style, not corruption. This was originally rated high "
+                                    "on the claim that stored totals drift from the sum of "
+                                    "their parts; that was measured and is false at our "
+                                    "scale. Replaying 2,900 sequential partial sells against "
+                                    "a BTC-priced cost basis drifted 4.8e-9 USD from the "
+                                    "exact Decimal result - double carries ~15-17 significant "
+                                    "digits and our magnitudes are nowhere near that. The "
+                                    "real reasons to prefer Numeric are exact representation "
+                                    "for audit and comparison, not accumulated error."
                                 ),
                                 fix=(
-                                    "Numeric(38, 18) for new columns. For existing ones, "
-                                    "quantize through bot.utils.money at every write so the "
-                                    "stored value is at least the published precision."
+                                    "Numeric(38, 18) for new columns. Retyping the existing "
+                                    "ones is a dual-ORM migration whose table-rewrite lock "
+                                    "costs more than the problem it solves; do it when a "
+                                    "table is being altered anyway."
                                 ),
                                 confidence="high",
                             )

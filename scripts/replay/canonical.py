@@ -1,7 +1,6 @@
 """L3 canonical money-event schema (W1.1).
 
-Adapted from the Tektonic HyperReplay four-layer design
-(docs/plans/tektonic-blog-study.md):
+Four-layer reconstruction (background: docs/plans/tektonic-blog-study.md):
 
     L1  raw            the production tables exactly as written
     L2  snapshot       the aggregate rows we treat as ground truth (user_points,
@@ -12,17 +11,15 @@ Adapted from the Tektonic HyperReplay four-layer design
 
 Two properties matter and both live here:
 
-* **Determinism.** Two events with the same timestamp must sort the same way on every
-  machine, every run. Tektonic's rule was priority-class first, then lexicographic
-  account address. Ours is the same shape: :data:`EVENT_PRIORITY` then
-  ``(user_id, source_table, source_id)``. Anything that reaches for insertion order or
-  a dict iteration order breaks reproducibility.
+* **Determinism.** Two events sharing a timestamp must sort the same way on every
+  machine, every run: :data:`EVENT_PRIORITY` first, then
+  ``(user_id, source_table, source_id)``. Anything that relies on insertion order or
+  dict iteration order breaks reproducibility.
 
-* **Total coverage.** Their hardest bug class was the "misc ledger" - internal
-  transfers, commissions, staking, overrides - where *omitting a single category*
-  compounds divergence downstream. Our equivalent is the long tail below
-  ``fee``/``swap``: referral commissions, point spends, savings events. When adding a
-  money-moving table to the product, add it here in the same commit.
+* **Total coverage.** The expensive bug class is the long tail below ``fee``/``swap``:
+  referral commissions, point spends, savings events. Omitting one category does not
+  produce a local error, it shifts everything downstream of it. When a money-moving
+  table is added to the product, add it here in the same commit.
 
 Dependencies are deliberately minimal (stdlib + SQLAlchemy Core, no bot package
 import) so the replayer runs anywhere a database URL does.
@@ -59,10 +56,8 @@ EVENT_PRIORITY: dict[str, int] = {
 
 # Statuses that count as money actually having moved. Everything else is intent.
 #
-# This is Tektonic's "atomic state validation" (W2.1): they counted a Solana payment
-# only when ``tx.err = ''`` and a Base payment only when ``receipt_status = 1``, giving
-# "exactly 0.00% inflation from reverted or failed executions". A reverted swap that
-# contributes to volume is not a rounding difference, it is a wrong number.
+# A reverted swap that contributes to volume is not a rounding difference, it is a
+# wrong number. Only terminal success counts.
 TERMINAL_SUCCESS_STATUSES: frozenset[str] = frozenset({"completed"})
 TERMINAL_FAILURE_STATUSES: frozenset[str] = frozenset({"failed", "cancelled"})
 
@@ -146,10 +141,8 @@ def _as_utc(value: Any) -> datetime:
 
 # --- Extraction -----------------------------------------------------------------------
 #
-# Every extractor below filters at *extraction* time, not query time. Tektonic's lesson
-# 3: "Enforce validation rules at pipeline time, not query time. This guarantees data
-# purity and prevents accidental over-counting." A caller cannot forget a WHERE clause
-# that does not exist as an option.
+# Every extractor filters at *extraction* time, not query time: a caller cannot forget
+# a WHERE clause that is not an available option.
 
 _SWAP_SQL = """
     SELECT id, user_id, from_chain, from_token, from_amount_usd, to_amount_usd,

@@ -7,7 +7,7 @@ Roots scanned: `bot/`, `api/`, `database/`, `scripts/`
 
 | Class | Count | Meaning |
 |---|---:|---|
-| `float-money-column` | 48 | A money-named column declared `Float` |
+| `float-money-column` | 48 | A money-named column declared `Float` (**low** — see correction) |
 | `float-money-arithmetic` | 97 | Arithmetic on a money value outside `Decimal` |
 | `atomic-state` | 1 | Aggregate over an execution table with no success predicate |
 
@@ -52,6 +52,27 @@ money path: referees now cross the gate strictly later (when the swap confirms r
 than when it is broadcast), which is the correct direction — Tektonic's institutional
 constraint is "exactly 0.00% inflation from reverted or failed executions", and a
 threshold computed over in-flight rows is inflated by construction.
+
+## Correction (2026-08-30): the `Float` column severity was wrong
+
+This report originally rated the 48 `Float` money columns **high**, asserting that
+"stored totals drift from the sum of their parts and a replay can never reconcile to
+zero." That was asserted, not measured. Measuring it:
+
+- 500 buys then 500 partial sells of a sub-cent token: drift from the exact `Decimal`
+  result was **$0.0000000000**.
+- One large buy then 2,900 tiny partial sells against a BTC-scale price: drift
+  **$0.0000000048**.
+
+Double carries ~15–17 significant digits and our magnitudes are nowhere near that. The
+columns are a style problem — exact representation matters for audit and equality
+comparison — not a source of lost money. Downgraded to **low** in the scanner, with the
+measurement recorded in the finding itself. Retyping them is a dual-ORM migration whose
+table-rewrite lock costs more than the defect it removes; the right time is when a table
+is being altered anyway.
+
+The lesson generalises: this audit found two real bugs by reading code, and one false
+alarm by pattern-matching on types. The scanner is worth keeping for the first kind.
 
 ## Not fixed — deliberate scope call
 

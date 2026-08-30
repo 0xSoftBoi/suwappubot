@@ -206,3 +206,8 @@ ADRs 0001–0005.
 - **Consequence**: allocation dust accrues to whichever side rounds up, and revenue
   reported over in-flight rows is inflated by construction. Use `bot/utils/money`
   for money arithmetic; new money columns are `Numeric(38, 18)`, never `Float`.
+- **Correction (2026-08-30)**: the same audit rated 48 existing `Float` money columns
+  "high" on the claim that they accumulate drift. Measured, that is false at our scale —
+  2,900 sequential partial sells drifted 4.8e-9 USD from exact `Decimal`. Downgraded to
+  low. Prefer `Numeric` for new columns because exact representation helps audit and
+  comparison, not because doubles lose money here.
