@@ -38,7 +38,7 @@ import {
 function AgentQuote({ text }: { text: string }) {
   return (
     <blockquote className={styles.rationale}>
-      <span className={styles.agentText}>agent-written — unverified</span>
+      <span className={styles.agentText}>agent-written, unverified</span>
       {text}
     </blockquote>
   );
@@ -138,7 +138,7 @@ const nextId = (prefix: string) => {
 
 function fmtUsd(value: string | number | null | undefined): string {
   const n = typeof value === 'string' ? Number.parseFloat(value) : value;
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  if (n === null || n === undefined || !Number.isFinite(n)) return '-';
   return n >= 1000
     ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
     : `$${n.toLocaleString('en-US', { maximumFractionDigits: n < 1 ? 4 : 2 })}`;
@@ -146,12 +146,12 @@ function fmtUsd(value: string | number | null | undefined): string {
 
 function fmtAmount(value: string | undefined): string {
   const n = Number.parseFloat(value ?? '');
-  if (!Number.isFinite(n)) return value ?? '—';
+  if (!Number.isFinite(n)) return value ?? '-';
   return n.toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 
 function fmtDuration(seconds: number | undefined): string {
-  if (!seconds || !Number.isFinite(seconds)) return '—';
+  if (!seconds || !Number.isFinite(seconds)) return '-';
   return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`;
 }
 
@@ -439,7 +439,7 @@ export default function AgentDesk() {
         log(
           'human',
           status === 'approved' ? 'Approved proposal' : 'Rejected proposal',
-          `${decided.id}${decided.humanNote ? ` — "${decided.humanNote}"` : ''}`,
+          `${decided.id}${decided.humanNote ? `: "${decided.humanNote}"` : ''}`,
         );
       }
     },
@@ -458,7 +458,7 @@ export default function AgentDesk() {
       log(
         'human',
         granted ? 'Granted override' : 'Denied override',
-        `${id} — mandate exception ${granted ? 'allowed once' : 'refused'}`,
+        `${id}: mandate exception ${granted ? 'allowed once' : 'refused'}`,
       );
     },
     [commitProposals, log],
@@ -1433,9 +1433,12 @@ export default function AgentDesk() {
               <span style={{ width: `${usedPct}%` }} />
             </div>
             <p className={styles.budgetCopy}>
-              <strong>{fmtUsd(remaining)}</strong> of {fmtUsd(mandate.dailyUsdCap)} left today ·
-              max {fmtUsd(mandate.perTradeUsdCap)} per trade · impact ≤{' '}
-              {mandate.maxPriceImpactPercent}% · slippage ≤ {mandate.maxSlippagePercent}%
+              <span>
+                <strong>{fmtUsd(remaining)}</strong> of {fmtUsd(mandate.dailyUsdCap)} left today
+              </span>
+              <span>max {fmtUsd(mandate.perTradeUsdCap)} per trade</span>
+              <span>impact ≤ {mandate.maxPriceImpactPercent}%</span>
+              <span>slippage ≤ {mandate.maxSlippagePercent}%</span>
             </p>
           </div>
 
@@ -1519,14 +1522,14 @@ export default function AgentDesk() {
               <li>
                 <span>Chains</span>
                 <strong>
-                  {mandate.allowedChains.length ? mandate.allowedChains.join(' · ') : 'any'}
+                  {mandate.allowedChains.length ? mandate.allowedChains.join(', ') : 'any'}
                 </strong>
               </li>
               <li>
                 <span>May buy</span>
                 <strong>
                   {mandate.allowedBuyTokens.length
-                    ? mandate.allowedBuyTokens.join(' · ')
+                    ? mandate.allowedBuyTokens.join(', ')
                     : 'any token'}
                 </strong>
               </li>
@@ -1534,7 +1537,7 @@ export default function AgentDesk() {
           )}
 
           <p className={styles.finePrint}>
-            This desk never executes, so the mandate cannot physically cap spending — it governs
+            This desk never executes, so the mandate cannot physically cap spending. It governs
             what the page will put in front of you and what the agent is told before it asks.
             Binding limits live in Suwappu’s server-side wallet spending policies. Stored in this
             browser only.
@@ -1728,13 +1731,13 @@ export default function AgentDesk() {
                       <td>
                         {row.preview
                           ? `${fmtAmount(row.preview.toAmount)} ${row.preview.toToken.symbol}`
-                          : '—'}
+                          : '-'}
                       </td>
-                      <td>{row.preview ? fmtUsd(row.preview.estimatedGasUsd) : '—'}</td>
+                      <td>{row.preview ? fmtUsd(row.preview.estimatedGasUsd) : '-'}</td>
                       <td>
-                        {row.preview ? fmtDuration(row.preview.estimatedDurationSeconds) : '—'}
+                        {row.preview ? fmtDuration(row.preview.estimatedDurationSeconds) : '-'}
                       </td>
-                      <td>{row.preview?.route ?? row.error ?? '—'}</td>
+                      <td>{row.preview?.route ?? row.error ?? '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1840,7 +1843,7 @@ export default function AgentDesk() {
                                 <strong>{fmtUsd(s.alert?.targetPrice)}</strong>
                               </>
                             )}
-                            {s.note && <em className={styles.planNote}> — {s.note}</em>}
+                            {s.note && <em className={styles.planNote}> ({s.note})</em>}
                           </span>
                         </li>
                       ))}
@@ -1885,7 +1888,7 @@ export default function AgentDesk() {
                     <div className={styles.violations}>
                       <p className={styles.violationsTitle}>
                         Breaks your mandate
-                        {p.override?.granted === true ? ' — you allowed it once' : ''}
+                        {p.override?.granted === true ? ', but you allowed it once' : ''}
                       </p>
                       <ul>
                         {p.verdict.violations.map((v, i) => (

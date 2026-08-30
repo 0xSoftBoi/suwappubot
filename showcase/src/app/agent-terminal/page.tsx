@@ -21,17 +21,17 @@ const TOOLS = [
   {
     name: 'check_mandate',
     kind: 'read',
-    body: 'Dry-run a trade against the mandate silently. Returns the exact rules it breaks, with limit and actual — so the agent iterates on size or chain instead of burning the human\u2019s attention.',
+    body: 'Dry-run a trade against the mandate silently. Returns the exact rules it breaks, with limit and actual, so the agent iterates on size or chain instead of burning the human\u2019s attention.',
   },
   {
     name: 'amend_mandate',
     kind: 'completes',
-    body: 'The agent proposes a change to the envelope itself, citing what happened. You see a before/after diff with every loosened rule flagged in red. Approve and the mandate really changes, here, and persists — the one thing on this desk that finishes in place.',
+    body: 'The agent proposes a change to the envelope itself, citing what happened. You see a before/after diff with every loosened rule flagged in red. Approve and the mandate really changes, here, and persists. It is the one thing on this desk that finishes in place.',
   },
   {
     name: 'compile_mandate_to_policy',
     kind: 'completes',
-    body: 'Compiles the negotiated envelope into Suwappu wallet spending-policy payloads — the request bodies that create real Turnkey policies gating managed execution. Honest notes say what did not survive the compile.',
+    body: 'Compiles the negotiated envelope into Suwappu wallet spending-policy payloads, the request bodies that create real Turnkey policies gating managed execution. Honest notes say what did not survive the compile.',
   },
   {
     name: 'navigate_desk',
@@ -46,7 +46,7 @@ const TOOLS = [
   {
     name: 'find_token',
     kind: 'read',
-    body: 'Resolve a ticker or address on one chain into a canonical address and decimals — the step that stops an agent from quoting the wrong "USDC".',
+    body: 'Resolve a ticker or address on one chain into a canonical address and decimals, the step that stops an agent from quoting the wrong "USDC".',
   },
   {
     name: 'get_prices',
@@ -56,12 +56,12 @@ const TOOLS = [
   {
     name: 'preview_swap',
     kind: 'read',
-    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, route — plus the mandate verdict.',
+    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, route, plus the mandate verdict.',
   },
   {
     name: 'compare_routes',
     kind: 'read',
-    body: 'The same swap priced four ways — recommended, fastest, cheapest, safest — as a table the human can read at a glance.',
+    body: 'The same swap priced four ways (recommended, fastest, cheapest, safest) as a table the human can read at a glance.',
   },
   {
     name: 'read_desk',
@@ -76,7 +76,7 @@ const TOOLS = [
   {
     name: 'propose_plan',
     kind: 'propose',
-    body: 'Propose a sequence — bridge, then buy, then set an alert — as one card with a combined notional and one Approve. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
+    body: 'Propose a sequence (bridge, then buy, then set an alert) as one card with a combined notional and one Approve. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
   },
   {
     name: 'propose_price_alert',
@@ -86,12 +86,12 @@ const TOOLS = [
   {
     name: 'check_approval',
     kind: 'read',
-    body: 'Ask what the human decided — or block up to two minutes and resolve the instant they click, along with any note they typed back.',
+    body: 'Ask what the human decided, or block up to two minutes and resolve the instant they click, along with any note they typed back.',
   },
   {
     name: 'request_override',
     kind: 'unlocked',
-    body: 'Only exists while a proposal is blocked by the mandate. The agent cannot route around your rules, but it can argue with them — once, in the open, as its own card.',
+    body: 'Only exists while a proposal is blocked by the mandate. The agent cannot route around your rules, but it can argue with them, once, in the open, as its own card.',
   },
   {
     name: 'open_signing_handoff',
@@ -124,7 +124,7 @@ const STEPS = [
   {
     n: '04',
     title: 'It can argue, but it cannot route around you',
-    body: 'A blocked proposal unlocks request_override — the agent states its case for bending one named rule, and you allow it once or keep the rule.',
+    body: 'A blocked proposal unlocks request_override: the agent states its case for bending one named rule, and you allow it once or keep the rule.',
   },
   {
     n: '05',
@@ -134,12 +134,12 @@ const STEPS = [
   {
     n: '06',
     title: 'The envelope itself evolves',
-    body: 'When a rule keeps blocking things you clearly want, the agent proposes amending it and cites the evidence. You see a diff with loosened rules flagged in red. Approve, and the mandate changes here — the one thing on this desk that finishes in place.',
+    body: 'When a rule keeps blocking things you clearly want, the agent proposes amending it and cites the evidence. You see a diff with loosened rules flagged in red. Approve, and the mandate changes here. It is the one thing on this desk that finishes in place.',
   },
   {
     n: '07',
     title: 'It compiles into something that binds',
-    body: 'The negotiated envelope compiles to Suwappu wallet spending-policy payloads — real Turnkey policies that gate managed execution server-side, where a browser page cannot reach. You leave with a rule set, not a session.',
+    body: 'The negotiated envelope compiles to Suwappu wallet spending-policy payloads, real Turnkey policies that gate managed execution server-side, where a browser page cannot reach. You leave with a rule set, not a session.',
   },
   {
     n: '08',
@@ -157,9 +157,8 @@ export default function AgentTerminalPage() {
           <p className="summer-kicker">WebMCP Agent Desk</p>
           <h1>Give your agent a mandate, not your keys.</h1>
           <p className="mkt-hero__lead">
-            Suwappu routes swaps across {stats.agentApiChains} chains, and this page hands that
-            engine to whatever agent is driving your browser — as WebMCP site tools bounded by
-            an envelope you write. Signing never leaves a surface you control.
+            The agent driving your browser gets Suwappu&apos;s {stats.agentApiChains}-chain
+            routing engine, bounded by an envelope you write. Signing stays with you.
           </p>
           <div className="summer-actions">
             <a className="summer-button summer-button--primary" href="#desk-mandate">
@@ -168,9 +167,6 @@ export default function AgentTerminalPage() {
             <a className="summer-button summer-button--secondary" href="#how-it-works">
               How it works ↓
             </a>
-            <a className="summer-button summer-button--secondary" href="#tools">
-              The tools ↓
-            </a>
           </div>
         </header>
 
@@ -178,15 +174,19 @@ export default function AgentTerminalPage() {
 
         <section className="institutional-section" id="how-it-works">
           <h2>How a mandate becomes a trade</h2>
-          <div className={styles.cardGrid}>
+          <ol className={styles.stepFlow}>
             {STEPS.map((s) => (
-              <article key={s.n} className={styles.card}>
-                <p className="summer-kicker">{s.n}</p>
-                <h3>{s.title}</h3>
-                <p>{s.body}</p>
-              </article>
+              <li key={s.n}>
+                <span className={styles.stepNum} aria-hidden="true">
+                  {s.n}
+                </span>
+                <div>
+                  <h3>{s.title}</h3>
+                  <p>{s.body}</p>
+                </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </section>
 
         <section className="institutional-section" id="tools">
@@ -194,7 +194,7 @@ export default function AgentTerminalPage() {
           <p className={styles.sectionLead}>
             Registered with <code className="summer-code">document.modelContext.registerTool()</code>,
             each marked with its capability hints. Two do not exist until your state makes them
-            meaningful — dynamic registration is how the agent’s options narrow and widen with
+            meaningful. Dynamic registration is how the agent’s options narrow and widen with
             what you have actually allowed. The ticket itself is a nineteenth, <em>declarative</em>{' '}
             tool: a real <code className="summer-code">&lt;form toolname&gt;</code> an engine can
             fill but only an explicit submit can price. No tool on this page can sign, send, or
@@ -204,7 +204,7 @@ export default function AgentTerminalPage() {
             [
               ['read', 'Read-only', 'Answer instantly, change nothing.'],
               ['propose', 'Needs your approval', 'Place a card in front of you. Nothing moves until you click.'],
-              ['completes', 'Completes on this page', 'The mandate itself: amend it, compile it — approval makes it real.'],
+              ['completes', 'Completes on this page', 'The mandate itself: amend it, compile it: approval makes it real.'],
               ['unlocked', 'Unlocked by your state', 'Do not exist until something is blocked or approved.'],
             ] as const
           ).map(([kind, label, note]) => {
@@ -232,23 +232,21 @@ export default function AgentTerminalPage() {
 
         <section className="institutional-section" id="try-it">
           <h2>Things to ask your agent here</h2>
-          <div className={styles.cardGrid}>
+          <ul className={styles.promptFlow}>
             {[
               'Read my mandate, then find me the biggest ETH→USDC move on Base that still fits inside it.',
               'Compare routes for 0.5 ETH on Base into USDC on Arbitrum, and tell me what the speed costs me.',
               'Build me a plan: bridge some ETH to Arbitrum, buy USDC there, and set an alert if ETH breaks $4,000. Propose it as one thing.',
               'Propose 3 ETH into a token that isn’t on my allow-list, and make the case for why I should let you.',
-              'My per-trade cap keeps blocking things I actually want — make the case for raising it.',
+              'My per-trade cap keeps blocking things I actually want. Make the case for raising it.',
               'Turn my rules into something my agent wallet will enforce server-side.',
               'Export the receipt for everything we just did.',
             ].map((prompt) => (
-              <article key={prompt} className={`${styles.card} ${styles.promptCard}`}>
-                <p>“{prompt}”</p>
-              </article>
+              <li key={prompt}>“{prompt}”</li>
             ))}
-          </div>
+          </ul>
           <p className={styles.sectionLead}>
-            Without a WebMCP-capable browser the desk still works by hand — the tools are a
+            Without a WebMCP-capable browser the desk still works by hand. The tools are a
             second door onto the same controls, not the only one.
           </p>
         </section>

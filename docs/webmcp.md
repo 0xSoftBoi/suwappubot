@@ -121,7 +121,7 @@ envelope and a payment rail waiting for it.
 
 The WebMCP trust model cuts both ways and the desk honours both halves.
 Agent→page: every piece of agent-written free text (proposal rationales,
-override arguments) renders under an explicit "agent-written — unverified"
+override arguments) renders under an explicit "agent-written, unverified"
 label, quoted, never interpolated into the page's own voice. Page→agent: tool
 descriptions state facts instead of issuing imperatives — the LLM evals caught
 `read_mandate`'s "Read this FIRST." overriding user intent, and that class of

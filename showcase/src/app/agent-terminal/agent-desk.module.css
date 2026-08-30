@@ -565,8 +565,76 @@
   color: var(--suwappu-summer-muted, #4f6f7f);
 }
 
-.promptCard {
+/* How-it-works: a numbered vertical flow, deliberately not another card grid. */
+.stepFlow {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 72ch;
+}
+
+.stepFlow li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 4px 20px;
+  padding: 22px 0;
+}
+
+.stepFlow li + li {
+  border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+}
+
+.stepNum {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+.stepFlow h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.stepFlow p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+@media (max-width: 640px) {
+  .stepFlow li {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .stepNum {
+    font-size: 20px;
+  }
+}
+
+/* Things to ask: quoted prose in the page's own quoting voice, not boxes. */
+.promptFlow {
+  margin: 8px 0 24px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 18px 40px;
   font-style: italic;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.promptFlow li {
+  padding-left: 14px;
+  border-left: 2px solid var(--suwappu-summer-line-strong, #42b8d7);
+}
+
+@media (min-width: 768px) {
+  .promptFlow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* Fixes the mandate-header buttons wrapping into a ragged two-row notch. */
@@ -627,9 +695,16 @@
 
 .budgetCopy {
   margin: 8px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
   font-size: 13px;
   line-height: 1.55;
   color: var(--muted);
+}
+
+.budgetCopy span {
+  white-space: nowrap;
 }
 
 .budgetCopy strong {
