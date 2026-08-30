@@ -142,6 +142,39 @@ check(
   !registered.includes('open_signing_handoff'),
 );
 
+// ── 1b. the declarative half: the ticket form IS a tool ────────────
+const decl = await page.evaluate(() => {
+  const form = document.querySelector('form[toolname]');
+  if (!form) return null;
+  return {
+    toolname: form.getAttribute('toolname'),
+    tooldescription: form.getAttribute('tooldescription'),
+    autosubmit: form.hasAttribute('toolautosubmit'),
+    params: [...form.querySelectorAll('[toolparamdescription]')].map((el) => ({
+      name: el.getAttribute('name'),
+      desc: el.getAttribute('toolparamdescription'),
+    })),
+  };
+});
+show('declarative ticket tool', decl);
+check(
+  'the ticket form declares itself as a declarative WebMCP tool',
+  decl?.toolname === 'fill_and_price_ticket',
+);
+check('the declarative tool carries a description', Boolean(decl?.tooldescription));
+check(
+  'every ticket field is a named, described tool parameter',
+  Boolean(decl) && decl.params.length === 6 && decl.params.every((p) => p.name && p.desc),
+);
+check(
+  'no toolautosubmit — pricing waits for an explicit submit',
+  decl != null && decl.autosubmit === false,
+);
+await page.fill('form[toolname] input[name="amount"]', '0.2');
+await page.click('form[toolname] button[type="submit"]');
+await page.getByText('You receive').waitFor({ timeout: 10_000 });
+check('submitting the declarative form prices the ticket for real', true);
+
 // ── 2. the mandate is readable ─────────────────────────────────────
 const mandate = await call('read_mandate');
 show('read_mandate', mandate);

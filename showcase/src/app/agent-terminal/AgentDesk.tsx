@@ -1316,13 +1316,32 @@ export default function AgentDesk() {
 
   // ── Manual controls ──────────────────────────────────────────────
 
-  const onManualQuote = async () => {
-    log('human', 'Manual quote', `${ticket.amount} ${ticket.fromToken} → ${ticket.toToken}`);
-    try {
-      await runPreview(ticket);
-    } catch {
-      /* surfaced in previewError */
-    }
+  const onTicketSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const read = (key: string, fallback: string) => {
+      const v = fd.get(key);
+      return typeof v === 'string' && v.trim() !== '' ? v.trim() : fallback;
+    };
+    const t: Ticket = {
+      ...ticketRef.current,
+      fromChain: read('fromChain', ticketRef.current.fromChain),
+      toChain: read('toChain', ticketRef.current.toChain),
+      fromToken: read('fromToken', ticketRef.current.fromToken).toUpperCase(),
+      toToken: read('toToken', ticketRef.current.toToken).toUpperCase(),
+      amount: read('amount', ticketRef.current.amount),
+      slippagePercent:
+        Number.parseFloat(read('slippagePercent', '')) || ticketRef.current.slippagePercent,
+    };
+    setTicket(t);
+    log('human', 'Manual quote', `${t.amount} ${t.fromToken} → ${t.toToken}`);
+    const pricing = runPreview(t).catch(() => undefined /* surfaced in previewError */);
+    // Declarative WebMCP: when an engine drove this submit, hand the priced
+    // ticket back as the tool result instead of making it scrape the DOM.
+    const native = e.nativeEvent as SubmitEvent & {
+      respondWith?: (value: Promise<unknown>) => void;
+    };
+    if (typeof native.respondWith === 'function') native.respondWith(pricing);
   };
 
   const copy = async (key: string, text: string) => {
@@ -1363,7 +1382,7 @@ export default function AgentDesk() {
         <p className={styles.statusCopy}>
           {mcp.state === 'connected'
             ? 'An agent in this browser can read your mandate, price routes and propose trades against it. It cannot sign, and it cannot approve.'
-            : 'Open this page in the ChatGPT desktop app’s browser (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
+            : 'Open this page in ChatGPT Atlas (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
         </p>
       </section>
 
@@ -1377,7 +1396,7 @@ export default function AgentDesk() {
                 The envelope you write and the agent reads before it proposes anything.
               </p>
             </div>
-            <div className={styles.actions} style={{ marginTop: 0 }}>
+            <div className={styles.mandateActions}>
               <button
                 type="button"
                 className={styles.ghost}
@@ -1388,7 +1407,7 @@ export default function AgentDesk() {
               </button>
               <button
                 type="button"
-                className={styles.ghost}
+                className={styles.primary}
                 onClick={async () => {
                   log('human', 'Compile mandate', 'to Suwappu wallet spending policies');
                   await controller.compileMandateToPolicy({ download: true });
@@ -1518,78 +1537,109 @@ export default function AgentDesk() {
           <p className={styles.panelNote}>
             Shared surface: you and the agent are editing the same ticket.
           </p>
-          <div className={styles.ticketGrid}>
-            <label className={styles.field}>
-              <span>Sell</span>
-              <input
-                value={ticket.amount}
-                inputMode="decimal"
-                onChange={(e) => setTicket((t) => ({ ...t, amount: e.target.value }))}
-              />
-            </label>
-            <label className={styles.field}>
-              <span>Token</span>
-              <input
-                value={ticket.fromToken}
-                onChange={(e) =>
-                  setTicket((t) => ({ ...t, fromToken: e.target.value.toUpperCase() }))
-                }
-              />
-            </label>
-            <label className={styles.field}>
-              <span>From chain</span>
-              <select
-                value={ticket.fromChain}
-                onChange={(e) => setTicket((t) => ({ ...t, fromChain: e.target.value }))}
-              >
-                {chainKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={styles.field}>
-              <span>Buy</span>
-              <input
-                value={ticket.toToken}
-                onChange={(e) =>
-                  setTicket((t) => ({ ...t, toToken: e.target.value.toUpperCase() }))
-                }
-              />
-            </label>
-            <label className={styles.field}>
-              <span>To chain</span>
-              <select
-                value={ticket.toChain}
-                onChange={(e) => setTicket((t) => ({ ...t, toChain: e.target.value }))}
-              >
-                {chainKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={styles.field}>
-              <span>Slippage %</span>
-              <input
-                value={String(ticket.slippagePercent)}
-                inputMode="decimal"
-                onChange={(e) =>
-                  setTicket((t) => ({
-                    ...t,
-                    slippagePercent: Number.parseFloat(e.target.value) || t.slippagePercent,
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <div className={styles.actions}>
+          <form
+            onSubmit={onTicketSubmit}
+            {...({
+              toolname: 'fill_and_price_ticket',
+              tooldescription:
+                'Fill the shared swap ticket and price it against the live cross-chain routing engine. Pricing attaches the mandate verdict; it proposes nothing and spends nothing.',
+            } as Record<string, string>)}
+          >
+            <div className={styles.ticketGrid}>
+              <label className={styles.field}>
+                <span>Sell</span>
+                <input
+                  name="amount"
+                  value={ticket.amount}
+                  inputMode="decimal"
+                  onChange={(e) => setTicket((t) => ({ ...t, amount: e.target.value }))}
+                  {...({
+                    toolparamdescription: 'Human-readable amount of the token being sold.',
+                  } as Record<string, string>)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Token</span>
+                <input
+                  name="fromToken"
+                  value={ticket.fromToken}
+                  onChange={(e) =>
+                    setTicket((t) => ({ ...t, fromToken: e.target.value.toUpperCase() }))
+                  }
+                  {...({
+                    toolparamdescription: 'Ticker of the token being sold, e.g. ETH.',
+                  } as Record<string, string>)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>From chain</span>
+                <select
+                  name="fromChain"
+                  value={ticket.fromChain}
+                  onChange={(e) => setTicket((t) => ({ ...t, fromChain: e.target.value }))}
+                  {...({
+                    toolparamdescription: 'Source chain key.',
+                  } as Record<string, string>)}
+                >
+                  {chainKeys.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>Buy</span>
+                <input
+                  name="toToken"
+                  value={ticket.toToken}
+                  onChange={(e) =>
+                    setTicket((t) => ({ ...t, toToken: e.target.value.toUpperCase() }))
+                  }
+                  {...({
+                    toolparamdescription: 'Ticker of the token being bought.',
+                  } as Record<string, string>)}
+                />
+              </label>
+              <label className={styles.field}>
+                <span>To chain</span>
+                <select
+                  name="toChain"
+                  value={ticket.toChain}
+                  onChange={(e) => setTicket((t) => ({ ...t, toChain: e.target.value }))}
+                  {...({
+                    toolparamdescription: 'Destination chain key.',
+                  } as Record<string, string>)}
+                >
+                  {chainKeys.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className={styles.field}>
+                <span>Slippage %</span>
+                <input
+                  name="slippagePercent"
+                  value={String(ticket.slippagePercent)}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    setTicket((t) => ({
+                      ...t,
+                      slippagePercent: Number.parseFloat(e.target.value) || t.slippagePercent,
+                    }))
+                  }
+                  {...({
+                    toolparamdescription: 'Maximum slippage in percent.',
+                  } as Record<string, string>)}
+                />
+              </label>
+            </div>
+            <div className={styles.actions}>
             <button
-              type="button"
+              type="submit"
               className={styles.primary}
-              onClick={onManualQuote}
               disabled={previewBusy}
             >
               {previewBusy ? 'Pricing…' : 'Price it'}
@@ -1605,7 +1655,8 @@ export default function AgentDesk() {
             >
               Compare routes
             </button>
-          </div>
+            </div>
+          </form>
 
           {previewError && <p className={styles.error}>{previewError}</p>}
 
@@ -1818,7 +1869,10 @@ export default function AgentDesk() {
                     </ul>
                   )}
 
-                  <blockquote className={styles.rationale}>{p.rationale}</blockquote>
+                  <blockquote className={styles.rationale}>
+                    <span className={styles.agentText}>agent-written — unverified</span>
+                    {p.rationale}
+                  </blockquote>
 
                   {p.verdict && !p.verdict.withinMandate && (
                     <div className={styles.violations}>
@@ -1842,7 +1896,10 @@ export default function AgentDesk() {
                       <p className={styles.overrideTitle}>
                         Your agent is asking you to bend a rule
                       </p>
-                      <blockquote className={styles.rationale}>{p.override.argument}</blockquote>
+                      <blockquote className={styles.rationale}>
+                        <span className={styles.agentText}>agent-written — unverified</span>
+                        {p.override.argument}
+                      </blockquote>
                       <div className={styles.actions}>
                         <button
                           type="button"
@@ -1972,17 +2029,18 @@ export default function AgentDesk() {
                 Every tool call the agent makes on this page, in the open.
               </p>
             </div>
-            <button
-              type="button"
-              className={styles.ghost}
-              onClick={() => {
-                downloadReceipt();
-                log('human', 'Receipt downloaded', 'session exported');
-              }}
-              disabled={proposals.length === 0 && activity.length === 0}
-            >
-              Download receipt
-            </button>
+            {(proposals.length > 0 || activity.length > 0) && (
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => {
+                  downloadReceipt();
+                  log('human', 'Receipt downloaded', 'session exported');
+                }}
+              >
+                Download receipt
+              </button>
+            )}
           </div>
           {mcp.tools.length > 0 && (
             <ul className={styles.toolChips}>

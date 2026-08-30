@@ -150,19 +150,28 @@ const STEPS = [
 
 export default function AgentTerminalPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <main id="main-content" className={`summer-page docs-shell institutional-page ${styles.page}`}>
       <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">WebMCP</p>
+          <p className="summer-kicker">WebMCP Agent Desk</p>
           <h1>Give your agent a mandate, not your keys.</h1>
           <p className="mkt-hero__lead">
-            Suwappu routes swaps across {stats.agentApiChains} chains. This page hands that engine to whatever
-            agent is driving your browser as WebMCP site tools — bounded by an envelope you
-            write and it can read. It prices real routes against your rules, argues when they
-            block something worth doing, and the envelope you end up with compiles into a
-            spending policy that binds server-side. Signing never leaves a surface you control.
+            Suwappu routes swaps across {stats.agentApiChains} chains, and this page hands that
+            engine to whatever agent is driving your browser — as WebMCP site tools bounded by
+            an envelope you write. Signing never leaves a surface you control.
           </p>
+          <div className="summer-actions">
+            <a className="summer-button summer-button--primary" href="#desk-mandate">
+              The desk ↓
+            </a>
+            <a className="summer-button summer-button--secondary" href="#how-it-works">
+              How it works ↓
+            </a>
+            <a className="summer-button summer-button--secondary" href="#tools">
+              The tools ↓
+            </a>
+          </div>
         </header>
 
         <AgentDesk />
@@ -183,59 +192,61 @@ export default function AgentTerminalPage() {
         <section className="institutional-section" id="tools">
           <h2>The tools this page registers</h2>
           <p className={styles.sectionLead}>
-            Registered with <code className="summer-code">document.modelContext.registerTool()</code>.
-            Read tools are marked <code className="summer-code">readOnlyHint</code>. Two of them do
-            not exist until your state makes them meaningful — dynamic registration is how the
-            agent’s options narrow and widen with what you have actually allowed. No tool on this
-            page can sign, send, or spend.
+            Registered with <code className="summer-code">document.modelContext.registerTool()</code>,
+            each marked with its capability hints. Two do not exist until your state makes them
+            meaningful — dynamic registration is how the agent’s options narrow and widen with
+            what you have actually allowed. The ticket itself is a nineteenth, <em>declarative</em>{' '}
+            tool: a real <code className="summer-code">&lt;form toolname&gt;</code> an engine can
+            fill but only an explicit submit can price. No tool on this page can sign, send, or
+            spend.
           </p>
-          <div className={styles.cardGrid}>
-            {TOOLS.map((t) => (
-              <article key={t.name} className={styles.card}>
-                <h3>
-                  <code className="summer-code">{t.name}</code>
+          {(
+            [
+              ['read', 'Read-only', 'Answer instantly, change nothing.'],
+              ['propose', 'Needs your approval', 'Place a card in front of you. Nothing moves until you click.'],
+              ['completes', 'Completes on this page', 'The mandate itself: amend it, compile it — approval makes it real.'],
+              ['unlocked', 'Unlocked by your state', 'Do not exist until something is blocked or approved.'],
+            ] as const
+          ).map(([kind, label, note]) => {
+            const group = TOOLS.filter((t) => t.kind === kind);
+            return (
+              <div key={kind} className={styles.toolGroup}>
+                <h3 className={styles.toolGroupHead}>
+                  {label} <span>{group.length}</span>
                 </h3>
-                <p>{t.body}</p>
-                <p className="summer-kicker">
-                  {t.kind === 'read'
-                    ? 'read-only'
-                    : t.kind === 'propose'
-                      ? 'needs human approval'
-                      : t.kind === 'completes'
-                        ? 'completes on this page'
-                        : 'unlocked by approval'}
-                </p>
-              </article>
-            ))}
-          </div>
+                <p className={styles.sectionLead}>{note}</p>
+                <div className={styles.cardGrid}>
+                  {group.map((t) => (
+                    <article key={t.name} className={styles.card}>
+                      <h3>
+                        <code className="summer-code">{t.name}</code>
+                      </h3>
+                      <p>{t.body}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </section>
 
         <section className="institutional-section" id="try-it">
           <h2>Things to ask your agent here</h2>
-          <ul className={styles.promptList}>
-            <li>
-              “Read my mandate, then find me the biggest ETH→USDC move on Base that still fits
-              inside it.”
-            </li>
-            <li>
-              “Compare routes for 0.5 ETH on Base into USDC on Arbitrum, and tell me what the
-              speed costs me.”
-            </li>
-            <li>
-              “Build me a plan: bridge some ETH to Arbitrum, buy USDC there, and set an alert if
-              ETH breaks $4,000. Propose it as one thing.”
-            </li>
-            <li>
-              “Propose 3 ETH into a token that isn’t on my allow-list, and make the case for why
-              I should let you.”
-            </li>
-            <li>
-              “My per-trade cap keeps blocking things I actually want — make the case for
-              raising it.”
-            </li>
-            <li>“Turn my rules into something my agent wallet will enforce server-side.”</li>
-            <li>“Export the receipt for everything we just did.”</li>
-          </ul>
+          <div className={styles.cardGrid}>
+            {[
+              'Read my mandate, then find me the biggest ETH→USDC move on Base that still fits inside it.',
+              'Compare routes for 0.5 ETH on Base into USDC on Arbitrum, and tell me what the speed costs me.',
+              'Build me a plan: bridge some ETH to Arbitrum, buy USDC there, and set an alert if ETH breaks $4,000. Propose it as one thing.',
+              'Propose 3 ETH into a token that isn’t on my allow-list, and make the case for why I should let you.',
+              'My per-trade cap keeps blocking things I actually want — make the case for raising it.',
+              'Turn my rules into something my agent wallet will enforce server-side.',
+              'Export the receipt for everything we just did.',
+            ].map((prompt) => (
+              <article key={prompt} className={`${styles.card} ${styles.promptCard}`}>
+                <p>“{prompt}”</p>
+              </article>
+            ))}
+          </div>
           <p className={styles.sectionLead}>
             Without a WebMCP-capable browser the desk still works by hand — the tools are a
             second door onto the same controls, not the only one.

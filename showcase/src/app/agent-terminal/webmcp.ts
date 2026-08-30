@@ -2,7 +2,7 @@
  * WebMCP tool surface for the Suwappu Agent Desk.
  *
  * The Desk registers site tools with the W3C Web Model Context API so that an
- * agent inside the browser (ChatGPT desktop's built-in browser, or Chrome with
+ * agent inside the browser (ChatGPT Atlas, or Chrome with
  * WebMCP enabled) can research and *propose* onchain trades on this page —
  * while every state change that costs the human money stays behind an explicit,
  * human-clicked approval in the page UI.
@@ -330,7 +330,7 @@ export async function registerDeskTools(
     {
       name: 'propose_swap',
       description:
-        'Propose a swap to the human. This does NOT execute anything: it places a proposal card on the page with your rationale, and the human must click Approve or Reject. Call check_mandate first — a proposal that breaks the mandate lands in red with Approve locked, and you will have to argue for it via request_override. Returns a proposalId; poll it with check_approval.',
+        'Propose a swap to the human. This does NOT execute anything: it places a proposal card on the page with your rationale, and the human must click Approve or Reject. The mandate verdict is attached to the proposal automatically — one that breaks the rules lands in red with Approve locked, and arguing for it takes request_override. check_mandate is only for sizing a trade silently beforehand; when the human asks you to propose, propose. Returns a proposalId; poll it with check_approval.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -372,7 +372,7 @@ export async function registerDeskTools(
     {
       name: 'propose_price_alert',
       description:
-        'Propose a price alert for the human to approve. On approval the desk hands off a one-click link that arms the alert in the Suwappu bot. Does not create anything by itself.',
+        'Propose a price alert for the human to approve. It fetches the current spot price itself and shows it beside the target — you do not need to call get_prices first. On approval the desk hands off a one-click link that arms the alert in the Suwappu bot. Does not create anything by itself.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -426,7 +426,7 @@ export async function registerDeskTools(
     {
       name: 'amend_mandate',
       description:
-        "Propose a change to the human's standing mandate itself — a different cap, another chain, one more token on the allow-list. This is how the envelope actually evolves: the human sees a before/after diff with every loosened rule flagged, and on approval the mandate CHANGES on the page and persists. Use it when the mandate is repeatedly getting in the way of trades the human clearly wants, and say what evidence made you ask. Do not use it to widen your own room without a reason you would defend out loud.",
+        "Propose a change to the human's standing mandate itself — a different cap, another chain, one more token on the allow-list. This is how the envelope actually evolves: the human sees a before/after diff with every loosened rule flagged, and on approval the mandate CHANGES on the page and persists. The result echoes the current value of every rule you touch, so you do not need to call read_mandate first. Use it when the mandate is repeatedly getting in the way of trades the human clearly wants, and say what evidence made you ask. Do not use it to widen your own room without a reason you would defend out loud.",
       inputSchema: {
         type: 'object',
         properties: {
