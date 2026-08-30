@@ -17,7 +17,7 @@ against, and even argue with, while approval and signing stay human.
 An agent that wants to trade for you today has two bad options: scrape a UI
 built for eyes, or take custody through an API key. One is brittle; the other
 hands a language model your money. The Agent Desk takes neither. Via WebMCP,
-the agent gets 16+ typed tools over Suwappu's live cross-chain routing engine —
+the agent gets 19 typed tools over Suwappu's live cross-chain routing engine —
 no key, no signup, in the session you're already in. Between agent and engine
 sits the piece that's usually missing: a **mandate**. You write the envelope
 once — per-trade/per-day USD caps, allowed chains and tokens, impact ceilings.
@@ -122,3 +122,6 @@ running green (10s).
       current schemas until re-run.
 - [ ] Demo video shows the declarative half too: the agent filling the ticket
       form and the human pressing Price it.
+- [ ] Re-verify every literal count in the docs (47 assertions, 16 static /
+      18 imperative / 19 total tools) against the suites and `TOOLS` before
+      submitting — these numbers are hand-written and rot silently.

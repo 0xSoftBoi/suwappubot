@@ -33,6 +33,24 @@ interface ToolDescriptor {
   ) => Promise<unknown> | unknown;
 }
 
+/**
+ * The declarative half of the spec: an engine that drove a form submit lets
+ * the page answer it through `SubmitEvent.respondWith()`. Optional because
+ * the same submit still arrives from plain browsers.
+ */
+export interface WebMCPSubmitEvent extends SubmitEvent {
+  respondWith?: (value: Promise<unknown>) => void;
+}
+
+/**
+ * Custom WebMCP markup attributes (`toolname`, `tooldescription`,
+ * `toolparamdescription`) that JSX does not know about — one cast, used by
+ * every declarative-tool element instead of inline `as` noise.
+ */
+export function webmcpAttrs(attrs: Record<string, string>): Record<string, string> {
+  return attrs;
+}
+
 export interface ModelContextLike {
   registerTool: (
     tool: ToolDescriptor,

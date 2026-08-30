@@ -28,9 +28,21 @@ import {
   registerDeskTools,
   registerHandoffTool,
   registerOverrideTool,
+  webmcpAttrs,
   type DeskController,
   type ModelContextLike,
+  type WebMCPSubmitEvent,
 } from './webmcp';
+
+/** Agent-authored free text is untrusted — it always renders quoted and labeled. */
+function AgentQuote({ text }: { text: string }) {
+  return (
+    <blockquote className={styles.rationale}>
+      <span className={styles.agentText}>agent-written — unverified</span>
+      {text}
+    </blockquote>
+  );
+}
 import styles from './agent-desk.module.css';
 
 // ── Model ───────────────────────────────────────────────────────────
@@ -1338,9 +1350,7 @@ export default function AgentDesk() {
     const pricing = runPreview(t).catch(() => undefined /* surfaced in previewError */);
     // Declarative WebMCP: when an engine drove this submit, hand the priced
     // ticket back as the tool result instead of making it scrape the DOM.
-    const native = e.nativeEvent as SubmitEvent & {
-      respondWith?: (value: Promise<unknown>) => void;
-    };
+    const native = e.nativeEvent as WebMCPSubmitEvent;
     if (typeof native.respondWith === 'function') native.respondWith(pricing);
   };
 
@@ -1539,11 +1549,11 @@ export default function AgentDesk() {
           </p>
           <form
             onSubmit={onTicketSubmit}
-            {...({
+            {...webmcpAttrs({
               toolname: 'fill_and_price_ticket',
               tooldescription:
                 'Fill the shared swap ticket and price it against the live cross-chain routing engine. Pricing attaches the mandate verdict; it proposes nothing and spends nothing.',
-            } as Record<string, string>)}
+            })}
           >
             <div className={styles.ticketGrid}>
               <label className={styles.field}>
@@ -1553,9 +1563,9 @@ export default function AgentDesk() {
                   value={ticket.amount}
                   inputMode="decimal"
                   onChange={(e) => setTicket((t) => ({ ...t, amount: e.target.value }))}
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Human-readable amount of the token being sold.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
               <label className={styles.field}>
@@ -1566,9 +1576,9 @@ export default function AgentDesk() {
                   onChange={(e) =>
                     setTicket((t) => ({ ...t, fromToken: e.target.value.toUpperCase() }))
                   }
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Ticker of the token being sold, e.g. ETH.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
               <label className={styles.field}>
@@ -1577,9 +1587,9 @@ export default function AgentDesk() {
                   name="fromChain"
                   value={ticket.fromChain}
                   onChange={(e) => setTicket((t) => ({ ...t, fromChain: e.target.value }))}
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Source chain key.',
-                  } as Record<string, string>)}
+                  })}
                 >
                   {chainKeys.map((k) => (
                     <option key={k} value={k}>
@@ -1596,9 +1606,9 @@ export default function AgentDesk() {
                   onChange={(e) =>
                     setTicket((t) => ({ ...t, toToken: e.target.value.toUpperCase() }))
                   }
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Ticker of the token being bought.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
               <label className={styles.field}>
@@ -1607,9 +1617,9 @@ export default function AgentDesk() {
                   name="toChain"
                   value={ticket.toChain}
                   onChange={(e) => setTicket((t) => ({ ...t, toChain: e.target.value }))}
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Destination chain key.',
-                  } as Record<string, string>)}
+                  })}
                 >
                   {chainKeys.map((k) => (
                     <option key={k} value={k}>
@@ -1630,9 +1640,9 @@ export default function AgentDesk() {
                       slippagePercent: Number.parseFloat(e.target.value) || t.slippagePercent,
                     }))
                   }
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Maximum slippage in percent.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
             </div>
@@ -1869,10 +1879,7 @@ export default function AgentDesk() {
                     </ul>
                   )}
 
-                  <blockquote className={styles.rationale}>
-                    <span className={styles.agentText}>agent-written — unverified</span>
-                    {p.rationale}
-                  </blockquote>
+                  <AgentQuote text={p.rationale} />
 
                   {p.verdict && !p.verdict.withinMandate && (
                     <div className={styles.violations}>
@@ -1896,10 +1903,7 @@ export default function AgentDesk() {
                       <p className={styles.overrideTitle}>
                         Your agent is asking you to bend a rule
                       </p>
-                      <blockquote className={styles.rationale}>
-                        <span className={styles.agentText}>agent-written — unverified</span>
-                        {p.override.argument}
-                      </blockquote>
+                      <AgentQuote text={p.override.argument} />
                       <div className={styles.actions}>
                         <button
                           type="button"
