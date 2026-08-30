@@ -32,9 +32,13 @@ rationale, breach, argument, and decision exports as a receipt.
 
 ## Criterion 1 — WebMCP Leverage
 
-- 16 static + 2 dynamically registered tools on `document.modelContext`
-  (feature-detecting the May 2026 `document` draft over deprecated
-  `navigator.modelContext`).
+- **Both halves of the API.** 16 static + 2 dynamically registered imperative
+  tools on `document.modelContext` (feature-detecting the May 2026 `document`
+  draft over deprecated `navigator.modelContext`) — plus the *declarative*
+  half: the real ticket `<form>` is itself a WebMCP tool
+  (`toolname`/`tooldescription`/`toolparamdescription`, answering the engine
+  via `SubmitEvent.respondWith()`, deliberately without `toolautosubmit` so
+  submit stays an explicit act).
 - Registration with `{ signal }`: conditional tools (`request_override`,
   `open_signing_handoff`) appear/disappear with the human's state by aborting
   controllers — `toolchange` fires, proven against Google's reference polyfill
@@ -52,7 +56,7 @@ rationale, breach, argument, and decision exports as a receipt.
 
 - Real product surface (Suwappu's live showcase, Next.js), real pricing via a
   new deliberately non-executable public endpoint — not a mock.
-- Three independent verification layers, all green: 41 behavioural assertions
+- Three independent verification layers, all green: 47 behavioural assertions
   (`webmcp:smoke`), 11 spec-conformance checks against Google's own polyfill
   (`webmcp:spec`), 15/15 deterministic eval executions + 12/15 (80%) on the
   official LLM harness — misses reported honestly, not explained away.

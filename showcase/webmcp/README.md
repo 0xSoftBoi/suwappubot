@@ -18,7 +18,7 @@ bun run dev                # serve the desk on :4321 first
 
 bun run webmcp:schemas     # re-export schemas from the live page
 bun run webmcp:evals       # deterministic — executes every case for real, no API key
-bun run webmcp:smoke       # 41 behavioural assertions on the human-in-the-loop contract
+bun run webmcp:smoke       # 47 behavioural assertions on the human-in-the-loop contract
 bun run webmcp:spec        # 11 spec-conformance checks against Google's own polyfill
 
 GOOGLE_AI=<key> bun run webmcp:evals:llm   # Google's LLM harness
@@ -70,12 +70,23 @@ scores as wrong because it grades the first call:
 | Propose a price alert | `propose_price_alert` | `get_prices` |
 | Propose amending the envelope | `amend_mandate` | `read_mandate` |
 
-Checking the mandate before proposing is *literally what `propose_swap`'s own
-description tells the agent to do*, and reading the current rules before arguing
+Checking the mandate before proposing was *literally what `propose_swap`'s own
+description told the agent to do*, and reading the current rules before arguing
 to change them is what you would want. These are arguably the eval expectations
 being too strict rather than the tools being wrong — but they are recorded as
 misses rather than explained away, because a score you adjust after seeing it
 is not a measurement.
+
+The misses did expose the same description-level disease as the first run,
+though: each tool was silently self-sufficient without saying so. All three
+descriptions now state the truth the implementations already had —
+`propose_swap` attaches the mandate verdict itself (check_mandate is for
+*silent* sizing only), `propose_price_alert` fetches the spot price itself,
+and `amend_mandate` echoes the current value of every rule it touches. The
+static schema export reflects the new wording. The LLM harness has **not been
+re-scored** since (no API key in this environment) — the 12/15 above is the
+last measured number, not a claim about the current descriptions. Re-run
+`webmcp:evals:llm` before quoting a score.
 
 ## Spec conformance
 

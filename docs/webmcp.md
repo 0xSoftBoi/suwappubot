@@ -96,6 +96,14 @@ says so, and so does `read_mandate`'s own payload.
    whole session: every rationale, mandate verdict, override argument, human
    decision and note.
 7. **The page works without WebMCP.** Every tool has a human control.
+8. **Both halves of the spec.** Alongside the imperative tools, the ticket
+   itself is a *declarative* WebMCP tool: the real `<form>` carries
+   `toolname="fill_and_price_ticket"` / `tooldescription`, every field a
+   `name` + `toolparamdescription`, and submit answers the engine through
+   `SubmitEvent.respondWith()` with the priced ticket. Deliberately **no
+   `toolautosubmit`** — an engine can fill the form, but pricing still goes
+   through the same submit a human uses. In a browser without WebMCP the
+   attributes are inert and the form is just the form.
 
 ## How an agent finds the desk
 
@@ -156,11 +164,13 @@ caller names one.
 ```bash
 cd showcase
 bun run dev            # serve the desk on :4321
-bun run webmcp:smoke   # 34 assertions against a modelContext polyfill
+bun run webmcp:smoke   # 47 assertions against a modelContext polyfill
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **41 assertions**, among them: that a
+drives the real page through **47 assertions**, among them: that the ticket
+form is a declarative WebMCP tool (named, described, six described parameters,
+no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
 `disabled` in the DOM; that `request_override` does not exist until then; that a
 blocked `check_approval` resolves on the human's actual click with their note
