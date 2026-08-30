@@ -117,3 +117,8 @@ running green (10s).
 - [ ] Devpost text names the eval-caught description bug — honest measurement
       is a differentiator for this panel.
 - [ ] Fresh `webmcp:schemas` export committed (schemas cannot drift).
+- [ ] `webmcp:evals:llm` re-scored with a GOOGLE_AI key after the description
+      fixes — 12/15 is the last measured number and must not be quoted for the
+      current schemas until re-run.
+- [ ] Demo video shows the declarative half too: the agent filling the ticket
+      form and the human pressing Price it.
