@@ -301,6 +301,10 @@ function NewKeyModal({ orgId, onClose, onCreated, apiFetch }: NewKeyModalProps) 
   const [scopes, setScopes] = useState<string[]>(['read', 'swap']);
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState<string | null>(null);
+  // Set after a successful create: the plaintext secret, shown exactly once.
+  const [rawKey, setRawKey]   = useState<string | null>(null);
+  const [copied, setCopied]   = useState(false);
+  const [createdKey, setCreatedKey] = useState<ApiKey | null>(null);
 
   function toggleScope(s: string) {
     setScopes((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
@@ -316,16 +320,83 @@ function NewKeyModal({ orgId, onClose, onCreated, apiFetch }: NewKeyModalProps) 
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setErr(body?.detail ?? 'Failed to create key.');
+        setErr(
+          typeof body?.error === 'string' ? body.error
+          : typeof body?.detail === 'string' ? body.detail
+          : 'We couldn’t create the key. Please try again.');
         return;
       }
-      const created: ApiKey = await res.json();
-      onCreated(created);
+      // ENVELOPE: { key: {...}, rawKey: 'sk_live_…' }. Treating the whole
+      // body as the key put a row with scopes:undefined into the table,
+      // whose .map() then crashed the entire dashboard to a white
+      // "Application error" — right after the key had actually been created.
+      // And rawKey — the secret, retrievable exactly once — was never shown.
+      const body = await res.json();
+      const created: ApiKey = {
+        ...(body?.key ?? {}),
+        scopes: Array.isArray(body?.key?.scopes) ? body.key.scopes : scopes,
+      };
+      setCreatedKey(created);
+      setRawKey(typeof body?.rawKey === 'string' ? body.rawKey : null);
     } catch {
-      setErr('Network error. Try again.');
+      setErr('We couldn’t reach the server. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function copyKey() {
+    if (!rawKey) return;
+    try {
+      await navigator.clipboard.writeText(rawKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard can be unavailable; the key is selectable text */ }
+  }
+
+  function finish() {
+    if (createdKey) onCreated(createdKey);
+    else onClose();
+  }
+
+  // Post-create: show the secret once, plainly. This is the only chance
+  // anyone gets to copy it, so nothing else competes for attention.
+  if (createdKey) {
+    return (
+      <div className={styles.modalBackdrop} role="dialog" aria-modal="true" aria-label="API key created">
+        <div className={styles.modal}>
+          <h2 className={styles.modalTitle}>Your key is ready</h2>
+          <p className={styles.billingMeta} style={{ marginBottom: 12, lineHeight: 1.6 }}>
+            Copy it now and store it somewhere safe — for your security we can’t
+            show it again. If you lose it, just create a new key.
+          </p>
+          {rawKey ? (
+            <input
+              className={styles.fieldInput}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
+              readOnly
+              value={rawKey}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Your new API key"
+            />
+          ) : (
+            <p className={styles.loginError} role="alert">
+              The key was created but we couldn’t read it back — revoke it and create a new one.
+            </p>
+          )}
+          <div className={styles.modalActions}>
+            {rawKey && (
+              <button className={styles.actionBtn} onClick={copyKey}>
+                {copied ? 'Copied ✓' : 'Copy key'}
+              </button>
+            )}
+            <button className="summer-button summer-button--primary" onClick={finish}>
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -887,10 +958,12 @@ export default function DashboardPage() {
               return (
                 <tr key={k.id} style={{ opacity: st === 'revoked' ? 0.45 : 1 }}>
                   <td style={{ fontWeight: 600 }}>{k.name}</td>
-                  <td className={styles.mono}>{k.prefix}…</td>
+                  <td className={styles.mono}>{k.prefix ?? 'sk_live_'}…</td>
                   <td>
                     <div className={styles.pills}>
-                      {k.scopes.map((s) => (
+                      {/* One malformed row must show as empty pills, never
+                          throw and take the whole dashboard down. */}
+                      {(k.scopes ?? []).map((s) => (
                         <span key={s} className={styles.pill}>{s}</span>
                       ))}
                     </div>
