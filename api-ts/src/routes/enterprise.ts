@@ -31,7 +31,7 @@ export const enterpriseRoutes = new Hono()
  * these routes required X-Telegram-Init-Data and the dashboard sent a bearer
  * token, so every request 401'd.
  */
-async function resolveUserId(c: any): Promise<number | null> {
+export async function resolveUserId(c: any): Promise<number | null> {
 	const authUser = c.get('authUser')
 	if (authUser?.userId) return authUser.userId
 
@@ -59,7 +59,7 @@ async function resolveUserId(c: any): Promise<number | null> {
  * Callers MUST use the returned `orgId` (the resolved id) for their
  * queries, never the raw path param.
  */
-async function resolveMembership(
+export async function resolveMembership(
 	c: any,
 	orgId: string,
 	allowedRoles: string[],

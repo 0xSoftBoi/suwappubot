@@ -26,6 +26,7 @@ import {
 	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseRoutes,
+	enterpriseTransactionsRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -201,6 +202,9 @@ export function createApp(config: AppConfig) {
 
 	// Enterprise org management + API key control plane
 	app.route('/enterprise', enterpriseRoutes)
+	// Enterprise transaction monitoring — separate router, same prefix (Hono
+	// supports multiple app.route() calls at one path).
+	app.route('/enterprise', enterpriseTransactionsRoutes)
 
 	// Core agent routes (v1/agent/*) enforce their own public/authenticated boundaries.
 	// Protocol-specific routes mounted below define their own auth boundary as well.
