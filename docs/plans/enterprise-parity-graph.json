@@ -56,8 +56,8 @@
         "tx-monitor-api"
       ],
       "surface": "showcase",
-      "status": "in_progress",
-      "notes": ""
+      "status": "done",
+      "notes": "DONE: showcase/src/app/dashboard/transactions/ \u2014 filter bar (draft/applied), status badges, accordion detail rows, offset pagination, authenticated blob CSV download. Build clean. Backend endpoint exists (enterpriseTransactions.ts, committed)."
     },
     {
       "id": "audit-api",
@@ -79,7 +79,7 @@
         "audit-api"
       ],
       "surface": "showcase",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "Tamper-evidence surfaced: green 'chain verified' / red 'broken at entry N'."
     },
     {

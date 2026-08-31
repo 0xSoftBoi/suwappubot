@@ -1,0 +1,269 @@
+/* Transactions page — layered on top of ../dashboard.module.css (shared
+   .card, .table, .actionBtn, .stateBox, --summer-* tokens). This file only
+   holds transaction-specific shapes: the filter bar, status badges, hash
+   chips, the expandable detail row, and pagination. */
+
+/* ── Filter bar ── */
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 130px;
+}
+
+.filterLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.filterInput,
+.filterSelect {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.86rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.filterInput:focus,
+.filterSelect:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.filterActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.exportErr {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  border-radius: 8px;
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+  font-size: 0.82rem;
+}
+
+/* ── Table rows ── */
+
+.txRow {
+  cursor: pointer;
+}
+
+.detailRow td {
+  padding: 0;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.detailPanel {
+  padding: 16px 18px 18px;
+  background: rgba(237, 248, 251, 0.4);
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detailLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.detailHashes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+/* ── Pair cell (fromToken -> toToken with chains) ── */
+
+.pair {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.pairToken {
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.pairChain {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: capitalize;
+}
+
+.pairArrow {
+  color: rgba(33, 88, 110, 0.45);
+  font-size: 0.8rem;
+}
+
+/* ── Status badge ── */
+
+.statusBadge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: capitalize;
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  background: rgba(142, 182, 197, 0.12);
+  color: #5a7184;
+}
+
+.statusBadge[data-status='completed'],
+.statusBadge[data-status='success'],
+.statusBadge[data-status='confirmed'] {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  color: #1e8449;
+}
+
+.statusBadge[data-status='pending'],
+.statusBadge[data-status='processing'],
+.statusBadge[data-status='bridging'] {
+  border-color: rgba(229, 176, 43, 0.4);
+  background: rgba(229, 176, 43, 0.12);
+  color: #9a6b00;
+}
+
+.statusBadge[data-status='failed'],
+.statusBadge[data-status='error'] {
+  border-color: rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+}
+
+.statusBadge[data-status='refunded'],
+.statusBadge[data-status='cancelled'] {
+  border-color: rgba(229, 141, 43, 0.4);
+  background: rgba(229, 141, 43, 0.1);
+  color: #b96a12;
+}
+
+/* ── Hash chip w/ copy button ── */
+
+.hashChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid rgba(207, 227, 234, 0.85);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.hashLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hashEmpty {
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #0b789a;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.copyBtn:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.copyBtn:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 1px;
+}
+
+/* ── Pagination ── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.pageMeta {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.pageBtns {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .filterField {
+    min-width: 100%;
+  }
+  .filterActions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
