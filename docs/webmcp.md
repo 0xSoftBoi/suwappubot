@@ -164,14 +164,14 @@ caller names one.
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 72 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 75 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **72 assertions**, among them: that the ticket
+drives the real page through **75 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is

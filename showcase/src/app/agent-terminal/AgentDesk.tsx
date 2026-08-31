@@ -21,6 +21,7 @@ import {
   type AmendmentDiff,
   type Mandate,
   type MandateAmendment,
+  type MandateRuleKey,
   type MandateVerdict,
 } from './mandate';
 import {
@@ -43,6 +44,26 @@ function AgentQuote({ text }: { text: string }) {
     </blockquote>
   );
 }
+
+/**
+ * The tool-*result* sibling of `AgentQuote`: whenever a rationale or override
+ * argument the agent wrote earlier is re-fed to the model (via read_desk,
+ * check_approval, or export_receipt), it is wrapped in this shape instead of
+ * handed back as a bare string, so the model can't mistake its own earlier
+ * persuasive text for a new instruction (Hines et al., arXiv:2403.14720;
+ * Wu et al., IsolateGPT arXiv:2403.04960). The human-facing render above is
+ * unaffected — it always worked from the raw string in component state.
+ */
+interface AgentWrittenText {
+  agentWritten: true;
+  unverified: true;
+  text: string;
+}
+const agentWritten = (text: string): AgentWrittenText => ({
+  agentWritten: true,
+  unverified: true,
+  text,
+});
 import styles from './agent-desk.module.css';
 import DeskFlow from './DeskFlow';
 
@@ -96,6 +117,8 @@ interface Proposal {
   createdAt: number;
   expiresAt: number;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
+  /** Envelope version this proposal was judged under, captured at creation. */
+  mandateVersion: number;
   humanNote: string | null;
   decidedAt: number | null;
   consumedAt: number | null;
@@ -183,7 +206,7 @@ const isBlocked = (p: Proposal) =>
  * Each mandate rule gets its own glyph/heading; the rule/limit/actual detail
  * rows stay exactly as they are (that density is load-bearing).
  */
-const BREACH_META: Record<keyof Mandate, { glyph: string; heading: string }> = {
+const BREACH_META: Record<MandateRuleKey, { glyph: string; heading: string }> = {
   perTradeUsdCap: { glyph: '$', heading: 'Over your per-trade cap' },
   dailyUsdCap: { glyph: 'Σ', heading: "Over today's budget" },
   allowedChains: { glyph: '⇄', heading: "Chain isn't on your allow-list" },
@@ -299,9 +322,9 @@ export default function AgentDesk() {
   );
 
   const updateMandate = useCallback(
-    (patch: Partial<Mandate>) => {
+    (patch: Partial<Mandate> | ((prev: Mandate) => Mandate)) => {
       setMandate((prev) => {
-        const next = { ...prev, ...patch };
+        const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch };
         mandateRef.current = next;
         try {
           window.localStorage.setItem(MANDATE_KEY, JSON.stringify(next));
@@ -325,7 +348,13 @@ export default function AgentDesk() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(MANDATE_KEY);
-      if (raw) setMandate({ ...DEFAULT_MANDATE, ...(JSON.parse(raw) as Partial<Mandate>) });
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<Mandate>;
+        if (!Number.isInteger(parsed.version) || (parsed.version as number) < 1) {
+          delete parsed.version;
+        }
+        setMandate({ ...DEFAULT_MANDATE, ...parsed });
+      }
     } catch {
       /* private mode, blocked storage — the default mandate is fine */
     }
@@ -454,13 +483,19 @@ export default function AgentDesk() {
         // The one thing on this desk that completes in place: an approved
         // amendment rewrites the envelope, here, now, and it persists.
         if (status === 'approved' && decided.kind === 'mandate' && decided.amendment) {
-          updateMandate(decided.amendment.changes);
+          const prevVersion = mandateRef.current.version;
+          const nextMandate = applyAmendment(mandateRef.current, decided.amendment.changes);
+          // Write from the updater's own prev so a concurrent panel edit can
+          // never be clobbered by a stale ref snapshot.
+          const changes = decided.amendment.changes;
+          updateMandate((prev) => applyAmendment(prev, changes));
           log(
             'human',
             'Mandate amended',
-            decided.amendment.diffs
-              .map((d) => `${d.field}: ${d.from} → ${d.to} (${d.direction})`)
-              .join('; '),
+            `v${prevVersion} → v${nextMandate.version}; ` +
+              decided.amendment.diffs
+                .map((d) => `${d.field}: ${d.from} → ${d.to} (${d.direction})`)
+                .join('; '),
           );
         }
         settle(decided);
@@ -534,7 +569,8 @@ export default function AgentDesk() {
         id: p.id,
         kind: p.kind,
         createdAt: new Date(p.createdAt).toISOString(),
-        agentRationale: p.rationale,
+        mandateVersion: p.mandateVersion,
+        agentRationale: agentWritten(p.rationale),
         notionalUsd: notionalOf(p),
         mandate: p.verdict
           ? {
@@ -542,7 +578,7 @@ export default function AgentDesk() {
               violations: p.verdict.violations,
             }
           : null,
-        override: p.override,
+        override: p.override ? { ...p.override, argument: agentWritten(p.override.argument) } : null,
         humanDecision: p.status,
         humanNote: p.humanNote,
         decidedAt: p.decidedAt ? new Date(p.decidedAt).toISOString() : null,
@@ -550,6 +586,110 @@ export default function AgentDesk() {
       })),
       toolCalls: activityRef.current
         .filter((a) => a.actor === 'agent')
+        // detail serializes agent-supplied arguments, so it is agent-authored
+        // by construction and re-feeds wrapped, like every other echo.
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: agentWritten(a.detail) }))
+        .reverse(),
+      humanActivity: activityRef.current
+        .filter((a) => a.actor === 'human')
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: a.detail }))
+        .reverse(),
+    };
+  }, [spentToday]);
+
+  /**
+   * P1.1: the `format:"json"` shape for `export_receipt` — a schemaVersion-
+   * stamped, machine-parseable object (Chan et al., "Visibility into AI
+   * Agents", arXiv:2401.13138) built from the same state as `buildReceipt`
+   * above rather than new tracking. Every agent-written field is wrapped
+   * per P1.2 (`agentWritten`, above).
+   */
+  const buildReceiptJson = useCallback(() => {
+    const list = proposalsRef.current;
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      surface: 'Suwappu Agent Desk (WebMCP)',
+      custody:
+        'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
+      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      proposals: list.map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        status: p.status,
+        createdAt: new Date(p.createdAt).toISOString(),
+        expiresAt: new Date(p.expiresAt).toISOString(),
+        decidedAt: p.decidedAt ? new Date(p.decidedAt).toISOString() : null,
+        consumedAt: p.consumedAt ? new Date(p.consumedAt).toISOString() : null,
+        mandateVersion: p.mandateVersion,
+        rationale: agentWritten(p.rationale),
+        notionalUsd: notionalOf(p),
+        ...(p.swap
+          ? {
+              swap: {
+                sell: `${p.swap.amount} ${p.swap.fromToken} on ${p.swap.fromChain}`,
+                buy: `${p.swap.toToken} on ${p.swap.toChain}`,
+                slippagePercent: p.swap.slippagePercent ?? null,
+              },
+            }
+          : {}),
+        ...(p.alert
+          ? {
+              alert: {
+                watch: p.alert.symbol,
+                fires: `${p.alert.direction} ${fmtUsd(p.alert.targetPrice)}`,
+              },
+            }
+          : {}),
+        ...(p.plan
+          ? {
+              plan: {
+                combinedUsd: p.plan.combinedUsd,
+                steps: p.plan.steps.map((s, i) => ({
+                  step: i + 1,
+                  kind: s.kind,
+                  note: s.note ? agentWritten(s.note) : null,
+                  summary: s.swap
+                    ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                    : s.alert
+                      ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
+                      : null,
+                })),
+              },
+            }
+          : {}),
+        mandateVerdict: p.verdict
+          ? { withinMandate: p.verdict.withinMandate, violations: p.verdict.violations }
+          : null,
+        humanDecision: { decision: p.status, note: p.humanNote },
+        override: p.override
+          ? {
+              argument: agentWritten(p.override.argument),
+              askedAt: new Date(p.override.askedAt).toISOString(),
+              outcome:
+                p.override.granted === true
+                  ? 'granted'
+                  : p.override.granted === false
+                    ? 'denied'
+                    : 'pending',
+            }
+          : null,
+        amendment: p.amendment
+          ? {
+              diffs: p.amendment.diffs,
+              loosenedFields: p.amendment.diffs
+                .filter((d) => d.direction === 'looser')
+                .map((d) => d.field),
+            }
+          : null,
+      })),
+      toolCallActivity: activityRef.current
+        .filter((a) => a.actor === 'agent')
+        // detail serializes agent-supplied arguments — wrapped like every echo.
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: agentWritten(a.detail) }))
+        .reverse(),
+      humanActivity: activityRef.current
+        .filter((a) => a.actor === 'human')
         .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: a.detail }))
         .reverse(),
     };
@@ -602,12 +742,12 @@ export default function AgentDesk() {
       proposalId: p.id,
       kind: p.kind,
       status: p.status,
-      rationale: p.rationale,
+      rationale: agentWritten(p.rationale),
       humanNote: p.humanNote,
       notionalUsd: notionalOf(p),
       mandate: describeVerdict(p.verdict),
       blocked: isBlocked(p),
-      override: p.override,
+      override: p.override ? { ...p.override, argument: agentWritten(p.override.argument) } : null,
       createdAt: new Date(p.createdAt).toISOString(),
       expiresAt: new Date(p.expiresAt).toISOString(),
       ...(p.swap
@@ -856,6 +996,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -979,6 +1120,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -1091,6 +1233,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -1134,6 +1277,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -1270,11 +1414,16 @@ export default function AgentDesk() {
         };
       },
 
-      exportReceipt({ download }) {
-        const receipt = buildReceipt();
+      exportReceipt({ download, format }) {
+        const useJson = format === 'json';
+        const receipt = useJson ? buildReceiptJson() : buildReceipt();
         if (download) {
-          downloadReceipt();
-          log('agent', 'Receipt downloaded', 'agent handed the human a copy of the session');
+          downloadJson(receipt, useJson ? 'suwappu-agent-desk-receipt-json' : 'suwappu-agent-desk-receipt');
+          log(
+            'agent',
+            'Receipt downloaded',
+            `agent handed the human a copy of the session (${useJson ? 'json' : 'default'} format)`,
+          );
         }
         return receipt;
       },
@@ -1290,9 +1439,9 @@ export default function AgentDesk() {
     };
   }, [
     buildReceipt,
+    buildReceiptJson,
     commitProposals,
     downloadJson,
-    downloadReceipt,
     judge,
     log,
     priceOne,

@@ -50,10 +50,14 @@ const knownToolNames = new Set([...toolsSchema.tools.map((t) => t.name), ...DYNA
 // find_token and compare_routes echo nothing back from their mocked API
 // responses, so those two cases are checked on (a) success + (c) restraint
 // only — noted per-case below rather than silently skipped.
+// P1.2: read_desk now wraps agent-written free text as
+// { agentWritten: true, unverified: true, text } instead of a bare string
+// (see agent-terminal/AgentDesk.tsx's `agentWritten` helper) — `.text` is
+// where the byte-for-byte round-trip lives now.
 const ARTIFACT = {
-  propose_swap: { get: (p) => p.rationale, expect: (s) => s, quoted: true },
-  amend_mandate: { get: (p) => p.rationale, expect: (s) => s, quoted: true },
-  propose_plan: { get: (p) => p.rationale, expect: (s) => s, quoted: true },
+  propose_swap: { get: (p) => p.rationale?.text, expect: (s) => s, quoted: true },
+  amend_mandate: { get: (p) => p.rationale?.text, expect: (s) => s, quoted: true },
+  propose_plan: { get: (p) => p.rationale?.text, expect: (s) => s, quoted: true },
   propose_price_alert: { get: (p) => p.alert?.watch, expect: (s) => s.toUpperCase(), quoted: false },
 };
 
@@ -101,6 +105,14 @@ for (const testCase of suite) {
       stored === expected,
       `stored: ${JSON.stringify(stored)}, expected: ${JSON.stringify(expected)}`,
     );
+
+    if (artifact.quoted) {
+      check(
+        `${testCase.name} → the rationale field is the { agentWritten, unverified, text } wrapper, not a bare string`,
+        proposals[0]?.rationale?.agentWritten === true && proposals[0]?.rationale?.unverified === true,
+        JSON.stringify(proposals[0]?.rationale),
+      );
+    }
 
     if (artifact.quoted) {
       const quoted = await page.evaluate(

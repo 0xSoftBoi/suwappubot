@@ -56,7 +56,7 @@ rationale, breach, argument, and decision exports as a receipt.
 
 - Real product surface (Suwappu's live showcase, Next.js), real pricing via a
   new deliberately non-executable public endpoint — not a mock.
-- Five independent verification layers, all green: 72 behavioural assertions
+- Five independent verification layers, all green: 75 behavioural assertions
   (`webmcp:smoke`), 11 spec-conformance checks against Google's own polyfill
   (`webmcp:spec`), 37/37 deterministic eval executions (`webmcp:evals`),
   49/49 adversarial injection checks (`webmcp:evals:adversarial`), and an
@@ -136,6 +136,6 @@ running green (10s).
       current schemas until re-run.
 - [ ] Demo video shows the declarative half too: the agent filling the ticket
       form and the human pressing Price it.
-- [ ] Re-verify every literal count in the docs (72 assertions, 16 static /
+- [ ] Re-verify every literal count in the docs (75 assertions, 16 static /
       18 imperative / 19 total tools) against the suites and `TOOLS` before
       submitting — these numbers are hand-written and rot silently.

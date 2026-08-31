@@ -14,6 +14,12 @@
  *   7. `open_signing_handoff` appears only after approval, and retires once spent
  *   8. plans price every leg and roll up to one combined notional
  *   9. the receipt records rationale, verdict and human decision
+ *  10. rationale/override-argument strings never re-enter a tool result as a
+ *      bare string — always { agentWritten: true, unverified: true, text }
+ *      (P1.2, arXiv:2403.14720)
+ *  11. `export_receipt` also has a schemaVersion-stamped `format:"json"`
+ *      shape, and the mandate carries a version that only an approved
+ *      `amend_mandate` increments (P1.1, arXiv:2401.13138, arXiv:2501.09674)
  *
  * Usage:  bun run webmcp:smoke          (server on :4321)
  *         DESK_URL=... CHROMIUM_PATH=... node scripts/webmcp-smoke.mjs
@@ -228,6 +234,7 @@ const mandate = await call('read_mandate');
 show('read_mandate', mandate);
 check('daily budget starts untouched', mandate.dailyRemainingUsd === mandate.dailyUsdCap);
 check('mandate states it is not enforcement', typeof mandate.notEnforcement === 'string');
+check('mandate starts at version 1 (P1.1)', mandate.version === 1, String(mandate.version));
 
 // ── 3. a silent dry-run inside the envelope ────────────────────────
 const inside = await call('check_mandate', {
@@ -321,14 +328,61 @@ check(
   `${capCardVariant} vs ${chainCardVariant}`,
 );
 
+// ── 4c. Spotlight agent-written text re-fed to the model (P1.2) ────
+// Hines et al., arXiv:2403.14720: untrusted spans re-fed to the model must be
+// explicitly delimited so the model can't mistake its own earlier persuasive
+// text for a new instruction. read_desk() must never hand a rationale back as
+// a bare string — only wrapped as { agentWritten, unverified, text }.
+function stringsOutsideAgentWrapper(value, out = []) {
+  if (Array.isArray(value)) {
+    for (const v of value) stringsOutsideAgentWrapper(v, out);
+  } else if (value && typeof value === 'object') {
+    if (value.agentWritten === true && value.unverified === true && typeof value.text === 'string') {
+      return out; // the one sanctioned spot for agent-written text — do not descend into it
+    }
+    for (const v of Object.values(value)) stringsOutsideAgentWrapper(v, out);
+  } else if (typeof value === 'string') {
+    out.push(value);
+  }
+  return out;
+}
+const RATIONALE_NEEDLE = 'Momentum looks strong and I think it is worth stretching the mandate here.';
+const spotlightDesk = await call('read_desk');
+check(
+  'read_desk never echoes the agent rationale as a bare, unwrapped string',
+  !stringsOutsideAgentWrapper(spotlightDesk).some((s) => s.includes(RATIONALE_NEEDLE)),
+);
+const spotlightProposal = spotlightDesk.proposals.find((p) => p.proposalId === blocked.proposalId);
+check(
+  'read_desk wraps the rationale as { agentWritten: true, unverified: true, text }',
+  spotlightProposal?.rationale?.agentWritten === true &&
+    spotlightProposal?.rationale?.unverified === true &&
+    spotlightProposal?.rationale?.text === RATIONALE_NEEDLE,
+  JSON.stringify(spotlightProposal?.rationale),
+);
+
 // ── 5. the agent argues, the human allows it once ──────────────────
+const OVERRIDE_ARGUMENT =
+  'This breaks the token allow-list and the per-trade cap. I think it is worth one exception because you asked me to find asymmetric upside this week.';
 const override = await call('request_override', {
   proposalId: blocked.proposalId,
-  argument:
-    'This breaks the token allow-list and the per-trade cap. I think it is worth one exception because you asked me to find asymmetric upside this week.',
+  argument: OVERRIDE_ARGUMENT,
 });
 show('request_override', override);
 check('override was recorded', override.status === 'override_requested');
+
+const deskWithOverride = await call('read_desk');
+check(
+  'read_desk never echoes the override argument as a bare, unwrapped string',
+  !stringsOutsideAgentWrapper(deskWithOverride).some((s) => s.includes(OVERRIDE_ARGUMENT)),
+);
+const overriddenAtDesk = deskWithOverride.proposals.find((p) => p.proposalId === blocked.proposalId);
+check(
+  'read_desk wraps the override argument as { agentWritten: true, unverified: true, text }',
+  overriddenAtDesk?.override?.argument?.agentWritten === true &&
+    overriddenAtDesk?.override?.argument?.text === OVERRIDE_ARGUMENT,
+  JSON.stringify(overriddenAtDesk?.override?.argument),
+);
 
 const overrideCardVariant = await page
   .locator('li', { hasText: 'Momentum looks strong' })
@@ -446,6 +500,11 @@ check(
   `${before.perTradeUsdCap} -> ${after.perTradeUsdCap}`,
 );
 check(
+  'approving the amendment incremented the mandate version (P1.1)',
+  after.version === before.version + 1,
+  `v${before.version} -> v${after.version}`,
+);
+check(
   'the new envelope is live for the next mandate check',
   (
     await call('check_mandate', {
@@ -471,8 +530,18 @@ check(
   compiled.endpoint === 'POST /v1/agent/wallet/policy' &&
     /never holds one/.test(compiled.authentication ?? ''),
 );
+check(
+  'compiled policy payloads are stamped with the mandate version they were compiled from (P1.1)',
+  compiled.policies.length > 0 && compiled.policies.every((p) => p.mandateVersion === after.version),
+  JSON.stringify(compiled.policies.map((p) => p.mandateVersion)),
+);
+check(
+  'compiled bundle notes cite the mandate version',
+  compiled.notes.some((n) => n.includes(`version ${after.version}`)),
+  JSON.stringify(compiled.notes),
+);
 
-// ── 10. the receipt ────────────────────────────────────────────────
+// ── 10. the receipt (default shape, now with wrapped agent text) ───
 const receipt = await call('export_receipt', {});
 check(
   'receipt lists both swaps, the plan and the amendment',
@@ -480,11 +549,79 @@ check(
   String(receipt.proposals.length),
 );
 const overridden = receipt.proposals.find((p) => p.id === blocked.proposalId);
-check('receipt keeps the agent rationale', Boolean(overridden?.agentRationale));
+check(
+  'receipt keeps the agent rationale, wrapped as agentWritten (P1.2)',
+  overridden?.agentRationale?.agentWritten === true &&
+    overridden?.agentRationale?.text === RATIONALE_NEEDLE,
+);
 check('receipt keeps the mandate breach', overridden?.mandate?.withinMandate === false);
 check('receipt keeps the human note', Boolean(overridden?.humanNote));
-check('receipt keeps the override argument', Boolean(overridden?.override?.argument));
+check(
+  'receipt keeps the override argument, wrapped as agentWritten (P1.2)',
+  overridden?.override?.argument?.agentWritten === true &&
+    overridden?.override?.argument?.text === OVERRIDE_ARGUMENT,
+);
 check('receipt logs the tool calls', receipt.toolCalls.length > 5);
+
+// ── 11. the structured JSON receipt (P1.1) ─────────────────────────
+const jsonReceipt = await call('export_receipt', { format: 'json' });
+show('export_receipt (format: json)', {
+  schemaVersion: jsonReceipt.schemaVersion,
+  mandateVersion: jsonReceipt.mandate?.version,
+  proposals: jsonReceipt.proposals?.length,
+});
+check('json receipt is schema-stamped', jsonReceipt.schemaVersion === 1, String(jsonReceipt.schemaVersion));
+check(
+  'json receipt carries the current mandate, including its version',
+  jsonReceipt.mandate?.version === after.version,
+  String(jsonReceipt.mandate?.version),
+);
+const jsonOverridden = jsonReceipt.proposals.find((p) => p.id === blocked.proposalId);
+check(
+  'json receipt wraps the proposal rationale',
+  jsonOverridden?.rationale?.agentWritten === true && jsonOverridden.rationale.text === RATIONALE_NEEDLE,
+);
+check(
+  'json receipt wraps the override argument and records its outcome',
+  jsonOverridden?.override?.argument?.agentWritten === true &&
+    jsonOverridden.override.argument.text === OVERRIDE_ARGUMENT &&
+    jsonOverridden.override.outcome === 'granted',
+  JSON.stringify(jsonOverridden?.override),
+);
+check(
+  'json receipt records the human decision and note',
+  jsonOverridden?.humanDecision?.decision === 'approved' &&
+    jsonOverridden?.humanDecision?.note === 'fine, once — do not ask again this week',
+  JSON.stringify(jsonOverridden?.humanDecision),
+);
+const jsonAmendment = jsonReceipt.proposals.find((p) => p.kind === 'mandate');
+check(
+  'json receipt records the amendment diff with loosened fields flagged',
+  Array.isArray(jsonAmendment?.amendment?.loosenedFields) &&
+    jsonAmendment.amendment.loosenedFields.includes('perTradeUsdCap'),
+  JSON.stringify(jsonAmendment?.amendment),
+);
+check(
+  'json receipt still logs tool-call activity',
+  Array.isArray(jsonReceipt.toolCallActivity) && jsonReceipt.toolCallActivity.length > 5,
+);
+check(
+  'json receipt never echoes a wrapped field\'s text as a second, bare occurrence',
+  !stringsOutsideAgentWrapper(jsonReceipt).some((s) => s.includes(RATIONALE_NEEDLE)) &&
+    !stringsOutsideAgentWrapper(jsonReceipt).some((s) => s.includes(OVERRIDE_ARGUMENT)),
+);
+check(
+  'json receipt stamps each proposal with the mandate version it was judged under',
+  jsonReceipt.proposals.every((p) => Number.isInteger(p.mandateVersion) && p.mandateVersion >= 1),
+);
+check(
+  'json receipt records what each swap proposal actually was',
+  jsonReceipt.proposals.filter((p) => p.kind === 'swap').every((p) => p.swap && p.swap.sell && p.swap.buy),
+);
+check(
+  'json receipt carries human activity (amendments, overrides, decisions), not only agent calls',
+  Array.isArray(jsonReceipt.humanActivity) && jsonReceipt.humanActivity.length > 0,
+);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 await browser.close();
