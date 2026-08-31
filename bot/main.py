@@ -276,6 +276,7 @@ from bot.handlers.copy import (
 # Token Sniping handlers
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
+from bot.handlers.pmdata import pmdata_handler
 from bot.handlers.savings import savings_conversation_handler
 from bot.handlers.earn import earn_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
@@ -531,6 +532,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(perps_conversation_handler)  # Perps trading /perps
     application.add_handler(battle_conversation_handler)  # MONEY-PATH: gamified /battle
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
+    application.add_handler(pmdata_handler)  # Polymarket historical data /pmdata
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
     application.add_handler(
         earn_conversation_handler
@@ -856,6 +858,7 @@ async def post_init(application) -> None:
             BotCommand("s", "💱 Swap a token"),
             BotCommand("perps", "📈 Perps trading"),
             BotCommand("predict", "🔮 Prediction markets"),
+            BotCommand("pmdata", "🗄 Polymarket historical data"),
             BotCommand("p", "📊 Portfolio overview"),
             BotCommand("pos", "💼 Positions & PnL"),
             BotCommand("w", "👛 Wallets"),
