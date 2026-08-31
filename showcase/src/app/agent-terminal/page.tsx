@@ -3,6 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import AgentDesk from './AgentDesk';
 import stats from '@/data/stats.generated.json';
+import { PROOF_STATS } from './proof-data';
 import styles from './agent-desk.module.css';
 
 export const metadata: Metadata = {
@@ -148,6 +149,71 @@ const STEPS = [
   },
 ];
 
+const PROOF_ITEMS = [
+  {
+    n: PROOF_STATS.smokeAssertions,
+    label: 'Behavioural assertions',
+    suite: 'webmcp:smoke',
+    body: 'A spec-shaped document.modelContext polyfill drives the real page: a blocked proposal’s Approve button is disabled in the DOM, request_override does not exist until something is blocked, an approved amendment actually rewrites the mandate, the receipt keeps every rationale and override argument.',
+  },
+  {
+    n: PROOF_STATS.specChecks,
+    label: 'Spec-conformance checks',
+    suite: 'webmcp:spec',
+    body: 'Checked against Google’s own reference WebMCP polyfill, not this page’s idea of the spec: every tool carries a name, description and bounded input schema; read tools are marked readOnlyHint; write tools are not.',
+  },
+  {
+    n: PROOF_STATS.evalExecutions,
+    label: 'Deterministic eval executions',
+    suite: 'webmcp:evals',
+    body: 'Every case in evals.json invoked for real against the live page, no mock, no API key. Rename a tool or tighten a schema and this suite fails before an agent ever meets it.',
+  },
+  {
+    n: PROOF_STATS.adversarialChecks,
+    label: 'Adversarial injection checks',
+    suite: 'webmcp:evals:adversarial',
+    body: 'Six injection-shaped strings, hidden in a token query, a rationale, a chain label, round-tripped through agent-supplied arguments and proven to land as quoted, unverified data — never as instructions this page obeys.',
+  },
+] as const;
+
+const CITATIONS = [
+  {
+    claim: 'Approval fatigue is measured, not assumed',
+    body: 'Click-through on browser security warnings rises with exposure count across 25M+ impressions, and the brain’s response to a repeated warning collapses by the second time it’s seen. It’s why the mandate asks fewer, denser questions instead of a prompt per trade — and why a breach card’s color and copy vary by which rule it broke instead of repeating one static template.',
+    papers: [
+      {
+        cite: 'Akhawe & Felt, USENIX Security 2013',
+        href: 'https://www.usenix.org/conference/usenixsecurity13/technical-sessions/presentation/akhawe',
+      },
+      { cite: 'Anderson et al., CHI 2015', href: 'https://doi.org/10.1145/2702123.2702478' },
+    ],
+  },
+  {
+    claim: 'Negotiation beats gatekeeping',
+    body: 'Pure yes/no approval measurably degrades human engagement; people need to contribute meaningfully, not just click a gate. Mixed-initiative interaction, either side may interrupt and negotiate, is the older finding this restates. request_override and amend_mandate are those findings turned into tools.',
+    papers: [
+      { cite: 'Horvitz, CHI 1999', href: 'https://doi.org/10.1145/302979.303030' },
+      { cite: 'Faas et al., CHI 2026', href: 'https://arxiv.org/abs/2510.19512' },
+    ],
+  },
+  {
+    claim: 'Untrusted in both directions',
+    body: 'Content an agent merely reads can carry instructions it obeys — the indirect-prompt-injection threat model. Explicitly delimiting untrusted spans cuts attack success from over 50% to under 2%. The “agent-written, unverified” label on every rationale and override argument, and the fact-not-imperative rule for this page’s own tool descriptions, are that defense in both directions.',
+    papers: [
+      { cite: 'Greshake et al., arXiv:2302.12173', href: 'https://arxiv.org/abs/2302.12173' },
+      { cite: 'Spotlighting, arXiv:2403.14720', href: 'https://arxiv.org/abs/2403.14720' },
+    ],
+  },
+  {
+    claim: 'Mandate → policy is authenticated delegation',
+    body: 'Scoped, auditable credentials for agents acting on a person’s behalf, and visibility (identifiers, activity logs, permission records) as first-class infrastructure, are both proposed directions for agent oversight. compile_mandate_to_policy and export_receipt are that shape, built.',
+    papers: [
+      { cite: 'South et al., arXiv:2501.09674', href: 'https://arxiv.org/abs/2501.09674' },
+      { cite: 'Chan et al., FAccT 2024', href: 'https://arxiv.org/abs/2401.13138' },
+    ],
+  },
+] as const;
+
 export default function AgentTerminalPage() {
   return (
     <main id="main-content" className={`summer-page docs-shell institutional-page ${styles.page}`}>
@@ -228,6 +294,78 @@ export default function AgentTerminalPage() {
               </div>
             );
           })}
+        </section>
+
+        <section className="institutional-section" id="proof">
+          <h2>Proved, not promised.</h2>
+          <p className={styles.sectionLead}>
+            Every claim on this page has a suite behind it. Not a badge, a repeatable
+            command — run <code className="summer-code">bun run webmcp:smoke</code> yourself
+            and read the assertions in <code className="summer-code">scripts/</code>.
+          </p>
+          <div className={styles.proofGrid}>
+            {PROOF_ITEMS.map((item) => (
+              <article key={item.suite} className={styles.proofCard}>
+                <p className={styles.proofNumber}>{item.n}</p>
+                <h3>{item.label}</h3>
+                <p>{item.body}</p>
+                <code className="summer-code">{item.suite}</code>
+              </article>
+            ))}
+          </div>
+          <div className={styles.proofHonest}>
+            <p>
+              An imperative-description lint (<code className="summer-code">webmcp:lint</code>)
+              greps every tool description for phrasing shaped like an instruction rather than a
+              fact, and a trajectory/pass^k/completion-under-policy grader
+              (<code className="summer-code">webmcp:grade</code>) re-scores the model harness
+              three ways instead of trusting one run.
+            </p>
+            <p>
+              That harness is Google’s own — a real model, not this team, picking tool calls from
+              plain English. On Gemini it scores{' '}
+              <strong>
+                {PROOF_STATS.llmHarness.passed}/{PROOF_STATS.llmHarness.total}
+              </strong>
+              , and on its first run it caught a real bug: <code className="summer-code">read_mandate</code>&apos;s
+              description opened “Read this FIRST.” and the model obeyed that over what the
+              person actually asked for, calling it when someone plainly wanted a price. The
+              imperative is gone now, and that case went fail to pass. We are leaving the miss in
+              the record rather than rounding the score up, because a suite that only ever reports
+              wins isn’t proof of anything.
+            </p>
+          </div>
+        </section>
+
+        <section className="institutional-section" id="grounded">
+          <h2>Grounded in the literature.</h2>
+          <p className={styles.sectionLead}>
+            The desk’s design claims aren’t vibes. Each one maps to named, verified prior art.
+          </p>
+          <ul className={styles.citeList}>
+            {CITATIONS.map((c) => (
+              <li key={c.claim} className={styles.citeRow}>
+                <h3>{c.claim}</h3>
+                <p>{c.body}</p>
+                <ul className={styles.citePapers}>
+                  {c.papers.map((p) => (
+                    <li key={p.href}>
+                      <a href={p.href} target="_blank" rel="noopener noreferrer">
+                        {p.cite}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+          <p className={styles.sectionLead}>
+            As of August 2026, no peer-reviewed paper names WebMCP itself — the closest is the{' '}
+            <a href="https://arxiv.org/abs/2507.21206" target="_blank" rel="noopener noreferrer">
+              agentic-web survey literature
+            </a>
+            . This desk is ahead of the academic literature on this exact protocol.
+          </p>
         </section>
 
         <section className="institutional-section" id="try-it">

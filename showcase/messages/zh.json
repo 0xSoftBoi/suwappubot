@@ -43,6 +43,8 @@
       "curveDesc": "覆盖 Curve 部署的每条链的所有资金池，按 TVL、交易量或 APR 排序",
       "agentApiTitle": "Agent API",
       "agentApiDesc": "为智能体打造的 REST 接口",
+      "agentDeskTitle": "Agent Desk",
+      "agentDeskDesc": "为浏览器代理提供的 WebMCP 工具",
       "mcpTitle": "MCP 服务器",
       "mcpDesc": "连接 Claude、Codex、Cursor",
       "sdksTitle": "SDK",

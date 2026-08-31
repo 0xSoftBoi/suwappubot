@@ -1005,3 +1005,134 @@
   background: rgba(79, 111, 127, 0.12);
   color: var(--muted);
 }
+
+/* ── proof: verification numbers ─────────────────────────────── */
+
+.proofGrid {
+  box-sizing: border-box;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin: 8px 0 24px;
+}
+
+.proofCard {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 20px 18px;
+  border: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: var(--suwappu-summer-card-background, #fff);
+}
+
+.proofNumber {
+  margin: 0 0 4px;
+  font-family: var(--font-newsreader, Georgia, serif);
+  font-size: 34px;
+  line-height: 1;
+  color: var(--suwappu-summer-accent-deep, #0284c7);
+}
+
+.proofCard h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+.proofCard p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+.proofCard code {
+  display: inline-block;
+  margin-top: 10px;
+}
+
+/* The honest story is prose, not another card — it earns the plain
+   treatment because it is the point of the section. */
+.proofHonest {
+  box-sizing: border-box;
+  max-width: 68ch;
+  padding: 18px 20px;
+  border-left: 3px solid var(--suwappu-summer-persimmon, #e58d2b);
+  background: var(--suwappu-summer-inset-background, #f5fcff);
+  border-radius: 0 var(--suwappu-summer-radius-inset, 8px) var(--suwappu-summer-radius-inset, 8px) 0;
+}
+
+.proofHonest p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink, #17324a);
+}
+
+.proofHonest p:last-child {
+  margin-bottom: 0;
+}
+
+.proofHonest strong {
+  color: var(--suwappu-summer-accent-deep, #0284c7);
+}
+
+/* ── grounded: claim → paper mapping ─────────────────────────── */
+
+.citeList {
+  box-sizing: border-box;
+  margin: 8px 0 20px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 18px;
+}
+
+.citeRow {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 18px 0;
+}
+
+.citeRow + .citeRow {
+  border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+}
+
+.citeRow h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  font-family: var(--font-newsreader, Georgia, serif);
+  font-weight: 500;
+}
+
+.citeRow p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+  max-width: 72ch;
+}
+
+.citePapers {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.citePapers li {
+  font-size: 13px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.citePapers a {
+  color: var(--suwappu-summer-accent-deep, #0284c7);
+  text-decoration-line: underline;
+  text-decoration-color: var(--suwappu-summer-line-strong, #42b8d7);
+  text-underline-offset: 3px;
+}
