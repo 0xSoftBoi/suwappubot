@@ -40,12 +40,21 @@ async function resolveUserId(c: any): Promise<number | null> {
 	return result.right
 }
 
-/** Verify caller is a member of the org with one of the allowed roles. */
+/** Verify caller is a member of the org with one of the allowed roles.
+ *
+ * `orgId` may be the literal `'me'`, meaning "the caller's first
+ * organisation" — the dashboard addresses /orgs/me/members etc. without
+ * knowing the org id. Hono matches /orgs/:orgId before any literal route
+ * registered later, so without this, every /orgs/me/* request ran a
+ * membership check against a nonexistent org called "me" and 403'd.
+ * Callers MUST use the returned `orgId` (the resolved id) for their
+ * queries, never the raw path param.
+ */
 async function resolveMembership(
 	c: any,
 	orgId: string,
 	allowedRoles: string[],
-): Promise<{ userId: number; role: string } | null> {
+): Promise<{ userId: number; role: string; orgId: string } | null> {
 	const userId = await resolveUserId(c)
 	if (!userId) return null
 
@@ -55,13 +64,18 @@ async function resolveMembership(
 			const rows = yield* Effect.tryPromise({
 				try: () =>
 					db
-						.select({ role: organizationMembers.role })
+						.select({
+							role: organizationMembers.role,
+							organizationId: organizationMembers.organizationId,
+						})
 						.from(organizationMembers)
 						.where(
-							and(
-								eq(organizationMembers.organizationId, orgId),
-								eq(organizationMembers.userId, userId),
-							),
+							orgId === 'me'
+								? eq(organizationMembers.userId, userId)
+								: and(
+										eq(organizationMembers.organizationId, orgId),
+										eq(organizationMembers.userId, userId),
+									),
 						)
 						.limit(1),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -71,9 +85,9 @@ async function resolveMembership(
 	)
 
 	if (Either.isLeft(result) || !result.right) return null
-	const { role } = result.right
+	const { role, organizationId } = result.right
 	if (!allowedRoles.includes(role)) return null
-	return { userId, role }
+	return { userId, role, orgId: organizationId }
 }
 
 // ─── all enterprise routes require auth; NONE are tier-gated ─────────────────
@@ -100,6 +114,10 @@ const CreateOrgSchema = z.object({
 	slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/),
 })
 
+/** Workspaces one account may own — org creation is self-serve now, so it
+ *  needs a ceiling (slug namespace is global). */
+const MAX_ORGS_PER_OWNER = 3
+
 enterpriseRoutes.post('/orgs', async (c) => {
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = CreateOrgSchema.safeParse(body)
@@ -114,33 +132,37 @@ enterpriseRoutes.post('/orgs', async (c) => {
 		Effect.gen(function* () {
 			const db = yield* requireDb
 
-			// Check slug uniqueness
-			const existing = yield* Effect.tryPromise({
+			// Cap workspaces per owner. Org creation is open to every
+			// authenticated user (self-serve onboarding), and slugs are a
+			// global namespace — without a cap a free account could squat
+			// unlimited slugs.
+			const [{ ownedCount }] = yield* Effect.tryPromise({
 				try: () =>
 					db
-						.select({ id: organizations.id })
+						.select({ ownedCount: sql<number>`cast(count(*) as int)` })
 						.from(organizations)
-						.where(eq(organizations.slug, slug))
-						.limit(1),
+						.where(eq(organizations.ownerId, userId)),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
-			if (existing.length > 0) throw new Error('Slug already taken')
+			if (ownedCount >= MAX_ORGS_PER_OWNER) throw new Error('Organization limit reached')
 
-			const [org] = yield* Effect.tryPromise({
+			// One transaction: an org whose owner-membership insert failed is
+			// unmanageable through the API and permanently burns its slug.
+			const org = yield* Effect.tryPromise({
 				try: () =>
-					db
-						.insert(organizations)
-						.values({ name, slug, ownerId: userId })
-						.returning(),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
-
-			// Add owner as member
-			yield* Effect.tryPromise({
-				try: () =>
-					db
-						.insert(organizationMembers)
-						.values({ organizationId: org!.id, userId, role: 'owner', invitedBy: userId }),
+					db.transaction(async (tx) => {
+						const [row] = await tx
+							.insert(organizations)
+							// tier is EXPLICITLY 'free': the column default is
+							// 'enterprise', which made every self-serve org render
+							// as a paying customer and suppressed the upgrade CTA.
+							.values({ name, slug, ownerId: userId, tier: 'free' })
+							.returning()
+						await tx
+							.insert(organizationMembers)
+							.values({ organizationId: row!.id, userId, role: 'owner', invitedBy: userId })
+						return row
+					}),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 
@@ -150,7 +172,18 @@ enterpriseRoutes.post('/orgs', async (c) => {
 
 	if (Either.isLeft(result)) {
 		const err = result.left as Error
-		if (err.message === 'Slug already taken') return c.json({ error: err.message }, 409)
+		// The unique constraint is the real uniqueness check (a pre-check
+		// SELECT races with concurrent creates); normalize the Postgres
+		// violation to the 409 the dashboard's retry logic expects.
+		if (/duplicate key|unique constraint|Slug already taken/i.test(err.message)) {
+			return c.json({ error: 'Slug already taken' }, 409)
+		}
+		if (err.message === 'Organization limit reached') {
+			return c.json(
+				{ error: `You can own up to ${MAX_ORGS_PER_OWNER} workspaces. Contact support to raise this.` },
+				403,
+			)
+		}
 		const { status, body: errBody } = mapErrorToResponse(result.left)
 		return c.json(errBody, status as 200)
 	}
@@ -158,12 +191,62 @@ enterpriseRoutes.post('/orgs', async (c) => {
 	return c.json({ org: result.right }, 201)
 })
 
+// ─── GET /enterprise/orgs/me ─────────────────────────────────────────────────
+// REGISTRATION ORDER MATTERS: this literal route must be registered BEFORE
+// GET /orgs/:orgId below, or Hono matches the param route first and "me"
+// becomes an orgId that fails every membership check with a 403 — which
+// left the dashboard permanently org-less and re-showing workspace
+// creation on every load.
+
+enterpriseRoutes.get('/orgs/me', async (c) => {
+	const userId = await resolveUserId(c)
+	if (!userId) return c.json({ error: 'User not found' }, 401)
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+
+			// Find the first org this user belongs to
+			const membership = yield* Effect.tryPromise({
+				try: () =>
+					db.query.organizationMembers.findFirst({
+						where: eq(organizationMembers.userId, userId),
+					}),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			if (!membership) throw new Error('No organization found')
+
+			const org = yield* Effect.tryPromise({
+				try: () =>
+					db.query.organizations.findFirst({
+						where: eq(organizations.id, membership.organizationId),
+					}),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			if (!org) throw new Error('No organization found')
+
+			return { org, role: membership.role }
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const err = result.left as Error
+		if (err.message === 'No organization found') return c.json({ error: err.message }, 404)
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
 // ─── GET /enterprise/orgs/:orgId ────────────────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const orgId = membership.orgId
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -222,9 +305,9 @@ const UpdateOrgSchema = z.object({
 })
 
 enterpriseRoutes.patch('/orgs/:orgId', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
 	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const orgId = membership.orgId
 
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = UpdateOrgSchema.safeParse(body)
@@ -271,9 +354,9 @@ enterpriseRoutes.patch('/orgs/:orgId', async (c) => {
 // ─── GET /enterprise/orgs/:orgId/members ────────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/members', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const orgId = membership.orgId
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -311,9 +394,9 @@ const InviteMemberSchema = z.object({
 })
 
 enterpriseRoutes.post('/orgs/:orgId/members', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
 	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const orgId = membership.orgId
 
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = InviteMemberSchema.safeParse(body)
@@ -386,9 +469,10 @@ const UpdateMemberSchema = z.object({
 })
 
 enterpriseRoutes.patch('/orgs/:orgId/members/:targetUserId', async (c) => {
-	const { orgId, targetUserId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner'])
+	const { targetUserId } = c.req.param()
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner'])
 	if (!membership) return c.json({ error: 'Owner role required to change member roles' }, 403)
+	const orgId = membership.orgId
 
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = UpdateMemberSchema.safeParse(body)
@@ -432,9 +516,10 @@ enterpriseRoutes.patch('/orgs/:orgId/members/:targetUserId', async (c) => {
 // ─── DELETE /enterprise/orgs/:orgId/members/:userId ─────────────────────────
 
 enterpriseRoutes.delete('/orgs/:orgId/members/:targetUserId', async (c) => {
-	const { orgId, targetUserId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin'])
+	const { targetUserId } = c.req.param()
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
 	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const orgId = membership.orgId
 
 	const targetId = parseInt(targetUserId, 10)
 	if (isNaN(targetId)) return c.json({ error: 'Invalid userId' }, 400)
@@ -493,9 +578,9 @@ enterpriseRoutes.delete('/orgs/:orgId/members/:targetUserId', async (c) => {
 // ─── GET /enterprise/orgs/:orgId/api-keys ───────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/api-keys', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const orgId = membership.orgId
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -532,16 +617,30 @@ enterpriseRoutes.get('/orgs/:orgId/api-keys', async (c) => {
 
 // ─── POST /enterprise/orgs/:orgId/api-keys ──────────────────────────────────
 
+/** Scopes a dashboard admin may grant a key. The wildcard '*' is deliberately
+ *  NOT mintable here: requireScope() treats it as grant-all, so a free-form
+ *  string array let any org admin bypass every per-endpoint scope gate. */
+const GRANTABLE_SCOPES = [
+	'read',
+	'swap',
+	'orders',
+	'portfolio',
+	'alerts',
+	'admin',
+	'swap:execute',
+	'trade:read',
+] as const
+
 const CreateKeySchema = z.object({
 	name: z.string().min(1).max(100),
-	scopes: z.array(z.string()).default([]),
+	scopes: z.array(z.enum(GRANTABLE_SCOPES)).default([]),
 	expiresAt: z.string().datetime().optional(),
 })
 
 enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
 	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const orgId = membership.orgId
 
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = CreateKeySchema.safeParse(body)
@@ -594,9 +693,10 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 // ─── DELETE /enterprise/orgs/:orgId/api-keys/:keyId ─────────────────────────
 
 enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
-	const { orgId, keyId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin'])
+	const { keyId } = c.req.param()
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
 	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const orgId = membership.orgId
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -636,9 +736,9 @@ enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
 // ─── GET /enterprise/orgs/:orgId/usage ──────────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/usage', async (c) => {
-	const { orgId } = c.req.param()
-	const membership = await resolveMembership(c, orgId, ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const orgId = membership.orgId
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -725,51 +825,6 @@ enterpriseRoutes.get('/orgs/:orgId/usage', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		const { status, body } = mapErrorToResponse(result.left)
-		return c.json(body, status as 200)
-	}
-
-	return c.json(result.right)
-})
-
-// ─── GET /enterprise/orgs/me ─────────────────────────────────────────────────
-
-enterpriseRoutes.get('/orgs/me', async (c) => {
-	const userId = await resolveUserId(c)
-	if (!userId) return c.json({ error: 'User not found' }, 401)
-
-	const result = await runEffectEither(
-		Effect.gen(function* () {
-			const db = yield* requireDb
-
-			// Find the first org this user belongs to
-			const membership = yield* Effect.tryPromise({
-				try: () =>
-					db.query.organizationMembers.findFirst({
-						where: eq(organizationMembers.userId, userId),
-					}),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
-
-			if (!membership) throw new Error('No organization found')
-
-			const org = yield* Effect.tryPromise({
-				try: () =>
-					db.query.organizations.findFirst({
-						where: eq(organizations.id, membership.organizationId),
-					}),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			})
-
-			if (!org) throw new Error('No organization found')
-
-			return { org, role: membership.role }
-		}),
-	)
-
-	if (Either.isLeft(result)) {
-		const err = result.left as Error
-		if (err.message === 'No organization found') return c.json({ error: err.message }, 404)
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status as 200)
 	}

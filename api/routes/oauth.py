@@ -249,8 +249,11 @@ def _oauth_failure_redirect(
     against the allowlist before use; anything else falls back to the base.
     """
     if return_to and _is_allowed_redirect(return_to):
-        sep = "&" if "?" in return_to else "?"
-        url = f"{return_to}{sep}auth_error={reason}"
+        # Append to the QUERY, not after a fragment — `base#billing?auth_error=x`
+        # hides the param inside the fragment where the dashboard never sees it.
+        base_part, _, fragment = return_to.partition("#")
+        sep = "&" if "?" in base_part else "?"
+        url = f"{base_part}{sep}auth_error={reason}" + (f"#{fragment}" if fragment else "")
     else:
         base = settings.oauth_callback_base
         url = f"{base}/?auth_error={reason}"
