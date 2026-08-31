@@ -116,8 +116,8 @@
         "policy-api"
       ],
       "surface": "showcase",
-      "status": "in_progress",
-      "notes": "Quorum progress indicators (2-of-3 style), policy export download button."
+      "status": "done",
+      "notes": "DONE: showcase/src/app/dashboard/policies/ \u2014 policy rules (type-driven create form, enable toggle, delete, signed-export download), allowlist manager (chain select, inline 400s), approvals queue (status tabs, quorum target + own-vote display, expiry countdown, approve/reject w/ comment, 403/409 handling), role-aware disabling from /orgs/me role. Build clean. Also fixed {org,role} unwrap bug in treasury/transactions/audit pages (they read the response flat -> orgs/undefined)."
     },
     {
       "id": "compliance-api",

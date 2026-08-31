@@ -1,0 +1,675 @@
+/* Policies page — layered on top of ../dashboard.module.css (shared .card,
+   .table, .actionBtn, .pill, .meterTrack/.meterFill, .stateBox, .tabs/.tab,
+   --summer-* tokens). This file only holds policy-specific shapes: the
+   enable/disable switch, policy/request-type pills, the create-policy param
+   grid, the allowlist address chip, and the approvals queue (quorum meter,
+   countdown chip, vote controls). Mirrors ../audit/audit.module.css and
+   ../transactions/transactions.module.css so all four admin surfaces read as
+   one family. */
+
+/* ── Section sub-heading (used inside a .card above a form or list) ── */
+
+.subHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.subTitle {
+  margin: 0;
+  color: var(--summer-ink, #17324a);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.sectionDivider {
+  margin: 22px 0 18px;
+  border: 0;
+  border-top: 1px solid rgba(207, 227, 234, 0.7);
+}
+
+/* Read-only role hint shown next to disabled mutation controls — a
+   tooltip-style caption rather than a native title-only affordance, so
+   viewers understand *why* a control is inert without hovering to find out. */
+.roleHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(33, 88, 110, 0.55);
+  font-size: 0.76rem;
+  font-style: italic;
+}
+
+/* ── Enable/disable switch ── */
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 38px;
+  height: 21px;
+  border: 1px solid rgba(207, 227, 234, 0.95);
+  border-radius: 999px;
+  background: rgba(207, 227, 234, 0.55);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.switch[data-on] {
+  background: linear-gradient(90deg, #27bdf0, #0b8bc7);
+  border-color: transparent;
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switchKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(33, 88, 110, 0.35);
+  transition: transform 0.16s ease;
+}
+
+.switch[data-on] .switchKnob {
+  transform: translateX(17px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 2px;
+}
+
+/* ── Policy list ── */
+
+.policyRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.policyRow:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.policyMain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.policyNameRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.policyName {
+  color: var(--summer-ink, #17324a);
+  font-weight: 700;
+  font-size: 0.94rem;
+}
+
+.policySummary {
+  color: var(--summer-muted, #345069);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.policyMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.policyActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+/* Policy-type pill — same visual family as .eventPill in audit.module.css,
+   one accent colour per type so the list scans by shape/colour before text. */
+.typePill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border: 1px solid rgba(14, 149, 189, 0.28);
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+}
+
+.typePill[data-type='daily_limit'] {
+  border-color: rgba(229, 141, 43, 0.4);
+  background: rgba(229, 141, 43, 0.1);
+  color: #b96a12;
+}
+
+.typePill[data-type='velocity'] {
+  border-color: rgba(142, 87, 197, 0.32);
+  background: rgba(142, 87, 197, 0.1);
+  color: #6b3fa0;
+}
+
+.typePill[data-type='allowlist_only'] {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  color: #1e8449;
+}
+
+.typePill[data-type='spending_tier'] {
+  border-color: rgba(192, 57, 43, 0.3);
+  background: rgba(192, 57, 43, 0.08);
+  color: #c0392b;
+}
+
+.disabledTag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 182, 197, 0.35);
+  background: rgba(142, 182, 197, 0.12);
+  color: #5a7184;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Create-policy form ── */
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  margin-top: 4px;
+  border: 1px dashed rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(237, 248, 251, 0.35);
+}
+
+.formRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.formLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.formInput,
+.formSelect,
+.formTextarea {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.86rem;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.formTextarea {
+  min-height: 76px;
+  padding: 8px 10px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.formInput:focus,
+.formSelect:focus,
+.formTextarea:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.formHint {
+  margin: 0;
+  color: rgba(33, 88, 110, 0.58);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.formCheck {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.84rem;
+  color: var(--summer-ink, #17324a);
+}
+
+.formActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.formErr {
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  border-radius: 8px;
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* ── Inline confirm (delete / remove) ── */
+
+.confirmRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.confirmText {
+  color: #8e3c30;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dangerBtn {
+  color: #c0392b !important;
+  border-color: rgba(192, 57, 43, 0.4) !important;
+}
+
+/* ── Allowlist table ── */
+
+.addressChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid rgba(207, 227, 234, 0.85);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #0b789a;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.copyBtn:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.copyBtn:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 1px;
+}
+
+.chainTag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(14, 149, 189, 0.28);
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+/* ── Approvals queue ── */
+
+.approvalCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(207, 227, 234, 0.85);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.approvalCard:last-child {
+  margin-bottom: 0;
+}
+
+.approvalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.approvalHeadLeft {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.requestTypePill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 182, 197, 0.4);
+  background: rgba(142, 182, 197, 0.14);
+  color: #5a7184;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.requestTypePill[data-type='transaction'] {
+  border-color: rgba(14, 149, 189, 0.32);
+  background: rgba(14, 149, 189, 0.1);
+  color: #0b789a;
+}
+
+.requestTypePill[data-type='policy_change'] {
+  border-color: rgba(142, 87, 197, 0.32);
+  background: rgba(142, 87, 197, 0.1);
+  color: #6b3fa0;
+}
+
+.requestTypePill[data-type='allowlist_add'],
+.requestTypePill[data-type='allowlist_remove'] {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  color: #1e8449;
+}
+
+.approvalStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid rgba(229, 176, 43, 0.4);
+  background: rgba(229, 176, 43, 0.12);
+  color: #9a6b00;
+}
+
+.approvalStatus[data-status='approved'] {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  color: #1e8449;
+}
+
+.approvalStatus[data-status='rejected'] {
+  border-color: rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+}
+
+.approvalStatus[data-status='expired'] {
+  border-color: rgba(142, 182, 197, 0.35);
+  background: rgba(142, 182, 197, 0.12);
+  color: #5a7184;
+}
+
+.expiryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(33, 88, 110, 0.62);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.expiryChip[data-urgent] {
+  color: #c0392b;
+  font-weight: 700;
+}
+
+.approvalPayload {
+  color: var(--summer-muted, #345069);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.approvalMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  color: rgba(33, 88, 110, 0.6);
+  font-size: 0.78rem;
+}
+
+/* Quorum meter — reuses dashboard.module.css .meterTrack/.meterFill sizing
+   but this file owns the wrapper + label since the fraction shown is a
+   TARGET (requiredApprovals), not a live tally: the approval-requests API
+   returns no vote count on the list/vote responses (see the comment above
+   ApprovalCard in page.tsx), so this never fabricates a numerator. */
+.quorumWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.quorumLabel {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.voteBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(14, 149, 189, 0.3);
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.voteBadge[data-decision='reject'] {
+  border-color: rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.08);
+  color: #c0392b;
+}
+
+.voteRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(207, 227, 234, 0.55);
+}
+
+.commentInput {
+  flex: 1 1 220px;
+  min-width: 180px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.82rem;
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+
+.commentInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.voteBtns {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.approveBtn,
+.rejectBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+.approveBtn {
+  background: linear-gradient(180deg, rgba(39, 174, 96, 0.16), rgba(39, 174, 96, 0.1));
+  border-color: rgba(39, 174, 96, 0.4);
+  color: #1e8449;
+}
+
+.rejectBtn {
+  background: linear-gradient(180deg, rgba(192, 57, 43, 0.14), rgba(192, 57, 43, 0.08));
+  border-color: rgba(192, 57, 43, 0.38);
+  color: #c0392b;
+}
+
+.approveBtn:hover:not(:disabled),
+.rejectBtn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.approveBtn:active:not(:disabled),
+.rejectBtn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.approveBtn:disabled,
+.rejectBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voteErr {
+  flex-basis: 100%;
+  margin: 0;
+  color: #c0392b;
+  font-size: 0.78rem;
+}
+
+/* ── Pagination (mirrors ../audit/audit.module.css) ── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.pageMeta {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.pageBtns {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .policyRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .policyActions {
+    align-self: flex-end;
+  }
+  .approvalHead {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .voteRow {
+    flex-direction: column;
+  }
+  .voteBtns {
+    width: 100%;
+  }
+  .approveBtn,
+  .rejectBtn {
+    flex: 1;
+    justify-content: center;
+  }
+}

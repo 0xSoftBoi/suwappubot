@@ -424,7 +424,10 @@ export default function AuditPage() {
           setLoading(false);
           return;
         }
-        const orgData: OrgMe = await orgRes.json();
+        // /enterprise/orgs/me returns { org, role } (see api-ts
+      // routes/enterprise.ts) — unwrap, tolerating a flat legacy shape.
+      const orgPayload = await orgRes.json();
+      const orgData: OrgMe = orgPayload?.org ?? orgPayload;
         if (cancelled) return;
         setOrg(orgData);
         setHasOrg(true);
