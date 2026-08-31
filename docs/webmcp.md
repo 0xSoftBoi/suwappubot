@@ -98,7 +98,14 @@ says so, and so does `read_mandate`'s own payload.
    whole session: every rationale, mandate verdict, override argument, human
    decision and note.
 7. **The page works without WebMCP.** Every tool has a human control.
-8. **Both halves of the spec.** Alongside the imperative tools, the ticket
+8. **You can take control, instantly.** A Pause agent button withdraws every
+   tool from `document.modelContext` in one abort — a paused agent has
+   nothing left to call, not even reads — and Resume re-registers the
+   surface. The desk keeps working by hand throughout.
+9. **The session survives a reload.** Proposals and the activity log persist
+   per browser and rehydrate on mount, so a refresh never eats the receipt;
+   pending proposals past their TTL still expire.
+10. **Both halves of the spec.** Alongside the imperative tools, the ticket
    itself is a *declarative* WebMCP tool: the real `<form>` carries
    `toolname="fill_and_price_ticket"` / `tooldescription`, every field a
    `name` + `toolparamdescription`, and submit answers the engine through
