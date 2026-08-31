@@ -753,6 +753,7 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     decimals=decimals,
                     memo=memo,
                     claimed_tx_id=claimed_tx_id,
+                    user_id=user_id,
                 )
             else:
                 tx_hash = await hot_wallet_service.send_native_token(
@@ -761,6 +762,7 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     to_address=to_address,
                     amount=withdraw_amount,
                     claimed_tx_id=claimed_tx_id,
+                    user_id=user_id,
                 )
 
             # Balance was already debited by the reservation above; finalize

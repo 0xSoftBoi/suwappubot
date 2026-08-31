@@ -250,6 +250,7 @@ class PaymasterService:
                 chain_name=chain_name,
                 to_address=user_address,
                 amount=amount_to_send,
+                user_id=user_id,
             )
 
             # Record gas usage

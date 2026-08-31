@@ -18,6 +18,7 @@ from bot.services.compliance.flashbots_relay import (
     RelayResult,
     flashbots_relay,
 )
+from bot.services.compliance.screening_events import record_screening_event
 
 __all__ = [
     "AddressComplianceService",
@@ -30,4 +31,5 @@ __all__ = [
     "FlashbotsRelay",
     "RelayResult",
     "flashbots_relay",
+    "record_screening_event",
 ]

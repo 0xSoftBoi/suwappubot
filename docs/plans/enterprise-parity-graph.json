@@ -126,8 +126,8 @@
       "priority": 11,
       "deps": [],
       "surface": "both",
-      "status": "in_progress",
-      "notes": "Surface bot/services/compliance data. If screening events aren't persisted yet, add a screening_events table (additive, both ORMs via db-migrate pattern) and write from compliance_service; api-ts reads it."
+      "status": "done",
+      "notes": "DONE after focused money-path review (SHIP-WITH-FIXES, all applied). Python: screening_events table (dual-ORM additive, _add_compliance_tables), record_screening_event best-effort writer, write points in swap_engine (create_task fire-and-forget) + hot_wallet withdrawals (async, user_id threaded from terminal/custodial/paymaster callers). api-ts: enterpriseCompliance.ts summary+events endpoints (admin-only, org-scope w/ isNull guard, case-insensitive chain filter), Drizzle mirror excluded from tablesFilter (python-owned). CSV formula-injection fixed across all 3 CSV helpers. Gate behavior unchanged; compliance_mode default disabled."
     },
     {
       "id": "compliance-ui",
@@ -139,7 +139,7 @@
         "compliance-api"
       ],
       "surface": "showcase",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "Chainalysis-style: alert list w/ severity, filterable by chain/direction."
     },
     {
@@ -178,7 +178,7 @@
         "policy-schema"
       ],
       "surface": "api-ts",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "orgWebhooks table (url, secret, event types), HMAC-signed POST dispatch helper called from policy/compliance paths. SIEM-friendly JSON payloads."
     }
   ]

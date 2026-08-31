@@ -30,7 +30,7 @@ import base64
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
-from bot.services.compliance import compliance_service, flashbots_relay
+from bot.services.compliance import compliance_service, flashbots_relay, record_screening_event
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import ChainType, apply_min_gas_price, get_chain_by_name
@@ -4269,6 +4269,36 @@ class SwapEngine:
                     tokens=[quote.from_token, quote.to_token],
                     chain=quote.from_chain,
                 )
+                # Enterprise-dashboard visibility (compliance-api node): best-effort,
+                # never allowed to affect the swap decision below — see
+                # record_screening_event's own internal try/except. Fire-and-forget
+                # (not awaited): this write must never delay the swap on the verdict
+                # that was already computed above, so it's scheduled as a background
+                # task instead of blocking the swap path on a DB round-trip.
+                _screening_task = asyncio.create_task(
+                    run_in_db(
+                        lambda: record_screening_event(
+                            compliance_result,
+                            user_id=user_id,
+                            chain=quote.from_chain,
+                            direction="outbound",
+                            address=recipient,
+                            tx_context={
+                                "surface": "swap",
+                                "from_token": quote.from_token,
+                                "to_token": quote.to_token,
+                                "router": router,
+                            },
+                        )
+                    )
+                )
+
+                def _log_screening_event_failure(t: asyncio.Task) -> None:
+                    exc = t.exception() if not t.cancelled() else None
+                    if exc:  # noqa: BLE001 — persistence-only, never break the swap
+                        logger.warning(f"Failed to record screening event for swap: {exc}")
+
+                _screening_task.add_done_callback(_log_screening_event_failure)
                 if not compliance_result.allowed:
                     raise SwapError(f"🚫 {compliance_result.reason}")
 

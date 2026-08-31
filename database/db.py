@@ -832,6 +832,10 @@ def _ensure_schema(db_engine) -> None:
     if "savings_events" in tables:
         _add_savings_events_venue_column(db_engine, inspector, is_sqlite)
 
+    # --- screening_events: compliance/KYT decision log (enterprise-dashboard
+    # compliance-api node) — surfaces AddressComplianceService verdicts ---
+    _add_compliance_tables(db_engine, inspector, is_sqlite)
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).
@@ -1569,6 +1573,39 @@ def _add_security_tables(db_engine, inspector, is_sqlite: bool) -> None:
                 logger.info(f"Created {model.__tablename__} table")
     except Exception as e:
         logger.warning(f"Failed to create security tables: {e}")
+
+
+def _add_compliance_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the screening_events table idempotently.
+
+    Backs the enterprise dashboard's compliance-api node
+    (docs/plans/enterprise-dashboard.md) — durable rows for every
+    AddressComplianceService verdict, written by
+    bot.services.compliance.screening_events.record_screening_event.
+    Mirrors api-ts's Drizzle schema (db/schema/screening.ts) exactly.
+    """
+    try:
+        from bot.models.compliance import ScreeningEvent
+
+        if not inspector.has_table(ScreeningEvent.__tablename__):
+            ScreeningEvent.__table__.create(bind=db_engine)
+            logger.info(f"Created {ScreeningEvent.__tablename__} table")
+        if not is_sqlite:
+            with db_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS screening_events_org_created_idx "
+                        "ON screening_events (org_id, created_at)"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS screening_events_user_created_idx "
+                        "ON screening_events (user_id, created_at)"
+                    )
+                )
+    except Exception as e:
+        logger.warning(f"Failed to create compliance tables: {e}")
 
 
 def _add_recovery_tables(db_engine, inspector, is_sqlite: bool) -> None:

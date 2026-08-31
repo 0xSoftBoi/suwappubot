@@ -66,8 +66,11 @@ class ComplianceBlockedError(RuntimeError):
     """Raised when a withdrawal recipient fails sanctions screening."""
 
 
-def _assert_recipient_compliant(
-    to_address: str, chain_name: str, token_address: Optional[str] = None
+async def _assert_recipient_compliant(
+    to_address: str,
+    chain_name: str,
+    token_address: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> None:
     """Sanctions-screen a withdrawal recipient before any funds move.
 
@@ -96,7 +99,7 @@ def _assert_recipient_compliant(
         enforcement is on, we cannot prove the recipient is clean, so the
         withdrawal is blocked rather than silently let through.
     """
-    from bot.services.compliance import compliance_service
+    from bot.services.compliance import compliance_service, record_screening_event
 
     if not compliance_service.enabled:
         return
@@ -121,6 +124,28 @@ def _assert_recipient_compliant(
             ) from e
         logger.warning("Compliance screening errored for %s on %s: %s", to_address, chain_name, e)
         return
+
+    # Enterprise-dashboard visibility (compliance-api node): best-effort, never
+    # allowed to affect the withdrawal decision below — see
+    # record_screening_event's own internal try/except. ``user_id`` is passed
+    # through from whichever caller has one in scope (terminal API route,
+    # Telegram handler, gas sponsorship); pooled/admin call sites with no
+    # user in scope (internal-wallet sweeps, P2P escrow release/refund) leave
+    # it None — see screening_events.py for the write-only implication of
+    # that. Run off-thread: this is a sync ORM write and must not block the
+    # event loop for up to pool_timeout inside an async send path.
+    try:
+        await asyncio.to_thread(
+            record_screening_event,
+            result,
+            user_id=user_id,
+            chain=chain_name,
+            direction="outbound",
+            address=to_address,
+            tx_context={"surface": "withdrawal", "token_address": token_address},
+        )
+    except Exception as e:  # noqa: BLE001 — persistence-only, never break withdrawal
+        logger.warning("Failed to record screening event for withdrawal: %s", e)
 
     if not result.allowed:
         raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
@@ -1489,6 +1514,7 @@ class HotWalletService:
         to_address: str,
         amount: Decimal,
         claimed_tx_id: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """Send native token from hot wallet. Returns tx hash.
 
@@ -1497,9 +1523,14 @@ class HotWalletService:
         stamp the deterministic tx hash onto that row BEFORE the broadcast
         call, so an ambiguous broadcast failure (PostBroadcastAmbiguous)
         always leaves a resolvable hash behind for the withdraw reconciler.
+
+        ``user_id``, if the caller has one in scope, is threaded through to
+        the compliance screening-event write so it's attributable on the
+        enterprise dashboard instead of a write-only row — see
+        ``_assert_recipient_compliant``.
         """
         _assert_withdrawals_enabled()
-        _assert_recipient_compliant(to_address, chain_name)
+        await _assert_recipient_compliant(to_address, chain_name, user_id=user_id)
         if wallet.chain_type == "solana":
             return await self._send_sol_native(
                 wallet, to_address, amount, claimed_tx_id=claimed_tx_id
@@ -1746,6 +1777,7 @@ class HotWalletService:
         decimals: int,
         memo: str = "",
         claimed_tx_id: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """Send ERC20/SPL token from hot wallet. Returns tx hash/signature.
 
@@ -1757,9 +1789,12 @@ class HotWalletService:
 
         ``claimed_tx_id`` — see send_native_token: stamps the deterministic
         pre-broadcast hash onto the caller's claimed idempotency placeholder.
+
+        ``user_id`` — see send_native_token: threaded through to the
+        compliance screening-event write when the caller has one in scope.
         """
         _assert_withdrawals_enabled()
-        _assert_recipient_compliant(to_address, chain_name, token_address)
+        await _assert_recipient_compliant(to_address, chain_name, token_address, user_id=user_id)
         if wallet.chain_type == "solana":
             return await self._send_spl_token(
                 wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id

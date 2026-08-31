@@ -51,7 +51,9 @@ function parseDateParam(raw: string | undefined): Date | null {
 
 function csvEscape(value: unknown): string {
 	if (value === null || value === undefined) return ''
-	const s = String(value)
+	let s = String(value)
+	// Neutralize spreadsheet formula injection (=, +, -, @ leading a cell).
+	if (/^[=+\-@]/.test(s)) s = `'${s}`
 	if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`
 	return s
 }

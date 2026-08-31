@@ -26,6 +26,7 @@ import {
 	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseAuditRoutes,
+	enterpriseComplianceRoutes,
 	enterprisePoliciesRoutes,
 	enterpriseRoutes,
 	enterpriseTransactionsRoutes,
@@ -209,6 +210,9 @@ export function createApp(config: AppConfig) {
 	app.route('/enterprise', enterpriseTransactionsRoutes)
 	// Enterprise hash-chained audit log — separate router, same prefix.
 	app.route('/enterprise', enterpriseAuditRoutes)
+	// Enterprise compliance/KYT screening-events surface — separate router,
+	// same prefix.
+	app.route('/enterprise', enterpriseComplianceRoutes)
 	// Enterprise org policy engine + quorum approvals + signed policy export —
 	// separate router, same prefix.
 	app.route('/enterprise', enterprisePoliciesRoutes)

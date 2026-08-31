@@ -16,6 +16,8 @@ mismatched. These tests pin that behaviour in both the service and the OFAC
 loader.
 """
 
+import asyncio
+
 import os
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
@@ -319,8 +321,8 @@ class TestScreenerErrorFailsClosedInEnforce:
     def test_enforce_mode_raises_on_screener_error(self, monkeypatch):
         self._install(monkeypatch, self._BoomEnforce())
         with pytest.raises(ComplianceBlockedError):
-            _assert_recipient_compliant("0x" + "ab" * 20, "ethereum")
+            asyncio.run(_assert_recipient_compliant("0x" + "ab" * 20, "ethereum"))
 
     def test_monitor_mode_does_not_raise_on_screener_error(self, monkeypatch):
         self._install(monkeypatch, self._BoomMonitor())
-        _assert_recipient_compliant("0x" + "ab" * 20, "ethereum")  # must not raise
+        asyncio.run(_assert_recipient_compliant("0x" + "ab" * 20, "ethereum"))  # must not raise

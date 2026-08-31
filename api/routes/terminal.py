@@ -2341,6 +2341,7 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
                 decimals=token_cfg.decimals,
                 memo=memo,
                 claimed_tx_id=claimed_tx_id,
+                user_id=uid,
             )
         else:
             tx_hash = await hot_wallet_service.send_native_token(
@@ -2349,6 +2350,7 @@ async def terminal_wallet_withdraw(request: Request, body: WalletWithdrawBody):
                 to_address=to_address,
                 amount=amount,
                 claimed_tx_id=claimed_tx_id,
+                user_id=uid,
             )
     except PostBroadcastAmbiguous as exc:
         # DO NOT refund and DO NOT release the idempotency placeholder here.

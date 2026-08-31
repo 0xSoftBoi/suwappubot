@@ -9,6 +9,8 @@ kill-switch) so every surface inherits it: the terminal API route, the Telegram
 handler, and anything added later.
 """
 
+import asyncio
+
 import os
 
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
@@ -58,13 +60,13 @@ def test_blocked_recipient_raises(monkeypatch):
     svc = _Svc(allow=False, reason="OFAC-sanctioned address")
     _install(monkeypatch, svc)
     with pytest.raises(ComplianceBlockedError, match="OFAC"):
-        _assert_recipient_compliant(EVM_BAD, "ethereum")
+        asyncio.run(_assert_recipient_compliant(EVM_BAD, "ethereum"))
 
 
 def test_clean_recipient_passes(monkeypatch):
     svc = _Svc(allow=True)
     _install(monkeypatch, svc)
-    _assert_recipient_compliant(EVM_OK, "ethereum")  # must not raise
+    asyncio.run(_assert_recipient_compliant(EVM_OK, "ethereum"))  # must not raise
     assert svc.calls, "the screener should have been consulted"
     assert svc.calls[0]["recipient"] == EVM_OK
 
@@ -75,7 +77,12 @@ def test_only_recipient_is_screened_not_token_address(monkeypatch):
     recipient is screened."""
     svc = _Svc(allow=True)
     _install(monkeypatch, svc)
-    _assert_recipient_compliant(EVM_OK, "tron", token_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")
+    asyncio.run(
+        _assert_recipient_compliant(
+            EVM_OK, "tron", token_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+        )
+    )
+
     assert svc.calls[0]["recipient"] == EVM_OK
     assert svc.calls[0]["chain"] == "tron"
     assert "tokens" not in svc.calls[0] or not svc.calls[0]["tokens"]
@@ -85,7 +92,7 @@ def test_disabled_service_short_circuits(monkeypatch):
     """COMPLIANCE_MODE=disabled (today's prod default) must not screen."""
     svc = _Svc(enabled=False, allow=False)
     _install(monkeypatch, svc)
-    _assert_recipient_compliant(EVM_BAD, "ethereum")  # must not raise
+    asyncio.run(_assert_recipient_compliant(EVM_BAD, "ethereum"))  # must not raise
     assert svc.calls == []
 
 
@@ -101,7 +108,7 @@ def test_screener_errors_do_not_break_withdrawals(monkeypatch):
             raise RuntimeError("screener exploded")
 
     _install(monkeypatch, _Boom())
-    _assert_recipient_compliant(EVM_OK, "ethereum")  # must not raise
+    asyncio.run(_assert_recipient_compliant(EVM_OK, "ethereum"))  # must not raise
 
 
 def test_screener_errors_fail_closed_in_enforce_mode(monkeypatch):
@@ -119,7 +126,7 @@ def test_screener_errors_fail_closed_in_enforce_mode(monkeypatch):
 
     _install(monkeypatch, _BoomEnforce())
     with pytest.raises(ComplianceBlockedError):
-        _assert_recipient_compliant(EVM_OK, "ethereum")
+        asyncio.run(_assert_recipient_compliant(EVM_OK, "ethereum"))
 
 
 def test_block_is_not_swallowed_by_the_error_handler(monkeypatch):
@@ -127,4 +134,4 @@ def test_block_is_not_swallowed_by_the_error_handler(monkeypatch):
     svc = _Svc(allow=False, reason="operator-blocked address")
     _install(monkeypatch, svc)
     with pytest.raises(ComplianceBlockedError):
-        _assert_recipient_compliant(EVM_BAD, "base")
+        asyncio.run(_assert_recipient_compliant(EVM_BAD, "base"))
