@@ -16,6 +16,7 @@
     "webmcp:smoke": "node scripts/webmcp-smoke.mjs",
     "webmcp:schemas": "node scripts/export-tool-schemas.mjs",
     "webmcp:evals": "node scripts/evals-smoke.mjs",
+    "webmcp:evals:adversarial": "node scripts/evals-adversarial-smoke.mjs",
     "webmcp:spec": "node scripts/webmcp-spec-check.mjs",
     "webmcp:evals:llm": "npx --yes webmcp-evals@0.0.3 local -b gemini -m gemini-3.5-flash -t webmcp/tools.schema.json -e webmcp/evals.json --reporter console json html",
     "webmcp:evals:llm:k": "bunx --yes webmcp-evals@0.0.3 local -b gemini -m gemini-3.5-flash -t webmcp/tools.schema.json -e webmcp/evals.json -r 3 --reporter json && node scripts/evals-trajectory-grade.mjs .evals/report-*.json",
