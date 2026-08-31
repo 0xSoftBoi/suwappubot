@@ -771,9 +771,13 @@ class SwapEngine:
 
     # Jito bundle-status poll window for solana_mev_protect_enabled: short by
     # design (this is on the hot execution path) — we only want to catch the
-    # common "landed within ~1 leader slot or two" case before falling back
-    # to a plain RPC broadcast of the same signed tx.
-    _JITO_BUNDLE_POLL_ATTEMPTS = 6
+    # common "landed within a few leader slots" case before falling back to a
+    # plain RPC broadcast of the same signed tx. Widened from 6x0.5s=3s to
+    # 10x0.5s=5s: get_bundle_statuses now accepts "confirmed" (not only
+    # "finalized"), which lands well inside a few slots (~400ms each), but a
+    # 3s window was cutting it close during normal network variance and would
+    # have undercut the tip we now actually pay for the auction.
+    _JITO_BUNDLE_POLL_ATTEMPTS = 10
     _JITO_BUNDLE_POLL_INTERVAL_SECONDS = 0.5
 
     def __init__(self):
@@ -4964,10 +4968,22 @@ class SwapEngine:
             if isinstance(quote.raw_quote, dict) and quote.raw_quote.get("platformFee")
             else None
         )
+        # Only pass a Jito tip when the MEV-protect flag is on — jito_tip_lamports
+        # defaults to None, which keeps Jupiter on its normal priorityLevel path
+        # (see jupiter_api.get_swap_transaction's precedence order), so flag-off
+        # behavior is byte-identical to before this tip was wired in. When the
+        # flag is on, Jupiter bakes the tip as an extra transfer instruction to
+        # a Jito tip account inside the tx itself (prioritizationFeeLamports.
+        # jitoTipLamports) — it is NOT a side-channel payment, so the plain-RPC
+        # fallback below still contains and pays it even when the bundle loses
+        # the Jito auction. That's an accepted cost-on-fallback tradeoff: a
+        # small fixed tip spent on every MEV-protect attempt, win or lose.
+        mev_tip = settings.solana_mev_tip_lamports if settings.solana_mev_protect_enabled else None
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=quote.raw_quote,
             user_public_key=wallet_data["address"],
             fee_account=jup_fee_account,
+            jito_tip_lamports=mev_tip,
         )
 
         # Decode and sign transaction
@@ -4980,17 +4996,17 @@ class SwapEngine:
         # client-signed swaps already have their own explicit jito_tip_lamports
         # opt-in in build_external_solana_swap. Reuses the existing
         # bot/services/jito_api.py bundle client (self.jito) rather than a new
-        # implementation. NOTE: the tx above was NOT built with a Jito tip
-        # instruction (no jito_tip_lamports passed to get_swap_transaction), so
-        # this submits as an untipped single-tx bundle — a real tip requires
-        # also passing jito_tip_lamports above, which is a further follow-up.
-        # That follow-up must ALSO reconcile the landing check with the poll
-        # window: jito_api.get_bundle_statuses only reports "landed" at
-        # confirmation_status == "finalized" (~32 slots, ~13s), while the poll
-        # window below is ~3s — so today even a landing bundle falls through
-        # to the RPC broadcast (fail-closed and safe, but the bundle path
-        # stays inert). Accept "processed"/"confirmed" as landed or lengthen
-        # the window when the tip is wired in.
+        # implementation. The tx above IS now built with a Jito tip instruction
+        # (jito_tip_lamports=mev_tip, from settings.solana_mev_tip_lamports) so
+        # this actually competes in the bundle auction instead of losing every
+        # time as an untipped bundle. jito_api.get_bundle_statuses also now
+        # accepts "processed"/"confirmed" as landed, not only "finalized" (see
+        # that function ~line 320): "finalized" is ~32 slots / ~13s away, far
+        # outside our short poll window below, so requiring it made the bundle
+        # path structurally inert even when Jito actually landed the tx fast.
+        # "confirmed" is what a normal sendTransaction caller would treat as
+        # landed anyway (Solana's default subscription commitment), so this
+        # aligns the bundle path with the RPC path's own bar for "done".
         #
         # Submitting a bundle only proves Jito ACCEPTED it for consideration,
         # not that it landed on-chain — returning tx_sig on submission alone

@@ -323,10 +323,25 @@ class JitoAPI:
                 bundle_data = result[i]
                 status = "pending"
 
-                if bundle_data.get("confirmation_status") == "finalized":
-                    status = "landed"
-                elif bundle_data.get("err"):
+                # Accept "confirmed"/"processed" as landed, not only
+                # "finalized". "finalized" requires ~32 slots (~13s) of
+                # confirmation, which is far outside the caller's short
+                # post-submit poll window (see swap_engine._JITO_BUNDLE_POLL_*)
+                # — requiring it made a genuinely-landed bundle fall through
+                # to the RPC fallback every time. "confirmed" is the same bar
+                # a normal sendTransaction caller uses to consider a tx done
+                # (Solana's default subscription/commitment level), so this
+                # keeps the bundle path's success bar consistent with the
+                # plain-RPC path it's meant to replace.
+                # Check err BEFORE confirmation_status: a tx can be
+                # "processed"/"confirmed" and still have executed with an
+                # error (e.g. slippage failure) — that's a landed-but-failed
+                # tx, not a landed-successfully one.
+                confirmation_status = bundle_data.get("confirmation_status")
+                if bundle_data.get("err"):
                     status = "failed"
+                elif confirmation_status in ("finalized", "confirmed", "processed"):
+                    status = "landed"
 
                 statuses.append(
                     JitoBundleStatus(

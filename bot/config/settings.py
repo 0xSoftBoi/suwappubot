@@ -545,6 +545,23 @@ class Settings(BaseSettings):
             "sandwich protection. Default OFF: unchanged behavior."
         ),
     )
+    solana_mev_tip_lamports: int = Field(
+        default=100_000,
+        description=(
+            "Jito tip (lamports) baked into the swap tx when "
+            "solana_mev_protect_enabled is on; only read in that path, so "
+            "flag-off behavior is unchanged. Default 100_000 (0.0001 SOL, "
+            "TipPriority.LOW in jito_api.py) — a modest floor that clears "
+            "most bundle auctions without eating meaningfully into small/"
+            "medium swap output; raise for larger custodial swap volume. "
+            "This tip is paid to the Jito tip account inside the signed tx "
+            "itself (Jupiter bakes it in via prioritizationFeeLamports."
+            "jitoTipLamports), so it is spent even if the bundle loses the "
+            "auction and we fall back to plain RPC broadcast of the same "
+            "signed tx — the fallback still contains and pays the tip, it "
+            "just lands as an ordinary (untipped-for-Jito-purposes) tx."
+        ),
+    )
 
     # TRON RPC
     tron_rpc_url: str = Field(
