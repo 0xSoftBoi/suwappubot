@@ -21,13 +21,18 @@ interface IERC20 {
  * action does NOT revert the EVM tx), so a swap is a three-step lifecycle any
  * caller may drive:
  *
- *  1. initiate — pull tokenIn, bridge EVM->Core, place an IOC (cloid = id),
- *     snapshot BOTH Core token balances.
- *  2. settle   — after SETTLE_DELAY_L1 HyperCore blocks: reconcile BOTH legs
+ *  1. initiate — pull tokenIn, bridge EVM->Core, snapshot BOTH Core balances.
+ *  2. execute  — once the deposit is OBSERVED on Core (free balance grew by
+ *     coreIn), place the IOC (cloid = id) and re-snapshot the out-token. The
+ *     order can never race its own funding: it is only ever placed against a
+ *     confirmed balance, and IOCs resolve the moment HyperCore processes them.
+ *  3. settle   — after SETTLE_DELAY_L1 HyperCore blocks past execute (the
+ *     delay now only spans the order action, not the bridge): reconcile BOTH
+ *     legs
  *     from free (total - hold) balance deltas. Proceeds >= minCoreOut → fee,
  *     else no fee; in both cases every unconsumed in-token and every received
  *     out-token is bridged back Core->EVM. Snapshot EVM balances.
- *  3. claim    — pay the user both legs once THIS swap's bridge credits landed
+ *  4. claim    — pay the user both legs once THIS swap's bridge credits landed
  *     (measured against the settle-time EVM snapshots, not aggregate balance).
  *
  * Liveness: retry() re-issues a bridge send that was silently rejected;
@@ -68,9 +73,11 @@ contract SuwappuCoreRouter {
 
     enum Status {
         None,
+        Funding, // deposit bridging to Core, awaiting execute
         Pending, // order placed, awaiting settle
         Bridging, // reconciled on Core, awaiting EVM credits
-        Done
+        Done,
+        Aborted // lock force-released from Funding/Pending; see forceRelease
     }
 
     struct Swap {
@@ -84,9 +91,12 @@ contract SuwappuCoreRouter {
         uint64 owedIn; // unconsumed in-token refund, Core wei
         uint256 evmOutSnapshot; // EVM balances at settle, for claim gating
         uint256 evmInSnapshot;
+        uint64 limitPx; // stored at initiate, used at execute
         uint64 initiatedL1Block;
         uint64 initiatedEvmBlock;
+        uint64 executedL1Block;
         uint64 settledL1Block;
+        uint64 retriedL1Block;
         Status status;
     }
 
@@ -101,6 +111,7 @@ contract SuwappuCoreRouter {
     event SwapInitiated(
         uint128 indexed id, address indexed user, bool baseForQuote, uint64 coreIn, uint64 minCoreOut
     );
+    event SwapExecuted(uint128 indexed id, uint64 sz);
     event SwapSettled(uint128 indexed id, uint64 outDelta, uint64 owedIn, uint64 fee, bool filled);
     event SwapClaimed(uint128 indexed id, address indexed user, uint256 evmOut, uint256 evmIn);
     event BridgeRetried(uint128 indexed id);
@@ -135,6 +146,8 @@ contract SuwappuCoreRouter {
         // Fee spotSends to a Core-uninitialized address are silently rejected
         // forever, so refuse to deploy against one.
         if (treasury_ == address(0) || !L1Read.coreUserExists(treasury_)) revert BadTreasury();
+        require(szDecimals_ <= 8, "szDecimals");
+        require(baseToken_ != quoteToken_ && baseErc20_ != quoteErc20_, "same token");
         baseErc20 = baseErc20_;
         quoteErc20 = quoteErc20_;
         baseToken = baseToken_;
@@ -213,7 +226,7 @@ contract SuwappuCoreRouter {
         uint64 coreTokenOut = baseForQuote ? quoteToken : baseToken;
 
         uint64 coreIn = _evmToCore(evmAmountIn, extraIn);
-        uint64 sz = _orderSz(baseForQuote, coreIn, limitPx);
+        _orderSz(baseForQuote, coreIn, limitPx); // reject unfillable sizes up front
 
         id = nextSwapId++;
         inFlight = id;
@@ -230,47 +243,74 @@ contract SuwappuCoreRouter {
             owedIn: 0,
             evmOutSnapshot: 0,
             evmInSnapshot: 0,
+            limitPx: limitPx,
             initiatedL1Block: L1Read.l1BlockNumber(),
             initiatedEvmBlock: uint64(block.number),
+            executedL1Block: 0,
             settledL1Block: 0,
-            status: Status.Pending
+            retriedL1Block: 0,
+            status: Status.Funding
         });
 
         // EVM -> Core: transfer to the token's system address credits this
         // contract's Core spot balance once HyperCore processes the block.
         require(tokenIn.transferFrom(msg.sender, address(this), evmAmountIn), "pull");
         require(tokenIn.transfer(systemAddress(coreTokenIn), evmAmountIn), "bridge");
-
-        CoreWriterLib.limitOrder(
-            orderAsset, !baseForQuote, limitPx, sz, false, CoreWriterLib.TIF_IOC, uint128(id)
-        );
         emit SwapInitiated(id, msg.sender, baseForQuote, coreIn, minCoreOut);
+    }
+
+    /// Place the IOC once the deposit is observable on Core. Anyone may call.
+    /// Ordering is proven, not assumed: the order only exists after the funds do.
+    function execute(uint128 id) external {
+        Swap storage s = swaps[id];
+        if (s.status != Status.Funding) revert BadStatus();
+        (uint64 coreTokenOut, uint64 coreTokenIn) =
+            s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+        if (_free(coreTokenIn) < s.inSnapshot + s.coreIn) revert NotLanded();
+
+        // Tighten the out-token delta window to [execute, settle].
+        s.outSnapshot = _free(coreTokenOut);
+        s.executedL1Block = L1Read.l1BlockNumber();
+        s.status = Status.Pending;
+
+        uint64 sz = _orderSz(s.baseForQuote, s.coreIn, s.limitPx);
+        CoreWriterLib.limitOrder(
+            orderAsset, !s.baseForQuote, s.limitPx, sz, false, CoreWriterLib.TIF_IOC, uint128(id)
+        );
+        emit SwapExecuted(id, sz);
     }
 
     /// Reconcile both legs after the deposit + IOC have resolved on HyperCore.
     function settle(uint128 id) external {
         Swap storage s = swaps[id];
         if (s.status != Status.Pending) revert BadStatus();
+        if (inFlight != id) revert BadStatus(); // force-released swaps cannot settle
         if (
             block.number <= s.initiatedEvmBlock
-                || L1Read.l1BlockNumber() < s.initiatedL1Block + SETTLE_DELAY_L1
+                || L1Read.l1BlockNumber() < s.executedL1Block + SETTLE_DELAY_L1
         ) revert TooEarly();
 
         (uint64 coreTokenOut, uint64 coreTokenIn) =
             s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
 
+        // The IOC holds in-token margin until HyperCore executes it. A non-zero
+        // hold means the order is still live: refuse to reconcile, or an
+        // unexecuted order looks identical to a no-fill and strands the fill.
+        L1Read.SpotBalance memory inBal = L1Read.spotBalance(address(this), coreTokenIn);
+        if (inBal.hold > 0) revert TooEarly();
+
         uint64 outFree = _free(coreTokenOut);
-        uint64 inFree = _free(coreTokenIn);
+        uint64 inFree = inBal.total;
         uint64 outDelta = outFree > s.outSnapshot ? outFree - s.outSnapshot : 0;
         uint64 inRemainder = inFree > s.inSnapshot ? inFree - s.inSnapshot : 0;
         if (inRemainder > s.coreIn) inRemainder = s.coreIn;
 
-        // Nothing landed yet (deposit still in flight): never terminalize on
-        // zero — stay Pending and let settle be retried.
+        // Post-delay the IOC has resolved: consumed input and/or proceeds must
+        // be visible. All-zero means Core state hasn't caught up — retry later.
         if (outDelta == 0 && inRemainder == 0) revert NotLanded();
 
-        bool filled = outDelta >= s.minCoreOut;
-        uint64 fee = filled ? uint64((uint256(outDelta) * feeBps) / 10_000) : 0;
+        bool metBound = outDelta >= s.minCoreOut;
+        uint64 fee = uint64((uint256(outDelta) * feeBps) / 10_000);
         s.owedOut = outDelta - fee;
         s.owedIn = inRemainder;
         s.evmOutSnapshot = _erc20For(coreTokenOut).balanceOf(address(this));
@@ -281,7 +321,7 @@ contract SuwappuCoreRouter {
         if (fee > 0) CoreWriterLib.spotSend(treasury, coreTokenOut, fee);
         _bridgeBack(coreTokenOut, s.owedOut);
         _bridgeBack(coreTokenIn, s.owedIn);
-        emit SwapSettled(id, outDelta, inRemainder, fee, filled);
+        emit SwapSettled(id, outDelta, inRemainder, fee, metBound);
     }
 
     /// Pay the user both legs once THIS swap's bridge credits landed on EVM,
@@ -320,11 +360,12 @@ contract SuwappuCoreRouter {
         Swap storage s = swaps[id];
         if (s.status != Status.Bridging) revert BadStatus();
         if (inFlight != 0 && inFlight != id) revert Locked();
-        if (L1Read.l1BlockNumber() < s.settledL1Block + RETRY_DELAY_L1) revert TooEarly();
+        uint64 lastTry = s.retriedL1Block == 0 ? s.settledL1Block : s.retriedL1Block;
+        if (L1Read.l1BlockNumber() < lastTry + RETRY_DELAY_L1) revert TooEarly();
 
         (uint64 coreTokenOut, uint64 coreTokenIn) =
             s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
-        s.settledL1Block = L1Read.l1BlockNumber();
+        s.retriedL1Block = L1Read.l1BlockNumber();
         _bridgeBack(coreTokenOut, _min64(s.owedOut, _free(coreTokenOut)));
         _bridgeBack(coreTokenIn, _min64(s.owedIn, _free(coreTokenIn)));
         emit BridgeRetried(id);
@@ -335,9 +376,17 @@ contract SuwappuCoreRouter {
     function forceRelease(uint128 id) external {
         Swap storage s = swaps[id];
         if (inFlight != id) revert BadStatus();
-        if (s.status != Status.Pending && s.status != Status.Bridging) revert BadStatus();
-        uint64 since = s.status == Status.Pending ? s.initiatedL1Block : s.settledL1Block;
+        if (
+            s.status != Status.Funding && s.status != Status.Pending
+                && s.status != Status.Bridging
+        ) revert BadStatus();
+        uint64 since = s.status == Status.Funding
+            ? s.initiatedL1Block
+            : (s.status == Status.Pending ? s.executedL1Block : s.settledL1Block);
         if (L1Read.l1BlockNumber() < since + RELEASE_DELAY_L1) revert TooEarly();
+        // A Bridging swap keeps its claim; a Funding/Pending swap is abandoned
+        // so it can never later settle against a successor's balances (NEW-2).
+        if (s.status != Status.Bridging) s.status = Status.Aborted;
         inFlight = 0;
         emit LockReleased(id);
     }
