@@ -19,6 +19,8 @@ import { readFileSync } from 'node:fs';
 const EXEC = process.env.CHROMIUM_PATH || undefined;
 const BASE = process.env.DESK_URL || 'http://localhost:4321/agent-terminal';
 const suite = JSON.parse(readFileSync(new URL('../webmcp/evals.json', import.meta.url)));
+const toolsSchema = JSON.parse(readFileSync(new URL('../webmcp/tools.schema.json', import.meta.url)));
+const knownToolNames = new Set(toolsSchema.tools.map((t) => t.name));
 
 /** Mirrors upstream: turn matcher constraints into concrete sample arguments. */
 function resolve(value) {
@@ -63,6 +65,18 @@ const check = (label, ok, detail) => {
   if (!ok) failures += 1;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${!ok && detail ? ` — ${detail}` : ''}`);
 };
+
+// `allowedPrecursors` (consumed by scripts/evals-trajectory-grade.mjs) names
+// tools that are OK for the model to have called before the case's expected
+// call without counting against it. Validate every name against the live
+// schema export so a rename or a tool's removal can't leave this field
+// pointing at nothing — same "can't rot" guarantee the rest of this file
+// gives evals.json. No browser needed for this half.
+for (const testCase of suite) {
+  for (const name of testCase.allowedPrecursors ?? []) {
+    check(`${testCase.name} → allowedPrecursors has "${name}"`, knownToolNames.has(name), 'not a tool in tools.schema.json');
+  }
+}
 
 const browser = await chromium.launch(EXEC ? { executablePath: EXEC } : {});
 const page = await browser.newPage();

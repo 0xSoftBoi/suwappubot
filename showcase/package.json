@@ -18,6 +18,9 @@
     "webmcp:evals": "node scripts/evals-smoke.mjs",
     "webmcp:spec": "node scripts/webmcp-spec-check.mjs",
     "webmcp:evals:llm": "npx --yes webmcp-evals@0.0.3 local -b gemini -m gemini-3.5-flash -t webmcp/tools.schema.json -e webmcp/evals.json --reporter console json html",
+    "webmcp:evals:llm:k": "bunx --yes webmcp-evals@0.0.3 local -b gemini -m gemini-3.5-flash -t webmcp/tools.schema.json -e webmcp/evals.json -r 3 --reporter json && node scripts/evals-trajectory-grade.mjs .evals/report-*.json",
+    "webmcp:grade": "node scripts/evals-trajectory-grade.mjs --self-test",
+    "webmcp:lint": "node scripts/webmcp-lint-descriptions.mjs",
     "qa:browserbase": "node scripts/browserbase-production-qa.mjs",
     "test:docs": "bunx playwright test",
     "test:docs:ui": "bunx playwright test --ui"
