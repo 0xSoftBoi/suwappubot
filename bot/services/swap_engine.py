@@ -31,6 +31,7 @@ from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.spending_limits import spending_limit_service
 from bot.services.compliance import compliance_service, flashbots_relay, record_screening_event
+from bot.services.org_policy import org_policy_service
 from bot.utils.cache import quote_cache
 from bot.utils.performance import track_time, MetricNames
 from bot.config.chains import ChainType, apply_min_gas_price, get_chain_by_name
@@ -4301,6 +4302,65 @@ class SwapEngine:
                 _screening_task.add_done_callback(_log_screening_event_failure)
                 if not compliance_result.allowed:
                     raise SwapError(f"🚫 {compliance_result.reason}")
+
+            # Org policy evaluation (enterprise dashboard `policy-enforcement`
+            # node): runs right after sanctions screening, independent of
+            # compliance_service.enabled — org transfer policies (tx/daily
+            # limits, velocity, allowlist-only, spending tiers) are a
+            # separate, per-tenant control plane that api-ts's dashboard
+            # configures. No-op unless the user is an org member with
+            # enabled policies (see OrgPolicyService for the degraded/opt-in
+            # posture). A hard block or an over-threshold escalation to
+            # approval both fail the swap now — there is no auto-execute of
+            # an approved request yet (future node).
+            org_policy_raw_q = quote.raw_quote or {}
+            org_policy_recipient = (
+                org_policy_raw_q.get("recipient")
+                or org_policy_raw_q.get("receiver")
+                or org_policy_raw_q.get("toAddress")
+                or wallet_address
+            )
+            org_policy_decision = await org_policy_service.evaluate(
+                user_id=user_id,
+                # `org_policy_recipient` is where the funds LAND, which is on
+                # the DESTINATION chain — this must be `quote.to_chain`, not
+                # `quote.from_chain`. Passing `from_chain` here evaluated the
+                # allowlist/address normalization (base58-vs-lowercase family
+                # rules) and the `org_allowlist_addresses` lookup against the
+                # wrong chain, producing both false blocks (a legitimately
+                # allowlisted destination on `to_chain` not found because the
+                # lookup used `from_chain`'s case-folding/column filter) and
+                # false allows (an address that happens to collide once
+                # lowercased under the wrong chain family). Cross-chain swaps
+                # (e.g. solana -> ethereum) are exactly the case this broke.
+                chain=quote.to_chain,
+                dest_address=org_policy_recipient,
+                amount_usd=from_amount_usd,
+                surface="swap",
+                # C6: `org_policy_recipient` falls back to the swapping
+                # wallet's OWN address when the quote has no distinct
+                # recipient (same-wallet swap) — that is not a third-party
+                # transfer an org's allowlist_only policy is meant to gate,
+                # and blocking it would brick ordinary swaps for every
+                # allowlist_only org.
+                #
+                # NOTE the two directions of this exemption:
+                # - A quote with NO recipient field falls back to
+                #   `wallet_address`, which is also the sole owned address, so
+                #   allowlist_only is exempted BY DESIGN for every
+                #   recipient-less quote (a same-wallet swap is not a
+                #   third-party transfer). If a route provider ever moves
+                #   funds elsewhere without declaring a recipient in the raw
+                #   quote, that transfer is NOT gated here — tracked in the
+                #   parity graph as an allowlist_only hardening follow-up.
+                # - `wallet_address` is the SOURCE-chain wallet; for a
+                #   cross-chain swap to the user's own destination-chain
+                #   wallet the exemption under-matches and conservatively
+                #   falls through to the allowlist check.
+                owned_addresses={wallet_address},
+            )
+            if not org_policy_decision.allowed:
+                raise SwapError(f"🚫 {org_policy_decision.reason}")
 
             # Validate balance
             await quote_validator.validate_balance(

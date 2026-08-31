@@ -203,9 +203,9 @@
         "compliance-api"
       ],
       "surface": "python",
-      "status": "in_progress",
+      "status": "done",
       "money_path": true,
-      "notes": "Second review BLOCK: advisory lock cannot close multi-swap race (swap row created post-gate), cross-chain allowlist evaluated vs from_chain, approvals never consumed (tx_limit orgs would brick), lock/commit outside degraded try, dedup missing chain/surface, unbounded pending rows, NULL-status exclusion. Fix pass 2 in flight: approved-request consumption implemented, kill-switch default flipped to False pending reservation mechanism."
+      "notes": "DONE after 3-round money-path review (BLOCK, BLOCK, SHIP-WITH-FIXES; all applied). bot/services/org_policy/: all-membership strictest-outcome evaluation (5 policy types), approved-request consumption (advisory-lock-protected, SQL tombstone exclusion, strict 0.5% amount tolerance, null-expiry refused), two-phase error routing (write errors never quiet-allow), own-wallet allowlist exemption, pending caps, cross-chain dest vs to_chain. Wired into swap_engine + hot_wallet (withdrawals now USD-priced). SHIPS DEFAULT-OFF (org_policy_enforcement_enabled=False) until policy-reservation closes the multi-swap daily/velocity race. Follow-ups: recipient-less-quote allowlist hardening, ungated transfer paths (morpho/polymarket/cctp/p2p), zero test coverage flagged."
     },
     {
       "id": "bugclass-effect-throw",

@@ -11,17 +11,23 @@ those decisions visible to the enterprise dashboard
 Call sites (both wrap this in a way that can never propagate a failure):
 
   * ``SwapEngine.execute_swap`` — after ``compliance_service.screen(...)``,
-    with ``user_id`` in scope.
+    with ``user_id`` in scope. Does NOT thread ``org_id`` through today.
   * ``hot_wallet._assert_recipient_compliant`` (shared by
     ``send_native_token``/``send_token``) — after
     ``compliance_service.screen(...)``, with ``user_id`` passed through from
     whichever caller has one in scope (terminal API withdrawal route,
     Telegram withdrawal handler, gas sponsorship). Pooled/admin call sites
     with no user in scope (internal-wallet sweeps, P2P escrow release/refund)
-    still pass ``user_id=None``. NOTHING writes ``org_id`` today — no caller
-    threads it through — so rows with ``user_id=None`` are effectively
-    write-only for any org-scoped dashboard query; there is no fallback
-    lookup that recovers them by ``org_id``.
+    still pass ``user_id=None``. Does NOT thread ``org_id`` through either.
+  * ``OrgPolicyService._record_screening``/``_record_degraded``
+    (``bot.services.org_policy.service``) — the org-policy gate that runs
+    right after sanctions screening at both of the call sites above DOES
+    thread ``org_id`` through, resolved from the user's own org
+    membership(s). So ``org_id`` is populated on org-policy decision rows,
+    but still NOT on the sanctions-screening rows above — a row with
+    ``user_id=None`` from those two call sites remains effectively
+    write-only for an org-scoped dashboard query on ``org_id`` alone; there
+    is no fallback lookup that recovers it.
 
 CRITICAL: ``record_screening_event`` must never raise. A persistence outage
 must not become a swap/withdrawal outage — it only means that transaction's

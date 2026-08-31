@@ -28,10 +28,14 @@ class ScreeningEvent(Base):
     escrow release/refund pass ``user_id=None``); callers that do have one
     (terminal withdrawal route, Telegram withdrawal handler, gas
     sponsorship) pass it through — see ``record_screening_event``.
-    ``org_id`` is nullable because nothing writes it today: no caller of
-    ``record_screening_event`` threads an ``org_id`` through. Rows with
-    ``user_id=None`` are therefore write-only for any org-scoped dashboard
-    query — there is no join or fallback that recovers them.
+    ``org_id`` is nullable because the two SANCTIONS-screening call sites
+    above don't thread one through. ``OrgPolicyService`` (the separate
+    org-transfer-policy gate that also writes here — see
+    ``bot.services.org_policy.service``) DOES populate ``org_id``, resolved
+    from the user's own org membership(s), so it is not universally empty.
+    Rows with ``user_id=None`` from a sanctions-screening call site are
+    still write-only for any org-scoped dashboard query on ``org_id`` alone
+    — there is no join or fallback that recovers them.
     """
 
     __tablename__ = "screening_events"

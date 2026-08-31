@@ -660,6 +660,38 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Org policy engine enforcement (enterprise dashboard `policy-enforcement`
+    # node). This is a platform-wide kill-switch, distinct from the per-org
+    # opt-in: an org is only actually gated once it has enabled policies in
+    # `org_policies` (api-ts-owned table).
+    #
+    # Default OFF: OrgPolicyService's advisory lock
+    # (`_acquire_user_evaluation_lock`) only serializes concurrent policy
+    # *evaluations* for one user — it does NOT close the daily_limit/velocity
+    # race in `SwapEngine.execute_multi_swap`, because the `SwapTransaction`
+    # row those checks count against is only created AFTER the org-policy
+    # gate returns ALLOWED (see swap_engine.py, well after the
+    # `org_policy_service.evaluate(...)` call). Concurrent legs of the same
+    # multi-swap can each read the same pre-write total and all pass a limit
+    # only one of them should have. Leave this False until a pre-gate
+    # reservation mechanism (reserve-then-confirm the spend before the
+    # policy read, not after) closes that race — see parity graph node
+    # policy-reservation. Set True only for environments that accept this
+    # known gap (e.g. orgs with no daily_limit/velocity policies configured,
+    # or manual incident-scoped enablement).
+    org_policy_enforcement_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master kill-switch for org transfer-policy enforcement "
+            "(tx_limit/daily_limit/velocity/allowlist_only/spending_tier). "
+            "Per-org opt-in is having enabled rows in org_policies; this flag "
+            "gates the whole engine on/off. Default False: the daily_limit/"
+            "velocity race across concurrent multi-swap legs is not yet "
+            "closed (see field comment) — a pre-gate reservation mechanism "
+            "is required before this can default on."
+        ),
+    )
+
     # Compliant transaction routing (UBS × Nethermind PoC, stage 2): route
     # screened same-chain EVM swaps privately to block builders via the
     # Flashbots relay instead of the public mempool. Falls back to public RPC

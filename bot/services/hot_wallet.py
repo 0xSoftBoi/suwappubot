@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Set, Tuple
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from web3 import Web3
@@ -66,11 +66,38 @@ class ComplianceBlockedError(RuntimeError):
     """Raised when a withdrawal recipient fails sanctions screening."""
 
 
+def _symbol_for_token_address(chain_name: str, token_address: Optional[str]) -> Optional[str]:
+    """Best-effort reverse lookup: token contract/mint address -> its symbol,
+    so an org-policy USD check on a withdrawal (C4) can price the amount the
+    same way the swap path does (``spending_limit_service.usd_value`` takes a
+    symbol, not an address). Returns ``None`` on any miss rather than raising
+    — an unresolved symbol simply means the amount stays unpriced, which the
+    org-policy service already treats as escalate-to-approval for an org with
+    USD policies, never as a silent skip (see C3)."""
+    if not token_address:
+        return None
+    from bot.config.tokens import TOKENS
+
+    is_evm = token_address.startswith("0x")
+    needle = token_address.lower() if is_evm else token_address
+    for symbol, token in TOKENS.items():
+        addr = token.addresses.get(chain_name)
+        if not addr:
+            continue
+        candidate = addr.lower() if is_evm else addr
+        if candidate == needle:
+            return symbol
+    return None
+
+
 async def _assert_recipient_compliant(
     to_address: str,
     chain_name: str,
     token_address: Optional[str] = None,
     user_id: Optional[int] = None,
+    amount: Optional[Decimal] = None,
+    token_symbol: Optional[str] = None,
+    owned_addresses: Optional[Iterable[str]] = None,
 ) -> None:
     """Sanctions-screen a withdrawal recipient before any funds move.
 
@@ -101,54 +128,109 @@ async def _assert_recipient_compliant(
     """
     from bot.services.compliance import compliance_service, record_screening_event
 
-    if not compliance_service.enabled:
-        return
-    try:
-        result = compliance_service.screen(
-            recipient=to_address,
-            chain=chain_name,
-        )
-    except Exception as e:  # noqa: BLE001 — screener failure itself, not a verdict
-        mode = getattr(compliance_service, "mode", None)
-        if mode is not None and getattr(mode, "value", None) == "enforce":
-            logger.error(
-                "Compliance screening errored for %s on %s while ENFORCE is active — "
-                "failing CLOSED: %s",
-                to_address,
-                chain_name,
+    if compliance_service.enabled:
+        try:
+            result = compliance_service.screen(
+                recipient=to_address,
+                chain=chain_name,
+            )
+        except Exception as e:  # noqa: BLE001 — screener failure itself, not a verdict
+            mode = getattr(compliance_service, "mode", None)
+            if mode is not None and getattr(mode, "value", None) == "enforce":
+                logger.error(
+                    "Compliance screening errored for %s on %s while ENFORCE is active — "
+                    "failing CLOSED: %s",
+                    to_address,
+                    chain_name,
+                    e,
+                )
+                raise ComplianceBlockedError(
+                    "Compliance screening is temporarily unavailable; withdrawal blocked "
+                    "until it recovers."
+                ) from e
+            logger.warning(
+                "Compliance screening errored for %s on %s: %s", to_address, chain_name, e
+            )
+        else:
+            # Enterprise-dashboard visibility (compliance-api node): best-effort,
+            # never allowed to affect the withdrawal decision below — see
+            # record_screening_event's own internal try/except. ``user_id`` is
+            # passed through from whichever caller has one in scope (terminal API
+            # route, Telegram handler, gas sponsorship); pooled/admin call sites
+            # with no user in scope (internal-wallet sweeps, P2P escrow
+            # release/refund) leave it None — see screening_events.py for the
+            # write-only implication of that. Run off-thread: this is a sync ORM
+            # write and must not block the event loop for up to pool_timeout
+            # inside an async send path.
+            try:
+                await asyncio.to_thread(
+                    record_screening_event,
+                    result,
+                    user_id=user_id,
+                    chain=chain_name,
+                    direction="outbound",
+                    address=to_address,
+                    tx_context={"surface": "withdrawal", "token_address": token_address},
+                )
+            except Exception as e:  # noqa: BLE001 — persistence-only, never break withdrawal
+                logger.warning("Failed to record screening event for withdrawal: %s", e)
+
+            if not result.allowed:
+                raise ComplianceBlockedError(
+                    result.reason or "Recipient failed compliance screening."
+                )
+
+    # Org policy evaluation (enterprise dashboard `policy-enforcement` node):
+    # runs after sanctions screening but is INDEPENDENT of
+    # compliance_service.enabled (sanctions screening defaults to disabled;
+    # org transfer policies are a separate, per-tenant control plane that
+    # must still apply for an org that has configured them). No-op unless the
+    # withdrawing user is an org member with enabled policies — see
+    # OrgPolicyService for the opt-in/degraded posture. Reuses
+    # ComplianceBlockedError so every existing call site (terminal route,
+    # Telegram handler, P2P escrow) already handles this the same clean way
+    # it handles a sanctions block — no new exception type, no new catch
+    # sites needed.
+    from bot.services.org_policy import org_policy_service
+
+    # C4: price the withdrawal the same way the swap path does, so
+    # USD-denominated org policies (tx_limit/daily_limit/velocity/
+    # spending_tier) actually apply here instead of unconditionally
+    # no-op'ing. ``send_native_token``/``send_token`` pass ``amount`` +
+    # ``token_symbol`` (native token symbol, or the reverse-resolved symbol
+    # for an ERC-20/SPL token — see ``_symbol_for_token_address``) through
+    # from their own already-known chain/amount context. A miss (unresolved
+    # symbol, or a caller that didn't pass one) leaves ``amount_usd=None`` —
+    # ``OrgPolicyService`` treats that as escalate-to-approval for an org
+    # with USD policies (C3), never as a silent skip, so this is safe
+    # either way. ``allowlist_only`` needs no amount and always applies.
+    amount_usd: Optional[float] = None
+    if amount is not None and token_symbol:
+        from bot.services.spending_limits import spending_limit_service
+
+        try:
+            amount_usd = await spending_limit_service.usd_value(token_symbol, float(amount))
+        except Exception as e:  # noqa: BLE001 — best-effort pricing only
+            logger.warning(
+                "org_policy: USD pricing failed for withdrawal amount %s %s: %s",
+                amount,
+                token_symbol,
                 e,
             )
-            raise ComplianceBlockedError(
-                "Compliance screening is temporarily unavailable; withdrawal blocked "
-                "until it recovers."
-            ) from e
-        logger.warning("Compliance screening errored for %s on %s: %s", to_address, chain_name, e)
-        return
+            amount_usd = None
 
-    # Enterprise-dashboard visibility (compliance-api node): best-effort, never
-    # allowed to affect the withdrawal decision below — see
-    # record_screening_event's own internal try/except. ``user_id`` is passed
-    # through from whichever caller has one in scope (terminal API route,
-    # Telegram handler, gas sponsorship); pooled/admin call sites with no
-    # user in scope (internal-wallet sweeps, P2P escrow release/refund) leave
-    # it None — see screening_events.py for the write-only implication of
-    # that. Run off-thread: this is a sync ORM write and must not block the
-    # event loop for up to pool_timeout inside an async send path.
-    try:
-        await asyncio.to_thread(
-            record_screening_event,
-            result,
-            user_id=user_id,
-            chain=chain_name,
-            direction="outbound",
-            address=to_address,
-            tx_context={"surface": "withdrawal", "token_address": token_address},
+    org_policy_decision = await org_policy_service.evaluate(
+        user_id=user_id,
+        chain=chain_name,
+        dest_address=to_address,
+        amount_usd=amount_usd,
+        surface="withdrawal",
+        owned_addresses=owned_addresses,
+    )
+    if not org_policy_decision.allowed:
+        raise ComplianceBlockedError(
+            org_policy_decision.reason or "Blocked by organization policy."
         )
-    except Exception as e:  # noqa: BLE001 — persistence-only, never break withdrawal
-        logger.warning("Failed to record screening event for withdrawal: %s", e)
-
-    if not result.allowed:
-        raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
 
 
 class PostBroadcastAmbiguous(RuntimeError):
@@ -1515,6 +1597,7 @@ class HotWalletService:
         amount: Decimal,
         claimed_tx_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        owned_addresses: Optional[Set[str]] = None,
     ) -> str:
         """Send native token from hot wallet. Returns tx hash.
 
@@ -1528,9 +1611,25 @@ class HotWalletService:
         the compliance screening-event write so it's attributable on the
         enterprise dashboard instead of a write-only row — see
         ``_assert_recipient_compliant``.
+
+        ``owned_addresses`` (C6): pass the addresses the CALLER already
+        knows belong to the initiating user themselves (not this transfer's
+        `to_address` — the destination). Gas sponsorship
+        (``paymaster.sponsor_transaction``) tops up the user's OWN address,
+        which is not a "transfer out" an org's ``allowlist_only`` policy is
+        meant to police; a genuine withdrawal to a third party must omit
+        this so allowlist gating applies normally.
         """
         _assert_withdrawals_enabled()
-        await _assert_recipient_compliant(to_address, chain_name, user_id=user_id)
+        native_symbol = getattr(get_chain_by_name(chain_name), "native_token", None)
+        await _assert_recipient_compliant(
+            to_address,
+            chain_name,
+            user_id=user_id,
+            amount=amount,
+            token_symbol=native_symbol,
+            owned_addresses=owned_addresses,
+        )
         if wallet.chain_type == "solana":
             return await self._send_sol_native(
                 wallet, to_address, amount, claimed_tx_id=claimed_tx_id
@@ -1778,6 +1877,7 @@ class HotWalletService:
         memo: str = "",
         claimed_tx_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        owned_addresses: Optional[Set[str]] = None,
     ) -> str:
         """Send ERC20/SPL token from hot wallet. Returns tx hash/signature.
 
@@ -1792,9 +1892,20 @@ class HotWalletService:
 
         ``user_id`` — see send_native_token: threaded through to the
         compliance screening-event write when the caller has one in scope.
+
+        ``owned_addresses`` — see send_native_token (C6).
         """
         _assert_withdrawals_enabled()
-        await _assert_recipient_compliant(to_address, chain_name, token_address, user_id=user_id)
+        token_symbol = _symbol_for_token_address(chain_name, token_address)
+        await _assert_recipient_compliant(
+            to_address,
+            chain_name,
+            token_address,
+            user_id=user_id,
+            amount=amount,
+            token_symbol=token_symbol,
+            owned_addresses=owned_addresses,
+        )
         if wallet.chain_type == "solana":
             return await self._send_spl_token(
                 wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id

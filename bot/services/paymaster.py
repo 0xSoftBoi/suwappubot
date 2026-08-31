@@ -251,6 +251,12 @@ class PaymasterService:
                 to_address=user_address,
                 amount=amount_to_send,
                 user_id=user_id,
+                # C6: this is a gas top-up TO the user's own address, sent
+                # FROM the internal gas-payer wallet — not a transfer to a
+                # third party, so an org's allowlist_only policy must not
+                # gate it (it would otherwise brick gas sponsorship outright
+                # for every allowlist_only org).
+                owned_addresses={user_address},
             )
 
             # Record gas usage
