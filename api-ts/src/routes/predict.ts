@@ -2,14 +2,41 @@ import { randomBytes } from 'crypto'
 import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
-import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
+import { ExternalServiceError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
 import { agentBearerAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
 import { PolymarketCredentialService } from '../services/PolymarketCredentialService'
+import {
+	type ArchiveEra,
+	ArchiveNotFoundError,
+	ArchiveValidationError,
+	PolymarketArchiveService,
+} from '../services/PolymarketArchiveService'
 import { TurnkeyService } from '../services/TurnkeyService'
 import { formatZodErrors, PlaceOrderSchema } from './validators'
+
+const VALID_ARCHIVE_ERAS: ArchiveEra[] = ['pmxt/v1', 'pmxt/v2', 'v3']
+
+function parseArchiveEra(raw: string | undefined): ArchiveEra | undefined {
+	if (!raw) return undefined
+	if ((VALID_ARCHIVE_ERAS as string[]).includes(raw)) return raw as ArchiveEra
+	throw new ArchiveValidationError(`Unknown era "${raw}" — expected one of ${VALID_ARCHIVE_ERAS.join(', ')}`)
+}
+
+// Maps archive-specific errors onto the shared AppError taxonomy so
+// mapErrorToResponse produces the right HTTP status (400 for a malformed
+// range/era, 404 for a missing manifest, 502 for anything else upstream).
+function mapArchiveError(e: Error) {
+	if (e instanceof ArchiveValidationError) {
+		return new ValidationError({ message: e.message })
+	}
+	if (e instanceof ArchiveNotFoundError) {
+		return new NotFoundError({ message: e.message, resource: 'archive-manifest' })
+	}
+	return new ExternalServiceError({ message: e.message, service: 'polymarket-archive' })
+}
 
 type AgentContext = {
 	Variables: {
@@ -495,6 +522,128 @@ predictRoutes.get('/orders', agentBearerAuth(), async (c) => {
 	}
 
 	return c.json({ orders: result.right })
+})
+
+// ---------- Historical archive (archive.pendulumflow.com) ----------
+//
+// Read-only metadata + deterministic URL construction over the free,
+// donation-funded, no-auth Polymarket orderbook Parquet archive. No trade
+// execution or wallet involvement here — these are informational endpoints
+// for agents doing historical research. See PolymarketArchiveService for the
+// era registry (pmxt/v1, pmxt/v2, v3) and their caveats.
+
+// GET /v1/agent/predict/archive/info — static era registry + license/attribution
+predictRoutes.get('/archive/info', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const archive = yield* PolymarketArchiveService
+			return yield* archive.getInfo()
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /v1/agent/predict/archive/coverage?era= — fetch <prefix>COVERAGE.json (cached)
+predictRoutes.get('/archive/coverage', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const era = yield* Effect.try({
+				try: () => {
+					const parsed = parseArchiveEra(c.req.query('era'))
+					if (!parsed) {
+						throw new ArchiveValidationError('Missing required query param "era" (pmxt/v1, pmxt/v2, or v3)')
+					}
+					return parsed
+				},
+				catch: (e) => e as Error,
+			}).pipe(Effect.mapError(mapArchiveError))
+
+			const archive = yield* PolymarketArchiveService
+			return yield* archive.getCoverage(era).pipe(Effect.mapError(mapArchiveError))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /v1/agent/predict/archive/incidents — fetch INCIDENTS.json (cached)
+predictRoutes.get('/archive/incidents', async (c) => {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const archive = yield* PolymarketArchiveService
+			return yield* archive.getIncidents().pipe(Effect.mapError(mapArchiveError))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json(result.right)
+})
+
+// GET /v1/agent/predict/archive/hours?start=&end=&era= — resolve an hour range
+// to per-hour {era, url, manifestUrl} without downloading anything.
+predictRoutes.get('/archive/hours', async (c) => {
+	const start = c.req.query('start')
+	const end = c.req.query('end')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			if (!start || !end) {
+				return yield* Effect.fail(
+					new ValidationError({ message: 'Both "start" and "end" query params (ISO 8601 UTC) are required' }),
+				)
+			}
+
+			const era = yield* Effect.try({
+				try: () => parseArchiveEra(c.req.query('era')),
+				catch: (e) => e as Error,
+			}).pipe(Effect.mapError(mapArchiveError))
+
+			const archive = yield* PolymarketArchiveService
+			return yield* archive.getHours({ start, end, era }).pipe(Effect.mapError(mapArchiveError))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json({ hours: result.right })
+})
+
+// GET /v1/agent/predict/archive/hour/:date/:hour/manifest — v3-only manifest.json sidecar
+predictRoutes.get('/archive/hour/:date/:hour/manifest', async (c) => {
+	const date = c.req.param('date')
+	const hour = c.req.param('hour')
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const archive = yield* PolymarketArchiveService
+			return yield* archive.getHourManifest(date, hour).pipe(Effect.mapError(mapArchiveError))
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json(result.right)
 })
 
 export { predictRoutes }

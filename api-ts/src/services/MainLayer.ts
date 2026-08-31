@@ -18,6 +18,7 @@ import { OrderServiceLive } from './OrderService'
 import { P2PServiceLive } from './P2PService'
 import { PointsServiceLive } from './PointsService'
 import { PolicyServiceLive } from './PolicyService'
+import { PolymarketArchiveServiceLive } from './PolymarketArchiveService'
 import { PolymarketCredentialServiceLive } from './PolymarketCredentialService'
 import { PolymarketServiceLive } from './PolymarketService'
 import { RedisServiceLive } from './RedisService'
@@ -88,6 +89,7 @@ export const ServicesLayer = Layer.mergeAll(
 	ReferralServiceLive,
 	HyperliquidServiceLive,
 	PolymarketServiceLive,
+	PolymarketArchiveServiceLive,
 	MorphoServiceLive,
 	P2PServiceLive,
 	PolicyServiceLive,

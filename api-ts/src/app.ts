@@ -334,6 +334,8 @@ or subscribe via POST /billing/subscribe for unmetered access.
 - GET /predict/market/{id}/book — Order book
 - POST /predict/order — Place a CLOB order
 - GET /predict/positions — Positions with PnL
+- GET /predict/archive/info — Polymarket historical archive era registry
+- GET /predict/archive/hours?start=&end= — resolve hourly Parquet URLs
 
 ### Lending (Morpho)
 - GET /lend/markets?chainId= — Current APY, USD liquidity, listing status, and warnings
@@ -453,6 +455,11 @@ Authenticated calls use \`Authorization: Bearer suwappu_sk_...\`. Get one from P
 - DELETE /v1/agent/predict/order/:id — Cancel an order
 - GET /v1/agent/predict/positions — Positions with PnL
 - GET /v1/agent/predict/orders — Open orders
+- GET /v1/agent/predict/archive/info — Polymarket historical archive (archive.pendulumflow.com) era registry, license/attribution (CC BY 4.0)
+- GET /v1/agent/predict/archive/coverage?era= — Coverage sidecar for an archive era (pmxt/v1, pmxt/v2, v3)
+- GET /v1/agent/predict/archive/incidents — Known archive outages/gaps
+- GET /v1/agent/predict/archive/hours?start=&end=&era= — Resolve an hour range to per-hour Parquet file URLs
+- GET /v1/agent/predict/archive/hour/:date/:hour/manifest — v3-only per-hour manifest.json sidecar
 
 ## Lending — Morpho (/v1/agent/lend)
 - GET /v1/agent/lend/markets?chainId= — Current APY/utilization, USD supply/borrow/liquidity, listing status, warnings (public, read-only)
