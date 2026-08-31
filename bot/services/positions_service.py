@@ -5,11 +5,22 @@ existing holdings would show nothing until the user's next swap. This backfill
 reconstructs cost basis by replaying past swaps through the SAME average-cost
 logic, so the Positions view is populated immediately.
 
-Valuation note: a swap leg in a stablecoin gives an exact USD value regardless of
-when it happened; for swaps between two volatile tokens we fall back to the
-*current* price (an approximation for old swaps — historical prices aren't
-stored). Most swaps route through a stablecoin or native asset, so the common
-case is accurate.
+Valuation: each swap is valued at what it was worth **when it happened**, using the
+USD figures stored on the swap row itself — `realized_to_amount_usd` (what actually
+settled, written by tx_poller), then `to_amount_usd` / `from_amount_usd` (quoted at
+execution, written by swap_engine). A stablecoin leg is exact by definition. Only
+when a row carries none of those do we fall back to the current price.
+
+That fallback used to be the *primary* path for volatile-to-volatile swaps, on the
+stated assumption that historical prices aren't stored. They are — on the same rows
+this replay already reads.
+
+Scope: a swap with a stablecoin leg was always valued correctly, because the
+stablecoin quantity *is* the historical dollar amount. The defect was confined to
+swaps between two volatile tokens, which were valued at today's price. 1 ETH swapped
+for 20 SOL when the trade was worth $2,000 came back with a $5,000 basis once SOL had
+tripled — $3,000 of real gain erased. Since the replay DELETEs the live rows first and
+stamps `positions_backfilled_at`, that was one-shot and unrecoverable.
 """
 
 import logging
@@ -33,6 +44,10 @@ _REPLAY_STATUSES = (
 _MAX_REPLAY = 1000  # bound one-time latency for heavy traders
 
 
+class _TooManySwaps(Exception):
+    """More swaps than a correct single-pass replay can cover."""
+
+
 def _is_stable(sym: str) -> bool:
     cfg = get_token_by_symbol(sym or "")
     return bool(cfg and getattr(cfg, "is_stablecoin", False))
@@ -52,31 +67,55 @@ async def backfill_user_positions(user_id: int) -> bool:
 
     def _load():
         with get_session() as session:
-            rows = (
-                session.query(SwapTransaction)
-                .filter(
-                    SwapTransaction.user_id == user_id,
-                    SwapTransaction.status.in_(_REPLAY_STATUSES),
-                )
-                .order_by(SwapTransaction.created_at.asc())
-                .limit(_MAX_REPLAY)
-                .all()
+            base = session.query(SwapTransaction).filter(
+                SwapTransaction.user_id == user_id,
+                SwapTransaction.status.in_(_REPLAY_STATUSES),
             )
+            # An average-cost replay is only correct from the first swap forward:
+            # every basis depends on the one before it. Truncating to the OLDEST
+            # _MAX_REPLAY rows therefore does not give a partial answer, it gives a
+            # wrong one — a heavy trader would be rebuilt from ancient history with
+            # everything recent dropped, and the live rows are deleted first, so the
+            # accurate data is gone. Refuse rather than overwrite good data with bad.
+            if base.count() > _MAX_REPLAY:
+                raise _TooManySwaps(base.count())
+            rows = base.order_by(SwapTransaction.created_at.asc()).all()
             return [
-                (s.from_token, s.from_chain, s.to_token, s.to_chain, s.from_amount, s.to_amount)
+                (
+                    s.from_token,
+                    s.from_chain,
+                    s.to_token,
+                    s.to_chain,
+                    s.from_amount,
+                    s.to_amount,
+                    # Valued at execution time. These are the whole point of the
+                    # replay being accurate; they were previously left unread.
+                    s.realized_to_amount_usd,
+                    s.to_amount_usd,
+                    s.from_amount_usd,
+                )
                 for s in rows
             ]
 
     try:
         swaps = await run_in_db(_load)
+    except _TooManySwaps as e:
+        logger.warning(
+            f"backfill: user {user_id} has {e.args[0]} swaps (> {_MAX_REPLAY}); "
+            "skipping rather than rebuilding from a truncated history"
+        )
+        return False
     except Exception as e:
         logger.warning(f"backfill: could not load swaps for {user_id}: {e}")
         return False
 
-    # Current prices for the volatile tokens (one batched call).
+    # Current prices, for the last-resort fallback only: rows predating the
+    # *_amount_usd columns, or where the valuation failed at execution time.
     price_map: dict = {}
     symbols = set()
-    for ft, fc, tt, tc, fa, ta in swaps:
+    for ft, fc, tt, tc, fa, ta, r_usd, t_usd, f_usd in swaps:
+        if _f(r_usd) > 0 or _f(t_usd) > 0 or _f(f_usd) > 0:
+            continue  # already valued at execution time; no price lookup needed
         if tt and not _is_stable(tt):
             symbols.add(tt.upper())
         if ft and not _is_stable(ft):
@@ -88,7 +127,19 @@ async def backfill_user_positions(user_id: int) -> bool:
         except Exception:
             price_map = {}
 
-    def _swap_usd(ft, tt, fq, tq) -> float:
+    def _swap_usd(ft, tt, fq, tq, r_usd, t_usd, f_usd) -> float:
+        """Value one swap, most faithful source first.
+
+        The first three are what the swap was worth *when it happened*, recorded on
+        the row: what actually settled, then what was quoted for each leg. Only if a
+        row carries none of them do we reach for a stablecoin identity or, last,
+        today's price — which is right for a swap that happened today and
+        progressively wrong for every older one.
+        """
+        for stored in (r_usd, t_usd, f_usd):
+            v = _f(stored)
+            if v > 0:
+                return v
         if tt and _is_stable(tt) and tq > 0:
             return tq
         if ft and _is_stable(ft) and fq > 0:
@@ -112,9 +163,9 @@ async def backfill_user_positions(user_id: int) -> bool:
             def slot(token, chain):
                 return acc.setdefault((token, chain), [0.0, 0.0, 0.0])
 
-            for ft, fc, tt, tc, fa, ta in swaps:
+            for ft, fc, tt, tc, fa, ta, r_usd, t_usd, f_usd in swaps:
                 fq, tq = _f(fa), _f(ta)
-                usd = _swap_usd(ft, tt, fq, tq)
+                usd = _swap_usd(ft, tt, fq, tq, r_usd, t_usd, f_usd)
                 if usd <= 0:
                     continue
                 # SELL leg: realize PnL vs tracked basis.

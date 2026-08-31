@@ -84,6 +84,32 @@ jobs:
       - name: Env contract drift check (.env.schema)
         run: python3 scripts/check_env_schema.py
 
+      # Blocking. The replay and analytics SQL reads production tables by hand rather
+      # than through the ORM (so the replayer runs anywhere a DATABASE_URL does), which
+      # means a column rename in bot/models/ cannot break it at import time — it breaks
+      # it at 03:00 in the nightly reconciler, as a log line nobody reads. This
+      # materialises the real schema, seeds it, and runs every extractor and view.
+      - name: Replay/analytics schema conformance
+        run: python3 scripts/audit/schema_conformance.py
+
+      # Blocking. A card whose fill points at a renamed gradient renders black in
+      # every wallet and marketplace, raises nothing, and stays wrong until a human
+      # happens to look at it — the visual equivalent of the boot-import crash CI
+      # already cannot catch. Stdlib only, so it needs no extra install step.
+      #
+      # Scoped to nft/ (mint assets) rather than art/. The size budget it enforces is
+      # a wallet/marketplace constraint on minted SVG; art/ holds posters and
+      # generative pieces that are not minted and that the budget would wrongly fail.
+      - name: Generated-asset gate (SVG)
+        run: python3 scripts/art/validate_asset.py nft --quiet
+
+      # Advisory. A heuristic report on money handled outside Decimal and aggregates
+      # missing a success predicate; it has known false positives, so gating on it
+      # would only train people to ignore it.
+      - name: Money precision report
+        run: python3 scripts/audit/money_precision_scan.py --limit 15
+        continue-on-error: true
+
       - name: Run tests with coverage
         run: |
           pytest tests/ \

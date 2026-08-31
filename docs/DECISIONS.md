@@ -178,3 +178,36 @@ ADRs 0001–0005.
   cairosvg/librsvg (marketplace indexers) drop the filter — the whole
   collection rasterized as black rectangles until the art-director pass
   caught it. Always rasterize through cairosvg before shipping card art.
+
+### Money-path state is validated by replay, against a stated number (2026-08)
+- **What**: `python3 -m scripts.replay --days 1` rebuilds per-user money state from
+  a deterministically ordered canonical event stream and compares it to the
+  aggregates production maintains, checkpointing every 100 events and exiting 1 on
+  the first divergence past epsilon. The acceptance claim, adopted from Tektonic's
+  ADL reconstruction: **max divergence < $0.01 across all compared accounts at every
+  checkpoint**. On a 1,200-swap fixture: 3,467 events, 40 accounts, 35 checkpoints,
+  max divergence 0, ~384k events/sec.
+- **Why**: incremental accounting drifts silently. An end-of-run total says something
+  is wrong somewhere; a checkpoint every 100 events says which event.
+- **Consequence**: without the epsilon written down, "the numbers look right" is the
+  standard, and a cent of drift per swap is invisible until someone audits a year.
+
+### A pool split must conserve the pool; a threshold must count only settled money
+- **What**: two defects found by `scripts/audit/money_precision_scan.py`. The 40/60
+  staking/protocol fee split was two independent float multiplications and failed to
+  sum back to the net fee in 121 of 2,000 cent-stepped values — now allocated by
+  largest-remainder `bot.utils.money.pro_rata` (0 of 2,000 fail). The $10 referral
+  volume gate counted `submitted` swaps, which are broadcast but unconfirmed, so a
+  referee could cross the payout threshold on volume that later reverted — now
+  `COMPLETED` only.
+- **Why**: Tektonic quantified greedy allocation as moving $45–52M unnecessarily where
+  integer pro-rata cut it to ~$3M, and enforce "0.00% inflation from reverted
+  executions" at ingest rather than at query time.
+- **Consequence**: allocation dust accrues to whichever side rounds up, and revenue
+  reported over in-flight rows is inflated by construction. Use `bot/utils/money`
+  for money arithmetic; new money columns are `Numeric(38, 18)`, never `Float`.
+- **Correction (2026-08-30)**: the same audit rated 48 existing `Float` money columns
+  "high" on the claim that they accumulate drift. Measured, that is false at our scale —
+  2,900 sequential partial sells drifted 4.8e-9 USD from exact `Decimal`. Downgraded to
+  low. Prefer `Numeric` for new columns because exact representation helps audit and
+  comparison, not because doubles lose money here.

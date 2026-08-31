@@ -54,10 +54,13 @@ class Stats:
 
     def log(self):
         logger.info(
-            "[%s] scanned=%d rewrapped=%d skipped_already_local=%d "
-            "skipped_no_dek=%d failed=%d",
-            self.table, self.scanned, self.rewrapped,
-            self.skipped_already_local, self.skipped_no_dek, self.failed,
+            "[%s] scanned=%d rewrapped=%d skipped_already_local=%d " "skipped_no_dek=%d failed=%d",
+            self.table,
+            self.scanned,
+            self.rewrapped,
+            self.skipped_already_local,
+            self.skipped_no_dek,
+            self.failed,
         )
 
 
@@ -91,11 +94,7 @@ class _AlreadyLocal(Exception):
 
 def migrate_wallet_like(session, model, stats: Stats, aws, local, commit: bool, batch_size: int):
     """Rewrap wallets / hot_wallets — both have kms_wrapped_dek + kms_key_id columns."""
-    rows = (
-        session.query(model)
-        .filter(model.encryption_scheme == SCHEME_KMS_AESGCM_V2)
-        .all()
-    )
+    rows = session.query(model).filter(model.encryption_scheme == SCHEME_KMS_AESGCM_V2).all()
     pending = 0
     for row in rows:
         stats.scanned += 1
@@ -132,9 +131,7 @@ def migrate_oauth(session, stats: Stats, aws, local, commit: bool, batch_size: i
     from bot.models.oauth import OAuthToken
 
     rows = (
-        session.query(OAuthToken)
-        .filter(OAuthToken.encryption_scheme == SCHEME_KMS_AESGCM_V2)
-        .all()
+        session.query(OAuthToken).filter(OAuthToken.encryption_scheme == SCHEME_KMS_AESGCM_V2).all()
     )
     pending = 0
     for row in rows:
@@ -173,7 +170,9 @@ def migrate_oauth(session, stats: Stats, aws, local, commit: bool, batch_size: i
                     logger.error("[oauth] row id=%s refresh rewrap failed: %s", row.id, e)
             else:
                 row_failed = True
-                logger.error("[oauth] row id=%s malformed refresh blob (%d parts)", row.id, len(parts))
+                logger.error(
+                    "[oauth] row id=%s malformed refresh blob (%d parts)", row.id, len(parts)
+                )
 
         if row_failed:
             stats.failed += 1
@@ -192,14 +191,23 @@ def migrate_oauth(session, stats: Stats, aws, local, commit: bool, batch_size: i
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Rewrap KMS-wrapped DEKs from AWS to Local KEK.")
-    parser.add_argument("--commit", action="store_true",
-                        help="Actually write changes (default is dry-run).")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Explicit no-op (dry-run is already the default; ignored if --commit is given).")
-    parser.add_argument("--table", choices=["wallets", "hot_wallets", "oauth", "all"],
-                        default="all", help="Which table(s) to process.")
-    parser.add_argument("--batch-size", type=int, default=100,
-                        help="Commit every N rewrapped rows.")
+    parser.add_argument(
+        "--commit", action="store_true", help="Actually write changes (default is dry-run)."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Explicit no-op (dry-run is already the default; ignored if --commit is given).",
+    )
+    parser.add_argument(
+        "--table",
+        choices=["wallets", "hot_wallets", "oauth", "all"],
+        default="all",
+        help="Which table(s) to process.",
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=100, help="Commit every N rewrapped rows."
+    )
     args = parser.parse_args()
     commit = args.commit
 

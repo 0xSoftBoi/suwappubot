@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from bot.config.settings import settings
 from bot.models.fees import FeeTransaction
 from bot.models.subscription import SubscriptionTier
+from bot.utils.money import pro_rata
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -362,8 +363,20 @@ class FeeService:
         # Splitting net (not gross) keeps the allocation consistent —
         # referral + staking + protocol == fee_amount (otherwise a referred
         # swap would "allocate" 30% + 40% + 60% = 130% of the fee).
-        staking_allocation_usd = float(net_fee) * 0.40
-        protocol_allocation_usd = float(net_fee) * 0.60
+        #
+        # MONEY-PATH: allocated with the conserving largest-remainder splitter rather
+        # than two independent multiplications. Computing each share separately in
+        # float does not guarantee the shares sum back to the pool: at net_fee 0.03,
+        # `0.03*0.4 + 0.03*0.6` is 0.030000000000000002, and the invariant the comment
+        # above asserts silently fails. pro_rata assigns the rounding dust
+        # deterministically, so staking + protocol == net_fee exactly, every time.
+        #
+        # This is Tektonic's ADL finding applied to our own pool: their greedy
+        # most-profitable-first allocation was provably suboptimal and moved $45-52M
+        # unnecessarily, where integer pro-rata cut it to ~$3M at zero capital cost.
+        _split = pro_rata(net_fee, {"staking": Decimal("40"), "protocol": Decimal("60")})
+        staking_allocation_usd = float(_split["staking"])
+        protocol_allocation_usd = float(_split["protocol"])
 
         return FeeCalculation(
             swap_amount_usd=amount,

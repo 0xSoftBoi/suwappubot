@@ -64,7 +64,9 @@ def route(qid: str, provider: str, minute: int, quoted: float, selected: bool):
 
 
 def main() -> None:
-    history = [tx("lifi", i, 0.998) for i in range(25)] + [tx("across", i, 0.999) for i in range(25)]
+    history = [tx("lifi", i, 0.998) for i in range(25)] + [
+        tx("across", i, 0.999) for i in range(25)
+    ]
     races = [
         [route("early", "lifi", 5, 1000.0, True), route("early", "across", 5, 999.5, False)],
         [route("late", "lifi", 40, 1000.0, True), route("late", "across", 40, 999.5, False)],

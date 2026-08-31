@@ -25,7 +25,9 @@ def load(name: str, relative_path: str):
 
 sync = load("execution_sync_standalone", "bot/services/execution_sync.py")
 receipt = load("execution_sync_receipt_standalone", "bot/services/execution_sync_receipt.py")
-calibration = load("execution_sync_calibration_standalone", "bot/services/execution_sync_calibration.py")
+calibration = load(
+    "execution_sync_calibration_standalone", "bot/services/execution_sync_calibration.py"
+)
 # Replay imports these by their production package names. Alias the already
 # dependency-light modules so validation does not import the full bot package.
 sys.modules["bot.services.execution_sync"] = sync
@@ -126,9 +128,7 @@ def main() -> None:
     production = candidate(provider="lifi", expected_output=1000.0, total_cost_usd=5.0)
     cheaper = candidate(provider="across", expected_output=999.9, total_cost_usd=0.1)
     shadow = sync.optimize([production, cheaper], sync.ExecutionIntent())
-    event = sync.shadow_event(
-        production_provider="lifi", production_output=1000.0, decision=shadow
-    )
+    event = sync.shadow_event(production_provider="lifi", production_output=1000.0, decision=shadow)
     assert event["event"] == "execution_sync_shadow_decision"
     assert event["candidate_count"] == 2
 
@@ -193,8 +193,14 @@ def main() -> None:
     calibrations = replay.build_calibrations(replay_history)
     race_rows = [
         _route(
-            "q-1", "lifi", 1000.0, selected=True, gas=2.0, fee=0.5,
-            duration=40, observed_usd=997.5,
+            "q-1",
+            "lifi",
+            1000.0,
+            selected=True,
+            gas=2.0,
+            fee=0.5,
+            duration=40,
+            observed_usd=997.5,
         ),
         _route("q-1", "across", 999.5, selected=False, gas=0.2, fee=0.0, duration=12),
     ]
