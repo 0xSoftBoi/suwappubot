@@ -21,6 +21,7 @@ import {
   type AmendmentDiff,
   type Mandate,
   type MandateAmendment,
+  type MandateRuleKey,
   type MandateVerdict,
 } from './mandate';
 import {
@@ -28,10 +29,43 @@ import {
   registerDeskTools,
   registerHandoffTool,
   registerOverrideTool,
+  webmcpAttrs,
   type DeskController,
   type ModelContextLike,
+  type WebMCPSubmitEvent,
 } from './webmcp';
+
+/** Agent-authored free text is untrusted — it always renders quoted and labeled. */
+function AgentQuote({ text }: { text: string }) {
+  return (
+    <blockquote className={styles.rationale}>
+      <span className={styles.agentText}>agent-written, unverified</span>
+      {text}
+    </blockquote>
+  );
+}
+
+/**
+ * The tool-*result* sibling of `AgentQuote`: whenever a rationale or override
+ * argument the agent wrote earlier is re-fed to the model (via read_desk,
+ * check_approval, or export_receipt), it is wrapped in this shape instead of
+ * handed back as a bare string, so the model can't mistake its own earlier
+ * persuasive text for a new instruction (Hines et al., arXiv:2403.14720;
+ * Wu et al., IsolateGPT arXiv:2403.04960). The human-facing render above is
+ * unaffected — it always worked from the raw string in component state.
+ */
+interface AgentWrittenText {
+  agentWritten: true;
+  unverified: true;
+  text: string;
+}
+const agentWritten = (text: string): AgentWrittenText => ({
+  agentWritten: true,
+  unverified: true,
+  text,
+});
 import styles from './agent-desk.module.css';
+import DeskFlow from './DeskFlow';
 
 // ── Model ───────────────────────────────────────────────────────────
 
@@ -83,9 +117,14 @@ interface Proposal {
   createdAt: number;
   expiresAt: number;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
+  /** Envelope version this proposal was judged under, captured at creation. */
+  mandateVersion: number;
   humanNote: string | null;
   decidedAt: number | null;
   consumedAt: number | null;
+  /** Swap legs the human has marked signed, in order. Plans hand off one leg
+      at a time: the next leg's link does not exist until this advances. */
+  legsSigned?: number;
   swap?: SwapBody;
   alert?: AlertBody;
   plan?: { steps: PlanStep[]; combinedUsd: number | null };
@@ -126,7 +165,7 @@ const nextId = (prefix: string) => {
 
 function fmtUsd(value: string | number | null | undefined): string {
   const n = typeof value === 'string' ? Number.parseFloat(value) : value;
-  if (n === null || n === undefined || !Number.isFinite(n)) return '—';
+  if (n === null || n === undefined || !Number.isFinite(n)) return '-';
   return n >= 1000
     ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
     : `$${n.toLocaleString('en-US', { maximumFractionDigits: n < 1 ? 4 : 2 })}`;
@@ -134,12 +173,12 @@ function fmtUsd(value: string | number | null | undefined): string {
 
 function fmtAmount(value: string | undefined): string {
   const n = Number.parseFloat(value ?? '');
-  if (!Number.isFinite(n)) return value ?? '—';
+  if (!Number.isFinite(n)) return value ?? '-';
   return n.toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 
 function fmtDuration(seconds: number | undefined): string {
-  if (!seconds || !Number.isFinite(seconds)) return '—';
+  if (!seconds || !Number.isFinite(seconds)) return '-';
   return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`;
 }
 
@@ -163,6 +202,32 @@ function notionalOf(p: Proposal): number | null {
 /** A proposal the desk will not let the human approve as things stand. */
 const isBlocked = (p: Proposal) =>
   Boolean(p.verdict && !p.verdict.withinMandate && p.override?.granted !== true);
+
+/**
+ * Anderson et al., CHI 2015: habituation to a repeated identical warning
+ * collapses by the second exposure — visual variation restores attention.
+ * Each mandate rule gets its own glyph/heading; the rule/limit/actual detail
+ * rows stay exactly as they are (that density is load-bearing).
+ */
+const BREACH_META: Record<MandateRuleKey, { glyph: string; heading: string }> = {
+  perTradeUsdCap: { glyph: '$', heading: 'Over your per-trade cap' },
+  dailyUsdCap: { glyph: 'Σ', heading: "Over today's budget" },
+  allowedChains: { glyph: '⇄', heading: "Chain isn't on your allow-list" },
+  allowedBuyTokens: { glyph: '◈', heading: "Token isn't on your allow-list" },
+  maxPriceImpactPercent: { glyph: '▲', heading: 'Price impact is too high' },
+  maxSlippagePercent: { glyph: '≈', heading: 'Slippage tolerance is too high' },
+};
+
+/**
+ * evaluateMandate() pushes violations in priority order (caps, then chain,
+ * then token, then impact, then slippage), so the first entry is already the
+ * most severe rule broken — that one leads the card; every violation still
+ * lists below, unchanged.
+ */
+const primaryBreach = (verdict: MandateVerdict | null) => {
+  const rule = verdict?.violations[0]?.rule;
+  return rule ? { rule, ...BREACH_META[rule] } : null;
+};
 
 /**
  * The signing handoff. Nothing here signs — these are the surfaces that own
@@ -205,6 +270,7 @@ export default function AgentDesk() {
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [mandateOpen, setMandateOpen] = useState(false);
+  const [lastTool, setLastTool] = useState<string | null>(null);
 
   const ticketRef = useRef(ticket);
   const mandateRef = useRef(mandate);
@@ -259,9 +325,9 @@ export default function AgentDesk() {
   );
 
   const updateMandate = useCallback(
-    (patch: Partial<Mandate>) => {
+    (patch: Partial<Mandate> | ((prev: Mandate) => Mandate)) => {
       setMandate((prev) => {
-        const next = { ...prev, ...patch };
+        const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch };
         mandateRef.current = next;
         try {
           window.localStorage.setItem(MANDATE_KEY, JSON.stringify(next));
@@ -285,7 +351,13 @@ export default function AgentDesk() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(MANDATE_KEY);
-      if (raw) setMandate({ ...DEFAULT_MANDATE, ...(JSON.parse(raw) as Partial<Mandate>) });
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<Mandate>;
+        if (!Number.isInteger(parsed.version) || (parsed.version as number) < 1) {
+          delete parsed.version;
+        }
+        setMandate({ ...DEFAULT_MANDATE, ...parsed });
+      }
     } catch {
       /* private mode, blocked storage — the default mandate is fine */
     }
@@ -414,24 +486,61 @@ export default function AgentDesk() {
         // The one thing on this desk that completes in place: an approved
         // amendment rewrites the envelope, here, now, and it persists.
         if (status === 'approved' && decided.kind === 'mandate' && decided.amendment) {
-          updateMandate(decided.amendment.changes);
+          const prevVersion = mandateRef.current.version;
+          const nextMandate = applyAmendment(mandateRef.current, decided.amendment.changes);
+          // Write from the updater's own prev so a concurrent panel edit can
+          // never be clobbered by a stale ref snapshot.
+          const changes = decided.amendment.changes;
+          updateMandate((prev) => applyAmendment(prev, changes));
           log(
             'human',
             'Mandate amended',
-            decided.amendment.diffs
-              .map((d) => `${d.field}: ${d.from} → ${d.to} (${d.direction})`)
-              .join('; '),
+            `v${prevVersion} → v${nextMandate.version}; ` +
+              decided.amendment.diffs
+                .map((d) => `${d.field}: ${d.from} → ${d.to} (${d.direction})`)
+                .join('; '),
           );
         }
         settle(decided);
         log(
           'human',
           status === 'approved' ? 'Approved proposal' : 'Rejected proposal',
-          `${decided.id}${decided.humanNote ? ` — "${decided.humanNote}"` : ''}`,
+          `${decided.id}${decided.humanNote ? `: "${decided.humanNote}"` : ''}`,
         );
       }
     },
     [commitProposals, log, noteDraft, settle, updateMandate],
+  );
+
+  /** The human confirms a plan leg was signed; only then does the next leg's
+      handoff link come into existence. Marking the final leg retires the
+      approval, exactly like a spent single-swap handoff. */
+  const markLegSigned = useCallback(
+    (id: string) => {
+      const current = proposalsRef.current.find((p) => p.id === id);
+      if (!current || current.status !== 'approved' || current.consumedAt !== null) return;
+      const legTotal = (current.plan?.steps ?? []).filter((s) => s.swap).length;
+      const signed = (current.legsSigned ?? 0) + 1;
+      commitProposals((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                legsSigned: signed,
+                consumedAt: signed >= legTotal ? Date.now() : p.consumedAt,
+              }
+            : p,
+        ),
+      );
+      log(
+        'human',
+        `Leg ${signed} of ${legTotal} signed`,
+        signed >= legTotal
+          ? `${id}: plan fully signed; the handoff is spent`
+          : `${id}: leg ${signed + 1} is now unlocked`,
+      );
+    },
+    [commitProposals, log],
   );
 
   const decideOverride = useCallback(
@@ -446,7 +555,7 @@ export default function AgentDesk() {
       log(
         'human',
         granted ? 'Granted override' : 'Denied override',
-        `${id} — mandate exception ${granted ? 'allowed once' : 'refused'}`,
+        `${id}: mandate exception ${granted ? 'allowed once' : 'refused'}`,
       );
     },
     [commitProposals, log],
@@ -494,7 +603,8 @@ export default function AgentDesk() {
         id: p.id,
         kind: p.kind,
         createdAt: new Date(p.createdAt).toISOString(),
-        agentRationale: p.rationale,
+        mandateVersion: p.mandateVersion,
+        agentRationale: agentWritten(p.rationale),
         notionalUsd: notionalOf(p),
         mandate: p.verdict
           ? {
@@ -502,7 +612,7 @@ export default function AgentDesk() {
               violations: p.verdict.violations,
             }
           : null,
-        override: p.override,
+        override: p.override ? { ...p.override, argument: agentWritten(p.override.argument) } : null,
         humanDecision: p.status,
         humanNote: p.humanNote,
         decidedAt: p.decidedAt ? new Date(p.decidedAt).toISOString() : null,
@@ -510,6 +620,110 @@ export default function AgentDesk() {
       })),
       toolCalls: activityRef.current
         .filter((a) => a.actor === 'agent')
+        // detail serializes agent-supplied arguments, so it is agent-authored
+        // by construction and re-feeds wrapped, like every other echo.
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: agentWritten(a.detail) }))
+        .reverse(),
+      humanActivity: activityRef.current
+        .filter((a) => a.actor === 'human')
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: a.detail }))
+        .reverse(),
+    };
+  }, [spentToday]);
+
+  /**
+   * P1.1: the `format:"json"` shape for `export_receipt` — a schemaVersion-
+   * stamped, machine-parseable object (Chan et al., "Visibility into AI
+   * Agents", arXiv:2401.13138) built from the same state as `buildReceipt`
+   * above rather than new tracking. Every agent-written field is wrapped
+   * per P1.2 (`agentWritten`, above).
+   */
+  const buildReceiptJson = useCallback(() => {
+    const list = proposalsRef.current;
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      surface: 'Suwappu Agent Desk (WebMCP)',
+      custody:
+        'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
+      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      proposals: list.map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        status: p.status,
+        createdAt: new Date(p.createdAt).toISOString(),
+        expiresAt: new Date(p.expiresAt).toISOString(),
+        decidedAt: p.decidedAt ? new Date(p.decidedAt).toISOString() : null,
+        consumedAt: p.consumedAt ? new Date(p.consumedAt).toISOString() : null,
+        mandateVersion: p.mandateVersion,
+        rationale: agentWritten(p.rationale),
+        notionalUsd: notionalOf(p),
+        ...(p.swap
+          ? {
+              swap: {
+                sell: `${p.swap.amount} ${p.swap.fromToken} on ${p.swap.fromChain}`,
+                buy: `${p.swap.toToken} on ${p.swap.toChain}`,
+                slippagePercent: p.swap.slippagePercent ?? null,
+              },
+            }
+          : {}),
+        ...(p.alert
+          ? {
+              alert: {
+                watch: p.alert.symbol,
+                fires: `${p.alert.direction} ${fmtUsd(p.alert.targetPrice)}`,
+              },
+            }
+          : {}),
+        ...(p.plan
+          ? {
+              plan: {
+                combinedUsd: p.plan.combinedUsd,
+                steps: p.plan.steps.map((s, i) => ({
+                  step: i + 1,
+                  kind: s.kind,
+                  note: s.note ? agentWritten(s.note) : null,
+                  summary: s.swap
+                    ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                    : s.alert
+                      ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
+                      : null,
+                })),
+              },
+            }
+          : {}),
+        mandateVerdict: p.verdict
+          ? { withinMandate: p.verdict.withinMandate, violations: p.verdict.violations }
+          : null,
+        humanDecision: { decision: p.status, note: p.humanNote },
+        override: p.override
+          ? {
+              argument: agentWritten(p.override.argument),
+              askedAt: new Date(p.override.askedAt).toISOString(),
+              outcome:
+                p.override.granted === true
+                  ? 'granted'
+                  : p.override.granted === false
+                    ? 'denied'
+                    : 'pending',
+            }
+          : null,
+        amendment: p.amendment
+          ? {
+              diffs: p.amendment.diffs,
+              loosenedFields: p.amendment.diffs
+                .filter((d) => d.direction === 'looser')
+                .map((d) => d.field),
+            }
+          : null,
+      })),
+      toolCallActivity: activityRef.current
+        .filter((a) => a.actor === 'agent')
+        // detail serializes agent-supplied arguments — wrapped like every echo.
+        .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: agentWritten(a.detail) }))
+        .reverse(),
+      humanActivity: activityRef.current
+        .filter((a) => a.actor === 'human')
         .map((a) => ({ at: new Date(a.at).toISOString(), entry: a.label, detail: a.detail }))
         .reverse(),
     };
@@ -562,12 +776,12 @@ export default function AgentDesk() {
       proposalId: p.id,
       kind: p.kind,
       status: p.status,
-      rationale: p.rationale,
+      rationale: agentWritten(p.rationale),
       humanNote: p.humanNote,
       notionalUsd: notionalOf(p),
       mandate: describeVerdict(p.verdict),
       blocked: isBlocked(p),
-      override: p.override,
+      override: p.override ? { ...p.override, argument: agentWritten(p.override.argument) } : null,
       createdAt: new Date(p.createdAt).toISOString(),
       expiresAt: new Date(p.expiresAt).toISOString(),
       ...(p.swap
@@ -816,6 +1030,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -939,6 +1154,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -1051,6 +1267,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -1094,6 +1311,7 @@ export default function AgentDesk() {
           createdAt: Date.now(),
           expiresAt: Date.now() + PROPOSAL_TTL_MS,
           status: 'pending',
+          mandateVersion: mandateRef.current.version,
           humanNote: null,
           decidedAt: null,
           consumedAt: null,
@@ -1219,6 +1437,26 @@ export default function AgentDesk() {
         if (legs.length === 0) {
           throw new Error('Only swap proposals and plans containing a swap have a handoff.');
         }
+        if (proposal.kind === 'plan') {
+          // Plans are SEQUENCED: one leg at a time, in order. The next leg's
+          // link does not exist until the human marks the current one signed
+          // on the desk, and marking the final leg spends the approval.
+          const signed = proposal.legsSigned ?? 0;
+          const current = legs[signed];
+          return {
+            proposalId,
+            plan: {
+              legTotal: legs.length,
+              legIndex: signed + 1,
+              legsSigned: signed,
+              sequencing:
+                'One leg at a time, in order. This call is idempotent for the current leg; the next link exists only after the human marks this leg signed on the desk.',
+            },
+            handoff: [buildHandoff(current)],
+            custody:
+              'Suwappu does not sign from this page. The link opens a surface the human controls, pre-filled with this leg; they still confirm and sign there.',
+          };
+        }
         commitProposals((prev) =>
           prev.map((p) => (p.id === proposalId ? { ...p, consumedAt: Date.now() } : p)),
         );
@@ -1226,20 +1464,26 @@ export default function AgentDesk() {
           proposalId,
           handoff: legs.map(buildHandoff),
           custody:
-            'Suwappu does not sign from this page. Each link opens a surface the human controls, pre-filled with the approved trade; they still confirm and sign there. A plan hands off one link per leg, in order.',
+            'Suwappu does not sign from this page. Each link opens a surface the human controls, pre-filled with the approved trade; they still confirm and sign there.',
         };
       },
 
-      exportReceipt({ download }) {
-        const receipt = buildReceipt();
+      exportReceipt({ download, format }) {
+        const useJson = format === 'json';
+        const receipt = useJson ? buildReceiptJson() : buildReceipt();
         if (download) {
-          downloadReceipt();
-          log('agent', 'Receipt downloaded', 'agent handed the human a copy of the session');
+          downloadJson(receipt, useJson ? 'suwappu-agent-desk-receipt-json' : 'suwappu-agent-desk-receipt');
+          log(
+            'agent',
+            'Receipt downloaded',
+            `agent handed the human a copy of the session (${useJson ? 'json' : 'default'} format)`,
+          );
         }
         return receipt;
       },
 
       onToolCall(name, args) {
+        setLastTool(name);
         log('agent', `→ ${name}`, JSON.stringify(args));
       },
 
@@ -1249,9 +1493,9 @@ export default function AgentDesk() {
     };
   }, [
     buildReceipt,
+    buildReceiptJson,
     commitProposals,
     downloadJson,
-    downloadReceipt,
     judge,
     log,
     priceOne,
@@ -1335,12 +1579,14 @@ export default function AgentDesk() {
     };
     setTicket(t);
     log('human', 'Manual quote', `${t.amount} ${t.fromToken} → ${t.toToken}`);
-    const pricing = runPreview(t).catch(() => undefined /* surfaced in previewError */);
+    // On failure the human sees previewError, and the agent that drove the
+    // submit gets the same structured { error } shape every other tool returns.
+    const pricing = runPreview(t).catch((e: unknown) => ({
+      error: e instanceof Error ? e.message : String(e),
+    }));
     // Declarative WebMCP: when an engine drove this submit, hand the priced
     // ticket back as the tool result instead of making it scrape the DOM.
-    const native = e.nativeEvent as SubmitEvent & {
-      respondWith?: (value: Promise<unknown>) => void;
-    };
+    const native = e.nativeEvent as WebMCPSubmitEvent;
     if (typeof native.respondWith === 'function') native.respondWith(pricing);
   };
 
@@ -1386,6 +1632,16 @@ export default function AgentDesk() {
         </p>
       </section>
 
+      <DeskFlow
+        lastTool={lastTool}
+        status={{
+          state: mcp.state,
+          tools: mcp.tools.length,
+          pending: pending.length,
+          calls: activity.filter((a) => a.actor === 'agent' && a.label.startsWith('→')).length,
+        }}
+      />
+
       <div className={styles.grid}>
         {/* ── Mandate ────────────────────────────────────────────── */}
         <section id="desk-mandate" className={`${styles.panel} ${styles.mandatePanel}`}>
@@ -1423,9 +1679,12 @@ export default function AgentDesk() {
               <span style={{ width: `${usedPct}%` }} />
             </div>
             <p className={styles.budgetCopy}>
-              <strong>{fmtUsd(remaining)}</strong> of {fmtUsd(mandate.dailyUsdCap)} left today ·
-              max {fmtUsd(mandate.perTradeUsdCap)} per trade · impact ≤{' '}
-              {mandate.maxPriceImpactPercent}% · slippage ≤ {mandate.maxSlippagePercent}%
+              <span>
+                <strong>{fmtUsd(remaining)}</strong> of {fmtUsd(mandate.dailyUsdCap)} left today
+              </span>
+              <span>max {fmtUsd(mandate.perTradeUsdCap)} per trade</span>
+              <span>impact ≤ {mandate.maxPriceImpactPercent}%</span>
+              <span>slippage ≤ {mandate.maxSlippagePercent}%</span>
             </p>
           </div>
 
@@ -1509,14 +1768,14 @@ export default function AgentDesk() {
               <li>
                 <span>Chains</span>
                 <strong>
-                  {mandate.allowedChains.length ? mandate.allowedChains.join(' · ') : 'any'}
+                  {mandate.allowedChains.length ? mandate.allowedChains.join(', ') : 'any'}
                 </strong>
               </li>
               <li>
                 <span>May buy</span>
                 <strong>
                   {mandate.allowedBuyTokens.length
-                    ? mandate.allowedBuyTokens.join(' · ')
+                    ? mandate.allowedBuyTokens.join(', ')
                     : 'any token'}
                 </strong>
               </li>
@@ -1524,7 +1783,7 @@ export default function AgentDesk() {
           )}
 
           <p className={styles.finePrint}>
-            This desk never executes, so the mandate cannot physically cap spending — it governs
+            This desk never executes, so the mandate cannot physically cap spending. It governs
             what the page will put in front of you and what the agent is told before it asks.
             Binding limits live in Suwappu’s server-side wallet spending policies. Stored in this
             browser only.
@@ -1539,11 +1798,11 @@ export default function AgentDesk() {
           </p>
           <form
             onSubmit={onTicketSubmit}
-            {...({
+            {...webmcpAttrs({
               toolname: 'fill_and_price_ticket',
               tooldescription:
                 'Fill the shared swap ticket and price it against the live cross-chain routing engine. Pricing attaches the mandate verdict; it proposes nothing and spends nothing.',
-            } as Record<string, string>)}
+            })}
           >
             <div className={styles.ticketGrid}>
               <label className={styles.field}>
@@ -1553,9 +1812,9 @@ export default function AgentDesk() {
                   value={ticket.amount}
                   inputMode="decimal"
                   onChange={(e) => setTicket((t) => ({ ...t, amount: e.target.value }))}
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Human-readable amount of the token being sold.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
               <label className={styles.field}>
@@ -1566,9 +1825,9 @@ export default function AgentDesk() {
                   onChange={(e) =>
                     setTicket((t) => ({ ...t, fromToken: e.target.value.toUpperCase() }))
                   }
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Ticker of the token being sold, e.g. ETH.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
               <label className={styles.field}>
@@ -1577,9 +1836,9 @@ export default function AgentDesk() {
                   name="fromChain"
                   value={ticket.fromChain}
                   onChange={(e) => setTicket((t) => ({ ...t, fromChain: e.target.value }))}
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Source chain key.',
-                  } as Record<string, string>)}
+                  })}
                 >
                   {chainKeys.map((k) => (
                     <option key={k} value={k}>
@@ -1596,9 +1855,9 @@ export default function AgentDesk() {
                   onChange={(e) =>
                     setTicket((t) => ({ ...t, toToken: e.target.value.toUpperCase() }))
                   }
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Ticker of the token being bought.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
               <label className={styles.field}>
@@ -1607,9 +1866,9 @@ export default function AgentDesk() {
                   name="toChain"
                   value={ticket.toChain}
                   onChange={(e) => setTicket((t) => ({ ...t, toChain: e.target.value }))}
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Destination chain key.',
-                  } as Record<string, string>)}
+                  })}
                 >
                   {chainKeys.map((k) => (
                     <option key={k} value={k}>
@@ -1630,9 +1889,9 @@ export default function AgentDesk() {
                       slippagePercent: Number.parseFloat(e.target.value) || t.slippagePercent,
                     }))
                   }
-                  {...({
+                  {...webmcpAttrs({
                     toolparamdescription: 'Maximum slippage in percent.',
-                  } as Record<string, string>)}
+                  })}
                 />
               </label>
             </div>
@@ -1718,13 +1977,13 @@ export default function AgentDesk() {
                       <td>
                         {row.preview
                           ? `${fmtAmount(row.preview.toAmount)} ${row.preview.toToken.symbol}`
-                          : '—'}
+                          : '-'}
                       </td>
-                      <td>{row.preview ? fmtUsd(row.preview.estimatedGasUsd) : '—'}</td>
+                      <td>{row.preview ? fmtUsd(row.preview.estimatedGasUsd) : '-'}</td>
                       <td>
-                        {row.preview ? fmtDuration(row.preview.estimatedDurationSeconds) : '—'}
+                        {row.preview ? fmtDuration(row.preview.estimatedDurationSeconds) : '-'}
                       </td>
-                      <td>{row.preview?.route ?? row.error ?? '—'}</td>
+                      <td>{row.preview?.route ?? row.error ?? '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1758,6 +2017,7 @@ export default function AgentDesk() {
           <ul className={styles.proposalList}>
             {proposals.map((p) => {
               const blocked = isBlocked(p);
+              const breach = primaryBreach(p.verdict);
               const legs =
                 p.kind === 'plan'
                   ? (p.plan?.steps ?? []).filter((s) => s.swap).map((s) => s.swap as SwapBody)
@@ -1808,32 +2068,91 @@ export default function AgentDesk() {
 
                   {p.plan && (
                     <ol className={styles.planSteps}>
-                      {p.plan.steps.map((s, i) => (
-                        <li key={`${p.id}-${i}`}>
-                          <span className={styles.planIndex}>{i + 1}</span>
-                          <span>
-                            {s.swap ? (
-                              <>
-                                Sell{' '}
-                                <strong>
-                                  {s.swap.amount} {s.swap.fromToken}
-                                </strong>{' '}
-                                on {s.swap.fromChain} → <strong>{s.swap.toToken}</strong> on{' '}
-                                {s.swap.toChain}
-                                {s.swap.preview && (
-                                  <> · ≈ {fmtUsd(s.swap.preview.toAmountUsd)}</>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                Alert <strong>{s.alert?.symbol}</strong> {s.alert?.direction}{' '}
-                                <strong>{fmtUsd(s.alert?.targetPrice)}</strong>
-                              </>
-                            )}
-                            {s.note && <em className={styles.planNote}> — {s.note}</em>}
-                          </span>
-                        </li>
-                      ))}
+                      {p.plan.steps.map((s, i) => {
+                        const legIdx = s.swap
+                          ? p.plan!.steps.slice(0, i + 1).filter((x) => x.swap).length - 1
+                          : -1;
+                        const signedCount = p.legsSigned ?? 0;
+                        const approved = p.status === 'approved';
+                        const state = !s.swap
+                          ? approved
+                            ? 'arm'
+                            : undefined
+                          : !approved
+                            ? undefined
+                            : legIdx < signedCount
+                              ? 'signed'
+                              : legIdx === signedCount
+                                ? 'active'
+                                : 'locked';
+                        return (
+                          <li key={`${p.id}-${i}`} data-state={state}>
+                            <span className={styles.planIndex}>
+                              {state === 'signed' ? '✓' : i + 1}
+                            </span>
+                            <span className={styles.planStepBody}>
+                              {s.swap ? (
+                                <>
+                                  Sell{' '}
+                                  <strong>
+                                    {s.swap.amount} {s.swap.fromToken}
+                                  </strong>{' '}
+                                  on {s.swap.fromChain} → <strong>{s.swap.toToken}</strong> on{' '}
+                                  {s.swap.toChain}
+                                  {s.swap.preview && (
+                                    <> · ≈ {fmtUsd(s.swap.preview.toAmountUsd)}</>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  Alert <strong>{s.alert?.symbol}</strong> {s.alert?.direction}{' '}
+                                  <strong>{fmtUsd(s.alert?.targetPrice)}</strong>
+                                </>
+                              )}
+                              {s.note && <em className={styles.planNote}> ({s.note})</em>}
+                              {state === 'signed' && (
+                                <span className={styles.planTag}>signed</span>
+                              )}
+                              {state === 'locked' && (
+                                <span className={styles.planTag}>
+                                  locked until leg {legIdx} is signed
+                                </span>
+                              )}
+                              {state === 'active' && s.swap && (
+                                <span className={styles.actions}>
+                                  <a
+                                    className={styles.primary}
+                                    href={buildHandoff(s.swap).terminalUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    Sign leg {legIdx + 1} in Terminal
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className={styles.ghost}
+                                    onClick={() => markLegSigned(p.id)}
+                                  >
+                                    Mark leg {legIdx + 1} signed
+                                  </button>
+                                </span>
+                              )}
+                              {state === 'arm' && (
+                                <span className={styles.actions}>
+                                  <a
+                                    className={styles.ghost}
+                                    href={TELEGRAM_URL}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    Arm in the bot
+                                  </a>
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
                       {p.plan.combinedUsd !== null && (
                         <li className={styles.planTotal}>
                           <span className={styles.planIndex}>Σ</span>
@@ -1869,16 +2188,16 @@ export default function AgentDesk() {
                     </ul>
                   )}
 
-                  <blockquote className={styles.rationale}>
-                    <span className={styles.agentText}>agent-written — unverified</span>
-                    {p.rationale}
-                  </blockquote>
+                  <AgentQuote text={p.rationale} />
 
-                  {p.verdict && !p.verdict.withinMandate && (
-                    <div className={styles.violations}>
+                  {p.verdict && !p.verdict.withinMandate && breach && (
+                    <div className={styles.violations} data-breach={breach.rule}>
                       <p className={styles.violationsTitle}>
-                        Breaks your mandate
-                        {p.override?.granted === true ? ' — you allowed it once' : ''}
+                        <span className={styles.breachGlyph} aria-hidden="true">
+                          {breach.glyph}
+                        </span>
+                        {breach.heading}
+                        {p.override?.granted === true ? ', but you allowed it once' : ''}
                       </p>
                       <ul>
                         {p.verdict.violations.map((v, i) => (
@@ -1892,14 +2211,11 @@ export default function AgentDesk() {
                   )}
 
                   {p.override && p.override.granted === null && (
-                    <div className={styles.overrideCard}>
+                    <div className={styles.overrideCard} data-breach={breach?.rule}>
                       <p className={styles.overrideTitle}>
                         Your agent is asking you to bend a rule
                       </p>
-                      <blockquote className={styles.rationale}>
-                        <span className={styles.agentText}>agent-written — unverified</span>
-                        {p.override.argument}
-                      </blockquote>
+                      <AgentQuote text={p.override.argument} />
                       <div className={styles.actions}>
                         <button
                           type="button"
@@ -1956,7 +2272,7 @@ export default function AgentDesk() {
 
                   {p.humanNote && <p className={styles.humanNote}>You said: “{p.humanNote}”</p>}
 
-                  {p.status === 'approved' && legs.length > 0 && (
+                  {p.status === 'approved' && p.kind !== 'plan' && legs.length > 0 && (
                     <div className={styles.handoff}>
                       <p className={styles.handoffTitle}>
                         Sign it where you keep your keys

@@ -226,7 +226,9 @@ async def oauth_authorize(
     return redirect
 
 
-def _oauth_failure_redirect(reason: str, detail: str = "") -> RedirectResponse:
+def _oauth_failure_redirect(
+    reason: str, detail: str = "", return_to: Optional[str] = None
+) -> RedirectResponse:
     """Send a failed login back to the UI with a MACHINE-READABLE reason.
 
     These paths previously raised HTTPException, so a user whose sign-in failed
@@ -239,9 +241,22 @@ def _oauth_failure_redirect(reason: str, detail: str = "") -> RedirectResponse:
     Each cause now carries its own `auth_error` slug on the redirect, so the
     failure names itself in the address bar. The slug is deliberately coarse —
     it must never leak whether a given state/nonce existed.
+
+    ``return_to``: the allowlisted destination the flow was STARTED from (the
+    state row's redirect_uri). Without it, every failure dumped the user on the
+    terminal home page — even when they began on suwappu.bot/dashboard — so
+    from the dashboard's point of view sign-in failed silently. Re-validated
+    against the allowlist before use; anything else falls back to the base.
     """
-    base = settings.oauth_callback_base
-    url = f"{base}/?auth_error={reason}"
+    if return_to and _is_allowed_redirect(return_to):
+        # Append to the QUERY, not after a fragment — `base#billing?auth_error=x`
+        # hides the param inside the fragment where the dashboard never sees it.
+        base_part, _, fragment = return_to.partition("#")
+        sep = "&" if "?" in base_part else "?"
+        url = f"{base_part}{sep}auth_error={reason}" + (f"#{fragment}" if fragment else "")
+    else:
+        base = settings.oauth_callback_base
+        url = f"{base}/?auth_error={reason}"
     logger.warning("OAuth login failed: reason=%s %s", reason, detail)
     return RedirectResponse(url=url, status_code=302)
 
@@ -288,9 +303,10 @@ async def oauth_callback(
         return _oauth_failure_redirect("state_not_found", f"state={state[:10]}...")
 
     if oauth_state.is_expired:
+        return_to = oauth_state.redirect_uri
         db.delete(oauth_state)
         db.commit()
-        return _oauth_failure_redirect("state_expired")
+        return _oauth_failure_redirect("state_expired", return_to=return_to)
 
     # For account-linking flows the OAuth identity must be bound to the user who
     # actually initiated the flow and is currently authenticated. Without this,
@@ -328,6 +344,9 @@ async def oauth_callback(
                 "OAuth callback: login nonce mismatch "
                 f"(state={state[:10]}..., cookie_present={presented_nonce is not None})"
             )
+            # Capture before delete+commit: the commit expires the instance,
+            # and attribute access on a deleted row raises ObjectDeletedError.
+            return_to = oauth_state.redirect_uri
             db.delete(oauth_state)
             db.commit()
             # cookie_present distinguishes the two very different causes:
@@ -338,6 +357,7 @@ async def oauth_callback(
             return _oauth_failure_redirect(
                 "nonce_missing" if not presented_nonce else "nonce_mismatch",
                 f"state={state[:10]}...",
+                return_to=return_to,
             )
 
     oauth_service = get_oauth_service()
@@ -361,10 +381,12 @@ async def oauth_callback(
         # unverified app. The provider's message is the ONLY place the real
         # cause appears, so log it in full — it is not sensitive.
         logger.error("OAuth token exchange failed: %s", e, exc_info=True)
+        # Capture before delete+commit — see the nonce branch above.
+        return_to = oauth_state.redirect_uri
         db.delete(oauth_state)
         db.commit()
         response.delete_cookie(key=OAUTH_NONCE_COOKIE, path="/auth/oauth")
-        return _oauth_failure_redirect("provider_rejected", str(e)[:200])
+        return _oauth_failure_redirect("provider_rejected", str(e)[:200], return_to=return_to)
 
     # Find or create user
     is_new_user = False

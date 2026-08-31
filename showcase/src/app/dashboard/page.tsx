@@ -187,6 +187,106 @@ function useApiFetch(auth: AuthState) {
   );
 }
 
+// ── First-run onboarding: create a workspace ─────────────────────────────────
+
+/** Derive a URL-safe slug the API accepts (^[a-z0-9-]+$) from a display name. */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function CreateWorkspaceCard({ apiFetch }: { apiFetch: ReturnType<typeof useApiFetch> }) {
+  const [name, setName]       = useState('');
+  const [busy, setBusy]       = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  async function create() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError('Give your workspace a name — your company or team name works well.');
+      return;
+    }
+    const slug = slugify(trimmed);
+    if (!slug) {
+      setError('That name needs at least one letter or number.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      let res = await apiFetch('/enterprise/orgs', {
+        method: 'POST',
+        body: JSON.stringify({ name: trimmed, slug }),
+      });
+      // Slug collision is OUR bookkeeping, not the user's problem — retry
+      // once with a random suffix rather than asking them to invent one.
+      if (res.status === 409) {
+        res = await apiFetch('/enterprise/orgs', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: trimmed,
+            slug: `${slug.slice(0, 72)}-${Math.random().toString(36).slice(2, 6)}`,
+          }),
+        });
+      }
+      if (res.ok) {
+        // Reload so the whole dashboard (tabs, usage, team) picks up the org.
+        window.location.reload();
+        return;
+      }
+      if (res.status === 402) {
+        setError('Your current plan doesn’t include workspaces yet. Pick a plan below, or email support@suwappu.bot and we’ll set you up.');
+      } else {
+        setError('We couldn’t create the workspace just now. Please try again in a moment.');
+      }
+    } catch {
+      setError('We couldn’t reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={styles.onboardCard} aria-label="Create your workspace">
+      <span className={styles.kicker}>Welcome — one step left</span>
+      <h2 className={styles.onboardTitle}>Create your workspace</h2>
+      <p className={styles.onboardLead}>
+        A workspace is your team&rsquo;s home in Suwappu. Everything on this
+        dashboard lives inside it, and you can invite teammates as soon as
+        it exists.
+      </p>
+      <ul className={styles.onboardPerks}>
+        <li>API keys for your agents</li>
+        <li>Team members &amp; roles</li>
+        <li>Usage &amp; billing in one place</li>
+      </ul>
+      <div className={styles.onboardForm}>
+        <input
+          className={styles.onboardInput}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && !busy && create()}
+          placeholder="e.g. Acme Trading"
+          aria-label="Workspace name"
+          maxLength={200}
+          disabled={busy}
+        />
+        <button className={styles.onboardBtn} onClick={create} disabled={busy}>
+          {busy ? 'Creating…' : 'Create workspace'}
+        </button>
+        {error && <p className={styles.onboardError} role="alert">{error}</p>}
+      </div>
+      <p className={styles.onboardHint}>
+        Free to create — you only pay when you pick a plan. You can rename it any time.
+      </p>
+    </section>
+  );
+}
+
 // ── New API Key Modal ────────────────────────────────────────────────────────
 
 interface NewKeyModalProps {
@@ -201,6 +301,10 @@ function NewKeyModal({ orgId, onClose, onCreated, apiFetch }: NewKeyModalProps) 
   const [scopes, setScopes] = useState<string[]>(['read', 'swap']);
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState<string | null>(null);
+  // Set after a successful create: the plaintext secret, shown exactly once.
+  const [rawKey, setRawKey]   = useState<string | null>(null);
+  const [copied, setCopied]   = useState(false);
+  const [createdKey, setCreatedKey] = useState<ApiKey | null>(null);
 
   function toggleScope(s: string) {
     setScopes((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
@@ -216,16 +320,83 @@ function NewKeyModal({ orgId, onClose, onCreated, apiFetch }: NewKeyModalProps) 
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setErr(body?.detail ?? 'Failed to create key.');
+        setErr(
+          typeof body?.error === 'string' ? body.error
+          : typeof body?.detail === 'string' ? body.detail
+          : 'We couldn’t create the key. Please try again.');
         return;
       }
-      const created: ApiKey = await res.json();
-      onCreated(created);
+      // ENVELOPE: { key: {...}, rawKey: 'sk_live_…' }. Treating the whole
+      // body as the key put a row with scopes:undefined into the table,
+      // whose .map() then crashed the entire dashboard to a white
+      // "Application error" — right after the key had actually been created.
+      // And rawKey — the secret, retrievable exactly once — was never shown.
+      const body = await res.json();
+      const created: ApiKey = {
+        ...(body?.key ?? {}),
+        scopes: Array.isArray(body?.key?.scopes) ? body.key.scopes : scopes,
+      };
+      setCreatedKey(created);
+      setRawKey(typeof body?.rawKey === 'string' ? body.rawKey : null);
     } catch {
-      setErr('Network error. Try again.');
+      setErr('We couldn’t reach the server. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function copyKey() {
+    if (!rawKey) return;
+    try {
+      await navigator.clipboard.writeText(rawKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard can be unavailable; the key is selectable text */ }
+  }
+
+  function finish() {
+    if (createdKey) onCreated(createdKey);
+    else onClose();
+  }
+
+  // Post-create: show the secret once, plainly. This is the only chance
+  // anyone gets to copy it, so nothing else competes for attention.
+  if (createdKey) {
+    return (
+      <div className={styles.modalBackdrop} role="dialog" aria-modal="true" aria-label="API key created">
+        <div className={styles.modal}>
+          <h2 className={styles.modalTitle}>Your key is ready</h2>
+          <p className={styles.billingMeta} style={{ marginBottom: 12, lineHeight: 1.6 }}>
+            Copy it now and store it somewhere safe — for your security we can’t
+            show it again. If you lose it, just create a new key.
+          </p>
+          {rawKey ? (
+            <input
+              className={styles.fieldInput}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}
+              readOnly
+              value={rawKey}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Your new API key"
+            />
+          ) : (
+            <p className={styles.loginError} role="alert">
+              The key was created but we couldn’t read it back — revoke it and create a new one.
+            </p>
+          )}
+          <div className={styles.modalActions}>
+            {rawKey && (
+              <button className={styles.actionBtn} onClick={copyKey}>
+                {copied ? 'Copied ✓' : 'Copy key'}
+              </button>
+            )}
+            <button className="summer-button summer-button--primary" onClick={finish}>
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -356,7 +527,13 @@ export default function DashboardPage() {
         // and left `data` null so the render threw and the page went blank.
         // Neither is acceptable: a paying-or-not user must still reach their
         // plan and billing.
-        const org: OrgMe | null = orgRes.ok ? await orgRes.json() : null;
+        // GET /orgs/me responds with an ENVELOPE: { org: {...}, role }.
+        // Storing the envelope as the org left org.id undefined, so
+        // "create key" POSTed to /orgs//api-keys (empty id) and 404'd —
+        // the first thing a new customer hit after onboarding.
+        const orgPayload = orgRes.ok ? await orgRes.json() : null;
+        const org: OrgMe | null = orgPayload?.org ?? null;
+        const roleFromOrgMe: string | undefined = orgPayload?.role;
 
         const membersPayload = membersRes?.ok ? await membersRes.json() : [];
         const members: Member[] = Array.isArray(membersPayload)
@@ -379,8 +556,13 @@ export default function DashboardPage() {
         const usagePayload = usageRes?.ok ? await usageRes.json() : {};
         const usage = parseUsage(usagePayload as Record<string, unknown>);
 
+        // Prefer the role /orgs/me reports for the CALLER — members[0] is
+        // whoever sorts first in the team list, not necessarily you, and a
+        // wrong guess hides the create/revoke buttons from a real owner.
         const callerRole: DashboardData['callerRole'] =
-          (members[0]?.role as DashboardData['callerRole']) ?? 'member';
+          (roleFromOrgMe as DashboardData['callerRole']) ??
+          (members[0]?.role as DashboardData['callerRole']) ??
+          'member';
 
         setData({ org, members, apiKeys, usage, callerRole });
         setPeriodUsage(usage);
@@ -416,7 +598,7 @@ export default function DashboardPage() {
   // ── Key / member mutations ────────────────────────────────────────────────
   async function revokeKey(keyId: string) {
     if (!data) return;
-    await apiFetch(`/enterprise/orgs/${data.org?.id}/api-keys/${keyId}`, { method: 'DELETE' });
+    await apiFetch(`/enterprise/orgs/${data.org?.id ?? 'me'}/api-keys/${keyId}`, { method: 'DELETE' });
     setData((prev) =>
       prev ? {
         ...prev,
@@ -429,7 +611,7 @@ export default function DashboardPage() {
 
   async function removeMember(userId: string) {
     if (!data) return;
-    await apiFetch(`/enterprise/orgs/${data.org?.id}/members/${userId}`, { method: 'DELETE' });
+    await apiFetch(`/enterprise/orgs/${data.org?.id ?? 'me'}/members/${userId}`, { method: 'DELETE' });
     setData((prev) =>
       prev ? { ...prev, members: prev.members.filter((m) => m.userId !== userId) } : prev
     );
@@ -776,10 +958,12 @@ export default function DashboardPage() {
               return (
                 <tr key={k.id} style={{ opacity: st === 'revoked' ? 0.45 : 1 }}>
                   <td style={{ fontWeight: 600 }}>{k.name}</td>
-                  <td className={styles.mono}>{k.prefix}…</td>
+                  <td className={styles.mono}>{k.prefix ?? 'sk_live_'}…</td>
                   <td>
                     <div className={styles.pills}>
-                      {k.scopes.map((s) => (
+                      {/* One malformed row must show as empty pills, never
+                          throw and take the whole dashboard down. */}
+                      {(k.scopes ?? []).map((s) => (
                         <span key={s} className={styles.pill}>{s}</span>
                       ))}
                     </div>
@@ -816,18 +1000,10 @@ export default function DashboardPage() {
 
       </>)}
 
-      {/* No organisation: say so plainly. Silently showing only a Billing tab
-          reads as a broken page — the user cannot tell whether features are
-          missing, still loading, or failed. */}
-      {!hasOrg && (
-        <section className={styles.card} aria-label="Account">
-          <p className={styles.billingMeta} style={{ margin: 0, lineHeight: 1.6 }}>
-            Team management, API keys and usage analytics are organisation
-            features &mdash; they appear here once your account belongs to one.
-            Your plan, credits and payments are below.
-          </p>
-        </section>
-      )}
+      {/* No organisation: this is a brand-new account's first minute, not an
+          error. Give it one clear next step — create the workspace — instead
+          of a paragraph explaining what the page cannot show. */}
+      {!hasOrg && <CreateWorkspaceCard apiFetch={apiFetch} />}
 
       {activeTab === 'billing' && (<>
       {/* ── Billing ──
@@ -850,7 +1026,7 @@ export default function DashboardPage() {
       {/* ── New key modal ── */}
       {showNewKey && (
         <NewKeyModal
-          orgId={org?.id ?? ''}
+          orgId={org?.id ?? 'me'}
           onClose={() => setShowNewKey(false)}
           onCreated={(key) => {
             setData((prev) => prev ? { ...prev, apiKeys: [key, ...prev.apiKeys] } : prev);

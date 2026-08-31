@@ -16,12 +16,58 @@ function currentDashboardDestination(): string {
   // OAuth result flags are transport metadata, not part of the destination.
   url.searchParams.delete('auth');
   url.searchParams.delete('provider');
+  url.searchParams.delete('auth_error');
   return url.toString();
 }
 
-function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
+/**
+ * Plain-language translations of the backend's `auth_error` slugs
+ * (api/routes/oauth.py `_oauth_failure_redirect`). Before this, a failed
+ * Google sign-in silently returned the user to the login screen — or worse,
+ * to a different product's home page — with the reason living only in the
+ * address bar. Nobody reads query strings; the card has to say what happened
+ * and what to do next, in words a non-engineer can act on.
+ */
+const AUTH_ERROR_COPY: Record<string, string> = {
+  state_not_found:
+    'That sign-in link was stale, so we started over for safety. Please try again.',
+  state_expired:
+    'The sign-in took a little too long and expired. Please try again — it only needs a few seconds.',
+  nonce_missing:
+    'We couldn’t confirm this sign-in started on this page, so we stopped it for your security. Please try again from here.',
+  nonce_mismatch:
+    'We couldn’t confirm this sign-in started on this page, so we stopped it for your security. Please try again from here.',
+  provider_rejected:
+    'Google couldn’t complete the sign-in. Please try again; if it keeps happening, email support@suwappu.bot and we’ll sort it out.',
+};
+
+function readAuthFlags(): { error: string | null; success: boolean } {
+  if (typeof window === 'undefined') return { error: null, success: false };
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('auth_error');
+  return {
+    error: slug
+      ? (AUTH_ERROR_COPY[slug] ?? 'Sign-in didn’t complete. Please try again.')
+      : null,
+    success: params.get('auth') === 'success',
+  };
+}
+
+/** Drop the OAuth transport flags from the address bar once they're handled,
+ *  so a reload or a shared link doesn't replay a stale success/error. */
+function clearAuthFlags() {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('auth') && !url.searchParams.has('auth_error')) return;
+  url.searchParams.delete('auth');
+  url.searchParams.delete('provider');
+  url.searchParams.delete('auth_error');
+  window.history.replaceState(null, '', url.toString());
+}
+
+function LoginScreen({ onToken, initialError }: { onToken: (t: string) => void; initialError?: string | null }) {
   const [draft, setDraft] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(initialError ?? null);
   const [showToken, setShowToken] = useState(false);
 
   function handlePaste() {
@@ -64,7 +110,11 @@ function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
           </button>
         </div>
         {showToken && (<>
-          <input className={styles.tokenInput} type="password" placeholder="Bearer eyJ…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePaste()} aria-label="Access token" autoComplete="off" />
+          <p className={styles.tokenHelp}>
+            For advanced setups: paste the access token your administrator or the API gave you.
+            Most people can ignore this and use Google above.
+          </p>
+          <input className={styles.tokenInput} type="password" placeholder="Paste your access token" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePaste()} aria-label="Access token" autoComplete="off" />
           <button className={styles.tokenSubmit} onClick={handlePaste}>Continue</button>
         </>)}
         {err && <p className={styles.loginError} role="alert">{err}</p>}
@@ -98,21 +148,47 @@ function WorkspaceNav({ onSignOut }: { onSignOut: () => void }) {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [ready, setReady] = useState(false);
+  // OAuth flags from the URL, captured once. `signingIn` keeps the branded
+  // "finishing sign-in" state on screen while the session probe runs, so the
+  // moment after Google hands the user back is never a blank page.
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
+    const flags = readAuthFlags();
+    if (flags.error) setLoginError(flags.error);
+    if (flags.success) setSigningIn(true);
+
     const stored = localStorage.getItem(TOKEN_KEY) ?? '';
     if (stored) {
       setAuth({ kind: 'token', value: stored });
       setReady(true);
+      clearAuthFlags();
       return;
     }
     let cancelled = false;
     fetch(`${API_BASE_URL}/enterprise/orgs/me`, { credentials: 'include' })
       .then((r) => {
-        if (!cancelled) setAuth(r.status === 401 ? { kind: 'none' } : { kind: 'cookie' });
+        if (cancelled) return;
+        if (r.status === 401) {
+          setAuth({ kind: 'none' });
+          // Google said success but the session didn't stick — say so instead
+          // of silently re-presenting the same login card.
+          if (flags.success) {
+            setLoginError('We couldn’t finish signing you in. Please try again.');
+          }
+        } else {
+          setAuth({ kind: 'cookie' });
+        }
       })
       .catch(() => { if (!cancelled) setAuth({ kind: 'none' }); })
-      .finally(() => { if (!cancelled) setReady(true); });
+      .finally(() => {
+        if (!cancelled) {
+          setSigningIn(false);
+          setReady(true);
+          clearAuthFlags();
+        }
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -127,8 +203,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fetch(`${AUTH_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
   }, []);
 
-  if (!ready) return null;
-  if (!auth || auth.kind === 'none') return <LoginScreen onToken={handleToken} />;
+  if (!ready) {
+    // Never a blank page while we check the session — especially right after
+    // an OAuth return, when "did that work?" is the only question on screen.
+    return (
+      <div className={`summer-page ${styles.loginPage}`}>
+        <div className={styles.stateBox} role="status">
+          <div className={styles.spinner} aria-hidden="true" />
+          <span>{signingIn ? 'Finishing sign-in…' : 'Checking your session…'}</span>
+        </div>
+      </div>
+    );
+  }
+  if (!auth || auth.kind === 'none') return <LoginScreen onToken={handleToken} initialError={loginError} />;
 
   return (
     <DashboardAuthContext.Provider value={{ auth, clearToken }}>

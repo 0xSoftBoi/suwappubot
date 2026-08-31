@@ -1,0 +1,94 @@
+{
+  "config": {
+    "toolSchemaFile": "webmcp/tools.schema.json",
+    "evalsFile": "webmcp/evals.json",
+    "backend": "gemini",
+    "model": "gemini-3.5-flash (synthetic fixture, not a real run)"
+  },
+  "results": {
+    "results": [
+      {
+        "test": {
+          "name": "Propose a trade with a written rationale",
+          "messages": [
+            {
+              "role": "user",
+              "type": "message",
+              "content": "I want to take some risk off. Put a proposal in front of me to sell 0.05 ETH on Base for USDC, and say why."
+            }
+          ],
+          "expectedCall": [{ "functionName": "propose_swap", "arguments": null }]
+        },
+        "response": { "functionName": "check_mandate", "args": { "fromChain": "base", "fromToken": "ETH", "toToken": "USDC", "amount": "0.05" } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 1
+      },
+      {
+        "test": {
+          "name": "Propose a trade with a written rationale",
+          "messages": [
+            {
+              "role": "user",
+              "type": "message",
+              "content": "I want to take some risk off. Put a proposal in front of me to sell 0.05 ETH on Base for USDC, and say why."
+            }
+          ],
+          "expectedCall": null
+        },
+        "response": { "functionName": "propose_swap", "args": { "fromChain": "base", "fromToken": "ETH", "toToken": "USDC", "amount": "0.05", "rationale": "Selling some risk off after the run-up." } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 2
+      },
+      {
+        "test": {
+          "name": "Propose a price alert",
+          "messages": [{ "role": "user", "type": "message", "content": "Let me know if ETH ever breaks above $5000." }],
+          "expectedCall": [{ "functionName": "propose_price_alert", "arguments": null }]
+        },
+        "response": { "functionName": "get_prices", "args": { "symbols": ["ETH"] } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 1
+      },
+      {
+        "test": {
+          "name": "Propose a price alert",
+          "messages": [{ "role": "user", "type": "message", "content": "Let me know if ETH ever breaks above $5000." }],
+          "expectedCall": null
+        },
+        "response": { "functionName": "propose_price_alert", "args": { "symbol": "ETH", "direction": "above", "targetPrice": 5000, "rationale": "Breakout momentum worth watching." } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 2
+      },
+      {
+        "test": {
+          "name": "Propose amending the envelope itself, with evidence",
+          "messages": [{ "role": "user", "type": "message", "content": "My per-trade cap keeps blocking things I actually want. Ask me to raise it to $500." }],
+          "expectedCall": [{ "functionName": "amend_mandate", "arguments": null }]
+        },
+        "response": { "functionName": "read_mandate", "args": {} },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 1
+      },
+      {
+        "test": {
+          "name": "Propose amending the envelope itself, with evidence",
+          "messages": [{ "role": "user", "type": "message", "content": "My per-trade cap keeps blocking things I actually want. Ask me to raise it to $500." }],
+          "expectedCall": null
+        },
+        "response": { "functionName": "amend_mandate", "args": { "perTradeUsdCap": 500, "rationale": "Per-trade cap has blocked three trades this week that were clearly wanted." } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 2
+      }
+    ],
+    "testCount": 3,
+    "passCount": 0,
+    "failCount": 6,
+    "errorCount": 0
+  }
+}

@@ -546,14 +546,40 @@
   color: var(--suwappu-summer-muted, #4f6f7f);
 }
 
-.promptList {
-  margin: 0 0 20px;
-  padding-left: 20px;
-  display: grid;
-  gap: 10px;
-  max-width: 70ch;
-  font-size: 15px;
-  line-height: 1.6;
+/* Sticky in-page wayfinding, riding just under the site nav. */
+.subnav {
+  position: sticky;
+  top: 84px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 22px;
+  margin: 0 0 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  background: rgba(255, 252, 246, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 13px;
+}
+
+.subnav a {
+  color: var(--suwappu-summer-muted, #4f6f7f);
+  text-decoration: none;
+}
+
+.subnav a:hover {
+  color: var(--suwappu-summer-ink, #14303c);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .subnav {
+    top: 56px;
+    gap: 2px 16px;
+    font-size: 12px;
+  }
 }
 
 /* Grouped tool catalogue: the capability class is the headline, not the
@@ -575,8 +601,76 @@
   color: var(--suwappu-summer-muted, #4f6f7f);
 }
 
-.promptCard {
+/* How-it-works: a numbered vertical flow, deliberately not another card grid. */
+.stepFlow {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 72ch;
+}
+
+.stepFlow li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 4px 20px;
+  padding: 22px 0;
+}
+
+.stepFlow li + li {
+  border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+}
+
+.stepNum {
+  font-family: var(--font-display, Georgia, serif);
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+.stepFlow h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.stepFlow p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+@media (max-width: 640px) {
+  .stepFlow li {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .stepNum {
+    font-size: 20px;
+  }
+}
+
+/* Things to ask: quoted prose in the page's own quoting voice, not boxes. */
+.promptFlow {
+  margin: 8px 0 24px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 18px 40px;
   font-style: italic;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.promptFlow li {
+  padding-left: 14px;
+  border-left: 2px solid var(--suwappu-summer-line-strong, #42b8d7);
+}
+
+@media (min-width: 768px) {
+  .promptFlow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* Fixes the mandate-header buttons wrapping into a ragged two-row notch. */
@@ -590,6 +684,14 @@
 
 .mandateActions button {
   width: 100%;
+}
+
+/* .summer-page sets overflow-x:hidden on <main>, which turns it into a clip
+   scrollport and silently kills every position:sticky inside it, the site
+   nav included. This page verifies zero horizontal overflow at 390 and 1440,
+   so release the clamp and let the nav and subnav actually stick. */
+main.page {
+  overflow: visible;
 }
 
 @media (max-width: 480px) {
@@ -637,9 +739,16 @@
 
 .budgetCopy {
   margin: 8px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
   font-size: 13px;
   line-height: 1.55;
   color: var(--muted);
+}
+
+.budgetCopy span {
+  white-space: nowrap;
 }
 
 .budgetCopy strong {
@@ -704,12 +813,30 @@
 
 .violationsTitle {
   margin: 0 0 6px;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: #9a1c1c;
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Per-breach-class glyph — small, mono, sits in the same white pill idiom as
+   the limit/actual badges below so it reads as part of the same system. */
+.breachGlyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .violations ul {
@@ -746,6 +873,73 @@
   font-weight: 700;
 }
 
+/* Per-rule accent. perTradeUsdCap is the base red above (most common/severe
+   breach, and the desk's long-standing default look); the rest key off
+   data-breach so a chain/token/impact/slippage breach doesn't habituate as
+   the same red box (Anderson et al., CHI 2015). Hues are drawn from the
+   summer palette (persimmon/sky-deep/butter/flower-mist/petal-blush), each
+   paired with a manually darkened, accessible text tone the same way the
+   existing red pairs #EF4444 with #9a1c1c. */
+.overrideCard[data-breach='perTradeUsdCap'] {
+  border-color: var(--bear);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.violations[data-breach='dailyUsdCap'],
+.overrideCard[data-breach='dailyUsdCap'] {
+  background: rgba(229, 141, 43, 0.12);
+}
+.violations[data-breach='dailyUsdCap'] .violationsTitle {
+  color: #8a4e10;
+}
+.overrideCard[data-breach='dailyUsdCap'] {
+  border-color: var(--persimmon);
+}
+
+.violations[data-breach='allowedChains'],
+.overrideCard[data-breach='allowedChains'] {
+  background: rgba(11, 139, 199, 0.1);
+}
+.violations[data-breach='allowedChains'] .violationsTitle {
+  color: #0b4f6e;
+}
+.overrideCard[data-breach='allowedChains'] {
+  border-color: var(--suwappu-summer-sky-deep, #0b8bc7);
+}
+
+.violations[data-breach='allowedBuyTokens'],
+.overrideCard[data-breach='allowedBuyTokens'] {
+  background: rgba(151, 99, 163, 0.12);
+}
+.violations[data-breach='allowedBuyTokens'] .violationsTitle {
+  color: #6b3d6f;
+}
+.overrideCard[data-breach='allowedBuyTokens'] {
+  border-color: #b98fc4;
+}
+
+.violations[data-breach='maxPriceImpactPercent'],
+.overrideCard[data-breach='maxPriceImpactPercent'] {
+  background: rgba(244, 201, 99, 0.18);
+}
+.violations[data-breach='maxPriceImpactPercent'] .violationsTitle {
+  color: #7a5a0d;
+}
+.overrideCard[data-breach='maxPriceImpactPercent'] {
+  border-color: var(--suwappu-summer-butter, #f4c963);
+}
+
+.violations[data-breach='maxSlippagePercent'],
+.overrideCard[data-breach='maxSlippagePercent'] {
+  background: rgba(233, 191, 208, 0.2);
+}
+.violations[data-breach='maxSlippagePercent'] .violationsTitle {
+  color: #8a2a54;
+}
+.overrideCard[data-breach='maxSlippagePercent'] {
+  border-color: var(--suwappu-summer-petal-blush, #e9bfd0);
+}
+
 /* ── plans ────────────────────────────────────────────────────── */
 
 .planSteps {
@@ -773,11 +967,62 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  border: 1px solid transparent;
   background: rgba(2, 132, 199, 0.12);
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Sequenced pipeline states: an approved plan signs one leg at a time. */
+.planSteps li[data-state='signed'] {
+  opacity: 0.72;
+}
+
+.planSteps li[data-state='signed'] .planIndex {
+  background: rgba(34, 197, 94, 0.16);
+  color: #14663a;
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.planSteps li[data-state='active'] .planIndex {
+  background: rgba(229, 141, 43, 0.16);
+  color: #7a5410;
+  border-color: rgba(229, 141, 43, 0.5);
+}
+
+.planSteps li[data-state='locked'] {
+  opacity: 0.55;
+}
+
+.planStepBody {
+  min-width: 0;
+}
+
+.planStepBody .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.planTag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.planSteps li[data-state='signed'] .planTag {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #14663a;
 }
 
 .planNote {
@@ -854,4 +1099,135 @@
 .diffList li[data-direction='changed'] .diffTag {
   background: rgba(79, 111, 127, 0.12);
   color: var(--muted);
+}
+
+/* ── proof: verification numbers ─────────────────────────────── */
+
+.proofGrid {
+  box-sizing: border-box;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin: 8px 0 24px;
+}
+
+.proofCard {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 20px 18px;
+  border: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: var(--suwappu-summer-card-background, #fff);
+}
+
+.proofNumber {
+  margin: 0 0 4px;
+  font-family: var(--font-newsreader, Georgia, serif);
+  font-size: 34px;
+  line-height: 1;
+  color: var(--suwappu-summer-accent-deep, #0284c7);
+}
+
+.proofCard h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+.proofCard p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+}
+
+.proofCard code {
+  display: inline-block;
+  margin-top: 10px;
+}
+
+/* The honest story is prose, not another card — it earns the plain
+   treatment because it is the point of the section. */
+.proofHonest {
+  box-sizing: border-box;
+  max-width: 68ch;
+  padding: 18px 20px;
+  border-left: 3px solid var(--suwappu-summer-persimmon, #e58d2b);
+  background: var(--suwappu-summer-inset-background, #f5fcff);
+  border-radius: 0 var(--suwappu-summer-radius-inset, 8px) var(--suwappu-summer-radius-inset, 8px) 0;
+}
+
+.proofHonest p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink, #17324a);
+}
+
+.proofHonest p:last-child {
+  margin-bottom: 0;
+}
+
+.proofHonest strong {
+  color: var(--suwappu-summer-accent-deep, #0284c7);
+}
+
+/* ── grounded: claim → paper mapping ─────────────────────────── */
+
+.citeList {
+  box-sizing: border-box;
+  margin: 8px 0 20px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 18px;
+}
+
+.citeRow {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 18px 0;
+}
+
+.citeRow + .citeRow {
+  border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+}
+
+.citeRow h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  font-family: var(--font-newsreader, Georgia, serif);
+  font-weight: 500;
+}
+
+.citeRow p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--suwappu-summer-muted, #4f6f7f);
+  max-width: 72ch;
+}
+
+.citePapers {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+.citePapers li {
+  font-size: 13px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.citePapers a {
+  color: var(--suwappu-summer-accent-deep, #0284c7);
+  text-decoration-line: underline;
+  text-decoration-color: var(--suwappu-summer-line-strong, #42b8d7);
+  text-underline-offset: 3px;
 }
