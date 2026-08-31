@@ -91,6 +91,7 @@ from bot.models.agent import RegisteredAgent  # noqa: E402
 from bot.utils.db_monitor import setup_db_monitoring  # noqa: E402
 from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded  # noqa: E402
 from bot.utils.telegram_safe import safe_md  # noqa: E402
+from bot.utils import task_supervisor  # noqa: E402
 from bot.main import add_handlers  # noqa: E402
 from telegram.ext import AIORateLimiter, Application, PicklePersistence  # noqa: E402
 from telegram import Update  # noqa: E402
@@ -287,10 +288,19 @@ async def lifespan(app: FastAPI):
                         # Polling mode for local development / single-instance deploys
                         logger.info("✓ Starting Telegram polling background task")
                         # drop_pending_updates=True helps avoid conflicts during redeploys
-                        polling_task = asyncio.create_task(
-                            bot_app.updater.start_polling(
+                        # restart=False: `start_polling()` only bootstraps PTB's own
+                        # internal fetch-loop task and returns — it does not run for the
+                        # life of the process, so there is nothing here for the
+                        # supervisor to restart. PTB's Updater already retries transient
+                        # getUpdates failures internally; supervising this awaitable is
+                        # only for logging a bootstrap failure and matching the existing
+                        # `if polling_task:` shutdown check.
+                        polling_task = task_supervisor.spawn(
+                            "telegram_polling",
+                            lambda: bot_app.updater.start_polling(
                                 allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
-                            )
+                            ),
+                            restart=False,
                         )
             else:
                 logger.warning(
@@ -308,7 +318,12 @@ async def lifespan(app: FastAPI):
             from bot.platforms.discord_bot import SuwappuDiscordBot
 
             discord_bot = SuwappuDiscordBot()
-            discord_task = asyncio.create_task(discord_bot.start())  # noqa: F841
+            # restart=True: discord.py's Client.start() runs for the life of the
+            # connection and raises on a dropped gateway session — worth restarting
+            # rather than leaving the bot silently offline until the next deploy.
+            discord_task = task_supervisor.spawn(  # noqa: F841
+                "discord_bot", discord_bot.start, restart=True
+            )
             app.state.discord_bot = discord_bot
             logger.info("✓ Discord bot starting")
         except Exception as e:
@@ -366,7 +381,7 @@ async def lifespan(app: FastAPI):
                     except Exception:  # pragma: no cover - best effort
                         pass
 
-            asyncio.create_task(_republish_fingerprint())
+            task_supervisor.spawn("fingerprint_republisher", _republish_fingerprint)
         except Exception as e:
             logger.warning(f"Could not publish worker fingerprint: {e}")
 
@@ -487,7 +502,9 @@ async def lifespan(app: FastAPI):
                 if removed:
                     logger.debug(f"Cleaned up {removed} expired auth challenges")
 
-    auth_cleanup_task = asyncio.create_task(_cleanup_auth_challenges_loop())
+    auth_cleanup_task = task_supervisor.spawn(
+        "auth_challenge_cleanup", _cleanup_auth_challenges_loop
+    )
 
     # 6. Start cross-service integrations
     with _track_degraded("event_bus", "⚠️ Event bus failed to connect", auto_clear=False):
@@ -569,8 +586,10 @@ async def lifespan(app: FastAPI):
 
             await morpho_monitor.stop()
 
-    # Stop auth challenge cleanup
-    auth_cleanup_task.cancel()
+    # Stop every supervisor.spawn()-created task (auth cleanup, fingerprint
+    # republisher, discord bot, polling bootstrap) in one place, after the
+    # services above have had their own graceful `.stop()`.
+    await task_supervisor.cancel_all()
 
     # Stop RPC manager
     await rpc_manager.stop()
