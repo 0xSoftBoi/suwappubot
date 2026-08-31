@@ -457,16 +457,65 @@ const plan = await call('propose_plan', {
       amount: '0.02',
       note: 'get dry powder onto Arbitrum',
     },
+    {
+      kind: 'swap',
+      fromChain: 'arbitrum',
+      toChain: 'arbitrum',
+      fromToken: 'ETH',
+      toToken: 'USDC',
+      amount: '0.01',
+      note: 'top up stables once the bridge lands',
+    },
     { kind: 'alert', symbol: 'ETH', direction: 'below', targetPrice: 3000, note: 're-entry' },
   ],
 });
 show('propose_plan', plan);
 check('plan priced a combined notional', typeof plan.shownToHuman?.combinedUsd === 'number');
-check('plan carries both legs', plan.shownToHuman?.steps === 2);
+check('plan carries all three legs', plan.shownToHuman?.steps === 3);
 check(
   "plan's daily headroom already reflects the approved trade",
   plan.mandate.dailyRemainingUsd < mandate.dailyUsdCap,
   String(plan.mandate.dailyRemainingUsd),
+);
+
+// ── 7b. the SEQUENCED plan handoff: one leg at a time, in order ────
+// The override-approved trade above already spent the daily budget, so the
+// plan lands blocked; argue for it, allow it once, then sign leg by leg.
+const planOverride = await call('request_override', {
+  proposalId: plan.proposalId,
+  argument: 'The bridge and the top-up are one move; you approved the thesis an hour ago.',
+});
+check('a blocked plan can be argued for too', planOverride.status === 'override_requested');
+const planCard = page.locator('li', { hasText: 'Move a slice to Arbitrum' }).first();
+await planCard.scrollIntoViewIfNeeded();
+await planCard.getByRole('button', { name: 'Allow once' }).click();
+await planCard.getByRole('button', { name: /^Approve$/ }).first().click();
+const h1 = await call('open_signing_handoff', { proposalId: plan.proposalId });
+show('plan handoff, first call', h1.plan);
+check(
+  'plan handoff is sequenced: exactly one leg link, leg 1 of 2',
+  h1.handoff?.length === 1 && h1.plan?.legIndex === 1 && h1.plan?.legTotal === 2,
+  JSON.stringify(h1.plan),
+);
+const h1again = await call('open_signing_handoff', { proposalId: plan.proposalId });
+check('the current leg is idempotent until the human signs it', h1again.plan?.legIndex === 1);
+await page.getByRole('button', { name: 'Mark leg 1 signed' }).click();
+const h2 = await call('open_signing_handoff', { proposalId: plan.proposalId });
+check(
+  "leg 2's link exists only after the human marks leg 1 signed",
+  h2.plan?.legIndex === 2 && h2.handoff?.length === 1,
+  JSON.stringify(h2.plan),
+);
+await page.getByRole('button', { name: 'Mark leg 2 signed' }).click();
+// Better than an error result: with no approved, unspent proposal left, the
+// handoff tool UNREGISTERS — the replay call cannot even reach a tool.
+const planReplay = await call('open_signing_handoff', { proposalId: plan.proposalId }).catch(
+  (e) => ({ error: String(e?.message ?? e) }),
+);
+check(
+  'signing the final leg spends the approval and retires the tool itself',
+  Boolean(planReplay.error),
+  JSON.stringify(planReplay),
 );
 
 // ── 8. the completion loop: the envelope really changes ────────────

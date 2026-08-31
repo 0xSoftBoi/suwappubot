@@ -681,7 +681,7 @@ export async function registerHandoffTool(
     {
       name: 'open_signing_handoff',
       description:
-        'Open the signing handoff for a proposal the human already approved. Suwappu is non-custodial here: this hands the approved trade to the human\'s own wallet surface to sign. Only available while an approved, unspent proposal exists.',
+        'Open the signing handoff for a proposal the human already approved. Suwappu is non-custodial here: this hands the approved trade to the human\'s own wallet surface to sign. For a PLAN it is sequenced: each call returns only the current leg\'s link, and the next leg\'s link does not exist until the human marks the current leg signed on the desk; call it again after each signature. Only available while an approved, unspent proposal exists.',
       inputSchema: {
         type: 'object',
         properties: {
