@@ -319,3 +319,39 @@ export const McpGetSwapHistorySchema = z.object({
 export const McpListWalletPoliciesSchema = z.object({
 	wallet_address: walletAddressSchema.optional(),
 })
+
+/** list_chains and perps_markets take no arguments — handlers ignore `args` entirely. */
+export const McpListChainsSchema = z.object({})
+
+export const McpPerpsMarketsSchema = z.object({})
+
+export const McpListTokensSchema = z.object({
+	chain: z.string().optional(),
+	search: z.string().optional(),
+})
+
+export const McpGetTempoTokensSchema = z.object({
+	search: z.string().optional(),
+})
+
+/**
+ * browse_mpp_directory: `limit` has no schema-level bound because the handler
+ * clamps out-of-range values (`Math.min(Math.max(v, 1), 100)`) rather than
+ * rejecting them — same clamp convention as the limit/offset fields above.
+ */
+export const McpBrowseMppDirectorySchema = z.object({
+	category: z.string().optional(),
+	limit: z.number().optional(),
+})
+
+/**
+ * execute_swap (MCP tool): prepares an unsigned transaction from a cached
+ * quote_id. Distinct from ExecuteSwapSchema (the REST resubmit-after-approval
+ * path) and SwapRequestSchema (POST /v1/agent/swap) — same reasoning as
+ * McpGetSwapStatusSchema being separate from SwapStatusQuerySchema.
+ */
+export const McpExecuteSwapSchema = z.object({
+	quote_id: z.string(),
+	wallet_address: z.string(),
+	idempotency_key: z.string().optional(),
+})

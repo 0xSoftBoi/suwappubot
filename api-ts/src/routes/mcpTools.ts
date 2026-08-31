@@ -9,13 +9,19 @@
 import { z } from 'zod'
 import { mcpInputSchema, toOutputJsonSchema } from '../lib/zodJsonSchema'
 import {
+	McpBrowseMppDirectorySchema,
+	McpExecuteSwapSchema,
 	McpGetPortfolioSchema,
 	McpGetPricesSchema,
 	McpGetSwapHistorySchema,
 	McpGetSwapStatusSchema,
+	McpGetTempoTokensSchema,
 	McpLendMarketSchema,
 	McpLendMarketsSchema,
+	McpListChainsSchema,
+	McpListTokensSchema,
 	McpListWalletPoliciesSchema,
+	McpPerpsMarketsSchema,
 	McpPerpsPositionsSchema,
 	McpPredictMarketIdSchema,
 	McpPredictMarketsSchema,
@@ -148,6 +154,30 @@ const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
 	"wallet_address": "Wallet address (optional — defaults to the authenticated agent's managed wallet).",
 })
 
+const LIST_CHAINS_INPUT = mcpInputSchema(McpListChainsSchema)
+
+const PERPS_MARKETS_INPUT = mcpInputSchema(McpPerpsMarketsSchema)
+
+const LIST_TOKENS_INPUT = mcpInputSchema(McpListTokensSchema, {
+	chain: 'Chain name (e.g. "base", "solana"). If omitted, returns all chains.',
+	search: 'Filter tokens by symbol substring (optional)',
+})
+
+const GET_TEMPO_TOKENS_INPUT = mcpInputSchema(McpGetTempoTokensSchema, {
+	search: 'Filter tokens by symbol substring (optional)',
+})
+
+const BROWSE_MPP_DIRECTORY_INPUT = mcpInputSchema(McpBrowseMppDirectorySchema, {
+	category: 'Filter by category (e.g. "defi", "ai", "data"). Optional.',
+	limit: 'Max results to return (default 20, max 100)',
+})
+
+const EXECUTE_SWAP_INPUT = mcpInputSchema(McpExecuteSwapSchema, {
+	quote_id: 'Quote ID from a previous get_quote call',
+	wallet_address: 'Wallet address to sign the transaction',
+	idempotency_key: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.',
+})
+
 const TOOLS = [
 	{
 		name: 'get_quote',
@@ -167,31 +197,17 @@ const TOOLS = [
 	{
 		name: 'list_chains',
 		description: 'List all supported blockchain networks for swapping. Free and public — no API key required.',
-		inputSchema: { type: 'object', properties: {} },
+		inputSchema: LIST_CHAINS_INPUT,
 	},
 	{
 		name: 'list_tokens',
 		description: 'List available tokens on a specific chain. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				chain: { type: 'string', description: 'Chain name (e.g. "base", "solana"). If omitted, returns all chains.' },
-				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
-			},
-		},
+		inputSchema: LIST_TOKENS_INPUT,
 	},
 	{
 		name: 'execute_swap',
 		description: 'Prepare an unsigned self-custody swap transaction from a previously obtained quote_id. This tool never signs or broadcasts; the caller reviews, signs, and submits the returned transaction.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
-				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
-				idempotency_key: { type: 'string', description: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.' },
-			},
-			required: ['quote_id', 'wallet_address'],
-		},
+		inputSchema: EXECUTE_SWAP_INPUT,
 	},
 	{
 		name: 'simulate_swap',
@@ -201,23 +217,12 @@ const TOOLS = [
 	{
 		name: 'get_tempo_tokens',
 		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
-			},
-		},
+		inputSchema: GET_TEMPO_TOKENS_INPUT,
 	},
 	{
 		name: 'browse_mpp_directory',
 		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				category: { type: 'string', description: 'Filter by category (e.g. "defi", "ai", "data"). Optional.' },
-				limit: { type: 'number', description: 'Max results to return (default 20, max 100)' },
-			},
-		},
+		inputSchema: BROWSE_MPP_DIRECTORY_INPUT,
 	},
 	{
 		name: 'predict_markets',
@@ -232,7 +237,7 @@ const TOOLS = [
 	{
 		name: 'perps_markets',
 		description: 'List available Hyperliquid perpetual futures markets with mark price, funding rate, max leverage, and size decimals.',
-		inputSchema: { type: 'object', properties: {} },
+		inputSchema: PERPS_MARKETS_INPUT,
 	},
 	{
 		name: 'perps_quote',

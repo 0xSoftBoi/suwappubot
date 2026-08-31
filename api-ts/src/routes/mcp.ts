@@ -18,7 +18,14 @@ import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOT
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
-import { PerpsQuoteSchema, SimulateSwapSchema } from './validators'
+import {
+	McpBrowseMppDirectorySchema,
+	McpExecuteSwapSchema,
+	McpGetTempoTokensSchema,
+	McpListTokensSchema,
+	PerpsQuoteSchema,
+	SimulateSwapSchema,
+} from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
@@ -448,7 +455,10 @@ function buildTempoTokens() {
 }
 
 function handleGetTempoTokens(args: Record<string, unknown>) {
-	const search = (args.search as string)?.toUpperCase()
+	const parsed = McpGetTempoTokensSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+	const search = parsed.data.search?.toUpperCase()
 	let tokens = buildTempoTokens()
 	if (search) {
 		tokens = tokens.filter((t) => t.symbol.toUpperCase().includes(search))
@@ -475,8 +485,11 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 }
 
 export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
-	const category = args.category as string | undefined
-	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+	const parsed = McpBrowseMppDirectorySchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+	const category = parsed.data.category
+	const limit = Math.min(Math.max(parsed.data.limit || 20, 1), 100)
 
 	try {
 		const url = new URL(`${MPP_DIRECTORY_URL}/services`)
@@ -716,7 +729,10 @@ function handleListChains() {
 }
 
 function handleListTokens(args: Record<string, unknown>) {
-	const { chain, search } = args as { chain?: string; search?: string }
+	const parsed = McpListTokensSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+	const { chain, search } = parsed.data
 	const searchUp = search?.toUpperCase()
 
 	if (chain && isSolanaChain(chain)) {
@@ -888,11 +904,10 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 	// tool only returns an unsigned transaction for client-side signing (no backend
 	// execute call to dedupe here) — it is echoed back so callers can carry it through
 	// to whichever submission path they use.
-	const { quote_id, wallet_address, idempotency_key } = args as {
-		quote_id: string
-		wallet_address: string
-		idempotency_key?: string
-	}
+	const parsed = McpExecuteSwapSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+	const { quote_id, wallet_address, idempotency_key } = parsed.data
 	const cached = getCachedQuote(quote_id)
 	// Reject a missing quote OR one belonging to another agent (cross-agent quote
 	// hijacking) — same generic message so existence can't be probed. Webapp quotes
