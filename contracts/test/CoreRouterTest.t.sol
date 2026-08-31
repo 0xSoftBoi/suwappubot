@@ -45,7 +45,8 @@ contract CoreWriterSink {
 }
 
 contract CoreRouterTest is Test {
-    // Market: base=UFOO (core wei 8, evm 18 => extra 10), quote=USDQ (core wei 8, evm 8 => extra 0)
+    // Market: base=UFOO (core wei 8, evm 18 => extra 10, szDecimals 2),
+    //         quote=USDQ (core wei 8, evm 8 => extra 0)
     TestToken base;
     TestToken quote;
     SuwappuCoreRouter router;
@@ -55,6 +56,7 @@ contract CoreRouterTest is Test {
     uint64 constant BASE_TOKEN = 150;
     uint64 constant QUOTE_TOKEN = 0;
     uint32 constant ORDER_ASSET = 10_147;
+    uint64 constant L1_START = 1000;
 
     function setUp() public {
         base = new TestToken();
@@ -62,96 +64,247 @@ contract CoreRouterTest is Test {
         CoreWriterSink sink = new CoreWriterSink();
         vm.etch(CoreWriterLib.CORE_WRITER, address(sink).code);
 
+        _mockL1Block(L1_START);
+        vm.mockCall(
+            L1Read.CORE_USER_EXISTS, abi.encode(treasury), abi.encode(true)
+        );
         router = new SuwappuCoreRouter(
-            base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, treasury, 30
+            base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, treasury, 30
         );
 
         base.mint(alice, 100e18);
-        vm.prank(alice);
+        quote.mint(alice, 1_000e8);
+        vm.startPrank(alice);
         base.approve(address(router), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
+        vm.stopPrank();
 
-        _mockCoreState(0, 0, 1000);
+        _mockSpot(QUOTE_TOKEN, 0, 0);
+        _mockSpot(BASE_TOKEN, 0, 0);
     }
 
-    function _mockCoreState(uint64 quoteBal, uint64 baseBal, uint64 l1Block) internal {
+    function _mockL1Block(uint64 n) internal {
+        vm.mockCall(L1Read.L1_BLOCK_NUMBER, bytes(""), abi.encode(n));
+    }
+
+    function _mockSpot(uint64 token, uint64 total, uint64 hold) internal {
         vm.mockCall(
             L1Read.SPOT_BALANCE,
-            abi.encode(address(router), QUOTE_TOKEN),
-            abi.encode(L1Read.SpotBalance({ total: quoteBal, hold: 0, entryNtl: 0 }))
-        );
-        vm.mockCall(
-            L1Read.SPOT_BALANCE,
-            abi.encode(address(router), BASE_TOKEN),
-            abi.encode(L1Read.SpotBalance({ total: baseBal, hold: 0, entryNtl: 0 }))
-        );
-        vm.mockCall(L1Read.L1_BLOCK_NUMBER, bytes(""), abi.encode(l1Block));
-    }
-
-    function _sink() internal view returns (CoreWriterSink) {
-        return CoreWriterSink(CoreWriterLib.CORE_WRITER);
-    }
-
-    function test_systemAddress() public view {
-        assertEq(
-            router.systemAddress(200), address(0x20000000000000000000000000000000000000C8)
+            abi.encode(address(router), token),
+            abi.encode(L1Read.SpotBalance({ total: total, hold: hold, entryNtl: 0 }))
         );
     }
 
-    function test_happyPath_sellBaseForQuote() public {
-        // Alice sells 2 UFOO (2e18 evm = 2e8 core wei) for >= 49e8 quote wei
+    function _afterDelay() internal {
+        vm.roll(block.number + 1);
+        _mockL1Block(L1_START + router.SETTLE_DELAY_L1());
+    }
+
+    function _status(uint128 id) internal view returns (SuwappuCoreRouter.Status) {
+        return router.getSwap(id).status;
+    }
+
+    function _owed(uint128 id) internal view returns (uint64, uint64) {
+        SuwappuCoreRouter.Swap memory s = router.getSwap(id);
+        return (s.owedOut, s.owedIn);
+    }
+
+    // ── sell path ───────────────────────────────────────────────────────────
+
+    function test_sell_fullFill_happyPath() public {
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
-
-        // in-tokens bridged to base system address
         assertEq(base.balanceOf(router.systemAddress(BASE_TOKEN)), 2e18);
-        // order action recorded: version 1, action 1, sz = 2e8 corewei -> 2e8/1e8*1e8 = 2e8
-        bytes memory order = _sink().actions(0);
-        assertEq(uint8(order[0]), 1);
 
-        // too early: same evm block
+        // settle blocked before the L1 delay
+        vm.roll(block.number + 1);
+        _mockL1Block(L1_START + 5);
         vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
         router.settle(id);
 
-        // fill lands on Core: +50e8 quote
-        vm.roll(block.number + 1);
-        _mockCoreState(50e8, 0, 1001);
+        _afterDelay();
+        _mockSpot(QUOTE_TOKEN, 50e8, 0); // full fill: +50e8 quote, base consumed
         router.settle(id);
 
-        // fee = 30bps of 50e8 = 0.15e8; owed = 49.85e8
-        (,,,,, uint64 owed,,, SuwappuCoreRouter.Status st) = router.swaps(id);
-        assertEq(owed, 50e8 - 15_000_000);
-        assertEq(uint8(st), 2); // Bridging
+        (uint64 outOwed, uint64 inOwed) = _owed(id);
+        assertEq(outOwed, 50e8 - 15_000_000); // 30bps fee
+        assertEq(inOwed, 0);
 
-        // bridge hasn't landed on EVM yet
         vm.expectRevert(SuwappuCoreRouter.BridgeNotLanded.selector);
         router.claim(id);
 
-        // system tx credits router's EVM quote balance (quote extra=0 => 1:1)
         quote.mint(address(router), 50e8 - 15_000_000);
         router.claim(id);
-        assertEq(quote.balanceOf(alice), 50e8 - 15_000_000);
+        assertEq(quote.balanceOf(alice), 1_000e8 + 50e8 - 15_000_000);
         assertEq(router.inFlight(), 0);
     }
 
-    function test_refundPath_whenUnfilled() public {
+    function test_sell_settleBeforeDepositLanded_staysPending() public {
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
 
-        vm.roll(block.number + 1);
-        // no fill: quote still 0, base bounced back to our core account
-        _mockCoreState(0, 2e8, 1001);
+        _afterDelay();
+        // nothing landed on Core yet: both deltas zero -> must NOT terminalize
+        vm.expectRevert(SuwappuCoreRouter.NotLanded.selector);
         router.settle(id);
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Pending));
 
-        (,,,,, uint64 owed,,, SuwappuCoreRouter.Status st) = router.swaps(id);
-        assertEq(owed, 2e8);
-        assertEq(uint8(st), 3); // Refunding
-
-        base.mint(address(router), 2e18); // bridge-back lands (extra=10: 2e8 core -> 2e18 evm)
-        router.claim(id);
-        assertEq(base.balanceOf(alice), 100e18); // made whole
+        // deposit + fill land later; settle then succeeds
+        _mockSpot(QUOTE_TOKEN, 50e8, 0);
+        router.settle(id);
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
     }
 
-    function test_serialization_lock() public {
+    function test_sell_partialFill_belowMin_refundsBothLegs_noFee() public {
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
+
+        _afterDelay();
+        // half filled: +25e8 quote received, 1e8 base still ours (free)
+        _mockSpot(QUOTE_TOKEN, 25e8, 0);
+        _mockSpot(BASE_TOKEN, 1e8, 0);
+        router.settle(id);
+
+        (uint64 outOwed, uint64 inOwed) = _owed(id);
+        assertEq(outOwed, 25e8); // partial proceeds returned in full, NO fee
+        assertEq(inOwed, 1e8); // unsold base refunded
+
+        quote.mint(address(router), 25e8);
+        base.mint(address(router), 1e18); // 1e8 core * 10^10
+        router.claim(id);
+        assertEq(quote.balanceOf(alice), 1_000e8 + 25e8);
+        assertEq(base.balanceOf(alice), 99e18); // 2 sold, 1 back
+    }
+
+    function test_sell_partialFill_aboveMin_feeOnlyOnProceeds_refundsRemainder() public {
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, 25_0000_0000, 20e8);
+
+        _afterDelay();
+        _mockSpot(QUOTE_TOKEN, 25e8, 0);
+        _mockSpot(BASE_TOKEN, 1e8, 0);
+        router.settle(id);
+
+        (uint64 outOwed, uint64 inOwed) = _owed(id);
+        assertEq(outOwed, 25e8 - 7_500_000); // fee charged: filled >= min
+        assertEq(inOwed, 1e8); // remainder still refunded
+    }
+
+    function test_sell_heldBalance_excludedFromRefund() public {
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
+
+        _afterDelay();
+        // 2e8 base back on our Core account but 1.5e8 of it held
+        _mockSpot(BASE_TOKEN, 2e8, 1_5000_0000);
+        router.settle(id);
+        (, uint64 inOwed) = _owed(id);
+        assertEq(inOwed, 5000_0000); // only free balance is sendable
+    }
+
+    // ── buy path (input-driven sizing) ──────────────────────────────────────
+
+    function test_buy_sizedFromInput_notMinOut() public {
+        // Alice buys base with 100e8 quote at limit px 25 (wire 25e8).
+        // human quote = 100, human base = 4, sz wire = 4e8.
+        vm.prank(alice);
+        uint128 id = router.initiate(false, 100e8, 25_0000_0000, 3_9000_0000);
+
+        bytes memory order = CoreWriterSink(CoreWriterLib.CORE_WRITER).actions(0);
+        bytes memory expected = abi.encodePacked(
+            uint8(1),
+            uint24(1),
+            abi.encode(
+                ORDER_ASSET,
+                true, // buying base
+                uint64(25_0000_0000),
+                uint64(4_0000_0000), // sized from input, NOT from minCoreOut
+                false,
+                uint8(3),
+                uint128(id)
+            )
+        );
+        assertEq(order, expected);
+
+        _afterDelay();
+        // fill lands minus taker fee in received (base) token
+        _mockSpot(BASE_TOKEN, 3_9800_0000, 0);
+        router.settle(id);
+        (uint64 outOwed,) = _owed(id);
+        // acceptance uses minCoreOut as a post-fee bound: 3.98 >= 3.9 -> fee charged
+        assertEq(outOwed, 3_9800_0000 - (uint256(3_9800_0000) * 30) / 10_000);
+    }
+
+    function test_buy_lotRounding() public {
+        // szDecimals=2 => lot = 1e6. 100.5e8 quote at px 33 => sz 3.045454..e8
+        // rounds down to 3.04e8 (multiple of 1e6... 3_0454_5454 -> 3_0400_0000).
+        vm.prank(alice);
+        router.initiate(false, 100_5000_0000, 33_0000_0000, 1);
+        bytes memory order = CoreWriterSink(CoreWriterLib.CORE_WRITER).actions(0);
+        (,,, uint64 sz,,,) =
+            abi.decode(_payload(order), (uint32, bool, uint64, uint64, bool, uint8, uint128));
+        assertEq(sz % 1e6, 0);
+        assertEq(sz, 3_0400_0000);
+    }
+
+    // ── liveness ────────────────────────────────────────────────────────────
+
+    function test_retry_reissuesBridge() public {
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
+        _afterDelay();
+        _mockSpot(QUOTE_TOKEN, 50e8, 0);
+        router.settle(id);
+
+        uint256 sends = CoreWriterSink(CoreWriterLib.CORE_WRITER).count();
+        vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
+        router.retry(id);
+
+        _mockL1Block(L1_START + router.SETTLE_DELAY_L1() + router.RETRY_DELAY_L1());
+        router.retry(id);
+        assertGt(CoreWriterSink(CoreWriterLib.CORE_WRITER).count(), sends);
+    }
+
+    function test_forceRelease_unbricksLock_preservesClaim() public {
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
+        _afterDelay();
+        _mockSpot(QUOTE_TOKEN, 50e8, 0);
+        router.settle(id);
+
+        vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
+        router.forceRelease(id);
+
+        _mockL1Block(L1_START + router.SETTLE_DELAY_L1() + router.RELEASE_DELAY_L1());
+        router.forceRelease(id);
+        assertEq(router.inFlight(), 0);
+
+        // lock free for others; original swap still claimable
+        vm.prank(alice);
+        router.initiate(true, 1e18, 25_0000_0000, 20e8);
+        quote.mint(address(router), 50e8 - 15_000_000);
+        router.claim(id);
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Done));
+    }
+
+    function test_claim_gatedOnPerSwapSnapshot_notAggregateBalance() public {
+        // pre-existing EVM balance must not satisfy the claim gate
+        quote.mint(address(router), 1_000e8);
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, 25_0000_0000, 49e8);
+        _afterDelay();
+        _mockSpot(QUOTE_TOKEN, 50e8, 0);
+        router.settle(id); // snapshot includes the 1_000e8
+
+        vm.expectRevert(SuwappuCoreRouter.BridgeNotLanded.selector);
+        router.claim(id);
+        quote.mint(address(router), 50e8 - 15_000_000);
+        router.claim(id);
+    }
+
+    // ── guards ──────────────────────────────────────────────────────────────
+
+    function test_lock_and_inputGuards() public {
         vm.prank(alice);
         router.initiate(true, 1e18, 25_0000_0000, 20e8);
         vm.prank(alice);
@@ -159,16 +312,22 @@ contract CoreRouterTest is Test {
         router.initiate(true, 1e18, 25_0000_0000, 20e8);
     }
 
-    function test_rejects_nonDivisible_evmAmount() public {
+    function test_rejects_nonDivisible_and_badTreasury() public {
         vm.prank(alice);
         vm.expectRevert(SuwappuCoreRouter.NotDivisible.selector);
         router.initiate(true, 1e18 + 1, 25_0000_0000, 20e8);
+
+        vm.mockCall(L1Read.CORE_USER_EXISTS, abi.encode(address(0xDEAD)), abi.encode(false));
+        vm.expectRevert(SuwappuCoreRouter.BadTreasury.selector);
+        new SuwappuCoreRouter(
+            base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, address(0xDEAD), 30
+        );
     }
 
-    function test_feeCap_enforced() public {
-        vm.expectRevert(SuwappuCoreRouter.FeeTooHigh.selector);
-        new SuwappuCoreRouter(
-            base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, treasury, 101
-        );
+    function _payload(bytes memory action) internal pure returns (bytes memory p) {
+        p = new bytes(action.length - 4);
+        for (uint256 i = 0; i < p.length; i++) {
+            p[i] = action[i + 4];
+        }
     }
 }

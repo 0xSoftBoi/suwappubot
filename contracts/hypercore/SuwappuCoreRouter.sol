@@ -13,87 +13,109 @@ interface IERC20 {
 /**
  * @title SuwappuCoreRouter — native spot swaps against the HyperCore orderbook
  *
- * One router instance per spot market (base/quote), parameters immutable forever,
- * no owner/pause/upgrade (same ethos as primitives/). Executes swaps by trading
- * on HyperCore itself — no AMM, no aggregator, no external oracle: the book IS
- * the price. Fee accrues to an immutable treasury.
+ * One router instance per spot market (base/quote), parameters immutable, no
+ * owner/pause/upgrade. Swaps execute on HyperCore itself: no AMM, no
+ * aggregator, no external oracle — the book is the price.
  *
- * HyperCore actions are ASYNC (see CoreWriterLib header), so a swap is a
- * three-step lifecycle driven by anyone (user or keeper):
+ * CoreWriter actions are ASYNC (executed on HyperCore seconds later; a rejected
+ * action does NOT revert the EVM tx), so a swap is a three-step lifecycle any
+ * caller may drive:
  *
- *  1. initiate()  — pull tokenIn, bridge EVM->Core (ERC-20 transfer to the
- *                   token's system address credits THIS contract on Core),
- *                   place an IOC limit order (cloid = swap id), snapshot the
- *                   router's Core balances.
- *  2. settle()    — in a later EVM block: measure the Core balance delta of the
- *                   out-token vs. the reserved snapshot. Filled enough → take
- *                   fee, spotSend proceeds Core->EVM. Not filled → spotSend the
- *                   in-token back. Either way funds head to this contract's EVM
- *                   balance via the system bridge.
- *  3. claim()     — once the bridge credit landed on EVM, pay the user.
+ *  1. initiate — pull tokenIn, bridge EVM->Core, place an IOC (cloid = id),
+ *     snapshot BOTH Core token balances.
+ *  2. settle   — after SETTLE_DELAY_L1 HyperCore blocks: reconcile BOTH legs
+ *     from free (total - hold) balance deltas. Proceeds >= minCoreOut → fee,
+ *     else no fee; in both cases every unconsumed in-token and every received
+ *     out-token is bridged back Core->EVM. Snapshot EVM balances.
+ *  3. claim    — pay the user both legs once THIS swap's bridge credits landed
+ *     (measured against the settle-time EVM snapshots, not aggregate balance).
  *
- * Concurrency: exactly ONE in-flight swap at a time (global lock). Balance-delta
- * attribution is only sound when nothing else moves this contract's Core
- * balances mid-flight; serialization enforces that. Throughput scales by
- * deploying more router instances per market. Donations to the router's Core
- * account can only over-credit the in-flight swap, never under-pay it.
+ * Liveness: retry() re-issues a bridge send that was silently rejected;
+ * forceRelease() frees the serialization lock after RELEASE_DELAY_L1 so one
+ * stuck swap cannot brick the router — the stuck swap keeps its claim.
+ *
+ * Concurrency: ONE in-flight swap (global lock) keeps balance-delta attribution
+ * sound; scale throughput with more instances. Known residual (documented for
+ * reviewers): an attacker can complete claim() early by donating the owed
+ * amount on the EVM side, leaving a stale Core send that may under-credit a
+ * later swap's delta; the donation is unrecoverable, so the grief costs the
+ * attacker the full donated amount. retry() is blocked while another swap is
+ * in flight so it cannot perturb a live delta window.
  */
 contract SuwappuCoreRouter {
-    using L1Read for *;
-
     // ── immutable market config ─────────────────────────────────────────────
     IERC20 public immutable baseErc20;
     IERC20 public immutable quoteErc20;
     uint64 public immutable baseToken; // Core token index
     uint64 public immutable quoteToken;
     uint32 public immutable orderAsset; // spot order asset id (10000 + pair index)
-    uint8 public immutable baseWeiDecimals; // Core wei decimals
+    uint8 public immutable baseWeiDecimals;
     uint8 public immutable quoteWeiDecimals;
     uint8 public immutable baseExtraEvmDecimals; // evm decimals - core wei decimals
     uint8 public immutable quoteExtraEvmDecimals;
+    uint8 public immutable szDecimals; // base asset lot precision
     address public immutable treasury;
-    uint16 public immutable feeBps; // taken from proceeds on success
+    uint16 public immutable feeBps;
 
     uint16 public constant MAX_FEE_BPS = 100; // 1% hard cap, forever
 
-    // ── swap lifecycle ──────────────────────────────────────────────────────
+    // L1 (HyperCore) block delays. Core blocks are sub-second; CoreWriter
+    // actions land "a few seconds" after the EVM tx. These are deliberately
+    // generous — a late settle costs seconds, an early one costs funds.
+    uint64 public constant SETTLE_DELAY_L1 = 100;
+    uint64 public constant RETRY_DELAY_L1 = 2_000;
+    uint64 public constant RELEASE_DELAY_L1 = 100_000;
+
     enum Status {
         None,
         Pending, // order placed, awaiting settle
-        Bridging, // settled on Core, awaiting EVM credit
-        Refunding, // unfilled, in-tokens heading back to EVM
+        Bridging, // reconciled on Core, awaiting EVM credits
         Done
     }
 
     struct Swap {
         address user;
         bool baseForQuote; // true: sell base for quote
-        uint64 coreIn; // in-token amount, Core wei
-        uint64 minCoreOut; // slippage bound, Core wei of out-token
-        uint64 outSnapshot; // router's Core balance of out-token at initiate
-        uint64 coreOwed; // out after fee (or refund amount), Core wei
+        uint64 coreIn; // in-token deposited, Core wei
+        uint64 minCoreOut; // acceptance bound for fee-charging, Core wei
+        uint64 outSnapshot; // free Core balance of out-token at initiate
+        uint64 inSnapshot; // free Core balance of in-token at initiate
+        uint64 owedOut; // proceeds after fee, Core wei
+        uint64 owedIn; // unconsumed in-token refund, Core wei
+        uint256 evmOutSnapshot; // EVM balances at settle, for claim gating
+        uint256 evmInSnapshot;
         uint64 initiatedL1Block;
         uint64 initiatedEvmBlock;
+        uint64 settledL1Block;
         Status status;
     }
 
     uint128 public nextSwapId = 1;
     uint128 public inFlight; // 0 = free; else the active swap id
-    mapping(uint128 => Swap) public swaps;
+    mapping(uint128 => Swap) internal swaps;
+
+    function getSwap(uint128 id) external view returns (Swap memory) {
+        return swaps[id];
+    }
 
     event SwapInitiated(
         uint128 indexed id, address indexed user, bool baseForQuote, uint64 coreIn, uint64 minCoreOut
     );
-    event SwapSettled(uint128 indexed id, uint64 coreOut, uint64 fee, bool filled);
-    event SwapClaimed(uint128 indexed id, address indexed user, uint256 evmAmount);
+    event SwapSettled(uint128 indexed id, uint64 outDelta, uint64 owedIn, uint64 fee, bool filled);
+    event SwapClaimed(uint128 indexed id, address indexed user, uint256 evmOut, uint256 evmIn);
+    event BridgeRetried(uint128 indexed id);
+    event LockReleased(uint128 indexed id);
 
     error Locked();
     error BadStatus();
     error TooEarly();
+    error NotLanded();
     error NotDivisible();
     error FeeTooHigh();
     error BridgeNotLanded();
     error ZeroAmount();
+    error BadTreasury();
+    error SzTooSmall();
 
     constructor(
         IERC20 baseErc20_,
@@ -105,10 +127,14 @@ contract SuwappuCoreRouter {
         uint8 quoteWeiDecimals_,
         uint8 baseExtraEvmDecimals_,
         uint8 quoteExtraEvmDecimals_,
+        uint8 szDecimals_,
         address treasury_,
         uint16 feeBps_
     ) {
         if (feeBps_ > MAX_FEE_BPS) revert FeeTooHigh();
+        // Fee spotSends to a Core-uninitialized address are silently rejected
+        // forever, so refuse to deploy against one.
+        if (treasury_ == address(0) || !L1Read.coreUserExists(treasury_)) revert BadTreasury();
         baseErc20 = baseErc20_;
         quoteErc20 = quoteErc20_;
         baseToken = baseToken_;
@@ -118,6 +144,7 @@ contract SuwappuCoreRouter {
         quoteWeiDecimals = quoteWeiDecimals_;
         baseExtraEvmDecimals = baseExtraEvmDecimals_;
         quoteExtraEvmDecimals = quoteExtraEvmDecimals_;
+        szDecimals = szDecimals_;
         treasury = treasury_;
         feeBps = feeBps_;
     }
@@ -127,6 +154,12 @@ contract SuwappuCoreRouter {
     /// Core system address for a token: first byte 0x20, token index big-endian.
     function systemAddress(uint64 token) public pure returns (address) {
         return address(uint160(0x2000000000000000000000000000000000000000) | uint160(token));
+    }
+
+    /// spotSend can only move free balance; total includes held margin.
+    function _free(uint64 token) internal view returns (uint64) {
+        L1Read.SpotBalance memory b = L1Read.spotBalance(address(this), token);
+        return b.total > b.hold ? b.total - b.hold : 0;
     }
 
     function _evmToCore(uint256 evmAmount, uint8 extra) internal pure returns (uint64) {
@@ -141,117 +174,187 @@ contract SuwappuCoreRouter {
         return uint256(coreAmount) * 10 ** extra;
     }
 
-    /// Order size wire format: 10^8 * human size; human = coreWei / 10^weiDecimals.
-    function _coreToSz(uint64 coreAmount, uint8 weiDecimals) internal pure returns (uint64) {
-        uint256 sz = (uint256(coreAmount) * 1e8) / (10 ** weiDecimals);
-        require(sz > 0 && sz <= type(uint64).max, "sz range");
+    /// Order size wire format: 10^8 * human base size, rounded DOWN to the
+    /// market lot (multiples of 10^(8 - szDecimals)); reverts if it rounds to 0.
+    /// Sizing is ALWAYS input-driven: sells size from the base deposited; buys
+    /// size from quote deposited / limit price. minCoreOut is only ever an
+    /// acceptance check. Truncation residue stays in the in-token and comes
+    /// back through the owedIn reconciliation at settle.
+    function _orderSz(bool baseForQuote, uint64 coreIn, uint64 limitPx)
+        internal
+        view
+        returns (uint64)
+    {
+        uint256 sz;
+        if (baseForQuote) {
+            sz = (uint256(coreIn) * 1e8) / (10 ** baseWeiDecimals);
+        } else {
+            // human_base = (coreIn / 10^qwd) / (limitPx / 1e8); wire = 1e8 * human
+            sz = (uint256(coreIn) * 1e16) / (10 ** quoteWeiDecimals) / limitPx;
+        }
+        uint256 lot = 10 ** (8 - szDecimals);
+        sz -= sz % lot;
+        if (sz == 0 || sz > type(uint64).max) revert SzTooSmall();
         return uint64(sz);
     }
 
     // ── lifecycle ───────────────────────────────────────────────────────────
 
-    /// @param baseForQuote sell base into quote (an ask); else buy base with quote
-    /// @param evmAmountIn  in-token amount in EVM decimals (must divide cleanly)
-    /// @param limitPx      order limit price, wire format (10^8 * human)
-    /// @param minCoreOut   minimum acceptable proceeds in Core wei of the out-token
     function initiate(bool baseForQuote, uint256 evmAmountIn, uint64 limitPx, uint64 minCoreOut)
         external
         returns (uint128 id)
     {
         if (inFlight != 0) revert Locked();
-        if (evmAmountIn == 0 || minCoreOut == 0) revert ZeroAmount();
+        if (evmAmountIn == 0 || minCoreOut == 0 || limitPx == 0) revert ZeroAmount();
 
         (IERC20 tokenIn, uint64 coreTokenIn, uint8 extraIn) = baseForQuote
             ? (baseErc20, baseToken, baseExtraEvmDecimals)
             : (quoteErc20, quoteToken, quoteExtraEvmDecimals);
-        (uint64 coreTokenOut,) = baseForQuote ? (quoteToken, 0) : (baseToken, 0);
+        uint64 coreTokenOut = baseForQuote ? quoteToken : baseToken;
 
         uint64 coreIn = _evmToCore(evmAmountIn, extraIn);
+        uint64 sz = _orderSz(baseForQuote, coreIn, limitPx);
 
         id = nextSwapId++;
         inFlight = id;
 
-        // EVM -> Core: transferring the linked ERC-20 to its system address
-        // credits THIS contract's Core spot balance.
-        require(tokenIn.transferFrom(msg.sender, address(this), evmAmountIn), "pull");
-        require(tokenIn.transfer(systemAddress(coreTokenIn), evmAmountIn), "bridge");
-
-        // IOC on the book; sz is denominated in BASE for both directions.
-        uint64 sz = baseForQuote
-            ? _coreToSz(coreIn, baseWeiDecimals)
-            : _coreToSz(minCoreOut, baseWeiDecimals);
-        CoreWriterLib.limitOrder(
-            orderAsset, !baseForQuote, limitPx, sz, false, CoreWriterLib.TIF_IOC, uint128(id)
-        );
-
+        // Snapshots BEFORE any bridging lands (async ⇒ same-tx reads are pre-deposit).
         swaps[id] = Swap({
             user: msg.sender,
             baseForQuote: baseForQuote,
             coreIn: coreIn,
             minCoreOut: minCoreOut,
-            outSnapshot: L1Read.spotBalance(address(this), coreTokenOut).total,
-            coreOwed: 0,
+            outSnapshot: _free(coreTokenOut),
+            inSnapshot: _free(coreTokenIn),
+            owedOut: 0,
+            owedIn: 0,
+            evmOutSnapshot: 0,
+            evmInSnapshot: 0,
             initiatedL1Block: L1Read.l1BlockNumber(),
             initiatedEvmBlock: uint64(block.number),
+            settledL1Block: 0,
             status: Status.Pending
         });
+
+        // EVM -> Core: transfer to the token's system address credits this
+        // contract's Core spot balance once HyperCore processes the block.
+        require(tokenIn.transferFrom(msg.sender, address(this), evmAmountIn), "pull");
+        require(tokenIn.transfer(systemAddress(coreTokenIn), evmAmountIn), "bridge");
+
+        CoreWriterLib.limitOrder(
+            orderAsset, !baseForQuote, limitPx, sz, false, CoreWriterLib.TIF_IOC, uint128(id)
+        );
         emit SwapInitiated(id, msg.sender, baseForQuote, coreIn, minCoreOut);
     }
 
-    /// Settle after the IOC has executed on HyperCore (a few seconds). Anyone
-    /// may call; outcome is determined purely by on-chain Core state.
+    /// Reconcile both legs after the deposit + IOC have resolved on HyperCore.
     function settle(uint128 id) external {
         Swap storage s = swaps[id];
         if (s.status != Status.Pending) revert BadStatus();
-        // Actions land seconds later; require both clocks to have advanced.
-        if (block.number <= s.initiatedEvmBlock || L1Read.l1BlockNumber() <= s.initiatedL1Block) {
-            revert TooEarly();
-        }
+        if (
+            block.number <= s.initiatedEvmBlock
+                || L1Read.l1BlockNumber() < s.initiatedL1Block + SETTLE_DELAY_L1
+        ) revert TooEarly();
 
         (uint64 coreTokenOut, uint64 coreTokenIn) =
             s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
 
-        uint64 outBal = L1Read.spotBalance(address(this), coreTokenOut).total;
-        uint64 delta = outBal > s.outSnapshot ? outBal - s.outSnapshot : 0;
+        uint64 outFree = _free(coreTokenOut);
+        uint64 inFree = _free(coreTokenIn);
+        uint64 outDelta = outFree > s.outSnapshot ? outFree - s.outSnapshot : 0;
+        uint64 inRemainder = inFree > s.inSnapshot ? inFree - s.inSnapshot : 0;
+        if (inRemainder > s.coreIn) inRemainder = s.coreIn;
 
-        if (delta >= s.minCoreOut) {
-            uint64 fee = uint64((uint256(delta) * feeBps) / 10_000);
-            s.coreOwed = delta - fee;
-            s.status = Status.Bridging;
-            if (fee > 0) CoreWriterLib.spotSend(treasury, coreTokenOut, fee);
-            // Core -> EVM: send proceeds to the out-token's system address;
-            // the system tx credits this contract's EVM ERC-20 balance.
-            CoreWriterLib.spotSend(systemAddress(coreTokenOut), coreTokenOut, s.coreOwed);
-            emit SwapSettled(id, delta, fee, true);
-        } else {
-            // Unfilled (or partial below bound): cancel any resting remainder
-            // and route everything we still hold back to EVM for refund.
-            CoreWriterLib.cancelByCloid(orderAsset, uint128(id));
-            uint64 inBal = L1Read.spotBalance(address(this), coreTokenIn).total;
-            uint64 refund = inBal < s.coreIn ? inBal : s.coreIn;
-            s.coreOwed = refund;
-            s.status = Status.Refunding;
-            CoreWriterLib.spotSend(systemAddress(coreTokenIn), coreTokenIn, refund);
-            emit SwapSettled(id, delta, 0, false);
-        }
+        // Nothing landed yet (deposit still in flight): never terminalize on
+        // zero — stay Pending and let settle be retried.
+        if (outDelta == 0 && inRemainder == 0) revert NotLanded();
+
+        bool filled = outDelta >= s.minCoreOut;
+        uint64 fee = filled ? uint64((uint256(outDelta) * feeBps) / 10_000) : 0;
+        s.owedOut = outDelta - fee;
+        s.owedIn = inRemainder;
+        s.evmOutSnapshot = _erc20For(coreTokenOut).balanceOf(address(this));
+        s.evmInSnapshot = _erc20For(coreTokenIn).balanceOf(address(this));
+        s.settledL1Block = L1Read.l1BlockNumber();
+        s.status = Status.Bridging;
+
+        if (fee > 0) CoreWriterLib.spotSend(treasury, coreTokenOut, fee);
+        _bridgeBack(coreTokenOut, s.owedOut);
+        _bridgeBack(coreTokenIn, s.owedIn);
+        emit SwapSettled(id, outDelta, inRemainder, fee, filled);
     }
 
-    /// Pay the user once the Core->EVM bridge credit has landed.
+    /// Pay the user both legs once THIS swap's bridge credits landed on EVM,
+    /// measured against the settle-time snapshots (aggregate balance is not
+    /// proof — see header).
     function claim(uint128 id) external {
         Swap storage s = swaps[id];
-        bool refunding = s.status == Status.Refunding;
-        if (s.status != Status.Bridging && !refunding) revert BadStatus();
+        if (s.status != Status.Bridging) revert BadStatus();
+        if (s.owedOut == 0 && s.owedIn == 0) revert ZeroAmount();
 
-        (IERC20 tokenOut, uint8 extraOut) = refunding
-            ? (s.baseForQuote ? (baseErc20, baseExtraEvmDecimals) : (quoteErc20, quoteExtraEvmDecimals))
-            : (s.baseForQuote ? (quoteErc20, quoteExtraEvmDecimals) : (baseErc20, baseExtraEvmDecimals));
+        (uint64 coreTokenOut, uint64 coreTokenIn) =
+            s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+        (uint8 extraOut, uint8 extraIn) = s.baseForQuote
+            ? (quoteExtraEvmDecimals, baseExtraEvmDecimals)
+            : (baseExtraEvmDecimals, quoteExtraEvmDecimals);
 
-        uint256 evmAmount = _coreToEvm(s.coreOwed, extraOut);
-        if (tokenOut.balanceOf(address(this)) < evmAmount) revert BridgeNotLanded();
+        uint256 evmOut = _coreToEvm(s.owedOut, extraOut);
+        uint256 evmIn = _coreToEvm(s.owedIn, extraIn);
+        IERC20 tokenOut = _erc20For(coreTokenOut);
+        IERC20 tokenIn = _erc20For(coreTokenIn);
+
+        if (tokenOut.balanceOf(address(this)) < s.evmOutSnapshot + evmOut) revert BridgeNotLanded();
+        if (tokenIn.balanceOf(address(this)) < s.evmInSnapshot + evmIn) revert BridgeNotLanded();
 
         s.status = Status.Done;
+        if (inFlight == id) inFlight = 0;
+        if (evmOut > 0) require(tokenOut.transfer(s.user, evmOut), "pay out");
+        if (evmIn > 0) require(tokenIn.transfer(s.user, evmIn), "pay in");
+        emit SwapClaimed(id, s.user, evmOut, evmIn);
+    }
+
+    /// Re-issue bridge sends for a swap whose spotSend was silently rejected
+    /// (e.g. balance momentarily held). Only while no OTHER swap is in flight,
+    /// so it can never perturb a live delta window.
+    function retry(uint128 id) external {
+        Swap storage s = swaps[id];
+        if (s.status != Status.Bridging) revert BadStatus();
+        if (inFlight != 0 && inFlight != id) revert Locked();
+        if (L1Read.l1BlockNumber() < s.settledL1Block + RETRY_DELAY_L1) revert TooEarly();
+
+        (uint64 coreTokenOut, uint64 coreTokenIn) =
+            s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+        s.settledL1Block = L1Read.l1BlockNumber();
+        _bridgeBack(coreTokenOut, _min64(s.owedOut, _free(coreTokenOut)));
+        _bridgeBack(coreTokenIn, _min64(s.owedIn, _free(coreTokenIn)));
+        emit BridgeRetried(id);
+    }
+
+    /// Free the serialization lock from a swap stuck long past every async
+    /// horizon. The stuck swap keeps its state and can still retry()/claim().
+    function forceRelease(uint128 id) external {
+        Swap storage s = swaps[id];
+        if (inFlight != id) revert BadStatus();
+        if (s.status != Status.Pending && s.status != Status.Bridging) revert BadStatus();
+        uint64 since = s.status == Status.Pending ? s.initiatedL1Block : s.settledL1Block;
+        if (L1Read.l1BlockNumber() < since + RELEASE_DELAY_L1) revert TooEarly();
         inFlight = 0;
-        require(tokenOut.transfer(s.user, evmAmount), "pay");
-        emit SwapClaimed(id, s.user, evmAmount);
+        emit LockReleased(id);
+    }
+
+    // ── internals ───────────────────────────────────────────────────────────
+
+    function _erc20For(uint64 coreToken) internal view returns (IERC20) {
+        return coreToken == baseToken ? baseErc20 : quoteErc20;
+    }
+
+    /// Core -> EVM: spotSend to the token's own system address; the system tx
+    /// later credits this contract's EVM ERC-20 balance.
+    function _bridgeBack(uint64 coreToken, uint64 amount) internal {
+        if (amount > 0) CoreWriterLib.spotSend(systemAddress(coreToken), coreToken, amount);
+    }
+
+    function _min64(uint64 a, uint64 b) internal pure returns (uint64) {
+        return a < b ? a : b;
     }
 }
