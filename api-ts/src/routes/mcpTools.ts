@@ -8,6 +8,8 @@
  */
 import { z } from 'zod'
 import { mcpInputSchema, toOutputJsonSchema } from '../lib/zodJsonSchema'
+import { verifyMoneyPathToolIntegrity } from '../lib/toolIntegrity'
+import { logger } from '../lib/logger'
 import {
 	McpBrowseMppDirectorySchema,
 	McpExecuteSwapSchema,
@@ -410,4 +412,24 @@ const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
 	...(TOOL_OUTPUT_SCHEMAS[t.name] ? { outputSchema: TOOL_OUTPUT_SCHEMAS[t.name] } : {}),
 }))
 
-export { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS }
+// ---------------------------------------------------------------
+// ETDI-style tool-definition integrity (arXiv 2506.01333)
+//
+// Computed once at module load against the live TOOLS array — see
+// src/lib/toolIntegrity.ts for rationale. A non-empty set here means a
+// money-path tool's {name, description, inputSchema} no longer matches the
+// checked-in expected hash (accidental drift OR tampering); mcp.ts must
+// refuse to dispatch that tool rather than silently serve the mismatched
+// definition. Logged loudly at module load so a bad deploy is visible in
+// logs immediately, not just on first execute_swap call.
+const MONEY_PATH_INTEGRITY_FAILURES = verifyMoneyPathToolIntegrity(TOOLS)
+if (MONEY_PATH_INTEGRITY_FAILURES.size > 0) {
+	logger.error(
+		`[mcp] Tool-definition integrity check FAILED for: ${[...MONEY_PATH_INTEGRITY_FAILURES].join(', ')}. ` +
+			'The live tool definition no longer matches EXPECTED_TOOL_DEFINITION_HASHES in src/lib/toolIntegrity.ts. ' +
+			'Calls to these tools will be refused until the hash is deliberately regenerated ' +
+			'(bun run scripts/print-tool-hashes.ts) as part of a reviewed schema/description change.',
+	)
+}
+
+export { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS, MONEY_PATH_INTEGRITY_FAILURES }

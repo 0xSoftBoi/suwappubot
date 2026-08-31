@@ -14,7 +14,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
-import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
+import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA, MONEY_PATH_INTEGRITY_FAILURES } from './mcpTools'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
@@ -1552,6 +1552,26 @@ mcpRoutes.post('/', async (c) => {
 			const argsError = validateToolArgs(name, args || {})
 			if (argsError) {
 				return c.json(rpcErr(req.id, -32602, argsError, undefined, 'VALIDATION_ERROR'), 200)
+			}
+
+			// ETDI-style tool-definition integrity gate (arXiv 2506.01333). Computed
+			// once at module load (src/routes/mcpTools.ts) against the live TOOLS
+			// array — if a money-path tool's {name, description, inputSchema} no
+			// longer matches its checked-in expected hash, refuse the call outright
+			// rather than dispatch against a definition nobody reviewed. Checked
+			// BEFORE metering so a refused call is never billed.
+			if (MONEY_PATH_INTEGRITY_FAILURES.has(name)) {
+				logger.error(`[mcp] Refusing tools/call for "${name}": tool-definition integrity check failed (see startup logs).`)
+				return c.json(
+					rpcErr(
+						req.id,
+						-32000,
+						`Tool "${name}" is temporarily unavailable: its definition failed an integrity check and cannot be safely dispatched. This is a server-side issue, not a client error.`,
+						undefined,
+						'UPSTREAM_ERROR',
+					),
+					200,
+				)
 			}
 
 			// AEGIS observe-mode scan (Phase 3). Runs after arg validation and
