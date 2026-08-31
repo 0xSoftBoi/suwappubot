@@ -23,6 +23,7 @@ import logging
 from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from web3 import Web3
 import aiohttp
 import base64
@@ -767,6 +768,13 @@ class SwapEngine:
     - LayerZero/Stargate: Same-token bridges
     - Chainlink CCIP: Cross-chain messaging
     """
+
+    # Jito bundle-status poll window for solana_mev_protect_enabled: short by
+    # design (this is on the hot execution path) — we only want to catch the
+    # common "landed within ~1 leader slot or two" case before falling back
+    # to a plain RPC broadcast of the same signed tx.
+    _JITO_BUNDLE_POLL_ATTEMPTS = 6
+    _JITO_BUNDLE_POLL_INTERVAL_SECONDS = 0.5
 
     def __init__(self):
         # New high-value providers
@@ -2556,21 +2564,46 @@ class SwapEngine:
         # tightening the on-chain floor (not just a display number) requires
         # re-quoting with the adjusted slippageBps rather than editing the
         # response locally.
+        #
+        # UNIT NOTE: Jupiter's priceImpactPct is already a FRACTION of 1
+        # (verified live: 0.0078936 == 0.789% impact, not 0.79%) — pass it
+        # straight through, see bot/utils/adaptive_slippage.py's docstring.
         if settings.adaptive_slippage_enabled:
             adaptive_bps = compute_adaptive_slippage_bps(
                 requested_slippage_bps=slippage_bps,
-                price_impact_pct=quote.price_impact_pct,
+                price_impact_fraction=quote.price_impact_pct,
                 buffer_bps=settings.adaptive_slippage_buffer_bps,
                 floor_bps=settings.adaptive_slippage_floor_bps,
             )
             if adaptive_bps < slippage_bps:
-                quote = await self.jupiter.get_quote(
-                    input_mint=from_token_address,
-                    output_mint=to_token_address,
-                    amount=amount_raw,
-                    slippage_bps=adaptive_bps,
-                    platform_fee_bps=effective_fee_bps,
-                )
+                try:
+                    requoted = await self.jupiter.get_quote(
+                        input_mint=from_token_address,
+                        output_mint=to_token_address,
+                        amount=amount_raw,
+                        slippage_bps=adaptive_bps,
+                        platform_fee_bps=effective_fee_bps,
+                    )
+                    # A re-quote is a fresh, live call — the market can have
+                    # moved between the two round trips even though the new
+                    # tolerance is tighter in percentage terms. Never let the
+                    # adaptive re-quote authorize a WORSE absolute min-out
+                    # than the original (wider-tolerance) quote already
+                    # computed; reject and keep the original if so.
+                    self._assert_fresh_min_out_acceptable(
+                        approved_quote=SimpleNamespace(
+                            to_amount_min=quote.other_amount_threshold,
+                            raw_quote=quote.raw_response,
+                        ),
+                        fresh_to_amount_min=requoted.other_amount_threshold,
+                        provider_name="Jupiter (adaptive slippage re-quote)",
+                    )
+                    quote = requoted
+                except Exception as e:
+                    logger.warning(
+                        "Adaptive slippage re-quote failed or was rejected "
+                        f"(keeping original quote): {e}"
+                    )
 
         to_amount_human = self._get_token_amount_human(quote.out_amount, to_token, "solana")
 
@@ -2941,10 +2974,15 @@ class SwapEngine:
         # the `slippage` value stashed in raw_quote below (see
         # _execute_okx_swap), so tightening `slippage` here is sufficient to
         # tighten the on-chain floor too — no second API call needed.
+        #
+        # UNIT NOTE: OKX's priceImpactPercentage is a PERCENT (not a fraction
+        # of 1) and is conventionally reported as NEGATIVE for adverse impact
+        # (e.g. -0.42 == 0.42%). Convert with abs(...)/100 before calling in —
+        # see bot/utils/adaptive_slippage.py's docstring.
         if settings.adaptive_slippage_enabled:
             adaptive_bps = compute_adaptive_slippage_bps(
                 requested_slippage_bps=int(slippage * 100),
-                price_impact_pct=quote.price_impact,
+                price_impact_fraction=abs(quote.price_impact) / 100,
                 buffer_bps=settings.adaptive_slippage_buffer_bps,
                 floor_bps=settings.adaptive_slippage_floor_bps,
             )
@@ -4946,15 +4984,40 @@ class SwapEngine:
         # instruction (no jito_tip_lamports passed to get_swap_transaction), so
         # this submits as an untipped single-tx bundle — a real tip requires
         # also passing jito_tip_lamports above, which is a further follow-up.
+        #
+        # Submitting a bundle only proves Jito ACCEPTED it for consideration,
+        # not that it landed on-chain — returning tx_sig on submission alone
+        # would be a phantom "success" the caller records as a completed
+        # swap. Poll get_bundle_statuses for a short window and only return
+        # early when the bundle actually landed; otherwise fall through to
+        # the plain RPC broadcast below. Falling through re-sends the SAME
+        # signed transaction (same signature), so if the bundle lands after
+        # our poll window Solana just reports "already processed" — the
+        # double-broadcast is safe.
         if settings.solana_mev_protect_enabled:
             signed_tx_b64 = base64.b64encode(signed_tx).decode()
             try:
                 bundle_id, tx_sig = await self.jito.submit_swap_bundle(
                     swap_transaction=signed_tx_b64,
                 )
-                logger.info(f"Jito bundle submitted: {bundle_id}, signature: {tx_sig}")
-                if tx_sig:
+                landed = False
+                if bundle_id:
+                    for _ in range(self._JITO_BUNDLE_POLL_ATTEMPTS):
+                        await asyncio.sleep(self._JITO_BUNDLE_POLL_INTERVAL_SECONDS)
+                        statuses = await self.jito.get_bundle_statuses([bundle_id])
+                        status = statuses[0].status if statuses else None
+                        if status == "landed":
+                            landed = True
+                            break
+                        if status == "failed":
+                            break
+                if landed and tx_sig:
+                    logger.info(f"Jito bundle landed: {bundle_id}, signature: {tx_sig}")
                     return tx_sig
+                logger.warning(
+                    f"Jito bundle {bundle_id} did not confirm landed within the poll "
+                    "window; falling back to plain RPC broadcast of the same signed tx"
+                )
             except Exception as e:
                 logger.warning(f"Jito submission failed, falling back to standard RPC: {e}")
 

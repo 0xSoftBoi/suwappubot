@@ -211,7 +211,11 @@ class JitoAPI:
             "jsonrpc": "2.0",
             "id": self._next_request_id(),
             "method": "sendBundle",
-            "params": [transactions],
+            # Transactions are base64-encoded (see send_transaction below,
+            # which already declares this); Jito defaults to base58 if the
+            # encoding isn't specified, which would silently fail to decode
+            # our base64 payloads server-side.
+            "params": [transactions, {"encoding": "base64"}],
         }
 
         async with session.post(
