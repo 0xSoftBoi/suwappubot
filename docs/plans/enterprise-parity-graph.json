@@ -205,7 +205,7 @@
       "surface": "python",
       "status": "in_progress",
       "money_path": true,
-      "notes": "Python reads org policy tables (shared DB); over-quorum-threshold actions create approval requests and block; evaluation records screening_events (never audit_logs - hash chain is api-ts-owned)."
+      "notes": "BUILT then BLOCKED by money-path review: C1 oldest-membership bypass (multi-org), C2 daily/velocity concurrency bypass (COMPLETED-only counting), C6 allowlist_only bricks swaps+paymaster (dest falls back to own wallet), C3 unpriced-token USD-policy skip, C4 withdrawals amount_usd=None, C5 malformed-params fail-open, C7 approval spam, C8 FK mirrors break test create_all, C9 silent catch-all, T1 nested-session inducible fail-open. Fix pass in flight; re-review before commit. SCOPE GAP flagged for a future node: morpho/polymarket/hyperliquid-funding/membership/cctp-relayer transfer paths + p2p escrow (no user_id) bypass both compliance and org-policy gates."
     },
     {
       "id": "bugclass-effect-throw",
