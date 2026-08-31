@@ -1249,6 +1249,13 @@ class Settings(BaseSettings):
             "when unset."
         ),
     )
+    derivatives_restricted_regions: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated ISO2 regions banned from futures/perps and prediction "
+            "market trading for regulatory reasons. Falls back to 'US' when unset."
+        ),
+    )
 
     # ── Gift Card marketplace (Bitrefill) ────────────────────────────────────
     # SCAFFOLD — blocked on a live Bitrefill merchant account.

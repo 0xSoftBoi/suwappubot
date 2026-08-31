@@ -2,7 +2,7 @@ import { Effect, Either } from 'effect'
 import { Hono, type Context, type Next } from 'hono'
 import type { Agent } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { agentBearerAuth, flexAuth } from '../middleware'
+import { agentBearerAuth, flexAuth, regionGate } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { PerpsQuoteSchema } from './validators'
@@ -14,6 +14,9 @@ type AgentContext = {
 }
 
 const perpsRoutes = new Hono<AgentContext>()
+
+// Compliance: block restricted regions (default US) from all perps endpoints.
+perpsRoutes.use('*', regionGate())
 
 // The perps positions path serves two existing callers with different credential
 // classes: SDK/A2A clients use a suwappu_sk_* agent key, while the first-party

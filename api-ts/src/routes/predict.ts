@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
-import { agentBearerAuth } from '../middleware'
+import { agentBearerAuth, regionGate } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
 import { PolymarketCredentialService } from '../services/PolymarketCredentialService'
@@ -18,6 +18,9 @@ type AgentContext = {
 }
 
 const predictRoutes = new Hono<AgentContext>()
+
+// Compliance: block restricted regions (default US) from all predict endpoints.
+predictRoutes.use('*', regionGate())
 
 // GET /v1/agent/predict/markets — list active prediction markets
 predictRoutes.get('/markets', async (c) => {
