@@ -153,8 +153,8 @@
         "compliance-api"
       ],
       "surface": "showcase",
-      "status": "todo",
-      "notes": "Fireblocks Security Center pattern: one incident-review screen aggregating the other APIs."
+      "status": "done",
+      "notes": "DONE: showcase/src/app/dashboard/security/ \u2014 status strip (pending approvals, blocked 7d, chain integrity, API keys) + 4 independent panels (approvals w/ inline vote, screening feed, admin activity w/ integrity badge, keys & roles), per-panel failure isolation, 60s auto-refresh paused when hidden. Build clean. Votes go through the already-reviewed enterprisePolicies endpoint (no new server logic)."
     },
     {
       "id": "reports-export",
@@ -181,5 +181,6 @@
       "status": "done",
       "notes": "DONE: orgWebhooks schema + webhookDispatcher (SSRF guard incl. numeric-host bypasses, TOCTOU re-check at send, HMAC-SHA256 of raw body, 5s timeout, no redirects, fire-and-forget) + enterpriseWebhooks CRUD/test routes (admin-only, secret shown once) + 8 dispatch sites in enterprisePolicies. Follow-ups: screening.* dispatch needs a Python-side wiring pass; drizzle migration for org_webhooks deferred (db:generate not run)."
     }
-  ]
+  ],
+  "completed": "2026-08-31 \u2014 all 15 nodes done. Follow-ups tracked in node notes: enforcement wiring of orgPolicies into transfer paths (next MONEY-PATH phase), screening.* webhook dispatch from Python side, org_webhooks + policy drizzle migration application, orgTreasurySnapshots table (dual-ORM), live visual pass on deployed env, /bugclass sweep for throw-in-Effect.gen (enterprise.ts:273)."
 }
