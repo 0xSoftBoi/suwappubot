@@ -22,10 +22,18 @@ skip = [
 [rpc_endpoints]
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
 base_mainnet = "${BASE_MAINNET_RPC_URL}"
+# HyperEVM: Cancun-compatible (tstore/tload OK). Deploys need big blocks enabled
+# for the deployer address on HyperCore first — see DEPLOY_HYPEREVM.md.
+hyperevm_testnet = "https://rpc.hyperliquid-testnet.xyz/evm"
+hyperevm_mainnet = "${HYPEREVM_RPC_URL}"
 
 [etherscan]
 base_sepolia = { key = "${BASESCAN_API_KEY}", chain = 84532, url = "https://api-sepolia.basescan.org/api" }
 base_mainnet = { key = "${BASESCAN_API_KEY}", chain = 8453,  url = "https://api.basescan.org/api" }
+# HyperEVM verification via Etherscan v2 multichain API (hyperevmscan.io front-end).
+# Blockscout fallback: --verifier blockscout --verifier-url per DEPLOY_HYPEREVM.md.
+hyperevm_testnet = { key = "${ETHERSCAN_API_KEY}", chain = 998, url = "https://api.etherscan.io/v2/api" }
+hyperevm_mainnet = { key = "${ETHERSCAN_API_KEY}", chain = 999, url = "https://api.etherscan.io/v2/api" }
 
 [fmt]
 line_length = 100
