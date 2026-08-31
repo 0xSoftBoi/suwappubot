@@ -20,8 +20,8 @@
       "priority": 2,
       "deps": [],
       "surface": "api-ts",
-      "status": "in_progress",
-      "notes": "GET /v1/enterprise/orgs/:id/treasury \u2014 aggregate wallet balances across chains for org members, plus daily value series. Reuse existing wallet/swap tables; flexAuth + member role."
+      "status": "done",
+      "notes": "DONE: GET /enterprise/orgs/:orgId/treasury + /treasury/history in api-ts/src/routes/enterprise.ts. Reuses BalanceService (native balances, live USD). History is swap-flow derived proxy; real orgTreasurySnapshots table deferred (needs dual-ORM migration). ERC-20 balances excluded (matches existing portfolio limitation)."
     },
     {
       "id": "treasury-ui",
@@ -43,7 +43,7 @@
       "priority": 4,
       "deps": [],
       "surface": "api-ts",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "GET /v1/enterprise/orgs/:id/transactions \u2014 swaps/executions/fees joined, filters: chain, status, member, date range, min value. ?format=csv streams CSV."
     },
     {

@@ -1,13 +1,22 @@
 import { randomBytes, createHash } from 'node:crypto'
-import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireDb, organizations, organizationMembers, apiKeys, apiUsageEvents, subscriptions } from '../db'
+import {
+	requireDb,
+	organizations,
+	organizationMembers,
+	apiKeys,
+	apiUsageEvents,
+	subscriptions,
+	wallets,
+	swapTransactions,
+} from '../db'
 import { mapErrorToResponse } from '../errors'
 import { flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
-import { UserService } from '../services'
+import { BalanceService, UserService } from '../services'
 
 export const enterpriseRoutes = new Hono()
 
@@ -821,6 +830,238 @@ enterpriseRoutes.get('/orgs/:orgId/usage', async (c) => {
 				})),
 				daily: dailyRows.map((r) => ({ date: r.date, count: Number(r.count) })),
 			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// ─── GET /enterprise/orgs/:orgId/treasury ───────────────────────────────────
+//
+// DATA-SOURCE DECISION: org-wide holdings are aggregated by pooling every
+// member's active wallets and calling the existing BalanceService (the same
+// source `/webapp/me/portfolio` and MCP `getPortfolio` use — see
+// services/BalanceService.ts) per wallet, then merging results by chain and
+// by member. No new RPC plumbing is introduced.
+//
+// CAVEAT: BalanceService only fetches NATIVE token balances (ETH/MATIC/SOL/
+// etc across the configured EVM chains + Solana) with live USD pricing via
+// fetchTokenPrices — it does not enumerate ERC-20/SPL token holdings. That
+// mirrors what the rest of the codebase already surfaces (webapp portfolio,
+// MCP getPortfolio); wiring per-token balances would mean inventing new RPC
+// plumbing, which the task explicitly said to avoid. `tokenPositions` exists
+// but tracks realized cost-basis/PnL, not live on-chain quantity, so it is
+// not a substitute here.
+enterpriseRoutes.get('/orgs/:orgId/treasury', async (c) => {
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
+	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const orgId = membership.orgId
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const balanceService = yield* BalanceService
+
+			const memberRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ userId: organizationMembers.userId })
+						.from(organizationMembers)
+						.where(eq(organizationMembers.organizationId, orgId)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const memberIds = memberRows.map((m) => m.userId)
+			if (memberIds.length === 0) {
+				return { totalValueUsd: 0, chains: [], members: [], note: 'native-token balances only; ERC-20/SPL not included' }
+			}
+
+			const memberWallets = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(wallets)
+						.where(and(inArray(wallets.userId, memberIds), eq(wallets.isActive, true))),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			// Bounded concurrency: each wallet fans out to 6 EVM RPCs + Solana
+			// inside BalanceService, and an org can have many members/wallets.
+			// A single bad RPC is swallowed via Effect.either per wallet (same
+			// pattern as /webapp/me/portfolio) so it doesn't 500 the whole view.
+			const walletResults = yield* Effect.all(
+				memberWallets.map((wallet) =>
+					Effect.either(balanceService.getWalletBalances(wallet)).pipe(
+						Effect.map((either) => ({ userId: wallet.userId, either })),
+					),
+				),
+				{ concurrency: 5 },
+			)
+
+			const chainMap = new Map<string, Map<string, { symbol: string; amount: number; valueUsd: number }>>()
+			const memberValueMap = new Map<number, number>()
+			let totalValueUsd = 0
+
+			for (const { userId, either } of walletResults) {
+				if (Either.isLeft(either)) continue
+				for (const b of either.right) {
+					totalValueUsd += b.usdValue
+					memberValueMap.set(userId, (memberValueMap.get(userId) ?? 0) + b.usdValue)
+
+					if (!chainMap.has(b.chain)) chainMap.set(b.chain, new Map())
+					const assetMap = chainMap.get(b.chain)!
+					const amount = parseFloat(b.balance) || 0
+					const existing = assetMap.get(b.symbol)
+					if (existing) {
+						existing.amount += amount
+						existing.valueUsd += b.usdValue
+					} else {
+						assetMap.set(b.symbol, { symbol: b.symbol, amount, valueUsd: b.usdValue })
+					}
+				}
+			}
+
+			const chains = Array.from(chainMap.entries())
+				.map(([chain, assetMap]) => {
+					const assets = Array.from(assetMap.values()).sort((a, b) => b.valueUsd - a.valueUsd)
+					const valueUsd = assets.reduce((sum, a) => sum + a.valueUsd, 0)
+					return { chain, valueUsd, assets }
+				})
+				.sort((a, b) => b.valueUsd - a.valueUsd)
+
+			const members = memberIds
+				.map((userId) => ({ userId, valueUsd: memberValueMap.get(userId) ?? 0 }))
+				.sort((a, b) => b.valueUsd - a.valueUsd)
+
+			return {
+				totalValueUsd,
+				chains,
+				members,
+				note: 'native-token balances only (no ERC-20/SPL); live pricing via existing BalanceService',
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+
+	return c.json(result.right)
+})
+
+// ─── GET /enterprise/orgs/:orgId/treasury/history ───────────────────────────
+//
+// DATA-SOURCE DECISION: no historical portfolio-snapshot table exists. Adding
+// one (`orgTreasurySnapshots`) would also require mirroring the DDL in
+// `database/db.py:_ensure_schema()` per docs/development/migrations.md
+// ("both stacks in one PR or it isn't done") — out of scope for an
+// api-ts-only change. Instead this derives a best-effort daily series by
+// walking BACKWARD from the current live treasury value (same aggregation as
+// GET .../treasury) and subtracting each day's net USD swap flow — realized
+// settlement amount when recorded, else the quoted amount — across every org
+// member's completed swaps (`swapTransactions`).
+//
+// LIMITATION (explicitly noted in the response): this tracks trading-flow
+// activity, not mark-to-market price movement of already-held assets between
+// swaps. A wallet that never trades but whose held asset's price moves will
+// show a flat line here even though its live value (the /treasury endpoint)
+// changed. It is a proxy series, not a snapshot history.
+enterpriseRoutes.get('/orgs/:orgId/treasury/history', async (c) => {
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
+	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const orgId = membership.orgId
+
+	const daysParam = parseInt(c.req.query('days') ?? '30', 10)
+	const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 365) : 30
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const balanceService = yield* BalanceService
+
+			const memberRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ userId: organizationMembers.userId })
+						.from(organizationMembers)
+						.where(eq(organizationMembers.organizationId, orgId)),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const memberIds = memberRows.map((m) => m.userId)
+
+			const now = new Date()
+			const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+			const windowStart = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000)
+
+			if (memberIds.length === 0) {
+				return { days, series: [] as { date: string; valueUsd: number }[], derivedFrom: 'swap-flow' }
+			}
+
+			// Anchor: today's live value, same aggregation as GET .../treasury.
+			const memberWallets = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(wallets)
+						.where(and(inArray(wallets.userId, memberIds), eq(wallets.isActive, true))),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			const walletResults = yield* Effect.all(
+				memberWallets.map((wallet) => Effect.either(balanceService.getWalletBalances(wallet))),
+				{ concurrency: 5 },
+			)
+			let currentValueUsd = 0
+			for (const either of walletResults) {
+				if (Either.isRight(either)) {
+					currentValueUsd += either.right.reduce((sum, b) => sum + b.usdValue, 0)
+				}
+			}
+
+			// Net USD flow per UTC day across the window: inflow (to-side) minus
+			// outflow (from-side), preferring realized settlement over quote.
+			const dailyFlowRows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							date: sql<string>`to_char(date_trunc('day', ${swapTransactions.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+							netFlowUsd: sql<number>`coalesce(sum(coalesce(${swapTransactions.realizedToAmountUsd}, ${swapTransactions.toAmountUsd}, 0) - coalesce(${swapTransactions.fromAmountUsd}, 0)), 0)`,
+						})
+						.from(swapTransactions)
+						.where(
+							and(
+								inArray(swapTransactions.userId, memberIds),
+								gte(swapTransactions.createdAt, windowStart),
+								eq(swapTransactions.status, 'completed'),
+							),
+						)
+						.groupBy(sql`date_trunc('day', ${swapTransactions.createdAt} at time zone 'UTC')`)
+						.orderBy(sql`date_trunc('day', ${swapTransactions.createdAt} at time zone 'UTC')`),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+
+			const flowByDate = new Map<string, number>()
+			for (const row of dailyFlowRows) flowByDate.set(row.date, Number(row.netFlowUsd))
+
+			const dateKeys: string[] = []
+			for (let i = 0; i < days; i++) {
+				dateKeys.push(new Date(windowStart.getTime() + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+			}
+
+			// value(day) = value(day+1) - netFlow(day+1); today anchors at
+			// currentValueUsd and we walk backward through the window.
+			const series: { date: string; valueUsd: number }[] = new Array(days)
+			let runningValue = currentValueUsd
+			for (let i = days - 1; i >= 0; i--) {
+				series[i] = { date: dateKeys[i], valueUsd: Math.max(runningValue, 0) }
+				runningValue -= flowByDate.get(dateKeys[i]) ?? 0
+			}
+
+			return { days, series, derivedFrom: 'swap-flow' as const }
 		}),
 	)
 
