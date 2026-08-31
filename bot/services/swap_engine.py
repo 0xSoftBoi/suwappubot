@@ -5033,6 +5033,19 @@ class SwapEngine:
                             landed = True
                             break
                         if status == "failed":
+                            # Landed on-chain but reverted (err set). The tx
+                            # already has an on-chain record under this
+                            # signature — re-broadcasting a known-dead tx via
+                            # the RPC fallback would only produce a confusing
+                            # "already processed" error and leave the DB with
+                            # no hash linked to the swap. Return the signature
+                            # and let normal failure accounting classify it.
+                            if tx_sig:
+                                logger.warning(
+                                    f"Jito bundle {bundle_id} landed but reverted on-chain; "
+                                    f"recording signature {tx_sig} without RPC re-broadcast"
+                                )
+                                return tx_sig
                             break
                 if landed and tx_sig:
                     logger.info(f"Jito bundle landed: {bundle_id}, signature: {tx_sig}")

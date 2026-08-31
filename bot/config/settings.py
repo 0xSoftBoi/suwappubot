@@ -547,6 +547,8 @@ class Settings(BaseSettings):
     )
     solana_mev_tip_lamports: int = Field(
         default=100_000,
+        ge=0,
+        le=10_000_000,
         description=(
             "Jito tip (lamports) baked into the swap tx when "
             "solana_mev_protect_enabled is on; only read in that path, so "
@@ -559,7 +561,13 @@ class Settings(BaseSettings):
             "jitoTipLamports), so it is spent even if the bundle loses the "
             "auction and we fall back to plain RPC broadcast of the same "
             "signed tx — the fallback still contains and pays the tip, it "
-            "just lands as an ordinary (untipped-for-Jito-purposes) tx."
+            "just lands as an ordinary (untipped-for-Jito-purposes) tx. "
+            "TRADEOFF (accepted, documented): Jupiter's jitoTipLamports "
+            "REPLACES priorityLevelWithMaxLamports, so the RPC fallback tx "
+            "also carries no priority fee — degraded landing odds during "
+            "congestion versus the flag-off path. Rebuilding tip-less before "
+            "fallback would need a second build+sign round trip; revisit if "
+            "fallback landing rates prove poor in practice."
         ),
     )
 

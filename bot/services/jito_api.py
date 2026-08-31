@@ -340,7 +340,16 @@ class JitoAPI:
                 confirmation_status = bundle_data.get("confirmation_status")
                 if bundle_data.get("err"):
                     status = "failed"
-                elif confirmation_status in ("finalized", "confirmed", "processed"):
+                elif confirmation_status in ("finalized", "confirmed"):
+                    # "processed" is deliberately NOT accepted: it means one
+                    # leader included the tx in a not-yet-voted block, which
+                    # can fork out — and unlike a public RPC send (re-broadcast
+                    # until blockhash expiry), a bundle tx has no retry, so a
+                    # forked-out bundle is simply gone. "confirmed" (super-
+                    # majority vote) is the floor. NOTE this status feeds two
+                    # callers: the MEV-protect early return in swap_engine and
+                    # snipe_executor._wait_for_confirmation — keep the bar
+                    # supermajority-or-better for both.
                     status = "landed"
 
                 statuses.append(
