@@ -11,6 +11,140 @@
   padding: 0 20px 60px;
 }
 
+/* ── Shell with left sidebar nav (Overview / Treasury / Transactions / …) ──
+   The old shell rendered `children` directly; this wraps it in a two-column
+   grid so every /dashboard/* route shares the same section nav without each
+   page having to render it. */
+.shellGrid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.sidebarNav {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 24px rgba(33, 88, 110, 0.07);
+}
+
+.sidebarLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebarLink svg {
+  flex: 0 0 auto;
+}
+
+.sidebarLink:hover {
+  background: rgba(237, 248, 251, 0.9);
+  color: var(--summer-ink, #17324a);
+}
+
+.sidebarLink[data-active] {
+  background: rgba(14, 149, 189, 0.1);
+  color: #0b789a;
+  font-weight: 700;
+}
+
+.sidebarContent {
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .shellGrid {
+    grid-template-columns: 1fr;
+  }
+  .sidebarNav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sidebarNav::-webkit-scrollbar {
+    display: none;
+  }
+  .sidebarLink {
+    white-space: nowrap;
+  }
+}
+
+/* ── "Coming online" empty state for placeholder dashboard sections ── */
+.comingSoon {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  min-height: 320px;
+  margin-bottom: 20px;
+  padding: 48px 40px;
+  border: 1px dashed rgba(207, 227, 234, 0.95);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 249, 252, 0.72));
+  box-shadow: 0 14px 30px rgba(33, 88, 110, 0.06);
+  text-align: left;
+}
+
+.comingSoonIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: rgba(14, 149, 189, 0.1);
+  color: #0b789a;
+}
+
+.comingSoonBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 141, 43, 0.4);
+  background: linear-gradient(180deg, rgba(246, 169, 60, 0.14), rgba(229, 141, 43, 0.08));
+  color: #b96a12;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.comingSoonTitle {
+  margin: 0;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.comingSoonLead {
+  margin: 0;
+  max-width: 480px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
 /* ── Top header bar ── */
 .header {
   display: flex;

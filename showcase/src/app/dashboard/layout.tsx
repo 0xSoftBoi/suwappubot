@@ -3,6 +3,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import {
+  Bank, ChartLine, ClipboardText, Gauge, ListChecks, Scroll, ShieldCheck,
+} from '@phosphor-icons/react';
 import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
 import { type AuthState, DashboardAuthContext } from './auth-context';
@@ -145,6 +149,44 @@ function WorkspaceNav({ onSignOut }: { onSignOut: () => void }) {
   );
 }
 
+/**
+ * Left sidebar nav shared by every /dashboard/* route. Overview is the
+ * existing page.tsx content; Signals links out to the pre-existing
+ * /dashboard/signals workspace (its own nav lives inside that page). The
+ * rest are the enterprise-parity sections from
+ * docs/plans/enterprise-dashboard.md — placeholder pages today, filled in by
+ * later nodes.
+ */
+const SIDEBAR_LINKS: [href: string, label: string, icon: React.ReactNode][] = [
+  ['/dashboard', 'Overview', <Gauge key="overview" size={17} />],
+  ['/dashboard/treasury', 'Treasury', <Bank key="treasury" size={17} />],
+  ['/dashboard/transactions', 'Transactions', <ChartLine key="transactions" size={17} />],
+  ['/dashboard/policies', 'Policies', <ListChecks key="policies" size={17} />],
+  ['/dashboard/compliance', 'Compliance', <ShieldCheck key="compliance" size={17} />],
+  ['/dashboard/audit', 'Audit', <Scroll key="audit" size={17} />],
+  ['/dashboard/security', 'Security', <ClipboardText key="security" size={17} />],
+  ['/dashboard/signals', 'Signal Intelligence', <ChartLine key="signals" size={17} weight="fill" />],
+];
+
+function DashboardSidebar() {
+  const pathname = usePathname();
+  return (
+    <nav className={styles.sidebarNav} aria-label="Dashboard sections">
+      {SIDEBAR_LINKS.map(([href, label, icon]) => {
+        // Overview is the index route — match it exactly so it doesn't stay
+        // "active" while looking at every other section.
+        const active = href === '/dashboard' ? pathname === href : pathname?.startsWith(href);
+        return (
+          <Link key={href} href={href} className={styles.sidebarLink} data-active={active || undefined}>
+            {icon}
+            <span>{label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [ready, setReady] = useState(false);
@@ -221,7 +263,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <DashboardAuthContext.Provider value={{ auth, clearToken }}>
       <div className="summer-page">
         <WorkspaceNav onSignOut={clearToken} />
-        <div className={styles.shell} style={{ paddingTop: 24 }}>{children}</div>
+        <div className={styles.shell} style={{ paddingTop: 24 }}>
+          <div className={styles.shellGrid}>
+            <DashboardSidebar />
+            <div className={styles.sidebarContent}>{children}</div>
+          </div>
+        </div>
       </div>
     </DashboardAuthContext.Provider>
   );

@@ -10,8 +10,8 @@
       "priority": 1,
       "deps": [],
       "surface": "showcase",
-      "status": "in_progress",
-      "notes": "Extend showcase/src/app/dashboard/ with a shared layout + sidebar. Keep existing org/keys/usage content as the Overview page. Placeholder pages for the rest so each later node fills one in."
+      "status": "done",
+      "notes": "DONE: layout.tsx sidebar (DashboardSidebar, usePathname active state), shellGrid CSS from existing --summer-* tokens, ComingOnline.tsx shared empty-state, 6 placeholder pages (treasury/transactions/policies/compliance/audit/security). Auth provider stays in layout \u2014 shared by all subroutes. Build clean."
     },
     {
       "id": "treasury-api",
@@ -33,7 +33,7 @@
         "treasury-api"
       ],
       "surface": "showcase",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "Per-chain and per-asset breakdown, total value header, 30d value chart."
     },
     {
