@@ -116,6 +116,7 @@ contract SuwappuCoreRouter {
     event SwapClaimed(uint128 indexed id, address indexed user, uint256 evmOut, uint256 evmIn);
     event BridgeRetried(uint128 indexed id);
     event LockReleased(uint128 indexed id);
+    event SwapRescued(uint128 indexed id, uint64 owedOut, uint64 owedIn);
 
     error Locked();
     error BadStatus();
@@ -389,6 +390,39 @@ contract SuwappuCoreRouter {
         if (s.status != Status.Bridging) s.status = Status.Aborted;
         inFlight = 0;
         emit LockReleased(id);
+    }
+
+    /// Recover funds from an Aborted swap (forceRelease abandoned it to unstick
+    /// the lock, NEW-5). Callable only while NO other swap is in flight, so the
+    /// balance-delta attribution is as sound as settle's; reconciles both legs
+    /// from free balance against the swap's own snapshots (bounded by coreIn),
+    /// takes NO fee, and hands off to the normal claim() path. It never touches
+    /// inFlight, so it cannot re-acquire or corrupt the lock. Re-callable while
+    /// still Aborted if only part frees at first (held balance clears later).
+    function rescue(uint128 id) external {
+        Swap storage s = swaps[id];
+        if (s.status != Status.Aborted) revert BadStatus();
+        if (inFlight != 0) revert Locked();
+
+        (uint64 coreTokenOut, uint64 coreTokenIn) =
+            s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+
+        uint64 outFree = _free(coreTokenOut);
+        uint64 inFree = _free(coreTokenIn);
+        uint64 outDelta = outFree > s.outSnapshot ? outFree - s.outSnapshot : 0;
+        uint64 inRemainder = inFree > s.inSnapshot ? inFree - s.inSnapshot : 0;
+        if (inRemainder > s.coreIn) inRemainder = s.coreIn;
+        if (outDelta == 0 && inRemainder == 0) revert NotLanded();
+
+        s.owedOut = outDelta;
+        s.owedIn = inRemainder;
+        s.evmOutSnapshot = _erc20For(coreTokenOut).balanceOf(address(this));
+        s.evmInSnapshot = _erc20For(coreTokenIn).balanceOf(address(this));
+        s.settledL1Block = L1Read.l1BlockNumber();
+        s.status = Status.Bridging;
+        _bridgeBack(coreTokenOut, outDelta);
+        _bridgeBack(coreTokenIn, inRemainder);
+        emit SwapRescued(id, outDelta, inRemainder);
     }
 
     // ── internals ───────────────────────────────────────────────────────────

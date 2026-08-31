@@ -223,6 +223,44 @@ contract CoreRouterTest is Test {
         router.settle(id);
     }
 
+    function test_rescue_recoversAbortedFundingDeposit() public {
+        // NEW-5 regression: a Funding swap abandoned by forceRelease is not lost.
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, PX, 49e8);
+        _mockSpot(BASE_TOKEN, 2e8, 0); // deposit landed but execute never ran
+
+        _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
+        router.forceRelease(id);
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Aborted));
+
+        // rescue reconciles the in-token (no order was placed → full refund, no fee)
+        router.rescue(id);
+        (uint64 outOwed, uint64 inOwed) = _owed(id);
+        assertEq(outOwed, 0);
+        assertEq(inOwed, 2e8);
+
+        base.mint(address(router), 2e18);
+        router.claim(id);
+        assertEq(base.balanceOf(alice), 100e18); // made whole
+    }
+
+    function test_rescue_blockedWhileAnotherSwapInFlight() public {
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, PX, 49e8);
+        _mockSpot(BASE_TOKEN, 2e8, 0);
+        _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
+        router.forceRelease(id);
+
+        // a fresh swap takes the lock
+        _mockSpot(BASE_TOKEN, 0, 0);
+        _mockL1Block(L1_START);
+        vm.prank(alice);
+        router.initiate(true, 1e18, PX, 20e8);
+
+        vm.expectRevert(SuwappuCoreRouter.Locked.selector);
+        router.rescue(id); // must not attribute against the live swap's balances
+    }
+
     function test_retry_cannotStarveForceRelease() public {
         // NEW-4 regression: repeated retry() must not push forceRelease out.
         uint128 id = _settledSell();
