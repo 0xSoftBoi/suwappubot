@@ -423,3 +423,16 @@
     flex-direction: column;
   }
 }
+
+/* Tactile press feedback (shared convention with dashboard.module.css):
+   buttons visibly depress on :active so clicks never feel inert. */
+.copyBtn:active,
+.dayBtn:active {
+  transform: translateY(1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .copyBtn:active,
+.dayBtn:active {
+    transform: none;
+  }
+}

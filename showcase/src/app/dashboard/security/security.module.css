@@ -399,3 +399,16 @@
   color: var(--summer-ink, #17324a);
   font-variant-numeric: tabular-nums;
 }
+
+/* Tactile press feedback (shared convention with dashboard.module.css):
+   buttons visibly depress on :active so clicks never feel inert. */
+.panelRetry:active,
+.voteBtnSm:active {
+  transform: translateY(1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .panelRetry:active,
+.voteBtnSm:active {
+    transform: none;
+  }
+}

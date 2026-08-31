@@ -267,3 +267,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Tactile press feedback (shared convention with dashboard.module.css):
+   buttons visibly depress on :active so clicks never feel inert. */
+.copyBtn:active {
+  transform: translateY(1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .copyBtn:active {
+    transform: none;
+  }
+}

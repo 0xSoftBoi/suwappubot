@@ -673,3 +673,13 @@
     justify-content: center;
   }
 }
+
+/* Tactile press feedback for the copy chip (approve/reject already have it). */
+.copyBtn:active {
+  transform: translateY(1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .copyBtn:active {
+    transform: none;
+  }
+}
