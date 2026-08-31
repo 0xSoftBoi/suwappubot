@@ -71,6 +71,7 @@ from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
+from bot.utils.adaptive_slippage import compute_adaptive_slippage_bps
 from bot.services.event_bus import event_bus
 from database.db import get_session, run_in_db
 
@@ -2548,6 +2549,29 @@ class SwapEngine:
             platform_fee_bps=effective_fee_bps,
         )
 
+        # Per-trade computed slippage bound (Heimbach & Wattenhofer, ASIA CCS
+        # 2022) — OFF by default (adaptive_slippage_enabled). Jupiter bakes the
+        # on-chain min-out (otherAmountThreshold) into the quoteResponse at
+        # /quote time and /swap just reuses it verbatim, so genuinely
+        # tightening the on-chain floor (not just a display number) requires
+        # re-quoting with the adjusted slippageBps rather than editing the
+        # response locally.
+        if settings.adaptive_slippage_enabled:
+            adaptive_bps = compute_adaptive_slippage_bps(
+                requested_slippage_bps=slippage_bps,
+                price_impact_pct=quote.price_impact_pct,
+                buffer_bps=settings.adaptive_slippage_buffer_bps,
+                floor_bps=settings.adaptive_slippage_floor_bps,
+            )
+            if adaptive_bps < slippage_bps:
+                quote = await self.jupiter.get_quote(
+                    input_mint=from_token_address,
+                    output_mint=to_token_address,
+                    amount=amount_raw,
+                    slippage_bps=adaptive_bps,
+                    platform_fee_bps=effective_fee_bps,
+                )
+
         to_amount_human = self._get_token_amount_human(quote.out_amount, to_token, "solana")
 
         # Calculate exchange rate
@@ -2909,6 +2933,25 @@ class SwapEngine:
             slippage=slippage,
             platform_fee_bps=platform_fee_bps,
         )
+
+        # Per-trade computed slippage bound (Heimbach & Wattenhofer, ASIA CCS
+        # 2022) — OFF by default (adaptive_slippage_enabled). Unlike Jupiter,
+        # OKX's to_amount_min is derived LOCALLY from `slippage` (see
+        # okx_dex_api.get_quote) and execution re-derives its own min-out from
+        # the `slippage` value stashed in raw_quote below (see
+        # _execute_okx_swap), so tightening `slippage` here is sufficient to
+        # tighten the on-chain floor too — no second API call needed.
+        if settings.adaptive_slippage_enabled:
+            adaptive_bps = compute_adaptive_slippage_bps(
+                requested_slippage_bps=int(slippage * 100),
+                price_impact_pct=quote.price_impact,
+                buffer_bps=settings.adaptive_slippage_buffer_bps,
+                floor_bps=settings.adaptive_slippage_floor_bps,
+            )
+            if adaptive_bps < int(slippage * 100):
+                slippage = adaptive_bps / 100
+                to_amount_min = str(int(int(quote.to_amount) * (10_000 - adaptive_bps) // 10_000))
+                quote.to_amount_min = to_amount_min
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
         exchange_rate = to_amount_human / amount if amount > 0 else 0
@@ -4892,6 +4935,28 @@ class SwapEngine:
         # Decode and sign transaction
         tx_bytes = base64.b64decode(swap_tx.swap_transaction)
         signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
+
+        # Solana MEV protection (ACM IMC 2025 Jito sandwich measurement) — OFF
+        # by default. This is OUR broadcast path (we hold the key and sign
+        # server-side), so it's exactly the case the flag is scoped to;
+        # client-signed swaps already have their own explicit jito_tip_lamports
+        # opt-in in build_external_solana_swap. Reuses the existing
+        # bot/services/jito_api.py bundle client (self.jito) rather than a new
+        # implementation. NOTE: the tx above was NOT built with a Jito tip
+        # instruction (no jito_tip_lamports passed to get_swap_transaction), so
+        # this submits as an untipped single-tx bundle — a real tip requires
+        # also passing jito_tip_lamports above, which is a further follow-up.
+        if settings.solana_mev_protect_enabled:
+            signed_tx_b64 = base64.b64encode(signed_tx).decode()
+            try:
+                bundle_id, tx_sig = await self.jito.submit_swap_bundle(
+                    swap_transaction=signed_tx_b64,
+                )
+                logger.info(f"Jito bundle submitted: {bundle_id}, signature: {tx_sig}")
+                if tx_sig:
+                    return tx_sig
+            except Exception as e:
+                logger.warning(f"Jito submission failed, falling back to standard RPC: {e}")
 
         # Submit to Solana
         session = await get_http_session()

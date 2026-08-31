@@ -530,6 +530,22 @@ class Settings(BaseSettings):
         description="Solana mainnet RPC URL(s)",
     )
 
+    # Solana MEV protection (ACM IMC 2025 Jito sandwich measurement: a
+    # length-1 Jito bundle is the cheapest measured mitigation). OFF by
+    # default: unchanged behavior — the custodial Jupiter execution path
+    # keeps broadcasting via plain RPC sendTransaction until this is enabled.
+    # Reuses the existing bot/services/jito_api.py bundle client rather than
+    # a new implementation; does not affect non-custodial (client-signs)
+    # swaps, which already expose an explicit jito_tip_lamports opt-in.
+    solana_mev_protect_enabled: bool = Field(
+        default=False,
+        description=(
+            "Submit custodial (server-signed) Solana/Jupiter swaps as a "
+            "single-tx Jito bundle instead of plain RPC broadcast, for MEV/"
+            "sandwich protection. Default OFF: unchanged behavior."
+        ),
+    )
+
     # TRON RPC
     tron_rpc_url: str = Field(
         default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
@@ -1180,6 +1196,36 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
     max_swap_amount: float = Field(default=100000, description="Maximum swap amount in USD")
     default_slippage: float = Field(default=0.5, description="Default slippage tolerance in %")
+    # Per-trade computed slippage bound (Heimbach & Wattenhofer, ASIA CCS 2022).
+    # OFF by default: zero behavior change until enabled. When on, the
+    # requested/default slippage tolerance is tightened down to
+    # max(quote's own price-impact + buffer, floor) for providers whose quote
+    # returns a real, API-computed price-impact figure (currently Jupiter and
+    # OKX DEX only — see bot/utils/adaptive_slippage.py for why others are
+    # excluded). Never widens tolerance beyond what the caller requested.
+    adaptive_slippage_enabled: bool = Field(
+        default=False,
+        description=(
+            "Compute a per-trade slippage cap from the quote's own price-impact "
+            "data instead of always applying the flat default/user tolerance "
+            "(ASIA CCS 2022 closed-form). Default OFF: unchanged behavior."
+        ),
+    )
+    adaptive_slippage_buffer_bps: int = Field(
+        default=20,
+        description=(
+            "Headroom (bps) added on top of the quote's reported price impact "
+            "when adaptive_slippage_enabled is on, to absorb ordinary "
+            "quote-to-execution drift without reverting."
+        ),
+    )
+    adaptive_slippage_floor_bps: int = Field(
+        default=10,
+        description=(
+            "Minimum slippage tolerance (bps) the adaptive cap will ever "
+            "produce, even for a near-zero reported price impact."
+        ),
+    )
     default_output_token: str = Field(
         default="USDC",
         description="Global default output token for sell-to operations (e.g. USDC, ETH)",
