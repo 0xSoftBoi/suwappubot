@@ -28,6 +28,7 @@ import {
 	enterpriseAuditRoutes,
 	enterpriseComplianceRoutes,
 	enterprisePoliciesRoutes,
+	enterpriseReportsRoutes,
 	enterpriseRoutes,
 	enterpriseTransactionsRoutes,
 	enterpriseWebhooksRoutes,
@@ -220,6 +221,9 @@ export function createApp(config: AppConfig) {
 	// Enterprise org webhook config + HMAC-signed SIEM alert dispatch —
 	// separate router, same prefix.
 	app.route('/enterprise', enterpriseWebhooksRoutes)
+	// Enterprise periodic accounting statement export (Coinbase Prime
+	// journal-entry pattern) — separate router, same prefix.
+	app.route('/enterprise', enterpriseReportsRoutes)
 
 	// Core agent routes (v1/agent/*) enforce their own public/authenticated boundaries.
 	// Protocol-specific routes mounted below define their own auth boundary as well.

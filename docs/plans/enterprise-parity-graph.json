@@ -166,8 +166,8 @@
         "treasury-api"
       ],
       "surface": "api-ts",
-      "status": "in_progress",
-      "notes": "GET /v1/enterprise/orgs/:id/reports/:period \u2014 accounting-friendly rows (Coinbase Prime journal-entry pattern). UI: download buttons on Overview."
+      "status": "done",
+      "notes": "DONE: enterpriseReports.ts \u2014 GET /orgs/:orgId/reports/:period (YYYY-MM, admin+, future months rejected). Journal rows from swapTransactions (member-scoped), totalFeesUsd = sum(feeCostUsd) on the same rows (feeTransactions deliberately not joined \u2014 loose swapId key risked double-counting). CSV cap 10k w/ formula-injection guard. Export audit-logged. Check clean."
     },
     {
       "id": "alerts-webhooks",
