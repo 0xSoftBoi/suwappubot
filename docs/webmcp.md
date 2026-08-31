@@ -222,6 +222,37 @@ gone and `preview_swap` went fail → pass. Full breakdown, including the three
 remaining misses and why they are recorded as misses rather than explained away,
 is in `showcase/webmcp/README.md`.
 
+## Grounded in the literature
+
+The desk's design claims are not vibes; each maps to named, verified prior
+art (full annotated bibliography: `docs/webmcp-papers.md`).
+
+- **"The tenth 'are you sure?' gets clicked without reading"** is the
+  measured finding of the warning-fatigue literature: click-through rises
+  with exposure count across 25M+ browser warning impressions (Akhawe &
+  Felt, USENIX Security 2013), users ignore undifferentiated warnings
+  (Sunshine et al., USENIX Security 2009), and neural response to a repeated
+  warning collapses by the *second* exposure (Anderson et al., CHI 2015).
+  The mandate's answer — fewer prompts, each information-dense
+  (rule/limit/actual) — is what this literature prescribes.
+- **Negotiation over gatekeeping**: pure yes/no approval measurably degrades
+  human engagement; oversight interfaces must let the human *contribute
+  meaningfully* (Faas et al., CHI 2026, arXiv:2510.19512). Mixed-initiative
+  interaction — either party may interrupt and negotiate — is Horvitz, CHI
+  1999. `request_override` and `amend_mandate` are those findings as tools.
+- **Untrusted in both directions** is the indirect-prompt-injection threat
+  model (Greshake et al., arXiv:2302.12173); explicitly delimiting untrusted
+  spans cuts attack success from >50% to <2% (Spotlighting, arXiv:2403.14720).
+  The "agent-written — unverified" label and the fact-not-imperative
+  description rule are that defense, both directions.
+- **Mandate → server-side policy** parallels authenticated-delegation
+  proposals: scoped, auditable credentials for agents acting on a person's
+  behalf (South et al., arXiv:2501.09674); receipts-as-infrastructure is
+  "Visibility into AI Agents" (Chan et al., FAccT 2024).
+- As of 2026-08-31, **no peer-reviewed paper names WebMCP itself** — the
+  closest is the agentic-web survey literature (arXiv:2507.21206). The desk
+  is ahead of the academic literature on this exact protocol.
+
 ## Spec notes
 
 The `modelContext` getter moved from `navigator` to `document` in the May 2026

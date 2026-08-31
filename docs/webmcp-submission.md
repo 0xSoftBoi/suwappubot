@@ -95,6 +95,16 @@ rationale, breach, argument, and decision exports as a receipt.
 - This *had* to be WebMCP: the human-in-the-loop contract lives in DOM state
   (a disabled Approve button an agent cannot click around), session-scoped,
   key-free — none of which a backend MCP server can offer.
+- **Grounded, not vibes**: the design answers named literature — approval
+  fatigue is measured (Akhawe & Felt, USENIX Sec 2013; Anderson et al., CHI
+  2015: habituation by the *second* exposure), pure yes/no gatekeeping
+  degrades engagement (Faas et al., CHI 2026), the negotiation pattern is
+  mixed-initiative interaction (Horvitz, CHI 1999), the untrusted-both-ways
+  rule is the indirect-prompt-injection defense literature (Greshake,
+  arXiv:2302.12173; Spotlighting, arXiv:2403.14720), and mandate-to-policy
+  parallels authenticated delegation (South et al., arXiv:2501.09674). No
+  peer-reviewed paper yet names WebMCP itself — this desk is ahead of the
+  literature on the protocol. Full bibliography: `docs/webmcp-papers.md`.
 
 ## Demo video beats (≤3 min)
 
