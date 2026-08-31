@@ -546,6 +546,42 @@
   color: var(--suwappu-summer-muted, #4f6f7f);
 }
 
+/* Sticky in-page wayfinding, riding just under the site nav. */
+.subnav {
+  position: sticky;
+  top: 84px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 22px;
+  margin: 0 0 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  background: rgba(255, 252, 246, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 13px;
+}
+
+.subnav a {
+  color: var(--suwappu-summer-muted, #4f6f7f);
+  text-decoration: none;
+}
+
+.subnav a:hover {
+  color: var(--suwappu-summer-ink, #14303c);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .subnav {
+    top: 56px;
+    gap: 2px 16px;
+    font-size: 12px;
+  }
+}
+
 /* Grouped tool catalogue: the capability class is the headline, not the
    footnote. */
 .toolGroup {
@@ -648,6 +684,14 @@
 
 .mandateActions button {
   width: 100%;
+}
+
+/* .summer-page sets overflow-x:hidden on <main>, which turns it into a clip
+   scrollport and silently kills every position:sticky inside it, the site
+   nav included. This page verifies zero horizontal overflow at 390 and 1440,
+   so release the clamp and let the nav and subnav actually stick. */
+main.page {
+  overflow: visible;
 }
 
 @media (max-width: 480px) {

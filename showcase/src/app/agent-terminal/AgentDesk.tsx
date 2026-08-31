@@ -1574,7 +1574,15 @@ export default function AgentDesk() {
         </p>
       </section>
 
-      <DeskFlow lastTool={lastTool} />
+      <DeskFlow
+        lastTool={lastTool}
+        status={{
+          state: mcp.state,
+          tools: mcp.tools.length,
+          pending: pending.length,
+          calls: activity.filter((a) => a.actor === 'agent' && a.label.startsWith('→')).length,
+        }}
+      />
 
       <div className={styles.grid}>
         {/* ── Mandate ────────────────────────────────────────────── */}

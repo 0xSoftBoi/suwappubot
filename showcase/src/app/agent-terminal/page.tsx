@@ -236,6 +236,15 @@ export default function AgentTerminalPage() {
           </div>
         </header>
 
+        <nav className={styles.subnav} aria-label="On this page">
+          <a href="#desk-mandate">The desk</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#tools">Tools</a>
+          <a href="#proof">Proof</a>
+          <a href="#grounded">Literature</a>
+          <a href="#try-it">Try it</a>
+        </nav>
+
         <AgentDesk />
 
         <section className="institutional-section" id="how-it-works">

@@ -102,7 +102,20 @@ const COL_X = [6, 236, 470, 704, 938];
 const TOP = 46;
 const COL_TITLES = ['YOUR AGENT', 'IT MAY ASK, FREELY', 'IT MAY ONLY PROPOSE', 'THE GATE', 'WHAT COMES OUT'];
 
-export default function DeskFlow({ lastTool }: { lastTool: string | null }) {
+interface DeskStatus {
+  state: 'connected' | 'checking' | 'unavailable' | string;
+  tools: number;
+  pending: number;
+  calls: number;
+}
+
+export default function DeskFlow({
+  lastTool,
+  status,
+}: {
+  lastTool: string | null;
+  status: DeskStatus;
+}) {
   const [focus, setFocus] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [motionOK, setMotionOK] = useState(false);
@@ -262,6 +275,14 @@ export default function DeskFlow({ lastTool }: { lastTool: string | null }) {
           })}
         </svg>
       </div>
+      <p className={styles.readout}>
+        <span data-state={status.state === 'connected' ? 'on' : status.state === 'checking' ? 'wait' : 'off'}>
+          AGENT {status.state === 'connected' ? 'CONNECTED' : status.state === 'checking' ? 'LOOKING' : 'NOT PRESENT'}
+        </span>
+        <span>TOOLS {status.tools > 0 ? status.tools : '0 (needs a WebMCP browser)'}</span>
+        <span>PENDING APPROVALS {status.pending}</span>
+        <span>CALLS THIS SESSION {status.calls}</span>
+      </p>
       <p className={styles.legend}>
         <span data-kind="read">read, free</span>
         <span data-kind="propose">proposal, needs your Approve</span>
