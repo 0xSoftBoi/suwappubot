@@ -293,6 +293,10 @@
       "soundOn": "Son activé",
       "soundOff": "Son coupé",
       "videoLabel": "Vue aérienne lente de l’océan"
+    },
+    "announce": {
+      "tag": "Nouveau · WebMCP",
+      "copy": "L'Agent Desk : donnez un mandat à l'agent de votre navigateur, pas vos clés. Sans connexion."
     }
   },
   "cta": {
