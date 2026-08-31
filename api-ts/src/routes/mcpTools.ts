@@ -8,14 +8,22 @@
  */
 import { z } from 'zod'
 import { mcpInputSchema, toOutputJsonSchema } from '../lib/zodJsonSchema'
+import { verifyMoneyPathToolIntegrity } from '../lib/toolIntegrity'
+import { logger } from '../lib/logger'
 import {
+	McpBrowseMppDirectorySchema,
+	McpExecuteSwapSchema,
 	McpGetPortfolioSchema,
 	McpGetPricesSchema,
 	McpGetSwapHistorySchema,
 	McpGetSwapStatusSchema,
+	McpGetTempoTokensSchema,
 	McpLendMarketSchema,
 	McpLendMarketsSchema,
+	McpListChainsSchema,
+	McpListTokensSchema,
 	McpListWalletPoliciesSchema,
+	McpPerpsMarketsSchema,
 	McpPerpsPositionsSchema,
 	McpPredictMarketIdSchema,
 	McpPredictMarketsSchema,
@@ -148,6 +156,30 @@ const LIST_WALLET_POLICIES_INPUT = mcpInputSchema(McpListWalletPoliciesSchema, {
 	"wallet_address": "Wallet address (optional — defaults to the authenticated agent's managed wallet).",
 })
 
+const LIST_CHAINS_INPUT = mcpInputSchema(McpListChainsSchema)
+
+const PERPS_MARKETS_INPUT = mcpInputSchema(McpPerpsMarketsSchema)
+
+const LIST_TOKENS_INPUT = mcpInputSchema(McpListTokensSchema, {
+	chain: 'Chain name (e.g. "base", "solana"). If omitted, returns all chains.',
+	search: 'Filter tokens by symbol substring (optional)',
+})
+
+const GET_TEMPO_TOKENS_INPUT = mcpInputSchema(McpGetTempoTokensSchema, {
+	search: 'Filter tokens by symbol substring (optional)',
+})
+
+const BROWSE_MPP_DIRECTORY_INPUT = mcpInputSchema(McpBrowseMppDirectorySchema, {
+	category: 'Filter by category (e.g. "defi", "ai", "data"). Optional.',
+	limit: 'Max results to return (default 20, max 100)',
+})
+
+const EXECUTE_SWAP_INPUT = mcpInputSchema(McpExecuteSwapSchema, {
+	quote_id: 'Quote ID from a previous get_quote call',
+	wallet_address: 'Wallet address to sign the transaction',
+	idempotency_key: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.',
+})
+
 const TOOLS = [
 	{
 		name: 'get_quote',
@@ -167,31 +199,17 @@ const TOOLS = [
 	{
 		name: 'list_chains',
 		description: 'List all supported blockchain networks for swapping. Free and public — no API key required.',
-		inputSchema: { type: 'object', properties: {} },
+		inputSchema: LIST_CHAINS_INPUT,
 	},
 	{
 		name: 'list_tokens',
 		description: 'List available tokens on a specific chain. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				chain: { type: 'string', description: 'Chain name (e.g. "base", "solana"). If omitted, returns all chains.' },
-				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
-			},
-		},
+		inputSchema: LIST_TOKENS_INPUT,
 	},
 	{
 		name: 'execute_swap',
 		description: 'Prepare an unsigned self-custody swap transaction from a previously obtained quote_id. This tool never signs or broadcasts; the caller reviews, signs, and submits the returned transaction.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				quote_id: { type: 'string', description: 'Quote ID from a previous get_quote call' },
-				wallet_address: { type: 'string', description: 'Wallet address to sign the transaction' },
-				idempotency_key: { type: 'string', description: 'Optional intent key echoed back with the unsigned transaction so the caller can carry it into its submission workflow. MCP preparation itself does not submit or dedupe an on-chain transaction.' },
-			},
-			required: ['quote_id', 'wallet_address'],
-		},
+		inputSchema: EXECUTE_SWAP_INPUT,
 	},
 	{
 		name: 'simulate_swap',
@@ -201,23 +219,12 @@ const TOOLS = [
 	{
 		name: 'get_tempo_tokens',
 		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				search: { type: 'string', description: 'Filter tokens by symbol substring (optional)' },
-			},
-		},
+		inputSchema: GET_TEMPO_TOKENS_INPUT,
 	},
 	{
 		name: 'browse_mpp_directory',
 		description: 'Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory to discover available services and their payment requirements. Unrelated to Suwappu\'s own pathUSD micropayment auth. Free and public — no API key required.',
-		inputSchema: {
-			type: 'object',
-			properties: {
-				category: { type: 'string', description: 'Filter by category (e.g. "defi", "ai", "data"). Optional.' },
-				limit: { type: 'number', description: 'Max results to return (default 20, max 100)' },
-			},
-		},
+		inputSchema: BROWSE_MPP_DIRECTORY_INPUT,
 	},
 	{
 		name: 'predict_markets',
@@ -232,7 +239,7 @@ const TOOLS = [
 	{
 		name: 'perps_markets',
 		description: 'List available Hyperliquid perpetual futures markets with mark price, funding rate, max leverage, and size decimals.',
-		inputSchema: { type: 'object', properties: {} },
+		inputSchema: PERPS_MARKETS_INPUT,
 	},
 	{
 		name: 'perps_quote',
@@ -323,7 +330,10 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	predict_markets: { title: 'Search Prediction Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_market: { title: 'Prediction Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	perps_markets: { title: 'List Perp Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	perps_quote: { title: 'Quote Perp Position', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+	// Pure computation off a fresh Hyperliquid snapshot — unlike get_quote/simulate_swap
+	// it never caches a quote_id or writes any server-side state, so repeating an
+	// identical call has no additional effect: idempotent.
+	perps_quote: { title: 'Quote Perp Position', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	perps_positions: { title: 'List Perp Positions', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_markets: { title: 'List Lending Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_market: { title: 'Lending Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
@@ -332,7 +342,9 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	predict_book: { title: 'Prediction Market Order Book', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_price: { title: 'Prediction Market Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_trades: { title: 'Prediction Market Trades', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	// Calls Turnkey's getPolicies API (an external system), not just the local DB —
+	// openWorldHint must be true like the other Turnkey/chain-backed reads above.
+	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 }
 
 
@@ -405,4 +417,24 @@ const TOOLS_WITH_ANNOTATIONS = TOOLS.map((t) => ({
 	...(TOOL_OUTPUT_SCHEMAS[t.name] ? { outputSchema: TOOL_OUTPUT_SCHEMAS[t.name] } : {}),
 }))
 
-export { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS }
+// ---------------------------------------------------------------
+// ETDI-style tool-definition integrity (arXiv 2506.01333)
+//
+// Computed once at module load against the live TOOLS array — see
+// src/lib/toolIntegrity.ts for rationale. A non-empty set here means a
+// money-path tool's {name, description, inputSchema} no longer matches the
+// checked-in expected hash (accidental drift OR tampering); mcp.ts must
+// refuse to dispatch that tool rather than silently serve the mismatched
+// definition. Logged loudly at module load so a bad deploy is visible in
+// logs immediately, not just on first execute_swap call.
+const MONEY_PATH_INTEGRITY_FAILURES = verifyMoneyPathToolIntegrity(TOOLS)
+if (MONEY_PATH_INTEGRITY_FAILURES.size > 0) {
+	logger.error(
+		`[mcp] Tool-definition integrity check FAILED for: ${[...MONEY_PATH_INTEGRITY_FAILURES].join(', ')}. ` +
+			'The live tool definition no longer matches EXPECTED_TOOL_DEFINITION_HASHES in src/lib/toolIntegrity.ts. ' +
+			'Calls to these tools will be refused until the hash is deliberately regenerated ' +
+			'(bun run scripts/print-tool-hashes.ts) as part of a reviewed schema/description change.',
+	)
+}
+
+export { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS, MONEY_PATH_INTEGRITY_FAILURES }

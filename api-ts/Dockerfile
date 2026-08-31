@@ -12,7 +12,11 @@ RUN apt-get update && apt-get install -y curl unzip ca-certificates && \
 FROM bun-base AS builder
 WORKDIR /app
 COPY package.json bun.lock* ./
-RUN bun install --ignore-scripts
+# --frozen-lockfile: the execute_swap definition hash pin (src/lib/
+# toolIntegrity.ts) is a function of zod's JSON-Schema output, so a silent
+# in-build dependency re-resolution could flip the integrity gate with no
+# source change at all.
+RUN bun install --frozen-lockfile --ignore-scripts
 COPY . .
 
 # Production deploys must not be able to outrun GitHub-hosted runner capacity.

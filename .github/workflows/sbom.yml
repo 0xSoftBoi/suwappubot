@@ -25,9 +25,9 @@
 
 name: sbom
 
+# NOTE: release-time SBOM generation + attachment moved to release.yml
+# (which also signs the SBOM). This workflow remains for on-demand runs.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:

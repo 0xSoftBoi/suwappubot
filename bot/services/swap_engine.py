@@ -20,9 +20,11 @@ Providers:
 import asyncio
 import json
 import logging
+import secrets
 from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from web3 import Web3
 import aiohttp
 import base64
@@ -71,6 +73,7 @@ from bot.models.user import Wallet
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
+from bot.utils.adaptive_slippage import compute_adaptive_slippage_bps
 from bot.services.event_bus import event_bus
 from database.db import get_session, run_in_db
 
@@ -766,6 +769,17 @@ class SwapEngine:
     - LayerZero/Stargate: Same-token bridges
     - Chainlink CCIP: Cross-chain messaging
     """
+
+    # Jito bundle-status poll window for solana_mev_protect_enabled: short by
+    # design (this is on the hot execution path) — we only want to catch the
+    # common "landed within a few leader slots" case before falling back to a
+    # plain RPC broadcast of the same signed tx. Widened from 6x0.5s=3s to
+    # 10x0.5s=5s: get_bundle_statuses now accepts "confirmed" (not only
+    # "finalized"), which lands well inside a few slots (~400ms each), but a
+    # 3s window was cutting it close during normal network variance and would
+    # have undercut the tip we now actually pay for the auction.
+    _JITO_BUNDLE_POLL_ATTEMPTS = 10
+    _JITO_BUNDLE_POLL_INTERVAL_SECONDS = 0.5
 
     def __init__(self):
         # New high-value providers
@@ -2548,6 +2562,54 @@ class SwapEngine:
             platform_fee_bps=effective_fee_bps,
         )
 
+        # Per-trade computed slippage bound (Heimbach & Wattenhofer, ASIA CCS
+        # 2022) — OFF by default (adaptive_slippage_enabled). Jupiter bakes the
+        # on-chain min-out (otherAmountThreshold) into the quoteResponse at
+        # /quote time and /swap just reuses it verbatim, so genuinely
+        # tightening the on-chain floor (not just a display number) requires
+        # re-quoting with the adjusted slippageBps rather than editing the
+        # response locally.
+        #
+        # UNIT NOTE: Jupiter's priceImpactPct is already a FRACTION of 1
+        # (verified live: 0.0078936 == 0.789% impact, not 0.79%) — pass it
+        # straight through, see bot/utils/adaptive_slippage.py's docstring.
+        if settings.adaptive_slippage_enabled:
+            adaptive_bps = compute_adaptive_slippage_bps(
+                requested_slippage_bps=slippage_bps,
+                price_impact_fraction=quote.price_impact_pct,
+                buffer_bps=settings.adaptive_slippage_buffer_bps,
+                floor_bps=settings.adaptive_slippage_floor_bps,
+            )
+            if adaptive_bps < slippage_bps:
+                try:
+                    requoted = await self.jupiter.get_quote(
+                        input_mint=from_token_address,
+                        output_mint=to_token_address,
+                        amount=amount_raw,
+                        slippage_bps=adaptive_bps,
+                        platform_fee_bps=effective_fee_bps,
+                    )
+                    # A re-quote is a fresh, live call — the market can have
+                    # moved between the two round trips even though the new
+                    # tolerance is tighter in percentage terms. Never let the
+                    # adaptive re-quote authorize a WORSE absolute min-out
+                    # than the original (wider-tolerance) quote already
+                    # computed; reject and keep the original if so.
+                    self._assert_fresh_min_out_acceptable(
+                        approved_quote=SimpleNamespace(
+                            to_amount_min=quote.other_amount_threshold,
+                            raw_quote=quote.raw_response,
+                        ),
+                        fresh_to_amount_min=requoted.other_amount_threshold,
+                        provider_name="Jupiter (adaptive slippage re-quote)",
+                    )
+                    quote = requoted
+                except Exception as e:
+                    logger.warning(
+                        "Adaptive slippage re-quote failed or was rejected "
+                        f"(keeping original quote): {e}"
+                    )
+
         to_amount_human = self._get_token_amount_human(quote.out_amount, to_token, "solana")
 
         # Calculate exchange rate
@@ -2909,6 +2971,30 @@ class SwapEngine:
             slippage=slippage,
             platform_fee_bps=platform_fee_bps,
         )
+
+        # Per-trade computed slippage bound (Heimbach & Wattenhofer, ASIA CCS
+        # 2022) — OFF by default (adaptive_slippage_enabled). Unlike Jupiter,
+        # OKX's to_amount_min is derived LOCALLY from `slippage` (see
+        # okx_dex_api.get_quote) and execution re-derives its own min-out from
+        # the `slippage` value stashed in raw_quote below (see
+        # _execute_okx_swap), so tightening `slippage` here is sufficient to
+        # tighten the on-chain floor too — no second API call needed.
+        #
+        # UNIT NOTE: OKX's priceImpactPercentage is a PERCENT (not a fraction
+        # of 1) and is conventionally reported as NEGATIVE for adverse impact
+        # (e.g. -0.42 == 0.42%). Convert with abs(...)/100 before calling in —
+        # see bot/utils/adaptive_slippage.py's docstring.
+        if settings.adaptive_slippage_enabled:
+            adaptive_bps = compute_adaptive_slippage_bps(
+                requested_slippage_bps=int(slippage * 100),
+                price_impact_fraction=abs(quote.price_impact) / 100,
+                buffer_bps=settings.adaptive_slippage_buffer_bps,
+                floor_bps=settings.adaptive_slippage_floor_bps,
+            )
+            if adaptive_bps < int(slippage * 100):
+                slippage = adaptive_bps / 100
+                to_amount_min = str(int(int(quote.to_amount) * (10_000 - adaptive_bps) // 10_000))
+                quote.to_amount_min = to_amount_min
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
         exchange_rate = to_amount_human / amount if amount > 0 else 0
@@ -4375,9 +4461,23 @@ class SwapEngine:
                         f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade."
                     )
 
+            # Phase 5 dry-run rollout (docs/development/chain-rollout.md): a
+            # chain in `settings.dry_run_chains` must NEVER reach a real
+            # broadcast, no matter which provider this quote would otherwise
+            # dispatch to. Everything ABOVE this point (idempotency, quote
+            # freshness, the gated-token/GOAT/Citrea/Tempo hard backstops,
+            # spending-limit check, compliance screening, balance validation,
+            # adaptive-slippage already baked into `quote`, and the swap row
+            # itself) has already run identically for dry-run and live
+            # chains -- this is the single chokepoint that decides broadcast
+            # vs. simulate, so it must not be duplicated per-provider.
+            is_dry_run = settings.is_dry_run_chain(quote.from_chain)
+
             try:
                 # Route to appropriate execution method based on provider
-                if quote.provider == "tempo_dex":
+                if is_dry_run:
+                    tx_hash = await self._execute_dry_run_swap(quote, wallet, swap_id)
+                elif quote.provider == "tempo_dex":
                     tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id, automated)
                 elif quote.provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet)
@@ -4464,7 +4564,26 @@ class SwapEngine:
                         )
                         if db_tx:
                             db_tx.tx_hash = tx_hash
-                            db_tx.status = SwapStatus.SUBMITTED.value
+                            db_tx.simulated = is_dry_run
+                            if is_dry_run:
+                                # Dry-run fill settles instantly at the quote
+                                # price -- there is no real chain to confirm
+                                # against, so this never sits in SUBMITTED
+                                # waiting on tx_poller (which only queries
+                                # non-terminal statuses and would otherwise
+                                # try to RPC-lookup a synthetic hash forever).
+                                db_tx.status = SwapStatus.COMPLETED.value
+                                db_tx.completed_at = datetime.now(timezone.utc)
+                                # EXTENSION POINT: quote price is the simulated
+                                # fill with no modeled slippage this pass. A
+                                # follow-up can widen this to a configurable
+                                # slippage distribution (Freqtrade's
+                                # orderbook-fill idea) once dry-run coverage
+                                # extends past the pilot chains.
+                                db_tx.realized_to_amount = quote.to_amount
+                                db_tx.realized_to_amount_usd = to_amount_usd
+                            else:
+                                db_tx.status = SwapStatus.SUBMITTED.value
                             if quote.provider == "0x_crosschain":
                                 # Merge into the existing route_data instead
                                 # of replacing it wholesale -- it may already
@@ -4486,8 +4605,10 @@ class SwapEngine:
 
                 # Record the outflow so spending-limit windows survive restarts.
                 # Best-effort: the swap is already submitted, so a tracking
-                # failure must not surface as a swap failure.
-                if from_amount_usd is not None:
+                # failure must not surface as a swap failure. Skipped for a
+                # simulated fill -- no real funds moved, so counting it would
+                # wrongly eat into the user's real spending-limit window.
+                if not is_dry_run and from_amount_usd is not None:
                     try:
                         await run_in_db(
                             lambda: spending_limit_service.record(
@@ -4505,7 +4626,10 @@ class SwapEngine:
                 except Exception as e:
                     logger.debug(f"Failed to invalidate balance cache: {e}")
 
-                # Publish swap.submitted event
+                # Publish swap.submitted event. `simulated` rides along so any
+                # subscriber (webhooks, analytics, WhatsApp/Telegram notifiers)
+                # can filter a dry-run fill out of anything that presents it as
+                # real trading activity.
                 await event_bus.publish(
                     "swap.submitted",
                     {
@@ -4515,23 +4639,31 @@ class SwapEngine:
                         "fromChain": quote.from_chain,
                         "toChain": quote.to_chain,
                         "provider": quote.provider,
+                        "simulated": is_dry_run,
                     },
                 )
 
-                try:
-                    from bot.services.copy_service import copy_service
+                # Copy-trading fan-out and average-cost/PnL settlement must
+                # NEVER run off a simulated fill -- it never moved real funds,
+                # so replaying it to followers or into a user's real cost
+                # basis would fabricate trading activity.
+                if not is_dry_run:
+                    try:
+                        from bot.services.copy_service import copy_service
 
-                    await copy_service.handle_swap_submitted(swap_id)
-                except Exception as e:
-                    logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
+                        await copy_service.handle_swap_submitted(swap_id)
+                    except Exception as e:
+                        logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
 
                 # Update the user's average-cost spot basis for the Positions /
                 # PnL view. Best-effort — the swap already succeeded, so a
-                # settlement error must never propagate.
-                try:
-                    await self._settle_user_position(user_id, quote)
-                except Exception as e:
-                    logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
+                # settlement error must never propagate. Skipped for a
+                # simulated fill (see copy-trading gate above — same reason).
+                if not is_dry_run:
+                    try:
+                        await self._settle_user_position(user_id, quote)
+                    except Exception as e:
+                        logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
 
                 # Clean up local references (drop the encrypted-key reference
                 # from this scope as soon as it's no longer needed; the store
@@ -4611,6 +4743,52 @@ class SwapEngine:
                 wallet_encrypted_key = None  # noqa: F841
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
+
+    async def _execute_dry_run_swap(self, quote: SwapQuote, wallet_data: dict, swap_id: int) -> str:
+        """Simulated fill for a chain in `settings.dry_run_chains`.
+
+        MONEY-PATH SAFETY INVARIANT: this is the ONLY code path taken for a
+        dry-run chain (see the `is_dry_run` gate in `execute_swap` above,
+        applied before the per-provider dispatch) — it MUST NOT call any
+        `_execute_<provider>_swap` method, `_broadcast_evm_tx`,
+        `web3.eth.send_raw_transaction`, or any provider's own
+        sign-and-broadcast helper. No signed transaction produced here is
+        ever transmitted to a node or relayer.
+
+        Everything before this point in `execute_swap` (idempotency, quote
+        freshness, gated-token/GOAT/Citrea/Tempo backstops, spending-limit
+        check, compliance screening, balance validation, and the
+        already-applied adaptive-slippage baked into `quote`) ran exactly as
+        it would for a live chain — only the build+broadcast step is
+        replaced.
+
+        EXTENSION POINT: this pass fills at the quote's own `to_amount`
+        (`quote` price, no modeled slippage) and does not invoke any
+        provider's calldata-build step, so the pilot proves the engine
+        wiring end-to-end without yet exercising the exact bytes a live
+        broadcast would send. A natural follow-up, once dry-run coverage
+        moves past the pilot chains in docs/development/chain-rollout.md, is
+        to call the relevant provider's existing build/sign half (e.g. the
+        calldata-fetch + local sign in `_execute_lifi_evm_swap`, or the
+        versioned-transaction build + local sign in `_execute_jupiter_swap`)
+        and discard the signed payload here instead of broadcasting it — and
+        to widen the simulated fill to a configurable slippage distribution
+        (Freqtrade's orderbook-fill idea) instead of a flat quote-price fill.
+
+        Returns a synthetic tx hash that can never be mistaken for (or
+        collide with) a real on-chain hash.
+        """
+        fake_hash = f"SIMULATED-{quote.provider}-{swap_id}-{secrets.token_hex(12)}"
+        logger.info(
+            "DRY-RUN swap %s: chain='%s' provider=%s -- simulated fill at quote "
+            "price (%s %s), no broadcast",
+            swap_id,
+            quote.from_chain,
+            quote.provider,
+            quote.to_amount_human,
+            quote.to_token,
+        )
+        return fake_hash
 
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""
@@ -4883,15 +5061,94 @@ class SwapEngine:
             if isinstance(quote.raw_quote, dict) and quote.raw_quote.get("platformFee")
             else None
         )
+        # Only pass a Jito tip when the MEV-protect flag is on — jito_tip_lamports
+        # defaults to None, which keeps Jupiter on its normal priorityLevel path
+        # (see jupiter_api.get_swap_transaction's precedence order), so flag-off
+        # behavior is byte-identical to before this tip was wired in. When the
+        # flag is on, Jupiter bakes the tip as an extra transfer instruction to
+        # a Jito tip account inside the tx itself (prioritizationFeeLamports.
+        # jitoTipLamports) — it is NOT a side-channel payment, so the plain-RPC
+        # fallback below still contains and pays it even when the bundle loses
+        # the Jito auction. That's an accepted cost-on-fallback tradeoff: a
+        # small fixed tip spent on every MEV-protect attempt, win or lose.
+        mev_tip = settings.solana_mev_tip_lamports if settings.solana_mev_protect_enabled else None
         swap_tx = await self.jupiter.get_swap_transaction(
             quote_response=quote.raw_quote,
             user_public_key=wallet_data["address"],
             fee_account=jup_fee_account,
+            jito_tip_lamports=mev_tip,
         )
 
         # Decode and sign transaction
         tx_bytes = base64.b64decode(swap_tx.swap_transaction)
         signed_tx = await self.wallet_service.sign_solana_transaction(wallet, tx_bytes)
+
+        # Solana MEV protection (ACM IMC 2025 Jito sandwich measurement) — OFF
+        # by default. This is OUR broadcast path (we hold the key and sign
+        # server-side), so it's exactly the case the flag is scoped to;
+        # client-signed swaps already have their own explicit jito_tip_lamports
+        # opt-in in build_external_solana_swap. Reuses the existing
+        # bot/services/jito_api.py bundle client (self.jito) rather than a new
+        # implementation. The tx above IS now built with a Jito tip instruction
+        # (jito_tip_lamports=mev_tip, from settings.solana_mev_tip_lamports) so
+        # this actually competes in the bundle auction instead of losing every
+        # time as an untipped bundle. jito_api.get_bundle_statuses also now
+        # accepts "processed"/"confirmed" as landed, not only "finalized" (see
+        # that function ~line 320): "finalized" is ~32 slots / ~13s away, far
+        # outside our short poll window below, so requiring it made the bundle
+        # path structurally inert even when Jito actually landed the tx fast.
+        # "confirmed" is what a normal sendTransaction caller would treat as
+        # landed anyway (Solana's default subscription commitment), so this
+        # aligns the bundle path with the RPC path's own bar for "done".
+        #
+        # Submitting a bundle only proves Jito ACCEPTED it for consideration,
+        # not that it landed on-chain — returning tx_sig on submission alone
+        # would be a phantom "success" the caller records as a completed
+        # swap. Poll get_bundle_statuses for a short window and only return
+        # early when the bundle actually landed; otherwise fall through to
+        # the plain RPC broadcast below. Falling through re-sends the SAME
+        # signed transaction (same signature), so if the bundle lands after
+        # our poll window Solana just reports "already processed" — the
+        # double-broadcast is safe.
+        if settings.solana_mev_protect_enabled:
+            signed_tx_b64 = base64.b64encode(signed_tx).decode()
+            try:
+                bundle_id, tx_sig = await self.jito.submit_swap_bundle(
+                    swap_transaction=signed_tx_b64,
+                )
+                landed = False
+                if bundle_id:
+                    for _ in range(self._JITO_BUNDLE_POLL_ATTEMPTS):
+                        await asyncio.sleep(self._JITO_BUNDLE_POLL_INTERVAL_SECONDS)
+                        statuses = await self.jito.get_bundle_statuses([bundle_id])
+                        status = statuses[0].status if statuses else None
+                        if status == "landed":
+                            landed = True
+                            break
+                        if status == "failed":
+                            # Landed on-chain but reverted (err set). The tx
+                            # already has an on-chain record under this
+                            # signature — re-broadcasting a known-dead tx via
+                            # the RPC fallback would only produce a confusing
+                            # "already processed" error and leave the DB with
+                            # no hash linked to the swap. Return the signature
+                            # and let normal failure accounting classify it.
+                            if tx_sig:
+                                logger.warning(
+                                    f"Jito bundle {bundle_id} landed but reverted on-chain; "
+                                    f"recording signature {tx_sig} without RPC re-broadcast"
+                                )
+                                return tx_sig
+                            break
+                if landed and tx_sig:
+                    logger.info(f"Jito bundle landed: {bundle_id}, signature: {tx_sig}")
+                    return tx_sig
+                logger.warning(
+                    f"Jito bundle {bundle_id} did not confirm landed within the poll "
+                    "window; falling back to plain RPC broadcast of the same signed tx"
+                )
+            except Exception as e:
+                logger.warning(f"Jito submission failed, falling back to standard RPC: {e}")
 
         # Submit to Solana
         session = await get_http_session()

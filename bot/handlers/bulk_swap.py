@@ -920,6 +920,11 @@ async def _run_bulk_swap(edit, ctx: ContextTypes.DEFAULT_TYPE) -> int:
             continue
         if swap_tx.status not in (SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value):
             continue
+        # A simulated (dry-run chain) fill never moved real funds -- never
+        # charge a fee, burn a referral rebate, or award real XP for it.
+        # See docs/development/chain-rollout.md.
+        if getattr(swap_tx, "simulated", False):
+            continue
 
         any_success = True
         fee_amount = leg.get("_fee_amount", 0)

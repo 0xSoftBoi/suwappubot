@@ -139,6 +139,65 @@ jobs:
         run: bun run build
 
   # ---------------------------------------------------------------------------
+  # Property/fuzz tests on money-path math (Phase 2, docs/plans/oss-parity.md)
+  #
+  # Runs ONLY the new Hypothesis/fast-check property-test files, not the full
+  # suites those lanes already cover above — this lane exists so a regression
+  # in the adaptive-slippage never-widen invariant, the fee-bps pure math, the
+  # MCP validator schemas, or the tool-integrity hash is caught even on a
+  # narrow diff that the broader python-quality/typescript-quality lanes might
+  # not exercise with enough random inputs. Bounded to max_examples=200
+  # (Python, set per-test via @settings) / fast-check's default numRuns=100
+  # (TypeScript) so it stays fast; both frameworks print their failing seed
+  # on failure for reproduction.
+  # ---------------------------------------------------------------------------
+  property-tests:
+    name: Property/fuzz tests (money-path math)
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.api_ts == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TELEGRAM_BOT_TOKEN: test-token
+      ENCRYPTION_KEY: test-encryption-key-32byteslong!!
+      DATABASE_URL: "sqlite:///test.db"
+      KMS_PROVIDER: dev
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies (+ Hypothesis, dev-only)
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio hypothesis
+
+      - name: Run Python property tests (Hypothesis, bounded examples)
+        run: |
+          pytest tests/test_adaptive_slippage_properties.py \
+                 tests/test_fee_service_properties.py \
+                 -q
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14   # pinned: stable cache key avoids re-downloading Bun on every run
+
+      - name: Install TypeScript dependencies
+        working-directory: api-ts
+        run: bun install --frozen-lockfile
+
+      - name: Run TypeScript property tests (fast-check, default numRuns)
+        working-directory: api-ts
+        run: |
+          bun test src/__tests__/validators.property.test.ts \
+                   src/__tests__/toolIntegrity.property.test.ts \
+                   src/__tests__/prices.property.test.ts
+
+  # ---------------------------------------------------------------------------
   # Terminal — unit tests + the exact Vite production compile
   # ---------------------------------------------------------------------------
   terminal-production-build:
@@ -507,6 +566,7 @@ jobs:
       - deployment-contract
       - python-quality
       - typescript-quality
+      - property-tests
       - terminal-production-build
       - mobile-quality
       - ios-native-build
@@ -522,6 +582,7 @@ jobs:
       DEPLOYMENT: ${{ needs.deployment-contract.result }}
       PYTHON: ${{ needs.python-quality.result }}
       API_TS: ${{ needs.typescript-quality.result }}
+      PROPERTY_TESTS: ${{ needs.property-tests.result }}
       TERMINAL: ${{ needs.terminal-production-build.result }}
       MOBILE: ${{ needs.mobile-quality.result }}
       IOS: ${{ needs.ios-native-build.result }}
@@ -537,7 +598,7 @@ jobs:
         run: |
           set -euo pipefail
           failed=0
-          for name in CHANGES DEPLOYMENT PYTHON API_TS TERMINAL MOBILE IOS SHOWCASE MIGRATION DOCS SDK WEBAPP DEPENDENCIES; do
+          for name in CHANGES DEPLOYMENT PYTHON API_TS PROPERTY_TESTS TERMINAL MOBILE IOS SHOWCASE MIGRATION DOCS SDK WEBAPP DEPENDENCIES; do
             result="${!name}"
             printf '%-14s %s\n' "$name" "$result"
             case "$result" in

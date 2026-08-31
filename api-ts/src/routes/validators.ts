@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { findReservedAgentMetadataKeys } from '../services/agentMetadataKeys'
 import { isPublicUrl } from './ssrfGuard'
 
 // The SSRF transport guard now lives in ./ssrfGuard. Re-export the pieces other
@@ -134,6 +135,16 @@ export const UpdateAgentSchema = z
 			data.metadata !== undefined,
 		'At least one field must be provided',
 	)
+	.superRefine((data, ctx) => {
+		const reservedKeys = findReservedAgentMetadataKeys(data.metadata)
+		if (reservedKeys.length > 0) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['metadata'],
+				message: `metadata contains reserved key(s) that cannot be set via this endpoint: ${reservedKeys.join(', ')}`,
+			})
+		}
+	})
 
 export const CreatePolicySchema = z.object({
 	type: z.enum(['spending_limit', 'whitelist']),
@@ -318,4 +329,42 @@ export const McpGetSwapHistorySchema = z.object({
 
 export const McpListWalletPoliciesSchema = z.object({
 	wallet_address: walletAddressSchema.optional(),
+})
+
+/** list_chains and perps_markets take no arguments — handlers ignore `args` entirely. */
+export const McpListChainsSchema = z.object({})
+
+export const McpPerpsMarketsSchema = z.object({})
+
+export const McpListTokensSchema = z.object({
+	chain: z.string().nullish(),
+	search: z.string().nullish(),
+})
+
+export const McpGetTempoTokensSchema = z.object({
+	search: z.string().nullish(),
+})
+
+/**
+ * browse_mpp_directory: `limit` has no schema-level bound because the handler
+ * clamps out-of-range values (`Math.min(Math.max(v, 1), 100)`) rather than
+ * rejecting them — same clamp convention as the limit/offset fields above.
+ */
+export const McpBrowseMppDirectorySchema = z.object({
+	category: z.string().nullish(),
+	limit: z.coerce.number().nullish(),
+})
+
+/**
+ * execute_swap (MCP tool): prepares an unsigned transaction from a cached
+ * quote_id. Distinct from ExecuteSwapSchema (the REST resubmit-after-approval
+ * path) and SwapRequestSchema (POST /v1/agent/swap) — same reasoning as
+ * McpGetSwapStatusSchema being separate from SwapStatusQuerySchema.
+ */
+export const McpExecuteSwapSchema = z.object({
+	quote_id: z.string().min(1),
+	wallet_address: z.string().min(1),
+	idempotency_key: z
+		.union([z.string(), z.number().transform(String)])
+		.nullish(),
 })

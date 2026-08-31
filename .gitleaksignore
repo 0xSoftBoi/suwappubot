@@ -1,0 +1,29 @@
+# Fingerprints of triaged false positives (2026-08-31 full-history scan).
+# Every entry was eyeballed: example keys in openapi-agent.json, test
+# fixtures, placeholder curl headers, identifier-pattern noise, and the
+# deliberately-committed read-only drpc scoped key (see the comment above
+# SCOPED_KEY in flet-curve/vendor/electric-router). New findings are NOT
+# covered — triage and append with the same evidence bar.
+2cc891e946fc31edb6e76b731e0abae17d4afb08:api-ts/openapi-agent.json:generic-api-key:414
+2cc891e946fc31edb6e76b731e0abae17d4afb08:api-ts/openapi-agent.json:generic-api-key:66
+2cc891e946fc31edb6e76b731e0abae17d4afb08:api-ts/src/services/FacilitatorService.ts:generic-api-key:138
+2cc891e946fc31edb6e76b731e0abae17d4afb08:bot/services/points_service.py:generic-api-key:1024
+2cc891e946fc31edb6e76b731e0abae17d4afb08:bot/services/points_service.py:generic-api-key:823
+2cc891e946fc31edb6e76b731e0abae17d4afb08:bot/services/token_intel/dev_watch.py:generic-api-key:55
+2cc891e946fc31edb6e76b731e0abae17d4afb08:contracts/test/artifacts.json:generic-api-key:9
+2cc891e946fc31edb6e76b731e0abae17d4afb08:docs/distribution/registry-listings.md:curl-auth-header:55
+2cc891e946fc31edb6e76b731e0abae17d4afb08:docs/plans/showcase-dev-connect.md:generic-api-key:98
+2cc891e946fc31edb6e76b731e0abae17d4afb08:flet-curve/README.md:generic-api-key:1330
+2cc891e946fc31edb6e76b731e0abae17d4afb08:flet-curve/vendor/electric-router/src/erouter/chain/chains.py:generic-api-key:168
+2cc891e946fc31edb6e76b731e0abae17d4afb08:mpc-signer/src/cggmp_presign.rs:generic-api-key:1259
+2cc891e946fc31edb6e76b731e0abae17d4afb08:packages/sdk/src/__tests__/ai-config.test.ts:generic-api-key:29
+2cc891e946fc31edb6e76b731e0abae17d4afb08:packages/sdk/src/__tests__/ai-config.test.ts:generic-api-key:41
+2cc891e946fc31edb6e76b731e0abae17d4afb08:packages/sdk/src/__tests__/ai-config.test.ts:generic-api-key:56
+2cc891e946fc31edb6e76b731e0abae17d4afb08:scripts/hl_smoke_test.py:generic-api-key:11
+2cc891e946fc31edb6e76b731e0abae17d4afb08:showcase/src/app/agents/page.tsx:curl-auth-header:212
+2cc891e946fc31edb6e76b731e0abae17d4afb08:showcase/src/app/agents/page.tsx:curl-auth-header:218
+2cc891e946fc31edb6e76b731e0abae17d4afb08:showcase/src/app/solutions/page.tsx:curl-auth-header:49
+2cc891e946fc31edb6e76b731e0abae17d4afb08:showcase/src/app/solutions/page.tsx:curl-auth-header:53
+2cc891e946fc31edb6e76b731e0abae17d4afb08:showcase/src/app/solutions/page.tsx:curl-auth-header:79
+2cc891e946fc31edb6e76b731e0abae17d4afb08:webapp/TURNKEY_AUTH_SKILL.md:generic-api-key:121
+2cc891e946fc31edb6e76b731e0abae17d4afb08:webapp/TURNKEY_AUTH_SKILL.md:generic-api-key:38

@@ -1,0 +1,30 @@
+# gitleaks config — extends the built-in default ruleset.
+# Allowlist only verified non-secret classes (triage evidence:
+# docs/security/stabilization-2026-08-31.md and the 2026-08-31 history
+# scan — all 425 baseline findings were confirmed false positives).
+# Anything added here needs the same evidence bar as
+# docs/security/dependency-exceptions.md.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Verified non-secret classes"
+paths = [
+  # Vendored third-party (OpenZeppelin test vectors, fixtures).
+  '''contracts/lib/.*''',
+  # Generated docs corpus and API docs with placeholder curl examples.
+  '''showcase/public/llms-full\.txt''',
+  '''gitbook/.*''',
+  # Test suites use obviously-fake fixture keys (sk_live_abc123..., a
+  # fixture JWT for the redaction test, AWS's documented example key).
+  '''api-ts/src/__tests__/.*''',
+  '''tests/.*''',
+]
+regexes = [
+  # EVM addresses are public 20-byte identifiers, not secrets (private
+  # keys are 64 hex chars and stay flagged).
+  '''0x[a-fA-F0-9]{40}''',
+  # AWS's canonical documentation example access key.
+  '''AKIAIOSFODNN7EXAMPLE''',
+]

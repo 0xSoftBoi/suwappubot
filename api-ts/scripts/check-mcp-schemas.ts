@@ -22,15 +22,22 @@
  */
 import { z } from 'zod'
 import { TOOLS } from '../src/routes/mcpTools'
+import { verifyMoneyPathToolIntegrity } from '../src/lib/toolIntegrity'
 import { toJsonSchema, type Json } from '../src/lib/zodJsonSchema'
 import {
+	McpBrowseMppDirectorySchema,
+	McpExecuteSwapSchema,
 	McpGetPortfolioSchema,
 	McpGetPricesSchema,
 	McpGetSwapHistorySchema,
 	McpGetSwapStatusSchema,
+	McpGetTempoTokensSchema,
 	McpLendMarketSchema,
 	McpLendMarketsSchema,
+	McpListChainsSchema,
+	McpListTokensSchema,
 	McpListWalletPoliciesSchema,
+	McpPerpsMarketsSchema,
 	McpPerpsPositionsSchema,
 	McpPredictMarketIdSchema,
 	McpPredictMarketsSchema,
@@ -44,10 +51,11 @@ import {
  * tool name -> the Zod schema whose constraints the tool's arguments must obey.
  *
  * Only map a tool when its arguments really are validated by that schema.
- * `execute_swap` and `get_swap_status` intentionally appear nowhere here:
- * ExecuteSwapSchema and SwapStatusQuerySchema belong to *different* endpoints
- * (the approval-resubmit path and the /swaps list query respectively), and
- * mapping them would assert a contract that does not exist.
+ * `get_swap_status` maps to `McpGetSwapStatusSchema` and `execute_swap` maps
+ * to `McpExecuteSwapSchema` — both MCP-only schemas distinct from
+ * ExecuteSwapSchema and SwapStatusQuerySchema, which belong to *different*
+ * endpoints (the approval-resubmit path and the /swaps list query
+ * respectively); mapping those would assert a contract that does not exist.
  */
 const TOOL_VALIDATORS: Record<string, z.ZodTypeAny> = {
 	get_quote: QuoteRequestSchema,
@@ -56,6 +64,7 @@ const TOOL_VALIDATORS: Record<string, z.ZodTypeAny> = {
 	get_portfolio: McpGetPortfolioSchema,
 	get_prices: McpGetPricesSchema,
 	perps_positions: McpPerpsPositionsSchema,
+	perps_markets: McpPerpsMarketsSchema,
 	lend_markets: McpLendMarketsSchema,
 	lend_market: McpLendMarketSchema,
 	predict_markets: McpPredictMarketsSchema,
@@ -66,6 +75,11 @@ const TOOL_VALIDATORS: Record<string, z.ZodTypeAny> = {
 	get_swap_status: McpGetSwapStatusSchema,
 	get_swap_history: McpGetSwapHistorySchema,
 	list_wallet_policies: McpListWalletPoliciesSchema,
+	list_chains: McpListChainsSchema,
+	list_tokens: McpListTokensSchema,
+	get_tempo_tokens: McpGetTempoTokensSchema,
+	browse_mpp_directory: McpBrowseMppDirectorySchema,
+	execute_swap: McpExecuteSwapSchema,
 }
 
 /** Strip prose so we compare contract, not wording. */
@@ -100,6 +114,18 @@ function main() {
 					`    expected:  ${e}`,
 			)
 		}
+	}
+
+	// Money-path definition integrity: a pinned-hash mismatch must fail the
+	// BUILD (this script runs in the Dockerfile gate), not just log at runtime
+	// — otherwise a drifted definition ships and every execute_swap call is
+	// refused in prod with only a log line as signal.
+	for (const name of verifyMoneyPathToolIntegrity(TOOLS)) {
+		failures.push(
+			`  ${name}: money-path tool definition hash no longer matches EXPECTED_TOOL_DEFINITION_HASHES\n` +
+				`    (src/lib/toolIntegrity.ts). If the change is intentional and reviewed, regenerate the pin\n` +
+				`    with: bun run scripts/print-tool-hashes.ts`,
+		)
 	}
 
 	const unmapped = [...published.keys()].filter((n) => !(n in TOOL_VALIDATORS)).sort()

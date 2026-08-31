@@ -211,7 +211,11 @@ class JitoAPI:
             "jsonrpc": "2.0",
             "id": self._next_request_id(),
             "method": "sendBundle",
-            "params": [transactions],
+            # Transactions are base64-encoded (see send_transaction below,
+            # which already declares this); Jito defaults to base58 if the
+            # encoding isn't specified, which would silently fail to decode
+            # our base64 payloads server-side.
+            "params": [transactions, {"encoding": "base64"}],
         }
 
         async with session.post(
@@ -319,10 +323,34 @@ class JitoAPI:
                 bundle_data = result[i]
                 status = "pending"
 
-                if bundle_data.get("confirmation_status") == "finalized":
-                    status = "landed"
-                elif bundle_data.get("err"):
+                # Accept "confirmed"/"processed" as landed, not only
+                # "finalized". "finalized" requires ~32 slots (~13s) of
+                # confirmation, which is far outside the caller's short
+                # post-submit poll window (see swap_engine._JITO_BUNDLE_POLL_*)
+                # — requiring it made a genuinely-landed bundle fall through
+                # to the RPC fallback every time. "confirmed" is the same bar
+                # a normal sendTransaction caller uses to consider a tx done
+                # (Solana's default subscription/commitment level), so this
+                # keeps the bundle path's success bar consistent with the
+                # plain-RPC path it's meant to replace.
+                # Check err BEFORE confirmation_status: a tx can be
+                # "processed"/"confirmed" and still have executed with an
+                # error (e.g. slippage failure) — that's a landed-but-failed
+                # tx, not a landed-successfully one.
+                confirmation_status = bundle_data.get("confirmation_status")
+                if bundle_data.get("err"):
                     status = "failed"
+                elif confirmation_status in ("finalized", "confirmed"):
+                    # "processed" is deliberately NOT accepted: it means one
+                    # leader included the tx in a not-yet-voted block, which
+                    # can fork out — and unlike a public RPC send (re-broadcast
+                    # until blockhash expiry), a bundle tx has no retry, so a
+                    # forked-out bundle is simply gone. "confirmed" (super-
+                    # majority vote) is the floor. NOTE this status feeds two
+                    # callers: the MEV-protect early return in swap_engine and
+                    # snipe_executor._wait_for_confirmation — keep the bar
+                    # supermajority-or-better for both.
+                    status = "landed"
 
                 statuses.append(
                     JitoBundleStatus(

@@ -14,11 +14,18 @@ import { and, desc, eq } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { AgentService, AgentTrustService, TokenService, SwapService, BalanceService, JupiterService, TurnkeyService, CHAINS, COMMON_TOKENS, TEMPO_TOKEN_DECIMALS, SOLANA_TOKENS, type QuoteParams } from '../services'
 import { isStarknet } from '../config/chains'
-import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA } from './mcpTools'
+import { TOOLS, TOOL_ANNOTATIONS, TOOLS_WITH_ANNOTATIONS as ALL_TOOLS_WITH_ANNOTATIONS, TOOLS_WITH_OUTPUT_SCHEMA, MONEY_PATH_INTEGRITY_FAILURES } from './mcpTools'
 import { PolymarketService } from '../services/PolymarketService'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { MorphoService } from '../services/MorphoService'
-import { PerpsQuoteSchema, SimulateSwapSchema } from './validators'
+import {
+	McpBrowseMppDirectorySchema,
+	McpExecuteSwapSchema,
+	McpGetTempoTokensSchema,
+	McpListTokensSchema,
+	PerpsQuoteSchema,
+	SimulateSwapSchema,
+} from './validators'
 import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
@@ -27,7 +34,7 @@ import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifie
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
-import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { cacheAgentQuote, deleteCachedQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { parseMppDirectoryResponse } from '../lib/mppDirectory'
@@ -106,11 +113,49 @@ function negotiateProtocolVersion(requested: unknown): string {
 const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
 const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
 
+// MCP read-only kill switch (Phase 4 item 1, docs/plans/oss-parity.md). Enforced
+// at BOTH layers deliberately — GitHub's read-only MCP server flag shipped
+// broken (issue #2156) because it only filtered tools/list, leaving tools/call
+// reachable by a client that already knew (or guessed) a mutating tool's name.
+// Read fresh from process.env on every call (not frozen into a module-level
+// const like MPP_ENABLED above) so tests can toggle it per-request without a
+// dynamic re-import; production never flips it mid-process anyway. Default
+// (unset/false) is byte-identical to prior behavior.
+//
+// Accept several truthy spellings ('1'/'yes'/'on'/'true', any case). For a
+// SECURITY kill switch the asymmetry matters: strict `=== 'true'` fails toward
+// *writable* on a reasonable lockdown value like MCP_READ_ONLY=1, i.e. the
+// dangerous direction. Normalizing closes that fail-open.
+function isMcpReadOnly(): boolean {
+	return ['true', '1', 'yes', 'on'].includes((process.env.MCP_READ_ONLY ?? '').trim().toLowerCase())
+}
+
+// Classification source: TOOL_ANNOTATIONS' readOnlyHint (mcpTools.ts), which has
+// complete 22/22 coverage (see scripts/check-mcp-schemas.ts). Fail closed: a tool
+// name absent from TOOL_ANNOTATIONS (a future classification gap) is NOT
+// read-only, per `?.readOnlyHint === true` rather than `!== false`.
+function isReadOnlyTool(name: string): boolean {
+	return TOOL_ANNOTATIONS[name]?.readOnlyHint === true
+}
+
+// Surface the effective mode once at module load so a misconfigured value
+// (which normalizes to OFF) is visible in logs rather than silently leaving
+// the server writable when an operator believed they had locked it down.
+if (isMcpReadOnly()) {
+	logger.warn('[mcp] read-only mode ENABLED — mutating tools (e.g. execute_swap) are refused.')
+}
+
 const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
 
-const TOOLS_WITH_ANNOTATIONS = MPP_ENABLED
+// A money-path tool whose definition failed the integrity check is withheld
+// from tools/list as well as refused at dispatch: the ETDI threat model is the
+// CLIENT being misled by a rug-pulled definition, and an advertised-but-
+// refused definition would still land its (possibly poisoned) description in
+// every client model's context.
+const TOOLS_WITH_ANNOTATIONS = (MPP_ENABLED
 	? ALL_TOOLS_WITH_ANNOTATIONS
 	: ALL_TOOLS_WITH_ANNOTATIONS.filter((t) => t.name !== 'browse_mpp_directory')
+).filter((t) => !MONEY_PATH_INTEGRITY_FAILURES.has(t.name))
 
 // Registered tool names, including legacy aliases handled in the tools/call switch
 // below. Used to reject unknown tool calls BEFORE any credit is charged.
@@ -448,7 +493,10 @@ function buildTempoTokens() {
 }
 
 function handleGetTempoTokens(args: Record<string, unknown>) {
-	const search = (args.search as string)?.toUpperCase()
+	const parsed = McpGetTempoTokensSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
+	const search = parsed.data.search?.toUpperCase()
 	let tokens = buildTempoTokens()
 	if (search) {
 		tokens = tokens.filter((t) => t.symbol.toUpperCase().includes(search))
@@ -475,8 +523,11 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 }
 
 export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
-	const category = args.category as string | undefined
-	const limit = Math.min(Math.max((args.limit as number) || 20, 1), 100)
+	const parsed = McpBrowseMppDirectorySchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
+	const category = parsed.data.category
+	const limit = Math.min(Math.max(parsed.data.limit || 20, 1), 100)
 
 	try {
 		const url = new URL(`${MPP_DIRECTORY_URL}/services`)
@@ -716,7 +767,10 @@ function handleListChains() {
 }
 
 function handleListTokens(args: Record<string, unknown>) {
-	const { chain, search } = args as { chain?: string; search?: string }
+	const parsed = McpListTokensSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
+	const { chain, search } = parsed.data
 	const searchUp = search?.toUpperCase()
 
 	if (chain && isSolanaChain(chain)) {
@@ -798,7 +852,7 @@ async function handlePerpsMarkets() {
 async function handlePerpsQuote(args: Record<string, unknown>) {
 	const parsed = PerpsQuoteSchema.safeParse(args)
 	if (!parsed.success)
-		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
 	const { market, side, size, leverage } = parsed.data
 
 	const result = await runEffectEither(
@@ -883,16 +937,17 @@ async function policyGateResponseToMcpEnvelope(
 	return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] }
 }
 
-async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c: Context) {
+// Exported for src/__tests__/mcpExecuteSwapConsume.test.ts — same pattern as the
+// other test-only exports in this file (withStructuredContent, negotiateProtocolVersion, etc).
+export async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c: Context) {
 	// idempotency_key is accepted for parity with POST /v1/agent/swap/execute, but this
 	// tool only returns an unsigned transaction for client-side signing (no backend
 	// execute call to dedupe here) — it is echoed back so callers can carry it through
 	// to whichever submission path they use.
-	const { quote_id, wallet_address, idempotency_key } = args as {
-		quote_id: string
-		wallet_address: string
-		idempotency_key?: string
-	}
+	const parsed = McpExecuteSwapSchema.safeParse(args)
+	if (!parsed.success)
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
+	const { quote_id, wallet_address, idempotency_key } = parsed.data
 	const cached = getCachedQuote(quote_id)
 	// Reject a missing quote OR one belonging to another agent (cross-agent quote
 	// hijacking) — same generic message so existence can't be probed. Webapp quotes
@@ -929,7 +984,25 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 			})
 		)
+		// On failure, deliberately leave the quote in the cache — a failed
+		// unsigned-tx build (e.g. Jupiter transiently erroring) should still be
+		// retryable against the same quote_id within its TTL, not force a
+		// re-quote. Only a SUCCESSFUL preparation consumes the quote below.
 		if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+		// Single-use: this quote_id has now been turned into a returned unsigned
+		// tx. Deleting it here (rather than letting it live out its 60s TTL)
+		// closes the "repeated execute_swap on one quote_id re-runs the policy
+		// gate and writes repeated allow decisions" cap-accounting gap
+		// (docs/security/mcp-authorization-checklist.md §2). This cache is
+		// shared with the REST `/v1/agent/swap` / `/swap/execute` quote_id paths
+		// (agent.ts) — deleting here is safe for REST too, not "separate" from
+		// it, because REST's approval-resubmit flow never re-reads a quote_id at
+		// all: it re-quotes fresh from persisted economic terms
+		// (termsFromEvmQuote/termsFromSolanaQuote — quote_id is deliberately
+		// never stored there, since the cache is short-TTL/per-process and
+		// wouldn't survive the human-approval window anyway). So there is no
+		// REST code path that depends on a quote_id outliving one read.
+		deleteCachedQuote(quote_id)
 		return { content: [{ type: 'text', text: JSON.stringify({
 			status: 'ready', chain: 'solana',
 			transaction: { type: 'solana', serialized_transaction: result.right.swapTransaction, last_valid_block_height: result.right.lastValidBlockHeight },
@@ -938,7 +1011,19 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		}) }] }
 	}
 
-	return { content: [{ type: 'text', text: JSON.stringify({
+	// EVM path: guard the fields we're about to dereference BEFORE consuming
+	// the quote. A malformed/incomplete cached quote (missing
+	// transactionRequest) must fail without burning the caller's quote_id —
+	// consuming first and then throwing while building the response would
+	// leave the caller with neither a usable transaction NOR a retryable
+	// quote_id.
+	if (!quote.transactionRequest) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: 'Cached quote is missing transaction data. Request a new quote first.' }],
+		}
+	}
+	const evmResult = { content: [{ type: 'text', text: JSON.stringify({
 		status: 'ready', chain_type: 'evm',
 		transaction: {
 			to: quote.transactionRequest.to, from: wallet_address,
@@ -948,6 +1033,12 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		...(idempotency_key ? { idempotency_key } : {}),
 		instructions: 'Sign transaction with wallet and submit to chain RPC',
 	}) }] }
+	// EVM path never fails past the guard above (the tx is built directly from
+	// already-validated quote fields), so it's safe to consume now that the
+	// response is fully constructed. See the Solana branch above for why this
+	// cache is shared with, and safe for, the REST paths.
+	deleteCachedQuote(quote_id)
+	return evmResult
 }
 
 // Mirrors GET /v1/agent/swap/status/:swapId (src/routes/agent.ts)
@@ -1148,7 +1239,7 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 	if (!parsed.success) {
 		return {
 			isError: true,
-			content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }],
+			content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }],
 		}
 	}
 	const { quote_id, from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = parsed.data
@@ -1471,7 +1562,11 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'tools/list':
 			return c.json(rpcOk(req.id, resultForMcpEra(
-				{ tools: TOOLS_WITH_ANNOTATIONS },
+				{
+					tools: isMcpReadOnly()
+						? TOOLS_WITH_ANNOTATIONS.filter((t) => isReadOnlyTool(t.name))
+						: TOOLS_WITH_ANNOTATIONS,
+				},
 				modern,
 				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
 			)), 200)
@@ -1537,6 +1632,51 @@ mcpRoutes.post('/', async (c) => {
 			const argsError = validateToolArgs(name, args || {})
 			if (argsError) {
 				return c.json(rpcErr(req.id, -32602, argsError, undefined, 'VALIDATION_ERROR'), 200)
+			}
+
+			// ETDI-style tool-definition integrity gate (arXiv 2506.01333). Computed
+			// once at module load (src/routes/mcpTools.ts) against the live TOOLS
+			// array — if a money-path tool's {name, description, inputSchema} no
+			// longer matches its checked-in expected hash, refuse the call outright
+			// rather than dispatch against a definition nobody reviewed. Checked
+			// BEFORE metering so a refused call is never billed.
+			if (MONEY_PATH_INTEGRITY_FAILURES.has(name)) {
+				logger.error(`[mcp] Refusing tools/call for "${name}": tool-definition integrity check failed (see startup logs).`)
+				return c.json(
+					rpcErr(
+						req.id,
+						-32000,
+						`Tool "${name}" is temporarily unavailable: its definition failed an integrity check and cannot be safely dispatched. This is a server-side issue, not a client error.`,
+						undefined,
+						'UPSTREAM_ERROR',
+					),
+					200,
+				)
+			}
+
+			// MCP_READ_ONLY kill switch — the SECOND of the two enforcement layers
+			// (tools/list above is the first). Refusing here, not just hiding the tool
+			// from the catalogue, is the fix for the exact bug this mirrors: GitHub's
+			// read-only MCP flag (issue #2156) shipped broken because it only filtered
+			// tools/list, so a client with a cached catalogue, a hardcoded tool name, or
+			// hand-rolled JSON-RPC could still dispatch a mutating tool. Uses the
+			// resolved schema name (toolSchemaName) so the predict_market_detail alias
+			// is classified via its real entry, not treated as unclassified-and-blocked.
+			// Fail closed: a tool absent from TOOL_ANNOTATIONS is NOT read-only.
+			// Checked BEFORE the AEGIS scan and chargeAgentForCall so a refused call is
+			// never billed. Default (unset/false) is byte-identical to prior behavior.
+			if (isMcpReadOnly() && !isReadOnlyTool(toolSchemaName(name))) {
+				logger.warn(`[mcp] Refusing tools/call for "${name}": server is running in read-only mode (MCP_READ_ONLY set).`)
+				return c.json(
+					rpcErr(
+						req.id,
+						-32000,
+						`Tool "${name}" is unavailable: this server is running in read-only mode (MCP_READ_ONLY set) and this tool is not read-only.`,
+						undefined,
+						'POLICY_VIOLATION',
+					),
+					200,
+				)
 			}
 
 			// AEGIS observe-mode scan (Phase 3). Runs after arg validation and

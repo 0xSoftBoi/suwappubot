@@ -1,0 +1,45 @@
+# Install-script guard — flag new/changed npm lifecycle scripts in PRs.
+#
+# Rationale: OSCAR's 18-month industry deployment (arXiv:2409.09356)
+# found real supply-chain poisoning payloads concentrate in
+# install/preinstall/postinstall scripts (docs/research/
+# academic-improvements-2026-08.md, Track 3 #8). A diff that introduces
+# or edits one deserves a human eye before merge.
+#
+# This job FAILS when the PR diff adds or modifies a lifecycle-script
+# line in any package.json (or a lockfile records a new one), so the
+# change gets an explicit review + re-run rather than sliding through.
+
+name: install-scripts-guard
+
+on:
+  pull_request:
+    paths:
+      - '**/package.json'
+      - '**/bun.lock'
+      - '**/package-lock.json'
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Diff for added/changed lifecycle scripts
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${{ github.base_ref }}" --depth=1
+          ADDED=$(git diff "origin/${{ github.base_ref }}"...HEAD -- '**/package.json' '**/bun.lock' '**/package-lock.json' \
+            | grep -E '^\+' | grep -vE '^\+\+\+' \
+            | grep -E '"(pre|post)?install"\s*:' || true)
+          if [ -n "$ADDED" ]; then
+            echo "::error::PR adds or changes npm lifecycle (install/preinstall/postinstall) scripts — review them for supply-chain risk, then re-run this check to acknowledge."
+            echo "$ADDED"
+            exit 1
+          fi
+          echo "No new or changed lifecycle scripts."

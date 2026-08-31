@@ -14,6 +14,7 @@ import {
 } from '../db'
 import { DatabaseError } from '../errors'
 import { logger } from '../lib/logger'
+import { mergeAgentMetadata } from './agentMetadataKeys'
 import { auditLog } from './audit'
 
 /**
@@ -74,6 +75,21 @@ export interface AgentServiceInterface {
 	readonly updateAgent: (
 		agentId: number,
 		params: UpdateAgentParams,
+	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
+
+	/**
+	 * PRIVILEGED — server-only. Merges `binding` (the custodial-wallet fields:
+	 * wallet_address, internal_user_id, internal_wallet_id, wallet_sub_org_id,
+	 * and/or the Polymarket walletAddress/subOrgId pair) into the agent's
+	 * stored metadata WITHOUT stripping reserved keys. This is the ONLY path
+	 * allowed to set those keys — call it exclusively from the server-side
+	 * wallet-provisioning flow (POST /v1/agent/wallets), never from a route
+	 * that echoes caller-supplied input. Everything caller-facing (PATCH
+	 * /v1/agent/me) must keep going through `updateAgent`, which strips them.
+	 */
+	readonly bindManagedWallet: (
+		agentId: number,
+		binding: Record<string, unknown>,
 	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
 
 	readonly updateAgentActivity: (
@@ -321,11 +337,65 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
 			if (params.description !== undefined) updates.description = params.description
 			if (params.callbackUrl !== undefined) updates.callbackUrl = params.callbackUrl
-			if (params.metadata !== undefined) updates.metadata = params.metadata
+			if (params.metadata !== undefined) {
+				// SECURITY: never write caller-supplied metadata wholesale — that would
+				// let an agent overwrite its own custodial-wallet binding (wallet_address,
+				// internal_user_id, internal_wallet_id, wallet_sub_org_id, and the
+				// Polymarket walletAddress/subOrgId pair) via PATCH /v1/agent/me and
+				// rebind to an arbitrary (including victim) wallet. Merge into the
+				// stored metadata and strip reserved keys — see agentMetadataKeys.ts.
+				const existing = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ metadata: agents.metadata })
+							.from(agents)
+							.where(eq(agents.id, agentId)),
+					catch: (e) =>
+						new DatabaseError({
+							message: `Failed to load agent metadata for update: ${e}`,
+							cause: e,
+						}),
+				})
+				const existingMetadata = (existing[0]?.metadata as Record<string, unknown>) || {}
+				updates.metadata = mergeAgentMetadata(existingMetadata, params.metadata)
+			}
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)).returning(),
 				catch: (e) => new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
+			})
+
+			return yield* requireRow(result, 'Agent not found')
+		}),
+
+	bindManagedWallet: (agentId: number, binding: Record<string, unknown>) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
+
+			const existing = yield* Effect.tryPromise({
+				try: () =>
+					db.select({ metadata: agents.metadata }).from(agents).where(eq(agents.id, agentId)),
+				catch: (e) =>
+					new DatabaseError({
+						message: `Failed to load agent metadata for wallet bind: ${e}`,
+						cause: e,
+					}),
+			})
+			const existingMetadata = (existing[0]?.metadata as Record<string, unknown>) || {}
+			// Trusted server-only merge — deliberately NOT run through
+			// mergeAgentMetadata's reserved-key strip, since setting those keys
+			// is exactly what this path exists to do.
+			const updates: Record<string, unknown> = {
+				updatedAt: new Date(),
+				metadata: { ...existingMetadata, ...binding },
+			}
+
+			const result = yield* Effect.tryPromise({
+				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)).returning(),
+				catch: (e) =>
+					new DatabaseError({ message: `Failed to bind managed wallet: ${e}`, cause: e }),
 			})
 
 			return yield* requireRow(result, 'Agent not found')
