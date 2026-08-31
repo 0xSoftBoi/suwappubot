@@ -10,7 +10,7 @@
       "priority": 1,
       "deps": [],
       "surface": "showcase",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "Extend showcase/src/app/dashboard/ with a shared layout + sidebar. Keep existing org/keys/usage content as the Overview page. Placeholder pages for the rest so each later node fills one in."
     },
     {
@@ -20,15 +20,18 @@
       "priority": 2,
       "deps": [],
       "surface": "api-ts",
-      "status": "todo",
-      "notes": "GET /v1/enterprise/orgs/:id/treasury — aggregate wallet balances across chains for org members, plus daily value series. Reuse existing wallet/swap tables; flexAuth + member role."
+      "status": "in_progress",
+      "notes": "GET /v1/enterprise/orgs/:id/treasury \u2014 aggregate wallet balances across chains for org members, plus daily value series. Reuse existing wallet/swap tables; flexAuth + member role."
     },
     {
       "id": "treasury-ui",
       "title": "Treasury page: multi-chain balance table + portfolio value chart (lightweight-charts)",
       "category": "treasury",
       "priority": 3,
-      "deps": ["nav-shell", "treasury-api"],
+      "deps": [
+        "nav-shell",
+        "treasury-api"
+      ],
       "surface": "showcase",
       "status": "todo",
       "notes": "Per-chain and per-asset breakdown, total value header, 30d value chart."
@@ -41,14 +44,17 @@
       "deps": [],
       "surface": "api-ts",
       "status": "todo",
-      "notes": "GET /v1/enterprise/orgs/:id/transactions — swaps/executions/fees joined, filters: chain, status, member, date range, min value. ?format=csv streams CSV."
+      "notes": "GET /v1/enterprise/orgs/:id/transactions \u2014 swaps/executions/fees joined, filters: chain, status, member, date range, min value. ?format=csv streams CSV."
     },
     {
       "id": "tx-monitor-ui",
       "title": "Transactions page: filterable table, status badges, detail drawer, export button",
       "category": "monitoring",
       "priority": 5,
-      "deps": ["nav-shell", "tx-monitor-api"],
+      "deps": [
+        "nav-shell",
+        "tx-monitor-api"
+      ],
       "surface": "showcase",
       "status": "todo",
       "notes": ""
@@ -61,14 +67,17 @@
       "deps": [],
       "surface": "api-ts",
       "status": "todo",
-      "notes": "GET /v1/enterprise/orgs/:id/audit — reads auditLogs (schema/security.ts), verify endpoint recomputes hash chain and reports first broken link. Admin+ role."
+      "notes": "GET /v1/enterprise/orgs/:id/audit \u2014 reads auditLogs (schema/security.ts), verify endpoint recomputes hash chain and reports first broken link. Admin+ role."
     },
     {
       "id": "audit-ui",
       "title": "Audit Trail page: event stream, actor/event filters, chain-integrity badge, export",
       "category": "audit",
       "priority": 7,
-      "deps": ["nav-shell", "audit-api"],
+      "deps": [
+        "nav-shell",
+        "audit-api"
+      ],
       "surface": "showcase",
       "status": "todo",
       "notes": "Tamper-evidence surfaced: green 'chain verified' / red 'broken at entry N'."
@@ -82,14 +91,16 @@
       "surface": "api-ts",
       "status": "todo",
       "money_path": true,
-      "notes": "Drizzle tables: orgPolicies (type: tx_limit|daily_limit|velocity|allowlist_only, threshold, quorum, tiered spending-limit à la Safe), orgAllowlistAddresses, policyApprovalRequests + approvals. Additive migration via bun run db:generate."
+      "notes": "Drizzle tables: orgPolicies (type: tx_limit|daily_limit|velocity|allowlist_only, threshold, quorum, tiered spending-limit \u00e0 la Safe), orgAllowlistAddresses, policyApprovalRequests + approvals. Additive migration via bun run db:generate."
     },
     {
       "id": "policy-api",
       "title": "Policy API: policy CRUD, allowlist mgmt, approval request/approve/reject with quorum enforcement",
       "category": "policy",
       "priority": 9,
-      "deps": ["policy-schema"],
+      "deps": [
+        "policy-schema"
+      ],
       "surface": "api-ts",
       "status": "todo",
       "money_path": true,
@@ -100,7 +111,10 @@
       "title": "Policies page: rule builder, allowlist manager, pending-approvals queue with approve/reject",
       "category": "policy",
       "priority": 10,
-      "deps": ["nav-shell", "policy-api"],
+      "deps": [
+        "nav-shell",
+        "policy-api"
+      ],
       "surface": "showcase",
       "status": "todo",
       "notes": "Quorum progress indicators (2-of-3 style), policy export download button."
@@ -120,17 +134,24 @@
       "title": "Compliance page: screening stats, blocked-tx list, mode indicator, address risk lookup",
       "category": "compliance",
       "priority": 12,
-      "deps": ["nav-shell", "compliance-api"],
+      "deps": [
+        "nav-shell",
+        "compliance-api"
+      ],
       "surface": "showcase",
       "status": "todo",
       "notes": "Chainalysis-style: alert list w/ severity, filterable by chain/direction."
     },
     {
       "id": "security-center-ui",
-      "title": "Security Center: unified page — pending approvals, blocked txs, recent admin actions, API key activity, member sessions",
+      "title": "Security Center: unified page \u2014 pending approvals, blocked txs, recent admin actions, API key activity, member sessions",
       "category": "security",
       "priority": 13,
-      "deps": ["audit-api", "policy-api", "compliance-api"],
+      "deps": [
+        "audit-api",
+        "policy-api",
+        "compliance-api"
+      ],
       "surface": "showcase",
       "status": "todo",
       "notes": "Fireblocks Security Center pattern: one incident-review screen aggregating the other APIs."
@@ -140,17 +161,22 @@
       "title": "Reporting: monthly statement endpoint (tx summary, fees, holdings) as CSV + JSON",
       "category": "reporting",
       "priority": 14,
-      "deps": ["tx-monitor-api", "treasury-api"],
+      "deps": [
+        "tx-monitor-api",
+        "treasury-api"
+      ],
       "surface": "api-ts",
       "status": "todo",
-      "notes": "GET /v1/enterprise/orgs/:id/reports/:period — accounting-friendly rows (Coinbase Prime journal-entry pattern). UI: download buttons on Overview."
+      "notes": "GET /v1/enterprise/orgs/:id/reports/:period \u2014 accounting-friendly rows (Coinbase Prime journal-entry pattern). UI: download buttons on Overview."
     },
     {
       "id": "alerts-webhooks",
       "title": "Alerts: org webhook config + dispatch on threshold breach, policy trigger, screening hit",
       "category": "alerts",
       "priority": 15,
-      "deps": ["policy-schema"],
+      "deps": [
+        "policy-schema"
+      ],
       "surface": "api-ts",
       "status": "todo",
       "notes": "orgWebhooks table (url, secret, event types), HMAC-signed POST dispatch helper called from policy/compliance paths. SIEM-friendly JSON payloads."
