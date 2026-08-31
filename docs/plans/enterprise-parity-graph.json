@@ -66,8 +66,8 @@
       "priority": 6,
       "deps": [],
       "surface": "api-ts",
-      "status": "in_progress",
-      "notes": "GET /v1/enterprise/orgs/:id/audit \u2014 reads auditLogs (schema/security.ts), verify endpoint recomputes hash chain and reports first broken link. Admin+ role."
+      "status": "done",
+      "notes": "DONE: src/routes/enterpriseAudit.ts mounted at /enterprise. GET /orgs/:orgId/audit (admin-only, filters eventType/userId/from/to, limit/offset, ?format=csv cap 5000) + /audit/verify calling existing services/audit.ts verifyAuditChain (per-org chain, anchor-row boundary check, verify limit default 1000 max 10000). Check clean."
     },
     {
       "id": "audit-ui",
@@ -89,7 +89,7 @@
       "priority": 8,
       "deps": [],
       "surface": "api-ts",
-      "status": "todo",
+      "status": "in_progress",
       "money_path": true,
       "notes": "Drizzle tables: orgPolicies (type: tx_limit|daily_limit|velocity|allowlist_only, threshold, quorum, tiered spending-limit \u00e0 la Safe), orgAllowlistAddresses, policyApprovalRequests + approvals. Additive migration via bun run db:generate."
     },
