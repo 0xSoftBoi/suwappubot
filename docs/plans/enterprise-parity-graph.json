@@ -1,0 +1,159 @@
+{
+  "goal": "Enterprise dashboard parity with Fireblocks/Coinbase Prime/Anchorage/BitGo/Chainalysis-class platforms",
+  "branch": "claude/enterprise-dashboards-crypto-1f97xj",
+  "plan": "docs/plans/enterprise-dashboard.md",
+  "nodes": [
+    {
+      "id": "nav-shell",
+      "title": "Dashboard shell: sidebar nav hosting Treasury/Transactions/Policies/Compliance/Audit/Security pages",
+      "category": "foundation",
+      "priority": 1,
+      "deps": [],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": "Extend showcase/src/app/dashboard/ with a shared layout + sidebar. Keep existing org/keys/usage content as the Overview page. Placeholder pages for the rest so each later node fills one in."
+    },
+    {
+      "id": "treasury-api",
+      "title": "Treasury API: org-wide multi-chain balances + historical portfolio value",
+      "category": "treasury",
+      "priority": 2,
+      "deps": [],
+      "surface": "api-ts",
+      "status": "todo",
+      "notes": "GET /v1/enterprise/orgs/:id/treasury — aggregate wallet balances across chains for org members, plus daily value series. Reuse existing wallet/swap tables; flexAuth + member role."
+    },
+    {
+      "id": "treasury-ui",
+      "title": "Treasury page: multi-chain balance table + portfolio value chart (lightweight-charts)",
+      "category": "treasury",
+      "priority": 3,
+      "deps": ["nav-shell", "treasury-api"],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": "Per-chain and per-asset breakdown, total value header, 30d value chart."
+    },
+    {
+      "id": "tx-monitor-api",
+      "title": "Transaction monitoring API: filterable org transaction history + CSV export",
+      "category": "monitoring",
+      "priority": 4,
+      "deps": [],
+      "surface": "api-ts",
+      "status": "todo",
+      "notes": "GET /v1/enterprise/orgs/:id/transactions — swaps/executions/fees joined, filters: chain, status, member, date range, min value. ?format=csv streams CSV."
+    },
+    {
+      "id": "tx-monitor-ui",
+      "title": "Transactions page: filterable table, status badges, detail drawer, export button",
+      "category": "monitoring",
+      "priority": 5,
+      "deps": ["nav-shell", "tx-monitor-api"],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": ""
+    },
+    {
+      "id": "audit-api",
+      "title": "Audit trail API: filtered reads of hash-chained auditLogs + chain verification + CSV export",
+      "category": "audit",
+      "priority": 6,
+      "deps": [],
+      "surface": "api-ts",
+      "status": "todo",
+      "notes": "GET /v1/enterprise/orgs/:id/audit — reads auditLogs (schema/security.ts), verify endpoint recomputes hash chain and reports first broken link. Admin+ role."
+    },
+    {
+      "id": "audit-ui",
+      "title": "Audit Trail page: event stream, actor/event filters, chain-integrity badge, export",
+      "category": "audit",
+      "priority": 7,
+      "deps": ["nav-shell", "audit-api"],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": "Tamper-evidence surfaced: green 'chain verified' / red 'broken at entry N'."
+    },
+    {
+      "id": "policy-schema",
+      "title": "Policy engine schema: transfer policies, allowlists, approval requests with quorum",
+      "category": "policy",
+      "priority": 8,
+      "deps": [],
+      "surface": "api-ts",
+      "status": "todo",
+      "money_path": true,
+      "notes": "Drizzle tables: orgPolicies (type: tx_limit|daily_limit|velocity|allowlist_only, threshold, quorum, tiered spending-limit à la Safe), orgAllowlistAddresses, policyApprovalRequests + approvals. Additive migration via bun run db:generate."
+    },
+    {
+      "id": "policy-api",
+      "title": "Policy API: policy CRUD, allowlist mgmt, approval request/approve/reject with quorum enforcement",
+      "category": "policy",
+      "priority": 9,
+      "deps": ["policy-schema"],
+      "surface": "api-ts",
+      "status": "todo",
+      "money_path": true,
+      "notes": "Owner/admin mutate policies; approvals need quorum distinct approvers; every mutation writes auditLogs. Include signed policy-export endpoint (Fireblocks differentiator): JSON snapshot + entryHash."
+    },
+    {
+      "id": "policy-ui",
+      "title": "Policies page: rule builder, allowlist manager, pending-approvals queue with approve/reject",
+      "category": "policy",
+      "priority": 10,
+      "deps": ["nav-shell", "policy-api"],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": "Quorum progress indicators (2-of-3 style), policy export download button."
+    },
+    {
+      "id": "compliance-api",
+      "title": "Compliance API: screening events, mode (ENFORCE/MONITOR), OFAC stats, token risk scores",
+      "category": "compliance",
+      "priority": 11,
+      "deps": [],
+      "surface": "both",
+      "status": "todo",
+      "notes": "Surface bot/services/compliance data. If screening events aren't persisted yet, add a screening_events table (additive, both ORMs via db-migrate pattern) and write from compliance_service; api-ts reads it."
+    },
+    {
+      "id": "compliance-ui",
+      "title": "Compliance page: screening stats, blocked-tx list, mode indicator, address risk lookup",
+      "category": "compliance",
+      "priority": 12,
+      "deps": ["nav-shell", "compliance-api"],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": "Chainalysis-style: alert list w/ severity, filterable by chain/direction."
+    },
+    {
+      "id": "security-center-ui",
+      "title": "Security Center: unified page — pending approvals, blocked txs, recent admin actions, API key activity, member sessions",
+      "category": "security",
+      "priority": 13,
+      "deps": ["audit-api", "policy-api", "compliance-api"],
+      "surface": "showcase",
+      "status": "todo",
+      "notes": "Fireblocks Security Center pattern: one incident-review screen aggregating the other APIs."
+    },
+    {
+      "id": "reports-export",
+      "title": "Reporting: monthly statement endpoint (tx summary, fees, holdings) as CSV + JSON",
+      "category": "reporting",
+      "priority": 14,
+      "deps": ["tx-monitor-api", "treasury-api"],
+      "surface": "api-ts",
+      "status": "todo",
+      "notes": "GET /v1/enterprise/orgs/:id/reports/:period — accounting-friendly rows (Coinbase Prime journal-entry pattern). UI: download buttons on Overview."
+    },
+    {
+      "id": "alerts-webhooks",
+      "title": "Alerts: org webhook config + dispatch on threshold breach, policy trigger, screening hit",
+      "category": "alerts",
+      "priority": 15,
+      "deps": ["policy-schema"],
+      "surface": "api-ts",
+      "status": "todo",
+      "notes": "orgWebhooks table (url, secret, event types), HMAC-signed POST dispatch helper called from policy/compliance paths. SIEM-friendly JSON payloads."
+    }
+  ]
+}
