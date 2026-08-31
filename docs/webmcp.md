@@ -89,8 +89,10 @@ says so, and so does `read_mandate`'s own payload.
    consumed. An agent cannot reach for a tool the human has not unlocked.
 5. **This page never holds a key.** The handoff opens Terminal
    (`/alert-swap`, which prefills the ticket and still requires a human tap) or
-   the Telegram bot with a copy-ready `/s` command. A plan hands off one link
-   per leg, in order.
+   the Telegram bot with a copy-ready `/s` command. A plan's handoff is
+   **sequenced**: one leg at a time, in order — the next leg's link does not
+   exist until the human marks the current one signed on the desk, and signing
+   the final leg spends the approval.
 6. **Everything is on the record.** Each tool call streams into an on-page
    activity log, and `export_receipt` (or the Download receipt button) emits the
    whole session: every rationale, mandate verdict, override argument, human

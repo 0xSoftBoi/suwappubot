@@ -293,6 +293,10 @@
       "soundOn": "Sonido activado",
       "soundOff": "Sonido apagado",
       "videoLabel": "Vista aérea lenta del océano abierto"
+    },
+    "announce": {
+      "tag": "Nuevo · WebMCP",
+      "copy": "El Agent Desk: dale al agente de tu navegador un mandato, no tus claves. Sin registro."
     }
   },
   "cta": {

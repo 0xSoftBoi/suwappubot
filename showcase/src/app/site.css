@@ -1405,3 +1405,49 @@ main > section.home-section:nth-of-type(even)::before {
 .home-security__facts p {
   font-size: 0.9rem;
 }
+
+/* ── Home announcement strip: the Agent Desk must be findable from the front
+   door. Sits under the sticky nav, above the ocean stage. ── */
+.home-announce {
+  position: relative;
+  z-index: 5;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  width: 100%;
+  padding: 9px 16px;
+  background: rgba(20, 14, 12, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(250, 250, 250, 0.85);
+  font-size: 13.5px;
+  line-height: 1.4;
+  text-decoration: none;
+  text-align: center;
+}
+
+.home-announce:hover .home-announce__copy {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-announce__tag {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 141, 43, 0.55);
+  color: #f4b266;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.home-announce__arrow {
+  color: #f4b266;
+}

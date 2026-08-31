@@ -293,6 +293,10 @@
       "soundOn": "Sound on",
       "soundOff": "Sound off",
       "videoLabel": "Slow aerial footage of open ocean water"
+    },
+    "announce": {
+      "tag": "New · WebMCP",
+      "copy": "The Agent Desk: give the agent in your browser a mandate, not your keys. No login."
     }
   },
   "cta": {

@@ -967,11 +967,62 @@ main.page {
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  border: 1px solid transparent;
   background: rgba(2, 132, 199, 0.12);
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Sequenced pipeline states: an approved plan signs one leg at a time. */
+.planSteps li[data-state='signed'] {
+  opacity: 0.72;
+}
+
+.planSteps li[data-state='signed'] .planIndex {
+  background: rgba(34, 197, 94, 0.16);
+  color: #14663a;
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.planSteps li[data-state='active'] .planIndex {
+  background: rgba(229, 141, 43, 0.16);
+  color: #7a5410;
+  border-color: rgba(229, 141, 43, 0.5);
+}
+
+.planSteps li[data-state='locked'] {
+  opacity: 0.55;
+}
+
+.planStepBody {
+  min-width: 0;
+}
+
+.planStepBody .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.planTag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.planSteps li[data-state='signed'] .planTag {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #14663a;
 }
 
 .planNote {

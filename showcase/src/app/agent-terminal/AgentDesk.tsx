@@ -122,6 +122,9 @@ interface Proposal {
   humanNote: string | null;
   decidedAt: number | null;
   consumedAt: number | null;
+  /** Swap legs the human has marked signed, in order. Plans hand off one leg
+      at a time: the next leg's link does not exist until this advances. */
+  legsSigned?: number;
   swap?: SwapBody;
   alert?: AlertBody;
   plan?: { steps: PlanStep[]; combinedUsd: number | null };
@@ -507,6 +510,37 @@ export default function AgentDesk() {
       }
     },
     [commitProposals, log, noteDraft, settle, updateMandate],
+  );
+
+  /** The human confirms a plan leg was signed; only then does the next leg's
+      handoff link come into existence. Marking the final leg retires the
+      approval, exactly like a spent single-swap handoff. */
+  const markLegSigned = useCallback(
+    (id: string) => {
+      const current = proposalsRef.current.find((p) => p.id === id);
+      if (!current || current.status !== 'approved' || current.consumedAt !== null) return;
+      const legTotal = (current.plan?.steps ?? []).filter((s) => s.swap).length;
+      const signed = (current.legsSigned ?? 0) + 1;
+      commitProposals((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                legsSigned: signed,
+                consumedAt: signed >= legTotal ? Date.now() : p.consumedAt,
+              }
+            : p,
+        ),
+      );
+      log(
+        'human',
+        `Leg ${signed} of ${legTotal} signed`,
+        signed >= legTotal
+          ? `${id}: plan fully signed; the handoff is spent`
+          : `${id}: leg ${signed + 1} is now unlocked`,
+      );
+    },
+    [commitProposals, log],
   );
 
   const decideOverride = useCallback(
@@ -1403,6 +1437,26 @@ export default function AgentDesk() {
         if (legs.length === 0) {
           throw new Error('Only swap proposals and plans containing a swap have a handoff.');
         }
+        if (proposal.kind === 'plan') {
+          // Plans are SEQUENCED: one leg at a time, in order. The next leg's
+          // link does not exist until the human marks the current one signed
+          // on the desk, and marking the final leg spends the approval.
+          const signed = proposal.legsSigned ?? 0;
+          const current = legs[signed];
+          return {
+            proposalId,
+            plan: {
+              legTotal: legs.length,
+              legIndex: signed + 1,
+              legsSigned: signed,
+              sequencing:
+                'One leg at a time, in order. This call is idempotent for the current leg; the next link exists only after the human marks this leg signed on the desk.',
+            },
+            handoff: [buildHandoff(current)],
+            custody:
+              'Suwappu does not sign from this page. The link opens a surface the human controls, pre-filled with this leg; they still confirm and sign there.',
+          };
+        }
         commitProposals((prev) =>
           prev.map((p) => (p.id === proposalId ? { ...p, consumedAt: Date.now() } : p)),
         );
@@ -1410,7 +1464,7 @@ export default function AgentDesk() {
           proposalId,
           handoff: legs.map(buildHandoff),
           custody:
-            'Suwappu does not sign from this page. Each link opens a surface the human controls, pre-filled with the approved trade; they still confirm and sign there. A plan hands off one link per leg, in order.',
+            'Suwappu does not sign from this page. Each link opens a surface the human controls, pre-filled with the approved trade; they still confirm and sign there.',
         };
       },
 
@@ -2014,32 +2068,91 @@ export default function AgentDesk() {
 
                   {p.plan && (
                     <ol className={styles.planSteps}>
-                      {p.plan.steps.map((s, i) => (
-                        <li key={`${p.id}-${i}`}>
-                          <span className={styles.planIndex}>{i + 1}</span>
-                          <span>
-                            {s.swap ? (
-                              <>
-                                Sell{' '}
-                                <strong>
-                                  {s.swap.amount} {s.swap.fromToken}
-                                </strong>{' '}
-                                on {s.swap.fromChain} → <strong>{s.swap.toToken}</strong> on{' '}
-                                {s.swap.toChain}
-                                {s.swap.preview && (
-                                  <> · ≈ {fmtUsd(s.swap.preview.toAmountUsd)}</>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                Alert <strong>{s.alert?.symbol}</strong> {s.alert?.direction}{' '}
-                                <strong>{fmtUsd(s.alert?.targetPrice)}</strong>
-                              </>
-                            )}
-                            {s.note && <em className={styles.planNote}> ({s.note})</em>}
-                          </span>
-                        </li>
-                      ))}
+                      {p.plan.steps.map((s, i) => {
+                        const legIdx = s.swap
+                          ? p.plan!.steps.slice(0, i + 1).filter((x) => x.swap).length - 1
+                          : -1;
+                        const signedCount = p.legsSigned ?? 0;
+                        const approved = p.status === 'approved';
+                        const state = !s.swap
+                          ? approved
+                            ? 'arm'
+                            : undefined
+                          : !approved
+                            ? undefined
+                            : legIdx < signedCount
+                              ? 'signed'
+                              : legIdx === signedCount
+                                ? 'active'
+                                : 'locked';
+                        return (
+                          <li key={`${p.id}-${i}`} data-state={state}>
+                            <span className={styles.planIndex}>
+                              {state === 'signed' ? '✓' : i + 1}
+                            </span>
+                            <span className={styles.planStepBody}>
+                              {s.swap ? (
+                                <>
+                                  Sell{' '}
+                                  <strong>
+                                    {s.swap.amount} {s.swap.fromToken}
+                                  </strong>{' '}
+                                  on {s.swap.fromChain} → <strong>{s.swap.toToken}</strong> on{' '}
+                                  {s.swap.toChain}
+                                  {s.swap.preview && (
+                                    <> · ≈ {fmtUsd(s.swap.preview.toAmountUsd)}</>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  Alert <strong>{s.alert?.symbol}</strong> {s.alert?.direction}{' '}
+                                  <strong>{fmtUsd(s.alert?.targetPrice)}</strong>
+                                </>
+                              )}
+                              {s.note && <em className={styles.planNote}> ({s.note})</em>}
+                              {state === 'signed' && (
+                                <span className={styles.planTag}>signed</span>
+                              )}
+                              {state === 'locked' && (
+                                <span className={styles.planTag}>
+                                  locked until leg {legIdx} is signed
+                                </span>
+                              )}
+                              {state === 'active' && s.swap && (
+                                <span className={styles.actions}>
+                                  <a
+                                    className={styles.primary}
+                                    href={buildHandoff(s.swap).terminalUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    Sign leg {legIdx + 1} in Terminal
+                                  </a>
+                                  <button
+                                    type="button"
+                                    className={styles.ghost}
+                                    onClick={() => markLegSigned(p.id)}
+                                  >
+                                    Mark leg {legIdx + 1} signed
+                                  </button>
+                                </span>
+                              )}
+                              {state === 'arm' && (
+                                <span className={styles.actions}>
+                                  <a
+                                    className={styles.ghost}
+                                    href={TELEGRAM_URL}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    Arm in the bot
+                                  </a>
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
                       {p.plan.combinedUsd !== null && (
                         <li className={styles.planTotal}>
                           <span className={styles.planIndex}>Σ</span>
@@ -2159,7 +2272,7 @@ export default function AgentDesk() {
 
                   {p.humanNote && <p className={styles.humanNote}>You said: “{p.humanNote}”</p>}
 
-                  {p.status === 'approved' && legs.length > 0 && (
+                  {p.status === 'approved' && p.kind !== 'plan' && legs.length > 0 && (
                     <div className={styles.handoff}>
                       <p className={styles.handoffTitle}>
                         Sign it where you keep your keys
