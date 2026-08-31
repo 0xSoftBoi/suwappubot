@@ -17,7 +17,7 @@ import {
 import { TurnkeyService } from '../services/TurnkeyService'
 import { formatZodErrors, PlaceOrderSchema } from './validators'
 
-const VALID_ARCHIVE_ERAS: ArchiveEra[] = ['pmxt/v1', 'pmxt/v2', 'v3']
+const VALID_ARCHIVE_ERAS: ArchiveEra[] = ['pmxt/v1', 'pmxt/v2', 'third-party/ag6', 'v3']
 
 function parseArchiveEra(raw: string | undefined): ArchiveEra | undefined {
 	if (!raw) return undefined
@@ -557,7 +557,7 @@ predictRoutes.get('/archive/coverage', async (c) => {
 				try: () => {
 					const parsed = parseArchiveEra(c.req.query('era'))
 					if (!parsed) {
-						throw new ArchiveValidationError('Missing required query param "era" (pmxt/v1, pmxt/v2, or v3)')
+						throw new ArchiveValidationError('Missing required query param "era" (pmxt/v1, pmxt/v2, third-party/ag6, or v3)')
 					}
 					return parsed
 				},

@@ -30,9 +30,23 @@ class TestEraResolution:
         era = archive.resolve_era(_utc(2026, 4, 14, 12), era_key="pmxt/v1")
         assert era is not None and era.key == "pmxt/v1"
 
-    def test_gap_between_v2_and_v3(self):
-        # Nothing serves 2026-08-10 .. 2026-08-18T05.
-        assert archive.resolve_era(_utc(2026, 8, 12, 0)) is None
+    def test_ag6_serves_after_pmxt_ends(self):
+        # pmxt/v2 ends 2026-08-09T23; ag6 carries 08-10T00 .. 08-15T09.
+        era = archive.resolve_era(_utc(2026, 8, 12, 0))
+        assert era is not None and era.key == "third-party/ag6"
+
+    def test_v2_ag6_overlap_prefers_v2(self):
+        # ag6 starts 08-09T20, four hours before pmxt/v2 ends.
+        era = archive.resolve_era(_utc(2026, 8, 9, 21))
+        assert era is not None and era.key == "pmxt/v2"
+
+    def test_true_gap_between_ag6_and_v3(self):
+        # The only real hole: 68h, 2026-08-15T10 .. 2026-08-18T05.
+        assert archive.resolve_era(_utc(2026, 8, 15, 10)) is None
+        assert archive.resolve_era(_utc(2026, 8, 16, 0)) is None
+        assert archive.resolve_era(_utc(2026, 8, 18, 5)) is None
+        assert archive.resolve_era(_utc(2026, 8, 15, 9)).key == "third-party/ag6"
+        assert archive.resolve_era(_utc(2026, 8, 18, 6)).key == "v3"
 
     def test_before_all_eras(self):
         assert archive.resolve_era(_utc(2026, 1, 1, 0)) is None
@@ -60,7 +74,23 @@ class TestUrls:
         assert entry["manifest_url"] is None
 
     def test_unserved_hour_is_none(self):
-        assert archive.hour_urls(_utc(2026, 8, 12, 0)) is None
+        assert archive.hour_urls(_utc(2026, 8, 16, 0)) is None
+
+    def test_ag6_layout(self):
+        entry = archive.hour_urls(_utc(2026, 8, 10, 0))
+        assert entry["url"] == (
+            "https://archive.pendulumflow.com/third-party/ag6/"
+            "polymarket_orderbook_2026-08-10T00.parquet"
+        )
+        assert entry["era"] == "third-party/ag6"
+        assert entry["manifest_url"] is None
+
+    def test_sha256sums_urls(self):
+        assert archive.sha256sums_url("v3") == (
+            "https://archive.pendulumflow.com/v3/SHA256SUMS.txt"
+        )
+        assert archive.sha256sums_url("third-party/ag6") is None
+        assert archive.sha256sums_url("bogus") is None
 
     def test_sub_hour_times_floor(self):
         entry = archive.hour_urls(datetime(2026, 8, 30, 23, 59, 59, tzinfo=timezone.utc))
@@ -68,9 +98,15 @@ class TestUrls:
 
 
 class TestRange:
-    def test_range_includes_gaps_as_unserved(self):
+    def test_range_v2_hands_off_to_ag6(self):
         entries = archive.hours_in_range(_utc(2026, 8, 9, 22), _utc(2026, 8, 10, 1))
-        assert [e["era"] for e in entries] == ["pmxt/v2", "pmxt/v2", None, None]
+        expected = ["pmxt/v2", "pmxt/v2", "third-party/ag6", "third-party/ag6"]
+        assert [e["era"] for e in entries] == expected
+
+    def test_range_includes_gaps_as_unserved(self):
+        entries = archive.hours_in_range(_utc(2026, 8, 15, 8), _utc(2026, 8, 15, 11))
+        expected = ["third-party/ag6", "third-party/ag6", None, None]
+        assert [e["era"] for e in entries] == expected
 
     def test_range_cap(self):
         with pytest.raises(ValueError):
@@ -112,6 +148,27 @@ async def test_manifest_404_returns_none():
     session = _fake_session(None, status=404)
     with patch("bot.services.polymarket_archive.get_session", AsyncMock(return_value=session)):
         assert await archive.get_hour_manifest(_utc(2026, 8, 30, 23)) is None
+
+
+@pytest.mark.asyncio
+async def test_latest_available_hour_probes_backwards():
+    # First probe (newest hour) 404s, second responds 200.
+    resp_404 = MagicMock(status=404)
+    resp_200 = MagicMock(status=200)
+    ctxs = []
+    for resp in (resp_404, resp_200):
+        ctx = MagicMock()
+        ctx.__aenter__ = AsyncMock(return_value=resp)
+        ctx.__aexit__ = AsyncMock(return_value=False)
+        ctxs.append(ctx)
+    session = MagicMock()
+    session.head = MagicMock(side_effect=ctxs)
+    with patch("bot.services.polymarket_archive.get_session", AsyncMock(return_value=session)):
+        entry = await archive.latest_available_hour(max_probes=3)
+    assert entry is not None and entry["era"] == "v3"
+    assert session.head.call_count == 2
+    # The returned hour is the second one probed (one further back).
+    assert entry["url"] == session.head.call_args_list[1][0][0]
 
 
 @pytest.mark.asyncio

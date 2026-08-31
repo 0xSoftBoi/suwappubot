@@ -12,11 +12,15 @@ import { TTLCache } from '../lib/cache'
 // files themselves, only the small JSON sidecars (COVERAGE/SCHEMA/
 // INCIDENTS/manifest) and the deterministic hourly file paths.
 //
-// Three eras exist and are NOT interchangeable or safely concatenable:
+// Four eras exist and are NOT interchangeable or safely concatenable:
 //   - pmxt/v1: 2026-02-21T18 -> 2026-04-16T05 UTC. price_change + book_snapshot
 //     only (no trades). Millisecond timestamps.
 //   - pmxt/v2: 2026-04-13T19 -> 2026-08-09T23 UTC. Adds last_trade_price and
 //     tick_size_change (trades). Millisecond timestamps.
+//   - third-party/ag6: 2026-08-09T20 -> 2026-08-15T09 UTC. ag6's single-source
+//     capture (same 16-column schema as pmxt/v2), mirrored 2026-08-26, quality
+//     audit pending, NO licence stated. Bridges most of the pmxt->v3 handover;
+//     the only true hole is 68h, 2026-08-15T10 -> 2026-08-18T05.
 //   - v3: 2026-08-18T06 UTC -> ongoing (open-ended). Native capture with a
 //     richer event set (best_bid_ask, book, last_trade_price,
 //     market_resolved, new_market, price_change, tick_size_change),
@@ -30,7 +34,7 @@ import { TTLCache } from '../lib/cache'
 
 export const ARCHIVE_BASE_URL = 'https://archive.pendulumflow.com'
 
-export type ArchiveEra = 'pmxt/v1' | 'pmxt/v2' | 'v3'
+export type ArchiveEra = 'pmxt/v1' | 'pmxt/v2' | 'third-party/ag6' | 'v3'
 
 export interface ArchiveEraInfo {
 	era: ArchiveEra
@@ -74,6 +78,7 @@ export interface ArchiveInfo {
 	attribution: {
 		v3: string
 		pmxt: string
+		ag6: string
 	}
 	donationNote: string
 	metadataEndpoints: {
@@ -155,7 +160,7 @@ const ERA_REGISTRY: ArchiveEraInfo[] = [
 		spanEnd: '2026-08-09T23:00:00Z',
 		pathTemplate: 'pmxt/v2/polymarket_orderbook_YYYY-MM-DDTHH.parquet',
 		hasManifest: false,
-		eventTypes: ['price_change', 'book_snapshot', 'last_trade_price', 'tick_size_change'],
+		eventTypes: ['price_change', 'book', 'last_trade_price', 'tick_size_change'],
 		hasTrades: true,
 		timestampField: 'timestamp',
 		timestampUnit: 'ms',
@@ -167,6 +172,29 @@ const ERA_REGISTRY: ArchiveEraInfo[] = [
 				'across eras; always use the era-qualified URL.',
 			'pmxt/v2/COVERAGE.json and pmxt/v2/SCHEMA.json currently 404 — this era ' +
 				'does not (yet) publish the metadata sidecars.',
+		],
+	},
+	{
+		era: 'third-party/ag6',
+		prefix: 'third-party/ag6/',
+		spanStart: '2026-08-09T20:00:00Z',
+		spanEnd: '2026-08-15T09:00:00Z',
+		pathTemplate: 'third-party/ag6/polymarket_orderbook_YYYY-MM-DDTHH.parquet',
+		hasManifest: false,
+		eventTypes: ['price_change', 'book', 'last_trade_price', 'tick_size_change'],
+		hasTrades: true,
+		timestampField: 'timestamp',
+		timestampUnit: 'ms',
+		hasSequenceColumn: false,
+		metadataSidecarAvailable: false,
+		notes: [
+			"Third-party capture by ag6, mirrored 2026-08-26 from polymarket-archive.ag6.ai. " +
+				'Single source, no witness pipeline, no per-hour coverage verdicts; the ' +
+				"archive's quality audit of it is pending. NO LICENCE STATED (credit ag6).",
+			'Same 16-column schema as pmxt/v2 (measured by the archive). Includes a ' +
+				"COMPLETE 2026-08-10T00 — the hour pmxt's own capture truncated — and " +
+				'overlaps pmxt/v2 for its first 4 hours (2026-08-09T20..23).',
+			'No SHA256SUMS.txt is published for this era.',
 		],
 	},
 	{
@@ -201,17 +229,20 @@ const ERA_REGISTRY: ArchiveEraInfo[] = [
 const ERA_BY_ID: Record<ArchiveEra, ArchiveEraInfo> = {
 	'pmxt/v1': ERA_REGISTRY[0],
 	'pmxt/v2': ERA_REGISTRY[1],
-	v3: ERA_REGISTRY[2],
+	'third-party/ag6': ERA_REGISTRY[2],
+	v3: ERA_REGISTRY[3],
 }
 
-// Preference order when resolving an hour to an era on overlap: v3 > v2 > v1
-// (v3 is the richest, native-captured era; when it and pmxt overlap in the
-// future that is the one to prefer).
-const ERA_PREFERENCE: ArchiveEra[] = ['v3', 'pmxt/v2', 'pmxt/v1']
+// Preference order when resolving an hour to an era on overlap: v3 (native,
+// attested), then the licensed pmxt mirrors (v2 over v1 where they overlap),
+// then unaudited third-party ag6 only where nothing else serves the hour
+// (2026-08-10T00 .. 2026-08-15T09).
+const ERA_PREFERENCE: ArchiveEra[] = ['v3', 'pmxt/v2', 'third-party/ag6', 'pmxt/v1']
 
 const ATTRIBUTION = {
 	v3: 'Data from the Polymarket historical archive (v3/), credit: pendulumflow (https://archive.pendulumflow.com), CC BY 4.0.',
 	pmxt: 'Data from the Polymarket historical archive (pmxt/), credit: pmxt (https://archive.pmxt.dev), CC BY 4.0.',
+	ag6: 'Data from the Polymarket historical archive (third-party/ag6/), credit: ag6 — no licence stated.',
 }
 
 const DONATION_NOTE =
@@ -222,7 +253,7 @@ const DONATION_NOTE =
 function buildInfo(): ArchiveInfo {
 	return {
 		baseUrl: ARCHIVE_BASE_URL,
-		license: 'CC BY 4.0',
+		license: 'CC BY 4.0 for v3/ and pmxt/*; third-party/ag6/ states no licence',
 		attribution: ATTRIBUTION,
 		donationNote: DONATION_NOTE,
 		metadataEndpoints: {
@@ -239,6 +270,11 @@ function buildInfo(): ArchiveInfo {
 				'types, and timestamp units (ms for pmxt/*, microseconds for v3/) differ ' +
 				'across era boundaries.',
 			'v3/ is open-ended ("ongoing") — its spanEnd is null, not a fixed date.',
+			'The chain is NOT continuous: after third-party/ag6 ends there is a ' +
+				'68-hour hole, 2026-08-15T10 -> 2026-08-18T05 UTC, that nothing covers.',
+			'v3 hours group rows by event type, and the manifest gives each type its ' +
+				"own byte_range, row_count and sha256 — a query engine can read one " +
+				'event type over HTTP Range requests without downloading the hour.',
 			'This archive is donation-funded with no SLA; consult INCIDENTS.json for known gaps/outages.',
 			'As of live probing, only v3/ actually serves COVERAGE.json/SCHEMA.json — ' +
 				'pmxt/v1 and pmxt/v2 currently 404 on both. getCoverage() reflects this ' +

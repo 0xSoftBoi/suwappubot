@@ -4,10 +4,15 @@ Free historical Polymarket orderbook data: hourly Parquet files, no auth,
 CC BY 4.0. Three corpora ("eras") with DIFFERENT schemas that must not be
 concatenated blindly:
 
-- pmxt/v1/  mirror of pmxt's capture, 2026-02-21T18 .. 2026-04-16T05, no trades
-- pmxt/v2/  mirror of pmxt's capture, 2026-04-13T19 .. 2026-08-09T23, trades
-- v3/       pendulumflow's native capture, 2026-08-18T06 .. ongoing,
-            microsecond arrival times + per-hour manifest.json sidecar
+- pmxt/v1/          mirror of pmxt's capture, 2026-02-21T18 .. 2026-04-16T05, no trades
+- pmxt/v2/          mirror of pmxt's capture, 2026-04-13T19 .. 2026-08-09T23, trades
+- third-party/ag6/  ag6's capture mirrored 2026-08-26, 2026-08-09T20 .. 2026-08-15T09,
+                    same 16-column schema as pmxt/v2, single source, NO licence stated
+- v3/               pendulumflow's native capture, 2026-08-18T06 .. ongoing,
+                    microsecond arrival times + per-hour manifest.json sidecar
+
+The chain is not continuous: after ag6 ends there is a 68-hour hole,
+2026-08-15T10 .. 2026-08-18T05, that nothing covers.
 
 Files are huge (~10^8 rows/hour), so this module never parses Parquet: it
 resolves eras, constructs download/manifest URLs, and fetches the archive's
@@ -31,8 +36,9 @@ ARCHIVE_BASE_URL = "https://archive.pendulumflow.com"
 # automated readers: say where the data came from. Keep this on any surface
 # that shows archive data.
 ATTRIBUTION = (
-    "Data: Polymarket Orderbook Archive (archive.pendulumflow.com), CC BY 4.0 — "
-    "v3 by pendulumflow, pmxt eras by pmxt (archive.pmxt.dev). "
+    "Data: Polymarket Orderbook Archive (archive.pendulumflow.com) — v3 by "
+    "pendulumflow, pmxt eras by pmxt (archive.pmxt.dev), both CC BY 4.0; "
+    "third-party/ag6 by ag6 (no licence stated). "
     "The archive is free and runs on donations."
 )
 
@@ -53,6 +59,8 @@ class ArchiveEra:
     has_trades: bool
     has_sequence: bool
     has_manifest: bool  # per-hour manifest.json sidecar (v3 only)
+    has_sha256sums: bool  # <prefix>SHA256SUMS.txt published (all but ag6)
+    license: str
     note: str
 
     def hour_path(self, hour: datetime) -> str:
@@ -76,7 +84,9 @@ def _utc(y: int, m: int, d: int, h: int) -> datetime:
     return datetime(y, m, d, h, tzinfo=timezone.utc)
 
 
-# Preference order on overlap: native v3, then v2 (has trades), then v1.
+# Preference order on overlap: native v3, then the licensed pmxt mirrors
+# (v2 over v1 where they overlap), then unaudited third-party ag6 only where
+# nothing else serves the hour (2026-08-10T00 .. 2026-08-15T09).
 ERAS = (
     ArchiveEra(
         key="v3",
@@ -96,10 +106,15 @@ ERAS = (
         has_trades=True,
         has_sequence=True,
         has_manifest=True,
+        has_sha256sums=True,
+        license="CC BY 4.0 (credit pendulumflow)",
         note=(
             "Native pendulumflow capture, replay grade: several machines, exact "
             "de-duplication via sequence, microsecond arrival times. "
-            "timestamp_received is arrival time; use `timestamp` for event time."
+            "timestamp_received is arrival time; use `timestamp` for event time. "
+            "Rows are grouped by event type and the hour's manifest.json gives each "
+            "type its own byte range, row count and sha256 — one event type can be "
+            "fetched with an HTTP Range request without downloading the hour."
         ),
     ),
     ArchiveEra(
@@ -112,11 +127,34 @@ ERAS = (
         has_trades=True,
         has_sequence=False,
         has_manifest=False,
+        has_sha256sums=True,
+        license="CC BY 4.0 (credit pmxt, archive.pmxt.dev)",
         note=(
             "Mirror of pmxt's capture, snapshot grade, single source. No sequence "
             "column: ms timestamps can tie and export order is not guaranteed. "
             "Overlaps pmxt/v1 2026-04-13..04-16 with same basenames but different "
             "bytes — never key files by basename across eras."
+        ),
+    ),
+    ArchiveEra(
+        key="third-party/ag6",
+        prefix="third-party/ag6/",
+        start=_utc(2026, 8, 9, 20),
+        end=_utc(2026, 8, 15, 9),
+        event_types=("price_change", "book", "last_trade_price", "tick_size_change"),
+        timestamp_unit="ms",
+        has_trades=True,
+        has_sequence=False,
+        has_manifest=False,
+        has_sha256sums=False,
+        license="none stated (credit ag6)",
+        note=(
+            "Third-party capture by ag6, mirrored 2026-08-26 from "
+            "polymarket-archive.ag6.ai. Single source, no witness pipeline, no "
+            "per-hour coverage verdicts; the archive's quality audit of it is "
+            "pending. Same 16-column schema as pmxt/v2 (measured). Includes a "
+            "COMPLETE 2026-08-10T00, the hour pmxt's own capture truncated. "
+            "Overlaps pmxt/v2 for its first 4 hours."
         ),
     ),
     ArchiveEra(
@@ -129,6 +167,8 @@ ERAS = (
         has_trades=False,
         has_sequence=False,
         has_manifest=False,
+        has_sha256sums=True,
+        license="CC BY 4.0 (credit pmxt, archive.pmxt.dev)",
         note=(
             "Mirror of pmxt's earliest capture. Five columns, payload is a JSON "
             "string. Contains NO trade events and cannot be reconciled against "
@@ -208,6 +248,37 @@ def hours_in_range(
     return out
 
 
+def sha256sums_url(era_key: str) -> Optional[str]:
+    """URL of the era's SHA256SUMS.txt, or None (ag6 publishes none)."""
+    era = _ERAS_BY_KEY.get(era_key)
+    if era is None or not era.has_sha256sums:
+        return None
+    return f"{ARCHIVE_BASE_URL}/{era.prefix}SHA256SUMS.txt"
+
+
+async def latest_available_hour(max_probes: int = 24) -> Optional[dict]:
+    """Newest v3 hour actually served, found by probing backwards from now.
+
+    Publication lags capture — ~6h observed live on 2026-08-31 — so HEAD-probe
+    the hour file itself instead of guessing, walking back up to max_probes
+    hours. Returns an hour_urls() entry or None if nothing responds. HEADs are
+    cheap; the walk stops at the first hit.
+    """
+    session = await get_session()
+    hour = _floor_hour(datetime.now(timezone.utc)) - timedelta(hours=1)
+    for _ in range(max_probes):
+        entry = hour_urls(hour)
+        if entry is not None:
+            try:
+                async with session.head(entry["url"]) as resp:
+                    if resp.status in (200, 206):
+                        return entry
+            except Exception:  # pragma: no cover - network best-effort
+                logger.debug("latest-hour probe failed for %s", entry["url"], exc_info=True)
+        hour -= timedelta(hours=1)
+    return None
+
+
 @async_retry(max_attempts=3, delay=1.0, backoff=2.0)
 async def _fetch_json(path: str) -> Any:
     session = await get_session()
@@ -230,7 +301,14 @@ async def _fetch_json_cached(path: str) -> Any:
 
 
 async def get_coverage(era_key: str) -> Any:
-    """Per-hour coverage verdicts for one era (COVERAGE.json), or None."""
+    """Per-hour coverage verdicts for one era (COVERAGE.json), or None.
+
+    Shape (probed live): {counts: {hours, complete, partial, refused},
+    hours: {"YYYY-MM-DDTHH": {status, minutes, precision, witnesses, ...}},
+    generated_utc, instrument, ...}. Coverage is computed retroactively, so
+    it lags the newest published hours. Only v3 publishes this today; the
+    pmxt-era URLs 404 and this returns None for them.
+    """
     era = _ERAS_BY_KEY.get(era_key)
     if era is None:
         return None
@@ -238,7 +316,10 @@ async def get_coverage(era_key: str) -> Any:
 
 
 async def get_schema(era_key: str) -> Any:
-    """Published Parquet schema for one era (SCHEMA.json), or None."""
+    """Published Parquet schema for one era (SCHEMA.json), or None.
+
+    Only v3 publishes this today; pmxt-era URLs 404 and return None.
+    """
     era = _ERAS_BY_KEY.get(era_key)
     if era is None:
         return None
@@ -251,7 +332,14 @@ async def get_incidents() -> Any:
 
 
 async def get_hour_manifest(hour: datetime) -> Any:
-    """v3 hour manifest (sha256, row counts, witness stats pointer), or None."""
+    """v3 hour manifest, or None.
+
+    Shape (probed live): top-level `sha256`/`bytes`/`row_count` for the whole
+    file, and `products` keyed by EVENT TYPE (book, price_change,
+    last_trade_price, ...) each carrying `byte_range` [start, end) — rows are
+    grouped by event type, so one type can be pulled with an HTTP Range
+    request — plus per-type `sha256`, `row_count`, `columns`, `order_by`.
+    """
     era = resolve_era(hour, "v3")
     if era is None:
         return None

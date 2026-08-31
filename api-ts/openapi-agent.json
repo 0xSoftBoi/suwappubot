@@ -2868,6 +2868,337 @@
         }
       }
     },
+    "/predict/archive/info": {
+      "get": {
+        "summary": "Polymarket historical archive info",
+        "operationId": "getPredictionArchiveInfo",
+        "description": "Static era registry, license/attribution, and known caveats for the free, donation-funded Polymarket orderbook archive at archive.pendulumflow.com (pmxt/v1, pmxt/v2, third-party/ag6, v3). No network call; no auth required.",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Archive era registry and metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "example": {
+                  "baseUrl": "https://archive.pendulumflow.com",
+                  "license": "CC BY 4.0",
+                  "attribution": {
+                    "v3": "Data from the Polymarket historical archive (v3/), credit: pendulumflow (https://archive.pendulumflow.com), CC BY 4.0.",
+                    "pmxt": "Data from the Polymarket historical archive (pmxt/), credit: pmxt (https://archive.pmxt.dev), CC BY 4.0."
+                  },
+                  "donationNote": "archive.pendulumflow.com is a free, donation-funded public archive with no authentication required.",
+                  "eras": [
+                    {
+                      "era": "pmxt/v1",
+                      "spanStart": "2026-02-21T18:00:00Z",
+                      "spanEnd": "2026-04-16T05:00:00Z"
+                    },
+                    {
+                      "era": "pmxt/v2",
+                      "spanStart": "2026-04-13T19:00:00Z",
+                      "spanEnd": "2026-08-09T23:00:00Z"
+                    },
+                    {
+                      "era": "third-party/ag6",
+                      "spanStart": "2026-08-09T20:00:00Z",
+                      "spanEnd": "2026-08-15T09:00:00Z"
+                    },
+                    {
+                      "era": "v3",
+                      "spanStart": "2026-08-18T06:00:00Z",
+                      "spanEnd": null
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/archive/coverage": {
+      "get": {
+        "summary": "Archive era coverage sidecar",
+        "operationId": "getPredictionArchiveCoverage",
+        "description": "Fetch <prefix>COVERAGE.json for a given era (cached ~5 minutes). Live probing shows only v3/ currently publishes this sidecar; pmxt/v1 and pmxt/v2 404. A missing sidecar returns available: false, not an error. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "era",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pmxt/v1",
+                "pmxt/v2",
+                "third-party/ag6",
+                "v3"
+              ]
+            },
+            "description": "Archive era to fetch coverage for."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Coverage sidecar result (available or not)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "example": {
+                  "era": "v3",
+                  "available": true,
+                  "url": "https://archive.pendulumflow.com/v3/COVERAGE.json",
+                  "data": {}
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or unknown \"era\" query param",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Validation Error",
+                  "message": "Missing required query param \"era\" (pmxt/v1, pmxt/v2, third-party/ag6, or v3)"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/archive/incidents": {
+      "get": {
+        "summary": "Archive known incidents",
+        "operationId": "getPredictionArchiveIncidents",
+        "description": "Fetch INCIDENTS.json - known outages/gaps in the archive's capture history (cached ~5 minutes). Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Known incidents/gaps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/archive/hours": {
+      "get": {
+        "summary": "Resolve hourly archive file URLs",
+        "operationId": "getPredictionArchiveHours",
+        "description": "Given a start/end ISO 8601 UTC range (capped at 168 hours per request), resolve the deterministic hourly Parquet file URL for each hour, choosing the era per hour (preferring v3, then pmxt/v2, then third-party/ag6, then pmxt/v1 on overlap unless era is pinned). Hours outside every known era span are returned with outsideKnownSpan: true rather than dropped. Pure URL construction - does not download or verify file existence. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "start",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Range start, ISO 8601 UTC. Floored to the top of the hour."
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Range end, ISO 8601 UTC (inclusive). Floored to the top of the hour. Range capped at 168 hours."
+          },
+          {
+            "name": "era",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pmxt/v1",
+                "pmxt/v2",
+                "third-party/ag6",
+                "v3"
+              ]
+            },
+            "description": "Pin every hour to this era instead of auto-resolving from the span registry."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-hour resolved file URLs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "hours": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "hourUtc": {
+                            "type": "string"
+                          },
+                          "era": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "url": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "manifestUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "outsideKnownSpan": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "hours": [
+                    {
+                      "hourUtc": "2026-08-18T06:00:00Z",
+                      "era": "v3",
+                      "url": "https://archive.pendulumflow.com/v3/2026-08-18/06/2026-08-18T06.parquet",
+                      "manifestUrl": "https://archive.pendulumflow.com/v3/2026-08-18/06/manifest.json",
+                      "outsideKnownSpan": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing/invalid start or end, end before start, range over 168 hours, or unknown era",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Validation Error",
+                  "message": "Requested range spans 200 hours, exceeding the 168-hour cap per request. Narrow start/end."
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/predict/archive/hour/{date}/{hour}/manifest": {
+      "get": {
+        "summary": "v3 hourly manifest sidecar",
+        "operationId": "getPredictionArchiveHourManifest",
+        "description": "Fetch the v3/YYYY-MM-DD/HH/manifest.json sidecar for a given hour (cached ~5 minutes). v3-only - pmxt/v1 and pmxt/v2 do not publish per-hour manifests. Public endpoint, no auth required.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "example": "2026-08-18"
+          },
+          {
+            "name": "hour",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{2}$"
+            },
+            "example": "06"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hour manifest sidecar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed date or hour path segment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No manifest published for this hour",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Not Found",
+                  "resource": "archive-manifest"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/lend/markets": {
       "get": {
         "summary": "List lending markets",

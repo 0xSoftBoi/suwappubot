@@ -36,10 +36,11 @@ def _era_line(era: archive.ArchiveEra) -> str:
 
 
 async def _send_overview(update: Update) -> None:
-    # The most recent hour is still being captured; the one before it is the
-    # newest that can be fully published.
-    latest = datetime.now(timezone.utc) - timedelta(hours=2)
-    entry = archive.hour_urls(latest)
+    try:
+        entry = await archive.latest_available_hour()
+    except Exception:  # pragma: no cover - network best-effort
+        logger.warning("latest-hour probe failed", exc_info=True)
+        entry = None
     lines = [
         "📊 *Polymarket Orderbook Archive*",
         "",
@@ -53,8 +54,9 @@ async def _send_overview(update: Update) -> None:
         lines += ["", f"*Latest hour* ({entry['hour_utc']}):", f"`{entry['url']}`"]
     lines += [
         "",
-        "_Note: no data between 2026-08-10 and 2026-08-18; eras differ in schema — "
-        "don't concatenate them blindly._",
+        "_Note: `third-party/ag6` is a single-source capture, quality audit pending, "
+        "no licence stated. The only hole is 68h: 2026-08-15T10 → 2026-08-18T05. "
+        "Eras differ in schema — don't concatenate them blindly._",
         "",
         _USAGE,
         "",
@@ -107,14 +109,29 @@ async def _send_hour(update: Update, hour: datetime) -> None:
             logger.warning("archive manifest fetch failed", exc_info=True)
             manifest = None
         if isinstance(manifest, dict):
-            sha = (manifest.get("products") or {}).get(
-                f"{hour.strftime('%Y-%m-%dT%H')}.parquet", {}
-            )
-            digest = sha.get("sha256") if isinstance(sha, dict) else None
-            if not digest:
-                digest = manifest.get("sha256")
-            if digest:
-                lines.append(f"sha256: `{digest}`")
+            if manifest.get("sha256"):
+                lines.append(f"sha256: `{manifest['sha256']}`")
+            if manifest.get("row_count") and manifest.get("bytes"):
+                lines.append(
+                    f"{int(manifest['row_count']):,} rows, "
+                    f"{int(manifest['bytes']) / 1e9:.2f} GB"
+                )
+            # Rows are grouped by event type; each product's byte_range lets a
+            # trader pull just that slice with an HTTP Range request.
+            products = manifest.get("products")
+            if isinstance(products, dict):
+                type_lines = []
+                for name, p in sorted(products.items()):
+                    if isinstance(p, dict) and p.get("row_count") is not None:
+                        type_lines.append(f"  `{name}`: {int(p['row_count']):,} rows")
+                if type_lines:
+                    lines += [
+                        "",
+                        "*Event types in this hour* (rows are grouped by type; the "
+                        "manifest's per-type `byte_range` lets DuckDB/pyarrow read "
+                        "one type over HTTP without downloading the hour):",
+                        *type_lines,
+                    ]
     lines += ["", f"_{archive.ATTRIBUTION}_"]
     await update.message.reply_text(
         "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
