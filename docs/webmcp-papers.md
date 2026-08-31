@@ -80,5 +80,173 @@ specific to the desk's tools.
   diffing the envelope — never derived from agent-supplied text. (Already
   true; state it as a design rule and assert it in the smoke suite.)
 
-*(Sections 2 — human oversight — and 3 — tool-use evaluation — follow as
-their research tracks complete.)*
+---
+
+## 2. Human oversight: approval fatigue, delegation, mandates
+
+### Papers (verified)
+
+11. **Sunshine et al., "Crying Wolf: An Empirical Study of SSL Warning
+    Effectiveness"** (USENIX Security 2009). Users click through most
+    warnings because they give no situational signal beyond "be scared."
+12. **Akhawe & Felt, "Alice in Warningland: A Large-Scale Field Study of
+    Browser Security Warning Effectiveness"** (USENIX Security 2013; 25M+
+    warning impressions). Click-through rises with exposure count — the
+    citation for the desk's "the tenth 'are you sure?' gets clicked without
+    reading."
+13. **Anderson et al., "How Polymorphic Warnings Reduce Habituation in the
+    Brain: Insights from an fMRI Study"** (CHI 2015; companion in MIS
+    Quarterly 42(2), 2018). Neural response to a warning collapses by the
+    *second* exposure; varying its appearance restores attention.
+14. **Bainbridge, "Ironies of Automation"** (Automatica 19(6), 1983).
+    Automating the routine leaves humans under-practiced for the rare
+    exception that automation hands back.
+15. **Parasuraman & Riley, "Humans and Automation: Use, Misuse, Disuse,
+    Abuse"** (Human Factors 39(2), 1997). Over-trust ("misuse") and
+    designer-side scope creep ("abuse") are distinct oversight failures.
+16. **South et al., "Authenticated Delegation and Authorized AI Agents"**
+    (arXiv:2501.09674, 2025). OAuth2/OIDC-based delegation credentials
+    carrying scope restrictions and cryptographic accountability chains.
+17. **Chan et al., "Visibility into AI Agents"** (FAccT 2024,
+    arXiv:2401.13138). Agent oversight requires identifiers, activity logs,
+    and permission records as first-class infrastructure.
+18. **Horvitz, "Principles of Mixed-Initiative User Interfaces"** (CHI 1999).
+    Mixed-initiative systems need explicit turn-taking and negotiation, plus
+    agents surfacing their own uncertainty.
+19. **Feng, McDonald & Zhang, "Levels of Autonomy for AI Agents"**
+    (arXiv:2506.12469, 2025). Autonomy is a chosen role — operator /
+    collaborator / consultant / approver / observer — independent of raw
+    capability; role clarity itself reduces oversight failure.
+20. **Faas et al., "Design Considerations for Human Oversight of AI"**
+    (arXiv:2510.19512, CHI 2026). 12 co-designed oversight criteria; pure
+    yes/no gatekeeping degrades human engagement — people must be able to
+    *contribute meaningfully*.
+21. **Wang, Li & Tian, "Reframing LLM Agent Security as an Agent–Human
+    Interaction Problem"** (arXiv:2605.24309, 2026). Survey of 21 production
+    agent systems: most rely on runtime approval despite measured approval
+    fatigue.
+22. **Ibrahim et al., "Measuring and mitigating overreliance to build
+    human-compatible AI"** (arXiv:2509.08010, 2025/2026). Catalog of
+    LLM-specific overreliance failure modes.
+
+### Improvements implied
+
+- **Polymorphic breach cards** (Anderson CHI 2015): vary the blocked-proposal
+  card's color/icon/copy by breach type (cap vs chain vs slippage) instead of
+  one static "blocked" template — habituation sets in by the second exposure.
+- **Cite the fatigue literature in the submission** (Akhawe & Felt 2013;
+  Sunshine 2009; Wang 2605.24309): the mandate's whole thesis — reduce prompt
+  *count*, keep each prompt information-dense (rule/limit/actual) — is
+  exactly what this literature prescribes. Say so with citations.
+- **Make silent dry-runs occasionally visible** (Bainbridge 1983): surface
+  `check_mandate` calls in the activity log so the human keeps situational
+  awareness of what is being auto-cleared, not only what is blocked.
+- **Version-stamp compiled policies** (South 2501.09674): have
+  `compile_mandate_to_policy` embed a reference to the mandate version that
+  produced it, so a later amendment can't orphan the audit chain.
+- **Machine-parseable receipt** (Chan 2401.13138): `export_receipt` should
+  emit structured JSON (not just prose) so a third party can audit the
+  mandate's history independent of the desk's UI.
+- **Surface agent uncertainty on override cards** (Horvitz 1999): the
+  `request_override` card should carry the agent's stated confidence, not
+  just its argument.
+- **Name the human's role explicitly** (Feng 2506.12469): state in the UI
+  that the human is *approver* for trades and *co-author* for the envelope —
+  role clarity is itself an oversight mechanism.
+- **Frame negotiation as the answer to gatekeeping decay** (Faas
+  2510.19512): `request_override`/`amend_mandate` exist because binary
+  approve/deny measurably degrades engagement; this is the strongest citable
+  justification for the desk's central mechanic.
+- **Terminology note**: "mandate" is Suwappu's own term — the literature says
+  "policy," "scope," or "delegation credential." Present it as coinage, not
+  borrowed vocabulary.
+
+---
+
+## 3. Tool-use evaluation: grading pitfalls the eval suite already hit
+
+### Papers (verified)
+
+23. **Patil et al., "Gorilla: Large Language Model Connected with Massive
+    APIs"** (arXiv:2305.15334, 2023). Introduced AST/structural correctness
+    checking over exact-string match — the lineage of `webmcp:evals`'
+    deterministic half.
+24. **Patil et al., "The Berkeley Function Calling Leaderboard (BFCL)"**
+    (ICML 2025, PMLR v267). BFCL's own history is "our first-call grader was
+    too strict for legitimate precursor steps"; their fix was multi-turn
+    state-based grading — validating the desk's 3 recorded misses.
+25. **Qin et al., "ToolLLM"** (arXiv:2307.16789, ICLR 2024 spotlight).
+    ToolEval scores the whole reasoning trace (pass rate + trajectory win
+    rate), not the first call.
+26. **Yao et al., "τ-bench"** (arXiv:2406.12045, 2024). Grades by final
+    world-state and introduces **pass^k**: GPT-4o's pass^8 < 25% on retail —
+    single-run scores hide inconsistency.
+27. **Li et al., "API-Bank"** (arXiv:2304.08244, 2023). Splits planning /
+    retrieving / calling into separate graded competencies.
+28. **Ruan et al., "ToolEmu"** (arXiv:2309.15817, ICLR 2024 spotlight).
+    LM-emulated sandbox for tool-use *safety*; even the safest agent showed
+    risky failures 23.9% of the time.
+29. **He et al., "TRAJECT-Bench"** (arXiv:2510.04550, 2025).
+    Trajectory-aware grading scoring selection, arguments, and
+    dependency/order satisfaction — the named solution to the
+    precursor-step false-negative problem.
+30. **Rabinovich & Anaby-Tavor, "On the Robustness of Agentic Function
+    Calling"** (TrustNLP@NAACL 2025, arXiv:2504.00914). Measures accuracy
+    degradation under query rephrasing and description perturbation — the
+    "Read this FIRST" brittleness class, measured.
+31. **Zhou et al., "WebArena"** (arXiv:2307.13854, ICLR 2024). 14.4% agent
+    vs 78% human success; the gap is long-horizon planning, so multi-step
+    cases need their own harder eval tier.
+32. **Yang et al., "Agentic Web: Weaving the Next Web with AI Agents"**
+    (arXiv:2507.21206, 2025). The closest academic framing for
+    machine-negotiated web interaction; **no peer-reviewed paper names
+    WebMCP itself yet** — the desk is ahead of the literature on this exact
+    protocol, which is worth saying in the submission.
+
+Lower-confidence supplementary (abstract-verified only): Mind2Web (Deng et
+al., NeurIPS 2023, arXiv:2306.06070); "Towards an Agent-First Web" (Bandara
+et al., arXiv:2606.19116, 2026).
+
+### Improvements implied
+
+- **Trajectory/dependency-aware grading** (TRAJECT-Bench 2510.04550; BFCL;
+  ToolLLM): score `check_mandate → propose_swap` as a pass when the terminal
+  call matches intent and precursors are valid read/dry-run tools — turns
+  the 3 honest misses into a measured property instead of a caveat.
+- **Report pass^k, not one run** (τ-bench 2406.12045): re-run
+  `webmcp:evals:llm` 3-5× and report pass^k; a single 12/15 hides variance.
+- **Description-ablation regression** (Rabinovich 2504.00914): reword each
+  of the 16 descriptions 2-3 ways with semantics fixed and re-run evals —
+  catches the next "Read this FIRST"-class phrase before an agent does.
+- **Separate safety-emulation axis** (ToolEmu 2309.15817): eval whether an
+  agent ever uses `request_override`/`amend_mandate`/`compile_mandate_to_policy`
+  to loosen limits un-noticed — distinct from selection accuracy.
+- **Give multi-step its own tier** (WebArena 2307.13854): don't let the
+  aggregate hide that `propose_plan` cases are the hard tier.
+
+---
+
+## Ranked: the improvements worth doing before the Sept 3 deadline
+
+1. **Trajectory-aware grading + pass^k** in `scripts/webmcp-evals*.mjs` —
+   converts the suite's known weakness into a literature-backed strength
+   (TRAJECT-Bench, τ-bench, BFCL). Cheap; test-tooling only.
+2. **Adversarial/injected eval cases + CuP restraint metric** (AgentDojo,
+   WASP, ST-WebAgentBench) — measures the desk's signature property,
+   restraint under attack, instead of asserting it.
+3. **Imperative-language CI lint** over exported tool descriptions
+   (Greshake, Huang) — one grep, permanent protection for the bug class the
+   evals caught once.
+4. **Polymorphic breach cards** (Anderson CHI 2015) — visible, judge-facing,
+   and directly answers the habituation literature the mandate cites.
+5. **Structured `export_receipt` JSON + mandate version stamp in compiled
+   policies** (Chan 2401.13138; South 2501.09674) — makes the audit story
+   independently checkable.
+6. **Cite this bibliography in the submission** — the fatigue claim, the
+   negotiation mechanic, and the untrusted-both-ways rule each now have
+   named, verified prior art; and no published paper yet names WebMCP, which
+   makes the "ahead of the literature" line honest.
+
+Any grading or tool-semantics change that touches
+`propose_swap`/`propose_plan`/mandate flow goes through `money-path-reviewer`
+before merge, per CLAUDE.md.
