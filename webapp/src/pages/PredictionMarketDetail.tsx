@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
 import { OutcomeBar, OrderBook, RecentTrades, TradePanel, PositionCard } from '../components/prediction'
-import { SkeletonCard } from '../components/ui'
+import { SkeletonCard, RegionRestrictedNotice } from '../components/ui'
 import { usePredictionMarket } from '../hooks/usePredictionMarket'
 import { usePredictionOrderbook } from '../hooks/usePredictionOrderbook'
 import { usePredictionPositions } from '../hooks/usePredictionPositions'
+import { isRegionRestrictedError } from '../lib/api'
 
 type Tab = 'orderbook' | 'trades' | 'info'
 
@@ -29,9 +30,10 @@ export function PredictionMarketDetail() {
   const { id } = useParams<{ id: string }>()
   const [activeTab, setActiveTab] = useState<Tab>('orderbook')
 
-  const { data: market, isLoading: marketLoading } = usePredictionMarket(id ?? null)
+  const { data: market, isLoading: marketLoading, error: marketError } = usePredictionMarket(id ?? null)
   const { data: orderbookData } = usePredictionOrderbook(id ?? null)
   const { data: positions } = usePredictionPositions()
+  const regionRestricted = isRegionRestrictedError(marketError)
 
   const userPosition = positions?.find((p) => p.marketId === id)
 
@@ -47,13 +49,15 @@ export function PredictionMarketDetail() {
       activeNav="earn"
     >
       <div className="p-3 pb-40 space-y-3">
-        {marketLoading && (
+        {regionRestricted && <RegionRestrictedNotice feature="Prediction markets" />}
+
+        {!regionRestricted && marketLoading && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
             <SkeletonCard rows={4} variant="token" />
           </div>
         )}
 
-        {market && (
+        {!regionRestricted && market && (
           <>
             {/* Market header */}
             <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3 space-y-3">
@@ -181,7 +185,7 @@ export function PredictionMarketDetail() {
           </>
         )}
 
-        {!marketLoading && !market && (
+        {!regionRestricted && !marketLoading && !market && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">
             <span className="text-4xl block mb-2">🔮</span>
             <p className="font-heading font-semibold text-suwappu-text mb-1">Market not found</p>
