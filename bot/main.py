@@ -1,6 +1,7 @@
 """Main entry point for the Suwappu Bot."""
 
 import logging
+import sys
 import asyncio
 from telegram import Update, MenuButtonWebApp, WebAppInfo, BotCommand
 from telegram.ext import (
@@ -358,11 +359,32 @@ except ImportError:
     CPP_CORE_AVAILABLE = False
 
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=getattr(logging, settings.log_level.upper()),
-)
+# Configure logging.
+#
+# Railway derives a log line's severity from which stream it's written to, not
+# from the level name in the text — a plain `basicConfig()` StreamHandler
+# writes everything to stderr, so every INFO/DEBUG line was showing up in
+# Railway as `severity=error`, making real errors indistinguishable from noise.
+# Split by level instead: stdout gets everything below ERROR, stderr gets
+# ERROR and above.
+_log_level = getattr(logging, settings.log_level.upper())
+_log_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+
+class _BelowErrorFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < logging.ERROR
+
+
+_stdout_handler = logging.StreamHandler(sys.stdout)
+_stdout_handler.setFormatter(_log_format)
+_stdout_handler.addFilter(_BelowErrorFilter())
+
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setFormatter(_log_format)
+_stderr_handler.setLevel(logging.ERROR)
+
+logging.basicConfig(level=_log_level, handlers=[_stdout_handler, _stderr_handler])
 
 # SECRET LEAK: httpx logs every request URL at INFO, and the Telegram Bot API
 # puts the bot token IN the path — so a plain INFO log level published the full

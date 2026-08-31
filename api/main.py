@@ -266,11 +266,27 @@ async def lifespan(app: FastAPI):
                     # RAILWAY_REPLICA_ID (present on every replica instance).
                     # We block when the configured count is explicitly > 1.
                     # Unknown / unset values default to 1 (safe for local dev).
+                    _replica_count_is_set = "RAILWAY_SERVICE_INSTANCE_COUNT" in os.environ
                     _raw_replica_count = os.environ.get("RAILWAY_SERVICE_INSTANCE_COUNT", "1")
                     try:
                         _replica_count = int(_raw_replica_count)
                     except (ValueError, TypeError):
                         _replica_count = 1
+
+                    # The default-to-1 above is silent by design for local dev, but on
+                    # Railway an unset var is indistinguishable from "really 1 replica"
+                    # — if a service's replica count is bumped without this var being
+                    # wired up, polling mode starts happily on every replica and the
+                    # 409 guard above never fires. Surface it instead of trusting the
+                    # default blindly in a deployed environment.
+                    if not _replica_count_is_set and os.environ.get("RAILWAY_ENVIRONMENT_NAME"):
+                        logger.warning(
+                            "RAILWAY_SERVICE_INSTANCE_COUNT is unset on Railway while "
+                            "polling mode is active (USE_WEBHOOK=false). Defaulting to "
+                            "1 replica — if this service is ever scaled to multiple "
+                            "replicas without this var set, the multi-replica 409 guard "
+                            "above will not catch it."
+                        )
 
                     if _replica_count > 1:
                         logger.error(
@@ -502,9 +518,9 @@ async def lifespan(app: FastAPI):
                 if removed:
                     logger.debug(f"Cleaned up {removed} expired auth challenges")
 
-    auth_cleanup_task = task_supervisor.spawn(
-        "auth_challenge_cleanup", _cleanup_auth_challenges_loop
-    )
+    # Handle itself is unused past here — task_supervisor.cancel_all() in the
+    # shutdown block below cancels it by name, not by this reference.
+    task_supervisor.spawn("auth_challenge_cleanup", _cleanup_auth_challenges_loop)
 
     # 6. Start cross-service integrations
     with _track_degraded("event_bus", "⚠️ Event bus failed to connect", auto_clear=False):
@@ -1338,6 +1354,20 @@ async def health_ready():
                 {"service": name, "error": "loop alive but refresh passes are not completing"}
                 for name, state in svc_heartbeats.items()
                 if state == "stalled"
+            ]
+            # Supervised tasks (bot/utils/task_supervisor.py) that have crashed
+            # at least once, restarted or not. Same rule as the rest of this
+            # list: visibility only. Railway's cutover gate stays DB-only
+            # (`is_ready` above) because a background task restarting is, by
+            # design, self-healing — flipping the readiness probe on every
+            # transient crash would take healthy traffic-serving instances out
+            # of rotation for a problem that isn't in the request path.
+            + [
+                {
+                    "service": name,
+                    "error": f"crashed {state['crash_count']}x, last: {state['last_error']}",
+                }
+                for name, state in task_supervisor.get_task_states().items()
             ],
         },
     )

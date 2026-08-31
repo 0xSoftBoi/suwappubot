@@ -16,7 +16,7 @@ import ssl
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import ClassVar, Dict, List, Optional
 from urllib.parse import urlparse, urlsplit
 
 import aiohttp
@@ -343,6 +343,18 @@ class RPCEndpoint:
     circuit_open_until: float = 0.0
     last_error: Optional[str] = None
 
+    # Circuit-OPEN warning dedup (see `_log_circuit_open` below). A dead
+    # endpoint that cycles closed (one lucky success) -> open (next failure)
+    # re-triggers the `not was_open` transition guard on every cycle, which
+    # for a 600s backoff is ~6 WARNING lines/hour per endpoint — measured in
+    # production as a log flood across the permanently-dead public RPC set.
+    circuit_open_last_warned: float = 0.0
+    circuit_open_suppressed: int = 0
+
+    # Re-warn window: opens within this long of the last WARNING collapse to
+    # DEBUG; the first open past the window gets a WARNING again.
+    CIRCUIT_OPEN_WARN_WINDOW_SECONDS: ClassVar[float] = 30 * 60
+
     @property
     def success_rate(self) -> float:
         if self.total_requests == 0:
@@ -385,6 +397,32 @@ class RPCEndpoint:
     # that does not read it.
     QUOTA_COOLDOWN_SECONDS = 6 * 3600
 
+    def _log_circuit_open(self, message: str) -> None:
+        """Log a circuit-OPEN transition, deduped per endpoint over a 30min window.
+
+        First open (ever, or after the window elapses) logs WARNING — carrying
+        the count of opens suppressed since the last WARNING, if any. Opens
+        within the window log DEBUG with a running counter instead, so the
+        information survives without flooding the stream.
+        """
+        now = time.monotonic()
+        elapsed = now - self.circuit_open_last_warned
+        if self.circuit_open_last_warned == 0.0 or elapsed >= self.CIRCUIT_OPEN_WARN_WINDOW_SECONDS:
+            if self.circuit_open_suppressed:
+                logger.warning(
+                    "%s (suppressed %d repeat opens in prior %ds)",
+                    message,
+                    self.circuit_open_suppressed,
+                    self.CIRCUIT_OPEN_WARN_WINDOW_SECONDS,
+                )
+            else:
+                logger.warning(message)
+            self.circuit_open_last_warned = now
+            self.circuit_open_suppressed = 0
+        else:
+            self.circuit_open_suppressed += 1
+            logger.debug("%s (suppressed, #%d in window)", message, self.circuit_open_suppressed)
+
     def record_failure(self, error: str, fatal: bool = False):
         """Record a failed probe/request.
 
@@ -409,21 +447,17 @@ class RPCEndpoint:
             # Log only on the transition, or a 6h cooldown still produces a wall
             # of identical lines every time a caller retries mid-cooldown.
             if not was_open:
-                logger.warning(
-                    "RPC circuit OPEN (quota exhausted) %s (%ss, reason=%s)",
-                    _safe_url(self.url),
-                    self.QUOTA_COOLDOWN_SECONDS,
-                    error[:120],
+                self._log_circuit_open(
+                    "RPC circuit OPEN (quota exhausted) %s (%ss, reason=%s)"
+                    % (_safe_url(self.url), self.QUOTA_COOLDOWN_SECONDS, error[:120])
                 )
             self.circuit_open_until = time.monotonic() + self.QUOTA_COOLDOWN_SECONDS
             return
         if _UNRECOVERABLE_ERROR.search(error):
             if not was_open:
-                logger.warning(
-                    "RPC circuit OPEN (endpoint gone or gated) %s (%ss, reason=%s)",
-                    _safe_url(self.url),
-                    self.QUOTA_COOLDOWN_SECONDS,
-                    error[:120],
+                self._log_circuit_open(
+                    "RPC circuit OPEN (endpoint gone or gated) %s (%ss, reason=%s)"
+                    % (_safe_url(self.url), self.QUOTA_COOLDOWN_SECONDS, error[:120])
                 )
             self.circuit_open_until = time.monotonic() + self.QUOTA_COOLDOWN_SECONDS
             return
@@ -432,22 +466,18 @@ class RPCEndpoint:
             # Same transition guard as above. Without it a fatal endpoint logged
             # on every single call for the whole cooldown.
             if not was_open:
-                logger.warning(
-                    "RPC circuit OPEN (fatal) %s (600s, reason=%s)",
-                    _safe_url(self.url),
-                    error[:120],
+                self._log_circuit_open(
+                    "RPC circuit OPEN (fatal) %s (600s, reason=%s)"
+                    % (_safe_url(self.url), error[:120])
                 )
             return
         if self.consecutive_failures >= 3:
             backoff = min(600, 30 * (2 ** (self.consecutive_failures - 3)))
             self.circuit_open_until = time.monotonic() + backoff
             if not was_open:
-                logger.warning(
-                    "RPC circuit OPEN %s (%ss, %s failures, reason=%s)",
-                    _safe_url(self.url),
-                    backoff,
-                    self.consecutive_failures,
-                    error[:120],
+                self._log_circuit_open(
+                    "RPC circuit OPEN %s (%ss, %s failures, reason=%s)"
+                    % (_safe_url(self.url), backoff, self.consecutive_failures, error[:120])
                 )
 
     def decay_stats(self):
