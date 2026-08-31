@@ -163,12 +163,15 @@ caller names one.
 
 ```bash
 cd showcase
-bun run dev            # serve the desk on :4321
-bun run webmcp:smoke   # 47 assertions against a modelContext polyfill
+bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
+bun run webmcp:smoke            # 72 assertions against a modelContext polyfill
+bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
+bun run webmcp:lint             # imperative/injection-shaped description lint
+bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **47 assertions**, among them: that the ticket
+drives the real page through **72 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
@@ -180,6 +183,23 @@ that a plan's headroom already reflects the earlier approval; that an amendment
 and on approval actually rewrites it so the new envelope governs the next check;
 that the compiled policy bundle names its endpoint and states it holds no key;
 and that the receipt preserves every rationale, breach and override argument.
+Newer assertions cover the literature-backed hardening: breach cards render a
+distinct variant per violated rule (anti-habituation, Anderson CHI 2015); the
+mandate carries a `version` that only an approved amendment increments, and
+compiled policies are stamped with it; `export_receipt({format:"json"})`
+returns the full machine-parseable audit trail; every piece of agent-written
+text a tool result re-echoes comes wrapped
+`{agentWritten: true, unverified: true, text}` so the model cannot mistake its
+own earlier persuasion for instruction (Spotlighting, arXiv:2403.14720); and a
+WASP-style decoy DOM element plus instruction-bearing form values cannot
+redirect the declarative ticket.
+
+`scripts/evals-adversarial-smoke.mjs` (**49 assertions**) drives six
+injection-shaped strings through agent-supplied arguments — a token query, a
+rationale, a chain label — and proves each round-trips as quoted data under
+the unverified label, adds exactly one proposal, and unlocks no dynamic tool.
+Argument-level and deterministic, honestly: it measures the page's handling,
+not an LLM under attack.
 
 ## Evals: measuring whether an agent can actually use this
 
@@ -212,9 +232,16 @@ bun run webmcp:evals:llm   # Google's LLM harness (needs OPENAI_API_KEY or GOOGL
 
 There are now **15 cases across 16 tools**. `webmcp:evals` resolves each case's matcher constraints to concrete arguments
 and invokes the tool on the live page, asserting it exists, accepts the shape
-and returns without error — currently **15/15 clean**. It means `evals.json`
-cannot rot: rename a tool or tighten a schema and CI fails long before an agent
-meets it. The LLM half — does the *model* pick the right tool — scores **12/15 (80%)**
+and returns without error — currently **37/37 clean** (15 cases plus
+`allowedPrecursors` drift checks against the schema export). It means
+`evals.json` cannot rot: rename a tool or tighten a schema and CI fails long
+before an agent meets it. `scripts/evals-trajectory-grade.mjs` then re-grades
+the LLM harness's own JSON reports three ways — first-call-exact (Google's
+semantics, kept), trajectory-aware (a sensible read/dry-run precursor before
+the right terminal call is a pass, per TRAJECT-Bench arXiv:2510.04550), and
+pass^k across repeated runs (τ-bench arXiv:2406.12045) — plus a
+completion-under-policy flag (ST-WebAgentBench arXiv:2410.06703) for any
+trajectory that proposed before checking the mandate and got blocked. The LLM half — does the *model* pick the right tool — scores **12/15 (80%)**
 on Gemini, and caught a real flaw on its first run: `read_mandate`'s description
 opened with "Read this FIRST", and the model obeyed that over the user's actual
 request, calling it when someone plainly asked for a price. The imperative is

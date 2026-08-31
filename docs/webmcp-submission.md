@@ -56,10 +56,14 @@ rationale, breach, argument, and decision exports as a receipt.
 
 - Real product surface (Suwappu's live showcase, Next.js), real pricing via a
   new deliberately non-executable public endpoint — not a mock.
-- Three independent verification layers, all green: 47 behavioural assertions
+- Five independent verification layers, all green: 72 behavioural assertions
   (`webmcp:smoke`), 11 spec-conformance checks against Google's own polyfill
-  (`webmcp:spec`), 15/15 deterministic eval executions + 12/15 (80%) on the
-  official LLM harness — misses reported honestly, not explained away.
+  (`webmcp:spec`), 37/37 deterministic eval executions (`webmcp:evals`),
+  49/49 adversarial injection checks (`webmcp:evals:adversarial`), and an
+  imperative-description lint (`webmcp:lint`) — plus 12/15 (80%) on the
+  official LLM harness, misses reported honestly, not explained away, and a
+  trajectory/pass^k re-grader so the strict score is contextualized, never
+  replaced.
 - The page fully works without WebMCP: every tool has a human control.
   Progressive enhancement, not an agent-only backdoor.
 
@@ -132,6 +136,6 @@ running green (10s).
       current schemas until re-run.
 - [ ] Demo video shows the declarative half too: the agent filling the ticket
       form and the human pressing Price it.
-- [ ] Re-verify every literal count in the docs (47 assertions, 16 static /
+- [ ] Re-verify every literal count in the docs (72 assertions, 16 static /
       18 imperative / 19 total tools) against the suites and `TOOLS` before
       submitting — these numbers are hand-written and rot silently.
