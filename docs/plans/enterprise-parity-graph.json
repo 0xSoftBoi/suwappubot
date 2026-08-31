@@ -180,6 +180,18 @@
       "surface": "api-ts",
       "status": "done",
       "notes": "DONE: orgWebhooks schema + webhookDispatcher (SSRF guard incl. numeric-host bypasses, TOCTOU re-check at send, HMAC-SHA256 of raw body, 5s timeout, no redirects, fire-and-forget) + enterpriseWebhooks CRUD/test routes (admin-only, secret shown once) + 8 dispatch sites in enterprisePolicies. Follow-ups: screening.* dispatch needs a Python-side wiring pass; drizzle migration for org_webhooks deferred (db:generate not run)."
+    },
+    {
+      "id": "taste-pass-1",
+      "title": "Design-quality pass over all six dashboard pages (taste-skill universal rules)",
+      "category": "polish",
+      "priority": 16,
+      "deps": [
+        "security-center-ui"
+      ],
+      "surface": "showcase",
+      "status": "done",
+      "notes": "DONE: ~50 visible em/en-dashes removed w/ sentence restructuring; one documented radius scale (16/10/999px), ~35 outliers normalized; 2 WCAG AA failures fixed (tier text 4.09->7.9:1, low-alpha captions 2.4-4.1->8.4:1) via existing tokens; status palette verified identical across pages; :active press feedback on all page-module buttons w/ reduced-motion opt-out; state audit: skeletons everywhere, no spinners; dead ComingOnline.tsx removed. Build clean. Next polish candidates: live visual pass at 1440/390 on deployed env (art-director), dark-mode audit (dashboard is light-only by design of --summer tokens - confirm intent)."
     }
   ],
   "completed": "2026-08-31 \u2014 all 15 nodes done. Follow-ups tracked in node notes: enforcement wiring of orgPolicies into transfer paths (next MONEY-PATH phase), screening.* webhook dispatch from Python side, org_webhooks + policy drizzle migration application, orgTreasurySnapshots table (dual-ORM), live visual pass on deployed env, /bugclass sweep for throw-in-Effect.gen (enterprise.ts:273)."
