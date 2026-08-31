@@ -34,11 +34,14 @@ interface IERC20 {
  *     (measured against the settle-time EVM snapshots, not aggregate balance).
  *
  * Liveness: retry() re-issues a bridge send that was silently rejected;
- * forceRelease() frees the serialization lock after RELEASE_DELAY_L1 and
- * reconciles the stuck swap in place (under the lock, where attribution is
- * sound) so no swap is ever abandoned with funds on Core. Only a swap whose
- * deposit HyperCore never credited is terminalized (Aborted) — those funds are
- * in HyperCore's custody, unrecoverable by any contract.
+ * forceRelease() reconciles the stuck swap in place (under the lock, where
+ * attribution is sound) to Bridging and then, like settle, holds the lock until
+ * claim() confirms the bridge credits — so a recovered swap's async debit never
+ * races a next swap's snapshot. It abandons (Aborted) only when nothing is
+ * recoverable: a deposit HyperCore never credited (funds at the token system
+ * address, unrecoverable by any contract), or — accepted pathological loss — an
+ * order still held 100k+ L1 blocks past execute, where terminalizing preserves
+ * router liveness at the cost of that held balance.
  *
  * Concurrency: ONE in-flight swap (global lock) keeps balance-delta attribution
  * sound; every reconciliation (settle AND forceRelease) runs while inFlight==id.
@@ -413,7 +416,24 @@ contract SuwappuCoreRouter {
         if (L1Read.spotBalance(address(this), coreTokenIn).hold == 0) {
             recovered = _reconcile(id, s, st == Status.Pending);
         }
-        if (!recovered) s.status = Status.Aborted;
+        if (recovered) {
+            // Reconciled to Bridging: async Core->EVM bridge-backs are now in
+            // flight. KEEP the lock (exactly as settle does) so no next swap can
+            // snapshot Core while our debit is still crossing and get
+            // under-credited. claim() frees the lock once it verifies the
+            // credits landed; if a send was rejected, retry() (allowed while
+            // inFlight==id) re-sends, then the Bridging branch above frees it.
+            return;
+        }
+        // Nothing recoverable: either the deposit was never credited (funds sit
+        // at the token system address in HyperCore's hands, unrecoverable by any
+        // contract), or an order is still held 100k+ L1 blocks past execute — a
+        // HyperCore-level failure. In the latter the held balance is the
+        // contract's own and would free if the order ever resolved; we accept
+        // abandoning it to keep the router live rather than let one wedged order
+        // brick every future swap. Terminalize so no later call reconciles
+        // against a successor's balances.
+        s.status = Status.Aborted;
         inFlight = 0;
         emit LockReleased(id);
     }

@@ -217,21 +217,22 @@ contract CoreRouterTest is Test {
         _mockSpot(QUOTE_TOKEN, 50e8, 0);
         _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
         router.forceRelease(id);
-        // reconciled under the lock, not abandoned
+        // reconciled under the lock, not abandoned; lock retained until claim
         assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
         (uint64 outOwed,) = _owed(id);
         assertEq(outOwed, 50e8 - 15_000_000);
-        assertEq(router.inFlight(), 0);
+        assertEq(router.inFlight(), id);
 
-        // cannot re-settle against a successor's balances
+        // cannot re-settle against a successor's balances (status != Pending)
         vm.roll(block.number + 1);
         vm.expectRevert(SuwappuCoreRouter.BadStatus.selector);
         router.settle(id);
 
-        // and the user still gets paid via the normal claim path
+        // claim pays the user and frees the lock only after credits land
         quote.mint(address(router), 50e8 - 15_000_000);
         router.claim(id);
         assertEq(quote.balanceOf(alice), 1_000e8 + 50e8 - 15_000_000);
+        assertEq(router.inFlight(), 0);
     }
 
     function test_forceRelease_funding_reconcilesUnderLock_refundsDeposit() public {
@@ -249,11 +250,39 @@ contract CoreRouterTest is Test {
         assertEq(outOwed, 0);
         assertEq(inOwed, 2e8);
         assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
-        assertEq(router.inFlight(), 0);
+        // lock is RETAINED until claim confirms the bridge credit (mirrors
+        // settle) so the async refund cannot race a next swap's snapshot
+        assertEq(router.inFlight(), id);
 
         base.mint(address(router), 2e18);
         router.claim(id);
         assertEq(base.balanceOf(alice), 100e18); // made whole
+        assertEq(router.inFlight(), 0); // freed by claim
+    }
+
+    function test_forceRelease_recovered_retainsLockUntilClaim() public {
+        // Round-4 fix: a recovering forceRelease must NOT free the lock in the
+        // same tx as its async bridge-back, or the next swap under-credits.
+        vm.prank(alice);
+        uint128 id = router.initiate(true, 2e18, PX, 49e8);
+        _fundAndExecute(id, BASE_TOKEN, 2e8);
+        _mockSpot(BASE_TOKEN, 0, 0);
+        _mockSpot(QUOTE_TOKEN, 50e8, 0);
+        _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
+        router.forceRelease(id);
+
+        // next swap cannot snapshot Core while A's debit is still crossing
+        vm.prank(alice);
+        vm.expectRevert(SuwappuCoreRouter.Locked.selector);
+        router.initiate(true, 1e18, PX, 20e8);
+
+        // once A's credit lands and A claims, the lock frees for B
+        quote.mint(address(router), 50e8 - 15_000_000);
+        router.claim(id);
+        _mockSpot(BASE_TOKEN, 0, 0);
+        _mockL1Block(L1_START);
+        vm.prank(alice);
+        router.initiate(true, 1e18, PX, 20e8); // now succeeds
     }
 
     function test_forceRelease_funding_neverLanded_abortsAndFreesLock() public {
