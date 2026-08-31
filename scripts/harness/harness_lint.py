@@ -47,7 +47,7 @@ def main():
             for group in groups:
                 for hook in group.get("hooks", []):
                     cmd = hook.get("command", "")
-                    for match in re.findall(r'\$CLAUDE_PROJECT_DIR/(\S+?\.py)', cmd):
+                    for match in re.findall(r"\$CLAUDE_PROJECT_DIR/(\S+?\.py)", cmd):
                         check(
                             os.path.exists(os.path.join(ROOT, match.strip('"'))),
                             f"settings.json {event} references missing hook: {match}",
@@ -69,9 +69,14 @@ def main():
         text = open(path, errors="replace").read()
         rel = os.path.relpath(path, ROOT)
         check(text.startswith("---"), f"{rel}: missing frontmatter")
-        check("description:" in text.split("---")[1] if text.startswith("---")
-              and len(text.split("---")) > 2 else False,
-              f"{rel}: frontmatter lacks description")
+        check(
+            (
+                "description:" in text.split("---")[1]
+                if text.startswith("---") and len(text.split("---")) > 2
+                else False
+            ),
+            f"{rel}: frontmatter lacks description",
+        )
 
     # 4. CLAUDE.md word budget
     claude_md = os.path.join(ROOT, "CLAUDE.md")
@@ -86,17 +91,20 @@ def main():
     # 5. lessons bounded + unique
     lessons_path = os.path.join(ROOT, ".claude", "harness", "lessons.md")
     if os.path.exists(lessons_path):
-        titles = re.findall(
-            r"^### (.+)$", open(lessons_path, errors="replace").read(), re.M
+        titles = re.findall(r"^### (.+)$", open(lessons_path, errors="replace").read(), re.M)
+        check(
+            len(titles) <= MAX_LESSONS,
+            f"lessons.md has {len(titles)} lessons > {MAX_LESSONS} cap — "
+            "merge related lessons or evict stale ones.",
         )
-        check(len(titles) <= MAX_LESSONS,
-              f"lessons.md has {len(titles)} lessons > {MAX_LESSONS} cap — "
-              "merge related lessons or evict stale ones.")
         dupes = {t for t in titles if titles.count(t) > 1}
         check(not dupes, f"lessons.md duplicate titles: {sorted(dupes)}")
 
-    # 6. journal integrity
-    for path in glob.glob(os.path.join(ROOT, ".claude", "harness", "journal", "*.jsonl")):
+    # 6. journal integrity (legacy monthly files + per-session shards)
+    journal_dir = os.path.join(ROOT, ".claude", "harness", "journal")
+    for path in glob.glob(os.path.join(journal_dir, "*.jsonl")) + glob.glob(
+        os.path.join(journal_dir, "*.d", "*.jsonl")
+    ):
         with open(path, errors="replace") as fh:
             for i, line in enumerate(fh, 1):
                 if line.strip():
