@@ -33,6 +33,26 @@ Foundry aliases (in `foundry.toml`): `hyperevm_testnet`, `hyperevm_mainnet`.
   two-phase — act, then verify via L1Read in a later block. Never assume an
   order filled in the tx that placed it.
 
+## SuwappuCoreRouter status
+
+`hypercore/SuwappuCoreRouter.sol` — native spot swaps against the HyperCore
+book (initiate → execute → settle → claim; forceRelease/retry for liveness).
+
+- **Review:** cleared money-path review at **SHIP-TO-TESTNET** after 4 adversarial
+  rounds (v1 had 4 fund-loss criticals; all closed). ABI verified against live
+  chain-998 precompiles.
+- **Tests:** 17 router tests incl. 256-run conservation fuzz, buy/sell, partial
+  fills, funded-then-execute ordering, force-release reconcile-under-lock,
+  lock-retention. Full contracts suite 106 green.
+- **Accepted residuals (must clear before MAINNET):**
+  1. Early-claim-via-EVM-donation: an attacker can complete a claim early by
+     donating the owed amount; the donation is unrecoverable so the grief costs
+     them the full amount. Documented in the contract header.
+  2. `hold>0` past 100k L1 blocks → Aborted abandons that held balance to keep
+     the router live (pathological; implies HyperCore malfunction).
+- **Before mainnet:** independent external audit (internal review is not a
+  substitute), plus the testnet soak below. `MAINNET_READINESS.md` still applies.
+
 ## Gotcha 1: big blocks
 
 HyperEVM has dual blocks: small (~1s, 3M gas) and big (~1min, 30M gas). Contract
