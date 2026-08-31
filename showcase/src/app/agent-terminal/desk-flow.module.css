@@ -8,16 +8,41 @@
   padding: 14px 16px 12px;
   border: 1px solid #24313a;
   border-radius: var(--suwappu-summer-radius-inset, 8px);
-  background: #0f1417;
+  background:
+    radial-gradient(900px 360px at 72% 0%, rgba(69, 179, 214, 0.06), transparent 65%),
+    radial-gradient(700px 320px at 18% 100%, rgba(63, 174, 111, 0.05), transparent 60%),
+    radial-gradient(circle at 1px 1px, #1a2329 1px, transparent 1.4px) 0 0 / 26px 26px,
+    #0f1417;
   color: #dbe6ea;
 }
 
 .head {
   margin: 0 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  justify-content: space-between;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
   letter-spacing: 0.14em;
   color: #8fa3ad;
+}
+
+.headLive {
+  color: #64777f;
+  letter-spacing: 0.08em;
+  font-style: italic;
+}
+
+.headLive b {
+  font-style: normal;
+  font-weight: 700;
+  color: #e09b52;
+}
+
+.headLive[data-on] {
+  color: #9fb3bd;
+  font-style: normal;
 }
 
 .scroller {
@@ -89,6 +114,51 @@
   opacity: 0.08;
 }
 
+/* The current story beat (or a real call's path) burns brighter. */
+.edge[data-hot] {
+  opacity: 1;
+  stroke-width: 2.2;
+}
+
+.edge[data-hot][data-kind='read'] {
+  filter: drop-shadow(0 0 5px rgba(63, 174, 111, 0.85));
+}
+
+.edge[data-hot][data-kind='propose'] {
+  filter: drop-shadow(0 0 5px rgba(224, 155, 82, 0.85));
+}
+
+.edge[data-hot][data-kind='binds'] {
+  filter: drop-shadow(0 0 5px rgba(69, 179, 214, 0.85));
+}
+
+.edge[data-hot][data-kind='gated'] {
+  stroke: #9fb3bd;
+  filter: drop-shadow(0 0 5px rgba(159, 179, 189, 0.7));
+}
+
+/* ── Comets riding the hot edges ── */
+
+.comet[data-kind='read'] {
+  fill: #7fe3a8;
+  filter: drop-shadow(0 0 6px #3fae6f);
+}
+
+.comet[data-kind='propose'] {
+  fill: #ffc98a;
+  filter: drop-shadow(0 0 6px #e09b52);
+}
+
+.comet[data-kind='binds'] {
+  fill: #8fd9f0;
+  filter: drop-shadow(0 0 6px #45b3d6);
+}
+
+.comet[data-kind='gated'] {
+  fill: #c6d4db;
+  filter: drop-shadow(0 0 6px #8fa3ad);
+}
+
 /* ── Nodes ── */
 
 .node rect {
@@ -98,8 +168,24 @@
   transition: opacity 0.15s ease;
 }
 
+.node:hover rect {
+  stroke: #45657a;
+}
+
 .node[data-gate] rect {
+  fill: #142028;
   stroke: #45b3d6;
+  filter: drop-shadow(0 0 7px rgba(69, 179, 214, 0.35));
+}
+
+/* A node in the current story beat lifts out of the dark. */
+.node[data-hot] rect {
+  stroke: #55707d;
+  fill: #1b242a;
+}
+
+.node[data-hot][data-gate] rect {
+  filter: drop-shadow(0 0 10px rgba(69, 179, 214, 0.6));
 }
 
 .node[data-gated] rect {

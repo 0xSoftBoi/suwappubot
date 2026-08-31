@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import styles from './desk-flow.module.css';
 
 /**
@@ -9,9 +9,14 @@ import styles from './desk-flow.module.css';
  * Columns read the way authority moves: the agent may ask freely, may only
  * propose, everything that costs money passes the mandate and the human, and
  * what comes out the far side is a signature surface, a rewritten envelope,
- * or a server-side policy. Edges animate in that direction; when the page's
- * WebMCP tools are actually called, the matching node pulses, so a judge
- * watching an agent drive the desk sees the diagram light up for real.
+ * or a server-side policy.
+ *
+ * Until a real agent connects, the instrument plays a scripted session (read,
+ * silent check, proposal, block, argument, approval, handoff) so the diagram
+ * narrates the product by itself. The first real WebMCP call takes over: from
+ * then on the node for whichever tool the agent just called lights up, and
+ * the header reads out the call. Everything kinetic sits behind
+ * prefers-reduced-motion.
  */
 
 type EdgeKind = 'read' | 'propose' | 'binds' | 'gated';
@@ -77,6 +82,19 @@ const EDGES: Array<[string, string, EdgeKind]> = [
   ['human', 'receipt', 'read'],
 ];
 
+/** The attract loop: one honest session, told edge by edge. */
+const STORY: Array<{ caption: string; edges: Array<[string, string]> }> = [
+  { caption: 'the agent reads your rules first', edges: [['agent', 'read_mandate']] },
+  { caption: 'then dry-runs a trade against them, silently', edges: [['agent', 'check_mandate'], ['check_mandate', 'mandate']] },
+  { caption: 'prices the route for real', edges: [['agent', 'preview_swap']] },
+  { caption: 'and proposes, in writing', edges: [['agent', 'propose_swap'], ['propose_swap', 'mandate']] },
+  { caption: 'the mandate attaches its verdict for you', edges: [['mandate', 'human']] },
+  { caption: 'blocked? it may argue, once, in the open', edges: [['agent', 'override'], ['override', 'human']] },
+  { caption: 'your Approve unlocks the signing handoff', edges: [['human', 'handoff']] },
+  { caption: 'the envelope can compile into policy that binds', edges: [['agent', 'compile'], ['compile', 'policy']] },
+  { caption: 'and every argument ends up on the receipt', edges: [['human', 'receipt']] },
+];
+
 const CARD_W = 178;
 const CARD_H = 38;
 const GAP = 9;
@@ -86,6 +104,24 @@ const COL_TITLES = ['YOUR AGENT', 'IT MAY ASK, FREELY', 'IT MAY ONLY PROPOSE', '
 
 export default function DeskFlow({ lastTool }: { lastTool: string | null }) {
   const [focus, setFocus] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
+  const [motionOK, setMotionOK] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: no-preference)');
+    setMotionOK(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setMotionOK(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // The attract loop runs until the first real tool call, and pauses on hover.
+  const storyOn = motionOK && lastTool === null && focus === null;
+  useEffect(() => {
+    if (!storyOn) return;
+    const t = setInterval(() => setStep((s) => (s + 1) % STORY.length), 1500);
+    return () => clearInterval(t);
+  }, [storyOn]);
 
   const layout = useMemo(() => {
     const byCol: FlowNode[][] = [[], [], [], [], []];
@@ -123,16 +159,44 @@ export default function DeskFlow({ lastTool }: { lastTool: string | null }) {
     return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
   };
 
+  const scene = STORY[step];
+  const hotEdges = useMemo(() => {
+    if (!storyOn) return new Set<string>();
+    return new Set(scene.edges.map(([a, b]) => `${a}-${b}`));
+  }, [storyOn, scene]);
+  const hotNodes = useMemo(() => {
+    if (!storyOn) return new Set<string>();
+    const s = new Set<string>();
+    for (const [a, b] of scene.edges) {
+      s.add(a);
+      s.add(b);
+    }
+    return s;
+  }, [storyOn, scene]);
+
   const dimmed = (a: string, b?: string) => {
-    if (!focus) return false;
-    if (b === undefined) return a !== focus && !neighbours.get(focus)?.has(a);
-    return a !== focus && b !== focus;
+    if (focus) {
+      if (b === undefined) return a !== focus && !neighbours.get(focus)?.has(a);
+      return a !== focus && b !== focus;
+    }
+    return false;
   };
 
   return (
     <section className={styles.panel} aria-label="How authority flows through the desk">
       <p className={styles.head}>
-        DESK FLOW · 19 TOOLS, ONE MANDATE, AND EVERY WRITE STOPS AT A HUMAN
+        <span>DESK FLOW · 19 TOOLS, ONE MANDATE, AND EVERY WRITE STOPS AT A HUMAN</span>
+        <span className={styles.headLive} data-on={lastTool ? '' : undefined}>
+          {lastTool ? (
+            <>
+              LAST CALL <b>→ {lastTool}</b>
+            </>
+          ) : storyOn ? (
+            scene.caption
+          ) : (
+            'waiting for an agent'
+          )}
+        </span>
       </p>
       <div className={styles.scroller}>
         <svg
@@ -153,9 +217,22 @@ export default function DeskFlow({ lastTool }: { lastTool: string | null }) {
               d={path(a, b)}
               className={styles.edge}
               data-kind={kind}
+              data-hot={hotEdges.has(`${a}-${b}`) || undefined}
               data-dim={dimmed(a, b) || undefined}
             />
           ))}
+
+          {/* Comets ride the hot edges of the current story beat. */}
+          {motionOK &&
+            [...hotEdges].map((key) => {
+              const [a, b] = key.split('-');
+              const kind = EDGES.find(([ea, eb]) => ea === a && eb === b)?.[2] ?? 'read';
+              return (
+                <circle key={`c-${key}-${step}`} r={3} className={styles.comet} data-kind={kind}>
+                  <animateMotion dur="1.4s" repeatCount="indefinite" path={path(a, b)} />
+                </circle>
+              );
+            })}
 
           {NODES.map((n) => {
             const p = layout.pos.get(n.id)!;
@@ -168,6 +245,7 @@ export default function DeskFlow({ lastTool }: { lastTool: string | null }) {
                 data-gate={gate || undefined}
                 data-gated={n.gated || undefined}
                 data-dim={dimmed(n.id) || undefined}
+                data-hot={hotNodes.has(n.id) || undefined}
                 data-live={(n.tool && n.tool === lastTool) || undefined}
                 onMouseEnter={() => setFocus(n.id)}
                 onMouseLeave={() => setFocus(null)}
