@@ -205,7 +205,9 @@ def test_the_worker_fingerprint_is_refreshed_not_written_once():
         )  # noqa: E203
     ]  # noqa: E203
     assert "_republish_fingerprint" in block, "the fingerprint is still written only at startup"
-    assert "asyncio.create_task" in block
+    # The loop must actually be spawned as a background task — either a bare
+    # create_task or the supervised equivalent (task_supervisor.spawn).
+    assert "asyncio.create_task" in block or "task_supervisor.spawn" in block
     # refresh interval must be comfortably under the TTL it is refreshing
     import re
 
