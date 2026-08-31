@@ -33,6 +33,7 @@ export const MENU_PANELS: MenuPanel[] = [
     key: 'developers', id: 'developers', groups: [
       { key: 'grpBuild', items: [
         { key: 'agentApi', href: '/agents' },
+        { key: 'agentDesk', href: '/agent-terminal' },
         { key: 'mcp', href: '/docs/quick-start/mcp-clients' },
         { key: 'sdks', href: '/docs/quick-start/sdk-examples' },
       ]},

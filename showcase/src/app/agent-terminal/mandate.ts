@@ -25,6 +25,15 @@ export interface Mandate {
   allowedBuyTokens: string[];
   maxPriceImpactPercent: number;
   maxSlippagePercent: number;
+  /**
+   * Monotonically increasing. Starts at 1 and increments only when an
+   * approved `amend_mandate` rewrites the envelope (see `applyAmendment`) —
+   * never on a read, a manual field edit, or a rejected/pending amendment.
+   * Lets a compiled policy or an exported receipt name exactly which version
+   * of the envelope produced it, so a later amendment can't orphan the audit
+   * chain (South et al., arXiv:2501.09674).
+   */
+  version: number;
 }
 
 export const DEFAULT_MANDATE: Mandate = {
@@ -34,10 +43,18 @@ export const DEFAULT_MANDATE: Mandate = {
   allowedBuyTokens: ['USDC', 'USDT', 'ETH', 'WETH', 'WBTC', 'CBBTC'],
   maxPriceImpactPercent: 1,
   maxSlippagePercent: 1,
+  version: 1,
 };
 
+/**
+ * The fields a trade can actually be judged against. `version` is metadata
+ * about the envelope, not a limit — it can never be the `rule` a proposal
+ * breaks, so it is excluded here rather than left for callers to remember.
+ */
+export type MandateRuleKey = Exclude<keyof Mandate, 'version'>;
+
 export interface MandateViolation {
-  rule: keyof Mandate;
+  rule: MandateRuleKey;
   message: string;
   limit: string;
   actual: string;
@@ -167,6 +184,7 @@ export function evaluateMandate(
 /** What the agent reads. Deliberately verbose — it is a contract, not a blob. */
 export function describeMandate(mandate: Mandate, spentTodayUsd: number) {
   return {
+    version: mandate.version,
     perTradeUsdCap: mandate.perTradeUsdCap,
     dailyUsdCap: mandate.dailyUsdCap,
     approvedTodayUsd: spentTodayUsd,
@@ -198,7 +216,7 @@ export interface MandateAmendment {
 }
 
 export interface AmendmentDiff {
-  field: keyof Mandate;
+  field: MandateRuleKey;
   from: string;
   to: string;
   direction: 'looser' | 'tighter' | 'changed';
@@ -213,7 +231,7 @@ const asText = (v: unknown) => (Array.isArray(v) ? (v.length ? v.join(', ') : 'a
  */
 export function diffAmendment(current: Mandate, amendment: MandateAmendment): AmendmentDiff[] {
   const diffs: AmendmentDiff[] = [];
-  const numericLooserWhenHigher: (keyof Mandate)[] = [
+  const numericLooserWhenHigher: MandateRuleKey[] = [
     'perTradeUsdCap',
     'dailyUsdCap',
     'maxPriceImpactPercent',
@@ -251,10 +269,17 @@ export function diffAmendment(current: Mandate, amendment: MandateAmendment): Am
   return diffs;
 }
 
+/**
+ * The only place `version` is allowed to move. Called once, after the human
+ * clicks Approve on a mandate-amendment proposal — never from a rejection, an
+ * expiry, or a manual field edit in the mandate panel (those go through
+ * `updateMandate`'s plain patch and leave `version` untouched).
+ */
 export function applyAmendment(current: Mandate, amendment: MandateAmendment): Mandate {
   return {
     ...current,
     ...Object.fromEntries(Object.entries(amendment).filter(([, v]) => v !== undefined)),
+    version: current.version + 1,
   };
 }
 
@@ -262,6 +287,8 @@ export function applyAmendment(current: Mandate, amendment: MandateAmendment): M
 
 export interface WalletPolicyPayload {
   type: 'spending_limit' | 'whitelist';
+  /** The mandate.version this payload was compiled from — see Mandate.version. */
+  mandateVersion: number;
   params: {
     maxAmountWei?: string;
     timeWindowSeconds?: number;
@@ -298,6 +325,7 @@ export function compileToWalletPolicies(
 
     policies.push({
       type: 'spending_limit',
+      mandateVersion: mandate.version,
       params: { maxAmountWei: toWei(mandate.dailyUsdCap), timeWindowSeconds: 86_400 },
     });
     notes.push(
@@ -308,6 +336,7 @@ export function compileToWalletPolicies(
   if (tokenAddresses.length > 0) {
     policies.push({
       type: 'whitelist',
+      mandateVersion: mandate.version,
       params: { allowedAddresses: tokenAddresses.map((a) => a.toLowerCase()) },
     });
   } else if (mandate.allowedBuyTokens.length > 0) {
@@ -318,6 +347,10 @@ export function compileToWalletPolicies(
 
   notes.push(
     'Installing these policies needs an agent key this page never holds. An agent without a subscription can still act under them: the API meters pay-per-call over HTTP 402 (x402), so the compiled envelope and the payment rail are both agent-native.',
+  );
+
+  notes.push(
+    `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version and does not rewrite this bundle — recompile after any amendment so the installed policy and the negotiated envelope stay the same version.`,
   );
 
   if (mandate.perTradeUsdCap < mandate.dailyUsdCap) {

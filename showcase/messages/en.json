@@ -43,6 +43,8 @@
       "curveDesc": "Every pool on every Curve chain, by TVL, volume, or APR",
       "agentApiTitle": "Agent API",
       "agentApiDesc": "REST built for agents",
+      "agentDeskTitle": "Agent Desk",
+      "agentDeskDesc": "WebMCP tools for your browser agent",
       "mcpTitle": "MCP server",
       "mcpDesc": "Connect Claude, Codex, Cursor",
       "sdksTitle": "SDKs",
