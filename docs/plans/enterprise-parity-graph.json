@@ -102,9 +102,9 @@
         "policy-schema"
       ],
       "surface": "api-ts",
-      "status": "in_progress",
+      "status": "done",
       "money_path": true,
-      "notes": "BUILT then BLOCKED by money-path review: quorum downgrade via body requiredApprovals, non-transactional vote resolution (reject overwritable), =ANY() postgres-js malformed array (500s approvals list after first expiry), Effect defect-vs-fail (all 4xx mapping dead), min(0) quorum floor + 5 mediums. Fix pass in flight; re-review required before commit. Repo-wide bug class flagged: throw-in-Effect.gen also in enterprise.ts:273 (/bugclass candidate)."
+      "notes": "DONE after money-path review cycle (BLOCK -> fixes -> SHIP-WITH-FIXES -> applied). src/routes/enterprisePolicies.ts: policy/allowlist CRUD, quorum votes (db.transaction + FOR UPDATE + conditional resolve + onConflictDoNothing for 409), set-based expiry w/ aggregate system audit, HMAC-signed export w/ domain-separated policy-export-v1 subkey, chain-registry+per-family address validation, UUID param guards, Effect.fail (no defects). All mutations audit-logged. Check clean."
     },
     {
       "id": "policy-ui",
@@ -116,7 +116,7 @@
         "policy-api"
       ],
       "surface": "showcase",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "Quorum progress indicators (2-of-3 style), policy export download button."
     },
     {
@@ -126,7 +126,7 @@
       "priority": 11,
       "deps": [],
       "surface": "both",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "Surface bot/services/compliance data. If screening events aren't persisted yet, add a screening_events table (additive, both ORMs via db-migrate pattern) and write from compliance_service; api-ts reads it."
     },
     {
