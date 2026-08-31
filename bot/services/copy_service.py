@@ -1165,27 +1165,41 @@ class CopyService:
                 automated=True,
             )
 
+            # A simulated (dry-run chain) fill never moved real funds, so it must
+            # never credit real copy-volume/leaderboard stats or points below.
+            # Safe today only because a copy runs on the leader's (real) chain so
+            # swap_tx is never simulated here; this guard keeps it safe if the
+            # fan-out is ever re-wired to a path where a simulated row can reach.
+            # Bookkeeping (status/copy_swap_id) still records the simulated copy;
+            # only the real-value increments and points are gated.
+            is_simulated = getattr(swap_tx, "simulated", False)
+
             with get_session() as session:
                 copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
                 copy_trade.copy_swap_id = swap_tx.id
                 copy_trade.status = "copied"
                 copy_trade.copied_at = datetime.now(timezone.utc)
 
-                follow = (
-                    session.query(CopyFollow).filter(CopyFollow.id == copy_trade.follow_id).first()
-                )
-                if follow:
-                    follow.daily_copied_usd += copy_amount
-                    follow.total_copied_trades += 1
-                    follow.total_copied_volume += copy_amount
-
                 trader_id = copy_trade.trader_id
-                trader_profile = (
-                    session.query(TraderProfile).filter(TraderProfile.user_id == trader_id).first()
-                )
-                if trader_profile:
-                    trader_profile.times_copied += 1
-                    trader_profile.total_copy_volume_usd += copy_amount
+                if not is_simulated:
+                    follow = (
+                        session.query(CopyFollow)
+                        .filter(CopyFollow.id == copy_trade.follow_id)
+                        .first()
+                    )
+                    if follow:
+                        follow.daily_copied_usd += copy_amount
+                        follow.total_copied_trades += 1
+                        follow.total_copied_volume += copy_amount
+
+                    trader_profile = (
+                        session.query(TraderProfile)
+                        .filter(TraderProfile.user_id == trader_id)
+                        .first()
+                    )
+                    if trader_profile:
+                        trader_profile.times_copied += 1
+                        trader_profile.total_copy_volume_usd += copy_amount
 
             # Whole-product points: reward BOTH legs of a successful copy trade —
             # the copier (copy_trade) and the leader being copied (get_copied).
@@ -1193,28 +1207,29 @@ class CopyService:
             # swap as failed via the outer except. Volume proxy = copy_amount;
             # neither side carries a separate Suwappu fee here (the underlying
             # swap's own fee is rewarded on the swap path), so no fee_usd.
-            try:
-                points_service.award_points(
-                    user_id=copier_id,
-                    action="copy_trade",
-                    description="Copied trade from trader",
-                    swap_id=swap_tx.id,
-                    metadata={"amount_usd": float(copy_amount)},
-                )
-            except Exception as e:
-                logger.error(f"copy_trade points award failed for copier {copier_id}: {e}")
-
-            try:
-                if trader_id:
+            if not is_simulated:
+                try:
                     points_service.award_points(
-                        user_id=int(trader_id),
-                        action="get_copied",
-                        description="Your trade was copied",
+                        user_id=copier_id,
+                        action="copy_trade",
+                        description="Copied trade from trader",
                         swap_id=swap_tx.id,
                         metadata={"amount_usd": float(copy_amount)},
                     )
-            except Exception as e:
-                logger.error(f"get_copied points award failed for leader {trader_id}: {e}")
+                except Exception as e:
+                    logger.error(f"copy_trade points award failed for copier {copier_id}: {e}")
+
+                try:
+                    if trader_id:
+                        points_service.award_points(
+                            user_id=int(trader_id),
+                            action="get_copied",
+                            description="Your trade was copied",
+                            swap_id=swap_tx.id,
+                            metadata={"amount_usd": float(copy_amount)},
+                        )
+                except Exception as e:
+                    logger.error(f"get_copied points award failed for leader {trader_id}: {e}")
 
             return True, "Trade copied successfully!", swap_tx.id
 

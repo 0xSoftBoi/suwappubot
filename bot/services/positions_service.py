@@ -57,6 +57,10 @@ async def backfill_user_positions(user_id: int) -> bool:
                 .filter(
                     SwapTransaction.user_id == user_id,
                     SwapTransaction.status.in_(_REPLAY_STATUSES),
+                    # A simulated (dry-run chain) fill never moved real
+                    # holdings -- replaying it would corrupt real cost
+                    # basis / PnL. See docs/development/chain-rollout.md.
+                    SwapTransaction.simulated.is_(False),
                 )
                 .order_by(SwapTransaction.created_at.asc())
                 .limit(_MAX_REPLAY)

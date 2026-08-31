@@ -558,6 +558,7 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
         _add_swap_error_category_column(db_engine, inspector, is_sqlite)
         _add_swap_realized_output_columns(db_engine, inspector, is_sqlite)
+        _add_swap_simulated_column(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -2263,6 +2264,34 @@ def _add_swap_realized_output_columns(db_engine, inspector, is_sqlite: bool) -> 
                 )
             with db_engine.begin() as conn:
                 conn.execute(text(ddl))
+
+
+def _add_swap_simulated_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add `simulated` to swap_transactions (Phase 5 dry-run rollout).
+
+    True marks a row as a SIMULATED fill from a chain in
+    `settings.dry_run_chains` (docs/development/chain-rollout.md): the swap
+    engine ran the full quote/policy/slippage/build path but never
+    broadcast. Defaults FALSE so every pre-existing row (all real fills)
+    stays correctly classified without a backfill. Additive and idempotent
+    per docs/development/migrations.md.
+
+    DUAL-ORM (ADR 0003): this is the SQLAlchemy side only. The Drizzle
+    mirror (api-ts/src/db/schema) still needs a `simulated boolean not null
+    default false` column + migration on swap_transactions/swaps table
+    there — not done in this pass, see the Phase 5 report.
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+    if "simulated" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE swap_transactions ADD COLUMN simulated BOOLEAN DEFAULT 0 NOT NULL"
+        else:
+            ddl = (
+                "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
+                "simulated BOOLEAN DEFAULT FALSE NOT NULL"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
 
 
 def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> None:

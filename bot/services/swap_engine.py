@@ -20,6 +20,7 @@ Providers:
 import asyncio
 import json
 import logging
+import secrets
 from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -4460,9 +4461,23 @@ class SwapEngine:
                         f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade."
                     )
 
+            # Phase 5 dry-run rollout (docs/development/chain-rollout.md): a
+            # chain in `settings.dry_run_chains` must NEVER reach a real
+            # broadcast, no matter which provider this quote would otherwise
+            # dispatch to. Everything ABOVE this point (idempotency, quote
+            # freshness, the gated-token/GOAT/Citrea/Tempo hard backstops,
+            # spending-limit check, compliance screening, balance validation,
+            # adaptive-slippage already baked into `quote`, and the swap row
+            # itself) has already run identically for dry-run and live
+            # chains -- this is the single chokepoint that decides broadcast
+            # vs. simulate, so it must not be duplicated per-provider.
+            is_dry_run = settings.is_dry_run_chain(quote.from_chain)
+
             try:
                 # Route to appropriate execution method based on provider
-                if quote.provider == "tempo_dex":
+                if is_dry_run:
+                    tx_hash = await self._execute_dry_run_swap(quote, wallet, swap_id)
+                elif quote.provider == "tempo_dex":
                     tx_hash = await self._execute_tempo_dex_swap(quote, wallet, user_id, automated)
                 elif quote.provider == "cow":
                     tx_hash = await self._execute_cow_swap(quote, wallet)
@@ -4549,7 +4564,26 @@ class SwapEngine:
                         )
                         if db_tx:
                             db_tx.tx_hash = tx_hash
-                            db_tx.status = SwapStatus.SUBMITTED.value
+                            db_tx.simulated = is_dry_run
+                            if is_dry_run:
+                                # Dry-run fill settles instantly at the quote
+                                # price -- there is no real chain to confirm
+                                # against, so this never sits in SUBMITTED
+                                # waiting on tx_poller (which only queries
+                                # non-terminal statuses and would otherwise
+                                # try to RPC-lookup a synthetic hash forever).
+                                db_tx.status = SwapStatus.COMPLETED.value
+                                db_tx.completed_at = datetime.now(timezone.utc)
+                                # EXTENSION POINT: quote price is the simulated
+                                # fill with no modeled slippage this pass. A
+                                # follow-up can widen this to a configurable
+                                # slippage distribution (Freqtrade's
+                                # orderbook-fill idea) once dry-run coverage
+                                # extends past the pilot chains.
+                                db_tx.realized_to_amount = quote.to_amount
+                                db_tx.realized_to_amount_usd = to_amount_usd
+                            else:
+                                db_tx.status = SwapStatus.SUBMITTED.value
                             if quote.provider == "0x_crosschain":
                                 # Merge into the existing route_data instead
                                 # of replacing it wholesale -- it may already
@@ -4571,8 +4605,10 @@ class SwapEngine:
 
                 # Record the outflow so spending-limit windows survive restarts.
                 # Best-effort: the swap is already submitted, so a tracking
-                # failure must not surface as a swap failure.
-                if from_amount_usd is not None:
+                # failure must not surface as a swap failure. Skipped for a
+                # simulated fill -- no real funds moved, so counting it would
+                # wrongly eat into the user's real spending-limit window.
+                if not is_dry_run and from_amount_usd is not None:
                     try:
                         await run_in_db(
                             lambda: spending_limit_service.record(
@@ -4590,7 +4626,10 @@ class SwapEngine:
                 except Exception as e:
                     logger.debug(f"Failed to invalidate balance cache: {e}")
 
-                # Publish swap.submitted event
+                # Publish swap.submitted event. `simulated` rides along so any
+                # subscriber (webhooks, analytics, WhatsApp/Telegram notifiers)
+                # can filter a dry-run fill out of anything that presents it as
+                # real trading activity.
                 await event_bus.publish(
                     "swap.submitted",
                     {
@@ -4600,23 +4639,31 @@ class SwapEngine:
                         "fromChain": quote.from_chain,
                         "toChain": quote.to_chain,
                         "provider": quote.provider,
+                        "simulated": is_dry_run,
                     },
                 )
 
-                try:
-                    from bot.services.copy_service import copy_service
+                # Copy-trading fan-out and average-cost/PnL settlement must
+                # NEVER run off a simulated fill -- it never moved real funds,
+                # so replaying it to followers or into a user's real cost
+                # basis would fabricate trading activity.
+                if not is_dry_run:
+                    try:
+                        from bot.services.copy_service import copy_service
 
-                    await copy_service.handle_swap_submitted(swap_id)
-                except Exception as e:
-                    logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
+                        await copy_service.handle_swap_submitted(swap_id)
+                    except Exception as e:
+                        logger.warning(f"Copy-trading hook failed for swap {swap_id}: {e}")
 
                 # Update the user's average-cost spot basis for the Positions /
                 # PnL view. Best-effort — the swap already succeeded, so a
-                # settlement error must never propagate.
-                try:
-                    await self._settle_user_position(user_id, quote)
-                except Exception as e:
-                    logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
+                # settlement error must never propagate. Skipped for a
+                # simulated fill (see copy-trading gate above — same reason).
+                if not is_dry_run:
+                    try:
+                        await self._settle_user_position(user_id, quote)
+                    except Exception as e:
+                        logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
 
                 # Clean up local references (drop the encrypted-key reference
                 # from this scope as soon as it's no longer needed; the store
@@ -4696,6 +4743,52 @@ class SwapEngine:
                 wallet_encrypted_key = None  # noqa: F841
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
+
+    async def _execute_dry_run_swap(self, quote: SwapQuote, wallet_data: dict, swap_id: int) -> str:
+        """Simulated fill for a chain in `settings.dry_run_chains`.
+
+        MONEY-PATH SAFETY INVARIANT: this is the ONLY code path taken for a
+        dry-run chain (see the `is_dry_run` gate in `execute_swap` above,
+        applied before the per-provider dispatch) — it MUST NOT call any
+        `_execute_<provider>_swap` method, `_broadcast_evm_tx`,
+        `web3.eth.send_raw_transaction`, or any provider's own
+        sign-and-broadcast helper. No signed transaction produced here is
+        ever transmitted to a node or relayer.
+
+        Everything before this point in `execute_swap` (idempotency, quote
+        freshness, gated-token/GOAT/Citrea/Tempo backstops, spending-limit
+        check, compliance screening, balance validation, and the
+        already-applied adaptive-slippage baked into `quote`) ran exactly as
+        it would for a live chain — only the build+broadcast step is
+        replaced.
+
+        EXTENSION POINT: this pass fills at the quote's own `to_amount`
+        (`quote` price, no modeled slippage) and does not invoke any
+        provider's calldata-build step, so the pilot proves the engine
+        wiring end-to-end without yet exercising the exact bytes a live
+        broadcast would send. A natural follow-up, once dry-run coverage
+        moves past the pilot chains in docs/development/chain-rollout.md, is
+        to call the relevant provider's existing build/sign half (e.g. the
+        calldata-fetch + local sign in `_execute_lifi_evm_swap`, or the
+        versioned-transaction build + local sign in `_execute_jupiter_swap`)
+        and discard the signed payload here instead of broadcasting it — and
+        to widen the simulated fill to a configurable slippage distribution
+        (Freqtrade's orderbook-fill idea) instead of a flat quote-price fill.
+
+        Returns a synthetic tx hash that can never be mistaken for (or
+        collide with) a real on-chain hash.
+        """
+        fake_hash = f"SIMULATED-{quote.provider}-{swap_id}-{secrets.token_hex(12)}"
+        logger.info(
+            "DRY-RUN swap %s: chain='%s' provider=%s -- simulated fill at quote "
+            "price (%s %s), no broadcast",
+            swap_id,
+            quote.from_chain,
+            quote.provider,
+            quote.to_amount_human,
+            quote.to_token,
+        )
+        return fake_hash
 
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""

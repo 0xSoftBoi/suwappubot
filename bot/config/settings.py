@@ -1603,6 +1603,35 @@ class Settings(BaseSettings):
         """Parse `monitor_expected_sources` into a clean list of source names."""
         return [s.strip() for s in (self.monitor_expected_sources or "").split(",") if s.strip()]
 
+    # Dry-run chain rollout (Freqtrade lesson, docs/plans/oss-parity.md Phase 5):
+    # a chain listed here still runs the FULL swap path in swap_engine —
+    # quote, policy gate, adaptive slippage, transaction build — but the
+    # signed transaction is never broadcast. A simulated fill is recorded
+    # into the normal swap_transactions row, marked `simulated=True`, so a
+    # new chain integration can be exercised end-to-end before real capital
+    # is at risk. Default empty = no chain is dry-run = byte-identical
+    # current behavior. See docs/development/chain-rollout.md.
+    dry_run_chains: str = Field(
+        default="",
+        description=(
+            "Comma-separated list of chain keys (matching bot/config/chains.py "
+            "chain names, e.g. 'tempo,goat') that run in dry-run mode: full quote "
+            "+ policy + slippage + tx-build path, but the swap_engine NEVER "
+            "broadcasts and instead records a simulated fill. Empty (default) "
+            "disables dry-run entirely."
+        ),
+    )
+
+    def dry_run_chains_set(self) -> set:
+        """Parse `dry_run_chains` into a lowercase set of chain keys."""
+        return {c.strip().lower() for c in (self.dry_run_chains or "").split(",") if c.strip()}
+
+    def is_dry_run_chain(self, chain: str) -> bool:
+        """True if `chain` is flagged for dry-run (simulated, never-broadcast) swaps."""
+        if not chain:
+            return False
+        return chain.strip().lower() in self.dry_run_chains_set()
+
     # CCTP V2 (Circle's canonical version — V1 is deprecated). Controls the
     # generic cctp_api.py client used by router/swap_engine. Fast Transfer is a
     # PAID tier (a live Circle fee, capped by maxFee) that trades cost for speed

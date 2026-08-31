@@ -115,6 +115,16 @@ class SwapTransaction(Base):
     # user_rejected, no_route, unsupported, unknown.
     error_category = Column(String(40), nullable=True)
 
+    # Dry-run rollout (Freqtrade lesson, docs/plans/oss-parity.md Phase 5):
+    # True when this row is a SIMULATED fill for a chain in
+    # `settings.dry_run_chains` — the swap engine ran the full quote/policy/
+    # slippage/build path but never broadcast a real transaction. `tx_hash`
+    # on a simulated row is a synthetic identifier, NEVER a real on-chain
+    # hash. Every balance/points/fee/PnL credit site MUST gate on
+    # `not simulated` — see docs/development/chain-rollout.md. Additive,
+    # idempotent migration: database/db.py::_add_swap_simulated_column.
+    simulated = Column(Boolean, default=False, nullable=False, server_default="false")
+
     # Relationships
     user = relationship("User", back_populates="swaps")
 

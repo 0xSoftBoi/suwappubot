@@ -617,11 +617,14 @@ class OrderService:
                 automated=True,
             )
 
-            # 4. Update status on submission
-            if swap_tx and swap_tx.status in [
-                SwapStatus.SUBMITTED.value,
-                SwapStatus.COMPLETED.value,
-            ]:
+            # 4. Update status on submission. A simulated (dry-run chain)
+            # fill must never mark a real limit order EXECUTED -- it never
+            # moved real funds. See docs/development/chain-rollout.md.
+            if (
+                swap_tx
+                and swap_tx.status in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]
+                and not getattr(swap_tx, "simulated", False)
+            ):
                 with get_session() as session:
                     db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
                     if db_order:
@@ -686,11 +689,14 @@ class OrderService:
                 automated=True,
             )
 
-            # 3. Update DCA Stats on success
-            if swap_tx and swap_tx.status in [
-                SwapStatus.SUBMITTED.value,
-                SwapStatus.COMPLETED.value,
-            ]:
+            # 3. Update DCA Stats on success. A simulated (dry-run chain)
+            # fill must never advance real DCA spend stats -- it never moved
+            # real funds. See docs/development/chain-rollout.md.
+            if (
+                swap_tx
+                and swap_tx.status in [SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value]
+                and not getattr(swap_tx, "simulated", False)
+            ):
                 with get_session() as session:
                     db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
                     if db_order:

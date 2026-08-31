@@ -1557,7 +1557,13 @@ async def _run_confirmed_swap(edit, context: ContextTypes.DEFAULT_TYPE) -> int:
         total_points = 0
 
         for swap_tx in swap_results:
-            if swap_tx.status == SwapStatus.SUBMITTED.value:
+            # A simulated (dry-run chain) fill never moved real funds, so it
+            # must never charge a fee, burn a referral rebate, or award real
+            # XP -- gate on `simulated` in addition to status. See
+            # docs/development/chain-rollout.md.
+            if swap_tx.status == SwapStatus.SUBMITTED.value and not getattr(
+                swap_tx, "simulated", False
+            ):
                 num_success += 1
                 fee_amount = swap_data.get("fee_amount", 0)
                 fee_percentage = swap_data.get("fee_percentage", 1.0)
