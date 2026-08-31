@@ -139,8 +139,8 @@
         "compliance-api"
       ],
       "surface": "showcase",
-      "status": "in_progress",
-      "notes": "Chainalysis-style: alert list w/ severity, filterable by chain/direction."
+      "status": "done",
+      "notes": "DONE: showcase/src/app/dashboard/compliance/ \u2014 mode indicator card (ENFORCE/MONITOR/DISABLED w/ observed-from-events caveat), KPI tiles + per-reason bars, decision tabs (blocked default), chain/direction/date filters, accordion txContext detail, CSV export, 7/30/90d selector. Build clean. Follow-up: no live visual pass yet (needs deployed env)."
     },
     {
       "id": "security-center-ui",

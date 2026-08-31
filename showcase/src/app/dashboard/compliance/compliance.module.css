@@ -1,0 +1,425 @@
+/* Compliance page — layered on top of ../dashboard.module.css (shared
+   .card, .table, .actionBtn, .stateBox, .tabs/.tab, --summer-* tokens). This
+   file only holds compliance-specific shapes: the mode indicator, summary
+   stat tiles, reason breakdown bars, the days selector, decision/reason
+   pills, the address chip, the expandable detail row, filter bar, and
+   pagination. Mirrors ../audit/audit.module.css and
+   ../transactions/transactions.module.css so the three admin tables read as
+   one family. */
+
+/* ── Days selector ── */
+
+.daysSelector {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 999px;
+  background: rgba(237, 248, 251, 0.5);
+}
+
+.dayBtn {
+  min-height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.dayBtn:hover {
+  color: var(--summer-ink, #17324a);
+}
+
+.dayBtn[data-active] {
+  background: rgba(14, 149, 189, 0.14);
+  color: #0b789a;
+}
+
+/* ── Mode indicator card ──
+   ENFORCE = red accent (money-path is actively blocked), MONITOR = amber
+   (screening logs but does not block), DISABLED/UNKNOWN = neutral. */
+
+.modeCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(142, 182, 197, 0.35);
+  background: rgba(142, 182, 197, 0.1);
+}
+
+.modeCard[data-mode='enforce'] {
+  border-color: rgba(192, 57, 43, 0.4);
+  background: linear-gradient(180deg, rgba(214, 87, 74, 0.12), rgba(192, 57, 43, 0.06));
+}
+
+.modeCard[data-mode='monitor'] {
+  border-color: rgba(229, 176, 43, 0.45);
+  background: linear-gradient(180deg, rgba(246, 190, 60, 0.14), rgba(229, 176, 43, 0.06));
+}
+
+.modeCard[data-mode='disabled'],
+.modeCard[data-mode='unknown'] {
+  border-color: rgba(142, 182, 197, 0.35);
+  background: rgba(142, 182, 197, 0.08);
+}
+
+.modeIcon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.modeCard[data-mode='enforce'] .modeIcon { color: #c0392b; }
+.modeCard[data-mode='monitor'] .modeIcon { color: #9a6b00; }
+.modeCard[data-mode='disabled'] .modeIcon,
+.modeCard[data-mode='unknown'] .modeIcon { color: #5a7184; }
+
+.modeLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.modeValue {
+  margin-top: 2px;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.18rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.modeCaption {
+  margin-top: 5px;
+  max-width: 620px;
+  color: rgba(33, 88, 110, 0.62);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+/* ── Summary tiles + reason breakdown ── */
+
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Colored status dot inside the shared .kpiCard — dashboard.module.css
+   defines the position/size, this file supplies the per-decision color. */
+.kpiDot[data-tone='blocked'] { background: #c0392b; }
+.kpiDot[data-tone='flagged'] { background: #b96a12; }
+.kpiDot[data-tone='allowed'] { background: #1e8449; }
+
+.reasonBreakdown {
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.reasonBreakdownLabel {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.reasonBars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reasonBarRow {
+  display: grid;
+  grid-template-columns: 160px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+}
+
+.reasonBarName {
+  color: var(--summer-ink, #17324a);
+  font-size: 0.82rem;
+}
+
+.reasonBarTrack {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(207, 227, 234, 0.5);
+  overflow: hidden;
+}
+
+.reasonBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e5793a, #c0392b);
+  transition: width 0.3s ease;
+}
+
+/* ── Filter bar ── */
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 140px;
+}
+
+.filterLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.filterInput,
+.filterSelect {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.86rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.filterInput:focus,
+.filterSelect:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.filterActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.exportErr {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  border-radius: 8px;
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+  font-size: 0.82rem;
+}
+
+/* ── Table rows ── */
+
+.eventRow {
+  cursor: pointer;
+}
+
+.detailRow td {
+  padding: 0;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.detailPanel {
+  padding: 16px 18px 18px;
+  background: rgba(237, 248, 251, 0.4);
+}
+
+.detailMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detailLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.jsonBlock {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(207, 227, 234, 0.76);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* ── Decision pill (severity styling) ── */
+
+.decisionPill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  background: rgba(142, 182, 197, 0.12);
+  color: #5a7184;
+}
+
+.decisionPill[data-decision='blocked'] {
+  border-color: rgba(192, 57, 43, 0.4);
+  background: rgba(192, 57, 43, 0.12);
+  color: #c0392b;
+}
+
+.decisionPill[data-decision='flagged'] {
+  border-color: rgba(229, 176, 43, 0.45);
+  background: rgba(229, 176, 43, 0.14);
+  color: #9a6b00;
+}
+
+.decisionPill[data-decision='allowed'] {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  color: #1e8449;
+}
+
+/* ── Reason pill ── */
+
+.reasonPill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(14, 149, 189, 0.28);
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ── Address chip w/ copy button ── */
+
+.hashChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid rgba(207, 227, 234, 0.85);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.hashEmpty {
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #0b789a;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.copyBtn:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.copyBtn:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 1px;
+}
+
+/* ── Pagination ── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.pageMeta {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.pageBtns {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .filterField {
+    min-width: 100%;
+  }
+  .filterActions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .detailMeta {
+    grid-template-columns: 1fr;
+  }
+  .reasonBarRow {
+    grid-template-columns: 110px 1fr 36px;
+  }
+  .modeCard {
+    flex-direction: column;
+  }
+}
