@@ -4984,6 +4984,13 @@ class SwapEngine:
         # instruction (no jito_tip_lamports passed to get_swap_transaction), so
         # this submits as an untipped single-tx bundle — a real tip requires
         # also passing jito_tip_lamports above, which is a further follow-up.
+        # That follow-up must ALSO reconcile the landing check with the poll
+        # window: jito_api.get_bundle_statuses only reports "landed" at
+        # confirmation_status == "finalized" (~32 slots, ~13s), while the poll
+        # window below is ~3s — so today even a landing bundle falls through
+        # to the RPC broadcast (fail-closed and safe, but the bundle path
+        # stays inert). Accept "processed"/"confirmed" as landed or lengthen
+        # the window when the tip is wired in.
         #
         # Submitting a bundle only proves Jito ACCEPTED it for consideration,
         # not that it landed on-chain — returning tx_sig on submission alone
