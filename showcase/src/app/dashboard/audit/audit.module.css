@@ -1,0 +1,322 @@
+/* Audit Trail page — layered on top of ../dashboard.module.css (shared
+   .card, .table, .actionBtn, .stateBox, --summer-* tokens). This file only
+   holds audit-specific shapes: the chain-integrity badge, the filter bar,
+   the event-type pill, the pretty-printed JSON detail block, hash chips,
+   and pagination. Mirrors ../transactions/transactions.module.css so the
+   two admin tables read as one family. */
+
+/* ── Chain-integrity badge (page header) ── */
+
+.chainBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid rgba(142, 182, 197, 0.3);
+  background: rgba(142, 182, 197, 0.12);
+  color: #5a7184;
+}
+
+.chainBadge[data-status='checking'] {
+  border-color: rgba(142, 182, 197, 0.4);
+  background: rgba(142, 182, 197, 0.14);
+  color: #5a7184;
+}
+
+.chainBadge[data-status='valid'] {
+  border-color: rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  color: #1e8449;
+}
+
+.chainBadge[data-status='broken'],
+.chainBadge[data-status='error'] {
+  border-color: rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+}
+
+.chainBadgeIcon {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.chainBadgeIcon[data-spin] {
+  animation: chainSpin 1s linear infinite;
+}
+
+@keyframes chainSpin {
+  to { transform: rotate(360deg); }
+}
+
+.verifyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--summer-muted, #345069);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.verifyBtn:hover:not(:disabled) {
+  border-color: rgba(14, 149, 189, 0.5);
+  color: #0b789a;
+}
+
+.verifyBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chainMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Filter bar ── */
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.filterLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.filterInput {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.86rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.filterInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.filterActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.exportErr {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  border-radius: 8px;
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+  font-size: 0.82rem;
+}
+
+/* ── Table rows ── */
+
+.auditRow {
+  cursor: pointer;
+}
+
+.detailRow td {
+  padding: 0;
+  border-bottom: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.detailPanel {
+  padding: 16px 18px 18px;
+  background: rgba(237, 248, 251, 0.4);
+}
+
+.detailMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+
+.detailField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detailLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.jsonBlock {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(207, 227, 234, 0.76);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.detailHashes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+/* ── Event type pill ── */
+
+.eventPill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(14, 149, 189, 0.28);
+  background: rgba(14, 149, 189, 0.08);
+  color: #0b789a;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Summary cell (derived from details JSON) ── */
+
+.summaryCell {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--summer-muted, #345069);
+  font-size: 0.84rem;
+}
+
+/* ── Hash chip w/ copy button ── */
+
+.hashChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 8px;
+  border: 1px solid rgba(207, 227, 234, 0.85);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.hashLabel {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hashEmpty {
+  color: var(--summer-muted, #345069);
+  font-size: 0.82rem;
+}
+
+.copyBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #0b789a;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.copyBtn:hover {
+  background: rgba(14, 149, 189, 0.12);
+}
+
+.copyBtn:focus-visible {
+  outline: 2px solid rgba(14, 149, 189, 0.65);
+  outline-offset: 1px;
+}
+
+/* ── Pagination ── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(207, 227, 234, 0.6);
+}
+
+.pageMeta {
+  color: var(--summer-muted, #345069);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+}
+
+.pageBtns {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .filterField {
+    min-width: 100%;
+  }
+  .filterActions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .detailMeta {
+    grid-template-columns: 1fr;
+  }
+  .chainMeta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

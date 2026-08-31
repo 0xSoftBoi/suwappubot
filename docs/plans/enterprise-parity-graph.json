@@ -79,8 +79,8 @@
         "audit-api"
       ],
       "surface": "showcase",
-      "status": "in_progress",
-      "notes": "Tamper-evidence surfaced: green 'chain verified' / red 'broken at entry N'."
+      "status": "done",
+      "notes": "DONE: showcase/src/app/dashboard/audit/ \u2014 chain-integrity badge (live /audit/verify, re-verify button), filterable event stream, accordion detail w/ pretty JSON + hash copy-chips, CSV export, 403 admin-required state. Contract-verified against enterpriseAudit.ts. Build clean."
     },
     {
       "id": "policy-schema",
