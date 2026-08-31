@@ -115,9 +115,15 @@ const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mp
 
 const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
 
-const TOOLS_WITH_ANNOTATIONS = MPP_ENABLED
+// A money-path tool whose definition failed the integrity check is withheld
+// from tools/list as well as refused at dispatch: the ETDI threat model is the
+// CLIENT being misled by a rug-pulled definition, and an advertised-but-
+// refused definition would still land its (possibly poisoned) description in
+// every client model's context.
+const TOOLS_WITH_ANNOTATIONS = (MPP_ENABLED
 	? ALL_TOOLS_WITH_ANNOTATIONS
 	: ALL_TOOLS_WITH_ANNOTATIONS.filter((t) => t.name !== 'browse_mpp_directory')
+).filter((t) => !MONEY_PATH_INTEGRITY_FAILURES.has(t.name))
 
 // Registered tool names, including legacy aliases handled in the tools/call switch
 // below. Used to reject unknown tool calls BEFORE any credit is charged.

@@ -22,6 +22,7 @@
  */
 import { z } from 'zod'
 import { TOOLS } from '../src/routes/mcpTools'
+import { verifyMoneyPathToolIntegrity } from '../src/lib/toolIntegrity'
 import { toJsonSchema, type Json } from '../src/lib/zodJsonSchema'
 import {
 	McpBrowseMppDirectorySchema,
@@ -113,6 +114,18 @@ function main() {
 					`    expected:  ${e}`,
 			)
 		}
+	}
+
+	// Money-path definition integrity: a pinned-hash mismatch must fail the
+	// BUILD (this script runs in the Dockerfile gate), not just log at runtime
+	// — otherwise a drifted definition ships and every execute_swap call is
+	// refused in prod with only a log line as signal.
+	for (const name of verifyMoneyPathToolIntegrity(TOOLS)) {
+		failures.push(
+			`  ${name}: money-path tool definition hash no longer matches EXPECTED_TOOL_DEFINITION_HASHES\n` +
+				`    (src/lib/toolIntegrity.ts). If the change is intentional and reviewed, regenerate the pin\n` +
+				`    with: bun run scripts/print-tool-hashes.ts`,
+		)
 	}
 
 	const unmapped = [...published.keys()].filter((n) => !(n in TOOL_VALIDATORS)).sort()

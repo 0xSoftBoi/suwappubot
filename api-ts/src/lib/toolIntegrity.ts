@@ -61,7 +61,10 @@ export function computeToolDefinitionHash(tool: ToolDefinitionLike): string {
  * a tool here (and regenerate the hash below) only when it gains the same
  * property.
  */
-export const MONEY_PATH_TOOL_NAMES = new Set<string>(['execute_swap'])
+// INVARIANT: names listed here must never be given dispatch aliases in
+// mcp.ts's tools/call switch — the integrity gate keys on the RAW request
+// name, so an alias would silently route around it.
+export const MONEY_PATH_TOOL_NAMES: ReadonlySet<string> = new Set(['execute_swap'])
 
 /**
  * Expected hashes for money-path tool definitions, checked in deliberately.
@@ -87,7 +90,7 @@ export const EXPECTED_TOOL_DEFINITION_HASHES: Record<string, string> = {
  * dispatch code must never silently skip the check because a name lookup
  * came back undefined.
  */
-export function verifyMoneyPathToolIntegrity(tools: readonly ToolDefinitionLike[]): Set<string> {
+export function verifyMoneyPathToolIntegrity(tools: readonly ToolDefinitionLike[]): ReadonlySet<string> {
 	const failed = new Set<string>()
 	for (const name of MONEY_PATH_TOOL_NAMES) {
 		const expected = EXPECTED_TOOL_DEFINITION_HASHES[name]
