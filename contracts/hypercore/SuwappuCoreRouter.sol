@@ -18,7 +18,7 @@ interface IERC20 {
  * aggregator, no external oracle — the book is the price.
  *
  * CoreWriter actions are ASYNC (executed on HyperCore seconds later; a rejected
- * action does NOT revert the EVM tx), so a swap is a three-step lifecycle any
+ * action does NOT revert the EVM tx), so a swap is a four-step lifecycle any
  * caller may drive:
  *
  *  1. initiate — pull tokenIn, bridge EVM->Core, snapshot BOTH Core balances.
@@ -26,21 +26,23 @@ interface IERC20 {
  *     coreIn), place the IOC (cloid = id) and re-snapshot the out-token. The
  *     order can never race its own funding: it is only ever placed against a
  *     confirmed balance, and IOCs resolve the moment HyperCore processes them.
- *  3. settle   — after SETTLE_DELAY_L1 HyperCore blocks past execute (the
- *     delay now only spans the order action, not the bridge): reconcile BOTH
- *     legs
- *     from free (total - hold) balance deltas. Proceeds >= minCoreOut → fee,
- *     else no fee; in both cases every unconsumed in-token and every received
- *     out-token is bridged back Core->EVM. Snapshot EVM balances.
+ *  3. settle   — SETTLE_DELAY_L1 HyperCore blocks past execute, once the
+ *     in-token hold has cleared (order resolved): reconcile BOTH legs from free
+ *     (total - hold) balance deltas, fee on proceeds, bridge unconsumed input
+ *     and proceeds back Core->EVM, snapshot EVM balances.
  *  4. claim    — pay the user both legs once THIS swap's bridge credits landed
  *     (measured against the settle-time EVM snapshots, not aggregate balance).
  *
  * Liveness: retry() re-issues a bridge send that was silently rejected;
- * forceRelease() frees the serialization lock after RELEASE_DELAY_L1 so one
- * stuck swap cannot brick the router — the stuck swap keeps its claim.
+ * forceRelease() frees the serialization lock after RELEASE_DELAY_L1 and
+ * reconciles the stuck swap in place (under the lock, where attribution is
+ * sound) so no swap is ever abandoned with funds on Core. Only a swap whose
+ * deposit HyperCore never credited is terminalized (Aborted) — those funds are
+ * in HyperCore's custody, unrecoverable by any contract.
  *
  * Concurrency: ONE in-flight swap (global lock) keeps balance-delta attribution
- * sound; scale throughput with more instances. Known residual (documented for
+ * sound; every reconciliation (settle AND forceRelease) runs while inFlight==id.
+ * Scale throughput with more instances. Known residual (documented for
  * reviewers): an attacker can complete claim() early by donating the owed
  * amount on the EVM side, leaving a stale Core send that may under-credit a
  * later swap's delta; the donation is unrecoverable, so the grief costs the
@@ -116,7 +118,6 @@ contract SuwappuCoreRouter {
     event SwapClaimed(uint128 indexed id, address indexed user, uint256 evmOut, uint256 evmIn);
     event BridgeRetried(uint128 indexed id);
     event LockReleased(uint128 indexed id);
-    event SwapRescued(uint128 indexed id, uint64 owedOut, uint64 owedIn);
 
     error Locked();
     error BadStatus();
@@ -282,35 +283,42 @@ contract SuwappuCoreRouter {
     }
 
     /// Reconcile both legs after the deposit + IOC have resolved on HyperCore.
+    /// Only the lock holder may settle, so the balance delta is purely this
+    /// swap's — no other swap could have moved the router's Core balances.
     function settle(uint128 id) external {
         Swap storage s = swaps[id];
         if (s.status != Status.Pending) revert BadStatus();
-        if (inFlight != id) revert BadStatus(); // force-released swaps cannot settle
+        if (inFlight != id) revert BadStatus(); // released swaps cannot settle
         if (
             block.number <= s.initiatedEvmBlock
                 || L1Read.l1BlockNumber() < s.executedL1Block + SETTLE_DELAY_L1
         ) revert TooEarly();
+        // orderPlaced=true: a Pending swap always executed its IOC.
+        if (!_reconcile(id, s, true)) revert NotLanded(); // stay Pending, retry
+    }
 
+    /// Shared reconciliation for settle() and forceRelease(). MUST be called
+    /// only while inFlight == id so the free-balance delta is attributable to
+    /// this swap alone. Reverts TooEarly if the in-token is still held (order
+    /// live). Returns false (no state change) if nothing has landed on Core.
+    ///
+    /// @param orderPlaced false for a Funding swap that never placed an order —
+    /// it can have no legitimate proceeds, so the out-leg is forced to 0 and it
+    /// can only ever refund its own coreIn-capped input. This is what makes a
+    /// lock-free out-leg unnecessary and closes the rescue() misattribution.
+    function _reconcile(uint128 id, Swap storage s, bool orderPlaced) internal returns (bool) {
         (uint64 coreTokenOut, uint64 coreTokenIn) =
             s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
 
-        // The IOC holds in-token margin until HyperCore executes it. A non-zero
-        // hold means the order is still live: refuse to reconcile, or an
-        // unexecuted order looks identical to a no-fill and strands the fill.
         L1Read.SpotBalance memory inBal = L1Read.spotBalance(address(this), coreTokenIn);
-        if (inBal.hold > 0) revert TooEarly();
+        if (inBal.hold > 0) revert TooEarly(); // order still live
 
         uint64 outFree = _free(coreTokenOut);
-        uint64 inFree = inBal.total;
-        uint64 outDelta = outFree > s.outSnapshot ? outFree - s.outSnapshot : 0;
-        uint64 inRemainder = inFree > s.inSnapshot ? inFree - s.inSnapshot : 0;
+        uint64 outDelta = (!orderPlaced || outFree <= s.outSnapshot) ? 0 : outFree - s.outSnapshot;
+        uint64 inRemainder = inBal.total > s.inSnapshot ? inBal.total - s.inSnapshot : 0;
         if (inRemainder > s.coreIn) inRemainder = s.coreIn;
+        if (outDelta == 0 && inRemainder == 0) return false;
 
-        // Post-delay the IOC has resolved: consumed input and/or proceeds must
-        // be visible. All-zero means Core state hasn't caught up — retry later.
-        if (outDelta == 0 && inRemainder == 0) revert NotLanded();
-
-        bool metBound = outDelta >= s.minCoreOut;
         uint64 fee = uint64((uint256(outDelta) * feeBps) / 10_000);
         s.owedOut = outDelta - fee;
         s.owedIn = inRemainder;
@@ -322,7 +330,8 @@ contract SuwappuCoreRouter {
         if (fee > 0) CoreWriterLib.spotSend(treasury, coreTokenOut, fee);
         _bridgeBack(coreTokenOut, s.owedOut);
         _bridgeBack(coreTokenIn, s.owedIn);
-        emit SwapSettled(id, outDelta, inRemainder, fee, metBound);
+        emit SwapSettled(id, outDelta, inRemainder, fee, outDelta >= s.minCoreOut);
+        return true;
     }
 
     /// Pay the user both legs once THIS swap's bridge credits landed on EVM,
@@ -373,56 +382,40 @@ contract SuwappuCoreRouter {
     }
 
     /// Free the serialization lock from a swap stuck long past every async
-    /// horizon. The stuck swap keeps its state and can still retry()/claim().
+    /// horizon, so one wedged swap can never brick the router. Because this runs
+    /// while the lock is still held, it reconciles the stuck swap HERE — where
+    /// the balance delta is sound — instead of abandoning its funds. A Bridging
+    /// swap is already reconciled and just needs the lock freed.
     function forceRelease(uint128 id) external {
         Swap storage s = swaps[id];
         if (inFlight != id) revert BadStatus();
-        if (
-            s.status != Status.Funding && s.status != Status.Pending
-                && s.status != Status.Bridging
-        ) revert BadStatus();
-        uint64 since = s.status == Status.Funding
-            ? s.initiatedL1Block
-            : (s.status == Status.Pending ? s.executedL1Block : s.settledL1Block);
+        Status st = s.status;
+
+        if (st == Status.Bridging) {
+            if (L1Read.l1BlockNumber() < s.settledL1Block + RELEASE_DELAY_L1) revert TooEarly();
+            inFlight = 0;
+            emit LockReleased(id);
+            return;
+        }
+        if (st != Status.Funding && st != Status.Pending) revert BadStatus();
+        uint64 since = st == Status.Funding ? s.initiatedL1Block : s.executedL1Block;
         if (L1Read.l1BlockNumber() < since + RELEASE_DELAY_L1) revert TooEarly();
-        // A Bridging swap keeps its claim; a Funding/Pending swap is abandoned
-        // so it can never later settle against a successor's balances (NEW-2).
-        if (s.status != Status.Bridging) s.status = Status.Aborted;
+
+        // Reconcile under the lock. A Funding swap placed no order, so its
+        // out-leg is forced to 0 and it refunds only its coreIn-capped input; a
+        // Pending swap recovers both legs. Reconciliation moves it to Bridging
+        // (claim()/retry() take over). If nothing is on Core — never credited,
+        // or an order still held — the funds are in HyperCore's custody and
+        // unrecoverable by the contract; terminalize to Aborted so a later call
+        // can never reconcile against a successor's balances (NEW-2).
+        (, uint64 coreTokenIn) = s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+        bool recovered;
+        if (L1Read.spotBalance(address(this), coreTokenIn).hold == 0) {
+            recovered = _reconcile(id, s, st == Status.Pending);
+        }
+        if (!recovered) s.status = Status.Aborted;
         inFlight = 0;
         emit LockReleased(id);
-    }
-
-    /// Recover funds from an Aborted swap (forceRelease abandoned it to unstick
-    /// the lock, NEW-5). Callable only while NO other swap is in flight, so the
-    /// balance-delta attribution is as sound as settle's; reconciles both legs
-    /// from free balance against the swap's own snapshots (bounded by coreIn),
-    /// takes NO fee, and hands off to the normal claim() path. It never touches
-    /// inFlight, so it cannot re-acquire or corrupt the lock. Re-callable while
-    /// still Aborted if only part frees at first (held balance clears later).
-    function rescue(uint128 id) external {
-        Swap storage s = swaps[id];
-        if (s.status != Status.Aborted) revert BadStatus();
-        if (inFlight != 0) revert Locked();
-
-        (uint64 coreTokenOut, uint64 coreTokenIn) =
-            s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
-
-        uint64 outFree = _free(coreTokenOut);
-        uint64 inFree = _free(coreTokenIn);
-        uint64 outDelta = outFree > s.outSnapshot ? outFree - s.outSnapshot : 0;
-        uint64 inRemainder = inFree > s.inSnapshot ? inFree - s.inSnapshot : 0;
-        if (inRemainder > s.coreIn) inRemainder = s.coreIn;
-        if (outDelta == 0 && inRemainder == 0) revert NotLanded();
-
-        s.owedOut = outDelta;
-        s.owedIn = inRemainder;
-        s.evmOutSnapshot = _erc20For(coreTokenOut).balanceOf(address(this));
-        s.evmInSnapshot = _erc20For(coreTokenIn).balanceOf(address(this));
-        s.settledL1Block = L1Read.l1BlockNumber();
-        s.status = Status.Bridging;
-        _bridgeBack(coreTokenOut, outDelta);
-        _bridgeBack(coreTokenIn, inRemainder);
-        emit SwapRescued(id, outDelta, inRemainder);
     }
 
     // ── internals ───────────────────────────────────────────────────────────

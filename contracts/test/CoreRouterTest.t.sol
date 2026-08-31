@@ -205,60 +205,72 @@ contract CoreRouterTest is Test {
     }
 
     function test_staleSettle_afterForceRelease_isRejected() public {
-        // NEW-2 regression: a force-released Pending swap can never settle
+        // NEW-2 regression: force-release reconciles the Pending swap UNDER the
+        // lock (sound), moving it to Bridging; it can then never re-settle
         // against a later swap's balances.
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, PX, 49e8);
         _fundAndExecute(id, BASE_TOKEN, 2e8);
 
-        _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
-        router.forceRelease(id);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Aborted));
-        assertEq(router.inFlight(), 0);
-
-        vm.roll(block.number + 1);
+        // order resolved: base consumed, proceeds on Core
         _mockSpot(BASE_TOKEN, 0, 0);
         _mockSpot(QUOTE_TOKEN, 50e8, 0);
+        _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
+        router.forceRelease(id);
+        // reconciled under the lock, not abandoned
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
+        (uint64 outOwed,) = _owed(id);
+        assertEq(outOwed, 50e8 - 15_000_000);
+        assertEq(router.inFlight(), 0);
+
+        // cannot re-settle against a successor's balances
+        vm.roll(block.number + 1);
         vm.expectRevert(SuwappuCoreRouter.BadStatus.selector);
         router.settle(id);
+
+        // and the user still gets paid via the normal claim path
+        quote.mint(address(router), 50e8 - 15_000_000);
+        router.claim(id);
+        assertEq(quote.balanceOf(alice), 1_000e8 + 50e8 - 15_000_000);
     }
 
-    function test_rescue_recoversAbortedFundingDeposit() public {
-        // NEW-5 regression: a Funding swap abandoned by forceRelease is not lost.
+    function test_forceRelease_funding_reconcilesUnderLock_refundsDeposit() public {
+        // NEW-5 fix: a Funding swap whose deposit landed is recovered by
+        // forceRelease itself (reconciled under the lock), not abandoned.
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, PX, 49e8);
         _mockSpot(BASE_TOKEN, 2e8, 0); // deposit landed but execute never ran
 
         _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
         router.forceRelease(id);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Aborted));
 
-        // rescue reconciles the in-token (no order was placed → full refund, no fee)
-        router.rescue(id);
+        // no order was placed => out-leg forced 0, full in-token refund, no fee
         (uint64 outOwed, uint64 inOwed) = _owed(id);
         assertEq(outOwed, 0);
         assertEq(inOwed, 2e8);
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
+        assertEq(router.inFlight(), 0);
 
         base.mint(address(router), 2e18);
         router.claim(id);
         assertEq(base.balanceOf(alice), 100e18); // made whole
     }
 
-    function test_rescue_blockedWhileAnotherSwapInFlight() public {
+    function test_forceRelease_funding_neverLanded_abortsAndFreesLock() public {
+        // Deposit never credited on Core (HyperCore-custody limbo): nothing to
+        // reconcile, so terminalize to Aborted and free the lock for others.
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, PX, 49e8);
-        _mockSpot(BASE_TOKEN, 2e8, 0);
+        // BASE_TOKEN stays 0 (deposit never landed)
         _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
         router.forceRelease(id);
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Aborted));
+        assertEq(router.inFlight(), 0);
 
-        // a fresh swap takes the lock
-        _mockSpot(BASE_TOKEN, 0, 0);
-        _mockL1Block(L1_START);
+        // lock is free; a fresh swap proceeds normally
         vm.prank(alice);
         router.initiate(true, 1e18, PX, 20e8);
-
-        vm.expectRevert(SuwappuCoreRouter.Locked.selector);
-        router.rescue(id); // must not attribute against the live swap's balances
+        assertEq(router.inFlight(), 2);
     }
 
     function test_retry_cannotStarveForceRelease() public {
