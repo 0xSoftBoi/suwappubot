@@ -104,7 +104,7 @@
       "surface": "api-ts",
       "status": "in_progress",
       "money_path": true,
-      "notes": "Owner/admin mutate policies; approvals need quorum distinct approvers; every mutation writes auditLogs. Include signed policy-export endpoint (Fireblocks differentiator): JSON snapshot + entryHash."
+      "notes": "BUILT then BLOCKED by money-path review: quorum downgrade via body requiredApprovals, non-transactional vote resolution (reject overwritable), =ANY() postgres-js malformed array (500s approvals list after first expiry), Effect defect-vs-fail (all 4xx mapping dead), min(0) quorum floor + 5 mediums. Fix pass in flight; re-review required before commit. Repo-wide bug class flagged: throw-in-Effect.gen also in enterprise.ts:273 (/bugclass candidate)."
     },
     {
       "id": "policy-ui",
