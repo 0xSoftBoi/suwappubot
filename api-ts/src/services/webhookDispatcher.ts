@@ -127,6 +127,23 @@ export function isSafeWebhookUrl(url: string): { ok: true } | { ok: false; error
 		if (/^0x[0-9a-f]+$/.test(host) || /^\d+$/.test(host) || /^0[0-7]+$/.test(host)) {
 			return { ok: false, error: 'Webhook url host is not a valid hostname' }
 		}
+		// Dotted-numeric hosts like "127.1" or "0177.0.0.1" ("shortened"
+		// dotted-quad / octal-per-label IP encodings) are rejected by BOTH
+		// `net.isIP` (ipVersion === 0 here) AND the single-token numeric-host
+		// regexes just above (they don't match because the host contains
+		// dots) — without this check, both dotted-numeric IP forms sail
+		// straight through as an apparently-fine "hostname" even though a
+		// resolver/OS on the receiving end may still interpret them as the
+		// loopback IP. Require the host to actually look like a DNS name
+		// (>=2 LDH labels) AND have at least one label containing a letter —
+		// a host where every label is pure digits is never a real DNS name.
+		// Mirrors org_webhooks.py's `is_safe_webhook_url` equivalent check
+		// byte-for-byte. DNS-rebinding is still out of scope for both sides.
+		const isPlausibleDnsName = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)
+		const hasLetterLabel = /[a-z]/.test(host)
+		if (!isPlausibleDnsName || !hasLetterLabel) {
+			return { ok: false, error: 'Webhook url host is not a valid hostname' }
+		}
 	}
 
 	return { ok: true }

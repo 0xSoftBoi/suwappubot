@@ -101,6 +101,10 @@ def record_screening_event(
         from bot.models.compliance import ScreeningEvent
         from database.db import get_session
 
+        decision = _decision_for(result)
+        reason = _reason_for(result)
+        resolved_address = _address_for(result, address)
+
         with get_session() as session:
             session.add(
                 ScreeningEvent(
@@ -108,12 +112,89 @@ def record_screening_event(
                     org_id=org_id,
                     chain=chain,
                     direction=direction,
-                    address=_address_for(result, address),
-                    decision=_decision_for(result),
-                    reason=_reason_for(result),
+                    address=resolved_address,
+                    decision=decision,
+                    reason=reason,
                     mode=result.mode.value,
                     tx_context=tx_context,
                 )
             )
+        # Session above has committed (get_session commits on normal
+        # __exit__) — dispatch is scheduled AFTER the write lands, never
+        # nested inside the write session, so a slow/failed webhook lookup
+        # can never hold that session's connection open (see the T1 comment
+        # in bot.services.org_policy.service for the same pool-pressure
+        # rationale). Individual users have no org_webhooks rows, so
+        # org_id=None (both sanctions-screening call sites today) already
+        # short-circuits before any DB lookup is attempted.
+        if org_id and decision in ("blocked", "flagged"):
+            _dispatch_screening_webhook(
+                org_id=org_id,
+                event_type=f"screening.{decision}",
+                chain=chain,
+                direction=direction,
+                address=resolved_address,
+                decision=decision,
+                reason=reason,
+                mode=result.mode.value,
+                user_id=user_id,
+                tx_context=tx_context,
+            )
     except Exception as e:  # noqa: BLE001 — persistence must never break screening
         logger.warning("Failed to persist screening event (decision unaffected): %s", e)
+
+
+def _dispatch_screening_webhook(
+    *,
+    org_id: str,
+    event_type: str,
+    chain: Optional[str],
+    direction: str,
+    address: Optional[str],
+    decision: str,
+    reason: Optional[str],
+    mode: str,
+    user_id: Optional[int],
+    tx_context: Optional[dict[str, Any]],
+) -> None:
+    """Best-effort, non-blocking fan-out to org-configured webhooks for a
+    blocked/flagged screening decision. Isolated in its own try/except (on
+    top of the caller's own blanket one) so a dispatch-scheduling failure
+    logs distinctly from a persistence failure and never masks the fact that
+    the screening_events row above was already durably written.
+
+    NOTE on ``bot.services.org_policy.service`` specifically: that caller's
+    own ``_record_screening`` reaches this function from INSIDE
+    ``_evaluate_sync``, which runs off the event loop via ``run_in_db``'s
+    executor thread — a plain executor thread has no running event loop, so
+    ``dispatch_org_event_from_sync``'s ``asyncio.get_running_loop()`` guard
+    raises ``RuntimeError`` there and this call no-ops BY DESIGN. That is not
+    a bug: ``OrgPolicyService.evaluate()`` dispatches the org-webhook event
+    itself, once, from the async side (right after its
+    ``await run_in_db(self._evaluate_sync, ...)`` call returns, where a
+    running loop genuinely is available) — see the NO-DOUBLE-DISPATCH
+    comment in ``org_policy/service.py::evaluate``. Any FUTURE caller of
+    ``record_screening_event`` that itself already runs on a live event-loop
+    thread (unlike today's two sanctions-screening call sites, which are
+    genuinely sync) would have this wiring dispatch correctly with no
+    changes needed — that's why it stays here rather than being deleted.
+    """
+    try:
+        from bot.services.org_webhooks import dispatch_org_event_from_sync
+
+        dispatch_org_event_from_sync(
+            org_id,
+            event_type,
+            {
+                "chain": chain,
+                "direction": direction,
+                "address": address,
+                "decision": decision,
+                "reason": reason,
+                "mode": mode,
+                "userId": user_id,
+                "txContext": tx_context,
+            },
+        )
+    except Exception as e:  # noqa: BLE001 — dispatch scheduling must never break screening
+        logger.warning("Failed to dispatch org webhook for screening event: %s", e)

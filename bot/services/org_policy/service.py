@@ -232,7 +232,7 @@ class OrgPolicyService:
         from database.db import run_in_db
 
         try:
-            return await run_in_db(
+            decision = await run_in_db(
                 self._evaluate_sync,
                 user_id,
                 chain,
@@ -281,6 +281,95 @@ class OrgPolicyService:
             # specific "not rolled out" signals above get the quiet path;
             # everything else is a genuine degrade — loud + flagged + allow.
             return await self._fail_degraded(user_id, None, chain, surface, dest_address, e)
+
+        # Reached only when `_evaluate_sync` returned normally (every `except`
+        # clause above returns) — `decision` is bound. Org-webhook dispatch
+        # for a BLOCKED/REQUIRES_APPROVAL decision happens HERE, on the loop
+        # that is running this `evaluate()` coroutine, deliberately NOT
+        # inside `_evaluate_sync`/`_record_screening` (those run off-thread
+        # via `run_in_db`'s executor — a plain `threading` thread has no
+        # running event loop, so `dispatch_org_event_from_sync`'s
+        # `asyncio.get_running_loop()` guard inside
+        # `_record_screening`->`record_screening_event`-> ``_dispatch_screening_webhook``
+        # raises `RuntimeError` there and no-ops by design — see
+        # `bot.services.compliance.screening_events`'s module docstring and
+        # `org_webhooks.dispatch_org_event_from_sync`). That executor-thread
+        # call is NOT dead code: it is exactly the fallback path a future
+        # caller that already runs `record_screening_event` from a
+        # loop-having context would need. NO-DOUBLE-DISPATCH INVARIANT: only
+        # this one call site below can ever actually schedule a delivery for
+        # an org-policy decision — `_record_screening`'s dispatch attempt
+        # always no-ops from the executor thread, so a decision is announced
+        # to org webhooks exactly once, never twice.
+        if decision.org_id is not None and decision.outcome in (
+            OrgPolicyOutcome.BLOCKED,
+            OrgPolicyOutcome.REQUIRES_APPROVAL,
+        ):
+            self._dispatch_webhook(
+                decision,
+                user_id=user_id,
+                chain=chain,
+                dest_address=dest_address,
+                amount_usd=amount_usd,
+                surface=surface,
+            )
+
+        return decision
+
+    def _dispatch_webhook(
+        self,
+        decision: "OrgPolicyDecision",
+        *,
+        user_id: Optional[int],
+        chain: Optional[str],
+        dest_address: Optional[str],
+        amount_usd: Optional[float],
+        surface: str,
+    ) -> None:
+        """Fire-and-forget org-webhook notification for a BLOCKED/
+        REQUIRES_APPROVAL decision, matching the payload shape
+        ``record_screening_event``/``_dispatch_screening_webhook`` use for
+        sanctions-screening events ({chain, direction, address, decision,
+        reason, mode, userId, txContext}) so a recipient endpoint doesn't
+        need to special-case which decision engine produced the event.
+        ``chain``/``dest_address``/``amount_usd``/``surface`` are threaded
+        through from ``evaluate()``'s own arguments rather than added to
+        ``OrgPolicyDecision`` — they're already in scope here and
+        ``OrgPolicyDecision`` already carries the two fields
+        (``org_id``, ``policy_type``) genuinely intrinsic to the decision
+        itself. Never raises — this is notification-only, best-effort.
+        """
+        try:
+            from bot.services.org_webhooks import dispatch_org_event_nowait
+
+            is_blocked = decision.outcome is OrgPolicyOutcome.BLOCKED
+            event_type = "screening.blocked" if is_blocked else "screening.flagged"
+            dashboard_decision = "blocked" if is_blocked else "flagged"
+            mode = "enforce" if is_blocked else "monitor"
+
+            dispatch_org_event_nowait(
+                decision.org_id,
+                event_type,
+                {
+                    "chain": chain,
+                    "direction": "outbound",
+                    "address": dest_address,
+                    "decision": dashboard_decision,
+                    "reason": decision.reason,
+                    "mode": mode,
+                    "userId": user_id,
+                    "txContext": {
+                        "surface": surface,
+                        "policy_id": decision.policy_id,
+                        "policy_type": decision.policy_type,
+                        "outcome": decision.outcome.value,
+                        "approval_request_id": decision.approval_request_id,
+                        "amount_usd": amount_usd,
+                    },
+                },
+            )
+        except Exception as e:  # noqa: BLE001 — notification must never break the tx
+            logger.warning("Failed to dispatch org_policy webhook event: %s", e)
 
     async def _fail_degraded(
         self,

@@ -226,8 +226,8 @@
         "policy-enforcement"
       ],
       "surface": "python",
-      "status": "todo",
-      "notes": "Python-side HMAC dispatcher mirroring webhookDispatcher.ts contract (same headers/signature), fire-and-forget from record_screening_event for blocked/flagged with org context."
+      "status": "done",
+      "notes": "DONE after focused review (SHIP-WITH-FIXES, all 6 applied). bot/services/org_webhooks.py: TS-wire-parity HMAC dispatcher (byte-exact signing, 5s timeout, no redirects, SSRF guard incl. paired dotted-numeric-host fix in webhookDispatcher.ts, Semaphore(4), atomic failure_count, locked model definition). Dispatch fires from the loop side of OrgPolicyService.evaluate (blocked->screening.blocked, requires_approval->screening.flagged); no-double-dispatch invariant documented (executor-thread sync helper no-ops by design). Reviewer empirically confirmed the gate cannot be blocked/delayed. Known shared limitation: DNS-rebinding out of scope both stacks."
     },
     {
       "id": "policy-reservation",
@@ -243,5 +243,5 @@
       "notes": "C2 residual: SwapTransaction row is created after the org-policy gate, so N concurrent multi-swap legs read identical history. Needs a reservation row (or moving tx-row creation pre-gate) visible inside the advisory-locked transaction. Until then org_policy_enforcement_enabled defaults False."
     }
   ],
-  "completed": "2026-08-31 \u2014 15 build nodes + taste pass done; enforcement phase in progress. Follow-ups tracked in node notes: enforcement wiring of orgPolicies into transfer paths (next MONEY-PATH phase), screening.* webhook dispatch from Python side, org_webhooks + policy drizzle migration application, orgTreasurySnapshots table (dual-ORM), live visual pass on deployed env, /bugclass sweep for throw-in-Effect.gen (enterprise.ts:273)."
+  "completed": "2026-08-31 \u2014 all 19 nodes done except policy-reservation (queued): 15 build nodes, taste pass, enforcement phase (policy-enforcement default-OFF pending reservation, bugclass sweep, webhook dispatch). Remaining follow-ups tracked in node notes."
 }
