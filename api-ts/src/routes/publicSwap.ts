@@ -19,6 +19,7 @@ import {
 	type QuoteParams,
 	RedisService,
 	type RedisServiceInterface,
+	resolveChainId,
 	type SwapQuote,
 	SwapService,
 	TOKEN_LIST_TTL,
@@ -63,6 +64,9 @@ const CHAIN_RPC_ENDPOINTS: Record<number, string> = {
 }
 
 // In-memory quote cache as fallback when Redis is not available
+// Receiver used to price unauthenticated previews. Never signs anything.
+const PREVIEW_PLACEHOLDER_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+
 const quoteCacheMemory = new Map<string, { quote: SwapQuote; expiry: number }>()
 const QUOTE_TTL_MS = QUOTE_TTL * 1000
 
@@ -130,6 +134,71 @@ export function assertQuoteReceiverMatchesWallet(
 		}
 	}
 	return { ok: true }
+}
+
+/**
+ * Human-readable amount -> base units, in integer math.
+ *
+ * MONEY-PATH: never via Number(). "0.1" at 18 decimals is not representable in
+ * a float, and rounding an amount before it reaches the aggregator quietly
+ * misprices the trade. Digits are shifted as strings and combined as BigInt.
+ */
+export function toBaseUnits(amount: string, decimals: number): string {
+	if (!/^\d*\.?\d+$/.test(amount)) throw new Error(`Invalid amount: ${amount}`)
+	const [whole, frac = ''] = amount.split('.')
+	if (frac.length > decimals) {
+		// Refuse to silently truncate precision the caller asked for.
+		throw new Error(`Amount has more than ${decimals} decimal places: ${amount}`)
+	}
+	const padded = frac.padEnd(decimals, '0')
+	return (BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(padded || '0')).toString()
+}
+
+/**
+ * Base units -> human-readable, in integer math for the same reason as above.
+ *
+ * The mirror of toBaseUnits: Li.Fi answers in base units, and a UI that prints
+ * them raw shows "122966842 USDC" for what is actually 122.97. Trailing zeros
+ * are trimmed so the number reads the way a person would write it.
+ */
+export function fromBaseUnits(amount: string, decimals: number): string {
+	if (!/^\d+$/.test(amount)) return amount
+	if (decimals === 0) return amount
+	const padded = amount.padStart(decimals + 1, '0')
+	const whole = padded.slice(0, -decimals)
+	const frac = padded.slice(-decimals).replace(/0+$/, '')
+	return frac ? `${whole}.${frac}` : whole
+}
+
+/**
+ * Resolves a token's decimals from Li.Fi. The preview endpoint takes amounts
+ * the way a person says them ("0.05"), but Li.Fi wants base units, and the
+ * conversion is meaningless without decimals for that exact token on that exact
+ * chain — USDC is 6 on Base and 18 elsewhere, so a shared default would be wrong.
+ */
+const decimalsCache = new Map<string, { decimals: number; expiry: number }>()
+const DECIMALS_TTL_MS = 60 * 60 * 1000
+
+async function resolveTokenDecimals(chain: string, token: string): Promise<number> {
+	const chainId = resolveChainId(chain)
+	const key = `${chainId}:${token.toLowerCase()}`
+	const cached = decimalsCache.get(key)
+	if (cached && Date.now() < cached.expiry) return cached.decimals
+
+	const url = `https://li.quest/v1/token?chain=${encodeURIComponent(String(chainId))}&token=${encodeURIComponent(token)}`
+	const res = await fetch(url, {
+		headers: {
+			Accept: 'application/json',
+			...(process.env.LIFI_API_KEY && { 'x-lifi-api-key': process.env.LIFI_API_KEY }),
+		},
+	})
+	if (!res.ok) throw new Error(`Could not resolve token "${token}" on ${chain}`)
+	const body = (await res.json()) as { decimals?: number; symbol?: string }
+	if (typeof body.decimals !== 'number') {
+		throw new Error(`Token "${token}" on ${chain} has no decimals in the Li.Fi registry`)
+	}
+	decimalsCache.set(key, { decimals: body.decimals, expiry: Date.now() + DECIMALS_TTL_MS })
+	return body.decimals
 }
 
 // ─── Public Routes (IP rate-limited, no auth) ───
@@ -286,6 +355,159 @@ publicSwapRoutes.get('/tokens', ipRateLimit(), async (c) => {
 	if (Either.isLeft(result)) {
 		logger.error({ err: result.left }, '[PublicSwap] Failed to fetch tokens')
 		return c.json({ error: 'Failed to fetch tokens' }, 500)
+	}
+
+	return c.json(result.right)
+})
+
+/**
+ * GET /public/swap/preview
+ *
+ * Indicative, unauthenticated cross-chain route preview. This exists for the
+ * WebMCP surface (showcase `/agent-terminal`), where a browser agent must be
+ * able to price a swap with no credential at all.
+ *
+ * `fromAmount` is HUMAN-READABLE ("0.05"), unlike the authenticated /quote
+ * route which takes base units. Agents and people both say "half an ETH", not
+ * "5e17", so the endpoint resolves the token's decimals and converts. The
+ * response echoes the human amount back and carries `fromAmountBaseUnits` and
+ * `fromTokenDecimals` alongside it for anything that needs exact integers.
+ *
+ * MONEY-PATH NOTE: this is deliberately NOT executable. The quote is never
+ * written to the quote cache and no `transactionRequest`/`txData` is returned,
+ * so a preview quoteId can never be handed to POST /public/swap/execute (which
+ * resolves quotes from the cache and would 404). Pricing uses a placeholder
+ * receiver unless the caller names `fromAddress`, and the returned quoteId is
+ * prefixed so it can't be mistaken for an executable one.
+ */
+publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
+	const fromChain = c.req.query('fromChain')
+	const toChain = c.req.query('toChain') || fromChain
+	const fromToken = c.req.query('fromToken')
+	const toToken = c.req.query('toToken')
+	const fromAmount = c.req.query('fromAmount')
+	const slippageParam = c.req.query('slippage')
+	const orderParam = (c.req.query('order') || 'RECOMMENDED').toUpperCase()
+	const fromAddressParam = c.req.query('fromAddress')
+
+	if (!fromChain || !toChain || !fromToken || !toToken || !fromAmount) {
+		return c.json(
+			{
+				error: 'Validation Error',
+				message: 'fromChain, toChain, fromToken, toToken and fromAmount are required',
+			},
+			400,
+		)
+	}
+
+	if (!/^\d*\.?\d+$/.test(fromAmount) || Number(fromAmount) <= 0) {
+		return c.json(
+			{ error: 'Validation Error', message: 'fromAmount must be a positive decimal number' },
+			400,
+		)
+	}
+
+	const ORDERS = ['RECOMMENDED', 'FASTEST', 'CHEAPEST', 'SAFEST'] as const
+	if (!ORDERS.includes(orderParam as (typeof ORDERS)[number])) {
+		return c.json(
+			{ error: 'Validation Error', message: `order must be one of ${ORDERS.join(', ')}` },
+			400,
+		)
+	}
+
+	// Only a well-formed EVM address is ever forwarded; anything else falls back
+	// to the placeholder so a malformed value can't reach the aggregator.
+	const fromAddress =
+		fromAddressParam && /^0x[a-fA-F0-9]{40}$/.test(fromAddressParam)
+			? fromAddressParam
+			: PREVIEW_PLACEHOLDER_ADDRESS
+
+	const slippage = slippageParam ? Number.parseFloat(slippageParam) : DEFAULT_SLIPPAGE
+	if (!Number.isFinite(slippage) || slippage <= 0 || slippage > 0.5) {
+		return c.json(
+			{ error: 'Validation Error', message: 'slippage must be a fraction between 0 and 0.5' },
+			400,
+		)
+	}
+
+	// Li.Fi prices in base units; the desk and any agent speak human amounts.
+	// Convert here rather than pushing the decimals problem onto every caller.
+	let fromAmountBaseUnits: string
+	let fromTokenDecimals: number
+	try {
+		fromTokenDecimals = await resolveTokenDecimals(fromChain, fromToken)
+		fromAmountBaseUnits = toBaseUnits(fromAmount, fromTokenDecimals)
+	} catch (e) {
+		return c.json(
+			{
+				error: 'Validation Error',
+				message: e instanceof Error ? e.message : String(e),
+			},
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const swapService = yield* SwapService
+			const quote = yield* swapService
+				.getQuote({
+					fromChain,
+					toChain,
+					fromToken,
+					toToken,
+					fromAmount: fromAmountBaseUnits,
+					fromAddress,
+					slippage,
+					order: orderParam as (typeof ORDERS)[number],
+				})
+				.pipe(
+					Effect.mapError((e) =>
+						e instanceof ValidationError ? e : new ValidationError({ message: e.message }),
+					),
+				)
+
+			return {
+				indicative: true,
+				executable: false,
+				previewId: `preview_${quote.quoteId}`,
+				order: orderParam,
+				fromChain: quote.fromChain,
+				toChain: quote.toChain,
+				fromToken: quote.fromToken,
+				toToken: quote.toToken,
+				// Echo the amount the caller asked for. Li.Fi answers in base
+				// units; handing that back would have every UI render 5e16 ETH.
+				fromAmount,
+				fromAmountBaseUnits: quote.fromAmount,
+				fromTokenDecimals,
+				fromAmountUsd: quote.fromAmountUsd,
+				// Same reason fromAmount is echoed human-readable: base units in a
+				// UI read as absurd numbers, and the desk shows this to a person
+				// who is deciding whether to approve it.
+				toAmount: fromBaseUnits(quote.toAmount, quote.toToken.decimals),
+				toAmountMin: fromBaseUnits(quote.toAmountMin, quote.toToken.decimals),
+				toAmountBaseUnits: quote.toAmount,
+				toAmountMinBaseUnits: quote.toAmountMin,
+				toAmountUsd: quote.toAmountUsd,
+				exchangeRate: quote.exchangeRate,
+				priceImpact: quote.priceImpact,
+				estimatedGasUsd: quote.estimatedGasUsd,
+				bridgeFeeUsd: quote.bridgeFeeUsd,
+				estimatedDurationSeconds: quote.estimatedDuration,
+				slippage: quote.slippage,
+				route: quote.route,
+				pricedFor: fromAddress,
+				notice:
+					'Indicative preview only. Not executable and not tied to a wallet — ' +
+					'the human must confirm and sign the real swap.',
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left as any)
+		return c.json(body, status)
 	}
 
 	return c.json(result.right)

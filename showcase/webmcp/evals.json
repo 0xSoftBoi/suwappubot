@@ -1,0 +1,345 @@
+[
+  {
+    "name": "Discover supported chains",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Which blockchains can I trade across here?"
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "list_chains",
+        "arguments": {}
+      }
+    ]
+  },
+  {
+    "name": "Disambiguate a ticker before trading",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Which USDC is the real one on Base? I want the canonical contract."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "find_token",
+        "arguments": {
+          "query": {
+            "$contains": "USDC"
+          },
+          "chain": {
+            "$contains": "base"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Spot price lookup",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "What is ETH worth right now?"
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "get_prices",
+        "arguments": {
+          "symbols": {
+            "$any": true
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Price a same-chain swap",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Price 0.05 ETH into USDC on Base for me."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "preview_swap",
+        "arguments": {
+          "fromChain": {
+            "$contains": "base"
+          },
+          "toChain": {
+            "$contains": "base"
+          },
+          "fromToken": {
+            "$contains": "ETH"
+          },
+          "toToken": {
+            "$contains": "USDC"
+          },
+          "amount": {
+            "$type": "string"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Compare route preferences on a cross-chain swap",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "For 0.5 ETH on Base into USDC on Arbitrum, show me the trade-off between the fastest and the cheapest route."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "compare_routes",
+        "arguments": {
+          "fromChain": {
+            "$contains": "base"
+          },
+          "toChain": {
+            "$contains": "arbitrum"
+          },
+          "fromToken": {
+            "$contains": "ETH"
+          },
+          "toToken": {
+            "$contains": "USDC"
+          },
+          "amount": {
+            "$type": "string"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Navigate the human's view to the right part of the desk",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Show me where my spending limits live on this page."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "navigate_desk",
+        "arguments": {
+          "section": {
+            "$contains": "mandate"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Read the standing mandate before acting",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "What am I actually letting you do here? What are my limits?"
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "read_mandate",
+        "arguments": {}
+      }
+    ]
+  },
+  {
+    "name": "Dry-run against the mandate instead of proposing",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Would swapping 2 ETH into USDC on Base fit inside my rules? Don't put it in front of me yet, just check."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "check_mandate",
+        "arguments": {
+          "fromChain": {
+            "$contains": "base"
+          },
+          "fromToken": {
+            "$contains": "ETH"
+          },
+          "toToken": {
+            "$contains": "USDC"
+          },
+          "amount": {
+            "$type": "string"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Propose a trade with a written rationale",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "I want to take some risk off. Put a proposal in front of me to sell 0.05 ETH on Base for USDC, and say why."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "propose_swap",
+        "arguments": {
+          "fromChain": {
+            "$contains": "base"
+          },
+          "fromToken": {
+            "$contains": "ETH"
+          },
+          "toToken": {
+            "$contains": "USDC"
+          },
+          "amount": {
+            "$type": "string"
+          },
+          "rationale": {
+            "$type": "string"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Bundle dependent steps into one plan",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Move 0.02 ETH from Base into USDC on Arbitrum, and also watch for ETH dropping below $3000 so I can re-enter. Give me the whole thing as one approval, not two."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "propose_plan",
+        "arguments": {
+          "rationale": {
+            "$type": "string"
+          },
+          "steps": {
+            "$any": true
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Propose a price alert",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Let me know if ETH ever breaks above $5000."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "propose_price_alert",
+        "arguments": {
+          "symbol": {
+            "$contains": "ETH"
+          },
+          "direction": {
+            "$contains": "above"
+          },
+          "targetPrice": {
+            "$gte": 1
+          },
+          "rationale": {
+            "$type": "string"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Re-orient after the human clicked something",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "What is sitting on the desk right now? Anything waiting on me?"
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "read_desk",
+        "arguments": {}
+      }
+    ]
+  },
+  {
+    "name": "Hand over the audit trail",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Give me a record of everything you did this session and why."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "export_receipt",
+        "arguments": {}
+      }
+    ]
+  },
+  {
+    "name": "Propose amending the envelope itself, with evidence",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "My per-trade cap keeps blocking things I actually want. Ask me to raise it to $500."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "amend_mandate",
+        "arguments": {
+          "perTradeUsdCap": {
+            "$gte": 100
+          },
+          "rationale": {
+            "$type": "string"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "Compile the mandate into enforceable wallet policy",
+    "messages": [
+      {
+        "role": "user",
+        "type": "message",
+        "content": "Turn my rules into something my agent wallet will actually enforce server-side."
+      }
+    ],
+    "expectedCall": [
+      {
+        "functionName": "compile_mandate_to_policy",
+        "arguments": {}
+      }
+    ]
+  }
+]

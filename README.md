@@ -63,6 +63,7 @@
 |---|---|
 | **Add trading to an app** | [`@suwappu/sdk`](packages/sdk/README.md) · [Agent REST](docs/agent-clients.md) |
 | **Give an AI agent market tools** | [Hosted MCP](docs/quickstart.md#build-an-agent) · [A2A](docs/agent-clients.md) |
+| **Let a browser agent trade with a human in the loop** | [WebMCP Agent Desk](docs/webmcp.md) · [`/agent-terminal`](https://suwappu.bot/agent-terminal) |
 | **Build a self-custody flow** | [Execution ladder](#the-execution-ladder) · [custody semantics](docs/agent-clients.md) |
 | **Build managed execution** | [Agent REST](docs/agent-clients.md) · [security baseline](docs/agent-clients.md#security-baseline-for-builders) |
 | **Trade directly** | [Terminal](https://terminal.suwappu.bot) · [Telegram](https://t.me/SuwappuBot) |

@@ -13,6 +13,9 @@ MCP execute_swap only prepares an unsigned self-custody transaction; it never si
 A2A protocol: POST https://api.suwappu.bot/a2a (JSON-RPC 2.0) — agent card at
 https://api.suwappu.bot/.well-known/agent.json (alias: /.well-known/agent-card.json). A2A is quote/price/discovery only; it does not execute trades.
 OpenAPI 3.1: https://api.suwappu.bot/v1/agent/openapi — Postman collection: https://api.suwappu.bot/v1/agent/postman.
+WebMCP (in-browser): https://suwappu.bot/agent-terminal registers typed tools on `document.modelContext`
+(W3C Web Model Context API) for the agent driving the user's browser — no key, no signup, human-in-the-loop.
+Read tools answer freely; anything that costs money is a proposal a human must approve on the page.
 
 
 

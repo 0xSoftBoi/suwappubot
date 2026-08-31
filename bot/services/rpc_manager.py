@@ -62,6 +62,23 @@ _UNRECOVERABLE_ERROR = re.compile(
     re.IGNORECASE,
 )
 
+# "execution reverted" (and JSON-RPC error code 3, EIP-1474's "Execution
+# error") means the node ran the call and the CONTRACT said no. That is a
+# deterministic, endpoint-independent outcome — the same call reverts
+# identically on every honest endpoint — so it is evidence about the
+# transaction, not about the endpoint's health. Counting it as an endpoint
+# failure trips every circuit breaker for the chain in lockstep, and once
+# every endpoint is open the (fixed) `_select_endpoint` sheds the chain
+# entirely: production logs showed exactly this for 7 straight days on
+# `tempo` from a single "TIP20 token error: Uninitialized" revert, averaging
+# 0.204 vCPU (~30% of the Railway bill) of nothing but circuit-breaker churn.
+# Genuine transport failures (429, 5xx, timeouts, connection errors) are
+# untouched by this and keep tripping the breaker as before.
+_CONTRACT_REVERT_ERROR = re.compile(
+    r"execution reverted|(?:'code'|\"code\")\s*:\s*3\b",
+    re.IGNORECASE,
+)
+
 
 def _safe_url(url: str) -> str:
     """Log-safe endpoint identity: scheme://host plus a redacted path.
@@ -280,6 +297,31 @@ def _is_trusted_rpc_url(url: str) -> bool:
     return any(host == d or host.endswith("." + d) for d in TRUSTED_RPC_DOMAINS)
 
 
+class AllEndpointsUnavailable(ConnectionError):
+    """Raised by `_select_endpoint` when every endpoint for a chain is circuit-open.
+
+    Previously this case fell through to `min(endpoints, key=circuit_open_until)`
+    and returned a known-dead endpoint anyway — the circuit breaker only
+    reordered traffic, it never shed it. For a chain whose endpoints all fail
+    the same way (see `AllEndpointsUnavailable`'s sibling fix for deterministic
+    contract reverts) that produced an infinite hot retry loop: measured in
+    production as 7 days of continuous circuit-breaker churn on `tempo`,
+    averaging 0.204 vCPU (~30% of the Railway bill) on python-worker.
+
+    Subclasses `ConnectionError` to match the existing
+    `chain_all_circuits_open()` pre-check convention (callers already do
+    `raise ConnectionError("all_circuits_open")`, see `bot/services/wallet.py`)
+    so it is caught by the same broad `except Exception` / `except
+    ConnectionError` handlers callers already use for RPC failures — a chain
+    being temporarily unavailable degrades that chain only, it must not crash
+    a background loop or the worker.
+    """
+
+    def __init__(self, chain_name: str):
+        self.chain_name = chain_name
+        super().__init__(f"all_circuits_open:{chain_name}")
+
+
 class RPCTier(Enum):
     PAID = 1  # Infura, Alchemy (user-configured keys)
     PUBLIC = 2  # Free public RPCs from settings.py
@@ -353,6 +395,12 @@ class RPCEndpoint:
         rotation for minutes, which is how a chainlist-discovered node that
         rejects eth_call ended up serving contract reads on dev.
         """
+        if _CONTRACT_REVERT_ERROR.search(error):
+            # Application-level error, not endpoint ill health: leave
+            # request/success counters, consecutive_failures, and the circuit
+            # entirely untouched. The caller still sees the error — it just
+            # doesn't get misfiled as an RPC problem.
+            return
         self.total_requests += 1
         self.last_error = error
         self.consecutive_failures += 1
@@ -617,12 +665,14 @@ class RPCManager:
         available = [ep for ep in endpoints if not ep.is_circuit_open]
 
         if not available:
-            # Emergency: all circuits open — pick one closing soonest
+            # All circuits open: shed the request instead of firing it at a
+            # known-dead endpoint. Log-throttled the same way the old warning
+            # was, so a sustained outage doesn't flood the logs.
             now = time.monotonic()
             if now - self._circuit_open_warned.get(chain_name, 0.0) >= 30.0:
-                logger.warning(f"All RPCs circuit-open for {chain_name}, using earliest recovery")
+                logger.warning(f"All RPCs circuit-open for {chain_name}, refusing to select one")
                 self._circuit_open_warned[chain_name] = now
-            return min(endpoints, key=lambda ep: ep.circuit_open_until)
+            raise AllEndpointsUnavailable(chain_name)
 
         scores = [ep.health_score for ep in available]
         total = sum(scores)

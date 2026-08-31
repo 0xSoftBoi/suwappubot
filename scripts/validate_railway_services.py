@@ -11,12 +11,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 ALLOWED_LIFECYCLES = {"persistent", "manual", "preview", "managed"}
 ALLOWED_KINDS = {"http", "worker", "job", "data"}
 ALLOWED_SOURCE_TYPES = {"github", "external", "managed"}
+
+# Railway stops reading railway.json / railway.toml on this date.  After it,
+# every CaC file in this repo is inert and services silently fall back to
+# whatever the dashboard holds.  See docs/deployment/railway-best-practices.md.
+IAC_CUTOFF = date(2026, 12, 1)
+IAC_TARGET_FILE = ".railway/railway.ts"
+ALLOWED_IAC_STATUSES = {"import-required", "managed"}
+
+# Start failing CI this many days out so the migration is not a deadline scramble.
+IAC_DEADLINE_GRACE_DAYS = 45
 
 
 def _repo_path(root: Path, value: str) -> Path:
@@ -170,17 +182,129 @@ def validate_manifest(data: dict[str, Any], repo_root: Path) -> list[str]:
     return errors
 
 
+def _string_literals(source: str) -> set[str]:
+    """Every quoted literal in a .railway/railway.ts file."""
+    return set(re.findall(r"""["'`]([^"'`\n]+)["'`]""", source))
+
+
+def validate_iac_transition(
+    data: dict[str, Any], repo_root: Path, today: date
+) -> tuple[list[str], list[str]]:
+    """Gate the Config-as-Code -> Infrastructure-as-Code migration.
+
+    Two failure modes this guards against:
+
+    1. Drifting past 2026-12-01 with CaC files that Railway no longer reads.
+    2. Applying a `.railway/railway.ts` that omits a live service.  IaC is
+       omit-means-delete across the whole project, so a file covering only the
+       services that happen to have a repo config would mark Postgres, Redis
+       and every dashboard-only worker for deletion.
+    """
+    errors: list[str] = []
+    notices: list[str] = []
+
+    iac = data.get("infrastructureAsCode")
+    if not isinstance(iac, dict):
+        return ["infrastructureAsCode must be an object"], notices
+
+    status = iac.get("status")
+    target = iac.get("targetFile")
+    if status not in ALLOWED_IAC_STATUSES:
+        errors.append(
+            f"infrastructureAsCode.status must be one of {sorted(ALLOWED_IAC_STATUSES)}, got {status!r}"
+        )
+    if target != IAC_TARGET_FILE:
+        errors.append(
+            f"infrastructureAsCode.targetFile must be {IAC_TARGET_FILE!r}, got {target!r}"
+        )
+        return errors, notices
+
+    iac_path = repo_root / target
+    exists = iac_path.is_file()
+    days_left = (IAC_CUTOFF - today).days
+
+    if status == "import-required":
+        if exists:
+            errors.append(
+                f"{target} exists but infrastructureAsCode.status is still 'import-required'. "
+                "Run `railway config plan` until it reports no changes, then set status to 'managed'."
+            )
+        elif days_left <= 0:
+            errors.append(
+                f"Railway stopped reading Config as Code on {IAC_CUTOFF}. "
+                f"Every railway.*.json in this repo is now inert. Run `railway config migrate --apply`."
+            )
+        elif days_left <= IAC_DEADLINE_GRACE_DAYS:
+            errors.append(
+                f"Config as Code stops being read in {days_left} day(s) (on {IAC_CUTOFF}) and "
+                f"{target} does not exist yet. Run `railway config pull` to import live state, "
+                "then migrate. See docs/deployment/railway-best-practices.md."
+            )
+        else:
+            notices.append(
+                f"Config as Code retires in {days_left} day(s) on {IAC_CUTOFF}; "
+                f"{target} not created yet (CI starts failing at {IAC_DEADLINE_GRACE_DAYS} days out)."
+            )
+        return errors, notices
+
+    # status == "managed"
+    if not exists:
+        errors.append(f"infrastructureAsCode.status is 'managed' but {target} is missing")
+        return errors, notices
+
+    literals = _string_literals(iac_path.read_text())
+    required = {
+        instance["name"]
+        for instance in data["instances"]
+        if isinstance(instance, dict) and isinstance(instance.get("name"), str)
+    }
+    missing = sorted(required - literals)
+    if missing:
+        errors.append(
+            f"{target} does not mention {len(missing)} service(s) present in this manifest: "
+            f"{', '.join(missing)}. Railway IaC is omit-means-delete — applying this file "
+            "would destroy them."
+        )
+
+    stale = sorted(
+        {
+            instance["configFile"]
+            for instance in data["instances"]
+            if isinstance(instance, dict) and isinstance(instance.get("configFile"), str)
+        }
+    )
+    still_present = [path for path in stale if (repo_root / path.lstrip("/")).is_file()]
+    if still_present:
+        errors.append(
+            f"{target} is managing this project but these Config-as-Code files still exist: "
+            f"{', '.join(still_present)}. A service cannot be managed by both; remove them and "
+            "clear each service's Railway config file setting."
+        )
+
+    return errors, notices
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", nargs="?", default="railway.services.json")
+    parser.add_argument(
+        "--today",
+        help="Override today's date (YYYY-MM-DD) when checking the Config-as-Code cutoff.",
+    )
     args = parser.parse_args()
+
+    today = date.fromisoformat(args.today) if args.today else date.today()
 
     repo_root = Path(__file__).resolve().parents[1]
     manifest_path = _repo_path(repo_root, args.manifest)
     errors: list[str] = []
+    notices: list[str] = []
     data = _read_json(manifest_path, errors)
     if data is not None:
         errors.extend(validate_manifest(data, repo_root))
+        iac_errors, iac_notices = validate_iac_transition(data, repo_root, today)
+        errors.extend(iac_errors)
+        notices.extend(iac_notices)
 
     if errors:
         for error in errors:
@@ -188,6 +312,8 @@ def main() -> int:
         print(f"Railway service policy failed with {len(errors)} error(s).")
         return 1
 
+    for notice in notices:
+        print(f"NOTICE: {notice}")
     print(f"Railway service policy is valid: {len(data['instances'])} instances checked.")
     return 0
 

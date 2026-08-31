@@ -245,7 +245,13 @@ const CHAIN_IDS: Record<string, number> = {
 	solana: 1151111081099710, // Li.Fi uses this for Solana
 }
 
-function resolveChainId(chain: string | number): number {
+/**
+ * Chain key (or numeric id) -> Li.Fi chain id. Exported so routes that must
+ * talk to Li.Fi directly — e.g. the public preview's token-decimals lookup —
+ * resolve chains the same way the quote path does, instead of keeping a second
+ * copy of this table that can drift.
+ */
+export function resolveChainId(chain: string | number): number {
 	if (typeof chain === 'number') return chain
 	return CHAIN_IDS[chain.toLowerCase()] || parseInt(chain, 10)
 }
