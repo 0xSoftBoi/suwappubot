@@ -50,16 +50,19 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 	Effect.gen(function* () {
 		const env = yield* EnvService
 
-		const getEncryptionKey = () => {
-			const keyMaterial = env.POLYMARKET_CREDENTIAL_KEY
-			if (!keyMaterial) throw new Error('POLYMARKET_CREDENTIAL_KEY not configured')
-			return deriveKey(keyMaterial)
-		}
+		const getEncryptionKey = () =>
+			Effect.gen(function* () {
+				const keyMaterial = env.POLYMARKET_CREDENTIAL_KEY
+				if (!keyMaterial) {
+					return yield* Effect.fail(new Error('POLYMARKET_CREDENTIAL_KEY not configured'))
+				}
+				return deriveKey(keyMaterial)
+			})
 
 		const getCredentials = (agentId: string) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb
-				const key = getEncryptionKey()
+				const key = yield* getEncryptionKey()
 
 				const rows = yield* Effect.tryPromise({
 					try: () =>
@@ -93,7 +96,7 @@ export const PolymarketCredentialServiceLive = Layer.effect(
 		const storeCredentials = (agentId: string, walletAddress: string, credentials: ClobApiCredentials) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb
-				const key = getEncryptionKey()
+				const key = yield* getEncryptionKey()
 
 				// Encrypt as single JSON blob to avoid AES-GCM nonce reuse
 				const blob = JSON.stringify({

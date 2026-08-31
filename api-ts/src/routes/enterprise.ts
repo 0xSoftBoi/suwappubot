@@ -153,7 +153,9 @@ enterpriseRoutes.post('/orgs', async (c) => {
 						.where(eq(organizations.ownerId, userId)),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
-			if (ownedCount >= MAX_ORGS_PER_OWNER) throw new Error('Organization limit reached')
+			if (ownedCount >= MAX_ORGS_PER_OWNER) {
+				return yield* Effect.fail(new Error('Organization limit reached'))
+			}
 
 			// One transaction: an org whose owner-membership insert failed is
 			// unmanageable through the API and permanently burns its slug.
@@ -224,7 +226,7 @@ enterpriseRoutes.get('/orgs/me', async (c) => {
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 
-			if (!membership) throw new Error('No organization found')
+			if (!membership) return yield* Effect.fail(new Error('No organization found'))
 
 			const org = yield* Effect.tryPromise({
 				try: () =>
@@ -234,7 +236,7 @@ enterpriseRoutes.get('/orgs/me', async (c) => {
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 
-			if (!org) throw new Error('No organization found')
+			if (!org) return yield* Effect.fail(new Error('No organization found'))
 
 			return { org, role: membership.role }
 		}),
@@ -270,7 +272,7 @@ enterpriseRoutes.get('/orgs/:orgId', async (c) => {
 						.limit(1),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
-			if (!org) throw new Error('Organization not found')
+			if (!org) return yield* Effect.fail(new Error('Organization not found'))
 
 			const [{ count }] = yield* Effect.tryPromise({
 				try: () =>
@@ -334,7 +336,7 @@ enterpriseRoutes.patch('/orgs/:orgId', async (c) => {
 						}),
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 				})
-				if (existing) throw new Error('Slug already taken')
+				if (existing) return yield* Effect.fail(new Error('Slug already taken'))
 			}
 
 			const [updated] = yield* Effect.tryPromise({
@@ -447,11 +449,11 @@ enterpriseRoutes.post('/orgs/:orgId/members', async (c) => {
 					}),
 				catch: (e) => {
 					const err = e instanceof Error ? e : new Error(String(e))
-					if (err.message === 'SEAT_LIMIT_EXCEEDED') throw new Error('Seat limit reached')
+					if (err.message === 'SEAT_LIMIT_EXCEEDED') return new Error('Seat limit reached')
 					if (err.message.includes('unique') || err.message.includes('duplicate')) {
-						throw new Error('User is already a member')
+						return new Error('User is already a member')
 					}
-					throw err
+					return err
 				},
 			})
 
@@ -507,7 +509,7 @@ enterpriseRoutes.patch('/orgs/:orgId/members/:targetUserId', async (c) => {
 						.returning(),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
-			if (!updated) throw new Error('Member not found')
+			if (!updated) return yield* Effect.fail(new Error('Member not found'))
 			return updated
 		}),
 	)
@@ -549,11 +551,13 @@ enterpriseRoutes.delete('/orgs/:orgId/members/:targetUserId', async (c) => {
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 
-			if (!targetMember) throw new Error('Member not found')
-			if (targetMember.role === 'owner') throw new Error('Cannot remove the org owner')
+			if (!targetMember) return yield* Effect.fail(new Error('Member not found'))
+			if (targetMember.role === 'owner') {
+				return yield* Effect.fail(new Error('Cannot remove the org owner'))
+			}
 			// Admins may not remove peer admins — only the owner can do that
 			if (membership.role === 'admin' && targetMember.role === 'admin') {
-				throw new Error('Admins cannot remove other admins')
+				return yield* Effect.fail(new Error('Admins cannot remove other admins'))
 			}
 
 			yield* Effect.tryPromise({
@@ -725,7 +729,7 @@ enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
 						.returning({ id: apiKeys.id }),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
-			if (!updated) throw new Error('Key not found or already revoked')
+			if (!updated) return yield* Effect.fail(new Error('Key not found or already revoked'))
 			return updated
 		}),
 	)

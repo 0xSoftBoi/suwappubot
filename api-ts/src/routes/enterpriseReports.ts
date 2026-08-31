@@ -103,7 +103,7 @@ enterpriseReportsRoutes.get('/orgs/:orgId/reports/:period', async (c) => {
 				try: () => db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
-			if (!org) throw new Error('Organization not found')
+			if (!org) return yield* Effect.fail(new Error('Organization not found'))
 
 			const memberRows = yield* Effect.tryPromise({
 				try: () =>

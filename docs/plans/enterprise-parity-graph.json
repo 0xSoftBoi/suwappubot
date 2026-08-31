@@ -214,8 +214,8 @@
       "priority": 18,
       "deps": [],
       "surface": "api-ts",
-      "status": "in_progress",
-      "notes": "Known instance enterprise.ts:273; sweep all api-ts routes/services for the class, convert to Effect.fail / returned errors."
+      "status": "done",
+      "notes": "DONE: 12 instances fixed \u2014 enterprise.ts x10 (incl. dead member-removal 403 branch now reachable), enterpriseReports.ts:106, PolymarketCredentialService.ts (sync throw in getEncryptionKey called from 2 gen bodies -> Effect-ified). All other throw sites audited safe (inside tryPromise try-callbacks or plain functions w/ call-site catch). Zero-throw files grep-confirmed. Check clean."
     },
     {
       "id": "screening-webhook-dispatch",
