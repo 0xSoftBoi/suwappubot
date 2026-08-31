@@ -88,6 +88,7 @@ const STORY: Array<{ caption: string; edges: Array<[string, string]> }> = [
   { caption: 'then dry-runs a trade against them, silently', edges: [['agent', 'check_mandate'], ['check_mandate', 'mandate']] },
   { caption: 'prices the route for real', edges: [['agent', 'preview_swap']] },
   { caption: 'and proposes, in writing', edges: [['agent', 'propose_swap'], ['propose_swap', 'mandate']] },
+  { caption: 'or a whole plan (bridge, buy, alert) as ONE approval', edges: [['agent', 'propose_plan'], ['propose_plan', 'mandate']] },
   { caption: 'the mandate attaches its verdict for you', edges: [['mandate', 'human']] },
   { caption: 'blocked? it may argue, once, in the open', edges: [['agent', 'override'], ['override', 'human']] },
   { caption: 'your Approve unlocks the signing handoff', edges: [['human', 'handoff']] },
