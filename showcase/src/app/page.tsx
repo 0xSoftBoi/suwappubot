@@ -156,6 +156,14 @@ export default async function Home() {
       <div className="hd sw sw-dark">
         <SummerNav />
 
+        <a href="/agent-terminal" className="home-announce">
+          <span className="home-announce__tag">{h('announce.tag')}</span>
+          <span className="home-announce__copy">{h('announce.copy')}</span>
+          <span className="home-announce__arrow" aria-hidden="true">
+            →
+          </span>
+        </a>
+
         <main id="main-content">
           <div className="home-stage">
           <OceanAtmosphere

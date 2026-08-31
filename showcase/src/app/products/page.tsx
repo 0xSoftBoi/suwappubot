@@ -37,6 +37,7 @@ const groups = [
     title: 'Build on Suwappu',
     items: [
       { title: 'Agent API', desc: 'Programmatic execution primitives for agents and applications.', href: '/agents', badge: 'Live' },
+      { title: 'Agent Desk', desc: 'WebMCP tools for the agent driving your browser — a mandate, not your keys.', href: '/agent-terminal', badge: 'Live' },
       { title: 'MCP', desc: 'Connect AI clients to Suwappu through the Model Context Protocol.', href: '/docs/quick-start/mcp-clients', badge: 'Live' },
       { title: 'SDK examples', desc: 'Reference integrations and examples for developers.', href: '/docs/quick-start/sdk-examples', badge: 'Live' },
       { title: 'API reference', desc: 'Explore endpoints, schemas, and request/response contracts.', href: '/docs/api-reference/overview', badge: 'Live' },
