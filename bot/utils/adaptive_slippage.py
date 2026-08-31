@@ -37,6 +37,8 @@ calling in.
 
 from __future__ import annotations
 
+import math
+
 
 def compute_adaptive_slippage_bps(
     requested_slippage_bps: int,
@@ -80,9 +82,11 @@ def compute_adaptive_slippage_bps(
     except (TypeError, ValueError):
         return requested_slippage_bps
 
-    if price_impact_fraction != price_impact_fraction or price_impact_fraction < 0:
-        # NaN or negative — untrustworthy input, don't guess. Callers must
-        # normalize sign conventions (e.g. OKX) before calling in.
+    if not math.isfinite(price_impact_fraction) or price_impact_fraction < 0:
+        # NaN, ±inf, or negative — untrustworthy input, don't guess. (isfinite
+        # rejects +inf too, which would otherwise crash round() with an
+        # OverflowError below.) Callers must normalize sign conventions
+        # (e.g. OKX) before calling in.
         return requested_slippage_bps
 
     price_impact_bps = round(price_impact_fraction * 10_000)
