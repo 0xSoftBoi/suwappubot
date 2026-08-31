@@ -457,7 +457,7 @@ function buildTempoTokens() {
 function handleGetTempoTokens(args: Record<string, unknown>) {
 	const parsed = McpGetTempoTokensSchema.safeParse(args)
 	if (!parsed.success)
-		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
 	const search = parsed.data.search?.toUpperCase()
 	let tokens = buildTempoTokens()
 	if (search) {
@@ -487,7 +487,7 @@ function handleGetTempoTokens(args: Record<string, unknown>) {
 export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	const parsed = McpBrowseMppDirectorySchema.safeParse(args)
 	if (!parsed.success)
-		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
 	const category = parsed.data.category
 	const limit = Math.min(Math.max(parsed.data.limit || 20, 1), 100)
 
@@ -731,7 +731,7 @@ function handleListChains() {
 function handleListTokens(args: Record<string, unknown>) {
 	const parsed = McpListTokensSchema.safeParse(args)
 	if (!parsed.success)
-		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
 	const { chain, search } = parsed.data
 	const searchUp = search?.toUpperCase()
 
@@ -814,7 +814,7 @@ async function handlePerpsMarkets() {
 async function handlePerpsQuote(args: Record<string, unknown>) {
 	const parsed = PerpsQuoteSchema.safeParse(args)
 	if (!parsed.success)
-		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
 	const { market, side, size, leverage } = parsed.data
 
 	const result = await runEffectEither(
@@ -906,7 +906,7 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 	// to whichever submission path they use.
 	const parsed = McpExecuteSwapSchema.safeParse(args)
 	if (!parsed.success)
-		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }] }
+		return { isError: true, content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }] }
 	const { quote_id, wallet_address, idempotency_key } = parsed.data
 	const cached = getCachedQuote(quote_id)
 	// Reject a missing quote OR one belonging to another agent (cross-agent quote
@@ -1163,7 +1163,7 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 	if (!parsed.success) {
 		return {
 			isError: true,
-			content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join('; ')}` }],
+			content: [{ type: 'text', text: `Invalid arguments: ${parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)).join('; ')}` }],
 		}
 	}
 	const { quote_id, from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = parsed.data

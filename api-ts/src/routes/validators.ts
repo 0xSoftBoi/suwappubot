@@ -326,12 +326,12 @@ export const McpListChainsSchema = z.object({})
 export const McpPerpsMarketsSchema = z.object({})
 
 export const McpListTokensSchema = z.object({
-	chain: z.string().optional(),
-	search: z.string().optional(),
+	chain: z.string().nullish(),
+	search: z.string().nullish(),
 })
 
 export const McpGetTempoTokensSchema = z.object({
-	search: z.string().optional(),
+	search: z.string().nullish(),
 })
 
 /**
@@ -340,8 +340,8 @@ export const McpGetTempoTokensSchema = z.object({
  * rejecting them — same clamp convention as the limit/offset fields above.
  */
 export const McpBrowseMppDirectorySchema = z.object({
-	category: z.string().optional(),
-	limit: z.number().optional(),
+	category: z.string().nullish(),
+	limit: z.coerce.number().nullish(),
 })
 
 /**
@@ -351,7 +351,9 @@ export const McpBrowseMppDirectorySchema = z.object({
  * McpGetSwapStatusSchema being separate from SwapStatusQuerySchema.
  */
 export const McpExecuteSwapSchema = z.object({
-	quote_id: z.string(),
-	wallet_address: z.string(),
-	idempotency_key: z.string().optional(),
+	quote_id: z.string().min(1),
+	wallet_address: z.string().min(1),
+	idempotency_key: z
+		.union([z.string(), z.number().transform(String)])
+		.nullish(),
 })
