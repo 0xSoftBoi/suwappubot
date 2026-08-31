@@ -145,6 +145,7 @@ interface ActivityEntry {
 const PROPOSAL_TTL_MS = 10 * 60 * 1000;
 const MAX_WAIT_SECONDS = 120;
 const MANDATE_KEY = 'suwappu.desk.mandate.v1';
+const SESSION_KEY = 'suwappu.desk.session.v1';
 const STABLES = new Set(['USDC', 'USDT', 'DAI', 'USDS', 'FRAX', 'USDE']);
 
 const DEFAULT_TICKET: Ticket = {
@@ -264,9 +265,13 @@ export default function AgentDesk() {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [chains, setChains] = useState<ChainInfo[]>([]);
   const [mcp, setMcp] = useState<{
-    state: 'checking' | 'connected' | 'unsupported';
+    state: 'checking' | 'connected' | 'unsupported' | 'paused';
     tools: string[];
   }>({ state: 'checking', tools: [] });
+  /** The take-control switch: pausing withdraws EVERY tool from
+      document.modelContext (one abort), so a paused agent has nothing left
+      to call — not even reads. The page keeps working by hand. */
+  const [paused, setPaused] = useState(false);
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [mandateOpen, setMandateOpen] = useState(false);
@@ -346,6 +351,48 @@ export default function AgentDesk() {
     for (const resolve of set) resolve(proposal);
     waiters.current.delete(proposal.id);
   }, []);
+
+  // The session survives a reload: proposals and the activity log rehydrate
+  // from this browser's storage, so a refresh never silently eats the
+  // receipt. Pending proposals past their TTL are expired by the existing
+  // sweep; decided ones persist as history.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { proposals?: Proposal[]; activity?: ActivityEntry[] };
+      const restoredProposals = Array.isArray(parsed.proposals)
+        ? parsed.proposals.filter((p) => p && typeof p.id === 'string')
+        : [];
+      const restoredActivity = Array.isArray(parsed.activity)
+        ? parsed.activity.filter((a) => a && typeof a.id === 'string').slice(0, 80)
+        : [];
+      if (restoredProposals.length === 0 && restoredActivity.length === 0) return;
+      proposalsRef.current = restoredProposals;
+      setProposals(restoredProposals);
+      setActivity([
+        {
+          id: nextId('act'),
+          at: Date.now(),
+          actor: 'human' as const,
+          label: 'Session restored',
+          detail: `${restoredProposals.length} proposals and ${restoredActivity.length} log entries survived the reload`,
+          isError: false,
+        },
+        ...restoredActivity,
+      ]);
+    } catch {
+      /* private mode, blocked storage — start fresh */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SESSION_KEY, JSON.stringify({ proposals, activity }));
+    } catch {
+      /* private mode — the session just won't survive a reload */
+    }
+  }, [proposals, activity]);
 
   // Mandate persists per browser so a returning human keeps their envelope.
   useEffect(() => {
@@ -1515,6 +1562,10 @@ export default function AgentDesk() {
       setMcp({ state: 'unsupported', tools: [] });
       return;
     }
+    if (paused) {
+      setMcp({ state: 'paused', tools: [] });
+      return;
+    }
     let disposer: (() => void) | null = null;
     let cancelled = false;
     registerDeskTools(ctx, controller)
@@ -1540,7 +1591,7 @@ export default function AgentDesk() {
       cancelled = true;
       disposer?.();
     };
-  }, [controller, log]);
+  }, [controller, log, paused]);
 
   /**
    * Two tools exist only when the human's state makes them meaningful. This is
@@ -1555,8 +1606,21 @@ export default function AgentDesk() {
     (p) => p.status === 'pending' && isBlocked(p) && !p.override,
   );
 
-  useDynamicTool(ctxRef, controller, hasUnlockedHandoff, registerHandoffTool, 'open_signing_handoff', setMcp);
-  useDynamicTool(ctxRef, controller, hasBlockedProposal, registerOverrideTool, 'request_override', setMcp);
+  useDynamicTool(ctxRef, controller, hasUnlockedHandoff && !paused, registerHandoffTool, 'open_signing_handoff', setMcp);
+  useDynamicTool(ctxRef, controller, hasBlockedProposal && !paused, registerOverrideTool, 'request_override', setMcp);
+
+  const togglePause = useCallback(() => {
+    setPaused((was) => {
+      log(
+        'human',
+        was ? 'Agent resumed' : 'AGENT PAUSED',
+        was
+          ? 'tools re-registering on document.modelContext'
+          : 'every tool withdrawn from document.modelContext; the desk still works by hand',
+      );
+      return !was;
+    });
+  }, [log]);
 
   // ── Manual controls ──────────────────────────────────────────────
 
@@ -1616,20 +1680,35 @@ export default function AgentDesk() {
               ? styles.pillOn
               : mcp.state === 'checking'
                 ? styles.pillWait
-                : styles.pillOff
+                : mcp.state === 'paused'
+                  ? styles.pillPaused
+                  : styles.pillOff
           }`}
         >
           {mcp.state === 'connected'
             ? `WebMCP connected · ${mcp.tools.length} site tools`
             : mcp.state === 'checking'
               ? 'Looking for an agent…'
-              : 'No WebMCP in this browser'}
+              : mcp.state === 'paused'
+                ? 'AGENT PAUSED · 0 tools'
+                : 'No WebMCP in this browser'}
         </span>
         <p className={styles.statusCopy}>
           {mcp.state === 'connected'
             ? 'An agent in this browser can read your mandate, price routes and propose trades against it. It cannot sign, and it cannot approve.'
-            : 'Open this page in ChatGPT Atlas (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
+            : mcp.state === 'paused'
+              ? 'You took control. Every tool has been withdrawn from document.modelContext; a paused agent has nothing left to call, not even reads. The desk still works by hand.'
+              : 'Open this page in ChatGPT Atlas (or Chrome with WebMCP enabled) to let an agent drive it. Everything below still works by hand.'}
         </p>
+        {(mcp.state === 'connected' || mcp.state === 'paused') && (
+          <button
+            type="button"
+            className={paused ? styles.primary : styles.ghost}
+            onClick={togglePause}
+          >
+            {paused ? 'Resume agent' : 'Pause agent'}
+          </button>
+        )}
       </section>
 
       <DeskFlow
@@ -2066,6 +2145,18 @@ export default function AgentDesk() {
                     </p>
                   )}
 
+                  {p.swap?.preview && (
+                    <p className={styles.impactStrip}>
+                      <span>
+                        floor ≥ {fmtAmount(p.swap.preview.toAmountMin)}{' '}
+                        {p.swap.preview.toToken.symbol}
+                      </span>
+                      <span>impact {p.swap.preview.priceImpact}%</span>
+                      <span>gas {fmtUsd(p.swap.preview.estimatedGasUsd)}</span>
+                      <span>settles in {fmtDuration(p.swap.preview.estimatedDurationSeconds)}</span>
+                    </p>
+                  )}
+
                   {p.plan && (
                     <ol className={styles.planSteps}>
                       {p.plan.steps.map((s, i) => {
@@ -2395,7 +2486,10 @@ function useDynamicTool(
   register: (ctx: ModelContextLike, ctrl: DeskController) => Promise<() => void>,
   toolName: string,
   setMcp: React.Dispatch<
-    React.SetStateAction<{ state: 'checking' | 'connected' | 'unsupported'; tools: string[] }>
+    React.SetStateAction<{
+      state: 'checking' | 'connected' | 'unsupported' | 'paused';
+      tools: string[];
+    }>
   >,
 ) {
   useEffect(() => {

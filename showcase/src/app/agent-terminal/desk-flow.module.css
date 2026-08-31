@@ -269,6 +269,11 @@
   background: #e09b52;
 }
 
+.readout span[data-state='paused']::before {
+  background: #e0524f;
+  box-shadow: 0 0 8px rgba(224, 82, 79, 0.8);
+}
+
 /* ── Legend ── */
 
 .legend {
