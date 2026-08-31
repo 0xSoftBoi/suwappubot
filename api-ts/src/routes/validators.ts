@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { findReservedAgentMetadataKeys } from '../services/agentMetadataKeys'
 import { isPublicUrl } from './ssrfGuard'
 
 // The SSRF transport guard now lives in ./ssrfGuard. Re-export the pieces other
@@ -134,6 +135,16 @@ export const UpdateAgentSchema = z
 			data.metadata !== undefined,
 		'At least one field must be provided',
 	)
+	.superRefine((data, ctx) => {
+		const reservedKeys = findReservedAgentMetadataKeys(data.metadata)
+		if (reservedKeys.length > 0) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['metadata'],
+				message: `metadata contains reserved key(s) that cannot be set via this endpoint: ${reservedKeys.join(', ')}`,
+			})
+		}
+	})
 
 export const CreatePolicySchema = z.object({
 	type: z.enum(['spending_limit', 'whitelist']),

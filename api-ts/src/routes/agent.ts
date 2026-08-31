@@ -2488,17 +2488,16 @@ agentRoutes.post('/wallets', async (c) => {
 				}
 			}
 
-			// Store wallet address in agent metadata
+			// Store wallet address in agent metadata. This writes reserved keys
+			// (wallet_address, internal_user_id, internal_wallet_id, wallet_sub_org_id)
+			// so it MUST go through the privileged bindManagedWallet path, not
+			// updateAgent (which strips those keys for caller-facing PATCH /me).
 			const agentService = yield* AgentService
-			const existingMetadata = (agent.metadata as Record<string, unknown>) || {}
-			yield* agentService.updateAgent(agent.id, {
-				metadata: {
-					...existingMetadata,
-					wallet_address: wallet.address,
-					wallet_sub_org_id: wallet.subOrgId,
-					...(internalUserId !== undefined && { internal_user_id: internalUserId }),
-					...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
-				},
+			yield* agentService.bindManagedWallet(agent.id, {
+				wallet_address: wallet.address,
+				wallet_sub_org_id: wallet.subOrgId,
+				...(internalUserId !== undefined && { internal_user_id: internalUserId }),
+				...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
 			})
 
 			return wallet
