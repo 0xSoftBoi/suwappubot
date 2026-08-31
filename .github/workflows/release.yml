@@ -1,0 +1,90 @@
+# Release pipeline (docs/plans/oss-parity.md, Phase 1).
+#
+# On a version tag push (vYYYY.MM.PATCH — CalVer for the app; @suwappu/sdk
+# versions independently via publish-sdk.yml), this workflow:
+#   1. builds a source tarball from the exact tagged tree,
+#   2. generates the CycloneDX SBOM for the tagged tree (Syft — same tool
+#      and pin as sbom.yml),
+#   3. signs both artifacts with cosign KEYLESS signing (GitHub OIDC —
+#      no long-lived keys; the Sigstore bundle embeds cert + signature +
+#      Rekor transparency-log proof),
+#   4. creates the GitHub Release with auto-generated notes and attaches
+#      artifacts + signature bundles.
+#
+# Verify any artifact (documented in docs/development/releases.md):
+#   cosign verify-blob \
+#     --bundle <artifact>.sigstore.json \
+#     --certificate-identity-regexp 'github.com/0xSoftBoi/suwappubot' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     <artifact>
+#
+# cosign is installed as a checksum-pinned release binary (no third-party
+# installer action), matching the repo's pin-everything convention.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the Release + upload assets
+      id-token: write # cosign keyless OIDC identity
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history for release-note generation
+
+      - name: Build source tarball from the tagged tree
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          git archive --format=tar.gz --prefix="suwappubot-${TAG}/" \
+            -o "suwappubot-${TAG}.tar.gz" "${TAG}"
+
+      - name: Generate CycloneDX SBOM for the tagged tree
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: suwappubot-${{ github.ref_name }}.cdx.json
+          artifact-name: suwappubot-${{ github.ref_name }}.cdx.json
+          upload-release-assets: false # this workflow attaches it itself
+
+      - name: Install cosign (pinned + checksum-verified)
+        run: |
+          set -euo pipefail
+          VERSION=v3.0.4
+          SHA256=10dab2fd2170b5aa0d5c0673a9a2793304960220b314f6a873bf39c2f08287aa
+          curl -sSL -o cosign \
+            "https://github.com/sigstore/cosign/releases/download/${VERSION}/cosign-linux-amd64"
+          echo "${SHA256}  cosign" | sha256sum -c -
+          chmod +x cosign && sudo mv cosign /usr/local/bin/
+
+      - name: Sign artifacts (keyless, Sigstore bundles)
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          for f in "suwappubot-${TAG}.tar.gz" "suwappubot-${TAG}.cdx.json"; do
+            cosign sign-blob --yes --bundle "${f}.sigstore.json" "${f}"
+          done
+
+      - name: Create GitHub Release with artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "${TAG}" \
+            --generate-notes \
+            --verify-tag \
+            "suwappubot-${TAG}.tar.gz" \
+            "suwappubot-${TAG}.tar.gz.sigstore.json" \
+            "suwappubot-${TAG}.cdx.json" \
+            "suwappubot-${TAG}.cdx.json.sigstore.json"
