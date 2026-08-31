@@ -48,6 +48,7 @@ import { mapErrorToResponse } from '../errors'
 import { flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { auditLog } from '../services/audit'
+import { dispatchOrgEvent } from '../services/webhookDispatcher'
 import { resolveMembership } from './enterprise'
 
 export const enterprisePoliciesRoutes = new Hono()
@@ -262,6 +263,13 @@ enterprisePoliciesRoutes.post('/orgs/:orgId/policies', async (c) => {
 		return c.json(errBody, status as 200)
 	}
 
+	dispatchOrgEvent(orgId, 'policy.changed', {
+		action: 'created',
+		policyId: result.right!.id,
+		name: result.right!.name,
+		policyType: result.right!.policyType,
+	})
+
 	return c.json({ policy: result.right }, 201)
 })
 
@@ -353,6 +361,13 @@ enterprisePoliciesRoutes.patch('/orgs/:orgId/policies/:policyId', async (c) => {
 		return c.json(errBody, status as 200)
 	}
 
+	dispatchOrgEvent(orgId, 'policy.changed', {
+		action: 'updated',
+		policyId: result.right!.id,
+		name: result.right!.name,
+		policyType: result.right!.policyType,
+	})
+
 	return c.json({ policy: result.right })
 })
 
@@ -395,6 +410,12 @@ enterprisePoliciesRoutes.delete('/orgs/:orgId/policies/:policyId', async (c) => 
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status as 200)
 	}
+
+	dispatchOrgEvent(orgId, 'policy.changed', {
+		action: 'deleted',
+		policyId: result.right.id,
+		name: result.right.name,
+	})
 
 	return c.json({ success: true })
 })
@@ -504,6 +525,13 @@ enterprisePoliciesRoutes.post('/orgs/:orgId/allowlist', async (c) => {
 		return c.json(errBody, status as 200)
 	}
 
+	dispatchOrgEvent(orgId, 'allowlist.changed', {
+		action: 'added',
+		entryId: result.right!.id,
+		chain,
+		address,
+	})
+
 	return c.json({ entry: result.right }, 201)
 })
 
@@ -546,6 +574,13 @@ enterprisePoliciesRoutes.delete('/orgs/:orgId/allowlist/:entryId', async (c) => 
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status as 200)
 	}
+
+	dispatchOrgEvent(orgId, 'allowlist.changed', {
+		action: 'removed',
+		entryId: result.right.id,
+		chain: result.right.chain,
+		address: result.right.address,
+	})
 
 	return c.json({ success: true })
 })
@@ -656,6 +691,13 @@ enterprisePoliciesRoutes.post('/orgs/:orgId/approval-requests', async (c) => {
 		return c.json(errBody, status as 200)
 	}
 
+	dispatchOrgEvent(orgId, 'policy.approval_requested', {
+		requestId: result.right!.id,
+		requestType: result.right!.requestType,
+		policyId: result.right!.policyId,
+		requiredApprovals: result.right!.requiredApprovals,
+	})
+
 	return c.json({ request: result.right }, 201)
 })
 
@@ -717,6 +759,16 @@ enterprisePoliciesRoutes.get('/orgs/:orgId/approval-requests', async (c) => {
 						actor: 'system',
 						triggeredByRead: membership.userId,
 					},
+				})
+
+				// One aggregate dispatch for the whole expired batch (mirrors the
+				// aggregate audit row above) rather than one webhook POST per
+				// request — a large backlog must not fan out N deliveries from a
+				// single GET.
+				dispatchOrgEvent(orgId, 'policy.approval_resolved', {
+					outcome: 'expired',
+					requestIds: expiredRows.slice(0, 500).map((r) => r.id),
+					expiredCount: expiredRows.length,
 				})
 			}
 
@@ -905,6 +957,10 @@ enterprisePoliciesRoutes.post('/orgs/:orgId/approval-requests/:requestId/vote', 
 						eventType: 'enterprise.policy.approval_expired',
 						details: { requestId, actor: 'system', triggeredByRead: membership.userId },
 					})
+					dispatchOrgEvent(orgId, 'policy.approval_resolved', {
+						requestId,
+						outcome: 'expired',
+					})
 					return yield* Effect.fail(new Error('REQUEST_EXPIRED'))
 				case 'already_resolved':
 					return yield* Effect.fail(new Error(`REQUEST_ALREADY_RESOLVED:${txResult.status}`))
@@ -929,6 +985,11 @@ enterprisePoliciesRoutes.post('/orgs/:orgId/approval-requests/:requestId/vote', 
 							orgId,
 							eventType: 'enterprise.policy.approval_resolved',
 							details: { requestId, outcome: txResult.outcome },
+						})
+						dispatchOrgEvent(orgId, 'policy.approval_resolved', {
+							requestId,
+							outcome: txResult.outcome,
+							resolvedBy: membership.userId,
 						})
 					}
 					return txResult.request

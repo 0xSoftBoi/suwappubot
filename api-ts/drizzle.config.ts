@@ -78,5 +78,9 @@ export default defineConfig({
 		// api-ts-exclusive step-up re-confirmation nonces for owner approve
 		// decisions (approvalStepUpChallenges.ts) — no python owner.
 		'approval_step_up_challenges',
+		// api-ts-exclusive org webhook config for SIEM alerting
+		// (webhooks.ts, `alerts-webhooks` node of the enterprise dashboard
+		// parity plan) — no python owner.
+		'org_webhooks',
 	],
 })

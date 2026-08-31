@@ -30,6 +30,7 @@ import {
 	enterprisePoliciesRoutes,
 	enterpriseRoutes,
 	enterpriseTransactionsRoutes,
+	enterpriseWebhooksRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -216,6 +217,9 @@ export function createApp(config: AppConfig) {
 	// Enterprise org policy engine + quorum approvals + signed policy export —
 	// separate router, same prefix.
 	app.route('/enterprise', enterprisePoliciesRoutes)
+	// Enterprise org webhook config + HMAC-signed SIEM alert dispatch —
+	// separate router, same prefix.
+	app.route('/enterprise', enterpriseWebhooksRoutes)
 
 	// Core agent routes (v1/agent/*) enforce their own public/authenticated boundaries.
 	// Protocol-specific routes mounted below define their own auth boundary as well.

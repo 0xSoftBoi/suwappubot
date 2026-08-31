@@ -166,7 +166,7 @@
         "treasury-api"
       ],
       "surface": "api-ts",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "GET /v1/enterprise/orgs/:id/reports/:period \u2014 accounting-friendly rows (Coinbase Prime journal-entry pattern). UI: download buttons on Overview."
     },
     {
@@ -178,8 +178,8 @@
         "policy-schema"
       ],
       "surface": "api-ts",
-      "status": "in_progress",
-      "notes": "orgWebhooks table (url, secret, event types), HMAC-signed POST dispatch helper called from policy/compliance paths. SIEM-friendly JSON payloads."
+      "status": "done",
+      "notes": "DONE: orgWebhooks schema + webhookDispatcher (SSRF guard incl. numeric-host bypasses, TOCTOU re-check at send, HMAC-SHA256 of raw body, 5s timeout, no redirects, fire-and-forget) + enterpriseWebhooks CRUD/test routes (admin-only, secret shown once) + 8 dispatch sites in enterprisePolicies. Follow-ups: screening.* dispatch needs a Python-side wiring pass; drizzle migration for org_webhooks deferred (db:generate not run)."
     }
   ]
 }
