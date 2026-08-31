@@ -46,6 +46,18 @@ DOMAIN_PATTERNS = {
         ".env.schema",
         "capabilities.yaml",
         "scripts/check_env_schema.py",
+        # The python lane also hosts three gates whose subjects live outside bot/ and
+        # api/. Without these entries the gate is unreachable for exactly the change it
+        # exists to catch: editing an NFT SVG skips the lane, so the asset validator
+        # never runs on it, and editing the replay SQL skips its own schema-conformance
+        # check. A gate that does not fire on its own subject is decoration.
+        "nft/**",
+        "art/**",
+        "scripts/replay/**",
+        "scripts/analytics/**",
+        "scripts/audit/**",
+        "scripts/art/**",
+        "scripts/ci_changed_domains.py",
     ),
     "api_ts": ("api-ts/**",),
     "terminal": ("terminal/**", "packages/design-tokens/**"),
