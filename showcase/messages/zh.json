@@ -293,6 +293,10 @@
       "soundOn": "声音开",
       "soundOff": "声音关",
       "videoLabel": "开阔海面的缓慢航拍画面"
+    },
+    "announce": {
+      "tag": "新功能 · WebMCP",
+      "copy": "Agent Desk：给浏览器里的代理一份授权书，而不是你的密钥。无需登录。"
     }
   },
   "cta": {
