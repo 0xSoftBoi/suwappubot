@@ -456,7 +456,13 @@ export default function DashboardPage() {
         // and left `data` null so the render threw and the page went blank.
         // Neither is acceptable: a paying-or-not user must still reach their
         // plan and billing.
-        const org: OrgMe | null = orgRes.ok ? await orgRes.json() : null;
+        // GET /orgs/me responds with an ENVELOPE: { org: {...}, role }.
+        // Storing the envelope as the org left org.id undefined, so
+        // "create key" POSTed to /orgs//api-keys (empty id) and 404'd —
+        // the first thing a new customer hit after onboarding.
+        const orgPayload = orgRes.ok ? await orgRes.json() : null;
+        const org: OrgMe | null = orgPayload?.org ?? null;
+        const roleFromOrgMe: string | undefined = orgPayload?.role;
 
         const membersPayload = membersRes?.ok ? await membersRes.json() : [];
         const members: Member[] = Array.isArray(membersPayload)
@@ -479,8 +485,13 @@ export default function DashboardPage() {
         const usagePayload = usageRes?.ok ? await usageRes.json() : {};
         const usage = parseUsage(usagePayload as Record<string, unknown>);
 
+        // Prefer the role /orgs/me reports for the CALLER — members[0] is
+        // whoever sorts first in the team list, not necessarily you, and a
+        // wrong guess hides the create/revoke buttons from a real owner.
         const callerRole: DashboardData['callerRole'] =
-          (members[0]?.role as DashboardData['callerRole']) ?? 'member';
+          (roleFromOrgMe as DashboardData['callerRole']) ??
+          (members[0]?.role as DashboardData['callerRole']) ??
+          'member';
 
         setData({ org, members, apiKeys, usage, callerRole });
         setPeriodUsage(usage);
@@ -516,7 +527,7 @@ export default function DashboardPage() {
   // ── Key / member mutations ────────────────────────────────────────────────
   async function revokeKey(keyId: string) {
     if (!data) return;
-    await apiFetch(`/enterprise/orgs/${data.org?.id}/api-keys/${keyId}`, { method: 'DELETE' });
+    await apiFetch(`/enterprise/orgs/${data.org?.id ?? 'me'}/api-keys/${keyId}`, { method: 'DELETE' });
     setData((prev) =>
       prev ? {
         ...prev,
@@ -529,7 +540,7 @@ export default function DashboardPage() {
 
   async function removeMember(userId: string) {
     if (!data) return;
-    await apiFetch(`/enterprise/orgs/${data.org?.id}/members/${userId}`, { method: 'DELETE' });
+    await apiFetch(`/enterprise/orgs/${data.org?.id ?? 'me'}/members/${userId}`, { method: 'DELETE' });
     setData((prev) =>
       prev ? { ...prev, members: prev.members.filter((m) => m.userId !== userId) } : prev
     );
@@ -942,7 +953,7 @@ export default function DashboardPage() {
       {/* ── New key modal ── */}
       {showNewKey && (
         <NewKeyModal
-          orgId={org?.id ?? ''}
+          orgId={org?.id ?? 'me'}
           onClose={() => setShowNewKey(false)}
           onCreated={(key) => {
             setData((prev) => prev ? { ...prev, apiKeys: [key, ...prev.apiKeys] } : prev);
