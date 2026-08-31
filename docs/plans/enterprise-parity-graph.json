@@ -89,9 +89,9 @@
       "priority": 8,
       "deps": [],
       "surface": "api-ts",
-      "status": "in_progress",
+      "status": "done",
       "money_path": true,
-      "notes": "Drizzle tables: orgPolicies (type: tx_limit|daily_limit|velocity|allowlist_only, threshold, quorum, tiered spending-limit \u00e0 la Safe), orgAllowlistAddresses, policyApprovalRequests + approvals. Additive migration via bun run db:generate."
+      "notes": "DONE: orgPolicies/orgAllowlistAddresses/policyApprovalRequests/policyApprovals in src/db/schema/policies.ts + drizzle migration 0023. CAUTION: migration 0023 also creates 9 execution_* tables (pre-existing drift \u2014 execution.ts committed at HEAD with no migration). Review before applying to a live DB. money-path-reviewer pass due with policy-api."
     },
     {
       "id": "policy-api",
@@ -102,7 +102,7 @@
         "policy-schema"
       ],
       "surface": "api-ts",
-      "status": "todo",
+      "status": "in_progress",
       "money_path": true,
       "notes": "Owner/admin mutate policies; approvals need quorum distinct approvers; every mutation writes auditLogs. Include signed policy-export endpoint (Fireblocks differentiator): JSON snapshot + entryHash."
     },

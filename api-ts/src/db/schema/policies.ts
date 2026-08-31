@@ -9,6 +9,7 @@ import {
 	real,
 	text,
 	timestamp,
+	unique,
 	uniqueIndex,
 	uuid,
 	varchar,
@@ -163,3 +164,152 @@ export type PolicyDecision = typeof policyDecisions.$inferSelect
 export type NewPolicyDecision = typeof policyDecisions.$inferInsert
 export type PolicyKillSwitch = typeof policyKillSwitches.$inferSelect
 export type NewPolicyKillSwitch = typeof policyKillSwitches.$inferInsert
+
+/**
+ * ---------------------------------------------------------------------------
+ * Enterprise dashboard parity — `policy-schema` node (org policy engine).
+ * ---------------------------------------------------------------------------
+ * SCHEMA ONLY — no enforcement wiring yet. This is a second, dashboard-facing
+ * policy surface distinct from the `policies` table above: `policies` is the
+ * server-side agent/swap enforcement engine (evaluated at the swap /build
+ * step). `orgPolicies` below is the human-authored, org-admin-configured
+ * rule set for the enterprise dashboard (Fireblocks/Safe-style tx limits,
+ * velocity, allowlist-only, tiered spending) with quorum approval workflows.
+ * A later node (`policy-api`) wires evaluation; do not assume these tables
+ * gate anything yet.
+ */
+
+/**
+ * Org-admin-configured policy rule. `policyType` selects which fields of
+ * `params` are read (see PARAMS SHAPE below) — kept as free-form jsonb rather
+ * than a rigid column-per-type layout since spending-tier policies (Safe-style
+ * tiered limits) and velocity policies need different shapes.
+ *
+ * PARAMS SHAPE (by policyType, all fields optional/nullable within the JSON):
+ *   tx_limit:       { thresholdUsd }
+ *   daily_limit:    { thresholdUsd }
+ *   velocity:       { windowHours, maxTxPerWindow }
+ *   allowlist_only: {} (evaluated against orgAllowlistAddresses)
+ *   spending_tier:  { tierUpperUsd, thresholdUsd }
+ */
+export const orgPolicies = pgTable(
+	'org_policies',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		orgId: uuid('org_id')
+			.references(() => organizations.id, { onDelete: 'cascade' })
+			.notNull(),
+		name: varchar('name', { length: 120 }).notNull(),
+		// 'tx_limit' | 'daily_limit' | 'velocity' | 'allowlist_only' | 'spending_tier'
+		policyType: varchar('policy_type', { length: 30 }).notNull(),
+		// See PARAMS SHAPE above. e.g. { thresholdUsd, windowHours, maxTxPerWindow, tierUpperUsd }
+		params: jsonb('params').notNull().default({}),
+		// Quorum: number of distinct approver votes required for a tx/request this
+		// policy catches. 0/1 = single-approver (no quorum) gate.
+		requiredApprovals: integer('required_approvals').default(1).notNull(),
+		enabled: boolean('enabled').default(true).notNull(),
+		createdBy: integer('created_by').references(() => users.id),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at').defaultNow().notNull(),
+	},
+	(t) => ({
+		orgIdx: index('org_policies_org_idx').on(t.orgId),
+		orgEnabledIdx: index('org_policies_org_enabled_idx').on(t.orgId, t.enabled),
+	}),
+)
+
+/**
+ * Per-org allowlisted destination addresses (Safe/Fireblocks-style address
+ * book). Consulted by `allowlist_only` org policies and, later, by
+ * `allowlist_add` / `allowlist_remove` approval requests below.
+ */
+export const orgAllowlistAddresses = pgTable(
+	'org_allowlist_addresses',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		orgId: uuid('org_id')
+			.references(() => organizations.id, { onDelete: 'cascade' })
+			.notNull(),
+		chain: varchar('chain', { length: 50 }).notNull(),
+		address: varchar('address', { length: 255 }).notNull(),
+		label: varchar('label', { length: 100 }),
+		addedBy: integer('added_by').references(() => users.id),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => ({
+		orgIdx: index('org_allowlist_addresses_org_idx').on(t.orgId),
+		orgChainAddressUnique: unique().on(t.orgId, t.chain, t.address),
+	}),
+)
+
+/**
+ * Quorum approval request — the maker-checker gate for `orgPolicies`. Distinct
+ * from `approvalRequests` (approvals.ts, the agent swap-execute HITL queue):
+ * this table supports multi-approver quorum (see `policyApprovals` below) and
+ * non-transaction request types (policy changes, allowlist edits), matching
+ * the Fireblocks/Copper "quorum approval workflow" table-stakes gap.
+ */
+export const policyApprovalRequests = pgTable(
+	'policy_approval_requests',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		orgId: uuid('org_id')
+			.references(() => organizations.id, { onDelete: 'cascade' })
+			.notNull(),
+		// Nullable: an 'other'/adhoc request may not be tied to a specific policy,
+		// and the policy that produced the request may later be deleted.
+		policyId: uuid('policy_id').references(() => orgPolicies.id, { onDelete: 'set null' }),
+		requestedBy: integer('requested_by').references(() => users.id),
+		// 'transaction' | 'policy_change' | 'allowlist_add' | 'allowlist_remove' | 'other'
+		requestType: varchar('request_type', { length: 30 }).notNull(),
+		// What is being approved — tx details for 'transaction', the proposed diff
+		// for 'policy_change'/'allowlist_*'.
+		payload: jsonb('payload').notNull(),
+		// 'pending' | 'approved' | 'rejected' | 'expired'
+		status: varchar('status', { length: 20 }).default('pending').notNull(),
+		requiredApprovals: integer('required_approvals').default(1).notNull(),
+		expiresAt: timestamp('expires_at'),
+		resolvedAt: timestamp('resolved_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => ({
+		orgStatusIdx: index('policy_approval_requests_org_status_idx').on(t.orgId, t.status),
+		policyIdx: index('policy_approval_requests_policy_idx').on(t.policyId),
+	}),
+)
+
+/**
+ * One approver's vote on a `policyApprovalRequests` row. A request resolves
+ * once distinct 'approve' votes reach `requiredApprovals` (or a single
+ * 'reject' short-circuits it — enforcement TBD in `policy-api`).
+ */
+export const policyApprovals = pgTable(
+	'policy_approvals',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		requestId: uuid('request_id')
+			.references(() => policyApprovalRequests.id, { onDelete: 'cascade' })
+			.notNull(),
+		approverUserId: integer('approver_user_id')
+			.references(() => users.id)
+			.notNull(),
+		// 'approve' | 'reject'
+		decision: varchar('decision', { length: 10 }).notNull(),
+		comment: varchar('comment', { length: 500 }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => ({
+		requestIdx: index('policy_approvals_request_idx').on(t.requestId),
+		// One vote per approver per request.
+		requestApproverUnique: unique().on(t.requestId, t.approverUserId),
+	}),
+)
+
+export type OrgPolicy = typeof orgPolicies.$inferSelect
+export type NewOrgPolicy = typeof orgPolicies.$inferInsert
+export type OrgAllowlistAddress = typeof orgAllowlistAddresses.$inferSelect
+export type NewOrgAllowlistAddress = typeof orgAllowlistAddresses.$inferInsert
+export type PolicyApprovalRequest = typeof policyApprovalRequests.$inferSelect
+export type NewPolicyApprovalRequest = typeof policyApprovalRequests.$inferInsert
+export type PolicyApproval = typeof policyApprovals.$inferSelect
+export type NewPolicyApproval = typeof policyApprovals.$inferInsert

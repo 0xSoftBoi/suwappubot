@@ -162,6 +162,13 @@
       "when": 1787460450745,
       "tag": "0022_familiar_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788141446616,
+      "tag": "0023_confused_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

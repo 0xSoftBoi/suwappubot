@@ -50,6 +50,13 @@ export default defineConfig({
 		'policies',
 		'policy_decisions',
 		'policy_kill_switches',
+		// api-ts-exclusive org policy engine (policies.ts, `policy-schema` node of
+		// the enterprise dashboard parity plan) — no python owner. Schema only,
+		// enforcement not yet wired.
+		'org_policies',
+		'org_allowlist_addresses',
+		'policy_approval_requests',
+		'policy_approvals',
 		// api-ts-exclusive human-in-the-loop approval queue (approvals.ts) — no
 		// python owner.
 		'approval_requests',
