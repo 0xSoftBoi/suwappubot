@@ -84,6 +84,12 @@ jobs:
       - name: Env contract drift check (.env.schema)
         run: python3 scripts/check_env_schema.py
 
+      - name: Boot-import gate (api.main / bot.main)
+        run: python3 scripts/ci/boot_import_check.py
+        # Catches import-time crashes (bad import, async/sync mismatch) that
+        # `pytest tests/` never exercises — those pass CI and then crash
+        # Railway on deploy. Module import only, no DB/network required.
+
       - name: Run tests with coverage
         run: |
           pytest tests/ \
