@@ -36,7 +36,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["list_chains"]
   },
   {
     "name": "Spot price lookup",
@@ -88,7 +89,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["list_chains", "find_token"]
   },
   {
     "name": "Compare route preferences on a cross-chain swap",
@@ -120,7 +122,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["list_chains", "find_token", "preview_swap"]
   },
   {
     "name": "Navigate the human's view to the right part of the desk",
@@ -185,7 +188,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["list_chains", "find_token", "preview_swap"]
   },
   {
     "name": "Propose a trade with a written rationale",
@@ -217,7 +221,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["check_mandate", "preview_swap"]
   },
   {
     "name": "Bundle dependent steps into one plan",
@@ -240,7 +245,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["list_chains", "find_token", "get_prices", "preview_swap", "compare_routes", "check_mandate"]
   },
   {
     "name": "Propose a price alert",
@@ -269,7 +275,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["get_prices"]
   },
   {
     "name": "Re-orient after the human clicked something",
@@ -301,7 +308,8 @@
         "functionName": "export_receipt",
         "arguments": {}
       }
-    ]
+    ],
+    "allowedPrecursors": ["read_desk"]
   },
   {
     "name": "Propose amending the envelope itself, with evidence",
@@ -324,7 +332,8 @@
           }
         }
       }
-    ]
+    ],
+    "allowedPrecursors": ["read_mandate", "check_mandate"]
   },
   {
     "name": "Compile the mandate into enforceable wallet policy",
@@ -340,6 +349,7 @@
         "functionName": "compile_mandate_to_policy",
         "arguments": {}
       }
-    ]
+    ],
+    "allowedPrecursors": ["read_mandate"]
   }
 ]
