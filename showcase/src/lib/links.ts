@@ -28,17 +28,25 @@ export const API_BASE_URL =
 
 // Origin for auth flows.
 //
-// MUST be api.suwappu.bot, not python-api's railway host, even though BOTH
-// serve /auth/* identically. The OAuth state nonce cookie is host-only
-// (Path=/auth/oauth, no Domain), and the provider callback comes back through
-// api.suwappu.bot — because the terminal SPA, which Google redirects to, is
-// built with VITE_API_URL=https://api.suwappu.bot (terminal/Dockerfile).
+// MUST be terminal.suwappu.bot — the SAME origin Google redirects back to.
+// The OAuth state nonce cookie is host-only (Path=/auth/oauth, no Domain):
+// it is set by /auth/oauth/google/authorize on whichever host STARTS the
+// flow, and the callback rejects the login unless that cookie is presented.
+// Google's registered redirect_uri is terminal.suwappu.bot/auth/callback/google,
+// and terminal is built with a RELATIVE API base (terminal/.env.production
+// forbids VITE_API_URL), so the code+state are forwarded to
+// terminal.suwappu.bot/auth/oauth/google/callback via terminal's nginx.
 //
-// Starting the flow on the railway host set the nonce on THAT host, so the
-// cookie was absent at the callback and every Google sign-in was rejected on
-// state verification. Begin and end the flow on one origin.
+// The previous value, api.suwappu.bot, set the nonce on api.* while the
+// callback ran on terminal.* — cookie_present=False, reason=nonce_missing in
+// python-api logs — so EVERY dashboard Google sign-in failed and the failure
+// redirect stranded the user on the terminal home page. Verified live
+// 2026-08-31: authorize+callback on terminal.* passes the nonce check;
+// authorize on api.* + callback on terminal.* reproduces nonce_missing.
+// The session cookie that the callback then mints IS domain-scoped
+// (SESSION_COOKIE_DOMAIN), so the dashboard on suwappu.bot sees it.
 export const AUTH_BASE_URL =
-  process.env.NEXT_PUBLIC_AUTH_URL || 'https://api.suwappu.bot';
+  process.env.NEXT_PUBLIC_AUTH_URL || 'https://terminal.suwappu.bot';
 
 /** @deprecated Use AUTH_BASE_URL — see the origin note above. */
 export const PYTHON_API_BASE_URL = AUTH_BASE_URL;
