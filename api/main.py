@@ -178,6 +178,31 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
+    if not db_success:
+        # DATABASE_AVAILABLE is only ever set inside init_db(), so a DB that is
+        # unreachable for the ~30s of boot-time retries used to leave this
+        # instance degraded — /health/ready 503 — for its entire life, which
+        # Railway reads as a failed deploy. Keep retrying in the background so
+        # a transient outage self-heals. Telegram bot init is still skipped for
+        # the life of the process (restoring it needs the full startup
+        # sequence); this recovers API readiness, not the bot.
+        async def _db_reconnect_loop():
+            delay = 15.0
+            while True:
+                await asyncio.sleep(delay)
+                # init_db is sync and retries internally — run it off the event
+                # loop so reconnect attempts don't stall request handling.
+                if await asyncio.to_thread(init_db, settings.database_url):
+                    from database import db as _db_module
+
+                    if _db_module.engine is not None:
+                        setup_db_monitoring(_db_module.engine)
+                    logger.info("✓ Database recovered after failed boot-time init")
+                    return
+                delay = min(delay * 2, 300.0)
+
+        task_supervisor.spawn("db_reconnect", _db_reconnect_loop)
+
     # Reconcile any EXECUTING rows that have no tx_hash (process died mid-execution)
     if db_success:
         try:
