@@ -38,7 +38,7 @@
 		"effect": "^3.10.0",
 		"esbuild": "^0.28.1",
 		"hono": "^4.6.0",
-		"ioredis": "^5.9.3",
+		"ioredis": "^6.0.0",
 		"jsonwebtoken": "^9.0.3",
 		"permissionless": "0.3.7",
 		"pino": "^10.3.1",
