@@ -769,12 +769,30 @@
 
 .violationsTitle {
   margin: 0 0 6px;
+  display: flex;
+  align-items: center;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: #9a1c1c;
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Per-breach-class glyph — small, mono, sits in the same white pill idiom as
+   the limit/actual badges below so it reads as part of the same system. */
+.breachGlyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .violations ul {
@@ -809,6 +827,73 @@
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 700;
+}
+
+/* Per-rule accent. perTradeUsdCap is the base red above (most common/severe
+   breach, and the desk's long-standing default look); the rest key off
+   data-breach so a chain/token/impact/slippage breach doesn't habituate as
+   the same red box (Anderson et al., CHI 2015). Hues are drawn from the
+   summer palette (persimmon/sky-deep/butter/flower-mist/petal-blush), each
+   paired with a manually darkened, accessible text tone the same way the
+   existing red pairs #EF4444 with #9a1c1c. */
+.overrideCard[data-breach='perTradeUsdCap'] {
+  border-color: var(--bear);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.violations[data-breach='dailyUsdCap'],
+.overrideCard[data-breach='dailyUsdCap'] {
+  background: rgba(229, 141, 43, 0.12);
+}
+.violations[data-breach='dailyUsdCap'] .violationsTitle {
+  color: #8a4e10;
+}
+.overrideCard[data-breach='dailyUsdCap'] {
+  border-color: var(--persimmon);
+}
+
+.violations[data-breach='allowedChains'],
+.overrideCard[data-breach='allowedChains'] {
+  background: rgba(11, 139, 199, 0.1);
+}
+.violations[data-breach='allowedChains'] .violationsTitle {
+  color: #0b4f6e;
+}
+.overrideCard[data-breach='allowedChains'] {
+  border-color: var(--suwappu-summer-sky-deep, #0b8bc7);
+}
+
+.violations[data-breach='allowedBuyTokens'],
+.overrideCard[data-breach='allowedBuyTokens'] {
+  background: rgba(151, 99, 163, 0.12);
+}
+.violations[data-breach='allowedBuyTokens'] .violationsTitle {
+  color: #6b3d6f;
+}
+.overrideCard[data-breach='allowedBuyTokens'] {
+  border-color: #b98fc4;
+}
+
+.violations[data-breach='maxPriceImpactPercent'],
+.overrideCard[data-breach='maxPriceImpactPercent'] {
+  background: rgba(244, 201, 99, 0.18);
+}
+.violations[data-breach='maxPriceImpactPercent'] .violationsTitle {
+  color: #7a5a0d;
+}
+.overrideCard[data-breach='maxPriceImpactPercent'] {
+  border-color: var(--suwappu-summer-butter, #f4c963);
+}
+
+.violations[data-breach='maxSlippagePercent'],
+.overrideCard[data-breach='maxSlippagePercent'] {
+  background: rgba(233, 191, 208, 0.2);
+}
+.violations[data-breach='maxSlippagePercent'] .violationsTitle {
+  color: #8a2a54;
+}
+.overrideCard[data-breach='maxSlippagePercent'] {
+  border-color: var(--suwappu-summer-petal-blush, #e9bfd0);
 }
 
 /* ── plans ────────────────────────────────────────────────────── */

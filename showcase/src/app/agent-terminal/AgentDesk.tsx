@@ -178,6 +178,32 @@ const isBlocked = (p: Proposal) =>
   Boolean(p.verdict && !p.verdict.withinMandate && p.override?.granted !== true);
 
 /**
+ * Anderson et al., CHI 2015: habituation to a repeated identical warning
+ * collapses by the second exposure — visual variation restores attention.
+ * Each mandate rule gets its own glyph/heading; the rule/limit/actual detail
+ * rows stay exactly as they are (that density is load-bearing).
+ */
+const BREACH_META: Record<keyof Mandate, { glyph: string; heading: string }> = {
+  perTradeUsdCap: { glyph: '$', heading: 'Over your per-trade cap' },
+  dailyUsdCap: { glyph: 'Σ', heading: "Over today's budget" },
+  allowedChains: { glyph: '⇄', heading: "Chain isn't on your allow-list" },
+  allowedBuyTokens: { glyph: '◈', heading: "Token isn't on your allow-list" },
+  maxPriceImpactPercent: { glyph: '▲', heading: 'Price impact is too high' },
+  maxSlippagePercent: { glyph: '≈', heading: 'Slippage tolerance is too high' },
+};
+
+/**
+ * evaluateMandate() pushes violations in priority order (caps, then chain,
+ * then token, then impact, then slippage), so the first entry is already the
+ * most severe rule broken — that one leads the card; every violation still
+ * lists below, unchanged.
+ */
+const primaryBreach = (verdict: MandateVerdict | null) => {
+  const rule = verdict?.violations[0]?.rule;
+  return rule ? { rule, ...BREACH_META[rule] } : null;
+};
+
+/**
  * The signing handoff. Nothing here signs — these are the surfaces that own
  * the user's keys, pre-filled with the approved trade.
  */
@@ -1776,6 +1802,7 @@ export default function AgentDesk() {
           <ul className={styles.proposalList}>
             {proposals.map((p) => {
               const blocked = isBlocked(p);
+              const breach = primaryBreach(p.verdict);
               const legs =
                 p.kind === 'plan'
                   ? (p.plan?.steps ?? []).filter((s) => s.swap).map((s) => s.swap as SwapBody)
@@ -1889,10 +1916,13 @@ export default function AgentDesk() {
 
                   <AgentQuote text={p.rationale} />
 
-                  {p.verdict && !p.verdict.withinMandate && (
-                    <div className={styles.violations}>
+                  {p.verdict && !p.verdict.withinMandate && breach && (
+                    <div className={styles.violations} data-breach={breach.rule}>
                       <p className={styles.violationsTitle}>
-                        Breaks your mandate
+                        <span className={styles.breachGlyph} aria-hidden="true">
+                          {breach.glyph}
+                        </span>
+                        {breach.heading}
                         {p.override?.granted === true ? ', but you allowed it once' : ''}
                       </p>
                       <ul>
@@ -1907,7 +1937,7 @@ export default function AgentDesk() {
                   )}
 
                   {p.override && p.override.granted === null && (
-                    <div className={styles.overrideCard}>
+                    <div className={styles.overrideCard} data-breach={breach?.rule}>
                       <p className={styles.overrideTitle}>
                         Your agent is asking you to bend a rule
                       </p>

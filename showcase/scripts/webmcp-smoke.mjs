@@ -232,6 +232,47 @@ check('Approve is disabled in the DOM', await approveBtn.isDisabled());
 await page.waitForFunction(() => document.modelContext.list().includes('request_override'));
 check('request_override appeared once something was blocked', true);
 
+// ── 4b. polymorphic breach cards (P0.5) ─────────────────────────────
+// Anderson et al., CHI 2015: a repeated identical warning habituates by the
+// second exposure — visual variation restores attention. Two different
+// breach classes must render two different accent/heading variants, not one
+// static "blocked" template. Isolate a chain breach (small amount, allowed
+// token) so it doesn't also trip the cap/daily rules and contaminate which
+// variant leads.
+const chainBreach = await call('propose_swap', {
+  fromChain: 'base',
+  toChain: 'polygon', // not on the allow-list — a chain breach, not a cap breach
+  fromToken: 'ETH',
+  toToken: 'USDC',
+  amount: '0.01', // ~$32 — well under any cap, isolates the chain rule
+  rationale: 'Testing a route on a chain outside the mandate on purpose.',
+});
+show('propose_swap (chain breach)', chainBreach);
+check(
+  'chain-breach proposal reports itself blocked',
+  chainBreach.status === 'blocked_by_mandate_awaiting_human',
+  chainBreach.status,
+);
+
+const capCardVariant = await page
+  .locator('li', { hasText: 'Momentum looks strong' })
+  .locator('[data-breach]')
+  .first()
+  .getAttribute('data-breach');
+const chainCardVariant = await page
+  .locator('li', { hasText: 'chain outside the mandate' })
+  .locator('[data-breach]')
+  .first()
+  .getAttribute('data-breach');
+show('breach card variants', { capCardVariant, chainCardVariant });
+check('per-trade cap breach card is keyed to its rule', capCardVariant === 'perTradeUsdCap', capCardVariant);
+check('chain breach card is keyed to allowedChains', chainCardVariant === 'allowedChains', chainCardVariant);
+check(
+  'the two breach classes render visibly distinct variants',
+  capCardVariant !== null && chainCardVariant !== null && capCardVariant !== chainCardVariant,
+  `${capCardVariant} vs ${chainCardVariant}`,
+);
+
 // ── 5. the agent argues, the human allows it once ──────────────────
 const override = await call('request_override', {
   proposalId: blocked.proposalId,
@@ -240,6 +281,17 @@ const override = await call('request_override', {
 });
 show('request_override', override);
 check('override was recorded', override.status === 'override_requested');
+
+const overrideCardVariant = await page
+  .locator('li', { hasText: 'Momentum looks strong' })
+  .locator('[data-breach]')
+  .last()
+  .getAttribute('data-breach');
+check(
+  'the override card carries the same breach variant as the violation it argues against',
+  overrideCardVariant === capCardVariant,
+  overrideCardVariant,
+);
 
 const waiting = page.evaluate(
   (id) => document.modelContext.call('check_approval', { proposalId: id, waitSeconds: 30 }),
@@ -375,8 +427,8 @@ check(
 // ── 10. the receipt ────────────────────────────────────────────────
 const receipt = await call('export_receipt', {});
 check(
-  'receipt lists the swap, the plan and the amendment',
-  receipt.proposals.length === 3,
+  'receipt lists both swaps, the plan and the amendment',
+  receipt.proposals.length === 4,
   String(receipt.proposals.length),
 );
 const overridden = receipt.proposals.find((p) => p.id === blocked.proposalId);
