@@ -5,8 +5,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireDb, organizations, organizationMembers, apiKeys, apiUsageEvents, subscriptions } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { flexAuth, telegramAuth, requireTier } from '../middleware'
-import { apiKeyAuth } from '../middleware/apiKeyAuth'
+import { flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { UserService } from '../services'
 
@@ -77,13 +76,22 @@ async function resolveMembership(
 	return { userId, role }
 }
 
-// ─── all enterprise routes require telegram auth + enterprise tier ───────────
+// ─── all enterprise routes require auth; NONE are tier-gated ─────────────────
 
 // flexAuth, not telegramAuth: accepts Telegram initData, a bearer JWT, OR the
 // parent-domain session cookie. telegramAuth() accepted ONLY initData, which
 // is why the web dashboard could never authenticate.
 enterpriseRoutes.use('*', flexAuth())
-enterpriseRoutes.use('*', requireTier('enterprise'))
+
+// MONEY-PATH note: there is deliberately NO requireTier() here anymore.
+// The blanket requireTier('enterprise') 402'd every route for a fresh
+// sign-up — including GET /orgs/me and POST /orgs — so a new user could
+// neither see their (empty) workspace state nor create one: the dashboard
+// authenticated and then showed nothing actionable. Workspace management
+// (org, members, keys) is account plumbing, not the paid product; what a
+// plan actually sells — API call volume, rate limits, seats — is enforced
+// where the spend happens (apiKeyAuth + billing + the seat/rate limits on
+// the org's subscription), not by refusing to show the door.
 
 // ─── POST /enterprise/orgs ───────────────────────────────────────────────────
 
