@@ -60,13 +60,13 @@ function fmtAmount(n: number): string {
 }
 
 function shortId(id: string | null | undefined, head = 8, tail = 6): string {
-  if (!id) return '—';
+  if (!id) return '-';
   return id.length > head + tail + 1 ? `${id.slice(0, head)}…${id.slice(-tail)}` : id;
 }
 
 function fmtTimestamp(ts: string): string {
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return ts || '—';
+  if (Number.isNaN(d.getTime())) return ts || '-';
   return d.toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
@@ -100,7 +100,7 @@ function useApiFetch(auth: AuthState) {
 function HashChip({ label, hash }: { label: string; hash: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
 
-  if (!hash) return <span className={styles.hashEmpty}>—</span>;
+  if (!hash) return <span className={styles.hashEmpty}>-</span>;
 
   function handleCopy(e: React.MouseEvent) {
     e.stopPropagation();
@@ -581,7 +581,7 @@ export default function TransactionsPage() {
             </table>
             <div className={styles.pagination}>
               <span className={styles.pageMeta}>
-                Showing {offset + 1}–{offset + rows.length}
+                Showing {offset + 1}-{offset + rows.length}
               </span>
               <div className={styles.pageBtns}>
                 <button

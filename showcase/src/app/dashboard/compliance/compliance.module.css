@@ -51,7 +51,7 @@
   gap: 14px;
   padding: 16px 18px;
   margin-bottom: 18px;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px solid rgba(142, 182, 197, 0.35);
   background: rgba(142, 182, 197, 0.1);
 }
@@ -109,7 +109,7 @@
 .modeCaption {
   margin-top: 5px;
   max-width: 620px;
-  color: rgba(33, 88, 110, 0.62);
+  color: var(--summer-muted, #345069);
   font-size: 0.78rem;
   line-height: 1.55;
 }
@@ -207,7 +207,7 @@
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.9);
   color: var(--summer-ink, #17324a);
   font-size: 0.86rem;
@@ -232,7 +232,7 @@
   margin: 12px 0 0;
   padding: 9px 12px;
   border: 1px solid rgba(214, 129, 116, 0.55);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(247, 223, 219, 0.5);
   color: #8e3c30;
   font-size: 0.82rem;
@@ -282,7 +282,7 @@
   margin: 0;
   padding: 12px 14px;
   border: 1px solid rgba(207, 227, 234, 0.76);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.75);
   color: var(--summer-ink, #17324a);
   font-family: var(--font-mono);

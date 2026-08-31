@@ -4,6 +4,24 @@
    --summer-* custom properties.
    ================================================================ */
 
+/* ── Radius scale (single source of truth for every dashboard module) ──────
+   The six admin pages had drifted to 6/8/9/10/11/12/14/20px on visually
+   equivalent shapes. One scale, used everywhere below and mirrored in
+   treasury/transactions/policies/compliance/audit/security *.module.css:
+
+     16px   cards / panels — .card, .kpiCard, .kpiHero, .modal, top-level
+            nav/header bars, and card-like sub-panels (packCard, chainRow,
+            approvalCard, modeCard, statusTile, createForm, loginCard,
+            onboardCard, comingSoon, warning banners with heavy padding)
+     10px   inputs, buttons, and small nested containers — text inputs,
+            selects, textareas, action/submit buttons, table wrappers,
+            compact notice/error strips, icon badges, incident/key rows
+     999px  pills / status badges — tier/role badges, status pills, tags,
+            toggle switches, meter/progress tracks
+     50%    avatars / dots / circular icon buttons — status dots, copy
+            buttons, the loading spinner
+   ─────────────────────────────────────────────────────────────────────── */
+
 /* ── Shell ── */
 .shell {
   max-width: 1200px;
@@ -30,7 +48,7 @@
   gap: 2px;
   padding: 12px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 12px 24px rgba(33, 88, 110, 0.07);
 }
@@ -40,7 +58,7 @@
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--summer-muted, #345069);
   font-size: 0.86rem;
   font-weight: 600;
@@ -108,7 +126,7 @@
   justify-content: center;
   width: 46px;
   height: 46px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(14, 149, 189, 0.1);
   color: #0b789a;
 }
@@ -121,7 +139,7 @@
   border-radius: 999px;
   border: 1px solid rgba(229, 141, 43, 0.4);
   background: linear-gradient(180deg, rgba(246, 169, 60, 0.14), rgba(229, 141, 43, 0.08));
-  color: #b96a12;
+  color: #7a4413;
   font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 800;
@@ -153,7 +171,7 @@
   padding: 16px 20px;
   margin-bottom: 28px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(14px);
   box-shadow: 0 8px 24px rgba(33, 88, 110, 0.08);
@@ -174,7 +192,7 @@
   border-radius: 999px;
   padding: 3px 10px;
   background: linear-gradient(180deg, rgba(246, 169, 60, 0.18), rgba(229, 141, 43, 0.12));
-  color: #b96a12;
+  color: #7a4413;
   font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 800;
@@ -212,7 +230,7 @@
 .roleBadge--owner {
   background: rgba(229, 141, 43, 0.14);
   border: 1px solid rgba(229, 141, 43, 0.4);
-  color: #b96a12;
+  color: #7a4413;
 }
 
 .roleBadge--admin {
@@ -237,7 +255,7 @@
   min-height: 34px;
   padding: 0 14px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
   color: var(--summer-muted, #345069);
   font-size: 0.82rem;
@@ -266,7 +284,7 @@
   gap: 6px;
   padding: 18px 20px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 12px 24px rgba(33, 88, 110, 0.07);
   transition: box-shadow 0.2s ease;
@@ -310,7 +328,7 @@
   margin-bottom: 20px;
   padding: 20px 22px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.86);
   box-shadow: 0 12px 28px rgba(33, 88, 110, 0.07);
 }
@@ -399,7 +417,7 @@
   min-height: 30px;
   padding: 0 12px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 6px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.8);
   color: var(--summer-muted, #345069);
   font-size: 0.78rem;
@@ -526,7 +544,7 @@
 
 .billingWarn {
   margin: 4px 0 0;
-  color: #b96a12;
+  color: #7a4413;
   font-size: 0.76rem;
   line-height: 1.5;
 }
@@ -675,7 +693,7 @@
   min-height: 38px;
   padding: 0 12px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.9);
   color: var(--summer-ink, #17324a);
   font-size: 0.9rem;
@@ -702,7 +720,7 @@
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid rgba(207, 227, 234, 0.8);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
   cursor: pointer;
   font-size: 0.82rem;
@@ -736,7 +754,7 @@
   width: min(440px, 100%);
   padding: 40px 36px 32px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow:
     0 2px 0 rgba(255, 255, 255, 0.9) inset,
@@ -788,7 +806,7 @@
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.9);
   color: var(--summer-ink, #17324a);
   font-family: var(--font-mono);
@@ -809,7 +827,7 @@
   min-height: 40px;
   padding: 0 16px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(237, 248, 251, 0.8);
   color: var(--summer-ink, #17324a);
   font-weight: 700;
@@ -826,7 +844,7 @@
   margin-top: 12px;
   padding: 10px 13px;
   border: 1px solid rgba(214, 129, 116, 0.55);
-  border-radius: 9px;
+  border-radius: 10px;
   background: rgba(247, 223, 219, 0.5);
   color: #8e3c30;
   font-size: 0.84rem;
@@ -886,7 +904,7 @@
   min-height: 42px;
   padding: 0 14px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 9px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.95);
   color: var(--summer-ink, #17324a);
   font-size: 0.92rem;
@@ -904,7 +922,7 @@
   min-height: 42px;
   padding: 0 20px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 10px;
   background: linear-gradient(180deg, #27bdf0, #0b8bc7);
   color: #fff;
   font-size: 0.9rem;
@@ -919,7 +937,7 @@
 
 .onboardHint {
   margin: 10px 0 0;
-  color: rgba(33, 88, 110, 0.62);
+  color: var(--summer-muted, #345069);
   font-size: 0.78rem;
   line-height: 1.5;
 }
@@ -1051,14 +1069,14 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(33, 88, 110, 0.72);
+  color: var(--summer-muted, #345069);
 }
 
 .billingNotice,
 .billingError {
   margin: 0 0 14px;
   padding: 10px 13px;
-  border-radius: 9px;
+  border-radius: 10px;
   font-size: 0.86rem;
   line-height: 1.45;
 }
@@ -1089,7 +1107,7 @@
   gap: 8px;
   padding: 14px 15px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 11px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.7);
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
@@ -1121,7 +1139,7 @@
 .packPrice {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 0.88rem;
-  color: rgba(33, 88, 110, 0.85);
+  color: var(--summer-muted, #345069);
 }
 
 .packBlurb {
@@ -1129,7 +1147,7 @@
   flex: 1;
   font-size: 0.8rem;
   line-height: 1.4;
-  color: rgba(33, 88, 110, 0.68);
+  color: var(--summer-muted, #345069);
 }
 
 /* Credit balance summary */
@@ -1143,7 +1161,7 @@
   margin-bottom: 16px;
   padding: 14px 16px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 11px;
+  border-radius: 10px;
   background: rgba(240, 249, 252, 0.7);
 }
 
@@ -1157,7 +1175,7 @@
   font-size: 0.74rem;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: rgba(33, 88, 110, 0.62);
+  color: var(--summer-muted, #345069);
 }
 
 .creditBalanceValue {
@@ -1170,7 +1188,7 @@
 
 .creditBalanceUsd {
   font-size: 0.8rem;
-  color: rgba(33, 88, 110, 0.66);
+  color: var(--summer-muted, #345069);
 }
 
 .creditStats {
@@ -1220,7 +1238,7 @@
   padding: 10px 16px;
   border: 0;
   background: transparent;
-  color: rgba(33, 88, 110, 0.66);
+  color: var(--summer-muted, #345069);
   font-family: inherit;
   font-size: 0.9rem;
   font-weight: 600;
@@ -1293,7 +1311,7 @@
   margin-top: 16px;
   border: 0;
   background: none;
-  color: rgba(33, 88, 110, 0.7);
+  color: var(--summer-muted, #345069);
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 600;
@@ -1324,7 +1342,7 @@
   gap: 6px;
   padding: 22px 24px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 14px;
+  border-radius: 16px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(240, 249, 252, 0.72));
   box-shadow: 0 14px 30px rgba(33, 88, 110, 0.08);
@@ -1340,7 +1358,7 @@
 }
 
 .kpiHeroMeta {
-  color: rgba(33, 88, 110, 0.62);
+  color: var(--summer-muted, #345069);
   font-size: 0.82rem;
 }
 
@@ -1372,7 +1390,7 @@
 }
 
 .kpiCompactLabel {
-  color: rgba(33, 88, 110, 0.62);
+  color: var(--summer-muted, #345069);
   font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 800;
@@ -1387,7 +1405,7 @@
 }
 
 .kpiUnit {
-  color: rgba(33, 88, 110, 0.55);
+  color: var(--summer-muted, #345069);
   font-size: 0.76rem;
   font-weight: 600;
 }
@@ -1561,7 +1579,7 @@
 .packFlag {
   align-self: flex-start;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: 999px;
   background: rgba(14, 149, 189, 0.12);
   color: #0b789a;
   font-family: var(--font-mono);

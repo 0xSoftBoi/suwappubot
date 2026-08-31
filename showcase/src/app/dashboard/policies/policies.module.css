@@ -37,7 +37,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: rgba(33, 88, 110, 0.55);
+  color: var(--summer-muted, #345069);
   font-size: 0.76rem;
   font-style: italic;
 }
@@ -165,7 +165,7 @@
 .typePill[data-type='daily_limit'] {
   border-color: rgba(229, 141, 43, 0.4);
   background: rgba(229, 141, 43, 0.1);
-  color: #b96a12;
+  color: #7a4413;
 }
 
 .typePill[data-type='velocity'] {
@@ -209,7 +209,7 @@
   padding: 16px 18px;
   margin-top: 4px;
   border: 1px dashed rgba(207, 227, 234, 0.9);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(237, 248, 251, 0.35);
 }
 
@@ -242,7 +242,7 @@
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--summer-ink, #17324a);
   font-size: 0.86rem;
@@ -270,7 +270,7 @@
 
 .formHint {
   margin: 0;
-  color: rgba(33, 88, 110, 0.58);
+  color: var(--summer-muted, #345069);
   font-size: 0.76rem;
   line-height: 1.5;
 }
@@ -293,7 +293,7 @@
   margin: 0;
   padding: 9px 12px;
   border: 1px solid rgba(214, 129, 116, 0.55);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(247, 223, 219, 0.5);
   color: #8e3c30;
   font-size: 0.82rem;
@@ -377,7 +377,7 @@
   padding: 16px 18px;
   margin-bottom: 12px;
   border: 1px solid rgba(207, 227, 234, 0.85);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.78);
 }
 
@@ -471,7 +471,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: rgba(33, 88, 110, 0.62);
+  color: var(--summer-muted, #345069);
   font-family: var(--font-mono);
   font-size: 0.72rem;
 }
@@ -493,7 +493,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 16px;
-  color: rgba(33, 88, 110, 0.6);
+  color: var(--summer-muted, #345069);
   font-size: 0.78rem;
 }
 
@@ -555,7 +555,7 @@
   min-height: 34px;
   padding: 6px 10px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--summer-ink, #17324a);
   font-size: 0.82rem;
@@ -583,7 +583,7 @@
   gap: 6px;
   min-height: 34px;
   padding: 0 14px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid transparent;
   font-size: 0.82rem;
   font-weight: 700;

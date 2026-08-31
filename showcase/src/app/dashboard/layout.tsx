@@ -36,7 +36,7 @@ const AUTH_ERROR_COPY: Record<string, string> = {
   state_not_found:
     'That sign-in link was stale, so we started over for safety. Please try again.',
   state_expired:
-    'The sign-in took a little too long and expired. Please try again — it only needs a few seconds.',
+    'The sign-in took a little too long and expired. Please try again. It only takes a few seconds.',
   nonce_missing:
     'We couldn’t confirm this sign-in started on this page, so we stopped it for your security. Please try again from here.',
   nonce_mismatch:

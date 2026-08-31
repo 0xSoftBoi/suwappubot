@@ -127,7 +127,7 @@ export default function TelegramLoginButton({ onToken, onError }: Props) {
       <div ref={holder} />
       {unavailable && (
         <p role="status" style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: 8 }}>
-          Telegram sign-in isn’t available on this domain yet — use an access
+          Telegram sign-in isn’t available on this domain yet. Use an access
           token below.
         </p>
       )}

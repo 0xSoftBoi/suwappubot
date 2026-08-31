@@ -111,7 +111,7 @@ const PAGE_SIZE = 20;
 
 function fmtUsd(n: unknown): string {
   const num = typeof n === 'number' ? n : Number(n);
-  if (!Number.isFinite(num)) return '—';
+  if (!Number.isFinite(num)) return '-';
   return num.toLocaleString(undefined, {
     style: 'currency', currency: 'USD',
     maximumFractionDigits: Math.abs(num) >= 1000 ? 0 : 2,
@@ -119,7 +119,7 @@ function fmtUsd(n: unknown): string {
 }
 
 function fmtTimestamp(ts: string | null): string {
-  if (!ts) return '—';
+  if (!ts) return '-';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleString(undefined, {
@@ -128,7 +128,7 @@ function fmtTimestamp(ts: string | null): string {
 }
 
 function shortId(id: string | number | null | undefined, head = 8, tail = 6): string {
-  if (id === null || id === undefined) return '—';
+  if (id === null || id === undefined) return '-';
   const s = String(id);
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
 }
@@ -143,13 +143,13 @@ function summarizePolicyParams(policyType: PolicyType, params: Record<string, un
     case 'daily_limit':
       return `Blocks cumulative daily volume above ${fmtUsd(params.thresholdUsd)}`;
     case 'velocity':
-      return `Max ${params.maxTxPerWindow ?? '—'} transactions per ${params.windowHours ?? '—'}h window`;
+      return `Max ${params.maxTxPerWindow ?? '-'} transactions per ${params.windowHours ?? '-'}h window`;
     case 'allowlist_only':
       return 'Destinations must be on the org allowlist below';
     case 'spending_tier':
       return `Requires approval above ${fmtUsd(params.thresholdUsd)}, up to a ${fmtUsd(params.tierUpperUsd)} tier`;
     default:
-      return '—';
+      return '-';
   }
 }
 
@@ -157,11 +157,11 @@ function summarizePolicyParams(policyType: PolicyType, params: Record<string, un
 // summarizeDetails() in ../audit/page.tsx (no pre-baked summary field from
 // the API, so this reads the same JSON an admin would open in full).
 function summarizePayload(payload: unknown): string {
-  if (payload === null || payload === undefined) return '—';
+  if (payload === null || payload === undefined) return '-';
   if (typeof payload !== 'object') return String(payload);
   const entries = Object.entries(payload as Record<string, unknown>);
-  if (entries.length === 0) return '—';
-  const fmt = (v: unknown) => (v === null || v === undefined ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+  if (entries.length === 0) return '-';
+  const fmt = (v: unknown) => (v === null || v === undefined ? '-' : typeof v === 'object' ? JSON.stringify(v) : String(v));
   const shown = entries.slice(0, 4).map(([k, v]) => `${k}: ${fmt(v)}`).join(', ');
   return entries.length > 4 ? `${shown}, …` : shown;
 }
@@ -483,7 +483,7 @@ function CreatePolicyForm({
       )}
 
       {policyType === 'allowlist_only' && (
-        <p className={styles.formHint}>No parameters — evaluated against the allowlist in the section below.</p>
+        <p className={styles.formHint}>No parameters. This policy is evaluated against the allowlist in the section below.</p>
       )}
 
       {policyType === 'spending_tier' && (
@@ -883,7 +883,7 @@ function AllowlistSection({
               <tr key={e.id}>
                 <td><span className={styles.chainTag}>{e.chain}</span></td>
                 <td><CopyChip value={e.address} /></td>
-                <td>{e.label || '—'}</td>
+                <td>{e.label || '-'}</td>
                 <td className={dStyles.mono}>{fmtTimestamp(e.createdAt)}</td>
                 <td>
                   <ConfirmDelete
@@ -994,7 +994,7 @@ function CreateApprovalRequestForm({
         <label className={styles.formField}>
           <span className={styles.formLabel}>Inherit quorum from policy (optional)</span>
           <select className={styles.formSelect} value={policyId} onChange={(e) => setPolicyId(e.target.value)}>
-            <option value="">None — set quorum manually</option>
+            <option value="">None (set quorum manually)</option>
             {policies.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.requiredApprovals} approval{p.requiredApprovals === 1 ? '' : 's'})</option>)}
           </select>
         </label>
@@ -1028,7 +1028,7 @@ function CreateApprovalRequestForm({
           spellCheck={false}
         />
       </label>
-      <p className={styles.formHint}>What the approvers are reviewing — e.g. tx details for a &quot;transaction&quot; request, or the proposed diff for a policy/allowlist change.</p>
+      <p className={styles.formHint}>What the approvers are reviewing: tx details for a &quot;transaction&quot; request, or the proposed diff for a policy/allowlist change.</p>
       {err && <p className={styles.formErr} role="alert">{err}</p>}
       <div className={styles.formActions}>
         <button type="submit" className={`${dStyles.actionBtn} ${dStyles['actionBtn--create']}`} disabled={busy}>
@@ -1272,7 +1272,7 @@ function ApprovalsSection({
             />
           ))}
           <div className={styles.pagination}>
-            <span className={styles.pageMeta}>Showing {offset + 1}–{offset + requests.length}</span>
+            <span className={styles.pageMeta}>Showing {offset + 1}-{offset + requests.length}</span>
             <div className={styles.pageBtns}>
               <button
                 type="button"

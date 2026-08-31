@@ -60,20 +60,20 @@ const DAY_OPTIONS = [7, 30, 90] as const;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function shortAddr(addr: string | null | undefined): string {
-  if (!addr) return '—';
+  if (!addr) return '-';
   return addr.length > 14 ? `${addr.slice(0, 8)}…${addr.slice(-6)}` : addr;
 }
 
 function fmtTimestamp(ts: string): string {
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return ts || '—';
+  if (Number.isNaN(d.getTime())) return ts || '-';
   return d.toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit',
   });
 }
 
 function prettyJson(v: unknown): string {
-  if (v === null || v === undefined) return '—';
+  if (v === null || v === undefined) return '-';
   try {
     return JSON.stringify(v, null, 2);
   } catch {
@@ -121,7 +121,7 @@ function useApiFetch(auth: AuthState) {
 function AddressChip({ address }: { address: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
 
-  if (!address) return <span className={styles.hashEmpty}>—</span>;
+  if (!address) return <span className={styles.hashEmpty}>-</span>;
 
   function handleCopy(e: React.MouseEvent) {
     e.stopPropagation();
@@ -160,7 +160,7 @@ function DecisionPill({ decision }: { decision: string | null }) {
 // ── Reason pill ──────────────────────────────────────────────────────────────
 
 function ReasonPill({ reason }: { reason: string | null }) {
-  if (!reason) return <span className={styles.hashEmpty}>—</span>;
+  if (!reason) return <span className={styles.hashEmpty}>-</span>;
   return <span className={styles.reasonPill}>{reasonLabel(reason)}</span>;
 }
 
@@ -173,7 +173,7 @@ function ModeIndicator({ summary }: { summary: Summary | null }) {
         <span className={styles.modeIcon}><ShieldSlash size={20} weight="fill" /></span>
         <div>
           <div className={styles.modeLabel}>Screening mode</div>
-          <div className={styles.modeValue}>—</div>
+          <div className={styles.modeValue}>-</div>
         </div>
       </div>
     );
@@ -203,8 +203,8 @@ function ModeIndicator({ summary }: { summary: Summary | null }) {
         <div className={styles.modeValue}>{display}</div>
         <div className={styles.modeCaption}>
           {observed
-            ? `Observed from the most recent screening event in this window — Suwappu's compliance mode is set by a bot-side env var api-ts cannot read live.`
-            : `No screening events observed in this window — mode cannot be inferred, and may mean screening is off.`}
+            ? `Observed from the most recent screening event in this window. Suwappu's compliance mode is set by a bot-side env var api-ts cannot read live.`
+            : `No screening events observed in this window. Mode cannot be inferred, and may mean screening is off.`}
         </div>
       </div>
     </div>
@@ -283,12 +283,12 @@ function EventRowItem({ row }: { row: EventRow }) {
     <>
       <tr className={styles.eventRow} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <td className={dStyles.mono}>{fmtTimestamp(row.timestamp)}</td>
-        <td className={dStyles.mono}>{row.chain || '—'}</td>
-        <td className={dStyles.mono} style={{ textTransform: 'capitalize' }}>{row.direction || '—'}</td>
+        <td className={dStyles.mono}>{row.chain || '-'}</td>
+        <td className={dStyles.mono} style={{ textTransform: 'capitalize' }}>{row.direction || '-'}</td>
         <td onClick={(e) => e.stopPropagation()}><AddressChip address={row.address} /></td>
         <td><DecisionPill decision={row.decision} /></td>
         <td><ReasonPill reason={row.reason} /></td>
-        <td className={dStyles.mono} style={{ textTransform: 'uppercase' }}>{row.mode || '—'}</td>
+        <td className={dStyles.mono} style={{ textTransform: 'uppercase' }}>{row.mode || '-'}</td>
       </tr>
       {open && (
         <tr className={styles.detailRow}>
@@ -301,11 +301,11 @@ function EventRowItem({ row }: { row: EventRow }) {
                 </div>
                 <div className={styles.detailField}>
                   <span className={styles.detailLabel}>User ID</span>
-                  <span className={dStyles.mono}>{row.userId ?? '—'}</span>
+                  <span className={dStyles.mono}>{row.userId ?? '-'}</span>
                 </div>
                 <div className={styles.detailField}>
                   <span className={styles.detailLabel}>Org ID</span>
-                  <span className={dStyles.mono}>{row.orgId ?? '—'}</span>
+                  <span className={dStyles.mono}>{row.orgId ?? '-'}</span>
                 </div>
                 <div className={styles.detailField}>
                   <span className={styles.detailLabel}>Timestamp</span>
@@ -744,7 +744,7 @@ export default function CompliancePage() {
           <div className={dStyles.stateBox} style={{ minHeight: 160 }}>
             <span>
               {isGloballyEmpty && modeIsOff
-                ? 'No screening events — compliance screening may be disabled.'
+                ? 'No screening events. Compliance screening may be disabled.'
                 : 'No screening events match these filters.'}
             </span>
           </div>
@@ -768,7 +768,7 @@ export default function CompliancePage() {
             </table>
             <div className={styles.pagination}>
               <span className={styles.pageMeta}>
-                Showing {offset + 1}–{offset + rows.length}
+                Showing {offset + 1}-{offset + rows.length}
               </span>
               <div className={styles.pageBtns}>
                 <button

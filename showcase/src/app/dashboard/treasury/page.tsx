@@ -64,12 +64,12 @@ function fmtAmount(n: number): string {
 }
 
 function shortId(id: string): string {
-  if (!id) return '—';
+  if (!id) return '-';
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
 function fmtTime(d: Date | null): string {
-  if (!d) return '—';
+  if (!d) return '-';
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
@@ -312,7 +312,7 @@ export default function TreasuryPage() {
 
       {isEmpty ? (
         <div className={dStyles.stateBox}>
-          <span>{note ?? 'No wallets are linked to this workspace yet — treasury value will appear here once your team holds balances.'}</span>
+          <span>{note ?? 'No wallets are linked to this workspace yet. Treasury value will appear here once your team holds balances.'}</span>
         </div>
       ) : (
         <>
@@ -326,7 +326,7 @@ export default function TreasuryPage() {
               <TreasuryChart series={history?.series ?? []} />
             </div>
             <p className={styles.chartCaption}>
-              Derived from swap flow — a reconstructed value series, not a direct historical balance snapshot.
+              Derived from swap flow: a reconstructed value series, not a direct historical balance snapshot.
             </p>
           </section>
 

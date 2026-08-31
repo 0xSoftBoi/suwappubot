@@ -45,20 +45,20 @@ const PAGE_SIZE = 50;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function shortId(id: string | null | undefined, head = 8, tail = 6): string {
-  if (!id) return '—';
+  if (!id) return '-';
   return id.length > head + tail + 1 ? `${id.slice(0, head)}…${id.slice(-tail)}` : id;
 }
 
 function fmtTimestamp(ts: string): string {
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return ts || '—';
+  if (Number.isNaN(d.getTime())) return ts || '-';
   return d.toLocaleString(undefined, {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit',
   });
 }
 
 function formatVal(v: unknown): string {
-  if (v === null || v === undefined) return '—';
+  if (v === null || v === undefined) return '-';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
@@ -67,16 +67,16 @@ function formatVal(v: unknown): string {
 // gives no pre-baked summary field, so this reads the same JSON the
 // accordion shows in full, just truncated to what fits a table cell.
 function summarizeDetails(details: unknown): string {
-  if (details === null || details === undefined) return '—';
+  if (details === null || details === undefined) return '-';
   if (typeof details !== 'object') return String(details);
   const entries = Object.entries(details as Record<string, unknown>);
-  if (entries.length === 0) return '—';
+  if (entries.length === 0) return '-';
   const shown = entries.slice(0, 3).map(([k, v]) => `${k}: ${formatVal(v)}`).join(', ');
   return entries.length > 3 ? `${shown}, …` : shown;
 }
 
 function prettyJson(details: unknown): string {
-  if (details === null || details === undefined) return '—';
+  if (details === null || details === undefined) return '-';
   try {
     return JSON.stringify(details, null, 2);
   } catch {
@@ -109,7 +109,7 @@ function useApiFetch(auth: AuthState) {
 function HashChip({ label, hash }: { label: string; hash: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
 
-  if (!hash) return <span className={styles.hashEmpty}>—</span>;
+  if (!hash) return <span className={styles.hashEmpty}>-</span>;
 
   function handleCopy(e: React.MouseEvent) {
     e.stopPropagation();
@@ -192,7 +192,7 @@ function AuditRowItem({ row }: { row: AuditRow }) {
         <td className={styles.summaryCell} title={summarizeDetails(row.details)}>
           {summarizeDetails(row.details)}
         </td>
-        <td className={dStyles.mono}>{row.ipAddress || '—'}</td>
+        <td className={dStyles.mono}>{row.ipAddress || '-'}</td>
       </tr>
       {open && (
         <tr className={styles.detailRow}>
@@ -205,11 +205,11 @@ function AuditRowItem({ row }: { row: AuditRow }) {
                 </div>
                 <div className={styles.detailField}>
                   <span className={styles.detailLabel}>Actor (user ID)</span>
-                  <span className={dStyles.mono}>{actor ?? '—'}</span>
+                  <span className={dStyles.mono}>{actor ?? '-'}</span>
                 </div>
                 <div className={styles.detailField}>
                   <span className={styles.detailLabel}>Agent ID</span>
-                  <span className={dStyles.mono}>{row.agentId ?? '—'}</span>
+                  <span className={dStyles.mono}>{row.agentId ?? '-'}</span>
                 </div>
                 <div className={styles.detailField}>
                   <span className={styles.detailLabel}>Timestamp</span>
@@ -617,7 +617,7 @@ export default function AuditPage() {
             </table>
             <div className={styles.pagination}>
               <span className={styles.pageMeta}>
-                Showing {offset + 1}–{offset + rows.length}
+                Showing {offset + 1}-{offset + rows.length}
               </span>
               <div className={styles.pageBtns}>
                 <button

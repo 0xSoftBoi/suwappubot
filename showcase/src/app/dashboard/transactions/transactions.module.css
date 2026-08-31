@@ -33,7 +33,7 @@
   min-height: 36px;
   padding: 0 10px;
   border: 1px solid rgba(207, 227, 234, 0.9);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.9);
   color: var(--summer-ink, #17324a);
   font-size: 0.86rem;
@@ -58,7 +58,7 @@
   margin: 12px 0 0;
   padding: 9px 12px;
   border: 1px solid rgba(214, 129, 116, 0.55);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(247, 223, 219, 0.5);
   color: #8e3c30;
   font-size: 0.82rem;
@@ -133,7 +133,7 @@
 }
 
 .pairArrow {
-  color: rgba(33, 88, 110, 0.45);
+  color: var(--summer-muted, #345069);
   font-size: 0.8rem;
 }
 
@@ -180,7 +180,7 @@
 .statusBadge[data-status='cancelled'] {
   border-color: rgba(229, 141, 43, 0.4);
   background: rgba(229, 141, 43, 0.1);
-  color: #b96a12;
+  color: #7a4413;
 }
 
 /* ── Hash chip w/ copy button ── */

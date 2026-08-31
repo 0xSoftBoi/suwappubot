@@ -96,7 +96,7 @@ interface MemberRow {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTimestamp(ts: string | null | undefined): string {
-  if (!ts) return '—';
+  if (!ts) return '-';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleString(undefined, {
@@ -105,7 +105,7 @@ function fmtTimestamp(ts: string | null | undefined): string {
 }
 
 function shortId(id: string | number | null | undefined, head = 6, tail = 4): string {
-  if (id === null || id === undefined) return '—';
+  if (id === null || id === undefined) return '-';
   const s = String(id);
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
 }
@@ -114,11 +114,11 @@ function shortId(id: string | number | null | undefined, head = 6, tail = 4): st
 // summarizePayload() in ../policies/page.tsx — no pre-baked summary field
 // from the API, so this reads the same JSON those pages show in full.
 function summarizeJson(v: unknown, maxKeys = 3): string {
-  if (v === null || v === undefined) return '—';
+  if (v === null || v === undefined) return '-';
   if (typeof v !== 'object') return String(v);
   const entries = Object.entries(v as Record<string, unknown>);
-  if (entries.length === 0) return '—';
-  const fmt = (x: unknown) => (x === null || x === undefined ? '—' : typeof x === 'object' ? JSON.stringify(x) : String(x));
+  if (entries.length === 0) return '-';
+  const fmt = (x: unknown) => (x === null || x === undefined ? '-' : typeof x === 'object' ? JSON.stringify(x) : String(x));
   const shown = entries.slice(0, maxKeys).map(([k, val]) => `${k}: ${fmt(val)}`).join(', ');
   return entries.length > maxKeys ? `${shown}, …` : shown;
 }
@@ -284,7 +284,7 @@ function PendingApprovalsPanel({
       }
       await load();
     } catch (e) {
-      setVoteErr((v) => ({ ...v, [id]: 'Network error — check your connection.' }));
+      setVoteErr((v) => ({ ...v, [id]: 'Network error. Check your connection.' }));
       console.error(e);
     } finally {
       setBusyId(null);
@@ -352,7 +352,7 @@ function PendingApprovalsPanel({
             </div>
           ))}
           {total > rows.length && (
-            <span className={styles.incidentMeta}>Showing {rows.length} of {total} pending — see Policies for the full queue.</span>
+            <span className={styles.incidentMeta}>Showing {rows.length} of {total} pending. See Policies for the full queue.</span>
           )}
         </div>
       )}
@@ -458,11 +458,11 @@ function ScreeningPanel({
                   <div className={styles.incidentMain}>
                     <div className={styles.incidentTitleRow}>
                       <span className={styles.pillSm} data-tone={r.decision}>{r.decision}</span>
-                      <span className={dStyles.mono} style={{ fontSize: '0.78rem' }}>{r.chain || '—'}</span>
-                      <span className={styles.incidentMeta} style={{ textTransform: 'capitalize' }}>{r.direction || '—'}</span>
+                      <span className={dStyles.mono} style={{ fontSize: '0.78rem' }}>{r.chain || '-'}</span>
+                      <span className={styles.incidentMeta} style={{ textTransform: 'capitalize' }}>{r.direction || '-'}</span>
                     </div>
                     <span className={styles.incidentSummary}>
-                      {r.address ? shortId(r.address, 8, 6) : '—'} — {r.reason || 'unspecified'}
+                      {r.address ? shortId(r.address, 8, 6) : '-'} · {r.reason || 'unspecified'}
                     </span>
                     <span className={styles.incidentMeta}>{fmtTimestamp(r.timestamp)}</span>
                   </div>
@@ -697,7 +697,7 @@ function ApiKeysAccessPanel({
                 );
               })}
               {keys.length > 5 && (
-                <span className={styles.incidentMeta}>+{keys.length - 5} more — see Overview / Team &amp; API keys.</span>
+                <span className={styles.incidentMeta}>+{keys.length - 5} more. See Overview / Team &amp; API keys.</span>
               )}
             </div>
           )}
@@ -832,7 +832,7 @@ export default function SecurityPage() {
   return (
     <>
       <header className={dStyles.header}>
-        <h1 className={dStyles.orgName}>{org.name} — Security Center</h1>
+        <h1 className={dStyles.orgName}>{org.name}: Security Center</h1>
         <span className={dStyles.tierBadge}>{org.tier.toUpperCase()}</span>
       </header>
 
@@ -840,13 +840,13 @@ export default function SecurityPage() {
         <StatusTile
           icon={<ListChecks size={18} weight="bold" />}
           label="Pending approvals"
-          value={pendingCount ?? '—'}
+          value={pendingCount ?? '-'}
           tone={pendingCount === null ? 'neutral' : pendingCount > 0 ? 'warn' : 'ok'}
         />
         <StatusTile
           icon={<ShieldWarning size={18} weight="bold" />}
           label="Blocked (7d)"
-          value={blocked7d ?? '—'}
+          value={blocked7d ?? '-'}
           tone={blocked7d === null ? 'neutral' : blocked7d > 0 ? 'danger' : 'ok'}
         />
         <StatusTile
@@ -858,7 +858,7 @@ export default function SecurityPage() {
         <StatusTile
           icon={<Key size={18} weight="bold" />}
           label="Active API keys"
-          value={activeKeys ?? '—'}
+          value={activeKeys ?? '-'}
           tone="neutral"
         />
       </div>

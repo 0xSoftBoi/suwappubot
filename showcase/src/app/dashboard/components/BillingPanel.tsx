@@ -85,7 +85,7 @@ function fmtUsd(n: number | null | undefined): string {
   // Tolerate a partial payload: one missing number must render as a dash,
   // not throw and take the entire dashboard down with a blank
   // "Application error" screen.
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '-';
   return n.toLocaleString(undefined, {
     style: 'currency',
     currency: 'USD',
@@ -94,7 +94,7 @@ function fmtUsd(n: number | null | undefined): string {
 }
 
 function fmtDate(iso?: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   try {
     return new Date(iso).toLocaleDateString(undefined, {
       year: 'numeric',
@@ -102,7 +102,7 @@ function fmtDate(iso?: string | null): string {
       day: 'numeric',
     });
   } catch {
-    return '—';
+    return '-';
   }
 }
 
@@ -168,14 +168,14 @@ export default function BillingPanel({
     const topup = params.get('topup');
     if (topup === 'success') {
       setNotice(
-        'Top-up received. Your balance updates once Stripe confirms the payment — usually within a few seconds.',
+        'Top-up received. Your balance updates once Stripe confirms the payment, usually within a few seconds.',
       );
       // Balance is granted by the webhook, which may land just after the
       // redirect; re-read shortly after so the number is not stale.
       const t = setTimeout(() => void load(), 3000);
       return () => clearTimeout(t);
     }
-    if (topup === 'cancel') setNotice('Top-up cancelled — no charge was made.');
+    if (topup === 'cancel') setNotice('Top-up cancelled. No charge was made.');
   }, [load]);
 
   /** POST an endpoint that returns { url } and send the browser there. */
@@ -253,7 +253,7 @@ export default function BillingPanel({
             <span className={styles.billingPlanName}>
               {typeof status?.fee_rate_percent === 'number'
                 ? `${status.fee_rate_percent}% swap fee`
-                : '—'}
+                : '-'}
             </span>
           </div>
           {(status?.expires_at || renewsAt) && (
@@ -322,7 +322,7 @@ export default function BillingPanel({
           <div className={styles.creditBalance}>
             <span className={styles.creditBalanceLabel}>Balance</span>
             <span className={styles.creditBalanceValue}>
-              {credits ? fmtUsd(credits.balance_usd) : '—'}
+              {credits ? fmtUsd(credits.balance_usd) : '-'}
             </span>
             <span className={styles.creditBalanceUsd}>
               {credits ? 'Available for metered API usage' : ''}
@@ -373,7 +373,7 @@ export default function BillingPanel({
                 )}
               <p className={styles.packBlurb}>
                 {p.bonusPct > 0
-                  ? `+${p.bonusPct}% bonus — pay ${fmtUsd(p.chargeUsd)}, get ${fmtUsd(p.balanceUsd)}`
+                  ? `+${p.bonusPct}% bonus: pay ${fmtUsd(p.chargeUsd)}, get ${fmtUsd(p.balanceUsd)}`
                   : 'Pay as you go'}
               </p>
               <button
@@ -433,7 +433,7 @@ export default function BillingPanel({
                   <td className={styles.mono}>
                     {fmtUsd(inv.amountPaidUsd || inv.amountDueUsd)}
                   </td>
-                  <td>{inv.status ?? '—'}</td>
+                  <td>{inv.status ?? '-'}</td>
                   <td>
                     {inv.invoicePdfUrl || inv.hostedInvoiceUrl ? (
                       <a
@@ -445,7 +445,7 @@ export default function BillingPanel({
                         {inv.invoicePdfUrl ? 'PDF' : 'View'}
                       </a>
                     ) : (
-                      '—'
+                      '-'
                     )}
                   </td>
                 </tr>
