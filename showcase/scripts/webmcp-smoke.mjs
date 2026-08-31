@@ -672,6 +672,41 @@ check(
   Array.isArray(jsonReceipt.humanActivity) && jsonReceipt.humanActivity.length > 0,
 );
 
+// ── 11b. the session survives a reload ─────────────────────────────
+// A refresh must never silently eat the receipt: proposals and the log
+// rehydrate from this browser's storage.
+const proposalsBeforeReload = (await call('read_desk')).proposals.length;
+await page.reload({ waitUntil: 'domcontentloaded' });
+await page.waitForFunction(() => document.modelContext.list().length > 0);
+const restoredDesk = await call('read_desk');
+check(
+  'proposals survive a reload',
+  restoredDesk.proposals.length === proposalsBeforeReload && proposalsBeforeReload > 0,
+  `${proposalsBeforeReload} -> ${restoredDesk.proposals.length}`,
+);
+const restoredReceipt = await call('export_receipt', {});
+check(
+  'the receipt survives a reload too',
+  Array.isArray(restoredReceipt.proposals) && restoredReceipt.proposals.length === proposalsBeforeReload,
+);
+
+// ── 12. the take-control switch ────────────────────────────────────
+// One click withdraws EVERY tool from document.modelContext. A paused agent
+// has nothing left to call — not even reads — and resume re-registers.
+const toolsBefore = (await tools()).length;
+await page.getByRole('button', { name: 'Pause agent' }).click();
+await page.waitForFunction(() => document.modelContext.list().length === 0);
+check('pausing the agent withdraws every tool from document.modelContext', true);
+const pausedCall = await call('read_mandate').catch((e) => ({ error: String(e?.message ?? e) }));
+check('a paused agent cannot even read', Boolean(pausedCall.error), JSON.stringify(pausedCall));
+await page.getByRole('button', { name: 'Resume agent' }).click();
+await page.waitForFunction(() => document.modelContext.list().length > 0);
+check(
+  'resuming re-registers the tool surface',
+  (await tools()).length >= toolsBefore - 2,
+  `before=${toolsBefore} after=${(await tools()).length}`,
+);
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 await browser.close();
 process.exit(failures === 0 ? 0 : 1);

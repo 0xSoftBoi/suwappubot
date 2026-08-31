@@ -277,8 +277,25 @@ export default function DeskFlow({
         </svg>
       </div>
       <p className={styles.readout}>
-        <span data-state={status.state === 'connected' ? 'on' : status.state === 'checking' ? 'wait' : 'off'}>
-          AGENT {status.state === 'connected' ? 'CONNECTED' : status.state === 'checking' ? 'LOOKING' : 'NOT PRESENT'}
+        <span
+          data-state={
+            status.state === 'connected'
+              ? 'on'
+              : status.state === 'checking'
+                ? 'wait'
+                : status.state === 'paused'
+                  ? 'paused'
+                  : 'off'
+          }
+        >
+          AGENT{' '}
+          {status.state === 'connected'
+            ? 'CONNECTED'
+            : status.state === 'checking'
+              ? 'LOOKING'
+              : status.state === 'paused'
+                ? 'PAUSED BY YOU'
+                : 'NOT PRESENT'}
         </span>
         <span>TOOLS {status.tools > 0 ? status.tools : '0 (needs a WebMCP browser)'}</span>
         <span>PENDING APPROVALS {status.pending}</span>
