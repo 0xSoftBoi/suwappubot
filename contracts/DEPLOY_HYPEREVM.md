@@ -18,9 +18,24 @@ Background and the HIP-3/HIP-4 landscape: `docs/research/hyperliquid-hip4-primit
 
 Foundry aliases (in `foundry.toml`): `hyperevm_testnet`, `hyperevm_mainnet`.
 
+## Native HyperCore layer
+
+`contracts/hypercore/` is our verified-against-docs integration layer:
+- `L1Read.sol` — read precompiles 0x800-0x810 (positions, spot balances, vault
+  equity, prices, BBO, margin summary, coreUserExists). Wire decimals documented
+  in the header; values match HyperCore state at EVM block construction.
+- `CoreWriterLib.sol` — typed CoreWriter actions (limit order, spot send, vault
+  transfer, staking, borrow/lend #15, outcome ops #17, builder fee, cancels).
+  Wire format `[version=1][uint24 action id][abi.encode(fields)]`, locked by
+  `test/HyperCoreTest.t.sol`.
+- **Design rule**: CoreWriter actions are ASYNC (executed on HyperCore seconds
+  later; a rejected action does not revert the EVM tx). Native contracts must be
+  two-phase — act, then verify via L1Read in a later block. Never assume an
+  order filled in the tx that placed it.
+
 ## Gotcha 1: big blocks
 
-HyperEVM has dual blocks: small (~1s, 2M gas) and big (~1min, 30M gas). Contract
+HyperEVM has dual blocks: small (~1s, 3M gas) and big (~1min, 30M gas). Contract
 deployments generally exceed the small-block gas cap. The **deployer address** must
 flip itself to big blocks first — this is a HyperCore L1 action, not an EVM tx:
 
