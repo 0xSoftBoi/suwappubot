@@ -33,8 +33,8 @@
         "treasury-api"
       ],
       "surface": "showcase",
-      "status": "in_progress",
-      "notes": "Per-chain and per-asset breakdown, total value header, 30d value chart."
+      "status": "done",
+      "notes": "DONE: showcase/src/app/dashboard/treasury/ \u2014 page.tsx (KPI tiles, 30d chart w/ swap-flow caption, expandable per-chain cards, member table), TreasuryChart.tsx (pure SVG, matches UsageChart pattern), treasury.module.css. Build clean. Follow-up: member rows show userId only (no name in API contract)."
     },
     {
       "id": "tx-monitor-api",
@@ -56,7 +56,7 @@
         "tx-monitor-api"
       ],
       "surface": "showcase",
-      "status": "todo",
+      "status": "in_progress",
       "notes": ""
     },
     {
