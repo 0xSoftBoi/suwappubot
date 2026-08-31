@@ -1525,7 +1525,11 @@ export default function AgentDesk() {
     };
     setTicket(t);
     log('human', 'Manual quote', `${t.amount} ${t.fromToken} → ${t.toToken}`);
-    const pricing = runPreview(t).catch(() => undefined /* surfaced in previewError */);
+    // On failure the human sees previewError, and the agent that drove the
+    // submit gets the same structured { error } shape every other tool returns.
+    const pricing = runPreview(t).catch((e: unknown) => ({
+      error: e instanceof Error ? e.message : String(e),
+    }));
     // Declarative WebMCP: when an engine drove this submit, hand the priced
     // ticket back as the tool result instead of making it scrape the DOM.
     const native = e.nativeEvent as WebMCPSubmitEvent;
