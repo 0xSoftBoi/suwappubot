@@ -4340,6 +4340,50 @@ def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> Non
 # ---------------------------------------------------------------------------
 
 
+def _ensure_index_lock_safe(db_engine, is_sqlite: bool, index_name: str, create_sql: str) -> None:
+    """Create an index on a hot ingestion table without risking the whole boot.
+
+    `CREATE INDEX IF NOT EXISTS` takes a SHARE lock on the table *before* the
+    existence check, so on tables under continuous write load (market_candles,
+    perp_metrics, ...) it queues behind writers until statement_timeout — and
+    because _ensure_schema failures abort all of DB init, one slow lock put the
+    API in degraded mode and failed the Railway healthcheck on every deploy.
+
+    So: check the catalog first (lock-free), and only when the index is truly
+    missing attempt the build under a short lock_timeout in its own
+    transaction. A build that can't get the lock is logged and skipped — the
+    operator should run CREATE INDEX CONCURRENTLY instead of blocking boots.
+    """
+    try:
+        with db_engine.connect() as conn:
+            if is_sqlite:
+                row = conn.execute(
+                    text("SELECT 1 FROM sqlite_master WHERE type='index' AND name=:n"),
+                    {"n": index_name},
+                ).first()
+            else:
+                row = conn.execute(
+                    text("SELECT 1 FROM pg_indexes WHERE indexname=:n"),
+                    {"n": index_name},
+                ).first()
+        if row is not None:
+            return
+    except Exception as e:
+        logger.warning(f"Index existence check failed for {index_name}: {e}")
+
+    try:
+        with db_engine.begin() as conn:
+            if not is_sqlite:
+                conn.execute(text("SET LOCAL lock_timeout = '10s'"))
+            conn.execute(text(create_sql))
+        logger.info(f"Created index {index_name}")
+    except Exception as e:
+        logger.warning(
+            f"Skipped index {index_name} (table busy or build too slow — "
+            f"create it manually with CREATE INDEX CONCURRENTLY): {e}"
+        )
+
+
 def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the market_candles table idempotently.
 
@@ -4397,18 +4441,20 @@ def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created market_candles table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
-                "ON market_candles(symbol, chain, timeframe, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
-                "ON market_candles(symbol, chain, timeframe, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_market_candles_symbol_chain_timeframe_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
+        "ON market_candles(symbol, chain, timeframe, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_market_candles_symbol_chain_timeframe_ts",
+        "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
+        "ON market_candles(symbol, chain, timeframe, ts DESC)",
+    )
 
 
 def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -4452,18 +4498,20 @@ def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None
                 """))
             logger.info("Created api_usage_daily table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
-                "ON api_usage_daily(api_key_id, route, day)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
-                "ON api_usage_daily(api_key_id, day)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_api_usage_daily_key_route_day",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
+        "ON api_usage_daily(api_key_id, route, day)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_api_usage_daily_key_day",
+        "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
+        "ON api_usage_daily(api_key_id, day)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4521,18 +4569,20 @@ def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created perp_metrics table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_perp_metrics_venue_symbol_ts "
-                "ON perp_metrics(venue, symbol, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_perp_metrics_venue_symbol_ts "
-                "ON perp_metrics(venue, symbol, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_perp_metrics_venue_symbol_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_perp_metrics_venue_symbol_ts "
+        "ON perp_metrics(venue, symbol, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_perp_metrics_venue_symbol_ts",
+        "CREATE INDEX IF NOT EXISTS ix_perp_metrics_venue_symbol_ts "
+        "ON perp_metrics(venue, symbol, ts DESC)",
+    )
 
 
 def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -4588,19 +4638,21 @@ def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) ->
                 """))
             logger.info("Created prediction_snapshots table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS "
-                "uq_prediction_snapshots_venue_market_id_outcome_ts "
-                "ON prediction_snapshots(venue, market_id, outcome, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_prediction_snapshots_venue_market_id_ts "
-                "ON prediction_snapshots(venue, market_id, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_prediction_snapshots_venue_market_id_outcome_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS "
+        "uq_prediction_snapshots_venue_market_id_outcome_ts "
+        "ON prediction_snapshots(venue, market_id, outcome, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_prediction_snapshots_venue_market_id_ts",
+        "CREATE INDEX IF NOT EXISTS ix_prediction_snapshots_venue_market_id_ts "
+        "ON prediction_snapshots(venue, market_id, ts DESC)",
+    )
 
 
 def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -4656,18 +4708,20 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created lend_metrics table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_lend_metrics_venue_market_id_ts "
-                "ON lend_metrics(venue, market_id, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
-                "ON lend_metrics(venue, market_id, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_lend_metrics_venue_market_id_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_lend_metrics_venue_market_id_ts "
+        "ON lend_metrics(venue, market_id, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_lend_metrics_venue_market_id_ts",
+        "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
+        "ON lend_metrics(venue, market_id, ts DESC)",
+    )
 
 
 def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
