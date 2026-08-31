@@ -53,7 +53,10 @@ perpsRoutes.get('/markets', async (c) => {
 })
 
 // POST /v1/agent/perps/quote — get perp position quote
-perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
+// regionGate() runs a second time here, AFTER agentBearerAuth() resolves
+// c.get('agent') — the blanket pass above runs before any auth and so can
+// only ever see the caller's IP, not their sticky region. See regionGate.ts.
+perpsRoutes.post('/quote', agentBearerAuth(), regionGate(), async (c) => {
 	const body = await c.req.json()
 	const parsed = PerpsQuoteSchema.safeParse(body)
 	if (!parsed.success) {
@@ -78,7 +81,9 @@ perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
 })
 
 // GET /v1/agent/perps/positions — list open positions
-perpsRoutes.get('/positions', perpsPositionsAuth(), async (c) => {
+// regionGate() re-run after auth resolves the caller (agent or user) for the
+// sticky-region check — see comment on POST /quote above.
+perpsRoutes.get('/positions', perpsPositionsAuth(), regionGate(), async (c) => {
 	const address = c.req.query('address')
 	if (!address) {
 		return c.json({ error: 'address query parameter required' }, 400)
