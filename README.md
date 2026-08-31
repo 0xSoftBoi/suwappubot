@@ -11,6 +11,13 @@
   Route across chains, simulate before money moves, and choose self-custody or managed execution from the same platform.
 </p>
 
+<p align="center">
+  <a href="https://github.com/0xSoftBoi/suwappubot/actions/workflows/test.yml"><img src="https://github.com/0xSoftBoi/suwappubot/actions/workflows/test.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/0xSoftBoi/suwappubot/actions/workflows/codeql.yml"><img src="https://github.com/0xSoftBoi/suwappubot/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/0xSoftBoi/suwappubot/actions/workflows/secret-scan.yml"><img src="https://github.com/0xSoftBoi/suwappubot/actions/workflows/secret-scan.yml/badge.svg" alt="secret scan"></a>
+  <a href="https://github.com/0xSoftBoi/suwappubot/actions/workflows/scorecard.yml"><img src="https://github.com/0xSoftBoi/suwappubot/actions/workflows/scorecard.yml/badge.svg" alt="OpenSSF Scorecard"></a>
+</p>
+
 <div align="center">
 
 [![Live](https://img.shields.io/badge/status-live-brightgreen)](https://www.suwappu.bot)

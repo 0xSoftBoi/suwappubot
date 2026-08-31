@@ -19,7 +19,17 @@ Instead, please email: **security@suwappu.bot**
 
 - **Acknowledgment**: Within 48 hours
 - **Initial assessment**: Within 1 week
-- **Fix timeline**: Depends on severity, typically within 30 days
+- **Fix timeline**: Medium-or-higher severity vulnerabilities are patched within
+  30 days of triage (a hard commitment — half the OpenSSF Best Practices 60-day
+  bar); lower severities are batched into the next release.
+
+### Project transparency
+
+Suwappu currently has a small maintainer team (bus factor ~2). We state this
+openly rather than obscure it: security review depth comes from the layered CI
+gates (CodeQL, secret scanning, dependency audits, money-path review process)
+documented in `docs/security/`, and external reports through this policy are
+correspondingly valued.
 
 ### Scope
 
