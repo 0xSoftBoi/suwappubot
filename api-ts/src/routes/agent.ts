@@ -35,7 +35,7 @@ import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
-import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
+import { fetchTokenPrices, solanaMintUsdValue, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
@@ -1099,15 +1099,74 @@ export async function enforcePolicyGateForFreshQuote(
 	let policyIntent: PolicyIntent
 	if (isSolana) {
 		const jq = quote as JupiterQuote
+
+		// Only price the trade (and only ever possibly 400 on unpriceable) when a
+		// USD-denominated cap actually applies to this org/agent. This bounds two
+		// blast radii: (1) an org with no dailyCapUsd/sessionCapUsd configured
+		// gets EXACTLY the pre-fix behavior — no CoinGecko call, no possible
+		// block, since there is no cap for a USD value to matter to; (2) a
+		// CoinGecko outage can only ever affect USD-capped orgs, never every
+		// Solana trade on the platform. hasUsdDenominatedControl mirrors evaluate()'s own
+		// policy-row scoping (PolicyService.ts) and inspects every USD-denominated
+		// columns, so it's cheap to call ahead of the full gate. A query error
+		// here fails CLOSED (treated as "a USD control may exist", so we price):
+		// unlike evaluate()'s infra-error branch — which writes no decision row
+		// — failing open here while evaluate() succeeds would log a valueUsd:0
+		// allow row that permanently under-counts the rolling cap sums. One
+		// extra price lookup in a rare error path is the conservative trade.
+		const capCheck = await runEffectEither(
+			Effect.gen(function* () {
+				const policy = yield* PolicyService
+				return yield* policy.hasUsdDenominatedControl({ organizationId: orgId, agentId: agentIdentifier })
+			}),
+		)
+		if (Either.isLeft(capCheck)) {
+			writeAuditLog({
+				userId: 0,
+				orgId,
+				agentId: agentIdentifier,
+				eventType: 'policy.cap_check_error',
+				details: { chain: 'solana', error: String(capCheck.left) },
+			})
+		}
+		const needsUsdPricing = Either.isLeft(capCheck) || capCheck.right
+
+		let valueUsd = 0
+		if (needsUsdPricing) {
+			// Prices the input leg via the SOLANA_TOKENS registry + CoinGecko
+			// (solanaMintUsdValue, lib/prices.ts) — the same price source already
+			// used for portfolio/reference display elsewhere in this file. Not
+			// every mint is covered, so this can legitimately fail to price a
+			// long-tail SPL token; distinguishes WHY (unknown mint vs. a known
+			// mint the feed just couldn't price) so the block reason is honest.
+			const priced = await solanaMintUsdValue(jq.inputMint, jq.inAmount)
+			if (!priced.priced) {
+				writeAuditLog({
+					userId: 0,
+					orgId,
+					agentId: agentIdentifier,
+					eventType: 'policy.unpriced_quote',
+					details: { reason: priced.reason, chain: 'solana', inputMint: jq.inputMint },
+				})
+				const message =
+					priced.reason === 'unknown_mint'
+						? 'Unable to price this Solana trade in USD (input token is not in the priced registry) — refusing rather than silently bypassing a configured USD spend cap.'
+						: 'Unable to price this Solana trade in USD right now (price feed unavailable for this token) — refusing rather than silently bypassing a configured USD spend cap.'
+				return c.json(
+					{ success: false, status: 'block', error: message, reason: priced.reason },
+					400,
+				)
+			}
+			valueUsd = priced.valueUsd
+		}
+
 		policyIntent = {
 			organizationId: orgId,
 			agentId: agentIdentifier,
 			chain: 'solana',
 			fromToken: jq.inputMint ?? null,
 			toToken: jq.outputMint ?? null,
-			// TODO: Solana quote carries no USD value; USD-based caps are
-			// skipped until we price the input mint. Chain/token rules apply.
-			valueUsd: 0,
+			valueUsd,
 		}
 	} else {
 		const evmQuote = quote as SwapQuote
@@ -1177,9 +1236,13 @@ export async function enforcePolicyGateForFreshQuote(
 	})
 
 	if (decision === 'require_approval') {
-		// Solana quotes carry no USD value at this layer (termsFromSolanaQuote
-		// hard-codes valueUsd=0), so an approved Solana trade would silently
-		// bypass daily/session USD caps. Refuse rather than write a $0 cap row.
+		// The Solana approval/resubmit path (termsFromSolanaQuote,
+		// resolveApprovalResubmit) doesn't yet re-derive USD pricing at approval
+		// time the way the EVM path does, so an approved Solana trade could
+		// still bypass daily/session USD caps downstream. Refuse rather than
+		// let it fall through to that unbuilt path. (Note: the *initial* USD
+		// value above is now real, via solanaMintUsdValue — this block is about
+		// the separate, still-missing Solana approval-record pricing gap.)
 		if (isSolana) {
 			writeAuditLog({
 				userId: 0,

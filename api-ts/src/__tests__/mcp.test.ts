@@ -415,3 +415,9 @@ describe('mcp outputSchema / structuredContent', () => {
 		expect(withStructuredContent('predict_market_detail', result)).toBe(result)
 	})
 })
+
+// Real end-to-end coverage of handleExecuteSwap's quote-consumption and
+// cap-scoped Solana pricing behavior now lives in
+// src/__tests__/mcpExecuteSwapConsume.test.ts (drives the actual exported
+// handleExecuteSwap with a mocked runtime, rather than only exercising the
+// underlying cache primitive in isolation).

@@ -73,6 +73,32 @@ export interface PolicyServiceInterface {
 	) => Effect.Effect<PolicyDecisionResult, DatabaseError, DrizzleService>
 
 	/**
+	 * Cheap pre-check: does ANY active (enabled, unexpired) policy row scoped to
+	 * this org/agent configure a USD-denominated control (dailyCapUsd,
+	 * sessionCapUsd, maxTxUsd, or requireApprovalAboveUsd — every column
+	 * evaluate() compares against intent.valueUsd)? Mirrors the same
+	 * row-scoping `evaluate()` uses (§2 "Load enabled policies" above) but only
+	 * inspects those columns instead of running the full stateless+stateful
+	 * evaluation — cheap enough to call
+	 * BEFORE deciding whether a caller needs to do the (potentially slow/
+	 * external) work of pricing a trade at all.
+	 *
+	 * Used by `enforcePolicyGateForFreshQuote`'s Solana branch (agent.ts) to
+	 * skip the CoinGecko-backed USD valuation entirely when no configured
+	 * policy would actually consume it — an org/agent with zero USD-denominated controls gets
+	 * the pre-fix behavior (no pricing call, no possible 400) exactly as
+	 * before, and a CoinGecko outage can only ever block USD-capped orgs.
+	 *
+	 * Returns `false` (never throws-as-"unknown") for the fully-unscoped case
+	 * (no organizationId and no agentId), matching evaluate()'s early
+	 * 'allow'/no-op for retail requests.
+	 */
+	readonly hasUsdDenominatedControl: (intent: {
+		organizationId?: string | null
+		agentId?: string | null
+	}) => Effect.Effect<boolean, DatabaseError, DrizzleService>
+
+	/**
 	 * Atomically re-checks daily/session/velocity caps AND inserts the
 	 * cap-accounting 'allow' row for an approved human-in-the-loop trade, all
 	 * inside one DB transaction serialized by a per-org advisory lock. This
@@ -206,6 +232,59 @@ function evalStateless(
 export const PolicyServiceLive = Layer.succeed(
 	PolicyService,
 	PolicyService.of({
+		hasUsdDenominatedControl: (intent) =>
+			Effect.gen(function* () {
+				if (!intent.organizationId && !intent.agentId) return false
+				const db = yield* requireDb
+				const orgId = intent.organizationId ?? null
+				const rows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								dailyCapUsd: policies.dailyCapUsd,
+								sessionCapUsd: policies.sessionCapUsd,
+								maxTxUsd: policies.maxTxUsd,
+								requireApprovalAboveUsd: policies.requireApprovalAboveUsd,
+								expiresAt: policies.expiresAt,
+							})
+							.from(policies)
+							.where(
+								and(
+									eq(policies.enabled, true),
+									orgId
+										? and(
+												eq(policies.organizationId, orgId),
+												intent.agentId
+													? or(isNull(policies.agentId), eq(policies.agentId, intent.agentId))
+													: isNull(policies.agentId),
+											)
+										: and(
+												isNull(policies.organizationId),
+												eq(policies.agentId, intent.agentId as string),
+											),
+								),
+							),
+					catch: (e) => new DatabaseError({ message: `hasUsdDenominatedControl query failed: ${e}`, cause: e }),
+				})
+				const now = Date.now()
+				// EVERY policy column that evaluate() compares against
+				// intent.valueUsd must appear here, or an org configured with
+				// only that control is misclassified as uncapped and its Solana
+				// trades evaluate against valueUsd=0 — the exact bypass this
+				// predicate exists to close. Current valueUsd consumers in
+				// evaluate(): maxTxUsd (per-tx limit), requireApprovalAboveUsd
+				// (HITL escalation), dailyCapUsd/sessionCapUsd (rolling caps).
+				// maxGasUsd reads intent.gasUsd, not valueUsd — excluded.
+				return rows.some(
+					(p) =>
+						(!p.expiresAt || p.expiresAt.getTime() > now) &&
+						(p.dailyCapUsd != null ||
+							p.sessionCapUsd != null ||
+							p.maxTxUsd != null ||
+							p.requireApprovalAboveUsd != null),
+				)
+			}),
+
 		evaluate: (intent) =>
 			Effect.gen(function* () {
 				const db = yield* requireDb

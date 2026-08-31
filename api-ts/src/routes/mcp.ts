@@ -34,7 +34,7 @@ import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifie
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
-import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
+import { cacheAgentQuote, deleteCachedQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { parseMppDirectoryResponse } from '../lib/mppDirectory'
@@ -905,7 +905,9 @@ async function policyGateResponseToMcpEnvelope(
 	return { isError: true, content: [{ type: 'text', text: JSON.stringify(body) }] }
 }
 
-async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c: Context) {
+// Exported for src/__tests__/mcpExecuteSwapConsume.test.ts — same pattern as the
+// other test-only exports in this file (withStructuredContent, negotiateProtocolVersion, etc).
+export async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c: Context) {
 	// idempotency_key is accepted for parity with POST /v1/agent/swap/execute, but this
 	// tool only returns an unsigned transaction for client-side signing (no backend
 	// execute call to dedupe here) — it is echoed back so callers can carry it through
@@ -950,7 +952,25 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 			})
 		)
+		// On failure, deliberately leave the quote in the cache — a failed
+		// unsigned-tx build (e.g. Jupiter transiently erroring) should still be
+		// retryable against the same quote_id within its TTL, not force a
+		// re-quote. Only a SUCCESSFUL preparation consumes the quote below.
 		if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
+		// Single-use: this quote_id has now been turned into a returned unsigned
+		// tx. Deleting it here (rather than letting it live out its 60s TTL)
+		// closes the "repeated execute_swap on one quote_id re-runs the policy
+		// gate and writes repeated allow decisions" cap-accounting gap
+		// (docs/security/mcp-authorization-checklist.md §2). This cache is
+		// shared with the REST `/v1/agent/swap` / `/swap/execute` quote_id paths
+		// (agent.ts) — deleting here is safe for REST too, not "separate" from
+		// it, because REST's approval-resubmit flow never re-reads a quote_id at
+		// all: it re-quotes fresh from persisted economic terms
+		// (termsFromEvmQuote/termsFromSolanaQuote — quote_id is deliberately
+		// never stored there, since the cache is short-TTL/per-process and
+		// wouldn't survive the human-approval window anyway). So there is no
+		// REST code path that depends on a quote_id outliving one read.
+		deleteCachedQuote(quote_id)
 		return { content: [{ type: 'text', text: JSON.stringify({
 			status: 'ready', chain: 'solana',
 			transaction: { type: 'solana', serialized_transaction: result.right.swapTransaction, last_valid_block_height: result.right.lastValidBlockHeight },
@@ -959,7 +979,19 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		}) }] }
 	}
 
-	return { content: [{ type: 'text', text: JSON.stringify({
+	// EVM path: guard the fields we're about to dereference BEFORE consuming
+	// the quote. A malformed/incomplete cached quote (missing
+	// transactionRequest) must fail without burning the caller's quote_id —
+	// consuming first and then throwing while building the response would
+	// leave the caller with neither a usable transaction NOR a retryable
+	// quote_id.
+	if (!quote.transactionRequest) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: 'Cached quote is missing transaction data. Request a new quote first.' }],
+		}
+	}
+	const evmResult = { content: [{ type: 'text', text: JSON.stringify({
 		status: 'ready', chain_type: 'evm',
 		transaction: {
 			to: quote.transactionRequest.to, from: wallet_address,
@@ -969,6 +1001,12 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		...(idempotency_key ? { idempotency_key } : {}),
 		instructions: 'Sign transaction with wallet and submit to chain RPC',
 	}) }] }
+	// EVM path never fails past the guard above (the tx is built directly from
+	// already-validated quote fields), so it's safe to consume now that the
+	// response is fully constructed. See the Solana branch above for why this
+	// cache is shared with, and safe for, the REST paths.
+	deleteCachedQuote(quote_id)
+	return evmResult
 }
 
 // Mirrors GET /v1/agent/swap/status/:swapId (src/routes/agent.ts)

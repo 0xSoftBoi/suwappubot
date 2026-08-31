@@ -76,10 +76,15 @@ mock.module('../middleware/x402Payment', () => ({
 //
 // enforcePolicyGateForFreshQuote() ALSO now calls runEffectEither (org-less agents are
 // policy-gated too, not just org agents — see PolicyService.evaluate()'s org-less
-// per-agent-policy path), so this generic runtime mock is invoked twice per request:
-// once for the policy evaluate() call, once for the internal Python execute-swap call.
-// It must return an 'allow' verdict shape for the FIRST call (so the gate falls through
-// exactly like a real no-DB fail-open would) and the canned swap result for the rest.
+// per-agent-policy path). For a Solana quote specifically, the gate makes an ADDITIONAL
+// runEffectEither call first — PolicyService.hasUsdDenominatedControl() — to decide whether a USD
+// value needs to be computed at all before it ever considers calling
+// solanaMintUsdValue() (which would otherwise hit the network); see prices.ts. So this
+// generic runtime mock is invoked THREE times per request on the Solana path: hasUsdDenominatedControl,
+// then PolicyService.evaluate(), then the internal Python execute-swap call. Returning
+// `false` for hasUsdDenominatedControl (this synthetic test agent has no configured dailyCapUsd/
+// sessionCapUsd) means pricing is skipped entirely, exactly matching the pre-existing
+// no-cap-configured behavior and never touching the network.
 let fetchCallCount = 0
 let runEffectEitherCallCount = 0
 mock.module('../runtime', () => ({
@@ -87,6 +92,12 @@ mock.module('../runtime', () => ({
 	runEffectEither: async () => {
 		runEffectEitherCallCount++
 		if (runEffectEitherCallCount === 1) {
+			// Stands in for enforcePolicyGateForFreshQuote's Solana-branch
+			// PolicyService.hasUsdDenominatedControl() pre-check — no cap configured, so pricing
+			// is skipped and valueUsd stays 0, exactly like the pre-fix behavior.
+			return Either.right(false)
+		}
+		if (runEffectEitherCallCount === 2) {
 			// Stands in for enforcePolicyGateForFreshQuote's PolicyService.evaluate()
 			// call — 'allow' means the gate returns null and the route proceeds.
 			return Either.right({ decision: 'allow' })
