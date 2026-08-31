@@ -330,7 +330,10 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	predict_markets: { title: 'Search Prediction Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_market: { title: 'Prediction Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	perps_markets: { title: 'List Perp Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	perps_quote: { title: 'Quote Perp Position', readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+	// Pure computation off a fresh Hyperliquid snapshot — unlike get_quote/simulate_swap
+	// it never caches a quote_id or writes any server-side state, so repeating an
+	// identical call has no additional effect: idempotent.
+	perps_quote: { title: 'Quote Perp Position', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	perps_positions: { title: 'List Perp Positions', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_markets: { title: 'List Lending Markets', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	lend_market: { title: 'Lending Market Detail', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
@@ -339,7 +342,9 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	predict_book: { title: 'Prediction Market Order Book', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_price: { title: 'Prediction Market Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_trades: { title: 'Prediction Market Trades', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	// Calls Turnkey's getPolicies API (an external system), not just the local DB —
+	// openWorldHint must be true like the other Turnkey/chain-backed reads above.
+	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 }
 
 

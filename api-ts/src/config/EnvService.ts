@@ -100,6 +100,14 @@ export const EnvSchema = Schema.Struct({
 	MPP_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
 	MPP_SWAP_PRICE_USD: Schema.optionalWith(Schema.String, { default: () => '0.001' }),
 
+	// MCP read-only kill switch. When true, tools/list serves only tools whose
+	// TOOL_ANNOTATIONS readOnlyHint is true, AND tools/call refuses every other
+	// tool before metering (src/routes/mcp.ts, src/routes/mcpTools.ts). Default
+	// OFF = byte-identical behavior. Read directly from process.env in mcp.ts
+	// (same convention as MPP_ENABLED there) so this schema entry is the env-var
+	// contract source of truth without requiring the Effect runtime to be live.
+	MCP_READ_ONLY: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),

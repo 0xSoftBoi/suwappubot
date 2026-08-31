@@ -113,6 +113,38 @@ function negotiateProtocolVersion(requested: unknown): string {
 const MPP_ENABLED = process.env.MPP_ENABLED === 'true'
 const MPP_DIRECTORY_URL = process.env.MPP_DIRECTORY_URL || 'https://directory.mpp.dev/v1'
 
+// MCP read-only kill switch (Phase 4 item 1, docs/plans/oss-parity.md). Enforced
+// at BOTH layers deliberately — GitHub's read-only MCP server flag shipped
+// broken (issue #2156) because it only filtered tools/list, leaving tools/call
+// reachable by a client that already knew (or guessed) a mutating tool's name.
+// Read fresh from process.env on every call (not frozen into a module-level
+// const like MPP_ENABLED above) so tests can toggle it per-request without a
+// dynamic re-import; production never flips it mid-process anyway. Default
+// (unset/false) is byte-identical to prior behavior.
+//
+// Accept several truthy spellings ('1'/'yes'/'on'/'true', any case). For a
+// SECURITY kill switch the asymmetry matters: strict `=== 'true'` fails toward
+// *writable* on a reasonable lockdown value like MCP_READ_ONLY=1, i.e. the
+// dangerous direction. Normalizing closes that fail-open.
+function isMcpReadOnly(): boolean {
+	return ['true', '1', 'yes', 'on'].includes((process.env.MCP_READ_ONLY ?? '').trim().toLowerCase())
+}
+
+// Classification source: TOOL_ANNOTATIONS' readOnlyHint (mcpTools.ts), which has
+// complete 22/22 coverage (see scripts/check-mcp-schemas.ts). Fail closed: a tool
+// name absent from TOOL_ANNOTATIONS (a future classification gap) is NOT
+// read-only, per `?.readOnlyHint === true` rather than `!== false`.
+function isReadOnlyTool(name: string): boolean {
+	return TOOL_ANNOTATIONS[name]?.readOnlyHint === true
+}
+
+// Surface the effective mode once at module load so a misconfigured value
+// (which normalizes to OFF) is visible in logs rather than silently leaving
+// the server writable when an operator believed they had locked it down.
+if (isMcpReadOnly()) {
+	logger.warn('[mcp] read-only mode ENABLED — mutating tools (e.g. execute_swap) are refused.')
+}
+
 const ADVERTISED_TOOLS = TOOLS.filter((t) => MPP_ENABLED || t.name !== 'browse_mpp_directory')
 
 // A money-path tool whose definition failed the integrity check is withheld
@@ -1530,7 +1562,11 @@ mcpRoutes.post('/', async (c) => {
 
 		case 'tools/list':
 			return c.json(rpcOk(req.id, resultForMcpEra(
-				{ tools: TOOLS_WITH_ANNOTATIONS },
+				{
+					tools: isMcpReadOnly()
+						? TOOLS_WITH_ANNOTATIONS.filter((t) => isReadOnlyTool(t.name))
+						: TOOLS_WITH_ANNOTATIONS,
+				},
 				modern,
 				{ ttlMs: MCP_CATALOG_TTL_MS, cacheScope: 'public' },
 			)), 200)
@@ -1613,6 +1649,31 @@ mcpRoutes.post('/', async (c) => {
 						`Tool "${name}" is temporarily unavailable: its definition failed an integrity check and cannot be safely dispatched. This is a server-side issue, not a client error.`,
 						undefined,
 						'UPSTREAM_ERROR',
+					),
+					200,
+				)
+			}
+
+			// MCP_READ_ONLY kill switch — the SECOND of the two enforcement layers
+			// (tools/list above is the first). Refusing here, not just hiding the tool
+			// from the catalogue, is the fix for the exact bug this mirrors: GitHub's
+			// read-only MCP flag (issue #2156) shipped broken because it only filtered
+			// tools/list, so a client with a cached catalogue, a hardcoded tool name, or
+			// hand-rolled JSON-RPC could still dispatch a mutating tool. Uses the
+			// resolved schema name (toolSchemaName) so the predict_market_detail alias
+			// is classified via its real entry, not treated as unclassified-and-blocked.
+			// Fail closed: a tool absent from TOOL_ANNOTATIONS is NOT read-only.
+			// Checked BEFORE the AEGIS scan and chargeAgentForCall so a refused call is
+			// never billed. Default (unset/false) is byte-identical to prior behavior.
+			if (isMcpReadOnly() && !isReadOnlyTool(toolSchemaName(name))) {
+				logger.warn(`[mcp] Refusing tools/call for "${name}": server is running in read-only mode (MCP_READ_ONLY set).`)
+				return c.json(
+					rpcErr(
+						req.id,
+						-32000,
+						`Tool "${name}" is unavailable: this server is running in read-only mode (MCP_READ_ONLY set) and this tool is not read-only.`,
+						undefined,
+						'POLICY_VIOLATION',
 					),
 					200,
 				)
