@@ -175,6 +175,7 @@ export {
 	type LifiQuote,
 	type QuoteParams,
 	type SwapQuote,
+	chainKeyFromId,
 	resolveChainId,
 	SwapService,
 	SwapServiceLive,

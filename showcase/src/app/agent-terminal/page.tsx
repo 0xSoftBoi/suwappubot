@@ -57,7 +57,7 @@ const TOOLS = [
   {
     name: 'preview_swap',
     kind: 'read',
-    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, route, plus the mandate verdict.',
+    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, plus the mandate verdict — and the route leg by leg, because most cross-chain routes are more than one transaction.',
   },
   {
     name: 'compare_routes',
@@ -77,7 +77,7 @@ const TOOLS = [
   {
     name: 'propose_plan',
     kind: 'propose',
-    body: 'Propose a sequence (bridge, then buy, then set an alert) as one card with a combined notional and one Approve. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
+    body: 'Propose a sequence (bridge, then buy, then set an alert) as one card with a combined notional and one Approve. Legs can chain — "@prev" sells what the previous leg delivers, the shape of a real multi-hop relay. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
   },
   {
     name: 'propose_price_alert',

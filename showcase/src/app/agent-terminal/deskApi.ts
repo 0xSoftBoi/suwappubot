@@ -27,6 +27,29 @@ export interface TokenInfo {
 
 export type RouteOrder = 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST' | 'SAFEST';
 
+/**
+ * One leg of a routed swap. Most cross-chain routes are more than one
+ * transaction — a swap on the source chain, a bridge relay, a swap on the
+ * destination — and the preview reports each leg rather than a flattened
+ * route string.
+ */
+export interface PreviewHop {
+  index: number;
+  /** 'swap' (same-chain DEX), 'cross' (bridge/relay), 'protocol', … */
+  type: string;
+  tool: string;
+  toolName: string;
+  fromChain: string | null;
+  toChain: string | null;
+  fromToken: string | null;
+  toToken: string | null;
+  fromAmount: string | null;
+  toAmount: string | null;
+  estimatedGasUsd: string | null;
+  feeUsd: string | null;
+  estimatedDurationSeconds: number | null;
+}
+
 export interface SwapPreview {
   indicative: true;
   executable: false;
@@ -54,6 +77,9 @@ export interface SwapPreview {
   estimatedDurationSeconds: number;
   slippage: number;
   route: string;
+  /** Absent only from an older API build; treat as a single unknown hop. */
+  hops?: PreviewHop[];
+  hopCount?: number;
   notice: string;
 }
 

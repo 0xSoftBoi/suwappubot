@@ -256,6 +256,17 @@ export function resolveChainId(chain: string | number): number {
 	return CHAIN_IDS[chain.toLowerCase()] || parseInt(chain, 10)
 }
 
+/**
+ * Li.Fi chain id -> canonical chain key. Insertion order of CHAIN_IDS puts
+ * canonical names before aliases (fantom before ftm), so the first hit wins.
+ */
+export function chainKeyFromId(chainId: number): string | null {
+	for (const [key, id] of Object.entries(CHAIN_IDS)) {
+		if (id === chainId) return key
+	}
+	return null
+}
+
 // Native token address placeholder
 const NATIVE_TOKEN = '0x0000000000000000000000000000000000000000'
 

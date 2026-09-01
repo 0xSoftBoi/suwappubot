@@ -80,6 +80,13 @@ says so, and so does `read_mandate`'s own payload.
 2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — bridge,
    buy, set an alert — prices every leg, rolls them into one combined notional,
    and asks for one approval. Agents think in plans; the desk lets them.
+   Steps **chain**: a swap leg with `amount: "@prev"` sells the previous swap
+   leg's estimated output, inheriting its landing chain and token — the shape
+   of a real multi-hop relay, where later legs trade what earlier legs deliver
+   rather than new money. A chained leg that doesn't pick up where the last
+   one lands (wrong token, wrong chain) is refused at proposal time, and the
+   combined notional counts new money once instead of re-billing the daily
+   cap for every re-trade of it.
 3. **The agent waits for a person, not a poll.** `check_approval(proposalId,
    waitSeconds)` blocks up to 120s and resolves the instant the human clicks,
    carrying back any note they typed. Proposals expire after 10 minutes.
@@ -148,11 +155,11 @@ instruction-injection-shaped description is now gone.
 | `list_chains` | read | Chains Suwappu can route across |
 | `find_token` | read | Resolve a ticker/address to a canonical address + decimals |
 | `get_prices` | read | USD spot for major symbols |
-| `preview_swap` | read | Price a swap, render it, attach the mandate verdict |
+| `preview_swap` | read | Price a swap leg by leg (`hops`), render it, attach the mandate verdict |
 | `compare_routes` | read | The same swap as RECOMMENDED / FASTEST / CHEAPEST / SAFEST |
 | `read_desk` | read | Ticket, quote, mandate headroom, proposals, activity |
 | `propose_swap` | propose | One trade + rationale in front of the human |
-| `propose_plan` | propose | An ordered multi-step plan as one approval |
+| `propose_plan` | propose | An ordered multi-step plan as one approval; `amount: "@prev"` chains a leg onto the previous leg's output |
 | `propose_price_alert` | propose | An alert to arm in the bot |
 | `check_approval` | read | Block on / poll the human's decision, with their note |
 | `request_override` | unlocked | Only while blocked: argue for bending one rule |
@@ -166,21 +173,26 @@ endpoint. It is unauthenticated and IP rate-limited, and deliberately **not
 executable**: the quote is never written to the quote cache and no
 `transactionRequest` is returned, so a preview id cannot be fed to
 `POST /public/swap/execute`. Pricing uses a placeholder receiver unless the
-caller names one.
+caller names one. The response reports the route **leg by leg**: `hops` maps
+the aggregator's real `includedSteps` — most cross-chain routes are more than
+one transaction (a source-chain swap, a bridge relay, a destination swap) —
+each with its tool, chains, tokens, human-readable amounts, per-leg gas/fee
+and duration, falling back to a single honest hop when a provider returns no
+step detail.
 
 ## Verifying it
 
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 75 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 95 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **75 assertions**, among them: that the ticket
+drives the real page through **95 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
@@ -201,7 +213,14 @@ text a tool result re-echoes comes wrapped
 `{agentWritten: true, unverified: true, text}` so the model cannot mistake its
 own earlier persuasion for instruction (Spotlighting, arXiv:2403.14720); and a
 WASP-style decoy DOM element plus instruction-bearing form values cannot
-redirect the declarative ticket.
+redirect the declarative ticket. The multi-hop assertions: a cross-chain
+preview reports each route leg with its tool and chains while a same-chain
+one is honestly one hop; a plan leg with `amount: "@prev"` inherits the
+previous leg's output token, chain and estimated amount and is flagged as
+chained everywhere it is echoed; the combined notional counts new money once
+rather than re-billing each re-trade; and a chain with nothing to chain
+from, or one that doesn't pick up where the last leg lands, is refused
+rather than guessed.
 
 `scripts/evals-adversarial-smoke.mjs` (**49 assertions**) drives six
 injection-shaped strings through agent-supplied arguments — a token query, a

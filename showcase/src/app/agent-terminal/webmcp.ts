@@ -265,7 +265,7 @@ export async function registerDeskTools(
     {
       name: 'preview_swap',
       description:
-        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the route used, and the mandate verdict for this exact trade. Use this directly when the human asks what something is worth — it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
+        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the mandate verdict for this exact trade, and the route leg by leg: most cross-chain routes are more than one transaction (a swap, a bridge relay, another swap), and hops/hopCount report each leg with its tool, chains, tokens and amounts. Use this directly when the human asks what something is worth — it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -310,7 +310,7 @@ export async function registerDeskTools(
     {
       name: 'compare_routes',
       description:
-        'Price the same swap four ways — RECOMMENDED, FASTEST, CHEAPEST and SAFEST — and render the comparison on the page so the human can see the trade-off between output, cost and settlement time before deciding. Use this directly when the human asks to compare routes or what speed costs them; no other call is needed first.',
+        'Price the same swap four ways — RECOMMENDED, FASTEST, CHEAPEST and SAFEST — and render the comparison on the page so the human can see the trade-off between output, cost and settlement time before deciding. Each row reports its hopCount: routes to the same destination can differ in how many transactions they take, and fewer hops usually means fewer things that can strand mid-route. Use this directly when the human asks to compare routes or what speed costs them; no other call is needed first.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -555,7 +555,7 @@ export async function registerDeskTools(
     {
       name: 'propose_plan',
       description:
-        'Propose a SEQUENCE of steps as one reviewable unit — for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Each step is priced and checked against the mandate individually, and the card shows the combined notional. Prefer this over several propose_swap calls whenever the steps only make sense together.',
+        'Propose a SEQUENCE of steps as one reviewable unit — for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is "@prev" sells the full estimated output of the previous swap step, with fromToken and fromChain defaulting to where that leg lands — the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -571,11 +571,23 @@ export async function registerDeskTools(
               type: 'object',
               properties: {
                 kind: { type: 'string', enum: ['swap', 'alert'] },
-                fromChain: { type: 'string', description: 'swap: source chain key.' },
+                fromChain: {
+                  type: 'string',
+                  description:
+                    'swap: source chain key. For a chained step ("@prev") it defaults to the chain the previous swap step lands on.',
+                },
                 toChain: { type: 'string', description: 'swap: destination chain key.' },
-                fromToken: { type: 'string', description: 'swap: token sold.' },
+                fromToken: {
+                  type: 'string',
+                  description:
+                    'swap: token sold. For a chained step ("@prev") it defaults to the previous swap step\'s output token, and must match it if given.',
+                },
                 toToken: { type: 'string', description: 'swap: token bought.' },
-                amount: { type: 'string', description: 'swap: amount of fromToken.' },
+                amount: {
+                  type: 'string',
+                  description:
+                    'swap: amount of fromToken, or "@prev" to sell the full estimated output of the previous swap step (a chained multi-hop leg).',
+                },
                 slippagePercent: { type: 'number', description: 'swap: max slippage percent.' },
                 symbol: { type: 'string', description: 'alert: token symbol to watch.' },
                 direction: { type: 'string', enum: ['above', 'below'], description: 'alert: side.' },

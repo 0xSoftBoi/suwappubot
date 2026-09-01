@@ -265,6 +265,23 @@
   font-weight: 650;
 }
 
+/* The route's individual legs, shown under the quote when it is more than
+   one transaction (swap → bridge relay → swap). */
+.hopList {
+  margin: 10px 0 0;
+  padding: 10px 14px 10px 32px;
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background: var(--suwappu-summer-inset-background, #f2fbff);
+  font-size: 13px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  list-style: none;
+}
+
+.hopList li {
+  overflow-wrap: anywhere;
+}
+
 .tableWrap {
   margin-top: 18px;
   overflow-x: auto;
