@@ -9,7 +9,7 @@
   border: 1px solid #24313a;
   border-radius: var(--suwappu-summer-radius-inset, 8px);
   background:
-    radial-gradient(700px 300px at 80% 0%, rgba(224, 155, 82, 0.05), transparent 60%),
+    radial-gradient(700px 300px at 80% 0%, rgba(229, 141, 43, 0.06), transparent 60%),
     radial-gradient(circle at 1px 1px, #1a2329 1px, transparent 1.4px) 0 0 / 26px 26px,
     #0f1417;
   color: #dbe6ea;
@@ -31,12 +31,18 @@
 
 .headTag {
   padding: 2px 7px;
-  border: 1px solid rgba(224, 155, 82, 0.55);
+  border: 1px solid rgba(229, 141, 43, 0.6);
   border-radius: 3px;
-  color: #ffc98a;
-  background: rgba(224, 155, 82, 0.08);
+  color: #f6bd72;
+  background: rgba(229, 141, 43, 0.1);
   letter-spacing: 0.16em;
   font-size: 9.5px;
+}
+
+.headClass {
+  color: #f3ede4;
+  font-weight: 700;
+  letter-spacing: 0.18em;
 }
 
 .headTitle {
@@ -72,8 +78,8 @@
 }
 
 .cellHeadline {
-  border-left: 3px solid #e09b52;
-  background: linear-gradient(180deg, rgba(224, 155, 82, 0.07), rgba(224, 155, 82, 0.02)), #12181c;
+  border-left: 3px solid #e58d2b;
+  background: linear-gradient(180deg, rgba(229, 141, 43, 0.08), rgba(229, 141, 43, 0.02)), #12181c;
 }
 
 .cellLabel {
@@ -109,7 +115,7 @@
 }
 
 .valueCost {
-  color: #ffc98a;
+  color: #f6bd72;
 }
 
 .valueBad {
@@ -159,7 +165,7 @@
 }
 
 .sectionNum {
-  color: #ffc98a;
+  color: #f6bd72;
 }
 
 /* ── Flow graph ── */
@@ -183,7 +189,7 @@
 
 .mainEdge {
   fill: none;
-  stroke: #b87740;
+  stroke: #cf7c28;
   stroke-width: 2;
   opacity: 0.85;
 }
@@ -205,7 +211,7 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 8.5px;
   letter-spacing: 0.03em;
-  fill: #e6cfae;
+  fill: #f0dcbc;
   paint-order: stroke;
   stroke: #0f1417;
   stroke-width: 4px;
@@ -229,7 +235,7 @@
 .leakAmount {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 9.5px;
-  fill: #ffc98a;
+  fill: #f6bd72;
 }
 
 .leakSub {
@@ -255,7 +261,7 @@
 }
 
 .endpoint[data-endpoint='in'] rect {
-  stroke: #e09b52;
+  stroke: #e58d2b;
   fill: #1a1712;
 }
 
@@ -263,6 +269,25 @@
   stroke: #3fae6f;
   fill: #121a15;
   filter: drop-shadow(0 0 6px rgba(63, 174, 111, 0.25));
+}
+
+/* A fresh quote announces its arrival once: the receive card breathes
+   green, then settles. State transition, not decoration. */
+@media (prefers-reduced-motion: no-preference) {
+  .endpoint[data-endpoint='out'] rect {
+    animation: dossier-arrive 1.3s ease-out 1;
+  }
+}
+
+@keyframes dossier-arrive {
+  0% {
+    filter: drop-shadow(0 0 14px rgba(63, 174, 111, 0.75));
+    fill: #173523;
+  }
+  100% {
+    filter: drop-shadow(0 0 6px rgba(63, 174, 111, 0.25));
+    fill: #121a15;
+  }
 }
 
 .endLabel {
@@ -324,7 +349,7 @@
 }
 
 .hop[data-kind='protocol'] .chip {
-  stroke: #e09b52;
+  stroke: #e58d2b;
 }
 
 .chipText {
@@ -342,7 +367,7 @@
 }
 
 .hop[data-kind='protocol'] .chipText {
-  fill: #ffc98a;
+  fill: #f6bd72;
 }
 
 .hopTool {
@@ -387,7 +412,7 @@
 }
 
 .laneBar b {
-  color: #ffc98a;
+  color: #f6bd72;
   font-weight: 700;
 }
 

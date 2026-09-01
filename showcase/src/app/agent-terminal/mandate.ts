@@ -60,6 +60,23 @@ export interface MandateViolation {
   actual: string;
 }
 
+/**
+ * Each rule's glyph and heading — the mandate's own iconography, shared by
+ * every surface that renders a verdict (breach cards, the route dossier).
+ * Anderson et al., CHI 2015: habituation to a repeated identical warning
+ * collapses by the second exposure; per-rule visual variation restores
+ * attention, so the same rule must look the same everywhere and different
+ * rules must look different.
+ */
+export const RULE_META: Record<MandateRuleKey, { glyph: string; heading: string }> = {
+  perTradeUsdCap: { glyph: '$', heading: 'Over your per-trade cap' },
+  dailyUsdCap: { glyph: 'Σ', heading: "Over today's budget" },
+  allowedChains: { glyph: '⇄', heading: "Chain isn't on your allow-list" },
+  allowedBuyTokens: { glyph: '◈', heading: "Token isn't on your allow-list" },
+  maxPriceImpactPercent: { glyph: '▲', heading: 'Price impact is too high' },
+  maxSlippagePercent: { glyph: '≈', heading: 'Slippage tolerance is too high' },
+};
+
 export interface MandateVerdict {
   withinMandate: boolean;
   violations: MandateViolation[];

@@ -3,7 +3,7 @@
 import { useMemo, type ReactNode } from 'react';
 import type { SwapPreview } from './deskApi';
 import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
-import type { MandateVerdict } from './mandate';
+import { RULE_META, type MandateVerdict } from './mandate';
 import styles from './route-dossier.module.css';
 
 /**
@@ -353,17 +353,28 @@ export default function RouteDossier({
     .filter(Boolean)
     .join(' + ');
   const blocked = verdict ? !verdict.withinMandate : false;
+  const breach = blocked ? RULE_META[verdict!.violations[0]!.rule] : null;
+  const crossChain = preview.fromChain !== preview.toChain;
+  const tradeClass = crossChain
+    ? 'CROSS-CHAIN RELAY'
+    : spec.hops.length > 1
+      ? 'MULTI-LEG SWAP'
+      : 'SAME-CHAIN SWAP';
 
   return (
     <section className={styles.panel} aria-label="Trade dossier: the priced route, leg by leg">
       <p className={styles.head}>
-        <span className={styles.headTag}>ROUTE DOSSIER</span>
+        <span className={styles.headTag}>TRADE CLASS</span>
+        <span className={styles.headClass}>{tradeClass}</span>
         <span className={styles.headTitle}>
-          {preview.fromToken.symbol} → {preview.toToken.symbol} · {spec.hops.length}{' '}
-          {spec.hops.length === 1 ? 'LEG' : 'LEGS'}, {spec.hops.length + 1} TRANSFERS · INDICATIVE, NOT
-          EXECUTABLE
+          {preview.fromToken.symbol} → {preview.toToken.symbol} ·{' '}
+          {crossChain
+            ? `${preview.fromChain.toUpperCase()} → ${preview.toChain.toUpperCase()}`
+            : `ON ${preview.fromChain.toUpperCase()}`}{' '}
+          · {spec.hops.length} {spec.hops.length === 1 ? 'LEG' : 'LEGS'}, {spec.hops.length + 1}{' '}
+          TRANSFERS
         </span>
-        <span className={styles.headId}>{preview.previewId.slice(0, 26)}</span>
+        <span className={styles.headId}>INDICATIVE · NOT EXECUTABLE</span>
       </p>
 
       <div className={styles.band}>
@@ -407,11 +418,13 @@ export default function RouteDossier({
         <div className={styles.cell} data-verdict={blocked ? 'blocked' : verdict ? 'clear' : undefined}>
           <span className={styles.cellLabel}>MANDATE</span>
           <span className={blocked ? styles.valueBad : styles.valueGood} data-chip="">
-            {verdict ? (blocked ? '● OUTSIDE YOUR RULES' : '● WITHIN MANDATE') : '-'}
+            {verdict ? (breach ? `${breach.glyph} ${breach.heading}` : '● WITHIN MANDATE') : '-'}
           </span>
           <span className={styles.cellSub}>
             {blocked
-              ? `${verdict!.violations.length} rule${verdict!.violations.length === 1 ? '' : 's'} broken: ${verdict!.violations[0]?.rule ?? ''}`
+              ? verdict!.violations.length === 1
+                ? 'the one rule this trade breaks'
+                : `first of ${verdict!.violations.length} rules this trade breaks`
               : 'every rule clear at this size'}
           </span>
         </div>
@@ -428,8 +441,7 @@ export default function RouteDossier({
           .join(', then ')}, ${spec.out.amount} arrives. Fees and gas leave the path at each leg.`}
       />
       <p className={styles.footNote}>
-        indicative pricing · nothing on this page can sign or send · costs are the aggregator's own
-        estimates
+        costs and timings are the aggregator's own estimates · nothing on this page can sign or send
       </p>
     </section>
   );

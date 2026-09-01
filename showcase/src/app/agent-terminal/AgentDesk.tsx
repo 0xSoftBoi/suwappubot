@@ -18,10 +18,10 @@ import {
   describeMandate,
   diffAmendment,
   evaluateMandate,
+  RULE_META,
   type AmendmentDiff,
   type Mandate,
   type MandateAmendment,
-  type MandateRuleKey,
   type MandateVerdict,
 } from './mandate';
 import {
@@ -242,21 +242,6 @@ function chainedPlanSequences(steps: PlanStep[]): PlanStep[][] {
 }
 
 /**
- * Anderson et al., CHI 2015: habituation to a repeated identical warning
- * collapses by the second exposure — visual variation restores attention.
- * Each mandate rule gets its own glyph/heading; the rule/limit/actual detail
- * rows stay exactly as they are (that density is load-bearing).
- */
-const BREACH_META: Record<MandateRuleKey, { glyph: string; heading: string }> = {
-  perTradeUsdCap: { glyph: '$', heading: 'Over your per-trade cap' },
-  dailyUsdCap: { glyph: 'Σ', heading: "Over today's budget" },
-  allowedChains: { glyph: '⇄', heading: "Chain isn't on your allow-list" },
-  allowedBuyTokens: { glyph: '◈', heading: "Token isn't on your allow-list" },
-  maxPriceImpactPercent: { glyph: '▲', heading: 'Price impact is too high' },
-  maxSlippagePercent: { glyph: '≈', heading: 'Slippage tolerance is too high' },
-};
-
-/**
  * evaluateMandate() pushes violations in priority order (caps, then chain,
  * then token, then impact, then slippage), so the first entry is already the
  * most severe rule broken — that one leads the card; every violation still
@@ -264,7 +249,7 @@ const BREACH_META: Record<MandateRuleKey, { glyph: string; heading: string }> = 
  */
 const primaryBreach = (verdict: MandateVerdict | null) => {
   const rule = verdict?.violations[0]?.rule;
-  return rule ? { rule, ...BREACH_META[rule] } : null;
+  return rule ? { rule, ...RULE_META[rule] } : null;
 };
 
 /**
