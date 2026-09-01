@@ -1,5 +1,7 @@
 # Creative direction: "The Quote Race" (2026-09-01)
 
+> **Superseded 2026-09-01.** The founder steered toward a traditional-finance register. See `direction-2026-09-institutional.md`; this document stays as the record of the dark "race board" alternative.
+
 Companion to `docs/research/ai-frontend-parity/`. That folder says what the bar is. This says what Suwappu should *be*. Prototype: `docs/design/prototypes/hero-quote-race.html`. Live preview: https://claude.ai/code/artifact/71601e04-6112-449d-b832-e4eefa0e3287 (private artifact; share from its menu).
 
 ## Thesis
