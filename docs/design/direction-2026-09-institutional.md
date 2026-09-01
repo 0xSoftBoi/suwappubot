@@ -1,6 +1,6 @@
 # Creative direction: the institutional register, on the front door (2026-09-01)
 
-Steer: "more traditional finance." Research grounding: `docs/research/ai-frontend-parity/` (labs, wrappers) plus `09-traditional-finance-sites.md` and `10-institutional-crypto-sites.md` once those land. Prototype: `docs/design/prototypes/hero-institutional.html`.
+Steer: "more traditional finance." Research grounding: `docs/research/ai-frontend-parity/` (labs, wrappers) plus `09-traditional-finance-sites.md` and `10-institutional-crypto-sites.md` once those land. Prototype: `docs/design/prototypes/hero-institutional.html`. Live preview: https://claude.ai/code/artifact/842f4701-b611-4bb1-bac1-a9193feb3ab1 (private; share from its menu).
 
 ## Thesis
 
