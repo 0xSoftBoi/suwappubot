@@ -133,20 +133,132 @@ function claim(uint128 id) external {
 send it issues is async and can perturb the *next* swap's delta window
 `SuwappuCoreRouter.sol:372-385`, guard at :375.
 
-Header claim (:52-53) that "retry() cannot perturb a live delta window" only
-holds if the lock is held across the async landing — the exact argument used
-to make `forceRelease` retain the lock (deac4cfc). `retry()` is allowed when
-`inFlight == 0`; `initiate()` can take the lock the very next block; the
-retry's `spotSend` lands after → new swap under-credited.
+This is really two separate bugs sharing one function — a **timing** bug and
+a **residue** bug — and they need two separate fixes.
 
-Second effect: `_bridgeBack(coreTokenOut, _min64(s.owedOut, _free(coreTokenOut)))`
+**Effect 1 (timing).** Header claim (:52-53) that "retry() cannot perturb a
+live delta window" only holds if the lock is held across the async landing —
+the exact argument used to make `forceRelease` retain the lock (deac4cfc).
+`retry()` is allowed when `inFlight == 0`; `initiate()` can take the lock the
+very next block; the retry's `spotSend` lands after → new swap
+under-credited.
+
+**Effect 2 (residue).** `_bridgeBack(coreTokenOut, _min64(s.owedOut, _free(coreTokenOut)))`
 sends "up to `owedOut` of whatever free balance exists," not "re-send what
-didn't land." If the original send *did* land and residue exists on Core
-(aborted-swap deposit, unlanded fee, donation), `retry()` double-bridges it —
-manufacturing the documented donation-residual precondition for free.
+didn't land." It infers "did my send land?" from a Core balance that other
+things also write to. If the original send *did* land and unrelated residue
+sits on Core (an `Aborted` swap's stranded deposit, a rejected fee `spotSend`,
+a plain donation), `retry()` double-bridges that residue on top of the real
+resend — manufacturing the documented donation-residual precondition for
+free. The inflated EVM balance then passes `claim()`'s landing check
+(`balanceOf >= evmOutSnapshot + evmOut`) before this swap's own credit has
+actually arrived; the error doesn't cancel, it relocates — a *later* swap
+eventually finds the real shortfall and reverts `BridgeNotLanded`
+permanently. Same hot-potato shape as F1, produced here at no cost to
+anyone, out of the router's own stranded balance.
 
-**Fix:** `retry()` should require `inFlight == id` or re-acquire the lock.
-Confidence: **high** on the lock gap, **medium** on the double-bridge.
+**Fix (structural):** per-user proxy isolation (see
+`contracts/PROPOSAL_PER_USER_ROUTER_ISOLATION_2026-09-01.md`) fully closes
+effect 1 — there's no *other user's* swap left to race against. It does
+**not** fully close effect 2 on its own: residue can still exist *within
+one user's own proxy* (their own earlier `Aborted` swap's stranded deposit,
+a rejected fee send), so the tactical fix below is still needed regardless
+of isolation.
+
+**Fix (tactical), effect 1 — acquire and retain the lock, don't just check
+it:**
+```solidity
+if (inFlight == 0) inFlight = id;
+else if (inFlight != id) revert Locked();
+```
+mirroring `settle()`/`forceRelease()`'s recovery branch — an async send
+must never be allowed to race a next swap's snapshot, whether it's the
+original settle-time send or a retried one.
+
+**Fix (tactical), effect 2 — measure "landed" from EVM balance, not Core
+`_free()`:** `s.evmOutSnapshot`/`s.evmInSnapshot` (recorded once, at
+`settle()`) are the only reference points not polluted by unrelated Core
+residue. Compute the genuine shortfall from those instead of inferring it
+from `_free()`:
+```solidity
+landedOut    = max(0, balanceOf(tokenOut) − evmOutSnapshot) / 10^extraOut  // floor, not revert-on-remainder
+remainingOut = owedOut − min(owedOut, landedOut)
+_bridgeBack(coreTokenOut, _min64(remainingOut, _free(coreTokenOut)))
+```
+same shape for the in-leg. `_free()` remains as an availability cap only
+(can't send more than is actually free right now) — it no longer does any
+attribution work, so residue in it can throttle a send but can never
+inflate one. Note: use floor division here, not the existing `_evmToCore()`
+helper — that one reverts on a non-exact-multiple remainder, which is
+correct for a user-supplied round number but wrong for an *observed* delta
+(a non-scale-aligned outside donation must not brick `retry()`).
+
+Confidence: **high** on effect 1, **high** on effect 2's mechanism (once
+stated this way — see below).
+
+Before — `SuwappuCoreRouter.sol:372-385` (buggy: call-time-only lock check,
+resend inferred from Core `_free()`):
+```solidity
+function retry(uint128 id) external {
+    Swap storage s = swaps[id];
+    if (s.status != Status.Bridging) revert BadStatus();
+    if (inFlight != 0 && inFlight != id) revert Locked();
+    uint64 lastTry = s.retriedL1Block == 0 ? s.settledL1Block : s.retriedL1Block;
+    if (L1Read.l1BlockNumber() < lastTry + RETRY_DELAY_L1) revert TooEarly();
+
+    (uint64 coreTokenOut, uint64 coreTokenIn) =
+        s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+    s.retriedL1Block = L1Read.l1BlockNumber();
+    _bridgeBack(coreTokenOut, _min64(s.owedOut, _free(coreTokenOut)));
+    _bridgeBack(coreTokenIn, _min64(s.owedIn, _free(coreTokenIn)));
+    emit BridgeRetried(id);
+}
+```
+
+After — proposed fix (not applied to the codebase; described here only):
+```solidity
+function retry(uint128 id) external {
+    Swap storage s = swaps[id];
+    if (s.status != Status.Bridging) revert BadStatus();
+    // AUDIT FIX (F2, effect 1): acquire AND retain the lock across the
+    // async send, mirroring settle()/forceRelease()'s recovery branch — a
+    // re-issued send racing a next swap's snapshot is the same bug those
+    // fixes already closed for the original settle-time sends.
+    if (inFlight == 0) inFlight = id;
+    else if (inFlight != id) revert Locked();
+    uint64 lastTry = s.retriedL1Block == 0 ? s.settledL1Block : s.retriedL1Block;
+    if (L1Read.l1BlockNumber() < lastTry + RETRY_DELAY_L1) revert TooEarly();
+
+    (uint64 coreTokenOut, uint64 coreTokenIn) =
+        s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
+    (uint8 extraOut, uint8 extraIn) = s.baseForQuote
+        ? (quoteExtraEvmDecimals, baseExtraEvmDecimals)
+        : (baseExtraEvmDecimals, quoteExtraEvmDecimals);
+    s.retriedL1Block = L1Read.l1BlockNumber();
+
+    // AUDIT FIX (F2, effect 2): measure what's actually landed from the
+    // EVM balance this swap's OWN snapshot was taken against, not from
+    // Core's _free() — which unrelated residue (an aborted swap's
+    // stranded deposit, a rejected fee send, a donation) can inflate,
+    // causing a double-bridge of money that has nothing to do with this
+    // swap. _landedCore floor-divides rather than reverting on a
+    // remainder, since this is an observed delta, not a round input.
+    uint64 remainingOut =
+        s.owedOut - _min64(s.owedOut, _landedCore(_erc20For(coreTokenOut), s.evmOutSnapshot, extraOut));
+    uint64 remainingIn =
+        s.owedIn - _min64(s.owedIn, _landedCore(_erc20For(coreTokenIn), s.evmInSnapshot, extraIn));
+    _bridgeBack(coreTokenOut, _min64(remainingOut, _free(coreTokenOut)));
+    _bridgeBack(coreTokenIn, _min64(remainingIn, _free(coreTokenIn)));
+    emit BridgeRetried(id);
+}
+
+function _landedCore(IERC20 token, uint256 snapshot, uint8 extra) internal view returns (uint64) {
+    uint256 bal = token.balanceOf(address(this));
+    if (bal <= snapshot) return 0;
+    uint256 landed = (bal - snapshot) / (10 ** extra);
+    return landed > type(uint64).max ? type(uint64).max : uint64(landed);
+}
+```
 
 ---
 
