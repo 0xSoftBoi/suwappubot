@@ -185,14 +185,14 @@ step detail.
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 95 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 98 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **95 assertions**, among them: that the ticket
+drives the real page through **98 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
@@ -218,9 +218,11 @@ preview reports each route leg with its tool and chains while a same-chain
 one is honestly one hop; a plan leg with `amount: "@prev"` inherits the
 previous leg's output token, chain and estimated amount and is flagged as
 chained everywhere it is echoed; the combined notional counts new money once
-rather than re-billing each re-trade; and a chain with nothing to chain
+rather than re-billing each re-trade; a chain with nothing to chain
 from, or one that doesn't pick up where the last leg lands, is refused
-rather than guessed.
+rather than guessed; and the human-facing surfaces match what the agent is
+told — the proposal card renders a cross-chain trade's legs in the DOM, and
+the route comparison table carries a Legs column.
 
 `scripts/evals-adversarial-smoke.mjs` (**49 assertions**) drives six
 injection-shaped strings through agent-supplied arguments — a token query, a

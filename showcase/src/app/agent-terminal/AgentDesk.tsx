@@ -2154,6 +2154,7 @@ export default function AgentDesk() {
                     <th>Out</th>
                     <th>Gas</th>
                     <th>Time</th>
+                    <th>Legs</th>
                     <th>Route</th>
                   </tr>
                 </thead>
@@ -2170,6 +2171,7 @@ export default function AgentDesk() {
                       <td>
                         {row.preview ? fmtDuration(row.preview.estimatedDurationSeconds) : '-'}
                       </td>
+                      <td>{row.preview ? hopCountOf(row.preview) : '-'}</td>
                       <td>{row.preview?.route ?? row.error ?? '-'}</td>
                     </tr>
                   ))}
@@ -2263,6 +2265,16 @@ export default function AgentDesk() {
                       <span>gas {fmtUsd(p.swap.preview.estimatedGasUsd)}</span>
                       <span>settles in {fmtDuration(p.swap.preview.estimatedDurationSeconds)}</span>
                     </p>
+                  )}
+
+                  {/* A cross-chain trade is usually more than one transaction;
+                      the card the human approves must show every leg. */}
+                  {p.swap?.preview && hopCountOf(p.swap.preview) > 1 && (
+                    <ol className={styles.hopList}>
+                      {hopLines(p.swap.preview).map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ol>
                   )}
 
                   {p.plan && (

@@ -360,6 +360,22 @@ const samePreview = await call('preview_swap', {
   amount: '0.03',
 });
 check('a same-chain preview is honestly one hop', samePreview.hopCount === 1);
+const comparisonRows = await call('compare_routes', {
+  fromChain: 'base',
+  toChain: 'arbitrum',
+  fromToken: 'ETH',
+  toToken: 'USDC',
+  amount: '0.03',
+});
+check(
+  'every compared route reports its hop count',
+  Array.isArray(comparisonRows.comparison) &&
+    comparisonRows.comparison.length === 4 &&
+    comparisonRows.comparison.every((r) => r.hopCount === 2),
+  JSON.stringify(comparisonRows.comparison?.map((r) => r.hopCount)),
+);
+await page.locator('th', { hasText: 'Legs' }).first().waitFor({ timeout: 10_000 });
+check('the comparison table shows the human a Legs column', true);
 
 // ── 4. proposing it anyway lands blocked ───────────────────────────
 const blocked = await call('propose_swap', {
@@ -424,6 +440,19 @@ check(
   'the two breach classes render visibly distinct variants',
   capCardVariant !== null && chainCardVariant !== null && capCardVariant !== chainCardVariant,
   `${capCardVariant} vs ${chainCardVariant}`,
+);
+// The cross-chain proposal is two transactions; the card the human approves
+// must show both legs, not just the pair of tokens.
+const chainBreachLegs = await page
+  .locator('li', { hasText: 'chain outside the mandate' })
+  .locator('[class*="hopList"] li')
+  .allTextContents();
+check(
+  "a cross-chain proposal card renders the route's legs for the human",
+  chainBreachLegs.length === 2 &&
+    /^1\. swap via Uniswap/.test(chainBreachLegs[0] ?? '') &&
+    /relay via Across \(base → polygon\)/.test(chainBreachLegs[1] ?? ''),
+  JSON.stringify(chainBreachLegs),
 );
 
 // ── 4c. Spotlight agent-written text re-fed to the model (P1.2) ────
