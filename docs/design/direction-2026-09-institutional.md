@@ -42,3 +42,24 @@ Type: Newsreader (display, 400 and 500, optical size on), Archivo (body and smal
 ## Build notes
 
 Prototype is dependency-free HTML/CSS. Port: `.institutional-page` on the home route, a `ExecutionReport` component fed by `LiveQuote`, the existing `institutional-section` blocks for the band, a new footer grid. Two showcase-dev PRs. Art-director gate before merge.
+
+## Research check (2026-09-01, `10-institutional-crypto-sites.md`)
+
+The institutional-crypto survey confirms the register and sharpens three things:
+
+1. **Negative disclosure is the most-copied device.** Anchorage: "not subject to FDIC, SIPC, or SDIC protections." Fidelity Digital Assets: "not insured or guaranteed by the FDIC." The prototype footer now states that client assets are not covered by any deposit-guarantee or investor-protection scheme.
+2. **Name the operating legal entity, not the brand.** Anchorage and BitGo map subsidiaries by function. We have one entity; the footer should say which, and that no affiliate holds client assets. **To fill: legal entity name and jurisdiction** before this ships.
+3. **The honest precedent for a non-licensed execution layer is Talos**: "software-as-a-service connectivity tools," regulated nowhere as a broker and says so, reading institutional through infrastructure-grade UI and client logos. Fireblocks does the same as an infra vendor with a two-typeface system and a client wall. Our footer language follows Talos; our logo strip becomes venues until we can name clients.
+
+Anti-patterns confirmed: Circle's gradient 3D hero (trust copy institutional, visual consumer-fintech), Talos's defensive "not regulated by the Seychelles FSA" line, investor and client logos used in place of a regulator or a plain statement.
+
+## Research check (2026-09-01, `09-traditional-finance-sites.md`)
+
+The bank, asset-manager, quant and exchange survey confirms every token choice and adds four rules:
+
+1. **White canvas, one accent, serif confined to masthead and headline.** Confirmed at Goldman, J.P. Morgan, BlackRock, UBS, Pictet, Jane Street, Nasdaq. Dark canvas is reserved for the computation register (Two Sigma, LSEG, the Bloomberg terminal). Our terminal keeps soil; the front door is paper.
+2. **Red is a warning colour, not a brand colour.** UBS uses red only on the fraud-alert icon. We keep persimmon for the heraldic accent and never for alerts; alerts get their own semantic red.
+3. **Audience switch.** Every firm serving both retail and institutions runs a hard switch (J.P. Morgan and BlackRock four-way, UBS three-way). We serve both, via Telegram and via the agent API. The prototype's top strip now carries For individuals / For institutions. Pure institutional firms gate with an eligibility modal instead; not our case.
+4. **Careers and Press sit in primary navigation, and the Insights grid is dense and dated.** Signals a real employer and continuous research output. Our Company menu carries Careers and Press; the research row grows into a dated grid once the homepage ports.
+
+Anti-patterns confirmed: autoplay hero loops and parallax (none found on any fetched institutional homepage), a second accent or gradient, urgency copy, thin footers. Goldman's one-line footer was the weakest example found. Best-designed by the survey's judgement: LSEG (bespoke Albertus-derived type), Pictet (literary copy voice), Jane Street (one geometric system), Morgan Stanley (proprietary cut plus trademarked navy). The lesson for us: one ownable asset applied with total consistency. Ours is the Newsreader masthead plus the persimmon rule.

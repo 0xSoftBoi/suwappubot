@@ -1,7 +1,7 @@
 # AI-company front-end parity: where the bar is, where we are, what to do
 
 Date 2026-09-01. Branch `claude/ai-company-design-research-lralmw`.
-Two passes: labs/infra first, then the application-layer "model wrapper" companies whose sites are the actual design bar. Every sub-report cites URLs; UNVERIFIED means not confirmed from primary markup this session (many sites block fetches).
+Three passes: labs/infra, then the application-layer "model wrapper" companies, then traditional finance and institutional crypto after the founder steered toward a finance register. The chosen direction is `docs/design/direction-2026-09-institutional.md`. Every sub-report cites URLs; UNVERIFIED means not confirmed from primary markup this session (many sites block fetches).
 
 | File | Scope |
 |---|---|
@@ -14,6 +14,8 @@ Two passes: labs/infra first, then the application-layer "model wrapper" compani
 | `06-vertical-enterprise-wrappers.md` | Harvey, Hebbia, Sierra, Decagon, Glean, Clay, 11x, Granola, Superhuman, Notion, Fin, Sana, Legora. How trust is made premium |
 | `07-creative-audio-video-wrappers.md` | ElevenLabs, Runway, Suno, Pika, Higgsfield, HeyGen, Synthesia, Photoroom, Hume, Sesame. Product output as hero |
 | `08-who-builds-them-and-how.md` | Agencies, design engineers, Framer vs hand-coded, component vocabulary, type and colour trends |
+| `09-traditional-finance-sites.md` | Banks, asset managers, private banks, quant firms, exchanges, Bloomberg: the institutional grammar, 12 moves to lift, 5 to avoid |
+| `10-institutional-crypto-sites.md` | Anchorage, Clear Street, Fireblocks, Circle, FalconX, Talos and peers: negative disclosure, entity naming, honest footers for a non-licensed execution layer |
 
 Live-site screenshots of suwappu.bot were attempted (Playwright via the session proxy) but the site reset headless Chromium, so the current-state section is from source, not pixels. Run `/design-iterate` locally for pixel judgement.
 

@@ -29,6 +29,7 @@ a.u:hover,.links a:hover{text-decoration:underline;text-decoration-thickness:1px
 .reg{border-bottom:1px solid var(--line);background:var(--panel)}
 .reg .wrap{display:flex;justify-content:space-between;gap:16px;height:32px;align-items:center;font-size:12px;color:var(--muted)}
 .reg b{font-weight:600;color:var(--ink)}
+.reg .aud{display:flex;gap:18px;align-items:center}.reg .aud a{padding:7px 0;border-bottom:2px solid transparent;color:var(--muted)}.reg .aud a[aria-current]{color:var(--ink);border-bottom-color:var(--acc)}.reg .aud a:hover{color:var(--ink)}.reg .aud .num{margin-left:10px;padding-left:18px;border-left:1px solid var(--line)}
 @media (max-width:820px){.reg .r{display:none}}
 nav{border-bottom:1px solid var(--line-strong)}
 nav .wrap{display:flex;align-items:center;justify-content:space-between;height:72px;gap:24px}
@@ -117,7 +118,7 @@ footer{padding:48px 0 40px;font-size:13.5px}
 
 <div class="reg"><div class="wrap">
   <span><b>Suwappu</b> provides execution software for digital-asset markets. It is not a bank, broker-dealer, exchange or custodian.</span>
-  <span class="r num">Status: operational · v1 agent API · 45 chains</span>
+  <span class="r aud"><a href="#">For individuals</a><a href="#" aria-current="page">For institutions</a><span class="num">Status: operational</span></span>
 </div></div>
 <nav><div class="wrap">
   <a class="mark" href="#">Suwappu</a>
@@ -190,7 +191,7 @@ footer{padding:48px 0 40px;font-size:13.5px}
   </div>
   <div class="disc">
     <p><sup>1</sup> Chains available through the bot and terminal, excluding testnets. The agent API covers 18 chains under a separate contract. <sup>2</sup> Venues integrated for quoting; availability is chain-gated and no single order is quoted across all venues.</p>
-    <p>Suwappu provides software that routes and executes digital-asset transactions on public networks. Suwappu does not hold client assets, provide investment, legal or tax advice, or act as a bank, broker-dealer, exchange, custodian or investment adviser. Digital assets are volatile and may lose value. Execution figures shown are drawn from a quote captured on 2026-08-04 and illustrate the report format; they are not an offer, a quotation or a guarantee of future price or availability.</p>
+    <p>Suwappu provides software that routes and executes digital-asset transactions on public networks. Suwappu does not hold client assets, provide investment, legal or tax advice, or act as a bank, broker-dealer, exchange, custodian or investment adviser. Client assets are not covered by any deposit-guarantee or investor-protection scheme. Digital assets are volatile and may lose value. Execution figures shown are drawn from a quote captured on 2026-08-04 and illustrate the report format; they are not an offer, a quotation or a guarantee of future price or availability.</p>
   </div>
   <div class="legal"><span>© 2026 Suwappu. Prototype, not the live site.</span><span><a class="u" href="#">Privacy</a> · <a class="u" href="#">Terms</a> · <a class="u" href="#">Risk disclosure</a> · <a class="u" href="#">Security</a></span></div>
 </div></footer>
