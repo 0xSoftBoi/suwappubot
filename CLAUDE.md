@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Git Conventions
 
 - **IMPORTANT**: Do NOT add "Co-Authored-By" lines to commit messages.
+- **Journal-only commits** (`harness(journal): ...`) must end the subject with `[skip ci]`. The test workflow has no path filters and cancels superseded PR runs, so a plain journal push cancels the in-flight CI run you're waiting on. Never put `[skip ci]` on a commit that touches code.
 
 ## Git Operations
 

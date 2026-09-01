@@ -17,7 +17,7 @@ against, and even argue with, while approval and signing stay human.
 An agent that wants to trade for you today has two bad options: scrape a UI
 built for eyes, or take custody through an API key. One is brittle; the other
 hands a language model your money. The Agent Desk takes neither. Via WebMCP,
-the agent gets 16+ typed tools over Suwappu's live cross-chain routing engine —
+the agent gets 19 typed tools over Suwappu's live cross-chain routing engine —
 no key, no signup, in the session you're already in. Between agent and engine
 sits the piece that's usually missing: a **mandate**. You write the envelope
 once — per-trade/per-day USD caps, allowed chains and tokens, impact ceilings.
@@ -56,10 +56,14 @@ rationale, breach, argument, and decision exports as a receipt.
 
 - Real product surface (Suwappu's live showcase, Next.js), real pricing via a
   new deliberately non-executable public endpoint — not a mock.
-- Three independent verification layers, all green: 47 behavioural assertions
+- Five independent verification layers, all green: 75 behavioural assertions
   (`webmcp:smoke`), 11 spec-conformance checks against Google's own polyfill
-  (`webmcp:spec`), 15/15 deterministic eval executions + 12/15 (80%) on the
-  official LLM harness — misses reported honestly, not explained away.
+  (`webmcp:spec`), 37/37 deterministic eval executions (`webmcp:evals`),
+  49/49 adversarial injection checks (`webmcp:evals:adversarial`), and an
+  imperative-description lint (`webmcp:lint`) — plus 12/15 (80%) on the
+  official LLM harness, misses reported honestly, not explained away, and a
+  trajectory/pass^k re-grader so the strict score is contextualized, never
+  replaced.
 - The page fully works without WebMCP: every tool has a human control.
   Progressive enhancement, not an agent-only backdoor.
 
@@ -95,6 +99,16 @@ rationale, breach, argument, and decision exports as a receipt.
 - This *had* to be WebMCP: the human-in-the-loop contract lives in DOM state
   (a disabled Approve button an agent cannot click around), session-scoped,
   key-free — none of which a backend MCP server can offer.
+- **Grounded, not vibes**: the design answers named literature — approval
+  fatigue is measured (Akhawe & Felt, USENIX Sec 2013; Anderson et al., CHI
+  2015: habituation by the *second* exposure), pure yes/no gatekeeping
+  degrades engagement (Faas et al., CHI 2026), the negotiation pattern is
+  mixed-initiative interaction (Horvitz, CHI 1999), the untrusted-both-ways
+  rule is the indirect-prompt-injection defense literature (Greshake,
+  arXiv:2302.12173; Spotlighting, arXiv:2403.14720), and mandate-to-policy
+  parallels authenticated delegation (South et al., arXiv:2501.09674). No
+  peer-reviewed paper yet names WebMCP itself — this desk is ahead of the
+  literature on the protocol. Full bibliography: `docs/webmcp-papers.md`.
 
 ## Demo video beats (≤3 min)
 
@@ -122,3 +136,6 @@ running green (10s).
       current schemas until re-run.
 - [ ] Demo video shows the declarative half too: the agent filling the ticket
       form and the human pressing Price it.
+- [ ] Re-verify every literal count in the docs (75 assertions, 16 static /
+      18 imperative / 19 total tools) against the suites and `TOOLS` before
+      submitting — these numbers are hand-written and rot silently.

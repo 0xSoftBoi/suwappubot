@@ -43,6 +43,8 @@
       "curveDesc": "Cada pool en cada red de Curve, por TVL, volumen o APR",
       "agentApiTitle": "API para agentes",
       "agentApiDesc": "REST hecha para agentes",
+      "agentDeskTitle": "Agent Desk",
+      "agentDeskDesc": "Herramientas WebMCP para el agente de tu navegador",
       "mcpTitle": "Servidor MCP",
       "mcpDesc": "Conecta Claude, Codex, Cursor",
       "sdksTitle": "SDKs",
@@ -291,6 +293,10 @@
       "soundOn": "Sonido activado",
       "soundOff": "Sonido apagado",
       "videoLabel": "Vista aérea lenta del océano abierto"
+    },
+    "announce": {
+      "tag": "Nuevo · WebMCP",
+      "copy": "El Agent Desk: dale al agente de tu navegador un mandato, no tus claves. Sin registro."
     }
   },
   "cta": {

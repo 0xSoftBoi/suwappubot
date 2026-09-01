@@ -89,14 +89,23 @@ says so, and so does `read_mandate`'s own payload.
    consumed. An agent cannot reach for a tool the human has not unlocked.
 5. **This page never holds a key.** The handoff opens Terminal
    (`/alert-swap`, which prefills the ticket and still requires a human tap) or
-   the Telegram bot with a copy-ready `/s` command. A plan hands off one link
-   per leg, in order.
+   the Telegram bot with a copy-ready `/s` command. A plan's handoff is
+   **sequenced**: one leg at a time, in order — the next leg's link does not
+   exist until the human marks the current one signed on the desk, and signing
+   the final leg spends the approval.
 6. **Everything is on the record.** Each tool call streams into an on-page
    activity log, and `export_receipt` (or the Download receipt button) emits the
    whole session: every rationale, mandate verdict, override argument, human
    decision and note.
 7. **The page works without WebMCP.** Every tool has a human control.
-8. **Both halves of the spec.** Alongside the imperative tools, the ticket
+8. **You can take control, instantly.** A Pause agent button withdraws every
+   tool from `document.modelContext` in one abort — a paused agent has
+   nothing left to call, not even reads — and Resume re-registers the
+   surface. The desk keeps working by hand throughout.
+9. **The session survives a reload.** Proposals and the activity log persist
+   per browser and rehydrate on mount, so a refresh never eats the receipt;
+   pending proposals past their TTL still expire.
+10. **Both halves of the spec.** Alongside the imperative tools, the ticket
    itself is a *declarative* WebMCP tool: the real `<form>` carries
    `toolname="fill_and_price_ticket"` / `tooldescription`, every field a
    `name` + `toolparamdescription`, and submit answers the engine through
@@ -121,7 +130,7 @@ envelope and a payment rail waiting for it.
 
 The WebMCP trust model cuts both ways and the desk honours both halves.
 Agent→page: every piece of agent-written free text (proposal rationales,
-override arguments) renders under an explicit "agent-written — unverified"
+override arguments) renders under an explicit "agent-written, unverified"
 label, quoted, never interpolated into the page's own voice. Page→agent: tool
 descriptions state facts instead of issuing imperatives — the LLM evals caught
 `read_mandate`'s "Read this FIRST." overriding user intent, and that class of
@@ -163,12 +172,15 @@ caller names one.
 
 ```bash
 cd showcase
-bun run dev            # serve the desk on :4321
-bun run webmcp:smoke   # 47 assertions against a modelContext polyfill
+bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
+bun run webmcp:smoke            # 75 assertions against a modelContext polyfill
+bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
+bun run webmcp:lint             # imperative/injection-shaped description lint
+bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **47 assertions**, among them: that the ticket
+drives the real page through **75 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
@@ -180,6 +192,23 @@ that a plan's headroom already reflects the earlier approval; that an amendment
 and on approval actually rewrites it so the new envelope governs the next check;
 that the compiled policy bundle names its endpoint and states it holds no key;
 and that the receipt preserves every rationale, breach and override argument.
+Newer assertions cover the literature-backed hardening: breach cards render a
+distinct variant per violated rule (anti-habituation, Anderson CHI 2015); the
+mandate carries a `version` that only an approved amendment increments, and
+compiled policies are stamped with it; `export_receipt({format:"json"})`
+returns the full machine-parseable audit trail; every piece of agent-written
+text a tool result re-echoes comes wrapped
+`{agentWritten: true, unverified: true, text}` so the model cannot mistake its
+own earlier persuasion for instruction (Spotlighting, arXiv:2403.14720); and a
+WASP-style decoy DOM element plus instruction-bearing form values cannot
+redirect the declarative ticket.
+
+`scripts/evals-adversarial-smoke.mjs` (**49 assertions**) drives six
+injection-shaped strings through agent-supplied arguments — a token query, a
+rationale, a chain label — and proves each round-trips as quoted data under
+the unverified label, adds exactly one proposal, and unlocks no dynamic tool.
+Argument-level and deterministic, honestly: it measures the page's handling,
+not an LLM under attack.
 
 ## Evals: measuring whether an agent can actually use this
 
@@ -212,15 +241,53 @@ bun run webmcp:evals:llm   # Google's LLM harness (needs OPENAI_API_KEY or GOOGL
 
 There are now **15 cases across 16 tools**. `webmcp:evals` resolves each case's matcher constraints to concrete arguments
 and invokes the tool on the live page, asserting it exists, accepts the shape
-and returns without error — currently **15/15 clean**. It means `evals.json`
-cannot rot: rename a tool or tighten a schema and CI fails long before an agent
-meets it. The LLM half — does the *model* pick the right tool — scores **12/15 (80%)**
+and returns without error — currently **37/37 clean** (15 cases plus
+`allowedPrecursors` drift checks against the schema export). It means
+`evals.json` cannot rot: rename a tool or tighten a schema and CI fails long
+before an agent meets it. `scripts/evals-trajectory-grade.mjs` then re-grades
+the LLM harness's own JSON reports three ways — first-call-exact (Google's
+semantics, kept), trajectory-aware (a sensible read/dry-run precursor before
+the right terminal call is a pass, per TRAJECT-Bench arXiv:2510.04550), and
+pass^k across repeated runs (τ-bench arXiv:2406.12045) — plus a
+completion-under-policy flag (ST-WebAgentBench arXiv:2410.06703) for any
+trajectory that proposed before checking the mandate and got blocked. The LLM half — does the *model* pick the right tool — scores **12/15 (80%)**
 on Gemini, and caught a real flaw on its first run: `read_mandate`'s description
 opened with "Read this FIRST", and the model obeyed that over the user's actual
 request, calling it when someone plainly asked for a price. The imperative is
 gone and `preview_swap` went fail → pass. Full breakdown, including the three
 remaining misses and why they are recorded as misses rather than explained away,
 is in `showcase/webmcp/README.md`.
+
+## Grounded in the literature
+
+The desk's design claims are not vibes; each maps to named, verified prior
+art (full annotated bibliography: `docs/webmcp-papers.md`).
+
+- **"The tenth 'are you sure?' gets clicked without reading"** is the
+  measured finding of the warning-fatigue literature: click-through rises
+  with exposure count across 25M+ browser warning impressions (Akhawe &
+  Felt, USENIX Security 2013), users ignore undifferentiated warnings
+  (Sunshine et al., USENIX Security 2009), and neural response to a repeated
+  warning collapses by the *second* exposure (Anderson et al., CHI 2015).
+  The mandate's answer — fewer prompts, each information-dense
+  (rule/limit/actual) — is what this literature prescribes.
+- **Negotiation over gatekeeping**: pure yes/no approval measurably degrades
+  human engagement; oversight interfaces must let the human *contribute
+  meaningfully* (Faas et al., CHI 2026, arXiv:2510.19512). Mixed-initiative
+  interaction — either party may interrupt and negotiate — is Horvitz, CHI
+  1999. `request_override` and `amend_mandate` are those findings as tools.
+- **Untrusted in both directions** is the indirect-prompt-injection threat
+  model (Greshake et al., arXiv:2302.12173); explicitly delimiting untrusted
+  spans cuts attack success from >50% to <2% (Spotlighting, arXiv:2403.14720).
+  The "agent-written — unverified" label and the fact-not-imperative
+  description rule are that defense, both directions.
+- **Mandate → server-side policy** parallels authenticated-delegation
+  proposals: scoped, auditable credentials for agents acting on a person's
+  behalf (South et al., arXiv:2501.09674); receipts-as-infrastructure is
+  "Visibility into AI Agents" (Chan et al., FAccT 2024).
+- As of 2026-08-31, **no peer-reviewed paper names WebMCP itself** — the
+  closest is the agentic-web survey literature (arXiv:2507.21206). The desk
+  is ahead of the academic literature on this exact protocol.
 
 ## Spec notes
 

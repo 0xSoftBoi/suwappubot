@@ -26,7 +26,10 @@ def main():
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
 
     records = []
-    for path in sorted(glob.glob(os.path.join(JOURNAL_DIR, "*.jsonl"))):
+    paths = glob.glob(os.path.join(JOURNAL_DIR, "*.jsonl")) + glob.glob(
+        os.path.join(JOURNAL_DIR, "*.d", "*.jsonl")
+    )
+    for path in sorted(paths):
         with open(path, errors="replace") as fh:
             for raw in fh:
                 try:
@@ -38,8 +41,10 @@ def main():
                     continue
 
     if not records:
-        print(f"No journal records in the last {args.days} days. "
-              f"({JOURNAL_DIR} — the Stop hook populates this as sessions end.)")
+        print(
+            f"No journal records in the last {args.days} days. "
+            f"({JOURNAL_DIR} — the Stop hook populates this as sessions end.)"
+        )
         return
 
     sessions = len(records)
@@ -54,8 +59,10 @@ def main():
             buckets[e] += 1
 
     print(f"# Harness friction report — last {args.days} days")
-    print(f"sessions={sessions} turns={turns} tool_calls={calls} "
-          f"tool_errors={errors} denials={denials}")
+    print(
+        f"sessions={sessions} turns={turns} tool_calls={calls} "
+        f"tool_errors={errors} denials={denials}"
+    )
     if calls:
         print(f"error_rate={errors / calls:.1%} of tool calls")
     print()
@@ -70,8 +77,10 @@ def main():
     for r in worst:
         if r.get("tool_errors", 0) == 0:
             break
-        print(f"{r['ts']}  errors={r['tool_errors']} denials={r.get('denials', 0)} "
-              f"turns={r['turns']}  {r.get('prompt', '')[:90]}")
+        print(
+            f"{r['ts']}  errors={r['tool_errors']} denials={r.get('denials', 0)} "
+            f"turns={r['turns']}  {r.get('prompt', '')[:90]}"
+        )
 
 
 if __name__ == "__main__":
