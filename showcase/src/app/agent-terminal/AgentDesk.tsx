@@ -66,12 +66,12 @@ const agentWritten = (text: string): AgentWrittenText => ({
 });
 import styles from './agent-desk.module.css';
 import DeskFlow from './DeskFlow';
+import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
 import RouteDossier, {
-  RouteFlowSvg,
+  CompactFlow,
   specFromPlanLegs,
   specFromPreview,
 } from './RouteDossier';
-import dossierStyles from './route-dossier.module.css';
 
 // ── Model ───────────────────────────────────────────────────────────
 
@@ -173,24 +173,6 @@ const nextId = (prefix: string) => {
   return `${prefix}_${Date.now().toString(36)}${idSeq.toString(36)}`;
 };
 
-function fmtUsd(value: string | number | null | undefined): string {
-  const n = typeof value === 'string' ? Number.parseFloat(value) : value;
-  if (n === null || n === undefined || !Number.isFinite(n)) return '-';
-  return n >= 1000
-    ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-    : `$${n.toLocaleString('en-US', { maximumFractionDigits: n < 1 ? 4 : 2 })}`;
-}
-
-function fmtAmount(value: string | undefined): string {
-  const n = Number.parseFloat(value ?? '');
-  if (!Number.isFinite(n)) return value ?? '-';
-  return n.toLocaleString('en-US', { maximumFractionDigits: 6 });
-}
-
-function fmtDuration(seconds: number | undefined): string {
-  if (!seconds || !Number.isFinite(seconds)) return '-';
-  return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`;
-}
 
 /** How many legs the routed quote really is. 1 when the API predates hops. */
 const hopCountOf = (p: SwapPreview | null | undefined): number =>
@@ -209,7 +191,7 @@ function hopLines(p: SwapPreview | null | undefined): string[] {
     const verb = h.type === 'cross' ? 'relay' : h.type === 'swap' ? 'swap' : h.type;
     const where =
       h.fromChain && h.toChain && h.fromChain !== h.toChain
-        ? ` (${h.fromChain} → ${h.toChain})`
+        ? ` (${hopChainLabel(h.fromChain, h.toChain)})`
         : h.fromChain
           ? ` on ${h.fromChain}`
           : '';
@@ -227,11 +209,6 @@ function hopLines(p: SwapPreview | null | undefined): string[] {
 const clock = (at: number) =>
   new Date(at).toLocaleTimeString('en-US', { hour12: false });
 
-const num = (v: string | null | undefined): number | null => {
-  const n = Number.parseFloat(v ?? '');
-  return Number.isFinite(n) ? n : null;
-};
-
 const dayKey = (at: number) => new Date(at).toISOString().slice(0, 10);
 
 /** Notional of a proposal in USD, or null when nothing could be priced. */
@@ -244,6 +221,25 @@ function notionalOf(p: Proposal): number | null {
 /** A proposal the desk will not let the human approve as things stand. */
 const isBlocked = (p: Proposal) =>
   Boolean(p.verdict && !p.verdict.withinMandate && p.override?.granted !== true);
+
+/**
+ * Groups a plan's swap legs into relays: each non-chained leg starts a
+ * sequence, each chained leg extends the current one. Only multi-leg
+ * sequences are returned; a lone leg has no chain to draw. Derived on
+ * render (never stored) so rehydrated sessions can't drift.
+ */
+function chainedPlanSequences(steps: PlanStep[]): PlanStep[][] {
+  const sequences: PlanStep[][] = [];
+  for (const s of steps) {
+    if (!s.swap) continue;
+    if (s.chainedFromPrevious && sequences.length > 0) {
+      sequences[sequences.length - 1].push(s);
+    } else {
+      sequences.push([s]);
+    }
+  }
+  return sequences.filter((seq) => seq.length > 1);
+}
 
 /**
  * Anderson et al., CHI 2015: habituation to a repeated identical warning
@@ -927,7 +923,7 @@ export default function AgentDesk() {
         mandate: describeVerdict(proposal.verdict),
         expiresAt: new Date(proposal.expiresAt).toISOString(),
         next: isBlocked(proposal)
-          ? 'Approve is LOCKED — this breaks the human\'s mandate. Either propose something inside the envelope, or call request_override with your argument for bending the named rule.'
+          ? 'Approve is LOCKED: this breaks the human\'s mandate. Either propose something inside the envelope, or call request_override with your argument for bending the named rule.'
           : 'Call check_approval with this proposalId (waitSeconds up to 120). Nothing has been signed or sent.',
       };
     };
@@ -1114,7 +1110,7 @@ export default function AgentDesk() {
       async amendMandate({ rationale, ...changes }) {
         if (!rationale.trim()) {
           throw new Error(
-            'rationale is required — you are asking to change the rules the human set.',
+            'rationale is required: you are asking to change the rules the human set.',
           );
         }
         const diffs = diffAmendment(mandateRef.current, changes);
@@ -1148,7 +1144,7 @@ export default function AgentDesk() {
           })),
           loosens: diffs.filter((d) => d.direction === 'looser').map((d) => d.field),
           next:
-            'The human sees a before/after diff with every loosened rule flagged. If they approve, the mandate changes here and persists — this is the one thing on the desk that completes in place. Poll check_approval.',
+            'The human sees a before/after diff with every loosened rule flagged. If they approve, the mandate changes here and persists. This is the one thing on the desk that completes in place. Poll check_approval.',
         };
       },
 
@@ -1185,7 +1181,7 @@ export default function AgentDesk() {
 
         const bundle = {
           generatedAt: new Date().toISOString(),
-          source: 'Suwappu Agent Desk (WebMCP) — negotiated mandate',
+          source: 'Suwappu Agent Desk (WebMCP): negotiated mandate',
           endpoint: 'POST /v1/agent/wallet/policy',
           authentication:
             'Requires a Suwappu agent API key. This page never holds one, by design.',
@@ -1216,7 +1212,7 @@ export default function AgentDesk() {
           ...describeVerdict(verdict),
           advice: verdict.withinMandate
             ? 'Inside the envelope. Safe to propose.'
-            : 'Outside the envelope. Adjust size, chain or token and check again — or propose it anyway and argue for an override.',
+            : 'Outside the envelope. Adjust size, chain or token and check again, or propose it anyway and argue for an override.',
           silent: true,
         };
       },
@@ -1224,7 +1220,7 @@ export default function AgentDesk() {
       async proposeSwap(args) {
         if (!args.rationale.trim()) {
           throw new Error(
-            'rationale is required — the human has to read why you want this trade.',
+            'rationale is required: the human has to read why you want this trade.',
           );
         }
         const t: Ticket = {
@@ -1295,7 +1291,7 @@ export default function AgentDesk() {
               }
               if (!prevSwap.preview) {
                 throw new Error(
-                  `cannot chain from the previous swap step — it failed to price (${prevSwap.previewError ?? 'no quote'})`,
+                  `cannot chain from the previous swap step: it failed to price (${prevSwap.previewError ?? 'no quote'})`,
                 );
               }
             }
@@ -1487,7 +1483,7 @@ export default function AgentDesk() {
         if (!proposal) throw new Error(`No proposal with id ${proposalId}`);
         if (!isBlocked(proposal)) {
           throw new Error(
-            'That proposal is not blocked by the mandate — no override is needed.',
+            'That proposal is not blocked by the mandate; no override is needed.',
           );
         }
         if (proposal.override) {
@@ -1496,7 +1492,7 @@ export default function AgentDesk() {
           );
         }
         if (!argument.trim()) {
-          throw new Error('argument is required — say why the rule should be bent.');
+          throw new Error('argument is required: say why the rule should be bent.');
         }
         commitProposals((prev) =>
           prev.map((p) =>
@@ -1509,7 +1505,7 @@ export default function AgentDesk() {
           proposalId,
           status: 'override_requested',
           brokenRules: proposal.verdict?.violations.map((v) => v.rule) ?? [],
-          next: 'The human sees your argument beside the rule you broke. Poll check_approval — if they deny the override, Approve stays locked and you should propose something that fits instead.',
+          next: 'The human sees your argument beside the rule you broke. Poll check_approval. If they deny the override, Approve stays locked and you should propose something that fits instead.',
         };
       },
 
@@ -2237,59 +2233,46 @@ export default function AgentDesk() {
                       the card the human approves must show every leg — drawn
                       as the same value-flow instrument the quote uses. */}
                   {p.swap?.preview && hopCountOf(p.swap.preview) > 1 && (
-                    <div className={dossierStyles.compact}>
-                      <RouteFlowSvg
-                        spec={specFromPreview(p.swap.preview)}
-                        ariaLabel="The route this proposal takes, leg by leg, with the fees each leg costs."
-                      />
-                    </div>
+                    <CompactFlow
+                      spec={specFromPreview(p.swap.preview)}
+                      ariaLabel="The route this proposal takes, leg by leg, with the fees each leg costs."
+                    />
                   )}
 
                   {/* Chained legs form a relay: draw each multi-leg sequence
                       as a value flow, so the human sees leg 2 selling what
                       leg 1 delivers before approving the whole thing. */}
                   {p.plan &&
-                    (() => {
-                      const sequences: PlanStep[][] = [];
-                      for (const s of p.plan!.steps) {
-                        if (!s.swap) continue;
-                        if (s.chainedFromPrevious && sequences.length > 0) {
-                          sequences[sequences.length - 1].push(s);
-                        } else {
-                          sequences.push([s]);
-                        }
-                      }
-                      return sequences
-                        .filter((seq) => seq.length > 1)
-                        .map((seq, si) => {
-                          const spec = specFromPlanLegs(
-                            seq.map((s) => ({
-                              fromChain: s.swap!.fromChain,
-                              toChain: s.swap!.toChain,
-                              fromToken: s.swap!.fromToken,
-                              toToken: s.swap!.toToken,
-                              amount: s.swap!.amount,
-                              preview: s.swap!.preview,
-                            })),
-                          );
-                          if (!spec) return null;
-                          return (
-                            <div key={`${p.id}-seq-${si}`} className={dossierStyles.compact}>
-                              <p className={dossierStyles.laneBar}>
+                    chainedPlanSequences(p.plan.steps).map((seq, si) => {
+                      const spec = specFromPlanLegs(
+                        seq.map((s) => ({
+                          fromChain: s.swap!.fromChain,
+                          toChain: s.swap!.toChain,
+                          fromToken: s.swap!.fromToken,
+                          toToken: s.swap!.toToken,
+                          amount: s.swap!.amount,
+                          preview: s.swap!.preview,
+                        })),
+                      );
+                      return (
+                        spec && (
+                          <CompactFlow
+                            key={`${p.id}-seq-${si}`}
+                            spec={spec}
+                            ariaLabel={`Chained relay ${si + 1}: ${seq.length} legs, each selling the previous leg's estimated output.`}
+                            laneHeader={
+                              <>
                                 <b>RELAY {String(si + 1).padStart(2, '0')}</b>
                                 <span>
                                   {seq.length} CHAINED LEGS · LATER LEGS SELL WHAT EARLIER LEGS
                                   DELIVER
                                 </span>
-                              </p>
-                              <RouteFlowSvg
-                                spec={spec}
-                                ariaLabel={`Chained relay ${si + 1}: ${seq.length} legs, each selling the previous leg's estimated output.`}
-                              />
-                            </div>
-                          );
-                        });
-                    })()}
+                              </>
+                            }
+                          />
+                        )
+                      );
+                    })}
 
                   {p.plan && (
                     <ol className={styles.planSteps}>

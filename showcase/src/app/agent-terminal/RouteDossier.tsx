@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { SwapPreview } from './deskApi';
+import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
 import type { MandateVerdict } from './mandate';
 import styles from './route-dossier.module.css';
 
@@ -40,34 +41,14 @@ export interface FlowSpec {
   edgeLabels: Array<string | null>;
 }
 
-const num = (v: string | number | null | undefined): number => {
-  const n = typeof v === 'string' ? Number.parseFloat(v) : (v ?? Number.NaN);
-  return Number.isFinite(n) ? n : 0;
-};
-
-function fmtAmount(value: string | null | undefined): string {
-  const n = Number.parseFloat(value ?? '');
-  if (!Number.isFinite(n)) return value ?? '-';
-  return n.toLocaleString('en-US', { maximumFractionDigits: 6 });
-}
-
-function fmtUsd(value: string | number | null | undefined): string {
-  const n = typeof value === 'string' ? Number.parseFloat(value) : value;
-  if (n === null || n === undefined || !Number.isFinite(n)) return '-';
-  return n >= 1000
-    ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-    : `$${n.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: n < 1 ? 4 : 2,
-      })}`;
-}
-
-function fmtDuration(seconds: number | null | undefined): string {
-  if (!seconds || !Number.isFinite(seconds)) return '<1s';
-  return seconds < 90 ? `${Math.round(seconds)}s` : `~${Math.round(seconds / 60)} min`;
-}
-
 const verb = (t: string) => (t === 'cross' ? 'RELAY' : t === 'swap' ? 'SWAP' : t.toUpperCase());
+
+/** Labels riding the main path: what enters, what each later leg sells, what arrives. */
+const mainEdgeLabels = (
+  hops: FlowHop[],
+  first: string | null,
+  last: string | null,
+): Array<string | null> => [first, ...hops.slice(1).map((h) => h.inAmount), last];
 
 /** A priced single trade → flow spec. Falls back to one honest hop. */
 export function specFromPreview(p: SwapPreview): FlowSpec {
@@ -95,21 +76,13 @@ export function specFromPreview(p: SwapPreview): FlowSpec {
     key: `hop-${h.index}`,
     type: h.type,
     tool: h.toolName || h.tool,
-    chains:
-      h.fromChain && h.toChain && h.fromChain !== h.toChain
-        ? `${h.fromChain} → ${h.toChain}`
-        : (h.fromChain ?? ''),
+    chains: hopChainLabel(h.fromChain, h.toChain),
     inAmount: h.fromToken ? `${fmtAmount(h.fromAmount)} ${h.fromToken}` : null,
     outAmount: h.toToken ? `${fmtAmount(h.toAmount)} ${h.toToken}` : null,
-    feeUsd: num(h.feeUsd),
-    gasUsd: num(h.estimatedGasUsd),
+    feeUsd: num(h.feeUsd) ?? 0,
+    gasUsd: num(h.estimatedGasUsd) ?? 0,
     durationSeconds: h.estimatedDurationSeconds,
   }));
-  const edgeLabels: Array<string | null> = [
-    `${fmtAmount(p.fromAmount)} ${p.fromToken.symbol}`,
-    ...hops.slice(1).map((h) => h.inAmount),
-    `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
-  ].slice(0, hops.length + 1);
   return {
     source: {
       label: 'YOU SEND',
@@ -122,7 +95,11 @@ export function specFromPreview(p: SwapPreview): FlowSpec {
       sub: `on ${p.toChain} · floor ≥ ${fmtAmount(p.toAmountMin)}`,
     },
     hops,
-    edgeLabels,
+    edgeLabels: mainEdgeLabels(
+      hops,
+      `${fmtAmount(p.fromAmount)} ${p.fromToken.symbol}`,
+      `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
+    ),
   };
 }
 
@@ -148,18 +125,13 @@ export function specFromPlanLegs(
     key: `leg-${i}`,
     type: l.fromChain === l.toChain ? 'swap' : 'cross',
     tool: l.preview?.route ?? 'unpriced',
-    chains: l.fromChain === l.toChain ? l.fromChain : `${l.fromChain} → ${l.toChain}`,
+    chains: hopChainLabel(l.fromChain, l.toChain),
     inAmount: `${fmtAmount(l.amount)} ${l.fromToken}`,
     outAmount: l.preview ? `${fmtAmount(l.preview.toAmount)} ${l.toToken}` : null,
-    feeUsd: num(l.preview?.bridgeFeeUsd),
-    gasUsd: num(l.preview?.estimatedGasUsd),
+    feeUsd: num(l.preview?.bridgeFeeUsd) ?? 0,
+    gasUsd: num(l.preview?.estimatedGasUsd) ?? 0,
     durationSeconds: l.preview?.estimatedDurationSeconds ?? null,
   }));
-  const edgeLabels: Array<string | null> = [
-    hops[0].inAmount,
-    ...hops.slice(1).map((h) => h.inAmount),
-    hops[hops.length - 1].outAmount,
-  ];
   return {
     source: {
       label: 'NEW MONEY IN',
@@ -172,7 +144,7 @@ export function specFromPlanLegs(
       sub: `on ${last.toChain}${last.preview ? ` · ${fmtUsd(last.preview.toAmountUsd)}` : ''}`,
     },
     hops,
-    edgeLabels,
+    edgeLabels: mainEdgeLabels(hops, hops[0].inAmount, hops[hops.length - 1].outAmount),
   };
 }
 
@@ -338,6 +310,27 @@ export function RouteFlowSvg({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: s
   );
 }
 
+/**
+ * A flow embedded in a light proposal card: the dark instrument inset, with
+ * an optional lane header (e.g. "RELAY 01") above the graph.
+ */
+export function CompactFlow({
+  spec,
+  ariaLabel,
+  laneHeader,
+}: {
+  spec: FlowSpec;
+  ariaLabel: string;
+  laneHeader?: ReactNode;
+}) {
+  return (
+    <div className={styles.compact}>
+      {laneHeader && <p className={styles.laneBar}>{laneHeader}</p>}
+      <RouteFlowSvg spec={spec} ariaLabel={ariaLabel} />
+    </div>
+  );
+}
+
 /* ── The dossier: stat band + flow ── */
 
 export default function RouteDossier({
@@ -414,11 +407,11 @@ export default function RouteDossier({
         <div className={styles.cell} data-verdict={blocked ? 'blocked' : verdict ? 'clear' : undefined}>
           <span className={styles.cellLabel}>MANDATE</span>
           <span className={blocked ? styles.valueBad : styles.valueGood} data-chip="">
-            {verdict ? (blocked ? '● OUTSIDE YOUR RULES' : '● WITHIN MANDATE') : '—'}
+            {verdict ? (blocked ? '● OUTSIDE YOUR RULES' : '● WITHIN MANDATE') : '-'}
           </span>
           <span className={styles.cellSub}>
             {blocked
-              ? `${verdict!.violations.length} rule${verdict!.violations.length === 1 ? '' : 's'} broken — ${verdict!.violations[0]?.rule ?? ''}`
+              ? `${verdict!.violations.length} rule${verdict!.violations.length === 1 ? '' : 's'} broken: ${verdict!.violations[0]?.rule ?? ''}`
               : 'every rule clear at this size'}
           </span>
         </div>

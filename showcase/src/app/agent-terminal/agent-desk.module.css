@@ -593,6 +593,25 @@
   border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
 }
 
+/* Eight steps read as a half-empty column at desktop; give them the full
+   canvas as two columns, keeping the hairline rhythm per row. */
+@media (min-width: 1024px) {
+  .stepFlow {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 64px;
+  }
+
+  .stepFlow li {
+    border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  }
+
+  .stepFlow li:nth-child(-n + 2) {
+    border-top: none;
+  }
+}
+
 .stepNum {
   font-family: var(--font-display, Georgia, serif);
   font-size: 28px;

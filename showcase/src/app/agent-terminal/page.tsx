@@ -57,7 +57,7 @@ const TOOLS = [
   {
     name: 'preview_swap',
     kind: 'read',
-    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, plus the mandate verdict — and the route leg by leg, because most cross-chain routes are more than one transaction.',
+    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, plus the mandate verdict, and the route leg by leg, because most cross-chain routes are more than one transaction.',
   },
   {
     name: 'compare_routes',
@@ -77,7 +77,7 @@ const TOOLS = [
   {
     name: 'propose_plan',
     kind: 'propose',
-    body: 'Propose a sequence (bridge, then buy, then set an alert) as one card with a combined notional and one Approve. Legs can chain — "@prev" sells what the previous leg delivers, the shape of a real multi-hop relay. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
+    body: 'Propose a sequence (bridge, then buy, then set an alert) as one card with a combined notional and one Approve. Legs can chain: "@prev" sells what the previous leg delivers, the shape of a real multi-hop relay. Agents think in plans; approving them a click at a time is what makes agentic UX exhausting.',
   },
   {
     name: 'propose_price_alert',
@@ -172,14 +172,14 @@ const PROOF_ITEMS = [
     n: PROOF_STATS.adversarialChecks,
     label: 'Adversarial injection checks',
     suite: 'webmcp:evals:adversarial',
-    body: 'Six injection-shaped strings, hidden in a token query, a rationale, a chain label, round-tripped through agent-supplied arguments and proven to land as quoted, unverified data — never as instructions this page obeys.',
+    body: 'Six injection-shaped strings, hidden in a token query, a rationale, a chain label, round-tripped through agent-supplied arguments and proven to land as quoted, unverified data, never as instructions this page obeys.',
   },
 ] as const;
 
 const CITATIONS = [
   {
     claim: 'Approval fatigue is measured, not assumed',
-    body: 'Click-through on browser security warnings rises with exposure count across 25M+ impressions, and the brain’s response to a repeated warning collapses by the second time it’s seen. It’s why the mandate asks fewer, denser questions instead of a prompt per trade — and why a breach card’s color and copy vary by which rule it broke instead of repeating one static template.',
+    body: 'Click-through on browser security warnings rises with exposure count across 25M+ impressions, and the brain’s response to a repeated warning collapses by the second time it’s seen. It’s why the mandate asks fewer, denser questions instead of a prompt per trade, and why a breach card’s color and copy vary by which rule it broke instead of repeating one static template.',
     papers: [
       {
         cite: 'Akhawe & Felt, USENIX Security 2013',
@@ -198,7 +198,7 @@ const CITATIONS = [
   },
   {
     claim: 'Untrusted in both directions',
-    body: 'Content an agent merely reads can carry instructions it obeys — the indirect-prompt-injection threat model. Explicitly delimiting untrusted spans cuts attack success from over 50% to under 2%. The “agent-written, unverified” label on every rationale and override argument, and the fact-not-imperative rule for this page’s own tool descriptions, are that defense in both directions.',
+    body: 'Content an agent merely reads can carry instructions it obeys: the indirect-prompt-injection threat model. Explicitly delimiting untrusted spans cuts attack success from over 50% to under 2%. The “agent-written, unverified” label on every rationale and override argument, and the fact-not-imperative rule for this page’s own tool descriptions, are that defense in both directions.',
     papers: [
       { cite: 'Greshake et al., arXiv:2302.12173', href: 'https://arxiv.org/abs/2302.12173' },
       { cite: 'Spotlighting, arXiv:2403.14720', href: 'https://arxiv.org/abs/2403.14720' },
@@ -309,7 +309,7 @@ export default function AgentTerminalPage() {
           <h2>Proved, not promised.</h2>
           <p className={styles.sectionLead}>
             Every claim on this page has a suite behind it. Not a badge, a repeatable
-            command — run <code className="summer-code">bun run webmcp:smoke</code> yourself
+            command: run <code className="summer-code">bun run webmcp:smoke</code> yourself
             and read the assertions in <code className="summer-code">scripts/</code>.
           </p>
           <div className={styles.proofGrid}>
@@ -331,7 +331,7 @@ export default function AgentTerminalPage() {
               three ways instead of trusting one run.
             </p>
             <p>
-              That harness is Google’s own — a real model, not this team, picking tool calls from
+              That harness is Google’s own: a real model, not this team, picking tool calls from
               plain English. On Gemini it scores{' '}
               <strong>
                 {PROOF_STATS.llmHarness.passed}/{PROOF_STATS.llmHarness.total}
@@ -369,7 +369,7 @@ export default function AgentTerminalPage() {
             ))}
           </ul>
           <p className={styles.sectionLead}>
-            As of August 2026, no peer-reviewed paper names WebMCP itself — the closest is the{' '}
+            As of August 2026, no peer-reviewed paper names WebMCP itself; the closest is the{' '}
             <a href="https://arxiv.org/abs/2507.21206" target="_blank" rel="noopener noreferrer">
               agentic-web survey literature
             </a>

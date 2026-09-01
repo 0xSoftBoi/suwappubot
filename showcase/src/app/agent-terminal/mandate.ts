@@ -197,7 +197,7 @@ export function describeMandate(mandate: Mandate, spentTodayUsd: number) {
       'This is the envelope the human wrote for you. Check a trade with check_mandate before proposing it. ' +
       'A proposal outside the envelope is not blocked outright, but it is shown to the human in red with the exact ' +
       'rule it breaks, and Approve stays locked until they either edit the mandate or grant a one-time override. ' +
-      'To ask for that override, call request_override — it only exists while a blocked proposal is on the desk.',
+      'To ask for that override, call request_override; it only exists while a blocked proposal is on the desk.',
     notEnforcement:
       'The desk does not execute trades, so this cannot physically cap spending. Binding limits live in Suwappu ' +
       'wallet spending policies server-side. Treat this as the human’s stated intent, and respect it.',
@@ -329,7 +329,7 @@ export function compileToWalletPolicies(
       params: { maxAmountWei: toWei(mandate.dailyUsdCap), timeWindowSeconds: 86_400 },
     });
     notes.push(
-      `Daily cap ${mandate.dailyUsdCap} USD converted at ${ethUsd} USD/ETH. Re-compile when the price moves materially — the policy is fixed in wei, the cap you meant is in dollars.`,
+      `Daily cap ${mandate.dailyUsdCap} USD converted at ${ethUsd} USD/ETH. Re-compile when the price moves materially: the policy is fixed in wei, the cap you meant is in dollars.`,
     );
   }
 
@@ -350,12 +350,12 @@ export function compileToWalletPolicies(
   );
 
   notes.push(
-    `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version and does not rewrite this bundle — recompile after any amendment so the installed policy and the negotiated envelope stay the same version.`,
+    `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version and does not rewrite this bundle; recompile after any amendment so the installed policy and the negotiated envelope stay the same version.`,
   );
 
   if (mandate.perTradeUsdCap < mandate.dailyUsdCap) {
     notes.push(
-      `Per-trade cap (${mandate.perTradeUsdCap} USD) has no direct Turnkey equivalent — Turnkey limits per transaction, and a time-windowed daily limit is the closest primitive. The per-trade rule stays enforced by the desk only.`,
+      `Per-trade cap (${mandate.perTradeUsdCap} USD) has no direct Turnkey equivalent: Turnkey limits per transaction, and a time-windowed daily limit is the closest primitive. The per-trade rule stays enforced by the desk only.`,
     );
   }
 
