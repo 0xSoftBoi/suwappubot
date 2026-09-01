@@ -1,0 +1,429 @@
+/* Route dossier: the priced trade as a forensic instrument — a hairline-grid
+   stat band over a fund-flow graph. Shares DeskFlow's dark palette so the two
+   instruments read as one system embedded in the light page. */
+
+.panel {
+  box-sizing: border-box;
+  margin-top: 18px;
+  padding: 12px 14px 10px;
+  border: 1px solid #24313a;
+  border-radius: var(--suwappu-summer-radius-inset, 8px);
+  background:
+    radial-gradient(700px 300px at 80% 0%, rgba(224, 155, 82, 0.05), transparent 60%),
+    radial-gradient(circle at 1px 1px, #1a2329 1px, transparent 1.4px) 0 0 / 26px 26px,
+    #0f1417;
+  color: #dbe6ea;
+}
+
+/* ── Title strip ── */
+
+.head {
+  margin: 0 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #8fa3ad;
+}
+
+.headTag {
+  padding: 2px 7px;
+  border: 1px solid rgba(224, 155, 82, 0.55);
+  border-radius: 3px;
+  color: #ffc98a;
+  background: rgba(224, 155, 82, 0.08);
+  letter-spacing: 0.16em;
+  font-size: 9.5px;
+}
+
+.headTitle {
+  color: #9fb3bd;
+}
+
+.headId {
+  margin-left: auto;
+  color: #55666f;
+  letter-spacing: 0.04em;
+}
+
+/* ── Stat band: hairline grid of dense cells ── */
+
+.band {
+  display: grid;
+  grid-template-columns: 1.35fr repeat(5, 1fr);
+  gap: 1px;
+  background: #22303a;
+  border: 1px solid #22303a;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.cell,
+.cellHeadline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px 9px;
+  background: #12181c;
+}
+
+.cellHeadline {
+  border-left: 3px solid #e09b52;
+  background: linear-gradient(180deg, rgba(224, 155, 82, 0.07), rgba(224, 155, 82, 0.02)), #12181c;
+}
+
+.cellLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  color: #64777f;
+}
+
+.big {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: #f3ede4;
+  overflow-wrap: anywhere;
+}
+
+.value,
+.valueGood,
+.valueCost,
+.valueBad {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  color: #dbe6ea;
+}
+
+.valueGood {
+  color: #7fe3a8;
+}
+
+.valueCost {
+  color: #ffc98a;
+}
+
+.valueBad {
+  color: #ff8a87;
+}
+
+.cellSub {
+  font-size: 10px;
+  line-height: 1.45;
+  color: #8fa3ad;
+  font-variant-numeric: tabular-nums;
+}
+
+.cellSub b {
+  color: #c6d4db;
+  font-weight: 650;
+}
+
+.cell[data-verdict='blocked'] {
+  background: linear-gradient(180deg, rgba(224, 82, 79, 0.1), rgba(224, 82, 79, 0.03)), #12181c;
+}
+
+.cell[data-verdict='blocked'] .cellLabel {
+  color: #c58a88;
+}
+
+/* Verdict line, chip-shaped either way. */
+.cell [data-chip] {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+/* ── Section bar ── */
+
+.sectionBar {
+  margin: 12px 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: #8fa3ad;
+  border-top: 1px solid #1c262c;
+  padding-top: 9px;
+}
+
+.sectionNum {
+  color: #ffc98a;
+}
+
+/* ── Flow graph ── */
+
+.scroller {
+  overflow-x: auto;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.colTitle {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  fill: #64777f;
+}
+
+.mainEdge {
+  fill: none;
+  stroke: #b87740;
+  stroke-width: 2;
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mainEdge {
+    stroke-dasharray: 8 7;
+    animation: routeflow-travel 1.6s linear infinite;
+  }
+}
+
+@keyframes routeflow-travel {
+  to {
+    stroke-dashoffset: -15;
+  }
+}
+
+.edgeLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.03em;
+  fill: #e6cfae;
+  paint-order: stroke;
+  stroke: #0f1417;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.leakEdge {
+  fill: none;
+  stroke: #7d5a3a;
+  stroke-width: 1.1;
+  stroke-dasharray: 2 4;
+  opacity: 0.9;
+}
+
+.leak rect {
+  fill: #17130e;
+  stroke: #4a3826;
+  stroke-width: 1;
+}
+
+.leakAmount {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  fill: #ffc98a;
+}
+
+.leakSub {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 7.5px;
+  letter-spacing: 0.02em;
+  fill: #8a7c66;
+}
+
+.leakRowTitle {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  fill: #7d6a50;
+}
+
+/* ── Endpoints ── */
+
+.endpoint rect {
+  fill: #171e23;
+  stroke: #2a3439;
+  stroke-width: 1;
+}
+
+.endpoint[data-endpoint='in'] rect {
+  stroke: #e09b52;
+  fill: #1a1712;
+}
+
+.endpoint[data-endpoint='out'] rect {
+  stroke: #3fae6f;
+  fill: #121a15;
+  filter: drop-shadow(0 0 6px rgba(63, 174, 111, 0.25));
+}
+
+.endLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  fill: #8fa3ad;
+}
+
+.endAmount {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  fill: #f3ede4;
+}
+
+.endpoint[data-endpoint='out'] .endAmount {
+  fill: #7fe3a8;
+}
+
+.endSub {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 7.5px;
+  letter-spacing: 0.02em;
+  fill: #7d8f99;
+}
+
+/* ── Leg nodes ── */
+
+.hop rect:first-of-type {
+  fill: #171e23;
+  stroke: #2a3439;
+  stroke-width: 1;
+}
+
+.hop[data-kind='swap'] rect:first-of-type {
+  stroke: #2f5a41;
+}
+
+.hop[data-kind='cross'] rect:first-of-type {
+  stroke: #2f5060;
+}
+
+.hop[data-kind='protocol'] rect:first-of-type {
+  stroke: #5a4527;
+}
+
+.chip {
+  fill: rgba(0, 0, 0, 0.35);
+  stroke-width: 1;
+}
+
+.hop[data-kind='swap'] .chip {
+  stroke: #3fae6f;
+}
+
+.hop[data-kind='cross'] .chip {
+  stroke: #45b3d6;
+}
+
+.hop[data-kind='protocol'] .chip {
+  stroke: #e09b52;
+}
+
+.chipText {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 7.5px;
+  letter-spacing: 0.12em;
+}
+
+.hop[data-kind='swap'] .chipText {
+  fill: #7fe3a8;
+}
+
+.hop[data-kind='cross'] .chipText {
+  fill: #8fd9f0;
+}
+
+.hop[data-kind='protocol'] .chipText {
+  fill: #ffc98a;
+}
+
+.hopTool {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  fill: #dbe6ea;
+}
+
+.hopAmounts {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  fill: #c6d4db;
+}
+
+.hopMeta {
+  font-family: var(--font-archivo, system-ui, sans-serif);
+  font-size: 8.5px;
+  fill: #8fa3ad;
+}
+
+/* ── Foot note ── */
+
+.footNote {
+  margin: 8px 0 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: #64777f;
+}
+
+/* ── Plan lane header (used by AgentDesk around per-sequence flows) ── */
+
+.laneBar {
+  margin: 10px 0 2px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: #8fa3ad;
+}
+
+.laneBar b {
+  color: #ffc98a;
+  font-weight: 700;
+}
+
+/* Compact wrapper when the flow is embedded in a light proposal card. */
+.compact {
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 8px 10px 6px;
+  border: 1px solid #24313a;
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 1px 1px, #1a2329 1px, transparent 1.4px) 0 0 / 26px 26px,
+    #0f1417;
+}
+
+@media (max-width: 900px) {
+  .band {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .cellHeadline {
+    grid-column: 1 / -1;
+  }
+
+  /* 5 cells over 3 columns: the verdict cell fills the last row. */
+  .cell:last-child {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 560px) {
+  .band {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cell:last-child {
+    grid-column: 1 / -1;
+  }
+}

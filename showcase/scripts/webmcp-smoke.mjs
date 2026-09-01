@@ -237,8 +237,8 @@ check(
 );
 await page.fill('form[toolname] input[name="amount"]', '0.2');
 await page.click('form[toolname] button[type="submit"]');
-await page.getByText('You receive').waitFor({ timeout: 10_000 });
-check('submitting the declarative form prices the ticket for real', true);
+await page.locator('[data-route-flow]').first().waitFor({ timeout: 10_000 });
+check('submitting the declarative form prices the ticket for real (dossier renders)', true);
 
 // ── 1c. WASP-style declarative-form check (arXiv:2504.18575) ───────
 // A page can carry attacker content the agent never asked to see — WASP
@@ -442,16 +442,23 @@ check(
   `${capCardVariant} vs ${chainCardVariant}`,
 );
 // The cross-chain proposal is two transactions; the card the human approves
-// must show both legs, not just the pair of tokens.
+// must draw both legs in the value-flow instrument.
 const chainBreachLegs = await page
   .locator('li', { hasText: 'chain outside the mandate' })
-  .locator('[class*="hopList"] li')
-  .allTextContents();
+  .locator('[data-route-flow] [data-hop]')
+  .evaluateAll((els) =>
+    els.map((el) => ({
+      type: el.getAttribute('data-hop-type'),
+      tool: el.getAttribute('data-hop-tool'),
+    })),
+  );
 check(
   "a cross-chain proposal card renders the route's legs for the human",
   chainBreachLegs.length === 2 &&
-    /^1\. swap via Uniswap/.test(chainBreachLegs[0] ?? '') &&
-    /relay via Across \(base → polygon\)/.test(chainBreachLegs[1] ?? ''),
+    chainBreachLegs[0]?.type === 'swap' &&
+    chainBreachLegs[0]?.tool === 'Uniswap' &&
+    chainBreachLegs[1]?.type === 'cross' &&
+    chainBreachLegs[1]?.tool === 'Across',
   JSON.stringify(chainBreachLegs),
 );
 

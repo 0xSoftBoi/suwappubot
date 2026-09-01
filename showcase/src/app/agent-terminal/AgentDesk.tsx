@@ -66,6 +66,12 @@ const agentWritten = (text: string): AgentWrittenText => ({
 });
 import styles from './agent-desk.module.css';
 import DeskFlow from './DeskFlow';
+import RouteDossier, {
+  RouteFlowSvg,
+  specFromPlanLegs,
+  specFromPreview,
+} from './RouteDossier';
+import dossierStyles from './route-dossier.module.css';
 
 // ── Model ───────────────────────────────────────────────────────────
 
@@ -2093,58 +2099,6 @@ export default function AgentDesk() {
 
           {previewError && <p className={styles.error}>{previewError}</p>}
 
-          {preview && !comparison && (
-            <dl className={styles.quote}>
-              <div>
-                <dt>You receive</dt>
-                <dd className={styles.big}>
-                  {fmtAmount(preview.toAmount)} {preview.toToken.symbol}
-                </dd>
-              </div>
-              <div>
-                <dt>Value</dt>
-                <dd>{fmtUsd(preview.toAmountUsd)}</dd>
-              </div>
-              <div>
-                <dt>Minimum received</dt>
-                <dd>{fmtAmount(preview.toAmountMin)}</dd>
-              </div>
-              <div>
-                <dt>Price impact</dt>
-                <dd>{preview.priceImpact}%</dd>
-              </div>
-              <div>
-                <dt>Gas</dt>
-                <dd>{fmtUsd(preview.estimatedGasUsd)}</dd>
-              </div>
-              <div>
-                <dt>Bridge fee</dt>
-                <dd>{fmtUsd(preview.bridgeFeeUsd)}</dd>
-              </div>
-              <div>
-                <dt>Settles in</dt>
-                <dd>{fmtDuration(preview.estimatedDurationSeconds)}</dd>
-              </div>
-              <div>
-                <dt>Route</dt>
-                <dd>
-                  {preview.route}
-                  {hopCountOf(preview) > 1 && (
-                    <> · {hopCountOf(preview)} legs</>
-                  )}
-                </dd>
-              </div>
-            </dl>
-          )}
-
-          {preview && !comparison && hopCountOf(preview) > 1 && (
-            <ol className={styles.hopList}>
-              {hopLines(preview).map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ol>
-          )}
-
           {comparison && (
             <div className={styles.tableWrap}>
               <table className={styles.table}>
@@ -2185,8 +2139,20 @@ export default function AgentDesk() {
           </p>
         </section>
 
+        {/* ── The priced route, full width: the dossier needs the whole
+              canvas the way the flow instrument above does. ── */}
+        {preview && !comparison && (
+          <div className={styles.fullRow}>
+            <RouteDossier
+              preview={preview}
+              verdict={judge({ ...ticket, preview, previewError: null })}
+              slippagePercent={ticket.slippagePercent}
+            />
+          </div>
+        )}
+
         {/* ── Approvals ──────────────────────────────────────────── */}
-        <section id="desk-approvals" className={styles.panel}>
+        <section id="desk-approvals" className={`${styles.panel} ${styles.fullRow}`}>
           <h2 className={styles.panelTitle}>
             Approvals{pending.length > 0 ? ` · ${pending.length} waiting` : ''}
           </h2>
@@ -2268,14 +2234,62 @@ export default function AgentDesk() {
                   )}
 
                   {/* A cross-chain trade is usually more than one transaction;
-                      the card the human approves must show every leg. */}
+                      the card the human approves must show every leg — drawn
+                      as the same value-flow instrument the quote uses. */}
                   {p.swap?.preview && hopCountOf(p.swap.preview) > 1 && (
-                    <ol className={styles.hopList}>
-                      {hopLines(p.swap.preview).map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ol>
+                    <div className={dossierStyles.compact}>
+                      <RouteFlowSvg
+                        spec={specFromPreview(p.swap.preview)}
+                        ariaLabel="The route this proposal takes, leg by leg, with the fees each leg costs."
+                      />
+                    </div>
                   )}
+
+                  {/* Chained legs form a relay: draw each multi-leg sequence
+                      as a value flow, so the human sees leg 2 selling what
+                      leg 1 delivers before approving the whole thing. */}
+                  {p.plan &&
+                    (() => {
+                      const sequences: PlanStep[][] = [];
+                      for (const s of p.plan!.steps) {
+                        if (!s.swap) continue;
+                        if (s.chainedFromPrevious && sequences.length > 0) {
+                          sequences[sequences.length - 1].push(s);
+                        } else {
+                          sequences.push([s]);
+                        }
+                      }
+                      return sequences
+                        .filter((seq) => seq.length > 1)
+                        .map((seq, si) => {
+                          const spec = specFromPlanLegs(
+                            seq.map((s) => ({
+                              fromChain: s.swap!.fromChain,
+                              toChain: s.swap!.toChain,
+                              fromToken: s.swap!.fromToken,
+                              toToken: s.swap!.toToken,
+                              amount: s.swap!.amount,
+                              preview: s.swap!.preview,
+                            })),
+                          );
+                          if (!spec) return null;
+                          return (
+                            <div key={`${p.id}-seq-${si}`} className={dossierStyles.compact}>
+                              <p className={dossierStyles.laneBar}>
+                                <b>RELAY {String(si + 1).padStart(2, '0')}</b>
+                                <span>
+                                  {seq.length} CHAINED LEGS · LATER LEGS SELL WHAT EARLIER LEGS
+                                  DELIVER
+                                </span>
+                              </p>
+                              <RouteFlowSvg
+                                spec={spec}
+                                ariaLabel={`Chained relay ${si + 1}: ${seq.length} legs, each selling the previous leg's estimated output.`}
+                              />
+                            </div>
+                          );
+                        });
+                    })()}
 
                   {p.plan && (
                     <ol className={styles.planSteps}>
@@ -2556,7 +2570,7 @@ export default function AgentDesk() {
         </section>
 
         {/* ── Activity ───────────────────────────────────────────── */}
-        <section id="desk-activity" className={styles.panel}>
+        <section id="desk-activity" className={`${styles.panel} ${styles.fullRow}`}>
           <div className={styles.mandateHead}>
             <div>
               <h2 className={styles.panelTitle}>Activity</h2>
