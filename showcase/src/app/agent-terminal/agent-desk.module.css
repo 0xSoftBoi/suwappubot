@@ -93,18 +93,19 @@
   align-items: start;
 }
 
-/* Mandate + ticket sit side by side; approvals and the log run full width. */
-.grid > :nth-child(3),
-.grid > :nth-child(4) {
+/* Mandate + ticket sit side by side; the dossier, approvals and the log run
+   full width (class-based — a conditionally-rendered dossier row would shift
+   nth-child targets). */
+.fullRow {
   grid-column: 1 / -1;
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
   .grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .grid > :nth-child(3),
-  .grid > :nth-child(4) {
+  .fullRow {
     grid-column: auto;
   }
 }
@@ -230,57 +231,6 @@
 
 /* ── quote ────────────────────────────────────────────────────── */
 
-.quote {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin: 18px 0 0;
-  padding: 14px;
-  border-radius: var(--suwappu-summer-radius-inset, 8px);
-  background: var(--suwappu-summer-inset-background, #f2fbff);
-}
-
-.quote > div {
-  min-width: 0;
-}
-
-.quote dt {
-  margin: 0 0 2px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-.quote dd {
-  margin: 0;
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.big {
-  font-size: 20px;
-  font-weight: 650;
-}
-
-/* The route's individual legs, shown under the quote when it is more than
-   one transaction (swap → bridge relay → swap). */
-.hopList {
-  margin: 10px 0 0;
-  padding: 10px 14px 10px 32px;
-  border-radius: var(--suwappu-summer-radius-inset, 8px);
-  background: var(--suwappu-summer-inset-background, #f2fbff);
-  font-size: 13px;
-  line-height: 1.6;
-  font-variant-numeric: tabular-nums;
-  list-style: none;
-}
-
-.hopList li {
-  overflow-wrap: anywhere;
-}
 
 .tableWrap {
   margin-top: 18px;
@@ -641,6 +591,25 @@
 
 .stepFlow li + li {
   border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+}
+
+/* Eight steps read as a half-empty column at desktop; give them the full
+   canvas as two columns, keeping the hairline rhythm per row. */
+@media (min-width: 1024px) {
+  .stepFlow {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 64px;
+  }
+
+  .stepFlow li {
+    border-top: 1px solid var(--suwappu-summer-line, #b9dfe9);
+  }
+
+  .stepFlow li:nth-child(-n + 2) {
+    border-top: none;
+  }
 }
 
 .stepNum {

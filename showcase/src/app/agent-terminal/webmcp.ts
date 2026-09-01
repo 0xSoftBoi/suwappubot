@@ -220,7 +220,7 @@ export async function registerDeskTools(
     {
       name: 'find_token',
       description:
-        'Resolve a token symbol, name or contract address on one chain into its canonical address and decimals. Use this to disambiguate before quoting — many chains have several tokens with the same ticker.',
+        'Resolve a token symbol, name or contract address on one chain into its canonical address and decimals. Use this to disambiguate before quoting: many chains have several tokens with the same ticker.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -265,7 +265,7 @@ export async function registerDeskTools(
     {
       name: 'preview_swap',
       description:
-        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the mandate verdict for this exact trade, and the route leg by leg: most cross-chain routes are more than one transaction (a swap, a bridge relay, another swap), and hops/hopCount report each leg with its tool, chains, tokens and amounts. Use this directly when the human asks what something is worth — it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
+        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the mandate verdict for this exact trade, and the route leg by leg: most cross-chain routes are more than one transaction (a swap, a bridge relay, another swap), and hops/hopCount report each leg with its tool, chains, tokens and amounts. Use this directly when the human asks what something is worth; it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -310,7 +310,7 @@ export async function registerDeskTools(
     {
       name: 'compare_routes',
       description:
-        'Price the same swap four ways — RECOMMENDED, FASTEST, CHEAPEST and SAFEST — and render the comparison on the page so the human can see the trade-off between output, cost and settlement time before deciding. Each row reports its hopCount: routes to the same destination can differ in how many transactions they take, and fewer hops usually means fewer things that can strand mid-route. Use this directly when the human asks to compare routes or what speed costs them; no other call is needed first.',
+        'Price the same swap four ways (RECOMMENDED, FASTEST, CHEAPEST and SAFEST) and render the comparison on the page so the human can see the trade-off between output, cost and settlement time before deciding. Each row reports its hopCount: routes to the same destination can differ in how many transactions they take, and fewer hops usually means fewer things that can strand mid-route. Use this directly when the human asks to compare routes or what speed costs them; no other call is needed first.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -348,7 +348,7 @@ export async function registerDeskTools(
     {
       name: 'propose_swap',
       description:
-        'Propose a swap to the human. This does NOT execute anything: it places a proposal card on the page with your rationale, and the human must click Approve or Reject. The mandate verdict is attached to the proposal automatically — one that breaks the rules lands in red with Approve locked, and arguing for it takes request_override. check_mandate is only for sizing a trade silently beforehand; when the human asks you to propose, propose. Returns a proposalId; poll it with check_approval.',
+        'Propose a swap to the human. This does NOT execute anything: it places a proposal card on the page with your rationale, and the human must click Approve or Reject. The mandate verdict is attached to the proposal automatically: one that breaks the rules lands in red with Approve locked, and arguing for it takes request_override. check_mandate is only for sizing a trade silently beforehand; when the human asks you to propose, propose. Returns a proposalId; poll it with check_approval.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -366,7 +366,7 @@ export async function registerDeskTools(
           rationale: {
             type: 'string',
             description:
-              'One or two sentences the human will read explaining why you are proposing this trade. Required — a proposal with no reasoning is rejected.',
+              'One or two sentences the human will read explaining why you are proposing this trade. Required; a proposal with no reasoning is rejected.',
           },
         },
         required: ['fromChain', 'toChain', 'fromToken', 'toToken', 'amount', 'rationale'],
@@ -390,7 +390,7 @@ export async function registerDeskTools(
     {
       name: 'propose_price_alert',
       description:
-        'Propose a price alert for the human to approve. It fetches the current spot price itself and shows it beside the target — you do not need to call get_prices first. On approval the desk hands off a one-click link that arms the alert in the Suwappu bot. Does not create anything by itself.',
+        'Propose a price alert for the human to approve. It fetches the current spot price itself and shows it beside the target; you do not need to call get_prices first. On approval the desk hands off a one-click link that arms the alert in the Suwappu bot. Does not create anything by itself.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -422,7 +422,7 @@ export async function registerDeskTools(
     {
       name: 'navigate_desk',
       description:
-        "Move the human's view to a part of the desk and learn what lives there and which tools act on it. Use this to orient yourself before working, and to put the human's eyes on what you are about to talk about — pointing at the approvals queue before you explain a proposal beats describing it blind.",
+        "Move the human's view to a part of the desk and learn what lives there and which tools act on it. Use this to orient yourself before working, and to put the human's eyes on what you are about to talk about: pointing at the approvals queue before you explain a proposal beats describing it blind.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -444,14 +444,14 @@ export async function registerDeskTools(
     {
       name: 'amend_mandate',
       description:
-        "Propose a change to the human's standing mandate itself — a different cap, another chain, one more token on the allow-list. This is how the envelope actually evolves: the human sees a before/after diff with every loosened rule flagged, and on approval the mandate CHANGES on the page and persists, incrementing its version number. The result echoes the current value of every rule you touch, so you do not need to call read_mandate first. Use it when the mandate is repeatedly getting in the way of trades the human clearly wants, and say what evidence made you ask. Do not use it to widen your own room without a reason you would defend out loud.",
+        "Propose a change to the human's standing mandate itself: a different cap, another chain, one more token on the allow-list. This is how the envelope actually evolves: the human sees a before/after diff with every loosened rule flagged, and on approval the mandate CHANGES on the page and persists, incrementing its version number. The result echoes the current value of every rule you touch, so you do not need to call read_mandate first. Use it when the mandate is repeatedly getting in the way of trades the human clearly wants, and say what evidence made you ask. Do not use it to widen your own room without a reason you would defend out loud.",
       inputSchema: {
         type: 'object',
         properties: {
           rationale: {
             type: 'string',
             description:
-              'Why the envelope should change, in the human\'s terms. Cite what happened — proposals that hit a cap, a chain they keep asking for.',
+              'Why the envelope should change, in the human\'s terms. Cite what happened: proposals that hit a cap, a chain they keep asking for.',
           },
           perTradeUsdCap: { type: 'number', description: 'New per-trade cap in USD.' },
           dailyUsdCap: { type: 'number', description: 'New daily cap in USD.' },
@@ -495,7 +495,7 @@ export async function registerDeskTools(
     {
       name: 'compile_mandate_to_policy',
       description:
-        "Compile the negotiated mandate into Suwappu wallet spending-policy payloads — the request bodies POST /v1/agent/wallet/policy accepts to create real Turnkey policies that gate managed execution. This turns the envelope from something this page honours into something a server enforces. Each payload and the notes are stamped with the mandate version compiled — a later amendment increments the version and does not retroactively edit an already-compiled bundle. Returns the payloads plus honest notes about what did and did not survive compilation. Pass download:true to hand the human the file.",
+        "Compile the negotiated mandate into Suwappu wallet spending-policy payloads: the request bodies POST /v1/agent/wallet/policy accepts to create real Turnkey policies that gate managed execution. This turns the envelope from something this page honours into something a server enforces. Each payload and the notes are stamped with the mandate version compiled; a later amendment increments the version and does not retroactively edit an already-compiled bundle. Returns the payloads plus honest notes about what did and did not survive compilation. Pass download:true to hand the human the file.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -514,7 +514,7 @@ export async function registerDeskTools(
     {
       name: 'read_mandate',
       description:
-        'Read the human\'s standing mandate: its version number, per-trade and daily USD caps, allowed chains, allowed tokens to buy, ceilings on price impact and slippage, and how much of today\'s budget is already spoken for. The version starts at 1 and increments only when an approved amend_mandate rewrites the envelope. Call it when the human asks what they have authorised, or when you are about to argue for changing a rule. You do NOT need it before quoting — preview_swap, compare_routes and check_mandate each attach the mandate verdict to their own result.',
+        'Read the human\'s standing mandate: its version number, per-trade and daily USD caps, allowed chains, allowed tokens to buy, ceilings on price impact and slippage, and how much of today\'s budget is already spoken for. The version starts at 1 and increments only when an approved amend_mandate rewrites the envelope. Call it when the human asks what they have authorised, or when you are about to argue for changing a rule. You do NOT need it before quoting: preview_swap, compare_routes and check_mandate each attach the mandate verdict to their own result.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true },
       execute: wrap('read_mandate', () => ctrl.readMandate()),
@@ -522,7 +522,7 @@ export async function registerDeskTools(
     {
       name: 'check_mandate',
       description:
-        'Dry-run a trade against the mandate before you propose it. Prices the trade, then returns whether it is inside the envelope and, if not, exactly which rules it breaks with the limit and the actual value. Cheap, silent, and does not put anything in front of the human — use it to iterate on size, chain or token until the trade fits.',
+        'Dry-run a trade against the mandate before you propose it. Prices the trade, then returns whether it is inside the envelope and, if not, exactly which rules it breaks with the limit and the actual value. Cheap, silent, and does not put anything in front of the human; use it to iterate on size, chain or token until the trade fits.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -555,7 +555,7 @@ export async function registerDeskTools(
     {
       name: 'propose_plan',
       description:
-        'Propose a SEQUENCE of steps as one reviewable unit — for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is "@prev" sells the full estimated output of the previous swap step, with fromToken and fromChain defaulting to where that leg lands — the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.',
+        'Propose a SEQUENCE of steps as one reviewable unit: for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is "@prev" sells the full estimated output of the previous swap step, with fromToken and fromChain defaulting to where that leg lands; the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -613,7 +613,7 @@ export async function registerDeskTools(
     {
       name: 'export_receipt',
       description:
-        'Return the full session receipt: every tool you called, every proposal with its rationale and mandate verdict, every human decision and note, and every signing handoff. Pass download:true to also hand the human a file. Pass format:"json" for a schemaVersion-stamped, machine-parseable object (mandate with its version, every proposal, every override and its outcome, every amendment diff, tool-call activity) instead of the default shape — the default is unchanged. In both shapes, a rationale or override argument comes back as { agentWritten: true, unverified: true, text }, since it is prior free text being handed back rather than a new instruction. This is the audit trail for what you did and why.',
+        'Return the full session receipt: every tool you called, every proposal with its rationale and mandate verdict, every human decision and note, and every signing handoff. Pass download:true to also hand the human a file. Pass format:"json" for a schemaVersion-stamped, machine-parseable object (mandate with its version, every proposal, every override and its outcome, every amendment diff, tool-call activity) instead of the default shape (the default is unchanged). In both shapes, a rationale or override argument comes back as { agentWritten: true, unverified: true, text }, since it is prior free text being handed back rather than a new instruction. This is the audit trail for what you did and why.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -641,7 +641,7 @@ export async function registerDeskTools(
     {
       name: 'check_approval',
       description:
-        'Check whether the human has approved or rejected a proposal. Set waitSeconds to block until they decide (up to 120s) instead of polling — the desk resolves the moment they click, and returns any note they typed. The proposal\'s rationale and override argument, if any, come back as { agentWritten: true, unverified: true, text }, the same treatment read_desk gives them.',
+        'Check whether the human has approved or rejected a proposal. Set waitSeconds to block until they decide (up to 120s) instead of polling; the desk resolves the moment they click, and returns any note they typed. The proposal\'s rationale and override argument, if any, come back as { agentWritten: true, unverified: true, text }, the same treatment read_desk gives them.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -742,7 +742,7 @@ export async function registerOverrideTool(
     {
       name: 'request_override',
       description:
-        "Ask the human to grant a one-time exception for a proposal your mandate check blocked. Say plainly which rule you want bent and why this trade is worth bending it for. They see your argument beside the rule you broke and can allow it once or deny it. Do not call this reflexively — an override you cannot justify costs you the next one. Only exists while a blocked proposal is on the desk.",
+        "Ask the human to grant a one-time exception for a proposal your mandate check blocked. Say plainly which rule you want bent and why this trade is worth bending it for. They see your argument beside the rule you broke and can allow it once or deny it. Do not call this reflexively; an override you cannot justify costs you the next one. Only exists while a blocked proposal is on the desk.",
       inputSchema: {
         type: 'object',
         properties: {
