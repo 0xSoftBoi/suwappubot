@@ -85,24 +85,46 @@ contract SuwappuCoreRouter {
         Aborted // lock force-released from Funding/Pending; see forceRelease
     }
 
+    // Result of _reconcile: order still live (in-token held), nothing landed
+    // yet, or reconciled to Bridging. Returned rather than reverted so a single
+    // in-token balance read serves both settle() and forceRelease().
+    enum Recon {
+        Held,
+        Nothing,
+        Reconciled
+    }
+
+    // Field order is packed by WRITE STEP so each lifecycle step touches the
+    // fewest fresh storage slots — grouping fields written together keeps later
+    // writes on already-non-zero (cheaper) slots. Six 32-byte slots total. Do
+    // NOT reorder without re-checking both the packing AND which step writes
+    // each slot (see per-slot notes).
     struct Swap {
-        address user;
-        bool baseForQuote; // true: sell base for quote
-        uint64 coreIn; // in-token deposited, Core wei
+        // slot 0 — status lives with initiate fields so every status flip
+        // (execute/settle/claim) hits an already-non-zero slot.
+        address user; // 20 bytes
+        bool baseForQuote; // true: sell base for quote (1)
+        Status status; // (1)
+        uint64 coreIn; // in-token deposited, Core wei (8) => 30/32
+        // slot 1 — initiate-only, never rewritten after initiate.
         uint64 minCoreOut; // acceptance bound for fee-charging, Core wei
-        uint64 outSnapshot; // free Core balance of out-token at initiate
         uint64 inSnapshot; // free Core balance of in-token at initiate
-        uint64 owedOut; // proceeds after fee, Core wei
-        uint64 owedIn; // unconsumed in-token refund, Core wei
-        uint256 evmOutSnapshot; // EVM balances at settle, for claim gating
-        uint256 evmInSnapshot;
-        uint64 limitPx; // stored at initiate, used at execute
         uint64 initiatedL1Block;
         uint64 initiatedEvmBlock;
+        // slot 2 — execute rewrites outSnapshot and writes executedL1Block;
+        // initiate already made this slot non-zero (outSnapshot + limitPx), so
+        // execute's writes stay cheap.
+        uint64 outSnapshot; // free Core balance of out-token, re-snapped at execute
         uint64 executedL1Block;
+        uint64 limitPx; // stored at initiate, used at execute
+        // slot 3 — all written together at settle (one 0->non-zero slot).
+        uint64 owedOut; // proceeds after fee, Core wei
+        uint64 owedIn; // unconsumed in-token refund, Core wei
         uint64 settledL1Block;
         uint64 retriedL1Block;
-        Status status;
+        // slots 4-5: full-width EVM balance snapshots, for claim gating
+        uint256 evmOutSnapshot;
+        uint256 evmInSnapshot;
     }
 
     uint128 public nextSwapId = 1;
@@ -292,49 +314,71 @@ contract SuwappuCoreRouter {
         Swap storage s = swaps[id];
         if (s.status != Status.Pending) revert BadStatus();
         if (inFlight != id) revert BadStatus(); // released swaps cannot settle
-        if (
-            block.number <= s.initiatedEvmBlock
-                || L1Read.l1BlockNumber() < s.executedL1Block + SETTLE_DELAY_L1
-        ) revert TooEarly();
+        uint64 l1 = L1Read.l1BlockNumber();
+        if (block.number <= s.initiatedEvmBlock || l1 < s.executedL1Block + SETTLE_DELAY_L1) {
+            revert TooEarly();
+        }
         // orderPlaced=true: a Pending swap always executed its IOC.
-        if (!_reconcile(id, s, true)) revert NotLanded(); // stay Pending, retry
+        Recon r = _reconcile(id, s, true, l1);
+        if (r == Recon.Held) revert TooEarly(); // order live, retry later
+        if (r == Recon.Nothing) revert NotLanded(); // stay Pending, retry
     }
 
     /// Shared reconciliation for settle() and forceRelease(). MUST be called
     /// only while inFlight == id so the free-balance delta is attributable to
-    /// this swap alone. Reverts TooEarly if the in-token is still held (order
-    /// live). Returns false (no state change) if nothing has landed on Core.
+    /// this swap alone. Reads the in-token spot balance exactly once and reports
+    /// via Recon (Held / Nothing / Reconciled) so callers, not this function,
+    /// choose whether to revert or terminalize; `l1` is passed in so the caller's
+    /// existing l1BlockNumber read is reused.
     ///
     /// @param orderPlaced false for a Funding swap that never placed an order —
     /// it can have no legitimate proceeds, so the out-leg is forced to 0 and it
     /// can only ever refund its own coreIn-capped input. This is what makes a
     /// lock-free out-leg unnecessary and closes the rescue() misattribution.
-    function _reconcile(uint128 id, Swap storage s, bool orderPlaced) internal returns (bool) {
+    function _reconcile(uint128 id, Swap storage s, bool orderPlaced, uint64 l1)
+        internal
+        returns (Recon)
+    {
         (uint64 coreTokenOut, uint64 coreTokenIn) =
             s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
 
-        L1Read.SpotBalance memory inBal = L1Read.spotBalance(address(this), coreTokenIn);
-        if (inBal.hold > 0) revert TooEarly(); // order still live
-
-        uint64 outFree = _free(coreTokenOut);
-        uint64 outDelta = (!orderPlaced || outFree <= s.outSnapshot) ? 0 : outFree - s.outSnapshot;
-        uint64 inRemainder = inBal.total > s.inSnapshot ? inBal.total - s.inSnapshot : 0;
-        if (inRemainder > s.coreIn) inRemainder = s.coreIn;
-        if (outDelta == 0 && inRemainder == 0) return false;
+        uint64 outDelta;
+        uint64 inRemainder;
+        // Scoped so the balance structs leave the stack before the writes below
+        // (keeps this within the stack limit without project-wide via-IR).
+        {
+            L1Read.SpotBalance memory inBal = L1Read.spotBalance(address(this), coreTokenIn);
+            if (inBal.hold > 0) return Recon.Held; // order still live
+            if (inBal.total > s.inSnapshot) {
+                unchecked {
+                    inRemainder = inBal.total - s.inSnapshot;
+                }
+                if (inRemainder > s.coreIn) inRemainder = s.coreIn;
+            }
+        }
+        {
+            uint64 outFree = _free(coreTokenOut);
+            if (orderPlaced && outFree > s.outSnapshot) {
+                unchecked {
+                    outDelta = outFree - s.outSnapshot;
+                }
+            }
+        }
+        if (outDelta == 0 && inRemainder == 0) return Recon.Nothing;
 
         uint64 fee = uint64((uint256(outDelta) * feeBps) / 10_000);
-        s.owedOut = outDelta - fee;
+        s.owedOut = outDelta - fee; // fee <= outDelta by construction
         s.owedIn = inRemainder;
         s.evmOutSnapshot = _erc20For(coreTokenOut).balanceOf(address(this));
         s.evmInSnapshot = _erc20For(coreTokenIn).balanceOf(address(this));
-        s.settledL1Block = L1Read.l1BlockNumber();
+        s.settledL1Block = l1;
         s.status = Status.Bridging;
 
         if (fee > 0) CoreWriterLib.spotSend(treasury, coreTokenOut, fee);
         _bridgeBack(coreTokenOut, s.owedOut);
-        _bridgeBack(coreTokenIn, s.owedIn);
+        _bridgeBack(coreTokenIn, inRemainder);
         emit SwapSettled(id, outDelta, inRemainder, fee, outDelta >= s.minCoreOut);
-        return true;
+        return Recon.Reconciled;
     }
 
     /// Pay the user both legs once THIS swap's bridge credits landed on EVM,
@@ -373,12 +417,13 @@ contract SuwappuCoreRouter {
         Swap storage s = swaps[id];
         if (s.status != Status.Bridging) revert BadStatus();
         if (inFlight != 0 && inFlight != id) revert Locked();
+        uint64 l1 = L1Read.l1BlockNumber();
         uint64 lastTry = s.retriedL1Block == 0 ? s.settledL1Block : s.retriedL1Block;
-        if (L1Read.l1BlockNumber() < lastTry + RETRY_DELAY_L1) revert TooEarly();
+        if (l1 < lastTry + RETRY_DELAY_L1) revert TooEarly();
 
         (uint64 coreTokenOut, uint64 coreTokenIn) =
             s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
-        s.retriedL1Block = L1Read.l1BlockNumber();
+        s.retriedL1Block = l1;
         _bridgeBack(coreTokenOut, _min64(s.owedOut, _free(coreTokenOut)));
         _bridgeBack(coreTokenIn, _min64(s.owedIn, _free(coreTokenIn)));
         emit BridgeRetried(id);
@@ -393,30 +438,27 @@ contract SuwappuCoreRouter {
         Swap storage s = swaps[id];
         if (inFlight != id) revert BadStatus();
         Status st = s.status;
+        uint64 l1 = L1Read.l1BlockNumber();
 
         if (st == Status.Bridging) {
-            if (L1Read.l1BlockNumber() < s.settledL1Block + RELEASE_DELAY_L1) revert TooEarly();
+            if (l1 < s.settledL1Block + RELEASE_DELAY_L1) revert TooEarly();
             inFlight = 0;
             emit LockReleased(id);
             return;
         }
         if (st != Status.Funding && st != Status.Pending) revert BadStatus();
         uint64 since = st == Status.Funding ? s.initiatedL1Block : s.executedL1Block;
-        if (L1Read.l1BlockNumber() < since + RELEASE_DELAY_L1) revert TooEarly();
+        if (l1 < since + RELEASE_DELAY_L1) revert TooEarly();
 
         // Reconcile under the lock. A Funding swap placed no order, so its
         // out-leg is forced to 0 and it refunds only its coreIn-capped input; a
         // Pending swap recovers both legs. Reconciliation moves it to Bridging
-        // (claim()/retry() take over). If nothing is on Core — never credited,
-        // or an order still held — the funds are in HyperCore's custody and
-        // unrecoverable by the contract; terminalize to Aborted so a later call
-        // can never reconcile against a successor's balances (NEW-2).
-        (, uint64 coreTokenIn) = s.baseForQuote ? (quoteToken, baseToken) : (baseToken, quoteToken);
-        bool recovered;
-        if (L1Read.spotBalance(address(this), coreTokenIn).hold == 0) {
-            recovered = _reconcile(id, s, st == Status.Pending);
-        }
-        if (recovered) {
+        // (claim()/retry() take over). If nothing is recoverable — never
+        // credited, or an order still held (Recon.Held/Nothing) — the funds are
+        // in HyperCore's custody and unrecoverable by the contract; terminalize
+        // to Aborted so a later call can never reconcile against a successor's
+        // balances (NEW-2). _reconcile does the single in-token read itself.
+        if (_reconcile(id, s, st == Status.Pending, l1) == Recon.Reconciled) {
             // Reconciled to Bridging: async Core->EVM bridge-backs are now in
             // flight. KEEP the lock (exactly as settle does) so no next swap can
             // snapshot Core while our debit is still crossing and get
