@@ -119,6 +119,7 @@ Protocol/economics work can exist without being production execution authority.
 - Economics/rewards: [`economics/`](economics/) · [`rewards/`](rewards/)
 - Forward-looking work: [`plans/`](plans/) · [NEXT.md](NEXT.md)
 - Point-in-time evidence: [`research/`](research/)
+- AI-company front-end parity study (2026-09, what the enterprise design bar is and our gap list): [`research/ai-frontend-parity/`](research/ai-frontend-parity/README.md)
 - Design studies/system: [`design/`](design/)
 
 `bot/services/execution_sync*.py` remains **shadow** evidence infrastructure unless
