@@ -97,6 +97,9 @@ interface PlanStep {
   swap?: SwapBody;
   alert?: AlertBody;
   verdict: MandateVerdict | null;
+  /** True when this leg sells the previous swap leg's estimated output
+      (`amount: "@prev"`) — a chained relay, not new money entering the plan. */
+  chainedFromPrevious?: boolean;
 }
 
 interface Override {
@@ -181,6 +184,38 @@ function fmtAmount(value: string | undefined): string {
 function fmtDuration(seconds: number | undefined): string {
   if (!seconds || !Number.isFinite(seconds)) return '-';
   return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`;
+}
+
+/** How many legs the routed quote really is. 1 when the API predates hops. */
+const hopCountOf = (p: SwapPreview | null | undefined): number =>
+  p ? (p.hopCount ?? p.hops?.length ?? 1) : 0;
+
+/**
+ * One compact line per route leg, for tool results and the receipt. Most
+ * cross-chain routes are more than one transaction — a swap, a bridge relay,
+ * another swap — and an agent sizing or explaining a trade needs each leg,
+ * not a flattened tool-name string.
+ */
+function hopLines(p: SwapPreview | null | undefined): string[] {
+  if (!p) return [];
+  if (!Array.isArray(p.hops) || p.hops.length === 0) return [p.route];
+  return p.hops.map((h) => {
+    const verb = h.type === 'cross' ? 'relay' : h.type === 'swap' ? 'swap' : h.type;
+    const where =
+      h.fromChain && h.toChain && h.fromChain !== h.toChain
+        ? ` (${h.fromChain} → ${h.toChain})`
+        : h.fromChain
+          ? ` on ${h.fromChain}`
+          : '';
+    const sold = h.fromToken
+      ? `${h.fromAmount ? `${fmtAmount(h.fromAmount)} ` : ''}${h.fromToken}`
+      : '';
+    const bought = h.toToken
+      ? `${h.toAmount ? `${fmtAmount(h.toAmount)} ` : ''}${h.toToken}`
+      : '';
+    const tokens = sold && bought ? `: ${sold} → ${bought}` : '';
+    return `${h.index + 1}. ${verb} via ${h.toolName || h.tool}${where}${tokens}`;
+  });
 }
 
 const clock = (at: number) =>
@@ -730,8 +765,9 @@ export default function AgentDesk() {
                   step: i + 1,
                   kind: s.kind,
                   note: s.note ? agentWritten(s.note) : null,
+                  chainedFromPrevious: s.chainedFromPrevious ?? false,
                   summary: s.swap
-                    ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                    ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
                     : s.alert
                       ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
                       : null,
@@ -839,6 +875,8 @@ export default function AgentDesk() {
               indicativeOut: p.swap.preview
                 ? `${fmtAmount(p.swap.preview.toAmount)} ${p.swap.preview.toToken.symbol}`
                 : null,
+              hopCount: p.swap.preview ? hopCountOf(p.swap.preview) : null,
+              hops: p.swap.preview ? hopLines(p.swap.preview) : null,
               pricingError: p.swap.previewError,
             },
           }
@@ -859,11 +897,13 @@ export default function AgentDesk() {
                 step: i + 1,
                 kind: s.kind,
                 note: s.note,
+                chainedFromPrevious: s.chainedFromPrevious ?? false,
                 summary: s.swap
-                  ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                  ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
                   : s.alert
                     ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
                     : null,
+                hopCount: s.swap?.preview ? hopCountOf(s.swap.preview) : null,
                 mandate: describeVerdict(s.verdict),
               })),
             },
@@ -945,6 +985,8 @@ export default function AgentDesk() {
           estimatedGasUsd: p.estimatedGasUsd,
           estimatedDuration: fmtDuration(p.estimatedDurationSeconds),
           route: p.route,
+          hopCount: hopCountOf(p),
+          hops: hopLines(p),
           order: p.order,
           slippagePercent: p.slippage * 100,
           executable: false,
@@ -974,6 +1016,7 @@ export default function AgentDesk() {
             bridgeFeeUsd: r.preview?.bridgeFeeUsd ?? null,
             duration: r.preview ? fmtDuration(r.preview.estimatedDurationSeconds) : null,
             route: r.preview?.route ?? null,
+            hopCount: r.preview ? hopCountOf(r.preview) : null,
             error: r.error,
           })),
           note: 'Rendered as a comparison table on the page for the human.',
@@ -991,6 +1034,8 @@ export default function AgentDesk() {
                 out: `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
                 outUsd: p.toAmountUsd,
                 route: p.route,
+                hopCount: hopCountOf(p),
+                hops: hopLines(p),
                 order: p.order,
               }
             : null,
@@ -1228,16 +1273,39 @@ export default function AgentDesk() {
         if (args.steps.length > 5) throw new Error('a plan is capped at 5 steps');
 
         const steps: PlanStep[] = [];
+        // The last priced swap leg, so `amount: "@prev"` can chain: leg N
+        // sells what leg N-1 is estimated to deliver. This is what makes a
+        // plan a real multi-hop relay instead of N unrelated tickets.
+        let prevSwap: SwapBody | null = null;
         for (const raw of args.steps) {
           const kind = String(raw.kind ?? 'swap') === 'alert' ? 'alert' : 'swap';
           const note = raw.note ? String(raw.note) : null;
           if (kind === 'swap') {
+            const rawAmount = String(raw.amount ?? '').trim();
+            const chained = /^@?prev(ious)?$/i.test(rawAmount);
+            if (chained) {
+              if (!prevSwap) {
+                throw new Error('amount "@prev" needs an earlier swap step to chain from');
+              }
+              if (!prevSwap.preview) {
+                throw new Error(
+                  `cannot chain from the previous swap step — it failed to price (${prevSwap.previewError ?? 'no quote'})`,
+                );
+              }
+            }
+            const prevOut = chained ? prevSwap!.preview! : null;
             const t: Ticket = {
-              fromChain: String(raw.fromChain ?? ticketRef.current.fromChain),
-              toChain: String(raw.toChain ?? raw.fromChain ?? ticketRef.current.toChain),
-              fromToken: String(raw.fromToken ?? ''),
+              fromChain: String(
+                raw.fromChain ?? (chained ? prevSwap!.toChain : ticketRef.current.fromChain),
+              ),
+              toChain: String(
+                raw.toChain ??
+                  raw.fromChain ??
+                  (chained ? prevSwap!.toChain : ticketRef.current.toChain),
+              ),
+              fromToken: String(raw.fromToken ?? (prevOut ? prevOut.toToken.symbol : '')),
               toToken: String(raw.toToken ?? ''),
-              amount: String(raw.amount ?? ''),
+              amount: chained ? prevOut!.toAmount : rawAmount,
               slippagePercent:
                 typeof raw.slippagePercent === 'number'
                   ? raw.slippagePercent
@@ -1247,8 +1315,23 @@ export default function AgentDesk() {
             if (!t.fromToken || !t.toToken || !t.amount) {
               throw new Error('every swap step needs fromToken, toToken and amount');
             }
+            // A chained leg must actually pick up where the last one lands —
+            // otherwise "@prev" would quietly price a trade that can't follow.
+            if (chained && prevOut) {
+              if (t.fromToken.toLowerCase() !== prevOut.toToken.symbol.toLowerCase()) {
+                throw new Error(
+                  `chained step sells ${t.fromToken} but the previous leg delivers ${prevOut.toToken.symbol}`,
+                );
+              }
+              if (t.fromChain !== prevSwap!.toChain) {
+                throw new Error(
+                  `chained step starts on ${t.fromChain} but the previous leg lands on ${prevSwap!.toChain}`,
+                );
+              }
+            }
             const body = await priceOne(t);
-            steps.push({ kind, note, swap: body, verdict: judge(body) });
+            steps.push({ kind, note, swap: body, verdict: judge(body), chainedFromPrevious: chained });
+            prevSwap = body;
           } else {
             const symbol = String(raw.symbol ?? '').toUpperCase();
             const direction = String(raw.direction ?? 'above');
@@ -1270,7 +1353,11 @@ export default function AgentDesk() {
           }
         }
 
+        // Combined notional counts NEW money only: a chained leg re-trades
+        // value an earlier leg already brought in, so summing it again would
+        // double-charge the daily cap for a single multi-hop relay.
         const priced = steps
+          .filter((s) => !s.chainedFromPrevious)
           .map((s) => num(s.swap?.preview?.fromAmountUsd))
           .filter((n): n is number => n !== null);
         const combinedUsd = priced.length > 0 ? priced.reduce((a, b) => a + b, 0) : null;
@@ -1322,6 +1409,7 @@ export default function AgentDesk() {
           verdict: rollup,
           override: null,
         };
+        const chainedLegs = steps.filter((s) => s.chainedFromPrevious).length;
         return {
           ...addProposal(proposal),
           shownToHuman: {
@@ -1329,10 +1417,17 @@ export default function AgentDesk() {
             combinedUsd,
             legs: steps.map((s) =>
               s.swap
-                ? `${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
+                ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
                 : `alert ${s.alert?.symbol} ${s.alert?.direction} ${s.alert?.targetPrice}`,
             ),
           },
+          ...(chainedLegs > 0
+            ? {
+                chaining:
+                  `${chainedLegs} leg(s) sell the previous leg's estimated output. ` +
+                  'Amounts are indicative: what a later leg really trades is what the earlier leg actually delivers at signing, and the human signs one leg at a time in order.',
+              }
+            : {}),
         };
       },
 
@@ -2032,9 +2127,22 @@ export default function AgentDesk() {
               </div>
               <div>
                 <dt>Route</dt>
-                <dd>{preview.route}</dd>
+                <dd>
+                  {preview.route}
+                  {hopCountOf(preview) > 1 && (
+                    <> · {hopCountOf(preview)} legs</>
+                  )}
+                </dd>
               </div>
             </dl>
+          )}
+
+          {preview && !comparison && hopCountOf(preview) > 1 && (
+            <ol className={styles.hopList}>
+              {hopLines(preview).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
           )}
 
           {comparison && (
@@ -2046,6 +2154,7 @@ export default function AgentDesk() {
                     <th>Out</th>
                     <th>Gas</th>
                     <th>Time</th>
+                    <th>Legs</th>
                     <th>Route</th>
                   </tr>
                 </thead>
@@ -2062,6 +2171,7 @@ export default function AgentDesk() {
                       <td>
                         {row.preview ? fmtDuration(row.preview.estimatedDurationSeconds) : '-'}
                       </td>
+                      <td>{row.preview ? hopCountOf(row.preview) : '-'}</td>
                       <td>{row.preview?.route ?? row.error ?? '-'}</td>
                     </tr>
                   ))}
@@ -2157,6 +2267,16 @@ export default function AgentDesk() {
                     </p>
                   )}
 
+                  {/* A cross-chain trade is usually more than one transaction;
+                      the card the human approves must show every leg. */}
+                  {p.swap?.preview && hopCountOf(p.swap.preview) > 1 && (
+                    <ol className={styles.hopList}>
+                      {hopLines(p.swap.preview).map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ol>
+                  )}
+
                   {p.plan && (
                     <ol className={styles.planSteps}>
                       {p.plan.steps.map((s, i) => {
@@ -2201,6 +2321,11 @@ export default function AgentDesk() {
                                 </>
                               )}
                               {s.note && <em className={styles.planNote}> ({s.note})</em>}
+                              {s.chainedFromPrevious && (
+                                <span className={styles.planTag}>
+                                  chained · sells the previous leg&apos;s output
+                                </span>
+                              )}
                               {state === 'signed' && (
                                 <span className={styles.planTag}>signed</span>
                               )}
@@ -2249,6 +2374,9 @@ export default function AgentDesk() {
                           <span className={styles.planIndex}>Σ</span>
                           <span>
                             Combined notional <strong>{fmtUsd(p.plan.combinedUsd)}</strong>
+                            {p.plan.steps.some((s) => s.chainedFromPrevious) && (
+                              <> · chained legs re-trade earlier output, counted once</>
+                            )}
                           </span>
                         </li>
                       )}

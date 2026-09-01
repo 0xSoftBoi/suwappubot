@@ -67,6 +67,63 @@ await page.route('**/public/swap/preview*', (route) => {
   const url = new URL(route.request().url());
   const amount = Number.parseFloat(url.searchParams.get('fromAmount') ?? '0');
   const usd = amount * ETH_USD;
+  // Mirror the real API's hop breakdown: a cross-chain route is two legs
+  // (source-chain swap, then the bridge relay), a same-chain route is one.
+  const fromChain = url.searchParams.get('fromChain');
+  const toChain = url.searchParams.get('toChain');
+  const fromToken = url.searchParams.get('fromToken');
+  const toToken = url.searchParams.get('toToken');
+  const cross = fromChain !== toChain;
+  const hops = cross
+    ? [
+        {
+          index: 0,
+          type: 'swap',
+          tool: 'uniswap',
+          toolName: 'Uniswap',
+          fromChain,
+          toChain: fromChain,
+          fromToken,
+          toToken: 'USDC',
+          fromAmount: String(amount),
+          toAmount: (usd * 0.998).toFixed(2),
+          estimatedGasUsd: '0.30',
+          feeUsd: null,
+          estimatedDurationSeconds: 12,
+        },
+        {
+          index: 1,
+          type: 'cross',
+          tool: 'across',
+          toolName: 'Across',
+          fromChain,
+          toChain,
+          fromToken: 'USDC',
+          toToken,
+          fromAmount: (usd * 0.998).toFixed(2),
+          toAmount: (usd * 0.997).toFixed(2),
+          estimatedGasUsd: '0.12',
+          feeUsd: '0.91',
+          estimatedDurationSeconds: 80,
+        },
+      ]
+    : [
+        {
+          index: 0,
+          type: 'swap',
+          tool: 'across',
+          toolName: 'Across',
+          fromChain,
+          toChain,
+          fromToken,
+          toToken,
+          fromAmount: String(amount),
+          toAmount: (usd * 0.997).toFixed(2),
+          estimatedGasUsd: '0.42',
+          feeUsd: null,
+          estimatedDurationSeconds: 92,
+        },
+      ];
   route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -90,7 +147,9 @@ await page.route('**/public/swap/preview*', (route) => {
       bridgeFeeUsd: '0.91',
       estimatedDurationSeconds: 92,
       slippage: Number.parseFloat(url.searchParams.get('slippage') ?? '0.005'),
-      route: 'across',
+      route: cross ? 'Uniswap → Across' : 'across',
+      hops,
+      hopCount: hops.length,
       notice: 'Indicative preview only.',
     }),
   });
@@ -263,6 +322,61 @@ check(
   JSON.stringify(outside.violations.map((v) => v.rule)),
 );
 
+// ── 3b. multi-hop routes are reported leg by leg ───────────────────
+// Most cross-chain routes are more than one transaction. The preview must
+// hand the agent each leg — tool, chains, tokens, amounts — not a flattened
+// route string it would have to guess a relay out of.
+const crossPreview = await call('preview_swap', {
+  fromChain: 'base',
+  toChain: 'arbitrum',
+  fromToken: 'ETH',
+  toToken: 'USDC',
+  amount: '0.03',
+});
+show('preview_swap (cross-chain, multi-hop)', {
+  hopCount: crossPreview.hopCount,
+  hops: crossPreview.hops,
+});
+check(
+  'a cross-chain preview reports more than one hop',
+  crossPreview.hopCount === 2 && Array.isArray(crossPreview.hops) && crossPreview.hops.length === 2,
+  JSON.stringify(crossPreview.hops),
+);
+check(
+  'hop 1 is the source-chain swap, named with its tool',
+  /^1\. swap via Uniswap/.test(crossPreview.hops?.[0] ?? ''),
+  crossPreview.hops?.[0],
+);
+check(
+  'hop 2 is the bridge relay, named with both chains',
+  /^2\. relay via Across \(base → arbitrum\)/.test(crossPreview.hops?.[1] ?? ''),
+  crossPreview.hops?.[1],
+);
+const samePreview = await call('preview_swap', {
+  fromChain: 'base',
+  toChain: 'base',
+  fromToken: 'ETH',
+  toToken: 'USDC',
+  amount: '0.03',
+});
+check('a same-chain preview is honestly one hop', samePreview.hopCount === 1);
+const comparisonRows = await call('compare_routes', {
+  fromChain: 'base',
+  toChain: 'arbitrum',
+  fromToken: 'ETH',
+  toToken: 'USDC',
+  amount: '0.03',
+});
+check(
+  'every compared route reports its hop count',
+  Array.isArray(comparisonRows.comparison) &&
+    comparisonRows.comparison.length === 4 &&
+    comparisonRows.comparison.every((r) => r.hopCount === 2),
+  JSON.stringify(comparisonRows.comparison?.map((r) => r.hopCount)),
+);
+await page.locator('th', { hasText: 'Legs' }).first().waitFor({ timeout: 10_000 });
+check('the comparison table shows the human a Legs column', true);
+
 // ── 4. proposing it anyway lands blocked ───────────────────────────
 const blocked = await call('propose_swap', {
   fromChain: 'base',
@@ -326,6 +440,19 @@ check(
   'the two breach classes render visibly distinct variants',
   capCardVariant !== null && chainCardVariant !== null && capCardVariant !== chainCardVariant,
   `${capCardVariant} vs ${chainCardVariant}`,
+);
+// The cross-chain proposal is two transactions; the card the human approves
+// must show both legs, not just the pair of tokens.
+const chainBreachLegs = await page
+  .locator('li', { hasText: 'chain outside the mandate' })
+  .locator('[class*="hopList"] li')
+  .allTextContents();
+check(
+  "a cross-chain proposal card renders the route's legs for the human",
+  chainBreachLegs.length === 2 &&
+    /^1\. swap via Uniswap/.test(chainBreachLegs[0] ?? '') &&
+    /relay via Across \(base → polygon\)/.test(chainBreachLegs[1] ?? ''),
+  JSON.stringify(chainBreachLegs),
 );
 
 // ── 4c. Spotlight agent-written text re-fed to the model (P1.2) ────
@@ -518,6 +645,81 @@ check(
   JSON.stringify(planReplay),
 );
 
+// ── 7c. chained legs: a plan can be a true multi-hop relay ─────────
+// `amount: "@prev"` makes a leg sell the previous leg's estimated output —
+// the shape of a real relay (bridge, then trade what arrived) instead of
+// N unrelated tickets. New money is counted once, not per re-trade.
+const chainedPlan = await call('propose_plan', {
+  rationale: 'Bridge a slice to Arbitrum, then rotate whatever arrives back into ETH there.',
+  steps: [
+    {
+      kind: 'swap',
+      fromChain: 'base',
+      toChain: 'arbitrum',
+      fromToken: 'ETH',
+      toToken: 'USDC',
+      amount: '0.004',
+      note: 'bridge leg',
+    },
+    {
+      kind: 'swap',
+      toToken: 'ETH',
+      amount: '@prev',
+      note: 'sell what the bridge delivers',
+    },
+  ],
+});
+show('propose_plan (chained)', chainedPlan);
+check(
+  'the chained leg inherited the previous leg\'s output token and chain',
+  chainedPlan.shownToHuman?.legs?.[1]?.startsWith('↳') &&
+    chainedPlan.shownToHuman.legs[1].includes('USDC → ETH'),
+  JSON.stringify(chainedPlan.shownToHuman?.legs),
+);
+check(
+  'a chained plan says so, and says amounts are indicative',
+  typeof chainedPlan.chaining === 'string' && chainedPlan.chaining.includes('indicative'),
+);
+// Leg 1 puts ~$12.80 in; leg 2 re-trades it. The combined notional must be
+// the new money only — the old sum-of-legs would double-count the relay.
+check(
+  'combined notional counts new money once, not each re-trade of it',
+  typeof chainedPlan.shownToHuman?.combinedUsd === 'number' &&
+    chainedPlan.shownToHuman.combinedUsd < 100,
+  String(chainedPlan.shownToHuman?.combinedUsd),
+);
+const deskWithChainedPlan = await call('read_desk');
+const chainedAtDesk = deskWithChainedPlan.proposals.find(
+  (p) => p.proposalId === chainedPlan.proposalId,
+);
+check(
+  'read_desk flags which leg is chained',
+  chainedAtDesk?.plan?.steps?.[0]?.chainedFromPrevious === false &&
+    chainedAtDesk?.plan?.steps?.[1]?.chainedFromPrevious === true,
+  JSON.stringify(chainedAtDesk?.plan?.steps),
+);
+const chainlessPrev = await call('propose_plan', {
+  rationale: 'A chain with nothing to chain from.',
+  steps: [{ kind: 'swap', fromChain: 'base', toToken: 'USDC', amount: '@prev' }],
+}).catch((e) => ({ error: String(e?.message ?? e) }));
+check(
+  '"@prev" on the first step is refused, not guessed',
+  Boolean(chainlessPrev.error) && String(chainlessPrev.error).includes('earlier swap step'),
+  JSON.stringify(chainlessPrev),
+);
+const mismatchedChain = await call('propose_plan', {
+  rationale: 'A chained leg that does not pick up where the last one landed.',
+  steps: [
+    { kind: 'swap', fromChain: 'base', toChain: 'arbitrum', fromToken: 'ETH', toToken: 'USDC', amount: '0.004' },
+    { kind: 'swap', fromToken: 'ETH', toToken: 'USDC', amount: '@prev' },
+  ],
+}).catch((e) => ({ error: String(e?.message ?? e) }));
+check(
+  'a chained leg selling a token the previous leg does not deliver is refused',
+  Boolean(mismatchedChain.error) && String(mismatchedChain.error).includes('delivers'),
+  JSON.stringify(mismatchedChain),
+);
+
 // ── 8. the completion loop: the envelope really changes ────────────
 // This is the one thing on the desk that finishes in place. Everything else
 // ends in a handoff; an approved amendment rewrites the human's rules here.
@@ -593,8 +795,8 @@ check(
 // ── 10. the receipt (default shape, now with wrapped agent text) ───
 const receipt = await call('export_receipt', {});
 check(
-  'receipt lists both swaps, the plan and the amendment',
-  receipt.proposals.length === 4,
+  'receipt lists both swaps, both plans and the amendment',
+  receipt.proposals.length === 5,
   String(receipt.proposals.length),
 );
 const overridden = receipt.proposals.find((p) => p.id === blocked.proposalId);

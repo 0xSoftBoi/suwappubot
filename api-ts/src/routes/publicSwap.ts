@@ -15,6 +15,7 @@ import { ipRateLimit } from '../middleware/ipRateLimit'
 import { runEffectEither } from '../runtime'
 import {
 	cacheKeys,
+	chainKeyFromId,
 	QUOTE_TTL,
 	type QuoteParams,
 	RedisService,
@@ -199,6 +200,103 @@ async function resolveTokenDecimals(chain: string, token: string): Promise<numbe
 	}
 	decimalsCache.set(key, { decimals: body.decimals, expiry: Date.now() + DECIMALS_TTL_MS })
 	return body.decimals
+}
+
+/**
+ * One leg of a routed swap, display-shaped for the preview response. Most
+ * cross-chain routes are more than one transaction — a swap on the source
+ * chain, a bridge relay, a swap on the destination — and the desk's agents
+ * reason about each leg, so the preview must not flatten them into a string.
+ */
+export interface PreviewHop {
+	index: number
+	/** Li.Fi step type: 'swap' (same-chain DEX), 'cross' (bridge/relay), 'protocol', … */
+	type: string
+	tool: string
+	toolName: string
+	fromChain: string | null
+	toChain: string | null
+	fromToken: string | null
+	toToken: string | null
+	/** Human-readable amounts, like the rest of the preview. */
+	fromAmount: string | null
+	toAmount: string | null
+	estimatedGasUsd: string | null
+	feeUsd: string | null
+	estimatedDurationSeconds: number | null
+}
+
+/** Loosely-typed view of an includedStep's action — Li.Fi-shaped, guarded. */
+interface HopAction {
+	fromChainId?: number
+	toChainId?: number
+	fromToken?: { symbol?: string; decimals?: number }
+	toToken?: { symbol?: string; decimals?: number }
+}
+
+const sumUsd = (rows: Array<{ amountUSD?: string }> | undefined): string | null => {
+	if (!Array.isArray(rows) || rows.length === 0) return null
+	const total = rows.reduce((acc, r) => acc + (Number.parseFloat(r.amountUSD ?? '') || 0), 0)
+	return total.toFixed(4)
+}
+
+/**
+ * Maps the aggregator's real route legs (`_rawQuote.includedSteps`) into the
+ * preview's hop list. Read-only over the raw quote — this never selects or
+ * mutates a route (see the comparison-only note in SwapService). Falls back to
+ * a single synthetic hop when a provider answers without step detail, so
+ * `hops` is never empty and `hopCount` is always honest about what we know.
+ */
+export function buildPreviewHops(quote: SwapQuote): PreviewHop[] {
+	const steps = quote._rawQuote?.includedSteps
+	if (Array.isArray(steps) && steps.length > 0) {
+		return steps.map((step, index) => {
+			const action = (step.action ?? {}) as HopAction
+			const fromChainId = typeof action.fromChainId === 'number' ? action.fromChainId : null
+			const toChainId = typeof action.toChainId === 'number' ? action.toChainId : null
+			const fromDecimals = action.fromToken?.decimals
+			const toDecimals = action.toToken?.decimals
+			return {
+				index,
+				type: step.type || 'swap',
+				tool: step.tool,
+				toolName: step.toolDetails?.name ?? step.tool,
+				fromChain: fromChainId !== null ? (chainKeyFromId(fromChainId) ?? String(fromChainId)) : null,
+				toChain: toChainId !== null ? (chainKeyFromId(toChainId) ?? String(toChainId)) : null,
+				fromToken: action.fromToken?.symbol ?? null,
+				toToken: action.toToken?.symbol ?? null,
+				fromAmount:
+					typeof fromDecimals === 'number' && step.estimate?.fromAmount
+						? fromBaseUnits(step.estimate.fromAmount, fromDecimals)
+						: null,
+				toAmount:
+					typeof toDecimals === 'number' && step.estimate?.toAmount
+						? fromBaseUnits(step.estimate.toAmount, toDecimals)
+						: null,
+				estimatedGasUsd: sumUsd(step.estimate?.gasCosts),
+				feeUsd: sumUsd(step.estimate?.feeCosts),
+				estimatedDurationSeconds: step.estimate?.executionDuration ?? null,
+			}
+		})
+	}
+	// Provider gave no step breakdown: report the whole quote as one hop.
+	return [
+		{
+			index: 0,
+			type: quote.fromChain === quote.toChain ? 'swap' : 'cross',
+			tool: quote.route,
+			toolName: quote.route,
+			fromChain: quote.fromChain,
+			toChain: quote.toChain,
+			fromToken: quote.fromToken.symbol,
+			toToken: quote.toToken.symbol,
+			fromAmount: fromBaseUnits(quote.fromAmount, quote.fromToken.decimals),
+			toAmount: fromBaseUnits(quote.toAmount, quote.toToken.decimals),
+			estimatedGasUsd: quote.estimatedGasUsd || null,
+			feeUsd: quote.bridgeFeeUsd || null,
+			estimatedDurationSeconds: quote.estimatedDuration ?? null,
+		},
+	]
 }
 
 // ─── Public Routes (IP rate-limited, no auth) ───
@@ -467,6 +565,8 @@ publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
 					),
 				)
 
+			const hops = buildPreviewHops(quote)
+
 			return {
 				indicative: true,
 				executable: false,
@@ -497,6 +597,10 @@ publicSwapRoutes.get('/preview', ipRateLimit(), async (c) => {
 				estimatedDurationSeconds: quote.estimatedDuration,
 				slippage: quote.slippage,
 				route: quote.route,
+				// The real legs of the route. Most cross-chain routes are more
+				// than one transaction; agents plan against hops, not the string.
+				hops,
+				hopCount: hops.length,
 				pricedFor: fromAddress,
 				notice:
 					'Indicative preview only. Not executable and not tied to a wallet — ' +
