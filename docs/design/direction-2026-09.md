@@ -1,6 +1,6 @@
 # Creative direction: "The Quote Race" (2026-09-01)
 
-Companion to `docs/research/ai-frontend-parity/`. That folder says what the bar is. This says what Suwappu should *be*. Prototype: `docs/design/prototypes/hero-quote-race.html` (open it, or see the published artifact link in the PR).
+Companion to `docs/research/ai-frontend-parity/`. That folder says what the bar is. This says what Suwappu should *be*. Prototype: `docs/design/prototypes/hero-quote-race.html`. Live preview: https://claude.ai/code/artifact/71601e04-6112-449d-b832-e4eefa0e3287 (private artifact; share from its menu).
 
 ## Thesis
 
