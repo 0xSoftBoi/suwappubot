@@ -162,6 +162,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['GET', '/webapp/me/limit-orders'],
 			['DELETE', '/webapp/me/limit-orders/42'],
 			['GET', '/webapp/me/portfolio'],
+			['GET', '/webapp/me/portfolio/history'],
 			['GET', '/webapp/dca/orders'],
 			['POST', '/webapp/dca/orders/7/pause'],
 			['POST', '/webapp/dca/orders/7/cancel'],
@@ -202,6 +203,22 @@ describe('Python Terminal compatibility gateway', () => {
 			expect(response.status).toBe(200)
 		}
 		expect(seen).toEqual(['/webapp/portfolio', '/webapp/limit-orders'])
+	})
+
+	it('rewrites the portfolio history alias and preserves the query string', async () => {
+		const seen: string[] = []
+		const app = new Hono().route('/', createTerminalWebappProxyRoutes({
+			baseUrl: PYTHON_URL,
+			fetchImpl: async (input) => {
+				const url = new URL(String(input))
+				seen.push(`${url.pathname}${url.search}`)
+				return Response.json({ ok: true })
+			},
+		}))
+
+		const response = await app.request('/webapp/me/portfolio/history?period=7d')
+		expect(response.status).toBe(200)
+		expect(seen).toEqual(['/webapp/portfolio/history?period=7d'])
 	})
 
 	it('rewrites risk-reducing order controls for strong sessions only', async () => {

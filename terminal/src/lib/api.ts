@@ -1,4 +1,5 @@
 import { getAuthToken } from './auth'
+import type { HistoryPeriod } from '../hooks/usePortfolioHistory'
 import type {
   BridgeBuildRequest,
   BridgeBuildResult,
@@ -20,6 +21,7 @@ import type {
   PasskeyAuthInitResponse,
   PasskeyAuthCompleteResponse,
   Portfolio,
+  PortfolioHistoryResponse,
   ChainInfo,
   SwapToken,
   OHLCVCandle,
@@ -497,6 +499,11 @@ export const api = {
   // Portfolio — real route: GET /webapp/me/portfolio
   getPortfolio() {
     return request<Portfolio>('/webapp/me/portfolio')
+  },
+
+  // Portfolio equity curve — real route: GET /webapp/me/portfolio/history
+  getPortfolioHistory(period: HistoryPeriod) {
+    return request<PortfolioHistoryResponse>(`/webapp/me/portfolio/history?period=${period}`)
   },
 
   // Solana data proxy — the Helius key stays server-side; the client never sees it.

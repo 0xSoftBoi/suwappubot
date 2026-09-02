@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { createChart, type IChartApi, type ISeriesApi, ColorType } from 'lightweight-charts'
 import { usePortfolioHistory, type HistoryPeriod } from '../../hooks/usePortfolioHistory'
+import { TerminalSkeleton } from '../foundation'
 import { designTokens } from '@suwappu/design-tokens'
 
 const PERIODS: { id: HistoryPeriod; label: string }[] = [
@@ -18,7 +19,7 @@ export function EquityCurve() {
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const [period, setPeriod] = useState<HistoryPeriod>('30d')
 
-  const { data } = usePortfolioHistory(period)
+  const { data, isLoading, isError, refetch } = usePortfolioHistory(period)
 
   // Initialize chart
   useEffect(() => {
@@ -98,13 +99,29 @@ export function EquityCurve() {
           </button>
         ))}
       </div>
-      {data.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-terminal-text-muted">
-          Portfolio history is not connected yet.
-        </div>
-      ) : (
-        <div ref={containerRef} className="flex-1" />
-      )}
+      <div className="relative flex-1">
+        <div ref={containerRef} className="absolute inset-0" />
+        {isLoading ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <TerminalSkeleton width={200} height={18} label="Loading portfolio history" />
+          </div>
+        ) : isError ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-sm text-terminal-text-muted">
+            <span>Couldn't load history</span>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="text-xs text-bear underline decoration-dotted"
+            >
+              Retry
+            </button>
+          </div>
+        ) : data.length === 0 ? (
+          <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-terminal-text-muted">
+            No history yet. Snapshots start after your first sign-in and accrue every 15 minutes.
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

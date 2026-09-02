@@ -91,6 +91,7 @@ const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'GET /webapp/limit-orders',
 	'GET /webapp/me/limit-orders',
 	'GET /webapp/me/portfolio',
+	'GET /webapp/me/portfolio/history',
 	'GET /webapp/dca/orders',
 	'GET /webapp/discovery/new',
 	'GET /webapp/discovery/trending',
@@ -171,6 +172,7 @@ type ProxyTarget = { path?: string; method?: string }
 
 function terminalWebappTarget(path: string, method: string): ProxyTarget {
 	if (path === '/webapp/me/portfolio') return { path: '/webapp/portfolio' }
+	if (path === '/webapp/me/portfolio/history') return { path: '/webapp/portfolio/history' }
 	if (path === '/webapp/me/limit-orders') return { path: '/webapp/limit-orders' }
 
 	const cancelMatch = path.match(TERMINAL_LIMIT_ORDER_CANCEL_ROUTE)

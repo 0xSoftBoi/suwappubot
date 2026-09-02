@@ -54,6 +54,19 @@ export interface TokenBalance {
   chain: string;
 }
 
+export type PortfolioHistoryPeriod = "24h" | "7d" | "30d" | "all";
+
+export interface PortfolioHistoryPoint {
+  /** Unix seconds. */
+  time: number;
+  value: number;
+}
+
+export interface PortfolioHistoryResponse {
+  period: PortfolioHistoryPeriod;
+  points: PortfolioHistoryPoint[];
+}
+
 export interface TokenPrice {
   token: string;
   priceUsd: string;

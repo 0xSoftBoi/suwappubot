@@ -14,6 +14,16 @@ export interface Portfolio {
   lastUpdated: string
 }
 
+export interface PortfolioHistoryPoint {
+  time: number
+  value: number
+}
+
+export interface PortfolioHistoryResponse {
+  period: string
+  points: PortfolioHistoryPoint[]
+}
+
 export interface ApiError {
   detail: string
   status: number
