@@ -117,8 +117,8 @@ contract SuwappuCoreRouterBoundUserImplTest is Test {
     }
 
     /// Deposit lands on Core, then execute places the IOC. Ported from
-    /// CoreRouterTest.t.sol — same lifecycle mechanics, just against alice's
-    /// clone instead of a directly-deployed router.
+    /// SuwappuCoreRouterMultiUserTest.t.sol — same lifecycle mechanics, just
+    /// against alice's clone instead of a directly-deployed router.
     function _fundAndExecute(uint128 id, uint64 inToken, uint64 coreIn) internal {
         _mockSpot(address(aliceRouter), inToken, coreIn, 0);
         aliceRouter.execute(id);
@@ -153,8 +153,9 @@ contract SuwappuCoreRouterBoundUserImplTest is Test {
         aliceRouter.settle(id);
     }
 
-    // ── ported from CoreRouterTest.t.sol (single-clone lifecycle mechanics —
-    // identical logic to SuwappuCoreRouter.sol, run against alice's clone) ──
+    // ── ported from SuwappuCoreRouterMultiUserTest.t.sol (single-clone
+    // lifecycle mechanics — identical logic to SuwappuCoreRouterMultiUser.sol,
+    // run against alice's clone) ──
 
     // ── funded-then-execute ordering ────────────────────────────────────────
 

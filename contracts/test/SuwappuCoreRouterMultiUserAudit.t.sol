@@ -5,13 +5,13 @@ import { Test } from "forge-std/Test.sol";
 import { L1Read } from "../hypercore/L1Read.sol";
 import { CoreWriterLib } from "../hypercore/CoreWriterLib.sol";
 import { SuwappuCoreRouterMultiUser, IERC20 } from "../hypercore/SuwappuCoreRouterMultiUser.sol";
-import { TestToken, CoreWriterSink } from "./CoreRouterTest.t.sol";
+import { TestToken, CoreWriterSink } from "./SuwappuCoreRouterMultiUserTest.t.sol";
 
 /// Reproductions for findings in contracts/AUDIT_COREROUTER_2026-08-31.md.
 /// These tests demonstrate CONFIRMED failures against the AS-DEPLOYED
 /// SuwappuCoreRouterMultiUser.sol. No fix is applied here — see the audit doc's
 /// before/after code blocks for the proposed (not-yet-applied) fix.
-contract CoreRouterAuditTest is Test {
+contract SuwappuCoreRouterMultiUserAuditTest is Test {
     TestToken base;
     TestToken quote;
     SuwappuCoreRouterMultiUser router;

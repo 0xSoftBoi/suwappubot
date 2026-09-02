@@ -18,7 +18,7 @@ contract MockRouterLogic is ImmutableBoundUser {
     }
 }
 
-contract RouterFactoryTest is Test {
+contract SuwappuCoreRouterBoundUserFactoryTest is Test {
     SuwappuCoreRouterBoundUserFactory factory;
     address logic;
 

@@ -44,7 +44,7 @@ contract CoreWriterSink {
     }
 }
 
-contract CoreRouterTest is Test {
+contract SuwappuCoreRouterMultiUserTest is Test {
     // Market: base=UFOO (core wei 8, evm 18 => extra 10, szDecimals 2),
     //         quote=USDQ (core wei 8, evm 8 => extra 0). Limit px 25 (wire 25e8).
     TestToken base;
