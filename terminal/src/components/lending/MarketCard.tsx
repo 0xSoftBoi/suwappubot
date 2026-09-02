@@ -27,7 +27,7 @@ export function MarketCard({ market }: Props) {
     >
       <div className="flex items-center gap-2 mb-2">
         <div className="w-6 h-6 rounded-full bg-terminal-bg-tertiary flex items-center justify-center text-[10px] font-semibold text-terminal-text-muted">
-          {market.asset.slice(0, 2)}
+          {(market.asset || '?').slice(0, 2)}
         </div>
         <span className="text-sm font-semibold text-terminal-text">{market.asset}</span>
         <span className="text-[10px] text-terminal-text-muted ml-auto">{market.chain}</span>

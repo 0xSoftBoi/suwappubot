@@ -1,4 +1,5 @@
 import toast from 'react-hot-toast'
+import { parseServerTimestamp } from './amounts'
 
 const TOKEN_KEY = 'suwappu_terminal_token'
 const TOKEN_EXPIRY_KEY = 'suwappu_terminal_expiry'
@@ -24,7 +25,8 @@ export function getAuthToken(): string | null {
     const token = localStorage.getItem(TOKEN_KEY)
     const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY)
     if (!token || !expiry) return null
-    if (new Date(expiry) < new Date()) {
+    const expiryMs = parseServerTimestamp(expiry)
+    if (Number.isFinite(expiryMs) && expiryMs < Date.now()) {
       clearAuthToken()
       return null
     }

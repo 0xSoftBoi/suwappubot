@@ -13,7 +13,7 @@ import re
 import time
 import uuid
 from urllib.parse import parse_qs, unquote
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Dict, List, Any, Literal
 
@@ -4019,6 +4019,73 @@ def _bridge_transfer_response(db, transfer) -> WebAppBridgeTransferResponse:
     )
 
 
+def _iso_utc(dt: datetime) -> str:
+    """Serialize a server timestamp with an explicit UTC offset.
+
+    `datetime.utcnow().isoformat()` yields a *naive* string ("...T11:25:49").
+    Browsers parse a naive ISO string as LOCAL time, so every client east of
+    UTC saw quotes/sessions as already expired the instant they arrived.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _plain_amount(value) -> str:
+    """Render a token amount as a plain decimal string — never `4.2e-05`."""
+    try:
+        d = Decimal(str(value))
+    except Exception:
+        return str(value)
+    if not d.is_finite():
+        return str(value)
+    text = format(d, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _min_received_human(quote, to_symbol: str, to_chain: str) -> str:
+    """Human-readable minimum output for a quote.
+
+    Providers report `to_amount_min` in base units (wei / lamports), so the raw
+    string reached the terminal as e.g. "2904646066843236691869696 PEPE". Convert
+    using the destination token's decimals and sanity-check the result against
+    the quoted output; fall back to a slippage-derived figure if that fails.
+    """
+    from bot.config.tokens import get_token_decimals
+
+    to_human = float(getattr(quote, "to_amount_human", 0) or 0)
+    raw = str(getattr(quote, "to_amount_min", "") or "").strip()
+    candidates = []
+    if raw:
+        try:
+            raw_dec = Decimal(raw)
+            if raw.isdigit():
+                try:
+                    decimals = int(get_token_decimals(to_symbol, to_chain))
+                except Exception:
+                    decimals = 18
+                candidates.append(raw_dec / (Decimal(10) ** decimals))
+            candidates.append(raw_dec)
+        except Exception:
+            pass
+    if to_human > 0:
+        hi = Decimal(str(to_human))
+        lo = hi * Decimal("0.5")
+        for c in candidates:
+            if lo <= c <= hi:
+                return _plain_amount(c)
+        # Nothing plausible from the provider — derive from the quoted output
+        # and the slippage the quote was priced at.
+        try:
+            slip = float(getattr(quote, "slippage", 0.5) or 0.5)
+        except Exception:
+            slip = 0.5
+        return _plain_amount(hi * (Decimal(1) - Decimal(str(slip)) / Decimal(100)))
+    return _plain_amount(candidates[0]) if candidates else raw
+
+
 @router.post("/swap/quote", response_model=WebAppSwapQuoteResponse)
 async def create_terminal_swap_quote(
     body: WebAppSwapQuoteRequest,
@@ -4115,8 +4182,8 @@ async def create_terminal_swap_quote(
         id=quote_id,
         fromToken=from_token,
         toToken=to_token,
-        fromAmount=str(quote.from_amount_human),
-        toAmount=str(quote.to_amount_human),
+        fromAmount=_plain_amount(quote.from_amount_human),
+        toAmount=_plain_amount(quote.to_amount_human),
         fromAmountUsd=from_amount_usd,
         toAmountUsd=to_amount_usd,
         exchangeRate=float(quote.exchange_rate),
@@ -4126,8 +4193,8 @@ async def create_terminal_swap_quote(
         route=quote.provider,
         priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
         runnerUpProvider=getattr(quote, "runner_up_provider", None),
-        expiresAt=expires_at.isoformat(),
-        minReceived=str(quote.to_amount_min),
+        expiresAt=_iso_utc(expires_at),
+        minReceived=_min_received_human(quote, to_symbol, body.toChain),
         slippage=body.slippage or 0.5,
         estimatedDuration=quote.estimated_time,
     )
@@ -4295,15 +4362,15 @@ async def build_terminal_swap(
         quoteId=quote_id,
         fromToken=_webapp_swap_token(from_symbol, body.fromChain),
         toToken=_webapp_swap_token(to_symbol, body.toChain),
-        fromAmount=str(quote.from_amount_human),
-        toAmount=str(quote.to_amount_human),
-        minReceived=str(quote.to_amount_min),
+        fromAmount=_plain_amount(quote.from_amount_human),
+        toAmount=_plain_amount(quote.to_amount_human),
+        minReceived=_min_received_human(quote, to_symbol, body.toChain),
         priceImpact=float(quote.price_impact),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
         priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
         runnerUpProvider=getattr(quote, "runner_up_provider", None),
-        expiresAt=expires_at.isoformat(),
+        expiresAt=_iso_utc(expires_at),
     )
 
     if is_solana:

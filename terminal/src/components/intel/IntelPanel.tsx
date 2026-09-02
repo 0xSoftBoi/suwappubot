@@ -32,6 +32,16 @@ const CHAINS = [
 
 type SubTab = 'intel' | 'devwatch'
 
+const NATIVE_PLACEHOLDERS = new Set([
+  '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  '0x0000000000000000000000000000000000000000',
+  'so11111111111111111111111111111111111111112',
+])
+
+function isNativePlaceholder(address: string): boolean {
+  return NATIVE_PLACEHOLDERS.has(address.trim().toLowerCase())
+}
+
 export function IntelPanel() {
   const { selectedPair } = usePair()
   const [subTab, setSubTab] = useState<SubTab>('intel')
@@ -45,7 +55,10 @@ export function IntelPanel() {
   useEffect(() => {
     if (prefilled) return
     const base = selectedPair.base
-    if (base?.address) {
+    // Native coins use a placeholder address (0xEeee…/0x000…) that token-intel
+    // providers resolve to an arbitrary contract (it showed frxETH for ETH).
+    // Leave the panel empty for those instead of showing the wrong token.
+    if (base?.address && !isNativePlaceholder(base.address)) {
       setAddressInput(base.address)
       setChainInput(base.chain || 'auto')
       setQuery({ chain: base.chain || 'auto', address: base.address })

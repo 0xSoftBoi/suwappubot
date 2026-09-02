@@ -27,6 +27,7 @@ import type { SwapToken, SwapQuoteRequest, SolanaPriorityTier } from '../../type
 import { getSolanaPriorityFees } from '../../lib/helius'
 import toast from 'react-hot-toast'
 import { TerminalSkeletonText, TerminalStatusPill } from '../foundation'
+import { formatTokenAmount, parseServerTimestamp } from '../../lib/amounts'
 
 type OrderTab = 'swap' | 'limit' | 'dca'
 
@@ -170,7 +171,12 @@ export function SwapPanel() {
       setIsQuoteStale(false)
       return
     }
-    const check = () => setIsQuoteStale(Date.now() >= new Date(quote.expiresAt).getTime())
+    const expiresAtMs = parseServerTimestamp(quote.expiresAt)
+    if (!Number.isFinite(expiresAtMs)) {
+      setIsQuoteStale(false)
+      return
+    }
+    const check = () => setIsQuoteStale(Date.now() >= expiresAtMs)
     check()
     staleTimerRef.current = setInterval(check, 1000)
     return () => { if (staleTimerRef.current) clearInterval(staleTimerRef.current) }
@@ -438,7 +444,7 @@ export function SwapPanel() {
       <TokenInput
         label="To"
         token={toToken}
-        amount={quote?.toAmount || ''}
+        amount={formatTokenAmount(quote?.toAmount)}
         onTokenSelect={setToToken}
         readOnly
       />
@@ -520,6 +526,10 @@ export function SwapPanel() {
 
       {/* Execute button (or connect/sign-in when not authenticated). Buy =
           up-fill, Sell = down-fill, dark ink text (AA-safe on both). */}
+      {/* The order pane scrolls at laptop heights (the ticket is taller than
+          the top split). Pin the primary action to the pane's bottom edge so
+          Buy/Sell/Connect is reachable without hunting for it. */}
+      <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-1 px-4 pb-4 pt-2 bg-[rgb(var(--terminal-c-panel))]">
       {!isAuthenticated || needsTradingProof || externalWalletNeedsReconnect ? (
         <WalletConnect preferredChain={fromToken?.chain} showGoogle={!isAuthenticated} />
       ) : (
@@ -553,6 +563,7 @@ export function SwapPanel() {
           }
         </button>
       )}
+      </div>
 
       {/* Fee summary — extends the one fee row (no second fee source of
           truth): network estimate, plus the Pro savings pitch once a real

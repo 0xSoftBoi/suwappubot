@@ -159,6 +159,72 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json()
 }
 
+
+// /v1/agent/lend/* returns Morpho's shape (loanToken/collateralToken, APYs and
+// utilization in percent, chainId). The panel renders the older
+// asset/chain/fraction shape; mapping here — instead of trusting the wire
+// shape — is what stopped `market.asset.slice` from crashing the whole
+// terminal when the DeFi tab opened.
+interface RawLendingMarket {
+  id: string
+  asset?: string
+  chain?: string
+  loanToken?: string
+  collateralToken?: string
+  supplyApy?: number
+  borrowApy?: number
+  supplyAPY?: number
+  borrowAPY?: number
+  utilization?: number
+  totalSupplyUsd?: number
+  totalBorrowUsd?: number
+  totalSupplied?: number
+  totalBorrowed?: number
+  lltv?: number
+  chainId?: number
+}
+
+const LENDING_CHAIN_NAMES: Record<number, string> = {
+  1: 'ethereum',
+  10: 'optimism',
+  56: 'bsc',
+  137: 'polygon',
+  8453: 'base',
+  42161: 'arbitrum',
+  43114: 'avalanche',
+  999: 'hyperevm',
+  9745: 'plasma',
+}
+
+/** Percent-or-fraction rates normalise to a fraction (0.0424 for 4.24%). */
+function asFraction(value: number | undefined): number {
+  if (!Number.isFinite(value as number)) return 0
+  const v = value as number
+  return v > 1 ? v / 100 : v
+}
+
+export function normalizeLendingMarket(raw: RawLendingMarket): LendingMarket {
+  const asset =
+    raw.asset ??
+    (raw.collateralToken && raw.loanToken
+      ? `${raw.collateralToken}/${raw.loanToken}`
+      : raw.loanToken ?? raw.collateralToken ?? '—')
+  const chain =
+    raw.chain ??
+    (raw.chainId !== undefined ? LENDING_CHAIN_NAMES[raw.chainId] ?? `chain ${raw.chainId}` : 'unknown')
+  return {
+    id: raw.id,
+    asset,
+    chain,
+    supplyAPY: asFraction(raw.supplyAPY ?? raw.supplyApy),
+    borrowAPY: asFraction(raw.borrowAPY ?? raw.borrowApy),
+    utilization: asFraction(raw.utilization),
+    totalSupplied: raw.totalSupplied ?? raw.totalSupplyUsd ?? 0,
+    totalBorrowed: raw.totalBorrowed ?? raw.totalBorrowUsd ?? 0,
+    lltv: raw.lltv ?? 0,
+  }
+}
+
 export const api = {
   // Auth
   // `chainId` is the chain the wallet is connected to. Smart accounts
@@ -822,11 +888,13 @@ export const api = {
   // Lending — real routes: GET /v1/agent/lend/markets and /v1/agent/lend/market/:id
   // These endpoints are public (no agentBearerAuth) and callable from the browser.
   getLendingMarkets() {
-    return request<{ markets: LendingMarket[] }>('/v1/agent/lend/markets').then((r) => r.markets ?? [])
+    return request<{ markets: RawLendingMarket[] }>('/v1/agent/lend/markets').then((r) =>
+      (r.markets ?? []).map(normalizeLendingMarket),
+    )
   },
 
   getLendingMarket(id: string) {
-    return request<LendingMarket>(`/v1/agent/lend/market/${id}`)
+    return request<RawLendingMarket>(`/v1/agent/lend/market/${id}`).then(normalizeLendingMarket)
   },
 
   // Wallet tracker

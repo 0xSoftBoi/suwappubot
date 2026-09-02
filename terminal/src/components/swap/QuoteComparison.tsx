@@ -1,5 +1,6 @@
 import type { SwapQuote } from "../../types/api";
 import { formatSavings, venueLabel } from "../../lib/venueLabels";
+import { formatBaseUnitsOrHuman } from "../../lib/amounts";
 
 interface Props {
   quote: SwapQuote;
@@ -42,7 +43,8 @@ export function QuoteComparison({ quote }: Props) {
       <div className="flex justify-between">
         <span className="text-terminal-text-secondary">Min Received</span>
         <span className="tnum font-mono">
-          {quote.minReceived} {quote.toToken.symbol}
+          {formatBaseUnitsOrHuman(quote.minReceived, quote.toToken.decimals, quote.toAmount)}{" "}
+          {quote.toToken.symbol}
         </span>
       </div>
 

@@ -1,6 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { SwapQuote, SwapToken } from "../../types/api";
 import {
+  formatBaseUnitsOrHuman,
+  formatTokenAmount,
+  parseServerTimestamp,
+} from "../../lib/amounts";
+import {
   TerminalButton,
   TerminalSelectPill,
   TerminalTokenPill,
@@ -451,7 +456,7 @@ function RouteSummary({
                 ? "Target out"
                 : "Projected out"
           }
-          value={quote ? `${quote.toAmount} ${quote.toToken.symbol}` : "--"}
+          value={quote ? `${formatTokenAmount(quote.toAmount)} ${quote.toToken.symbol}` : "--"}
           detail={quote ? formatUsd(quote.toAmountUsd) : "Waiting for quote"}
           tone={tone}
         />
@@ -482,14 +487,18 @@ function RouteSummary({
         />
         <TerminalKeyValueRow
           label="Min received"
-          value={quote ? `${quote.minReceived} ${quote.toToken.symbol}` : "--"}
+          value={
+            quote
+              ? `${formatBaseUnitsOrHuman(quote.minReceived, quote.toToken.decimals, quote.toAmount)} ${quote.toToken.symbol}`
+              : "--"
+          }
           detail="Protected output."
         />
         <TerminalKeyValueRow
           label="Expires"
           value={
             quote
-              ? new Date(quote.expiresAt).toLocaleTimeString([], {
+              ? new Date(parseServerTimestamp(quote.expiresAt)).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
                 })
@@ -608,9 +617,9 @@ export function TerminalExecutionTicket({
   const tone = routeTone(quote);
   const resultAmount =
     mode === "swap"
-      ? (quote?.toAmount ?? "")
+      ? formatTokenAmount(quote?.toAmount)
       : mode === "limit"
-        ? (quote?.toAmount ?? "")
+        ? formatTokenAmount(quote?.toAmount)
         : totalBudget;
   const resultDetail =
     mode === "dca"

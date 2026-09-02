@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import type { ApiError } from '../types/api'
 
@@ -41,19 +42,23 @@ export function useTokenIntel(chain: string, tokenAddress: string) {
 }
 
 export function useDevWatchList() {
+  const { isAuthenticated } = useAuth()
   return useQuery({
     queryKey: DEVWATCH_LIST_KEY,
     queryFn: () => api.getDevWatchList(),
     staleTime: 15_000,
+    enabled: isAuthenticated,
   })
 }
 
 export function useDevWatchHits(limit = 50) {
+  const { isAuthenticated } = useAuth()
   return useQuery({
     queryKey: [...DEVWATCH_HITS_KEY, limit],
     queryFn: () => api.getDevWatchHits(limit),
     staleTime: 15_000,
     refetchInterval: 60_000,
+    enabled: isAuthenticated,
   })
 }
 

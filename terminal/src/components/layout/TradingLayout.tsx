@@ -240,6 +240,11 @@ function MobileLayout() {
             {/* Tab content */}
             <div className="min-h-0 flex-1 overflow-hidden">
               <DeferredPanel>
+                {/* One boundary around every bottom panel, keyed by tab so a
+                    crash in one (DeFi Center's lending cards took down the
+                    whole terminal) is contained to that tab and clears when
+                    the trader switches away. */}
+                <ErrorBoundary key={bottomTab} label={bottomTab}>
                 {bottomTab === 'signals' && <SignalsFeed />}
                 {bottomTab === 'discovery' && (
                   <ErrorBoundary label="Discovery">
@@ -280,6 +285,7 @@ function MobileLayout() {
                     <MarketDataPanel />
                   </ErrorBoundary>
                 )}
+                </ErrorBoundary>
               </DeferredPanel>
             </div>
           </div>
@@ -385,12 +391,15 @@ function DesktopLayout() {
       <Allotment.Pane preferredSize={sizes.bottom} minSize={120}>
         <div className="h-full flex flex-col terminal-panel">
           {/* Bottom tab bar */}
-          <div className="flex items-center border-b border-terminal-border px-2 shrink-0" data-testid="bottom-tabs">
+          {/* Scrolls horizontally: at laptop widths the strip is wider than the
+              viewport and the last tabs (Agent Approvals / Audit) were clipped
+              off-screen with no way to reach them. */}
+          <div className="flex items-center border-b border-terminal-border px-2 shrink-0 overflow-x-auto terminal-mobile-scroll" data-testid="bottom-tabs">
             {BOTTOM_TABS.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setBottomTab(tab.id)}
-                className={`terminal-tab ${bottomTab === tab.id ? 'terminal-tab-active' : ''}`}
+                className={`terminal-tab whitespace-nowrap ${bottomTab === tab.id ? 'terminal-tab-active' : ''}`}
               >
                 {tab.label}
               </button>
@@ -400,6 +409,11 @@ function DesktopLayout() {
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
             <DeferredPanel>
+              {/* One boundary around every bottom panel, keyed by tab so a
+                  crash in one panel (DeFi Center's lending cards took the
+                  whole terminal down) stays inside that tab and clears when
+                  the trader switches away. */}
+              <ErrorBoundary key={bottomTab} label={bottomTab}>
               {bottomTab === 'portfolio' && (
                 <ErrorBoundary label="Portfolio">
                   <PortfolioPanel />
@@ -450,6 +464,7 @@ function DesktopLayout() {
                   <MarketDataPanel />
                 </ErrorBoundary>
               )}
+              </ErrorBoundary>
             </DeferredPanel>
           </div>
         </div>
