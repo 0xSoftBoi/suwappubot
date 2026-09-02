@@ -32,7 +32,7 @@
      and the product shot moves below rather than fighting it for width. */
   display: flex;
   flex-direction: column;
-  width: min(1240px, 100%);
+  width: min(calc(var(--home-container) + 3rem), 100%);
   margin: 0 auto;
   padding: clamp(3.5rem, 7vh, 6rem) 1.5rem clamp(3rem, 5vh, 4rem);
 }
@@ -161,8 +161,10 @@
   display: grid;
   grid-template-columns: minmax(18rem, 0.95fr) minmax(0, 2fr);
   align-items: stretch;
-  width: min(1180px, calc(100% - 3rem));
+  box-sizing: border-box;
+  width: min(var(--home-container), calc(100% - 3rem)); /* border sits on the content edge, flush with the hero plate */
   margin: 0 auto;
+  padding-inline: 1.5rem;
   border-block: 1px solid var(--line);
   background: linear-gradient(90deg, rgba(246, 169, 60, 0.045), transparent 38%);
 }
@@ -177,7 +179,8 @@
 }
 
 .home-proofbar__stats {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 112px);
   margin: 0;
 }
 
@@ -200,6 +203,7 @@
   font-size: 1.35rem;
   font-weight: 500;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
   color: var(--fg);
 }
 
@@ -210,11 +214,17 @@
   color: var(--fg-faint);
 }
 
+/* Caveat/limitation note: one neutral treatment site-wide (see
+   .home-venues__note below) — a dim note with a persimmon flag, not a
+   colour borrowed from the live/success (leaf) role. */
 .home-proofbar__intro small {
+  display: block;
   font-size: 0.64rem;
   font-family: var(--font-mono);
   line-height: 1.5;
-  color: var(--sw-leaf-muted, #6BAF7C);
+  color: var(--fg-dim);
+  border-left: 2px solid var(--sw-accent-muted, #BD7526);
+  padding-left: 12px;
 }
 
 .home-proofbar__links {
@@ -222,9 +232,15 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* Column flex, not grid: the row's height comes from the taller intro cell
+   (align-items: stretch on the outer 2-col grid), and a grid child's own
+   auto rows don't stretch to fill that, so the caption sat ~52px above the
+   cell's true bottom. margin-top: auto on the caption below pushes it down
+   to share a baseline with the coverage note's last line instead. */
 .home-proofbar__links a {
   position: relative;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.28rem;
   min-width: 0;
   padding: 1.15rem 2rem 1.15rem 1rem;
@@ -244,6 +260,7 @@
 }
 
 .home-proofbar__links small {
+  margin-top: auto;
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: 0.58rem;
@@ -266,9 +283,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  width: min(1180px, calc(100% - 3rem));
+  box-sizing: border-box;
+  width: min(var(--home-container), calc(100% - 3rem)); /* border sits on the content edge, flush with the hero plate */
   margin: 0 auto;
-  padding: 1.25rem 0 1.75rem;
+  padding: 1.25rem 1.5rem 1.75rem;
   border-bottom: 1px solid var(--line);
 }
 
@@ -301,10 +319,13 @@
 }
 
 .home-venues__note {
+  display: block;
   max-width: 62ch;
   font-size: 0.72rem;
   line-height: 1.55;
   color: var(--fg-dim);
+  border-left: 2px solid var(--sw-accent-muted, #BD7526);
+  padding-left: 12px;
 }
 
 @media (max-width: 680px) {
@@ -317,7 +338,7 @@
 .home-section {
   position: relative;
   box-sizing: border-box; /* see .home-hero — keeps inline padding inside the viewport */
-  width: min(1180px, 100%);
+  width: min(calc(var(--home-container) + 3rem), 100%);
   margin: 0 auto;
   padding: clamp(5rem, 10vw, 8rem) 1.5rem;
   border-bottom: 1px solid var(--line);
@@ -687,10 +708,6 @@
   color: var(--sw-accent-muted, #BD7526);
 }
 
-.home-capabilities article:nth-child(2) p {
-  color: var(--sw-leaf-muted, #6BAF7C);
-}
-
 .home-capabilities h3 {
   margin: 0;
   font-family: var(--font-serif);
@@ -708,10 +725,6 @@
 }
 
 /* ── Custody and controls ─────────────────────────────────────── */
-.home-section--security {
-  width: min(1240px, 100%);
-}
-
 .home-security {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
@@ -1268,12 +1281,15 @@
   align-items: center;
   gap: 0.55rem;
   padding: 0.55rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  background: rgba(20, 14, 12, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  /* Site chamfer language (see --btn-cut, globals.css), scaled down for a
+     pill this small — was fully rounded, which reads as a different (chattier,
+     more "app widget") shape family than the rest of the page's cut corners. */
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  background: rgba(20, 18, 16, 0.88);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  color: var(--fg-dim, #a1a1a1);
+  color: var(--sw-cream, #FAF3E6);
   font-family: var(--font-mono);
   font-size: 0.625rem;
   font-weight: 700;
@@ -1287,6 +1303,13 @@
 .home-sound.is-on {
   color: var(--fg, #fafafa);
   border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* clip-path clips the page-wide outer focus ring the same way it clips a
+   border's corners (see .hd__btn:focus-visible) — draw it inset instead. */
+.home-sound:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--sw-accent-bright, #F6A93C);
 }
 
 .home-sound__bars {
@@ -1335,6 +1358,17 @@
   .home-ocean__scrim {
     background:
       linear-gradient(180deg, rgba(18, 13, 11, 0.66) 0%, rgba(18, 13, 11, 0.55) 34%, rgba(18, 13, 11, 0.62) 62%, var(--sw-soil-0, #1c1310) 99%);
+  }
+
+  /* Smaller footprint so the pills stop competing with the hero CTAs, which
+     sit in the same bottom-right quadrant on a phone. */
+  .home-atmosphere-controls {
+    bottom: 16px;
+  }
+
+  .home-sound {
+    padding: 6px 10px;
+    font-size: 10px;
   }
 }
 
@@ -1399,7 +1433,7 @@
   /* No CSS reset emits here, so the 1.5rem side padding was added on top of
      100% and 48px of the shot was clipped on a phone. */
   box-sizing: border-box;
-  width: min(1240px, 100%);
+  width: min(calc(var(--home-container) + 3rem), 100%);
   margin: 0 auto;
   padding: 0 1.5rem clamp(3rem, 6vh, 5rem);
 }

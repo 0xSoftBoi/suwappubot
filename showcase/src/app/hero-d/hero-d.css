@@ -118,16 +118,47 @@
 .hd__btn:hover { opacity: 0.88; }
 
 /* Secondary CTA = leaf, everywhere (see PERSIMMON ORCHARD block, globals.css):
-   persimmon stays reserved for the primary fill + route-swap + live. */
+   persimmon stays reserved for the primary fill + route-swap + live.
+   Rebuilt as two stacked chamfered fills rather than a stroked border: a
+   `clip-path` on a bordered box only clips the box's own straight edges, it
+   does not draw a stroke along the new diagonal — so a bordered ghost button
+   rendered the top/bottom rules stopping 8-9px short of each corner instead
+   of a real 45° line. Two solid ::before/::after fills, each independently
+   clipped to --btn-cut and inset 1px apart, paint the diagonal for real. */
 .hd__btn--ghost {
+  position: relative;
   background: transparent;
   color: var(--sw-leaf-bright, #8FCC9E);
-  border-color: var(--sw-leaf-deep, #3E6B4F);
+  border: none;
+  /* Kept only so the focus ring below (drawn on this box) follows the same
+     chamfer as the fills; the anchor itself paints nothing. */
+  clip-path: var(--btn-cut);
 }
 
-.hd__btn--ghost:hover {
-  background: var(--sw-leaf-fainter, rgba(94, 156, 111, 0.07));
-  border-color: var(--sw-leaf, #5E9C6F);
+.hd__btn--ghost::before,
+.hd__btn--ghost::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  clip-path: var(--btn-cut);
+}
+
+.hd__btn--ghost::before {
+  inset: 0;
+  background: var(--sw-leaf-deep, #3E6B4F);
+}
+
+.hd__btn--ghost::after {
+  inset: 1px;
+  background: var(--bg);
+}
+
+.hd__btn--ghost:hover::before {
+  background: var(--sw-leaf, #5E9C6F);
+}
+
+.hd__btn--ghost:hover::after {
+  background: color-mix(in srgb, var(--bg), var(--sw-leaf, #5E9C6F) 12%);
 }
 
 /* clip-path clips outline AND box-shadow drawn outside the border box, so the
@@ -306,13 +337,73 @@
 .hd .summer-nav nav a:hover, .hd .summer-nav__trigger:hover {
   color: var(--fg); background: rgba(255,255,255,0.07);
 }
+/* Same transparent-background-plus-border shape as .hd__btn--ghost, so it
+   gets the same real-diagonal treatment (see .hd__btn--ghost above). */
 .hd .summer-nav__cta--ghost {
+  position: relative;
   color: var(--sw-leaf-bright, #8FCC9E);
-  border-color: var(--sw-leaf-deep, #3E6B4F);
+  border: none;
   background: transparent;
 }
-.hd .summer-nav__cta--ghost:hover {
-  background: var(--sw-leaf-fainter, rgba(94, 156, 111, 0.07));
-  border-color: var(--sw-leaf, #5E9C6F);
+.hd .summer-nav__cta--ghost::before,
+.hd .summer-nav__cta--ghost::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  clip-path: var(--btn-cut);
+}
+.hd .summer-nav__cta--ghost::before {
+  inset: 0;
+  background: var(--sw-leaf-deep, #3E6B4F);
+}
+.hd .summer-nav__cta--ghost::after {
+  inset: 1px;
+  background: rgba(28, 19, 16, 0.72); /* .hd .summer-nav's own bg tone */
+}
+.hd .summer-nav__cta--ghost:hover::before {
+  background: var(--sw-leaf, #5E9C6F);
+}
+.hd .summer-nav__cta--ghost:hover::after {
+  background: color-mix(in srgb, rgba(28, 19, 16, 0.72), var(--sw-leaf, #5E9C6F) 12%);
 }
 .hd .summer-nav__burger .nav__hamburger-line { background: var(--fg); }
+
+/* ── Container alignment: the header's inner row (brand ... CTAs) lines up
+   with the same content edge as the hero/proof-bar/sections/footer below it
+   (see --home-container, globals.css), instead of a flat 20px page margin
+   that put the CTA ~40px past the body copy's right edge. Guarded to the
+   width where the link row is actually present (see .summer-nav__burger's
+   980px breakpoint) so it never fights the mobile 2-col/compact padding. */
+@media (min-width: 981px) {
+  .hd .summer-nav {
+    padding-inline: max(20px, calc((100% - var(--home-container)) / 2));
+  }
+  /* The row must fit the shared container. Between the burger breakpoint
+     and ~1500px the full link set plus two CTAs does not, so the secondary
+     CTA steps out (Explore is also a link) and link padding tightens. */
+  .hd .summer-nav__cta {
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1500px) {
+  .hd .summer-nav__cta--ghost {
+    display: none;
+  }
+  .hd .summer-nav nav a {
+    padding: 0 10px;
+  }
+}
+
+/* The fixed motion/sound pills (.home-atmosphere-controls, site.css) sit
+   bottom-right of the viewport on every scroll position, including over the
+   footer's last line. Give that line room so the pills never occlude it. */
+.hd .summer-footer__bottom {
+  padding-bottom: 112px;
+}
+
+@media (max-width: 640px) {
+  .hd .summer-footer__bottom {
+    padding-bottom: 96px;
+  }
+}

@@ -125,6 +125,13 @@
     9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px
   );
 
+  /* Single content-column width for the homepage (and any section container
+     that wants to line up with it, e.g. the shared footer). Every homepage
+     band — hero, proof bar, venue strip, section bodies, footer — resolves
+     its edges from this one number rather than each carrying its own
+     min(1180px, ...) / min(1240px, ...) literal. */
+  --home-container: 1132px;
+
   /* Rhythm (4px base grid) */
   --sw-section: clamp(64px, 8vw, 112px);
   --sw-gap: clamp(16px, 2vw, 28px);
@@ -5419,12 +5426,13 @@ button:focus:not(:focus-visible) {
   );
 }
 .summer-footer__inner {
-  max-width: 1180px;
-  margin: 0 auto;
+  box-sizing: border-box;
+  width: min(calc(var(--home-container) + 3rem), 100%);
+  margin-inline: auto;
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(0, 3fr);
   gap: 40px;
-  padding: 48px 24px 32px;
+  padding: 48px 1.5rem 32px;
 }
 .summer-footer__logo { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
 .summer-footer__logo img { width: 32px; height: 32px; }
@@ -5450,9 +5458,10 @@ button:focus:not(:focus-visible) {
 
 /* Legal / regulatory line — prose only, no compliance badges we don't hold. */
 .summer-footer__legal {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 18px 24px 0;
+  box-sizing: border-box;
+  width: min(var(--home-container), calc(100% - 3rem)); /* hairline flush with the content edge */
+  margin-inline: auto;
+  padding: 18px 0 0;
   border-top: 1px solid var(--sw-hairline);
   color: var(--summer-muted);
   font-size: 0.8rem;
@@ -5468,9 +5477,10 @@ button:focus:not(:focus-visible) {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 16px 24px;
+  box-sizing: border-box;
+  width: min(calc(var(--home-container) + 3rem), 100%);
+  margin-inline: auto;
+  padding: 16px 1.5rem;
   border-top: 1px solid var(--sw-hairline);
   color: var(--summer-muted);
   font-size: 0.78rem;
