@@ -26,16 +26,31 @@ interface IERC20 {
  * CALLING clone's own bytecode at deploy time (delegatecall keeps
  * `address(this)` == the clone, not this logic contract).
  *
- * IMPORTANT — this is fund-direction gating, not caller access control.
- * Every function stays exactly as permissionless as the original
- * SuwappuCoreRouter (any caller may drive the lifecycle — keepers, the user
- * themselves, doesn't matter). What changes is that `initiate()` no longer
- * takes `msg.sender` as the swap's beneficiary/payer — it always uses
- * `user()`, the address fixed into THIS clone at deploy time. So
- * regardless of who calls initiate()/execute()/settle()/claim()/retry() on
- * this clone, tokens only ever leave from and land on that one fixed
- * address. There is no caller access control anywhere in this file on
- * purpose — ImmutableBoundUser makes no ownership claim, it's routing data.
+ * IMPORTANT — fund-direction gating, PLUS one narrow caller check.
+ * `initiate()` no longer takes `msg.sender` as the swap's beneficiary/payer
+ * — it always uses `user()`, the address fixed into THIS clone at deploy
+ * time — so tokens only ever leave from and land on that one fixed address,
+ * regardless of who calls anything. execute()/settle()/claim()/retry()/
+ * forceRelease() stay exactly as permissionless as the original
+ * SuwappuCoreRouterMultiUser (any caller may drive them — keepers, the user,
+ * doesn't matter), because none of them can move MORE of the user's money
+ * than initiate() already committed to: they all operate on amounts already
+ * fixed in swap storage or actual on-chain balance deltas, never on fresh
+ * caller-supplied numbers.
+ *
+ * initiate() is different, and is the one place this file gates on
+ * msg.sender: it pulls a caller-CHOSEN amount at a caller-CHOSEN price from
+ * `user()` via a standing ERC-20 approval to this clone (the whole intended
+ * UX — approve once, swap many times). If initiate() stayed permissionless,
+ * any third party could force `user()` into an unwanted swap at any moment,
+ * using that approval — the approval alone isn't consent to a SPECIFIC
+ * swap. So initiate() requires `msg.sender == user() || msg.sender ==
+ * factory()`. The factory branch exists only for deployAndInitiate()'s
+ * atomic deploy-then-swap UX for a user whose clone doesn't exist yet to
+ * call initiate() themselves — and it is spent exactly once per clone: see
+ * SuwappuCoreRouterBoundUserFactory.deployAndInitiate(), which reverts
+ * RouterAlreadyDeployed rather than ever calling initiate() as itself on a
+ * clone that already existed before that call.
  *
  * Everything below this point is otherwise IDENTICAL in spirit to
  * SuwappuCoreRouter.sol — see that file's header for the full four-step
@@ -153,6 +168,7 @@ contract SuwappuCoreRouterBoundUserImpl is ImmutableBoundUser {
     error ZeroAmount();
     error BadTreasury();
     error SzTooSmall();
+    error NotAuthorized();
 
     constructor(
         IERC20 baseErc20_,
@@ -247,6 +263,11 @@ contract SuwappuCoreRouterBoundUserImpl is ImmutableBoundUser {
         if (evmAmountIn == 0 || minCoreOut == 0 || limitPx == 0) revert ZeroAmount();
 
         address boundUser = user();
+        // Standing approval isn't consent to any specific swap — only the
+        // user themselves, or the factory (exactly once, at this clone's
+        // creation — see SuwappuCoreRouterBoundUserFactory.deployAndInitiate),
+        // may choose this swap's amount/price and spend that approval.
+        if (msg.sender != boundUser && msg.sender != factory()) revert NotAuthorized();
 
         (IERC20 tokenIn, uint64 coreTokenIn, uint8 extraIn) = baseForQuote
             ? (baseErc20, baseToken, baseExtraEvmDecimals)

@@ -474,29 +474,52 @@ contract SuwappuCoreRouterBoundUserImplTest is Test {
         );
     }
 
-    function test_initiate_calledByKeeper_stillBoundToTheCloneUser() public {
-        vm.prank(keeper); // NOT alice — a keeper is triggering this
+    function test_initiate_rejectsThirdPartyCaller_evenWithStandingApproval() public {
+        // alice has standing (type(uint256).max) approval to her own clone —
+        // exactly the intended UX, and exactly what makes an unrestricted
+        // initiate() dangerous. bob is neither alice nor the factory.
+        vm.prank(bob);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.NotAuthorized.selector);
+        aliceRouter.initiate(true, 2e18, PX, 49e8);
+
+        // nothing moved: no swap was ever recorded, alice's balance untouched.
+        assertEq(aliceRouter.inFlight(), 0);
+        assertEq(base.balanceOf(alice), 100e18);
+    }
+
+    function test_initiate_allowsTheBoundUserThemselves() public {
+        vm.prank(alice);
         uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
 
         SuwappuCoreRouterBoundUserImpl.Swap memory s = aliceRouter.getSwap(id);
-        assertEq(s.user, alice, "swap must be bound to the clone's user, not the caller");
-        // funds pulled from alice, not from the keeper (keeper never approved anything)
+        assertEq(s.user, alice);
         assertEq(base.balanceOf(alice), 100e18 - 2e18);
         assertEq(base.balanceOf(address(aliceRouter.systemAddress(BASE_TOKEN))), 2e18);
     }
 
-    function test_initiate_ignoresCallerAsPayer_evenIfCallerIsAThirdParty() public {
-        // bob has zero approval to alice's clone; if fund-direction ever fell
-        // back to msg.sender this would revert on the allowance underflow.
-        vm.prank(bob);
-        aliceRouter.initiate(true, 2e18, PX, 49e8);
-        assertEq(base.balanceOf(bob), 0, "bob must never be debited");
+    /// The clone's own check (msg.sender == user() || msg.sender ==
+    /// factory()) is static — it doesn't know "is this the first call."
+    /// The "factory may only call once, at deploy" guarantee lives entirely
+    /// in the factory's OWN call-site discipline (deployAndInitiate reverts
+    /// RouterAlreadyDeployed rather than ever calling initiate() as itself
+    /// on a pre-existing clone) — not something the clone enforces alone.
+    /// This documents exactly where that boundary is: pranking as the real
+    /// factory address directly against an ALREADY-DEPLOYED clone still
+    /// passes the clone's check, because nothing but the factory's own code
+    /// ever legitimately produces msg.sender == factory().
+    function test_initiate_cloneCheckAloneIsStatic_onceOnlyIsTheFactorysOwnDiscipline() public {
+        vm.prank(address(factory));
+        uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
+        assertEq(aliceRouter.getSwap(id).user, alice);
     }
 
     function test_fullLifecycle_anyCallerTriggers_onlyAlicePaysAndIsPaid() public {
         address routerAddr = address(aliceRouter);
 
-        vm.prank(keeper);
+        // initiate() itself is now restricted — alice calls it herself.
+        // execute/settle/claim below stay permissionless, unaffected by
+        // this restriction, and are exercised by unrelated callers.
+        vm.prank(alice);
         uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
 
         _mockSpot(routerAddr, BASE_TOKEN, 2e8, 0);
@@ -584,22 +607,25 @@ contract SuwappuCoreRouterBoundUserImplTest is Test {
         assertEq(predicted.code.length, 0, "a failed initiate must not leave a router behind");
     }
 
-    function test_deployAndInitiate_reusesExistingRouter_noDuplicateDeployEvent() public {
+    /// deployAndInitiate's factory-authenticated initiate() call is only
+    /// legitimate for a clone it JUST deployed — reusing it against an
+    /// already-existing router (alice's, from setUp) would otherwise be a
+    /// standing way for ANY caller to force swaps against her approval
+    /// forever. It must revert instead, every time, no matter who calls it.
+    function test_deployAndInitiate_revertsOnExistingRouter() public {
         address routerAddr = address(aliceRouter);
         assertGt(routerAddr.code.length, 0, "alice's router already exists from setUp");
 
-        vm.recordLogs();
         vm.prank(keeper);
-        (address router, uint128 id) = factory.deployAndInitiate(alice, true, 2e18, PX, 49e8);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
+        vm.expectRevert(SuwappuCoreRouterBoundUserFactory.RouterAlreadyDeployed.selector);
+        factory.deployAndInitiate(alice, true, 2e18, PX, 49e8);
 
-        assertEq(router, routerAddr);
-        for (uint256 i = 0; i < logs.length; i++) {
-            assertTrue(
-                logs[i].topics[0] != SuwappuCoreRouterBoundUserFactory.RouterDeployed.selector,
-                "must not re-emit RouterDeployed for an existing router"
-            );
-        }
+        // alice's existing router is completely untouched by the revert...
+        assertEq(aliceRouter.inFlight(), 0);
+
+        // ...and she can still swap on it perfectly normally, herself.
+        vm.prank(alice);
+        uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
         assertEq(aliceRouter.getSwap(id).user, alice);
     }
 }

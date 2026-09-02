@@ -19,15 +19,26 @@ import { SuwappuCoreRouterBoundUserImpl } from "./SuwappuCoreRouterBoundUserImpl
  * clone can only ever be produced with that user's address baked in as the
  * one it routes funds for (see ImmutableBoundUser). Nothing here can deploy a
  * router "on behalf of" someone into a state where a different address ends
- * up receiving/paying for its swaps. This is not caller access control —
- * see SuwappuCoreRouterBoundUserImpl.sol for why every clone stays fully
- * permissionless.
+ * up receiving/paying for its swaps.
  *
- * Scope note: the immutable args carry ONLY the routed user's address.
- * Market config (baseErc20/quoteErc20/orderAsset/decimals/treasury/feeBps)
- * stays as regular Solidity `immutable`s on SuwappuCoreRouterBoundUserImpl
- * itself — correct there, since it's identical for every clone of one
- * market; only the per-user piece needed the immutable-args trick.
+ * Every clone's args also bake in this factory's OWN address
+ * (`address(this)` at the moment `_args` is built) alongside the user's,
+ * because `SuwappuCoreRouterBoundUserImpl.initiate()` checks
+ * `msg.sender == user() || msg.sender == factory()` — see that function's
+ * comment for why a standing token approval means initiate() can't stay
+ * fully permissionless the way every other lifecycle function safely can.
+ * deployAndInitiate() below is the ONLY place this contract ever calls
+ * initiate() as itself, and it only does so for a clone it JUST deployed in
+ * this same call (reverts RouterAlreadyDeployed otherwise) — so the
+ * factory's msg.sender==factory() privilege on a given clone is spent
+ * exactly once, at that clone's creation, never again.
+ *
+ * Scope note: the immutable args carry the routed user's address and this
+ * factory's own address. Market config (baseErc20/quoteErc20/orderAsset/
+ * decimals/treasury/feeBps) stays as regular Solidity `immutable`s on
+ * SuwappuCoreRouterBoundUserImpl itself — correct there, since it's
+ * identical for every clone of one market; only per-clone data needed the
+ * immutable-args trick.
  */
 contract SuwappuCoreRouterBoundUserFactory {
     /// The shared logic contract every clone `delegatecall`s into.
@@ -37,6 +48,7 @@ contract SuwappuCoreRouterBoundUserFactory {
 
     error ZeroAddress();
     error BadLogic();
+    error RouterAlreadyDeployed();
 
     constructor(address logic_) {
         if (logic_ == address(0)) revert ZeroAddress();
@@ -51,8 +63,10 @@ contract SuwappuCoreRouterBoundUserFactory {
         return bytes32(uint256(uint160(user)));
     }
 
-    function _args(address user) internal pure returns (bytes memory) {
-        return abi.encodePacked(user);
+    /// Bakes this factory's own address in alongside `user` — see the header
+    /// for why SuwappuCoreRouterBoundUserImpl.initiate() needs it.
+    function _args(address user) internal view returns (bytes memory) {
+        return abi.encodePacked(user, address(this));
     }
 
     /// Predict a user's router address before it's deployed (counterfactual
@@ -71,20 +85,25 @@ contract SuwappuCoreRouterBoundUserFactory {
         router = _deploy(user);
     }
 
-    /// Deploy `user`'s router (if needed) and immediately initiate a swap on
-    /// it, atomically — for a first-time user whose router doesn't exist yet.
+    /// Deploy `user`'s router and immediately initiate a swap on it,
+    /// atomically — for a first-time user whose router doesn't exist yet.
     /// Works because `routerFor(user)` is counterfactually deterministic:
     /// `user` can approve that predicted address for `tokenIn` before it has
     /// any code, exactly as with any counterfactual smart-wallet deploy.
-    /// If `user` already has a router, this just reuses it (same idempotent
-    /// path as deployRouter) and initiates on it — no separate "already
-    /// deployed" case to handle here. Permissionless like every other
-    /// function in this stack: whoever calls this, funds only ever move for
-    /// `user` (initiate() ignores msg.sender entirely — see
-    /// SuwappuCoreRouterBoundUserImpl.sol). initiate() reverting (e.g. no
-    /// allowance yet, or user already has a swap in flight) reverts this
-    /// whole call, including the deploy — CREATE2 means a retry later lands
-    /// on the same address.
+    ///
+    /// Reverts RouterAlreadyDeployed if `user` already has a router — this
+    /// function's authority to call initiate() AS the factory (see
+    /// ImmutableBoundUser / SuwappuCoreRouterBoundUserImpl.initiate()) only
+    /// makes sense for a brand new clone that couldn't have called
+    /// initiate() itself yet; once a router exists, only its own user may
+    /// initiate() on it directly. Without this revert, this function would
+    /// be a standing way for ANY caller to force swaps against an existing
+    /// router's approved allowance forever — exactly the vulnerability this
+    /// permission split exists to close.
+    ///
+    /// initiate() reverting for any other reason (no allowance yet, e.g.)
+    /// reverts this whole call, including the deploy — CREATE2 means a
+    /// retry later lands on the same address.
     function deployAndInitiate(
         address user,
         bool baseForQuote,
@@ -93,14 +112,19 @@ contract SuwappuCoreRouterBoundUserFactory {
         uint64 minCoreOut
     ) external returns (address router, uint128 id) {
         if (user == address(0)) revert ZeroAddress();
-        router = _deploy(user);
+        bool alreadyDeployed;
+        (alreadyDeployed, router) = _deployReporting(user);
+        if (alreadyDeployed) revert RouterAlreadyDeployed();
         id = SuwappuCoreRouterBoundUserImpl(router).initiate(
             baseForQuote, evmAmountIn, limitPx, minCoreOut
         );
     }
 
     function _deploy(address user) internal returns (address router) {
-        bool alreadyDeployed;
+        (, router) = _deployReporting(user);
+    }
+
+    function _deployReporting(address user) internal returns (bool alreadyDeployed, address router) {
         (alreadyDeployed, router) = LibClone.createDeterministicClone(logic, _args(user), _salt(user));
         if (!alreadyDeployed) emit RouterDeployed(user, router);
     }
