@@ -193,10 +193,12 @@ def test_terminal_portfolio_endpoint_returns_real_balances_and_snapshots(tmp_pat
     seed_user_wallet()
     _patch_jwt_secret(monkeypatch)
 
-    async def fake_get_all_balances(self, wallet):
+    async def fake_get_all_balances(self, address, chain_type):
         return {"ethereum": {"ETH": 1.5}}
 
-    monkeypatch.setattr("bot.services.wallet.WalletService.get_all_balances", fake_get_all_balances)
+    monkeypatch.setattr(
+        "bot.services.wallet.WalletService.get_balances_by_address", fake_get_all_balances
+    )
 
     async def fake_get_prices(self, tokens):
         # Pin every symbol at $1 so totals equal balances in this test.
@@ -226,10 +228,12 @@ def test_snapshotter_writes_refresh_rows(tmp_path, monkeypatch):
     assert init_db(f"sqlite:///{tmp_path / 'history-snapshotter.db'}")
     seed_user_wallet()
 
-    async def fake_get_all_balances(self, wallet):
+    async def fake_get_all_balances(self, address, chain_type):
         return {"ethereum": {"ETH": 2.0}}
 
-    monkeypatch.setattr("bot.services.wallet.WalletService.get_all_balances", fake_get_all_balances)
+    monkeypatch.setattr(
+        "bot.services.wallet.WalletService.get_balances_by_address", fake_get_all_balances
+    )
 
     async def fake_get_prices(self, tokens):
         return {t.upper(): 1.0 for t in tokens}

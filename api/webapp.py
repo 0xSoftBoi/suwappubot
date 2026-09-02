@@ -15,7 +15,7 @@ import uuid
 from urllib.parse import parse_qs, unquote
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional, Dict, List, Any, Literal
+from typing import Optional, Dict, List, Any, Literal, Tuple
 
 from fastapi import APIRouter, HTTPException, Header, Depends, Request, Cookie, Query
 from fastapi.responses import JSONResponse
@@ -3404,32 +3404,43 @@ async def get_chains():
     return chains
 
 
-async def build_portfolio_for_user(user: User, db: Session) -> WebAppPortfolio:
-    """Compute a user's real cross-chain portfolio (real balances, USD via price_service).
+WalletRef = Tuple[str, str]  # (address, chain_type)
 
-    Shared by the Telegram-auth `/users/me/portfolio` and the terminal
-    JWT-auth `/portfolio` endpoints so both surfaces return the same real
-    balances instead of one of them being a stub.
+
+def wallet_refs_for_user(user_id: int, db: Session) -> List[WalletRef]:
+    """Plain (address, chain_type) pairs for a user's active wallets.
+
+    Callers close their session before awaiting balance RPCs, so nothing
+    ORM-bound crosses an await.
+    """
+    wallets = (
+        db.query(Wallet.address, Wallet.chain_type)
+        .filter(Wallet.user_id == user_id, Wallet.is_active == True)  # noqa: E712
+        .all()
+    )
+    return [(address, chain_type) for address, chain_type in wallets if address]
+
+
+async def build_portfolio_from_wallet_refs(
+    user_id: int, wallet_refs: List[WalletRef]
+) -> Tuple[WebAppPortfolio, bool]:
+    """Compute a real cross-chain portfolio from wallet refs, no DB session needed.
+
+    Balances come from WalletService.get_balances_by_address, the cache-first
+    read (60s TTL) that BalanceRefresher keeps warm, so the 15-minute
+    snapshotter and the request path both avoid a fresh multi-chain RPC scan.
+    USD values come from price_service in one batched lookup. Returns the
+    portfolio and whether pricing succeeded; a snapshot must not be recorded
+    when it did not, because a zero total would read as an empty portfolio.
     """
     from bot.services.wallet import WalletService
 
     wallet_service = WalletService()
-
-    # Get all active wallets
-    wallets = (
-        db.query(Wallet)
-        .filter(Wallet.user_id == user.id, Wallet.is_active == True)  # noqa: E712
-        .all()  # noqa: E712
-    )  # noqa: E712
-
     tokens: List[WebAppPortfolioToken] = []
     total_usd = 0.0
+    pricing_ok = True
     # (symbol, address, chain, balance, decimals) rows, priced in one batch below.
     pending: List[tuple] = []
-
-    # Native-coin sentinel expected by the webapp's isNativeToken() allowlist.
-    # Empty string is treated as "native" client-side and is used consistently
-    # for every chain's native asset (ETH/BNB/POL/SOL/...).
     NATIVE_ADDRESS_SENTINEL = ""
     # Explicit placeholder for ERC-20-like tokens whose contract address we do
     # NOT have in bot/config/tokens.py for a given chain. This is intentionally
@@ -3452,11 +3463,11 @@ async def build_portfolio_for_user(user: User, db: Session) -> WebAppPortfolio:
     # New wallets (e.g. freshly created Turnkey wallets) usually have no
     # balances. Skip the multi-chain balance scan entirely for wallets that
     # don't even have an address yet, instead of forcing the UI to wait on it.
-    for wallet in wallets:
-        if not wallet.address:
+    for address, chain_type in wallet_refs:
+        if not address:
             continue
         try:
-            balances = await wallet_service.get_all_balances(wallet)
+            balances = await wallet_service.get_balances_by_address(address, chain_type)
             for chain_name, chain_tokens in balances.items():
                 chain_config = CHAINS.get(chain_name)
                 for symbol, balance in chain_tokens.items():
@@ -3505,8 +3516,9 @@ async def build_portfolio_for_user(user: User, db: Session) -> WebAppPortfolio:
         try:
             prices = await price_service.get_prices(symbols)
         except Exception:
-            logger.exception("Portfolio pricing failed for user %s; USD values omitted", user.id)
+            logger.exception("Portfolio pricing failed for user %s; USD values omitted", user_id)
             prices = {}
+            pricing_ok = False
     for symbol, address, chain_name, balance, decimals in pending:
         price = prices.get(symbol.upper())
         usd_value = float(balance) * float(price) if price is not None else 0.0
@@ -3523,9 +3535,20 @@ async def build_portfolio_for_user(user: User, db: Session) -> WebAppPortfolio:
             )
         )
 
-    return WebAppPortfolio(
-        totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
+    return (
+        WebAppPortfolio(
+            totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
+        ),
+        pricing_ok,
     )
+
+
+async def build_portfolio_for_user(user: User, db: Session) -> WebAppPortfolio:
+    """Shared by /users/me/portfolio and the terminal /portfolio: real balances, real USD."""
+    portfolio, _pricing_ok = await build_portfolio_from_wallet_refs(
+        user.id, wallet_refs_for_user(user.id, db)
+    )
+    return portfolio
 
 
 _PORTFOLIO_SNAPSHOT_MIN_GAP = timedelta(minutes=5)
@@ -3596,7 +3619,11 @@ async def get_terminal_portfolio(
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    portfolio = await build_portfolio_for_user(user, db)
+    portfolio, pricing_ok = await build_portfolio_from_wallet_refs(
+        user.id, wallet_refs_for_user(user.id, db)
+    )
+    if not pricing_ok:
+        return portfolio
 
     try:
         maybe_record_portfolio_snapshot(

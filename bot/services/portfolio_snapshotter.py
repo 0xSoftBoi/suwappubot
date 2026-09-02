@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional, Set
 
 from bot.config.settings import settings
-from bot.models.user import User, Wallet
+from bot.models.user import Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class PortfolioSnapshotter:
     def __init__(self, snapshot_interval: Optional[int] = None):
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._pass_index = 0
         self._snapshot_interval = snapshot_interval or settings.portfolio_snapshot_interval_seconds
         self._abandoned: Set[asyncio.Task] = set()
         logger.info("Portfolio snapshotter initialized (interval: %ss)", self._snapshot_interval)
@@ -161,6 +162,11 @@ class PortfolioSnapshotter:
         logger.debug("Snapshotting portfolios for %d users", len(user_ids))
 
         BATCH_SIZE = 5
+        # Rotate the starting offset each pass so a pass that trips the budget
+        # never starves the same tail of users on every run.
+        offset = (self._pass_index * BATCH_SIZE) % len(user_ids)
+        self._pass_index += 1
+        user_ids = user_ids[offset:] + user_ids[:offset]
         for i in range(0, len(user_ids), BATCH_SIZE):
             if not self._running:
                 return
@@ -173,16 +179,25 @@ class PortfolioSnapshotter:
             await asyncio.sleep(1)
 
     async def _safe_snapshot(self, user_id: int):
-        """Compute and persist one user's portfolio snapshot, swallowing errors."""
+        """Compute and persist one user's portfolio snapshot, swallowing errors.
+
+        No DB session is held across the balance/price awaits: refs are read in
+        one short session, the portfolio is computed from the warm balance cache,
+        and a second short session writes the row.
+        """
         try:
-            from api.webapp import build_portfolio_for_user
+            from api.webapp import build_portfolio_from_wallet_refs, wallet_refs_for_user
             from bot.models.portfolio_snapshot import PortfolioValueSnapshot
 
             with get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
-                if not user:
-                    return
-                portfolio = await build_portfolio_for_user(user, session)
+                refs = wallet_refs_for_user(user_id, session)
+            if not refs:
+                return
+            portfolio, pricing_ok = await build_portfolio_from_wallet_refs(user_id, refs)
+            if not pricing_ok:
+                logger.debug("Skipping snapshot for user %s: pricing unavailable", user_id)
+                return
+            with get_session() as session:
                 session.add(
                     PortfolioValueSnapshot(
                         user_id=user_id,
