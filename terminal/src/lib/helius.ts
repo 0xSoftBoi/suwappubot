@@ -171,6 +171,8 @@ export interface WalletToken {
 
 export interface WalletPortfolio {
   address: string
+  /** Native coin label — 'SOL' for Helius results, 'ETH'/'POL' for Blockscout. */
+  nativeSymbol?: string
   nativeSol: number
   nativeUsd: number | null
   tokens: WalletToken[]

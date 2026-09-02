@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getWalletPortfolio, getWalletActivity } from '../../lib/helius'
+import { EVM_ADDRESS, blockscoutSupports, getEvmWalletActivity, getEvmWalletPortfolio } from '../../lib/blockscout'
+import { usePair } from '../../contexts/PairContext'
 
 const SOL_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+const isWalletAddress = (a: string) => SOL_ADDRESS.test(a) || EVM_ADDRESS.test(a)
 
 function fmtUsd(v: number | null): string {
   if (v == null) return '—'
@@ -27,22 +30,27 @@ function fmtAge(ts: number): string {
   return `${Math.floor(s / 86400)}d`
 }
 
-// Live, client-side Solana wallet inspector powered by Helius (no backend/auth).
-// Paste any address → net worth (SOL + tokens) and recent parsed activity.
+// Live, client-side wallet inspector: Solana via Helius, EVM via Blockscout.
+// Paste any address → net worth (native + tokens) and recent activity. EVM
+// addresses are inspected on the desk's active chain (Ethereum if the desk is
+// on Solana or a chain Blockscout doesn't index).
 export function WalletInspector() {
+  const { selectedChain } = usePair()
   const [input, setInput] = useState('')
   const [address, setAddress] = useState<string | null>(null)
-  const valid = address != null && SOL_ADDRESS.test(address)
+  const isEvm = address != null && EVM_ADDRESS.test(address)
+  const evmChain = blockscoutSupports(selectedChain) ? selectedChain : 'ethereum'
+  const valid = address != null && isWalletAddress(address)
 
   const portfolio = useQuery({
-    queryKey: ['wallet-portfolio', address],
-    queryFn: () => getWalletPortfolio(address as string),
+    queryKey: ['wallet-portfolio', address, isEvm ? evmChain : 'solana'],
+    queryFn: () => (isEvm ? getEvmWalletPortfolio(evmChain, address as string) : getWalletPortfolio(address as string)),
     enabled: valid,
     staleTime: 30_000,
   })
   const activity = useQuery({
-    queryKey: ['wallet-activity', address],
-    queryFn: () => getWalletActivity(address as string),
+    queryKey: ['wallet-activity', address, isEvm ? evmChain : 'solana'],
+    queryFn: () => (isEvm ? getEvmWalletActivity(evmChain, address as string) : getWalletActivity(address as string)),
     enabled: valid,
     staleTime: 30_000,
   })
@@ -50,11 +58,12 @@ export function WalletInspector() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const a = input.trim()
-    if (SOL_ADDRESS.test(a)) setAddress(a)
+    if (isWalletAddress(a)) setAddress(a)
   }
 
   const p = portfolio.data
-  const inputInvalid = input.trim().length > 0 && !SOL_ADDRESS.test(input.trim())
+  const inputInvalid = input.trim().length > 0 && !isWalletAddress(input.trim())
+  const nativeSymbol = p?.nativeSymbol ?? 'SOL'
 
   return (
     <div className="h-full flex flex-col" data-testid="wallet-tracker">
@@ -64,27 +73,27 @@ export function WalletInspector() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Paste a Solana wallet address…"
-            aria-label="Solana wallet address"
+            placeholder="Paste an EVM or Solana wallet address…"
+            aria-label="Wallet address"
             className="terminal-input flex-1 font-mono tnum text-xs"
           />
           <button
             type="submit"
-            disabled={!SOL_ADDRESS.test(input.trim())}
+            disabled={!isWalletAddress(input.trim())}
             className="rounded bg-sakura-600 px-3 py-1.5 text-xs font-semibold text-terminal-on-accent transition-colors hover:bg-sakura-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Inspect
           </button>
         </form>
         {inputInvalid && (
-          <p className="mt-1 text-[10px] text-bear">Not a valid Solana address.</p>
+          <p className="mt-1 text-[10px] text-bear">Not a valid EVM or Solana address.</p>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {!valid ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-sm text-terminal-text-muted">
-            Paste any Solana wallet to see its live holdings and activity.
+            Paste any wallet to see its live holdings and activity. EVM addresses are read on {evmChain}.
           </div>
         ) : portfolio.isLoading ? (
           <div className="flex h-full items-center justify-center text-sm text-terminal-text-muted animate-pulse">
@@ -104,7 +113,7 @@ export function WalletInspector() {
               <div className="font-mono tnum text-xl text-terminal-text">{fmtUsd(p.totalUsd)}</div>
               <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-terminal-text-secondary">
                 <span>
-                  SOL <span className="font-mono tnum text-terminal-text">{fmtAmount(p.nativeSol)}</span>{' '}
+                  {nativeSymbol} <span className="font-mono tnum text-terminal-text">{fmtAmount(p.nativeSol)}</span>{' '}
                   <span className="text-terminal-text-muted">({fmtUsd(p.nativeUsd)})</span>
                 </span>
                 <span>

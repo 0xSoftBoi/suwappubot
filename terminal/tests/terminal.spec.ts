@@ -40,7 +40,7 @@ test.describe('Terminal Layout', () => {
 
     // Cmd+K should open pair search
     await page.keyboard.press('Meta+k')
-    await expect(page.getByPlaceholder('Search tokens...')).toBeVisible()
+    await expect(page.getByPlaceholder(/Search tokens/)).toBeVisible()
 
     // Escape should close
     await page.keyboard.press('Escape')
@@ -57,18 +57,20 @@ test.describe('Terminal Layout', () => {
   test('has swap panel with order tabs', async ({ page }) => {
     await page.goto('/')
 
-    // Order tabs
-    await expect(page.getByRole('button', { name: 'Swap' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Limit' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'DCA' })).toBeVisible()
+    // Order tabs (scoped: the flip button's aria-label also contains "swap")
+    const swapPanel = page.getByTestId('swap-panel')
+    await expect(swapPanel.getByRole('button', { name: 'Swap', exact: true })).toBeVisible()
+    await expect(swapPanel.getByRole('button', { name: 'Limit', exact: true })).toBeVisible()
+    await expect(swapPanel.getByRole('button', { name: 'DCA', exact: true })).toBeVisible()
   })
 
   test('swap panel has token inputs', async ({ page }) => {
     await page.goto('/')
 
-    // From/To labels
-    await expect(page.getByText('From')).toBeVisible()
-    await expect(page.getByText('To', { exact: true })).toBeVisible()
+    // From/To labels (scoped: the portfolio empty state also says "from")
+    const swapPanel = page.getByTestId('swap-panel')
+    await expect(swapPanel.getByText('From', { exact: true })).toBeVisible()
+    await expect(swapPanel.getByText('To', { exact: true })).toBeVisible()
 
     // Amount input
     const inputs = page.getByPlaceholder('0.0')
@@ -160,7 +162,7 @@ test.describe('Terminal Layout', () => {
   test('shows connect wallet message when not authenticated', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.getByText('Create a Turnkey wallet to view portfolio')).toBeVisible()
+    await expect(page.getByText('Your positions live here')).toBeVisible()
   })
 
   test('has chart toolbar with time intervals', async ({ page }) => {
@@ -189,11 +191,9 @@ test.describe('Terminal Layout', () => {
     // Switch to DCA tab
     await page.getByRole('button', { name: 'DCA' }).click()
 
-    // DCA-specific fields
-    await expect(page.getByText('Total Amount (USD)')).toBeVisible()
-    await expect(page.getByText('Frequency')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Daily' })).toBeVisible()
-    await expect(page.getByText('Number of Orders')).toBeVisible()
+    // DCA scheduling is an honest coming-soon state until the execution
+    // backend lands; the tab must say so instead of showing a ghost form.
+    await expect(page.getByText('DCA scheduling is coming soon')).toBeVisible()
   })
 
   test('connect wallet button is present', async ({ page }) => {

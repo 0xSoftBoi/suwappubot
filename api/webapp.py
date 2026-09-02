@@ -2121,19 +2121,88 @@ def _dex_pair_to_pool(pair: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _fetch_dex_pools(chain: str, limit: int, mode: str) -> List[Dict[str, Any]]:
-    chain_key = chain.lower()
+# GeckoTerminal network ids for the discovery feeds. The previous source was a
+# DexScreener *text search* ("ETH USDC") filtered by chain, which for Ethereum
+# returned a single years-old pool named by its address — the New Pairs and
+# Trending tabs looked broken. GeckoTerminal has real per-network
+# new_pools / trending_pools feeds; DexScreener stays as the fallback.
+_GECKO_DISCOVERY_NETWORK = {
+    "ethereum": "eth",
+    "eth": "eth",
+    "base": "base",
+    "arbitrum": "arbitrum",
+    "solana": "solana",
+    "bsc": "bsc",
+    "polygon": "polygon_pos",
+    "optimism": "optimism",
+    "avalanche": "avax",
+}
+
+
+def _gecko_pool_to_pool(
+    pool: Dict[str, Any], included: Dict[str, Dict[str, Any]]
+) -> Dict[str, Any]:
+    attrs = pool.get("attributes") or {}
+    rel = pool.get("relationships") or {}
+
+    def token(kind: str) -> Dict[str, str]:
+        ref = ((rel.get(kind) or {}).get("data") or {}).get("id") or ""
+        inc = included.get(ref) or {}
+        address = inc.get("address") or (ref.split("_", 1)[1] if "_" in ref else "")
+        return {"symbol": inc.get("symbol") or "UNKNOWN", "address": address}
+
+    volume = attrs.get("volume_usd") or {}
+    change = attrs.get("price_change_percentage") or {}
+
+    def num(value: Any) -> Optional[float]:
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "name": attrs.get("name") or "",
+        "address": attrs.get("address") or "",
+        "createdAt": attrs.get("pool_created_at") or "",
+        "baseToken": token("base_token"),
+        "quoteToken": token("quote_token"),
+        "priceUsd": attrs.get("base_token_price_usd"),
+        "fdvUsd": attrs.get("fdv_usd"),
+        "volumeH24": volume.get("h24"),
+        "reserveUsd": attrs.get("reserve_in_usd"),
+        "priceChangeH1": num(change.get("h1")),
+        "priceChangeH24": num(change.get("h24")),
+    }
+
+
+async def _fetch_gecko_pools(network: str, limit: int, mode: str) -> List[Dict[str, Any]]:
+    feed = "new_pools" if mode == "new" else "trending_pools"
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        response = await client.get(
+            f"https://api.geckoterminal.com/api/v2/networks/{network}/{feed}",
+            params={"include": "base_token,quote_token", "page": 1},
+            headers={"Accept": "application/json"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    included = {
+        item.get("id"): (item.get("attributes") or {})
+        for item in payload.get("included") or []
+        if item.get("type") == "token"
+    }
+    pools = [_gecko_pool_to_pool(pool, included) for pool in payload.get("data") or []]
+    return pools[:limit]
+
+
+async def _fetch_dexscreener_pools(chain_key: str, limit: int, mode: str) -> List[Dict[str, Any]]:
     dex_chain_id = _DEX_CHAIN_IDS.get(chain_key, chain_key)
     query = _DEX_SEARCH_QUERY.get(chain_key, chain_key)
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.get(
-                "https://api.dexscreener.com/latest/dex/search", params={"q": query}
-            )
-            response.raise_for_status()
-            payload = response.json()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Discovery provider failed: {exc}")
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        response = await client.get(
+            "https://api.dexscreener.com/latest/dex/search", params={"q": query}
+        )
+        response.raise_for_status()
+        payload = response.json()
 
     pairs = [
         pair
@@ -2148,6 +2217,22 @@ async def _fetch_dex_pools(chain: str, limit: int, mode: str) -> List[Dict[str, 
             reverse=True,
         )
     return [_dex_pair_to_pool(pair) for pair in pairs[:limit]]
+
+
+async def _fetch_dex_pools(chain: str, limit: int, mode: str) -> List[Dict[str, Any]]:
+    chain_key = chain.lower()
+    network = _GECKO_DISCOVERY_NETWORK.get(chain_key)
+    if network:
+        try:
+            pools = await _fetch_gecko_pools(network, limit, mode)
+            if pools:
+                return pools
+        except Exception as exc:
+            logger.debug(f"GeckoTerminal {mode} pools unavailable for {chain_key}: {exc}")
+    try:
+        return await _fetch_dexscreener_pools(chain_key, limit, mode)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Discovery provider failed: {exc}")
 
 
 @router.get("/tokens/popular", response_model=List[WebAppToken])

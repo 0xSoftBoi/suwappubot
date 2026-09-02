@@ -7,53 +7,22 @@ test.describe('DeFi Command Center', () => {
     await page.getByTestId('bottom-tabs').getByRole('button', { name: 'DeFi Center' }).click()
   })
 
+  // Alerts and DCA are honest coming-soon states (no backend yet). The panel
+  // must render them as such — a ghost form that silently does nothing is the
+  // regression these tests guard against.
   test.describe('Alerts Panel', () => {
-    test('alerts panel renders with create form', async ({ page }) => {
+    test('alerts panel renders its coming-soon state', async ({ page }) => {
       await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible()
-
-      const createButton = page.getByRole('button', { name: 'Create Alert' })
-      await expect(createButton).toBeVisible()
-
-      // Verify inputs exist within the alerts section
-      const tokenInput = page.getByPlaceholder('ETH').first()
-      const targetInput = page.getByPlaceholder('0.00').first()
-      await expect(tokenInput).toBeVisible()
-      await expect(targetInput).toBeVisible()
-    })
-
-    test('alert form has type selector', async ({ page }) => {
-      const priceAbove = page.getByRole('button', { name: 'Price Above' })
-      const priceBelow = page.getByRole('button', { name: 'Price Below' })
-      const volumeSpike = page.getByRole('button', { name: 'Volume Spike' })
-
-      await expect(priceAbove).toBeVisible()
-      await expect(priceBelow).toBeVisible()
-      await expect(volumeSpike).toBeVisible()
-
-      // Click Price Below to switch type
-      await priceBelow.click()
-      await expect(priceBelow).toHaveClass(/sakura/)
+      await expect(page.getByText('Price and volume alerts are coming soon')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Create Alert' })).toHaveCount(0)
     })
   })
 
   test.describe('DCA Manager', () => {
-    test('DCA manager renders', async ({ page }) => {
+    test('DCA manager renders its coming-soon state', async ({ page }) => {
       await expect(page.getByRole('heading', { name: 'DCA Orders' })).toBeVisible()
-
-      const startButton = page.getByRole('button', { name: 'Start DCA' })
-      await expect(startButton).toBeVisible()
-    })
-
-    test('DCA form has frequency options', async ({ page }) => {
-      const hourly = page.getByRole('radio', { name: 'Hourly' })
-      const daily = page.getByRole('radio', { name: 'Daily' })
-      const weekly = page.getByRole('radio', { name: 'Weekly' })
-      const monthly = page.getByRole('radio', { name: 'Monthly' })
-
-      await expect(hourly).toBeVisible()
-      await expect(daily).toBeVisible()
-      await expect(weekly).toBeVisible()
-      await expect(monthly).toBeVisible()
+      await expect(page.getByText('Recurring DCA schedules are coming soon')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Start DCA' })).toHaveCount(0)
     })
   })
 

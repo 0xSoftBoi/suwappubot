@@ -2,6 +2,43 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Discovery Panel', () => {
   test.beforeEach(async ({ page }) => {
+    // Discovery is fed by DexScreener (browser-side) and python-api. Neither is
+    // reachable in the E2E environment, so serve deterministic fixtures.
+    const dexPair = (i: number) => ({
+      chainId: 'solana',
+      pairAddress: `pair${i}`,
+      baseToken: { address: `mint${i}`, symbol: `TOK${i}`, name: `Token ${i}` },
+      priceUsd: '0.0123',
+      marketCap: 250_000 + i,
+      pairCreatedAt: Date.now() - i * 60_000,
+      volume: { h24: 50_000 - i },
+      liquidity: { usd: 20_000 },
+      priceChange: { m5: 1, h1: 2, h6: 3, h24: 4 },
+      txns: { h24: { buys: 40, sells: 20 } },
+    })
+    await page.route('**/api.dexscreener.com/**', (route) =>
+      route.fulfill({ json: { pairs: [dexPair(1), dexPair(2), dexPair(3)] } }),
+    )
+    await page.route('**/terminal/discovery/final-stretch**', (route) =>
+      route.fulfill({
+        json: [
+          {
+            address: 'mint9', symbol: 'FIN', name: 'Final', chain: 'solana', stage: 'final_stretch',
+            createdAt: new Date().toISOString(), marketCap: 60_000, volume24h: 9_000, holders: 120,
+            topHolderPercent: 12, devPercent: 3, sniperPercent: 4, liquidityUsd: 15_000, priceUsd: 0.01,
+            txns24h: 90, buys24h: 60, sells24h: 30, priceChange5m: 0, priceChange1h: 0, priceChange6h: 0, priceChange24h: 0,
+          },
+        ],
+      }),
+    )
+    const pool = {
+      name: 'TOK/USDC', address: '0xpool', createdAt: new Date().toISOString(),
+      baseToken: { symbol: 'TOK', address: '0xtok' }, quoteToken: { symbol: 'USDC', address: '0xusdc' },
+      priceUsd: '1.23', fdvUsd: '1000000', volumeH24: '50000', reserveUsd: '20000', priceChangeH1: 1, priceChangeH24: 2,
+    }
+    await page.route('**/webapp/discovery/new**', (route) => route.fulfill({ json: [pool] }))
+    await page.route('**/webapp/discovery/trending**', (route) => route.fulfill({ json: [pool] }))
+
     await page.goto('/')
     // Navigate to Discovery tab
     await page.getByTestId('bottom-tabs').getByRole('button', { name: 'Discovery' }).click()

@@ -7,6 +7,7 @@ import { PerpsTab } from './PerpsTab'
 import { PredictionsTab } from './PredictionsTab'
 import { LendTab } from './LendTab'
 import { useMarketDataStatus } from '../../hooks/useMarketDataStore'
+import { useAuth } from '../../contexts/AuthContext'
 
 type DataSubTab = 'candles' | 'perps' | 'predictions' | 'lend'
 
@@ -23,6 +24,23 @@ const SUB_TABS: { id: DataSubTab; label: string }[] = [
 export function MarketDataPanel() {
   const [subTab, setSubTab] = useState<DataSubTab>('candles')
   const status = useMarketDataStatus()
+  const { isAuthenticated } = useAuth()
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-full items-center justify-center p-6" data-testid="market-data-panel">
+        <div className="max-w-md text-center">
+          <div className="terminal-theme-caption text-[10px] uppercase text-terminal-text-muted">Market data</div>
+          <div className="mt-1 text-[15px] font-semibold text-terminal-text">Sign in to open the data store</div>
+          <p className="mt-1.5 text-[12px] leading-[1.5] text-terminal-text-secondary">
+            Captured candles, perp funding and open interest, prediction odds and lending
+            rates are served to signed-in sessions. Connect a wallet or continue with Google
+            from the header.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="market-data-panel">

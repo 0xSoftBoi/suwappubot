@@ -87,6 +87,12 @@ test.describe('Watchlist', () => {
   })
 
   test('Can add a token to watchlist', async ({ page }) => {
+    // The add form resolves the symbol through token search; serve a fixture.
+    await page.route('**/webapp/tokens/search**', (route) =>
+      route.fulfill({
+        json: [{ symbol: 'ETH', name: 'Ethereum', address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', chain: 'ethereum', decimals: 18 }],
+      }),
+    )
     // Navigate to watchlist
     const tabs = page.locator('[data-testid="bottom-tabs"]')
     await tabs.locator('button', { hasText: 'Watchlist' }).click()
