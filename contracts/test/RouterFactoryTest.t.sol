@@ -2,14 +2,14 @@
 pragma solidity 0.8.27;
 
 import "forge-std/Test.sol";
-import { SuwappuCoreRouterFactory } from "../hypercore/SuwappuCoreRouterFactory.sol";
+import { SuwappuCoreRouterBoundUserFactory } from "../hypercore/SuwappuCoreRouterBoundUserFactory.sol";
 import { ImmutableBoundUser } from "../hypercore/ImmutableBoundUser.sol";
 
 /// Minimal stand-in for the eventual SuwappuCoreRouterLogic: just enough to
 /// prove ImmutableBoundUser's per-clone user() actually varies clone-by-clone,
 /// and that a clone's own storage is independent of every other clone's.
 /// poke() is deliberately permissionless — ImmutableBoundUser is fund-routing
-/// data, not caller access control (see SuwappuCoreRouterImplementation.sol).
+/// data, not caller access control (see SuwappuCoreRouterBoundUserImpl.sol).
 contract MockRouterLogic is ImmutableBoundUser {
     uint256 public hits;
 
@@ -19,7 +19,7 @@ contract MockRouterLogic is ImmutableBoundUser {
 }
 
 contract RouterFactoryTest is Test {
-    SuwappuCoreRouterFactory factory;
+    SuwappuCoreRouterBoundUserFactory factory;
     address logic;
 
     address alice = address(0xA11CE);
@@ -27,15 +27,15 @@ contract RouterFactoryTest is Test {
 
     function setUp() public {
         logic = address(new MockRouterLogic());
-        factory = new SuwappuCoreRouterFactory(logic);
+        factory = new SuwappuCoreRouterBoundUserFactory(logic);
     }
 
     function test_constructor_rejectsZeroAndEoaLogic() public {
-        vm.expectRevert(SuwappuCoreRouterFactory.ZeroAddress.selector);
-        new SuwappuCoreRouterFactory(address(0));
+        vm.expectRevert(SuwappuCoreRouterBoundUserFactory.ZeroAddress.selector);
+        new SuwappuCoreRouterBoundUserFactory(address(0));
 
-        vm.expectRevert(SuwappuCoreRouterFactory.BadLogic.selector);
-        new SuwappuCoreRouterFactory(address(0xdead)); // EOA-like address, no code
+        vm.expectRevert(SuwappuCoreRouterBoundUserFactory.BadLogic.selector);
+        new SuwappuCoreRouterBoundUserFactory(address(0xdead)); // EOA-like address, no code
     }
 
     function test_routerFor_isDeterministic_andMatchesActualDeploy() public {
@@ -65,7 +65,7 @@ contract RouterFactoryTest is Test {
     }
 
     function test_deployRouter_rejectsZeroUser() public {
-        vm.expectRevert(SuwappuCoreRouterFactory.ZeroAddress.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserFactory.ZeroAddress.selector);
         factory.deployRouter(address(0));
     }
 

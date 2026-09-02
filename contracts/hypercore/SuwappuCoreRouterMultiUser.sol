@@ -24,8 +24,8 @@ interface IERC20 {
  * PROPOSAL_PER_USER_ROUTER_ISOLATION_2026-09-01.md). AUDIT_COREROUTER_2026-08-31.md's
  * F1/F2/F3 and the donation residual are consequences of that sharing. Kept
  * unmodified as the pre-isolation reference — see
- * SuwappuCoreRouterImplementation.sol for the per-user-clone version this
- * repo is moving to, and SuwappuCoreRouterFactory.sol for how clones are
+ * SuwappuCoreRouterBoundUserImpl.sol for the per-user-clone version this
+ * repo is moving to, and SuwappuCoreRouterBoundUserFactory.sol for how clones are
  * deployed.
  *
  * CoreWriter actions are ASYNC (executed on HyperCore seconds later; a rejected

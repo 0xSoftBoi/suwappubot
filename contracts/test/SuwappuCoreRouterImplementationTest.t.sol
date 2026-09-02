@@ -4,8 +4,8 @@ pragma solidity 0.8.27;
 import { Test, Vm } from "forge-std/Test.sol";
 import { L1Read } from "../hypercore/L1Read.sol";
 import { CoreWriterLib } from "../hypercore/CoreWriterLib.sol";
-import { SuwappuCoreRouterImplementation, IERC20 } from "../hypercore/SuwappuCoreRouterImplementation.sol";
-import { SuwappuCoreRouterFactory } from "../hypercore/SuwappuCoreRouterFactory.sol";
+import { SuwappuCoreRouterBoundUserImpl, IERC20 } from "../hypercore/SuwappuCoreRouterBoundUserImpl.sol";
+import { SuwappuCoreRouterBoundUserFactory } from "../hypercore/SuwappuCoreRouterBoundUserFactory.sol";
 
 contract TestToken is IERC20 {
     mapping(address => uint256) public balanceOf;
@@ -48,12 +48,12 @@ contract CoreWriterSink {
 /// Proves the per-clone fund-direction gating: no matter who CALLS the
 /// clone's lifecycle functions, tokens only ever move for the user this
 /// clone was deployed for — never the caller, never anyone else's clone.
-contract SuwappuCoreRouterImplementationTest is Test {
+contract SuwappuCoreRouterBoundUserImplTest is Test {
     TestToken base;
     TestToken quote;
-    SuwappuCoreRouterImplementation logic;
-    SuwappuCoreRouterFactory factory;
-    SuwappuCoreRouterImplementation aliceRouter; // alice's clone, typed for calls
+    SuwappuCoreRouterBoundUserImpl logic;
+    SuwappuCoreRouterBoundUserFactory factory;
+    SuwappuCoreRouterBoundUserImpl aliceRouter; // alice's clone, typed for calls
 
     address treasury = address(0x7EA);
     address alice = address(0xA11CE);
@@ -75,13 +75,13 @@ contract SuwappuCoreRouterImplementationTest is Test {
         _mockL1Block(L1_START);
         vm.mockCall(L1Read.CORE_USER_EXISTS, abi.encode(treasury), abi.encode(true));
 
-        logic = new SuwappuCoreRouterImplementation(
+        logic = new SuwappuCoreRouterBoundUserImpl(
             base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, treasury, 30
         );
-        factory = new SuwappuCoreRouterFactory(address(logic));
+        factory = new SuwappuCoreRouterBoundUserFactory(address(logic));
 
         address routerAddr = factory.deployRouter(alice);
-        aliceRouter = SuwappuCoreRouterImplementation(routerAddr);
+        aliceRouter = SuwappuCoreRouterBoundUserImpl(routerAddr);
 
         base.mint(alice, 100e18);
         quote.mint(alice, 1_000e8);
@@ -124,12 +124,12 @@ contract SuwappuCoreRouterImplementationTest is Test {
         aliceRouter.execute(id);
     }
 
-    function _status(uint128 id) internal view returns (SuwappuCoreRouterImplementation.Status) {
+    function _status(uint128 id) internal view returns (SuwappuCoreRouterBoundUserImpl.Status) {
         return aliceRouter.getSwap(id).status;
     }
 
     function _owed(uint128 id) internal view returns (uint64, uint64) {
-        SuwappuCoreRouterImplementation.Swap memory s = aliceRouter.getSwap(id);
+        SuwappuCoreRouterBoundUserImpl.Swap memory s = aliceRouter.getSwap(id);
         return (s.owedOut, s.owedIn);
     }
 
@@ -161,30 +161,30 @@ contract SuwappuCoreRouterImplementationTest is Test {
     function test_execute_revertsUntilDepositObserved() public {
         vm.prank(alice);
         uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterImplementation.Status.Funding));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterBoundUserImpl.Status.Funding));
 
         // deposit not on Core yet: the order must never be placed
-        vm.expectRevert(SuwappuCoreRouterImplementation.NotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.NotLanded.selector);
         aliceRouter.execute(id);
 
         _fundAndExecute(id, BASE_TOKEN, 2e8);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterImplementation.Status.Pending));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterBoundUserImpl.Status.Pending));
 
         // and never twice
-        vm.expectRevert(SuwappuCoreRouterImplementation.BadStatus.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.BadStatus.selector);
         aliceRouter.execute(id);
     }
 
     function test_settle_blockedInFundingAndBeforeDelay() public {
         vm.prank(alice);
         uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
-        vm.expectRevert(SuwappuCoreRouterImplementation.BadStatus.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.BadStatus.selector);
         aliceRouter.settle(id); // still Funding
 
         _fundAndExecute(id, BASE_TOKEN, 2e8);
         vm.roll(block.number + 1);
         _mockL1Block(L1_START + 5); // < SETTLE_DELAY_L1 past execute
-        vm.expectRevert(SuwappuCoreRouterImplementation.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.TooEarly.selector);
         aliceRouter.settle(id);
     }
 
@@ -206,7 +206,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         assertEq(outOwed, 50e8 - 15_000_000); // 30bps fee
         assertEq(inOwed, 0);
 
-        vm.expectRevert(SuwappuCoreRouterImplementation.BridgeNotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.BridgeNotLanded.selector);
         aliceRouter.claim(id);
 
         quote.mint(address(aliceRouter), 50e8 - 15_000_000);
@@ -223,7 +223,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         _afterDelay();
         // in-token still held = IOC not yet executed on Core: must not reconcile
         _mockSpot(address(aliceRouter), BASE_TOKEN, 2e8, 1_5000_0000);
-        vm.expectRevert(SuwappuCoreRouterImplementation.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.TooEarly.selector);
         aliceRouter.settle(id);
 
         // order resolves (hold clears), full fill
@@ -248,14 +248,14 @@ contract SuwappuCoreRouterImplementationTest is Test {
         _mockL1Block(L1_START + aliceRouter.RELEASE_DELAY_L1());
         aliceRouter.forceRelease(id);
         // reconciled under the lock, not abandoned; lock retained until claim
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterImplementation.Status.Bridging));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterBoundUserImpl.Status.Bridging));
         (uint64 outOwed,) = _owed(id);
         assertEq(outOwed, 50e8 - 15_000_000);
         assertEq(aliceRouter.inFlight(), id);
 
         // cannot re-settle against a successor's balances (status != Pending)
         vm.roll(block.number + 1);
-        vm.expectRevert(SuwappuCoreRouterImplementation.BadStatus.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.BadStatus.selector);
         aliceRouter.settle(id);
 
         // claim pays the user and frees the lock only after credits land
@@ -279,7 +279,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         (uint64 outOwed, uint64 inOwed) = _owed(id);
         assertEq(outOwed, 0);
         assertEq(inOwed, 2e8);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterImplementation.Status.Bridging));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterBoundUserImpl.Status.Bridging));
         // lock is RETAINED until claim confirms the bridge credit (mirrors
         // settle) so the async refund cannot race a next swap's snapshot
         assertEq(aliceRouter.inFlight(), id);
@@ -303,7 +303,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
 
         // next swap cannot snapshot Core while A's debit is still crossing
         vm.prank(alice);
-        vm.expectRevert(SuwappuCoreRouterImplementation.Locked.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.Locked.selector);
         aliceRouter.initiate(true, 1e18, PX, 20e8);
 
         // once A's credit lands and A claims, the lock frees for B
@@ -323,7 +323,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         // BASE_TOKEN stays 0 (deposit never landed)
         _mockL1Block(L1_START + aliceRouter.RELEASE_DELAY_L1());
         aliceRouter.forceRelease(id);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterImplementation.Status.Aborted));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterBoundUserImpl.Status.Aborted));
         assertEq(aliceRouter.inFlight(), 0);
 
         // lock is free; a fresh swap proceeds normally
@@ -413,7 +413,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
     function test_retry_reissuesBridge() public {
         uint128 id = _settledSell();
         uint256 sends = CoreWriterSink(CoreWriterLib.CORE_WRITER).count();
-        vm.expectRevert(SuwappuCoreRouterImplementation.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.TooEarly.selector);
         aliceRouter.retry(id);
 
         _mockL1Block(L1_START + aliceRouter.SETTLE_DELAY_L1() + aliceRouter.RETRY_DELAY_L1());
@@ -425,7 +425,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         // stuck in Funding (deposit never lands)
         vm.prank(alice);
         uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
-        vm.expectRevert(SuwappuCoreRouterImplementation.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.TooEarly.selector);
         aliceRouter.forceRelease(id);
         _mockL1Block(L1_START + aliceRouter.RELEASE_DELAY_L1());
         aliceRouter.forceRelease(id);
@@ -439,13 +439,13 @@ contract SuwappuCoreRouterImplementationTest is Test {
         assertEq(aliceRouter.inFlight(), 0);
         quote.mint(address(aliceRouter), 50e8 - 15_000_000);
         aliceRouter.claim(id2);
-        assertEq(uint8(_status(id2)), uint8(SuwappuCoreRouterImplementation.Status.Done));
+        assertEq(uint8(_status(id2)), uint8(SuwappuCoreRouterBoundUserImpl.Status.Done));
     }
 
     function test_claim_gatedOnPerSwapSnapshot_notAggregateBalance() public {
         quote.mint(address(aliceRouter), 1_000e8); // pre-existing balance must not count
         uint128 id = _settledSell();
-        vm.expectRevert(SuwappuCoreRouterImplementation.BridgeNotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.BridgeNotLanded.selector);
         aliceRouter.claim(id);
         quote.mint(address(aliceRouter), 50e8 - 15_000_000);
         aliceRouter.claim(id);
@@ -457,18 +457,18 @@ contract SuwappuCoreRouterImplementationTest is Test {
         vm.prank(alice);
         aliceRouter.initiate(true, 1e18, PX, 20e8);
         vm.prank(alice);
-        vm.expectRevert(SuwappuCoreRouterImplementation.Locked.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.Locked.selector);
         aliceRouter.initiate(true, 1e18, PX, 20e8);
     }
 
     function test_rejects_nonDivisible_and_badTreasury() public {
         vm.prank(alice);
-        vm.expectRevert(SuwappuCoreRouterImplementation.NotDivisible.selector);
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.NotDivisible.selector);
         aliceRouter.initiate(true, 1e18 + 1, PX, 20e8);
 
         vm.mockCall(L1Read.CORE_USER_EXISTS, abi.encode(address(0xDEAD)), abi.encode(false));
-        vm.expectRevert(SuwappuCoreRouterImplementation.BadTreasury.selector);
-        new SuwappuCoreRouterImplementation(
+        vm.expectRevert(SuwappuCoreRouterBoundUserImpl.BadTreasury.selector);
+        new SuwappuCoreRouterBoundUserImpl(
             base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, address(0xDEAD), 30
         );
     }
@@ -477,7 +477,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         vm.prank(keeper); // NOT alice — a keeper is triggering this
         uint128 id = aliceRouter.initiate(true, 2e18, PX, 49e8);
 
-        SuwappuCoreRouterImplementation.Swap memory s = aliceRouter.getSwap(id);
+        SuwappuCoreRouterBoundUserImpl.Swap memory s = aliceRouter.getSwap(id);
         assertEq(s.user, alice, "swap must be bound to the clone's user, not the caller");
         // funds pulled from alice, not from the keeper (keeper never approved anything)
         assertEq(base.balanceOf(alice), 100e18 - 2e18);
@@ -522,7 +522,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
 
     function test_twoUsersClones_areIndependent() public {
         address bobRouterAddr = factory.deployRouter(bob);
-        SuwappuCoreRouterImplementation bobRouter = SuwappuCoreRouterImplementation(bobRouterAddr);
+        SuwappuCoreRouterBoundUserImpl bobRouter = SuwappuCoreRouterBoundUserImpl(bobRouterAddr);
 
         base.mint(bob, 100e18);
         vm.prank(bob);
@@ -566,7 +566,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
 
         assertEq(router, predicted);
         assertGt(router.code.length, 0, "router must exist after this call");
-        SuwappuCoreRouterImplementation carolRouter = SuwappuCoreRouterImplementation(router);
+        SuwappuCoreRouterBoundUserImpl carolRouter = SuwappuCoreRouterBoundUserImpl(router);
         assertEq(carolRouter.getSwap(id).user, carol);
         assertEq(base.balanceOf(carol), 100e18 - 2e18);
         assertEq(base.balanceOf(keeper), 0, "the triggering keeper must never be debited");
@@ -595,7 +595,7 @@ contract SuwappuCoreRouterImplementationTest is Test {
         assertEq(router, routerAddr);
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(
-                logs[i].topics[0] != SuwappuCoreRouterFactory.RouterDeployed.selector,
+                logs[i].topics[0] != SuwappuCoreRouterBoundUserFactory.RouterDeployed.selector,
                 "must not re-emit RouterDeployed for an existing router"
             );
         }

@@ -2,10 +2,10 @@
 pragma solidity 0.8.27;
 
 import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
-import { SuwappuCoreRouterImplementation } from "./SuwappuCoreRouterImplementation.sol";
+import { SuwappuCoreRouterBoundUserImpl } from "./SuwappuCoreRouterBoundUserImpl.sol";
 
 /**
- * @title SuwappuCoreRouterFactory
+ * @title SuwappuCoreRouterBoundUserFactory
  *
  * Deploys one EIP-1167-with-immutable-args clone per user against a single
  * shared logic contract, so each user gets their own HyperCore account (own
@@ -20,16 +20,16 @@ import { SuwappuCoreRouterImplementation } from "./SuwappuCoreRouterImplementati
  * one it routes funds for (see ImmutableBoundUser). Nothing here can deploy a
  * router "on behalf of" someone into a state where a different address ends
  * up receiving/paying for its swaps. This is not caller access control —
- * see SuwappuCoreRouterImplementation.sol for why every clone stays fully
+ * see SuwappuCoreRouterBoundUserImpl.sol for why every clone stays fully
  * permissionless.
  *
  * Scope note: the immutable args carry ONLY the routed user's address.
  * Market config (baseErc20/quoteErc20/orderAsset/decimals/treasury/feeBps)
- * stays as regular Solidity `immutable`s on SuwappuCoreRouterImplementation
+ * stays as regular Solidity `immutable`s on SuwappuCoreRouterBoundUserImpl
  * itself — correct there, since it's identical for every clone of one
  * market; only the per-user piece needed the immutable-args trick.
  */
-contract SuwappuCoreRouterFactory {
+contract SuwappuCoreRouterBoundUserFactory {
     /// The shared logic contract every clone `delegatecall`s into.
     address public immutable logic;
 
@@ -81,7 +81,7 @@ contract SuwappuCoreRouterFactory {
     /// deployed" case to handle here. Permissionless like every other
     /// function in this stack: whoever calls this, funds only ever move for
     /// `user` (initiate() ignores msg.sender entirely — see
-    /// SuwappuCoreRouterImplementation.sol). initiate() reverting (e.g. no
+    /// SuwappuCoreRouterBoundUserImpl.sol). initiate() reverting (e.g. no
     /// allowance yet, or user already has a swap in flight) reverts this
     /// whole call, including the deploy — CREATE2 means a retry later lands
     /// on the same address.
@@ -94,7 +94,7 @@ contract SuwappuCoreRouterFactory {
     ) external returns (address router, uint128 id) {
         if (user == address(0)) revert ZeroAddress();
         router = _deploy(user);
-        id = SuwappuCoreRouterImplementation(router).initiate(
+        id = SuwappuCoreRouterBoundUserImpl(router).initiate(
             baseForQuote, evmAmountIn, limitPx, minCoreOut
         );
     }

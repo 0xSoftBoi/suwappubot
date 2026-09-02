@@ -7,7 +7,7 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  * @title ImmutableBoundUser
  *
  * Mixin for a logic contract meant to be `delegatecall`-run by one EIP-1167
- * clone per user (see SuwappuCoreRouterFactory.sol). The user each clone
+ * clone per user (see SuwappuCoreRouterBoundUserFactory.sol). The user each clone
  * routes funds for is baked into the first 20 bytes of EACH CLONE'S OWN
  * bytecode at CREATE2 time (`LibClone.cloneDeterministic`/
  * `createDeterministicClone`) — not a storage slot, not a constructor, not
@@ -16,7 +16,7 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  *
  * This is NOT an access-control primitive — it makes no claim about who may
  * CALL anything. It only answers "which user does this clone route funds
- * for," which a caller (e.g. SuwappuCoreRouterImplementation) uses as the
+ * for," which a caller (e.g. SuwappuCoreRouterBoundUserImpl) uses as the
  * transferFrom source and swap beneficiary, never as a `msg.sender` check.
  *
  * Every clone runs the SAME logic bytecode via `delegatecall`, but

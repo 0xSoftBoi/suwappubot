@@ -12,9 +12,9 @@ interface IERC20 {
 }
 
 /**
- * @title SuwappuCoreRouterImplementation — per-user-clone native spot swaps
+ * @title SuwappuCoreRouterBoundUserImpl — per-user-clone native spot swaps
  *
- * Logic contract for SuwappuCoreRouterFactory: one EIP-1167-with-immutable-args
+ * Logic contract for SuwappuCoreRouterBoundUserFactory: one EIP-1167-with-immutable-args
  * clone per user `delegatecall`s into a single deployed instance of this
  * contract per market (see PROPOSAL_PER_USER_ROUTER_ISOLATION_2026-09-01.md).
  * Market config (this file's constructor immutables) is correctly shared by
@@ -47,7 +47,7 @@ interface IERC20 {
  * residual within one clone (documented in that audit as surviving
  * isolation) is unchanged by this file and not addressed here.
  */
-contract SuwappuCoreRouterImplementation is ImmutableBoundUser {
+contract SuwappuCoreRouterBoundUserImpl is ImmutableBoundUser {
     // ── immutable market config ─────────────────────────────────────────────
     IERC20 public immutable baseErc20;
     IERC20 public immutable quoteErc20;
