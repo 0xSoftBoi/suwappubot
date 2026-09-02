@@ -13,13 +13,16 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  * closes F1/F2/F3's shared root cause instead of patching each way it goes
  * wrong.
  *
- * Access control lives in the clone's OWN bytecode, not storage: the CREATE2
- * salt and the immutable args are both derived from `user`, so a clone can
- * only ever be produced with that user's address baked in as owner (see
- * ImmutableArgsOwned). Nothing here can deploy a router "on behalf of"
- * someone into a state where a different address controls it.
+ * Fund-direction gating lives in the clone's OWN bytecode, not storage: the
+ * CREATE2 salt and the immutable args are both derived from `user`, so a
+ * clone can only ever be produced with that user's address baked in as the
+ * one it routes funds for (see ImmutableUser). Nothing here can deploy a
+ * router "on behalf of" someone into a state where a different address ends
+ * up receiving/paying for its swaps. This is not caller access control —
+ * see SuwappuCoreRouterImplementation.sol for why every clone stays fully
+ * permissionless.
  *
- * Scope note: today the immutable args carry ONLY the owning user's address.
+ * Scope note: today the immutable args carry ONLY the routed user's address.
  * Market config (baseErc20/quoteErc20/orderAsset/decimals/treasury/feeBps)
  * is deliberately not baked in yet — that's for SuwappuCoreRouterLogic's own
  * port (separate follow-up), which will decide whether config also belongs

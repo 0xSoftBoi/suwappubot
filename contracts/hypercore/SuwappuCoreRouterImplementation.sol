@@ -3,7 +3,7 @@ pragma solidity 0.8.27;
 
 import { L1Read } from "./L1Read.sol";
 import { CoreWriterLib } from "./CoreWriterLib.sol";
-import { ImmutableArgsOwned } from "./ImmutableArgsOwned.sol";
+import { ImmutableUser } from "./ImmutableUser.sol";
 
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -22,7 +22,7 @@ interface IERC20 {
  * that must differ per clone is WHICH user it moves funds for, and that
  * can't be a Solidity `immutable` here (those bake into this shared LOGIC
  * contract's own bytecode, identical for every clone) — it's read via
- * ImmutableArgsOwned.owner(), which decodes the address baked into the
+ * ImmutableUser.user(), which decodes the address baked into the
  * CALLING clone's own bytecode at deploy time (delegatecall keeps
  * `address(this)` == the clone, not this logic contract).
  *
@@ -31,10 +31,11 @@ interface IERC20 {
  * SuwappuCoreRouter (any caller may drive the lifecycle — keepers, the user
  * themselves, doesn't matter). What changes is that `initiate()` no longer
  * takes `msg.sender` as the swap's beneficiary/payer — it always uses
- * `_boundUser()`, the address fixed into THIS clone at deploy time. So
+ * `user()`, the address fixed into THIS clone at deploy time. So
  * regardless of who calls initiate()/execute()/settle()/claim()/retry() on
  * this clone, tokens only ever leave from and land on that one fixed
- * address. There is no `onlyOwner` anywhere in this file on purpose.
+ * address. There is no caller access control anywhere in this file on
+ * purpose — ImmutableUser makes no ownership claim, it's routing data.
  *
  * Everything below this point is otherwise IDENTICAL in spirit to
  * SuwappuCoreRouter.sol — see that file's header for the full four-step
@@ -46,7 +47,7 @@ interface IERC20 {
  * residual within one clone (documented in that audit as surviving
  * isolation) is unchanged by this file and not addressed here.
  */
-contract SuwappuCoreRouterImplementation is ImmutableArgsOwned {
+contract SuwappuCoreRouterImplementation is ImmutableUser {
     // ── immutable market config ─────────────────────────────────────────────
     IERC20 public immutable baseErc20;
     IERC20 public immutable quoteErc20;
@@ -96,7 +97,7 @@ contract SuwappuCoreRouterImplementation is ImmutableArgsOwned {
     struct Swap {
         // slot 0 — status lives with initiate fields so every status flip
         // (execute/settle/claim) hits an already-non-zero slot.
-        address user; // 20 bytes — always _boundUser(), never msg.sender
+        address user; // 20 bytes — always this clone's user(), never msg.sender
         bool baseForQuote; // true: sell base for quote (1)
         Status status; // (1)
         uint64 coreIn; // in-token deposited, Core wei (8) => 30/32
@@ -185,14 +186,6 @@ contract SuwappuCoreRouterImplementation is ImmutableArgsOwned {
 
     // ── helpers ─────────────────────────────────────────────────────────────
 
-    /// The user this clone always moves tokens for, baked into THIS clone's
-    /// own bytecode at deploy time (see ImmutableArgsOwned). Named apart from
-    /// `owner()` in this file to keep the point plain at every call site:
-    /// this is a fund-direction fact, not an authorization check.
-    function _boundUser() internal view returns (address) {
-        return owner();
-    }
-
     /// Core system address for a token: first byte 0x20, token index big-endian.
     function systemAddress(uint64 token) public pure returns (address) {
         return address(uint160(0x2000000000000000000000000000000000000000) | uint160(token));
@@ -249,7 +242,7 @@ contract SuwappuCoreRouterImplementation is ImmutableArgsOwned {
         if (inFlight != 0) revert Locked();
         if (evmAmountIn == 0 || minCoreOut == 0 || limitPx == 0) revert ZeroAmount();
 
-        address boundUser = _boundUser();
+        address boundUser = user();
 
         (IERC20 tokenIn, uint64 coreTokenIn, uint8 extraIn) = baseForQuote
             ? (baseErc20, baseToken, baseExtraEvmDecimals)

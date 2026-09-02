@@ -3,14 +3,17 @@ pragma solidity 0.8.27;
 
 import "forge-std/Test.sol";
 import { SuwappuCoreRouterFactory } from "../hypercore/SuwappuCoreRouterFactory.sol";
-import { ImmutableArgsOwned } from "../hypercore/ImmutableArgsOwned.sol";
+import { ImmutableUser } from "../hypercore/ImmutableUser.sol";
 
 /// Minimal stand-in for the eventual SuwappuCoreRouterLogic: just enough to
-/// prove the owner-from-bytecode access control actually gates a call.
-contract MockRouterLogic is ImmutableArgsOwned {
+/// prove ImmutableUser's per-clone user() actually varies clone-by-clone,
+/// and that a clone's own storage is independent of every other clone's.
+/// poke() is deliberately permissionless — ImmutableUser is fund-routing
+/// data, not caller access control (see SuwappuCoreRouterImplementation.sol).
+contract MockRouterLogic is ImmutableUser {
     uint256 public hits;
 
-    function poke() external onlyOwner {
+    function poke() external {
         hits += 1;
     }
 }
@@ -66,40 +69,34 @@ contract RouterFactoryTest is Test {
         factory.deployRouter(address(0));
     }
 
-    function test_clone_ownerIsBakedInUser_notFactoryOrDeployer() public {
+    function test_clone_userIsBakedInTarget_notFactoryOrDeployer() public {
         address someoneElse = address(0xC0FFEE);
-        vm.prank(someoneElse); // whoever calls deployRouter does NOT become owner
+        vm.prank(someoneElse); // whoever calls deployRouter is irrelevant to user()
         address router = factory.deployRouter(alice);
 
-        assertEq(MockRouterLogic(router).owner(), alice);
+        assertEq(MockRouterLogic(router).user(), alice);
     }
 
-    function test_onlyOwner_gatesTheClone_perUser() public {
+    function test_clonesAreIndependent_anyCallerPokesEither_stateNeverCrosses() public {
         address aliceRouter = factory.deployRouter(alice);
         address bobRouter = factory.deployRouter(bob);
 
+        // No caller gating anywhere — bob can poke alice's clone and vice versa...
         vm.prank(bob);
-        vm.expectRevert(ImmutableArgsOwned.NotOwner.selector);
         MockRouterLogic(aliceRouter).poke();
-
         vm.prank(alice);
-        MockRouterLogic(aliceRouter).poke();
+        MockRouterLogic(bobRouter).poke();
+
+        // ...but each clone's own storage (and baked-in user()) never crosses.
         assertEq(MockRouterLogic(aliceRouter).hits(), 1);
-
-        // Bob's own clone is unaffected by Alice's, and Bob controls only his own.
-        vm.prank(alice);
-        vm.expectRevert(ImmutableArgsOwned.NotOwner.selector);
-        MockRouterLogic(bobRouter).poke();
-
-        vm.prank(bob);
-        MockRouterLogic(bobRouter).poke();
         assertEq(MockRouterLogic(bobRouter).hits(), 1);
-        assertEq(MockRouterLogic(aliceRouter).hits(), 1, "alice's clone state must not have moved");
+        assertEq(MockRouterLogic(aliceRouter).user(), alice);
+        assertEq(MockRouterLogic(bobRouter).user(), bob);
     }
 
-    function testFuzz_owner_alwaysMatchesDeployedUser(address user) public {
-        vm.assume(user != address(0));
-        address router = factory.deployRouter(user);
-        assertEq(MockRouterLogic(router).owner(), user);
+    function testFuzz_user_alwaysMatchesDeployedTarget(address target) public {
+        vm.assume(target != address(0));
+        address router = factory.deployRouter(target);
+        assertEq(MockRouterLogic(router).user(), target);
     }
 }
