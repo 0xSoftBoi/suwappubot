@@ -15,6 +15,7 @@ Three passes: labs/infra, then the application-layer "model wrapper" companies, 
 | `07-creative-audio-video-wrappers.md` | ElevenLabs, Runway, Suno, Pika, Higgsfield, HeyGen, Synthesia, Photoroom, Hume, Sesame. Product output as hero |
 | `08-who-builds-them-and-how.md` | Agencies, design engineers, Framer vs hand-coded, component vocabulary, type and colour trends |
 | `09-traditional-finance-sites.md` | Banks, asset managers, private banks, quant firms, exchanges, Bloomberg: the institutional grammar, 12 moves to lift, 5 to avoid |
+| `11-auction-house-and-finance-typography.md` | Christie's, Sotheby's, Phillips, Bonhams, MoMA, White Cube, FT, WSJ, Bloomberg: 12 transferable typographic rules for the twin-judge brief |
 | `10-institutional-crypto-sites.md` | Anchorage, Clear Street, Fireblocks, Circle, FalconX, Talos and peers: negative disclosure, entity naming, honest footers for a non-licensed execution layer |
 
 2026-09-02: the showcase was built and served locally (`bun run build && bun run start -- -p 3459`) and screenshotted at 1440 and 390. Several claims in `00-current-state.md` were wrong against the render and are corrected in a note at its top. The founder rejected both re-theme prototypes (`docs/design/direction-2026-09*.md`): the standing brief is to keep the existing theme and reach parity in place.

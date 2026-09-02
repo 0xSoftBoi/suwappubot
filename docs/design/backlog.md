@@ -22,3 +22,7 @@
   live terminal, let snapshots accrue, capture the Portfolio pane as a 3160px plate and place
   it in #portfolio with ProofShot like #routing's perps plate. Evidence of the pre-fix state:
   docs/design/portfolio-plate-2026-09-02.png.
+- (2026-09-02) Screenshot hygiene: the homepage sets html{scroll-behavior:smooth}, so any
+  Playwright frame taken right after window.scrollTo shows a stale cream band above the sticky
+  header. It is a capture artefact, not a page defect (verified: with scroll-behavior forced to
+  auto the top pixels are pure black). Force `html{scroll-behavior:auto}` in capture scripts.
