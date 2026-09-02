@@ -44,6 +44,9 @@ type LifiToken = {
 	chainId: number
 	logoURI?: string
 	priceUSD?: string
+	// Li.Fi contract-safety verdict ('verified' | 'flagged'). Safety, not
+	// identity: a look-alike can be 'verified' and still be the wrong token.
+	verificationStatus?: string
 }
 
 const toTerminalToken = (token: LifiToken, requestedChain?: string) => ({
@@ -54,6 +57,55 @@ const toTerminalToken = (token: LifiToken, requestedChain?: string) => ({
 	decimals: token.decimals,
 	logoUrl: token.logoURI,
 })
+
+type TerminalToken = ReturnType<typeof toTerminalToken>
+
+const CURATED_SEARCH_TIMEOUT_MS = 3_000
+
+/**
+ * Curated tokens from python-api's token registry (bot/config/tokens.py).
+ *
+ * Li.Fi's list is a superset for long-tail trading, but it is not an identity
+ * oracle: on Ethereum it carries "Pepe Community" under the symbol PEPE and
+ * does not carry the canonical PEPE at all, so a symbol-only search handed the
+ * Terminal's command palette the wrong contract as its top hit. The curated
+ * registry is what the Python quote/execute path already treats as canonical,
+ * so it ranks first and Li.Fi fills in behind it. Best-effort: any failure or
+ * a missing INTERNAL_API_URL just yields the Li.Fi-only result.
+ */
+async function fetchCuratedTerminalTokens(query: string, chain: string): Promise<TerminalToken[]> {
+	const base = process.env.INTERNAL_API_URL
+	if (!base) return []
+	try {
+		const url = `${base.replace(/\/$/, '')}/webapp/tokens/search?q=${encodeURIComponent(query)}&chain=${encodeURIComponent(chain)}`
+		const response = await fetch(url, {
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(CURATED_SEARCH_TIMEOUT_MS),
+		})
+		if (!response.ok) return []
+		const rows = (await response.json()) as unknown
+		if (!Array.isArray(rows)) return []
+		return rows
+			.filter(
+				(row): row is Record<string, unknown> =>
+					!!row &&
+					typeof row === 'object' &&
+					typeof (row as Record<string, unknown>).address === 'string' &&
+					typeof (row as Record<string, unknown>).symbol === 'string',
+			)
+			.map((row) => ({
+				symbol: row.symbol as string,
+				name: typeof row.name === 'string' ? row.name : (row.symbol as string),
+				address: row.address as string,
+				chain: chain.trim().toLowerCase(),
+				decimals: Number.isFinite(Number(row.decimals)) ? Number(row.decimals) : 18,
+				logoUrl: typeof row.logoUrl === 'string' ? row.logoUrl : undefined,
+			}))
+	} catch (error) {
+		logger.warn({ err: error, query, chain }, '[TokenRoutes] Curated token search unavailable')
+		return []
+	}
+}
 
 async function fetchLifiTokens(chainIds: string[]) {
 	const response = await fetch(`https://li.quest/v1/tokens?chains=${chainIds.map(encodeURIComponent).join(',')}`, {
@@ -99,7 +151,10 @@ tokenRoutes.get('/search', async (c) => {
 	if (cached && Date.now() < cached.expiry) return c.json(cached.data)
 
 	try {
-		const data = await fetchLifiTokens(chains)
+		const [data, curated] = await Promise.all([
+			fetchLifiTokens(chains),
+			terminalMode ? fetchCuratedTerminalTokens(query, terminalChain!) : Promise.resolve([] as TerminalToken[]),
+		])
 		const q = query.toLowerCase()
 		const results: LifiToken[] = []
 
@@ -112,16 +167,32 @@ tokenRoutes.get('/search', async (c) => {
 		}
 
 		results.sort((a, b) => {
+			// Li.Fi-flagged contracts sink below everything else.
+			const aFlagged = a.verificationStatus === 'flagged' ? 1 : 0
+			const bFlagged = b.verificationStatus === 'flagged' ? 1 : 0
+			if (aFlagged !== bFlagged) return aFlagged - bFlagged
 			const aExact = a.symbol.toLowerCase() === q ? 0 : 1
 			const bExact = b.symbol.toLowerCase() === q ? 0 : 1
 			if (aExact !== bExact) return aExact - bExact
 			return a.symbol.length - b.symbol.length
 		})
 
-		const limited = results.slice(0, 25)
-		const responseData = terminalMode
-			? limited.map((token) => toTerminalToken(token, terminalChain))
-			: { tokens: limited, query, chains }
+		let responseData: unknown
+		if (terminalMode) {
+			// Curated registry first, then Li.Fi, deduped by address.
+			const seen = new Set<string>()
+			const merged: TerminalToken[] = []
+			for (const token of [...curated, ...results.map((token) => toTerminalToken(token, terminalChain))]) {
+				const key = token.address.toLowerCase()
+				if (seen.has(key)) continue
+				seen.add(key)
+				merged.push(token)
+				if (merged.length >= 25) break
+			}
+			responseData = merged
+		} else {
+			responseData = { tokens: results.slice(0, 25), query, chains }
+		}
 
 		tokenSearchCache.set(cacheKey, { data: responseData, expiry: Date.now() + SEARCH_CACHE_TTL })
 		return c.json(responseData)

@@ -178,3 +178,13 @@ ADRs 0001–0005.
   cairosvg/librsvg (marketplace indexers) drop the filter — the whole
   collection rasterized as black rectangles until the art-director pass
   caught it. Always rasterize through cairosvg before shipping card art.
+
+### Serialize timestamps with an offset; treat token lists as liquidity, not identity
+- **What**: `datetime.utcnow().isoformat()` produced naive strings for quote
+  `expiresAt`; browsers parse naive ISO as *local* time, so every user east of
+  UTC saw quotes expire on arrival. Python now emits `...Z` (`_iso_utc`) and the
+  terminal parses naive strings as UTC (`lib/amounts.ts`). Amounts cross the
+  wire as plain decimals, never `str(float)` or raw base units.
+- **Also**: Li.Fi's token list is for routing, not identity — Ethereum carries
+  "Pepe Community" as `PEPE` and lacks the canonical one. Terminal search
+  ranks python-api's curated registry first and sinks Li.Fi-flagged contracts.
