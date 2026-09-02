@@ -4,7 +4,7 @@ pragma solidity 0.8.27;
 import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
 
 /**
- * @title ImmutableUser
+ * @title ImmutableBoundUser
  *
  * Mixin for a logic contract meant to be `delegatecall`-run by one EIP-1167
  * clone per user (see SuwappuCoreRouterFactory.sol). The user each clone
@@ -25,7 +25,7 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  * reads THIS specific clone's own trailing bytes — one shared logic
  * contract, a distinct fixed user per clone.
  */
-abstract contract ImmutableUser {
+abstract contract ImmutableBoundUser {
     /// @dev Subclasses that bake MORE immutable args after the user address
     /// (e.g. market config, in a future version) must read them starting at
     /// offset USER_ARGS_LEN, not 0.

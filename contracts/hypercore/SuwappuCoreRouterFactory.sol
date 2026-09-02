@@ -16,7 +16,7 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  * Fund-direction gating lives in the clone's OWN bytecode, not storage: the
  * CREATE2 salt and the immutable args are both derived from `user`, so a
  * clone can only ever be produced with that user's address baked in as the
- * one it routes funds for (see ImmutableUser). Nothing here can deploy a
+ * one it routes funds for (see ImmutableBoundUser). Nothing here can deploy a
  * router "on behalf of" someone into a state where a different address ends
  * up receiving/paying for its swaps. This is not caller access control —
  * see SuwappuCoreRouterImplementation.sol for why every clone stays fully

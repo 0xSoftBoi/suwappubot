@@ -3,14 +3,14 @@ pragma solidity 0.8.27;
 
 import "forge-std/Test.sol";
 import { SuwappuCoreRouterFactory } from "../hypercore/SuwappuCoreRouterFactory.sol";
-import { ImmutableUser } from "../hypercore/ImmutableUser.sol";
+import { ImmutableBoundUser } from "../hypercore/ImmutableBoundUser.sol";
 
 /// Minimal stand-in for the eventual SuwappuCoreRouterLogic: just enough to
-/// prove ImmutableUser's per-clone user() actually varies clone-by-clone,
+/// prove ImmutableBoundUser's per-clone user() actually varies clone-by-clone,
 /// and that a clone's own storage is independent of every other clone's.
-/// poke() is deliberately permissionless — ImmutableUser is fund-routing
+/// poke() is deliberately permissionless — ImmutableBoundUser is fund-routing
 /// data, not caller access control (see SuwappuCoreRouterImplementation.sol).
-contract MockRouterLogic is ImmutableUser {
+contract MockRouterLogic is ImmutableBoundUser {
     uint256 public hits;
 
     function poke() external {
