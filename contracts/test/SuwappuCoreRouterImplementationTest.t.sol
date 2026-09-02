@@ -182,4 +182,62 @@ contract SuwappuCoreRouterImplementationTest is Test {
         assertEq(aliceRouter.inFlight(), aliceId);
         assertEq(bobRouter.inFlight(), bobId);
     }
+
+    // ── atomic deploy + initiate ────────────────────────────────────────────
+
+    function test_deployAndInitiate_deploysCounterfactualRouter_andSwapsAtomically() public {
+        address carol = address(0xCA501);
+        address predicted = factory.routerFor(carol);
+        assertEq(predicted.code.length, 0, "carol's router must not exist yet");
+
+        // carol approves her counterfactual address before it has any code —
+        // the whole point of deterministic addressing.
+        base.mint(carol, 100e18);
+        vm.prank(carol);
+        base.approve(predicted, type(uint256).max);
+        _mockSpot(predicted, QUOTE_TOKEN, 0, 0);
+        _mockSpot(predicted, BASE_TOKEN, 0, 0);
+
+        // an unrelated keeper triggers the deploy+swap in one call; carol
+        // never sends a transaction herself.
+        vm.prank(keeper);
+        (address router, uint128 id) = factory.deployAndInitiate(carol, true, 2e18, PX, 49e8);
+
+        assertEq(router, predicted);
+        assertGt(router.code.length, 0, "router must exist after this call");
+        SuwappuCoreRouterImplementation carolRouter = SuwappuCoreRouterImplementation(router);
+        assertEq(carolRouter.getSwap(id).user, carol);
+        assertEq(base.balanceOf(carol), 100e18 - 2e18);
+        assertEq(base.balanceOf(keeper), 0, "the triggering keeper must never be debited");
+    }
+
+    function test_deployAndInitiate_revertsAtomically_deployRollsBackWithIt() public {
+        address carol = address(0xCA501);
+        address predicted = factory.routerFor(carol);
+        // carol never approves anything — initiate()'s transferFrom must revert.
+        vm.expectRevert();
+        factory.deployAndInitiate(carol, true, 2e18, PX, 49e8);
+
+        // the whole tx reverted, so the CREATE2 deploy rolled back too.
+        assertEq(predicted.code.length, 0, "a failed initiate must not leave a router behind");
+    }
+
+    function test_deployAndInitiate_reusesExistingRouter_noDuplicateDeployEvent() public {
+        address routerAddr = address(aliceRouter);
+        assertGt(routerAddr.code.length, 0, "alice's router already exists from setUp");
+
+        vm.recordLogs();
+        vm.prank(keeper);
+        (address router, uint128 id) = factory.deployAndInitiate(alice, true, 2e18, PX, 49e8);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(router, routerAddr);
+        for (uint256 i = 0; i < logs.length; i++) {
+            assertTrue(
+                logs[i].topics[0] != SuwappuCoreRouterFactory.RouterDeployed.selector,
+                "must not re-emit RouterDeployed for an existing router"
+            );
+        }
+        assertEq(aliceRouter.getSwap(id).user, alice);
+    }
 }

@@ -2,6 +2,7 @@
 pragma solidity 0.8.27;
 
 import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
+import { SuwappuCoreRouterImplementation } from "./SuwappuCoreRouterImplementation.sol";
 
 /**
  * @title SuwappuCoreRouterFactory
@@ -22,12 +23,11 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  * see SuwappuCoreRouterImplementation.sol for why every clone stays fully
  * permissionless.
  *
- * Scope note: today the immutable args carry ONLY the routed user's address.
+ * Scope note: the immutable args carry ONLY the routed user's address.
  * Market config (baseErc20/quoteErc20/orderAsset/decimals/treasury/feeBps)
- * is deliberately not baked in yet — that's for SuwappuCoreRouterLogic's own
- * port (separate follow-up), which will decide whether config also belongs
- * in each clone's args (cheaper at steady-state, per the proposal) or stays
- * factory-read.
+ * stays as regular Solidity `immutable`s on SuwappuCoreRouterImplementation
+ * itself — correct there, since it's identical for every clone of one
+ * market; only the per-user piece needed the immutable-args trick.
  */
 contract SuwappuCoreRouterFactory {
     /// The shared logic contract every clone `delegatecall`s into.
@@ -68,6 +68,38 @@ contract SuwappuCoreRouterFactory {
     /// there's nothing to grief. Returns the (possibly newly deployed) router.
     function deployRouter(address user) external returns (address router) {
         if (user == address(0)) revert ZeroAddress();
+        router = _deploy(user);
+    }
+
+    /// Deploy `user`'s router (if needed) and immediately initiate a swap on
+    /// it, atomically — for a first-time user whose router doesn't exist yet.
+    /// Works because `routerFor(user)` is counterfactually deterministic:
+    /// `user` can approve that predicted address for `tokenIn` before it has
+    /// any code, exactly as with any counterfactual smart-wallet deploy.
+    /// If `user` already has a router, this just reuses it (same idempotent
+    /// path as deployRouter) and initiates on it — no separate "already
+    /// deployed" case to handle here. Permissionless like every other
+    /// function in this stack: whoever calls this, funds only ever move for
+    /// `user` (initiate() ignores msg.sender entirely — see
+    /// SuwappuCoreRouterImplementation.sol). initiate() reverting (e.g. no
+    /// allowance yet, or user already has a swap in flight) reverts this
+    /// whole call, including the deploy — CREATE2 means a retry later lands
+    /// on the same address.
+    function deployAndInitiate(
+        address user,
+        bool baseForQuote,
+        uint256 evmAmountIn,
+        uint64 limitPx,
+        uint64 minCoreOut
+    ) external returns (address router, uint128 id) {
+        if (user == address(0)) revert ZeroAddress();
+        router = _deploy(user);
+        id = SuwappuCoreRouterImplementation(router).initiate(
+            baseForQuote, evmAmountIn, limitPx, minCoreOut
+        );
+    }
+
+    function _deploy(address user) internal returns (address router) {
         bool alreadyDeployed;
         (alreadyDeployed, router) = LibClone.createDeterministicClone(logic, _args(user), _salt(user));
         if (!alreadyDeployed) emit RouterDeployed(user, router);
