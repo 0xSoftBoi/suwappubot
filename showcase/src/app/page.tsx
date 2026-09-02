@@ -5,7 +5,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import OceanAtmosphere from '@/components/OceanAtmosphere';
-import DepthSurfaceGL from '@/components/DepthSurfaceGL';
+import ChainSphereGL from '@/components/ChainSphereGL';
 import ToolConstellationGL from '@/components/ToolConstellationGL';
 import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
@@ -366,8 +366,11 @@ export default async function Home() {
                   <h2 id="markets-title">{h('markets.title')}</h2>
                   <p className="home-section__head-lead">{h('markets.lead')}</p>
                 </div>
-                <div className="home-glfigure" aria-hidden="true">
-                  <DepthSurfaceGL />
+                {/* The globe: real chains pinned to fixed positions, multi-stage
+                    routes (swap, bridge, swap) drawn between them. It is the one
+                    figure on the page that depicts what this section claims. */}
+                <div className="home-glfigure home-glfigure--globe" aria-hidden="true">
+                  <ChainSphereGL />
                 </div>
               </div>
 

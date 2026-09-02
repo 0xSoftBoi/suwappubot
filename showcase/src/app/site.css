@@ -1670,3 +1670,28 @@ main > section.home-section:nth-of-type(even)::before {
     gap: 2rem;
   }
 }
+
+/* ── The globe (ChainSphereGL) beside the routing headline ─────────────
+   A square figure slot; the component sizes its two canvases from the
+   slot's client box (WebGL body + point cloud below, 2D labels + route
+   above). Hidden below 1024px with the other GL figures. */
+.home-glfigure--globe {
+  height: auto;
+  aspect-ratio: 1 / 1;
+  max-height: 420px;
+}
+
+.csgl {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.csgl__gl,
+.csgl__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}

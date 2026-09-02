@@ -32,3 +32,10 @@
   are re-shot from a real session after deploy (see the #portfolio entry), recapture perps-desk
   with edges in row gutters, and record the capture date so the caption can carry it. The
   spot-desk caption omits a date because none is recorded for that capture.
+- (2026-09-02) The globe is back: ChainSphereGL (WebGL2 point-cloud sphere, real chain anchors,
+  animated swap/bridge/swap journeys) now sits beside the #routing headline in a square
+  `.home-glfigure--globe` slot, replacing DepthSurfaceGL there. Verified: both canvases size
+  from the slot, overlay draws labels and routes, zero GL errors, reduced-motion paints a static
+  frame, hidden below 1024px with the other figures. DepthSurfaceGL joins QuoteRaceGL as an
+  orphan (component kept; no mount). If the founder wants the globe back in the hero instead,
+  it is the same element moved into the hero grid; the desk plate would then move down.
