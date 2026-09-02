@@ -4,7 +4,7 @@ pragma solidity 0.8.27;
 import { Test } from "forge-std/Test.sol";
 import { L1Read } from "../hypercore/L1Read.sol";
 import { CoreWriterLib } from "../hypercore/CoreWriterLib.sol";
-import { SuwappuCoreRouter, IERC20 } from "../hypercore/SuwappuCoreRouter.sol";
+import { SuwappuCoreRouterMultiUser, IERC20 } from "../hypercore/SuwappuCoreRouterMultiUser.sol";
 
 contract TestToken is IERC20 {
     mapping(address => uint256) public balanceOf;
@@ -49,7 +49,7 @@ contract CoreRouterTest is Test {
     //         quote=USDQ (core wei 8, evm 8 => extra 0). Limit px 25 (wire 25e8).
     TestToken base;
     TestToken quote;
-    SuwappuCoreRouter router;
+    SuwappuCoreRouterMultiUser router;
     address treasury = address(0x7EA);
     address alice = address(0xA11CE);
 
@@ -67,7 +67,7 @@ contract CoreRouterTest is Test {
 
         _mockL1Block(L1_START);
         vm.mockCall(L1Read.CORE_USER_EXISTS, abi.encode(treasury), abi.encode(true));
-        router = new SuwappuCoreRouter(
+        router = new SuwappuCoreRouterMultiUser(
             base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, treasury, 30
         );
 
@@ -107,12 +107,12 @@ contract CoreRouterTest is Test {
         _mockL1Block(L1_START + router.SETTLE_DELAY_L1());
     }
 
-    function _status(uint128 id) internal view returns (SuwappuCoreRouter.Status) {
+    function _status(uint128 id) internal view returns (SuwappuCoreRouterMultiUser.Status) {
         return router.getSwap(id).status;
     }
 
     function _owed(uint128 id) internal view returns (uint64, uint64) {
-        SuwappuCoreRouter.Swap memory s = router.getSwap(id);
+        SuwappuCoreRouterMultiUser.Swap memory s = router.getSwap(id);
         return (s.owedOut, s.owedIn);
     }
 
@@ -131,30 +131,30 @@ contract CoreRouterTest is Test {
     function test_execute_revertsUntilDepositObserved() public {
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, PX, 49e8);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Funding));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterMultiUser.Status.Funding));
 
         // deposit not on Core yet: the order must never be placed
-        vm.expectRevert(SuwappuCoreRouter.NotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.NotLanded.selector);
         router.execute(id);
 
         _fundAndExecute(id, BASE_TOKEN, 2e8);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Pending));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterMultiUser.Status.Pending));
 
         // and never twice
-        vm.expectRevert(SuwappuCoreRouter.BadStatus.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BadStatus.selector);
         router.execute(id);
     }
 
     function test_settle_blockedInFundingAndBeforeDelay() public {
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, PX, 49e8);
-        vm.expectRevert(SuwappuCoreRouter.BadStatus.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BadStatus.selector);
         router.settle(id); // still Funding
 
         _fundAndExecute(id, BASE_TOKEN, 2e8);
         vm.roll(block.number + 1);
         _mockL1Block(L1_START + 5); // < SETTLE_DELAY_L1 past execute
-        vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.TooEarly.selector);
         router.settle(id);
     }
 
@@ -176,7 +176,7 @@ contract CoreRouterTest is Test {
         assertEq(outOwed, 50e8 - 15_000_000); // 30bps fee
         assertEq(inOwed, 0);
 
-        vm.expectRevert(SuwappuCoreRouter.BridgeNotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BridgeNotLanded.selector);
         router.claim(id);
 
         quote.mint(address(router), 50e8 - 15_000_000);
@@ -193,7 +193,7 @@ contract CoreRouterTest is Test {
         _afterDelay();
         // in-token still held = IOC not yet executed on Core: must not reconcile
         _mockSpot(BASE_TOKEN, 2e8, 1_5000_0000);
-        vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.TooEarly.selector);
         router.settle(id);
 
         // order resolves (hold clears), full fill
@@ -218,14 +218,14 @@ contract CoreRouterTest is Test {
         _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
         router.forceRelease(id);
         // reconciled under the lock, not abandoned; lock retained until claim
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterMultiUser.Status.Bridging));
         (uint64 outOwed,) = _owed(id);
         assertEq(outOwed, 50e8 - 15_000_000);
         assertEq(router.inFlight(), id);
 
         // cannot re-settle against a successor's balances (status != Pending)
         vm.roll(block.number + 1);
-        vm.expectRevert(SuwappuCoreRouter.BadStatus.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BadStatus.selector);
         router.settle(id);
 
         // claim pays the user and frees the lock only after credits land
@@ -249,7 +249,7 @@ contract CoreRouterTest is Test {
         (uint64 outOwed, uint64 inOwed) = _owed(id);
         assertEq(outOwed, 0);
         assertEq(inOwed, 2e8);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Bridging));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterMultiUser.Status.Bridging));
         // lock is RETAINED until claim confirms the bridge credit (mirrors
         // settle) so the async refund cannot race a next swap's snapshot
         assertEq(router.inFlight(), id);
@@ -273,7 +273,7 @@ contract CoreRouterTest is Test {
 
         // next swap cannot snapshot Core while A's debit is still crossing
         vm.prank(alice);
-        vm.expectRevert(SuwappuCoreRouter.Locked.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.Locked.selector);
         router.initiate(true, 1e18, PX, 20e8);
 
         // once A's credit lands and A claims, the lock frees for B
@@ -293,7 +293,7 @@ contract CoreRouterTest is Test {
         // BASE_TOKEN stays 0 (deposit never landed)
         _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
         router.forceRelease(id);
-        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouter.Status.Aborted));
+        assertEq(uint8(_status(id)), uint8(SuwappuCoreRouterMultiUser.Status.Aborted));
         assertEq(router.inFlight(), 0);
 
         // lock is free; a fresh swap proceeds normally
@@ -383,7 +383,7 @@ contract CoreRouterTest is Test {
     function test_retry_reissuesBridge() public {
         uint128 id = _settledSell();
         uint256 sends = CoreWriterSink(CoreWriterLib.CORE_WRITER).count();
-        vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.TooEarly.selector);
         router.retry(id);
 
         _mockL1Block(L1_START + router.SETTLE_DELAY_L1() + router.RETRY_DELAY_L1());
@@ -395,7 +395,7 @@ contract CoreRouterTest is Test {
         // stuck in Funding (deposit never lands)
         vm.prank(alice);
         uint128 id = router.initiate(true, 2e18, PX, 49e8);
-        vm.expectRevert(SuwappuCoreRouter.TooEarly.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.TooEarly.selector);
         router.forceRelease(id);
         _mockL1Block(L1_START + router.RELEASE_DELAY_L1());
         router.forceRelease(id);
@@ -409,13 +409,13 @@ contract CoreRouterTest is Test {
         assertEq(router.inFlight(), 0);
         quote.mint(address(router), 50e8 - 15_000_000);
         router.claim(id2);
-        assertEq(uint8(_status(id2)), uint8(SuwappuCoreRouter.Status.Done));
+        assertEq(uint8(_status(id2)), uint8(SuwappuCoreRouterMultiUser.Status.Done));
     }
 
     function test_claim_gatedOnPerSwapSnapshot_notAggregateBalance() public {
         quote.mint(address(router), 1_000e8); // pre-existing balance must not count
         uint128 id = _settledSell();
-        vm.expectRevert(SuwappuCoreRouter.BridgeNotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BridgeNotLanded.selector);
         router.claim(id);
         quote.mint(address(router), 50e8 - 15_000_000);
         router.claim(id);
@@ -427,18 +427,18 @@ contract CoreRouterTest is Test {
         vm.prank(alice);
         router.initiate(true, 1e18, PX, 20e8);
         vm.prank(alice);
-        vm.expectRevert(SuwappuCoreRouter.Locked.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.Locked.selector);
         router.initiate(true, 1e18, PX, 20e8);
     }
 
     function test_rejects_nonDivisible_and_badTreasury() public {
         vm.prank(alice);
-        vm.expectRevert(SuwappuCoreRouter.NotDivisible.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.NotDivisible.selector);
         router.initiate(true, 1e18 + 1, PX, 20e8);
 
         vm.mockCall(L1Read.CORE_USER_EXISTS, abi.encode(address(0xDEAD)), abi.encode(false));
-        vm.expectRevert(SuwappuCoreRouter.BadTreasury.selector);
-        new SuwappuCoreRouter(
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BadTreasury.selector);
+        new SuwappuCoreRouterMultiUser(
             base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, address(0xDEAD), 30
         );
     }

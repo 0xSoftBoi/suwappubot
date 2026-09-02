@@ -11,11 +11,22 @@ interface IERC20 {
 }
 
 /**
- * @title SuwappuCoreRouter — native spot swaps against the HyperCore orderbook
+ * @title SuwappuCoreRouterMultiUser — native spot swaps against the HyperCore
+ * orderbook, one shared instance across every user of a market
  *
  * One router instance per spot market (base/quote), parameters immutable, no
  * owner/pause/upgrade. Swaps execute on HyperCore itself: no AMM, no
  * aggregator, no external oracle — the book is the price.
+ *
+ * Renamed from SuwappuCoreRouter.sol to make the design explicit: EVERY user
+ * of a market shares this one contract address, and therefore one HyperCore
+ * account / one Core balance / one EVM ERC-20 balance (see
+ * PROPOSAL_PER_USER_ROUTER_ISOLATION_2026-09-01.md). AUDIT_COREROUTER_2026-08-31.md's
+ * F1/F2/F3 and the donation residual are consequences of that sharing. Kept
+ * unmodified as the pre-isolation reference — see
+ * SuwappuCoreRouterImplementation.sol for the per-user-clone version this
+ * repo is moving to, and SuwappuCoreRouterFactory.sol for how clones are
+ * deployed.
  *
  * CoreWriter actions are ASYNC (executed on HyperCore seconds later; a rejected
  * action does NOT revert the EVM tx), so a swap is a four-step lifecycle any
@@ -52,7 +63,7 @@ interface IERC20 {
  * attacker the full donated amount. retry() is blocked while another swap is
  * in flight so it cannot perturb a live delta window.
  */
-contract SuwappuCoreRouter {
+contract SuwappuCoreRouterMultiUser {
     // ── immutable market config ─────────────────────────────────────────────
     IERC20 public immutable baseErc20;
     IERC20 public immutable quoteErc20;

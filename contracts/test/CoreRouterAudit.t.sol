@@ -4,17 +4,17 @@ pragma solidity 0.8.27;
 import { Test } from "forge-std/Test.sol";
 import { L1Read } from "../hypercore/L1Read.sol";
 import { CoreWriterLib } from "../hypercore/CoreWriterLib.sol";
-import { SuwappuCoreRouter, IERC20 } from "../hypercore/SuwappuCoreRouter.sol";
+import { SuwappuCoreRouterMultiUser, IERC20 } from "../hypercore/SuwappuCoreRouterMultiUser.sol";
 import { TestToken, CoreWriterSink } from "./CoreRouterTest.t.sol";
 
 /// Reproductions for findings in contracts/AUDIT_COREROUTER_2026-08-31.md.
 /// These tests demonstrate CONFIRMED failures against the AS-DEPLOYED
-/// SuwappuCoreRouter.sol. No fix is applied here — see the audit doc's
+/// SuwappuCoreRouterMultiUser.sol. No fix is applied here — see the audit doc's
 /// before/after code blocks for the proposed (not-yet-applied) fix.
 contract CoreRouterAuditTest is Test {
     TestToken base;
     TestToken quote;
-    SuwappuCoreRouter router;
+    SuwappuCoreRouterMultiUser router;
     address treasury = address(0x7EA);
     address alice = address(0xA11CE); // swap B's user — never gets a landed credit
     address bob = address(0xB0B); // swap C's user — the victim
@@ -33,7 +33,7 @@ contract CoreRouterAuditTest is Test {
 
         _mockL1Block(L1_START);
         vm.mockCall(L1Read.CORE_USER_EXISTS, abi.encode(treasury), abi.encode(true));
-        router = new SuwappuCoreRouter(
+        router = new SuwappuCoreRouterMultiUser(
             base, quote, BASE_TOKEN, QUOTE_TOKEN, ORDER_ASSET, 8, 8, 10, 0, 2, treasury, 30
         );
 
@@ -63,7 +63,7 @@ contract CoreRouterAuditTest is Test {
     }
 
     function _owed(uint128 id) internal view returns (uint64, uint64) {
-        SuwappuCoreRouter.Swap memory s = router.getSwap(id);
+        SuwappuCoreRouterMultiUser.Swap memory s = router.getSwap(id);
         return (s.owedOut, s.owedIn);
     }
 
@@ -100,7 +100,7 @@ contract CoreRouterAuditTest is Test {
 
         (uint64 owedOutB,) = _owed(idB);
         assertEq(owedOutB, 50e8 - 15_000_000);
-        assertEq(uint8(router.getSwap(idB).status), uint8(SuwappuCoreRouter.Status.Bridging));
+        assertEq(uint8(router.getSwap(idB).status), uint8(SuwappuCoreRouterMultiUser.Status.Bridging));
         // B's Core->EVM spotSend was just requested; it never lands here —
         // nothing mints quote to the router on B's behalf.
 
@@ -108,7 +108,7 @@ contract CoreRouterAuditTest is Test {
         _mockL1Block(L1_START + router.SETTLE_DELAY_L1() + router.RELEASE_DELAY_L1());
         router.forceRelease(idB);
         assertEq(router.inFlight(), 0);
-        assertEq(uint8(router.getSwap(idB).status), uint8(SuwappuCoreRouter.Status.Bridging));
+        assertEq(uint8(router.getSwap(idB).status), uint8(SuwappuCoreRouterMultiUser.Status.Bridging));
 
         // ── Swap C (bob), the victim: normal lifecycle. Its fill lands on
         // top of B's still-unrelayed 50e8 — the router's real Core balance
@@ -139,7 +139,7 @@ contract CoreRouterAuditTest is Test {
 
         // C — the fully-settled, legitimate swap — can no longer claim: its
         // own credit was just consumed paying off a stale, released swap.
-        vm.expectRevert(SuwappuCoreRouter.BridgeNotLanded.selector);
+        vm.expectRevert(SuwappuCoreRouterMultiUser.BridgeNotLanded.selector);
         router.claim(idC);
         assertEq(quote.balanceOf(bob), 1_000e8); // bob is never made whole
     }
