@@ -3,6 +3,8 @@
 **Date**: 2026-09-01  
 **Scope**: showcase/ (production homepage, agent landing) + webapp/ (Telegram Mini App)  
 **Method**: Read-only inventory against top AI company frontends.
+> **Correction (2026-09-02, after rendering the site locally and screenshotting it).** This inventory was produced by a read-only code scan and several of its conclusions are wrong against the rendered page. The live homepage has a full mega-menu (Products, Developers, Why Suwappu dropdowns plus Explore, Signals, Research, Pricing, Docs, Telegram), a six-column cream footer with 39 links, a newsletter form and a legal disclosure paragraph, a tombstone stat strip (45 / 21 / 18) with Service status, OpenAPI, GitHub and Changelog links, a research section, and reveal motion. Items 6 (navbar minimal), 7 and 10 (footer minimal) in section 9 are withdrawn. Items 1 (no theme toggle), 2 (GL mobile fallback, being verified), 5 (video controls, being verified) and 8 (Tailwind v3/v4 mismatch) stand. New finding from the render: the production homepage currently serves an "Execution ticket" box reading "Quote unavailable" (root cause under investigation), and the 21 routing venues are not shown anywhere visible on the homepage.
+
 
 ---
 

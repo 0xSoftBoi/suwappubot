@@ -17,7 +17,7 @@ Three passes: labs/infra, then the application-layer "model wrapper" companies, 
 | `09-traditional-finance-sites.md` | Banks, asset managers, private banks, quant firms, exchanges, Bloomberg: the institutional grammar, 12 moves to lift, 5 to avoid |
 | `10-institutional-crypto-sites.md` | Anchorage, Clear Street, Fireblocks, Circle, FalconX, Talos and peers: negative disclosure, entity naming, honest footers for a non-licensed execution layer |
 
-Live-site screenshots of suwappu.bot were attempted (Playwright via the session proxy) but the site reset headless Chromium, so the current-state section is from source, not pixels. Run `/design-iterate` locally for pixel judgement.
+2026-09-02: the showcase was built and served locally (`bun run build && bun run start -- -p 3459`) and screenshotted at 1440 and 390. Several claims in `00-current-state.md` were wrong against the render and are corrected in a note at its top. The founder rejected both re-theme prototypes (`docs/design/direction-2026-09*.md`): the standing brief is to keep the existing theme and reach parity in place.
 
 ## 1. The bar, in one paragraph
 
@@ -54,9 +54,9 @@ Net: tokens are at parity. The gap is application depth, motion craft, mobile pa
 | 2 | WebGL figures are desktop-only; mobile gets blank canvases | 00 §5, §9.2 | Vercel Ship: SVG placeholder, canvas swapped in after compile (03 §1) | Static/CSS fallback per GL component; lazy-init after first paint; gate on pointer and width |
 | 3 | Motion is sparse and un-tokenised: fades only, no duration ladder | 00 §3, §9.4 | Factory 150–200ms CLI timing; Dia colour-only hovers; token set in 03 | Add `--sw-dur-*` / `--sw-ease-*` to design-tokens; stagger Reveal; 2–3 scroll moments max; no hover transforms on data cards |
 | 4 | Shadows and glows used for depth in places | 00 §2 hairlines/shadows | Factory, Warp, Raycast, Dia: zero drop shadows, hairline + grey ladder | Audit and remove box-shadow on cards; keep shadow only on product screenshots (Dia rule) |
-| 5 | Nav is 3 links + CTA; footer is minimal | 00 §4, §9.6, §9.10 | Harvey/Hebbia mega-menus; Anthropic 9-column footer | Product / Developers / Company dropdowns; footer grid: Product, Chains, Developers, Trust, Company, Legal |
+| 5 | ~~Nav is 3 links + CTA; footer is minimal~~ Withdrawn 2026-09-02: the rendered site has a mega-menu and a six-column footer with disclosure. Remaining: no venue strip anywhere on the page | render of 2026-09-02 | Fireblocks client wall; Hyperliquid custodian naming | Mono venue strip of the 21 real routers under the stat strip |
 | 6 | No public trust centre; security lives under /legal/risk | 00 §6; 04 A#1–8; 06 bullets 1,5,10 | trust.sierra.ai, security.legora.com, "Glean Protect" | Named programme (e.g. "Suwappu Custody") on `/trust`: custody model, KMS envelope encryption, audits, incident policy, `security.txt`, status link. Compact badge strip near the fold, detail on the trust page. Name custodians and venues the way Hyperliquid does |
-| 7 | No logo wall or quantified proof | 00 §6 | Notion percentile stat; Cognition enterprise wall; Suno press wall | Monochrome strip of chains, venues, integrations we route through; one quantified case study; a single percentile or volume stat under the headline |
+| 7 | No logo wall or quantified proof, and the live homepage currently shows a "Quote unavailable" ticket where the proof should be | render of 2026-09-02; 00 §6 | Notion percentile stat; Cognition enterprise wall; Suno press wall | Monochrome strip of chains, venues, integrations we route through; one quantified case study; a single percentile or volume stat under the headline |
 | 8 | Light-only root, no theme toggle | 00 §9.1 | Vercel, Linear parity | Promote `.sw-dark` to `data-theme` on `<html>` with OS sync and a toggle |
 | 9 | Hero video has no pause control | 00 §9.5 | WCAG 2.2 pause/stop (04 A#26–29) | Pause/play beside the sound toggle; poster under reduced-motion |
 | 10 | Flat sections, boundaries are margins | docs/design/visual-study.md G1/G2 | SVG `feTurbulence` grain 2–4% (03 §6); Greptile rails | Grain on dark bands; hairline rails at column edges; ruled dividers |
