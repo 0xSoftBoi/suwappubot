@@ -131,6 +131,38 @@ const PORTFOLIO = {
   ],
 }
 
+
+// Engine-executed swap history so the Portfolio PnL tiles have priced trades to
+// summarise (PnLSummary only counts status === 'completed' rows that carry both
+// USD legs). Screenshot fixture only; never shipped.
+const SWAPS = (() => {
+  const now = Date.now()
+  const h = 60 * 60 * 1000
+  const row = (i: number, fromToken: string, toToken: string, fromChain: string, toChain: string, fromUsd: number, toUsd: number, agoH: number) => ({
+    id: `swap_${i}`,
+    fromChain,
+    toChain,
+    fromToken,
+    toToken,
+    fromAmount: (fromUsd / 1850).toFixed(4),
+    toAmount: (toUsd / 1850).toFixed(4),
+    fromAmountUsd: fromUsd,
+    toAmountUsd: toUsd,
+    status: 'completed',
+    txHash: `0x${(i * 2654435761).toString(16).padStart(8, '0')}c0ffee`,
+    createdAt: new Date(now - agoH * h).toISOString(),
+    completedAt: new Date(now - agoH * h + 90_000).toISOString(),
+  })
+  return [
+    row(1, 'USDC', 'ETH', 'base', 'base', 2500, 2541.2, 3),
+    row(2, 'ETH', 'USDC', 'ethereum', 'base', 1850, 1862.4, 9),
+    row(3, 'SOL', 'WIF', 'solana', 'solana', 620, 598.7, 20),
+    row(4, 'USDC', 'SOL', 'base', 'solana', 1200, 1231.9, 31),
+    row(5, 'USDT', 'ETH', 'arbitrum', 'ethereum', 3400, 3452.8, 70),
+    row(6, 'ETH', 'USDC', 'base', 'base', 900, 887.1, 140),
+  ]
+})()
+
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -169,6 +201,7 @@ function route(path: string, search: URLSearchParams): Response | null {
   }
   if (path.endsWith('/auth/me')) return json(MOCK_USER)
   if (path.endsWith('/webapp/me/portfolio')) return json(PORTFOLIO)
+  if (path.includes('/webapp/swaps')) return json(SWAPS)
   if (path.endsWith('/v1/agent/perps/markets')) return json({ markets: PERPS_MARKETS })
   if (path.endsWith('/terminal/perps/context')) {
     const ctx = PERPS_MARKETS.map((m, i) => {
