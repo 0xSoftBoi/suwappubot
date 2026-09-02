@@ -13,10 +13,12 @@
   TOOLS registry in mcpTools.ts, 22 tools) so the figure can never claim tools that
   don't exist. Remaining orphan: QuoteRaceGL (known LINES-draw bug), still not wired.
 - (2026-09-02, parity pass) #portfolio is the last homepage section with an empty
-  right column. A Terminal plate was captured as evidence (docs/design/portfolio-plate-2026-09-02.png)
-  and showed the real product state: EquityCurve renders "Portfolio history is not connected
-  yet." because usePortfolioHistory returns [], while the section copy claims PnL is "rolled
-  into a single equity curve in the Terminal". Founder decision: wire portfolio history for
-  real (api-ts snapshot store + history endpoint, terminal hook), no mocks or fixtures. Once
-  live, capture the plate from a real session and place it with ProofShot like #routing's
-  perps plate. Do not ship a plate that contradicts the sentence beside it.
+  right column. Root cause was product, not design: the terminal's GET /webapp/portfolio was a
+  stub and portfolio history had no backend. Both are now wired for real on this branch
+  (commits 3021934, e5f7648): shared build_portfolio_for_user with real balances priced via
+  price_service, portfolio_value_snapshots table, PortfolioSnapshotter every 15 min plus
+  request-path snapshots, GET /webapp/portfolio/history, api-ts proxy + Drizzle mirror,
+  terminal usePortfolioHistory + EquityCurve states. Remaining, after deploy: sign in to the
+  live terminal, let snapshots accrue, capture the Portfolio pane as a 3160px plate and place
+  it in #portfolio with ProofShot like #routing's perps plate. Evidence of the pre-fix state:
+  docs/design/portfolio-plate-2026-09-02.png.
