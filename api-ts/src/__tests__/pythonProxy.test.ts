@@ -154,6 +154,7 @@ describe('Python Terminal compatibility gateway', () => {
 			['GET', '/webapp/copy-trading/following'],
 			['GET', '/webapp/alerts'],
 			['POST', '/webapp/alerts'],
+			['POST', '/webapp/copilot'],
 			['GET', '/webapp/wallet-tracker/wallets'],
 			['POST', '/webapp/wallet-tracker/wallets'],
 			['GET', '/webapp/tweets/accounts'],

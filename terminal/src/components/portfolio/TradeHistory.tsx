@@ -1,4 +1,5 @@
 import { useSwaps } from '../../hooks/useSwaps'
+import { parseServerTimestamp } from '../../lib/amounts'
 import type { TerminalSwap } from '../../types/api'
 
 const STATUS_STYLE: Record<string, string> = {
@@ -20,7 +21,8 @@ function isPending(status: string): boolean {
 
 function row(swap: TerminalSwap) {
   const style = STATUS_STYLE[swap.status] ?? 'text-yellow-400'
-  const when = swap.createdAt ? new Date(swap.createdAt).toLocaleString() : ''
+  const whenMs = parseServerTimestamp(swap.createdAt)
+  const when = Number.isFinite(whenMs) ? new Date(whenMs).toLocaleString() : ''
   return (
     <div
       key={swap.id}

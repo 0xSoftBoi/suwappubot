@@ -1106,7 +1106,7 @@ def _tracked_wallet_response(wallet) -> Dict[str, Any]:
         "address": wallet.address,
         "label": wallet.label,
         "chain": wallet.chain,
-        "addedAt": wallet.created_at.isoformat() if wallet.created_at else "",
+        "addedAt": _iso_utc(wallet.created_at) if wallet.created_at else "",
     }
 
 
@@ -1134,7 +1134,7 @@ def _twitter_account_response(account) -> Dict[str, Any]:
         "handle": account.handle,
         "displayName": account.display_name,
         "avatarColor": account.avatar_color,
-        "addedAt": account.created_at.isoformat() if account.created_at else "",
+        "addedAt": _iso_utc(account.created_at) if account.created_at else "",
     }
 
 
@@ -1351,7 +1351,7 @@ def _public_trader_trade(trade) -> Dict[str, Any]:
         "toChain": trade.to_chain,
         "amountUsd": float(trade.amount_usd or 0),
         "pnlUsd": float(trade.pnl_usd or 0),
-        "timestamp": trade.created_at.isoformat() if trade.created_at else "",
+        "timestamp": _iso_utc(trade.created_at) if trade.created_at else "",
     }
 
 
@@ -1365,8 +1365,8 @@ def _alert_response(alert) -> Dict[str, Any]:
         "targetValue": float(alert.target_price or alert.percent_threshold or 0),
         "currentPrice": alert.triggered_price,
         "status": status,
-        "createdAt": alert.created_at.isoformat() if alert.created_at else "",
-        "triggeredAt": alert.triggered_at.isoformat() if alert.triggered_at else None,
+        "createdAt": _iso_utc(alert.created_at) if alert.created_at else "",
+        "triggeredAt": _iso_utc(alert.triggered_at) if alert.triggered_at else None,
     }
 
 
@@ -1410,8 +1410,8 @@ def _dca_order_response(order) -> Dict[str, Any]:
         "totalOrders": int(order.max_executions or 0),
         "completedOrders": int(order.executions_completed or 0),
         "status": order.status,
-        "nextExecution": order.next_execution_at.isoformat() if order.next_execution_at else None,
-        "createdAt": order.created_at.isoformat() if order.created_at else "",
+        "nextExecution": _iso_utc(order.next_execution_at) if order.next_execution_at else None,
+        "createdAt": _iso_utc(order.created_at) if order.created_at else "",
     }
 
 
@@ -1428,10 +1428,10 @@ def _limit_order_response(order) -> Dict[str, Any]:
         "triggerPrice": float(order.trigger_price or 0),
         "executionPrice": order.execution_price,
         "slippage": float(order.slippage or 0),
-        "expiresAt": order.expires_at.isoformat() if order.expires_at else None,
-        "executedAt": order.executed_at.isoformat() if order.executed_at else None,
+        "expiresAt": _iso_utc(order.expires_at) if order.expires_at else None,
+        "executedAt": _iso_utc(order.executed_at) if order.executed_at else None,
         "txHash": order.tx_hash,
-        "createdAt": order.created_at.isoformat() if order.created_at else "",
+        "createdAt": _iso_utc(order.created_at) if order.created_at else "",
     }
 
 
@@ -2103,7 +2103,7 @@ def _dex_pair_to_pool(pair: Dict[str, Any]) -> Dict[str, Any]:
         "name": pair.get("pairAddress")
         or f"{base_token.get('symbol', 'UNKNOWN')}/{quote_token.get('symbol', 'UNKNOWN')}",
         "address": pair.get("pairAddress") or "",
-        "createdAt": datetime.utcfromtimestamp(created_at / 1000).isoformat() if created_at else "",
+        "createdAt": _iso_utc(datetime.utcfromtimestamp(created_at / 1000)) if created_at else "",
         "baseToken": {
             "symbol": base_token.get("symbol") or "UNKNOWN",
             "address": base_token.get("address") or "",
@@ -2678,7 +2678,7 @@ async def get_terminal_copy_trades(
             "amount": float(trade.copy_amount_usd or 0),
             "pnl": float(trade.pnl_usd or 0),
             "status": trade.status,
-            "timestamp": trade.created_at.isoformat() if trade.created_at else "",
+            "timestamp": _iso_utc(trade.created_at) if trade.created_at else "",
         }
         for trade in trades
     ]
@@ -3408,7 +3408,7 @@ async def get_my_portfolio(
     user = db.query(User).filter(User.telegram_id == tg_user.id).first()
     if not user:
         return WebAppPortfolio(
-            totalUsdValue=0.0, tokens=[], lastUpdated=datetime.utcnow().isoformat()
+            totalUsdValue=0.0, tokens=[], lastUpdated=_iso_utc(datetime.utcnow())
         )
 
     # Get all active wallets
@@ -3486,7 +3486,7 @@ async def get_my_portfolio(
                                 name=symbol,
                                 address=address,
                                 chain=chain_name,
-                                balance=str(balance),
+                                balance=_plain_amount(balance),
                                 usdValue=usd_value,
                                 decimals=decimals,
                             )
@@ -3496,7 +3496,7 @@ async def get_my_portfolio(
             continue
 
     return WebAppPortfolio(
-        totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
+        totalUsdValue=total_usd, tokens=tokens, lastUpdated=_iso_utc(datetime.utcnow())
     )
 
 
@@ -3530,7 +3530,7 @@ async def get_terminal_portfolio(
             continue
 
     return WebAppPortfolio(
-        totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
+        totalUsdValue=total_usd, tokens=tokens, lastUpdated=_iso_utc(datetime.utcnow())
     )
 
 
@@ -4012,8 +4012,8 @@ def _bridge_transfer_response(db, transfer) -> WebAppBridgeTransferResponse:
         sourceTxHash=transfer.source_tx_hash,
         destinationTxHash=transfer.destination_tx_hash,
         depositAddress=transfer.deposit_address,
-        startedAt=(transfer.created_at.isoformat() if transfer.created_at else ""),
-        updatedAt=(transfer.updated_at.isoformat() if transfer.updated_at else ""),
+        startedAt=(_iso_utc(transfer.created_at) if transfer.created_at else ""),
+        updatedAt=(_iso_utc(transfer.updated_at) if transfer.updated_at else ""),
         estimatedTime=transfer.estimated_time or 0,
         statusDetail=detail,
     )
@@ -4188,7 +4188,7 @@ async def create_terminal_swap_quote(
         toAmountUsd=to_amount_usd,
         exchangeRate=float(quote.exchange_rate),
         priceImpact=float(quote.price_impact),
-        estimatedGas=str(quote.gas_cost_usd),
+        estimatedGas=_plain_amount(quote.gas_cost_usd),
         gasUsd=float(quote.gas_cost_usd),
         route=quote.provider,
         priceImprovementUsd=getattr(quote, "price_improvement_usd", None),
@@ -4539,8 +4539,8 @@ async def get_terminal_swaps(
             txHash=swap.tx_hash,
             bridgeTxHash=swap.bridge_tx_hash,
             destinationTxHash=swap.destination_tx_hash,
-            createdAt=swap.created_at.isoformat() if swap.created_at else "",
-            completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+            createdAt=_iso_utc(swap.created_at) if swap.created_at else "",
+            completedAt=_iso_utc(swap.completed_at) if swap.completed_at else None,
             errorMessage=swap.error_message,
         )
         for swap in swaps
@@ -4587,8 +4587,8 @@ async def get_my_swaps(
             txHash=swap.tx_hash,
             bridgeTxHash=swap.bridge_tx_hash,
             destinationTxHash=swap.destination_tx_hash,
-            createdAt=swap.created_at.isoformat() if swap.created_at else "",
-            completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+            createdAt=_iso_utc(swap.created_at) if swap.created_at else "",
+            completedAt=_iso_utc(swap.completed_at) if swap.completed_at else None,
             errorMessage=swap.error_message,
         )
         for swap in swaps
@@ -4639,8 +4639,8 @@ async def get_my_swap_detail(
         txHash=swap.tx_hash,
         bridgeTxHash=swap.bridge_tx_hash,
         destinationTxHash=swap.destination_tx_hash,
-        createdAt=swap.created_at.isoformat() if swap.created_at else "",
-        completedAt=swap.completed_at.isoformat() if swap.completed_at else None,
+        createdAt=_iso_utc(swap.created_at) if swap.created_at else "",
+        completedAt=_iso_utc(swap.completed_at) if swap.completed_at else None,
         errorMessage=swap.error_message,
     )
 
@@ -4691,7 +4691,7 @@ async def get_my_wallets(
         LinkedWallet(
             address=wallet.address,
             chainType=wallet.chain_type or "evm",
-            linkedAt=wallet.created_at.isoformat() if wallet.created_at else "",
+            linkedAt=_iso_utc(wallet.created_at) if wallet.created_at else "",
             provider=wallet.wallet_provider or "local",
             name=wallet.name,
         )
@@ -4932,8 +4932,8 @@ def _battle_response(battle) -> WebAppBattleEntry:
         status=battle.status,
         outcome=battle.outcome,
         pnl_usd=float(battle.pnl_usd) if battle.pnl_usd is not None else None,
-        expiry_at=battle.expiry_at.isoformat() if battle.expiry_at else "",
-        created_at=battle.created_at.isoformat() if battle.created_at else "",
+        expiry_at=_iso_utc(battle.expiry_at) if battle.expiry_at else "",
+        created_at=_iso_utc(battle.created_at) if battle.created_at else "",
     )
 
 
@@ -5216,7 +5216,7 @@ def _ticket_to_webapp(ticket: SupportTicket) -> Dict:
         "message": ticket.message,
         "category": ticket.category,
         "adminReply": ticket.admin_reply,
-        "createdAt": ticket.created_at.isoformat() if ticket.created_at else None,
+        "createdAt": _iso_utc(ticket.created_at) if ticket.created_at else None,
     }
 
 

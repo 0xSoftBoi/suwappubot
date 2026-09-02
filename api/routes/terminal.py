@@ -54,8 +54,28 @@ async def _coinbase_get(path: str, params: dict | None = None) -> list | dict:
         return response.json()
 
 
+# Chains whose native coin *is* ETH. Native ETH on Base/Arbitrum/Optimism is the
+# same asset as on mainnet, so the desk keeps the CEX-grade Coinbase ETH-USD
+# candles instead of hunting for a per-chain pool (which failed and blanked
+# the chart the moment a trader switched chains).
+def _eth_native_chains() -> set:
+    chains = {"ethereum", "eth"}
+    try:
+        from bot.config.chains import CHAINS
+
+        for name, cfg in CHAINS.items():
+            if str(getattr(cfg, "native_token", "")).upper() == "ETH":
+                chains.add(str(name).lower())
+    except Exception:
+        chains.update({"arbitrum", "base", "optimism", "linea", "zksync", "scroll", "blast"})
+    return chains
+
+
+ETH_NATIVE_CHAINS = _eth_native_chains()
+
+
 def _is_eth_usdc_chart(pair: str, chain: str) -> bool:
-    return chain.lower() == "ethereum" and pair.lower() in ETH_NATIVE_ADDRESSES
+    return chain.lower() in ETH_NATIVE_CHAINS and pair.lower() in ETH_NATIVE_ADDRESSES
 
 
 # --- Per-token charts via GeckoTerminal pool OHLCV (any token, not just ETH/USDC) ---

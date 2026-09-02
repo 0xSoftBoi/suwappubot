@@ -15,7 +15,11 @@ const USDC: Record<string, { address: string; decimals: number }> = {
   solana: { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
 }
 
-const EVM_NATIVE_ADDRESS = '0xEeeeeEeeeEeEeeEeEeeEEEeeeeEeeeeeeeEEeE'
+// Canonical EIP-55 native-coin placeholder (40 hex chars). This constant used
+// to be two characters short, so every chain switch produced a pair whose
+// native leg python-api rejected ("Unsupported token … on base") and whose
+// chart could not resolve — the desk looked dead on any chain but Ethereum.
+export const EVM_NATIVE_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
 const NATIVE: Record<string, { symbol: string; name: string; address: string; decimals: number }> = {
   ethereum: { symbol: 'ETH', name: 'Ethereum', address: EVM_NATIVE_ADDRESS, decimals: 18 },
   arbitrum: { symbol: 'ETH', name: 'Ethereum', address: EVM_NATIVE_ADDRESS, decimals: 18 },

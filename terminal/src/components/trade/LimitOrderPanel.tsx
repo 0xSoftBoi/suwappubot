@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { parseServerTimestamp } from '../../lib/amounts'
 import toast from 'react-hot-toast'
 import { TokenInput } from '../swap/TokenInput'
 import { SlippageControl } from '../swap/SlippageControl'
@@ -63,7 +64,7 @@ function humanAmount(order: LimitOrder) {
 
 function formatDate(value?: string | null) {
   if (!value) return 'GTC'
-  const date = new Date(value)
+  const date = new Date(parseServerTimestamp(value))
   if (Number.isNaN(date.getTime())) return 'GTC'
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }

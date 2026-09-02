@@ -1,13 +1,47 @@
+import { useState, type FormEvent } from 'react'
+import toast from 'react-hot-toast'
 import { useWatchlist, type WatchlistToken } from '../../hooks/useWatchlist'
 import { useWatchlistPrices } from '../../hooks/useWatchlistPrices'
 import { usePair } from '../../contexts/PairContext'
 import { pairFromToken } from '../../lib/quoteTokens'
+import { api } from '../../lib/api'
 import { WatchlistItem } from './WatchlistItem'
 
 export function WatchlistPanel() {
-  const { watchlist, removeToken } = useWatchlist()
+  const { watchlist, addToken, removeToken } = useWatchlist()
   const { getPrice, refetch } = useWatchlistPrices(watchlist)
-  const { setSelectedPair } = usePair()
+  const { setSelectedPair, selectedChain } = usePair()
+  const [adding, setAdding] = useState(false)
+  const [query, setQuery] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Watchlist state lives in localStorage (see useWatchlist) — it persists per
+  // device, which is what the panel offers today. The add control used to be
+  // disabled behind a "backend persistence" note, leaving a visible tab whose
+  // only action did nothing.
+  const submitAdd = async (event: FormEvent) => {
+    event.preventDefault()
+    const q = query.trim()
+    if (!q || busy) return
+    setBusy(true)
+    try {
+      const results = await api.searchTokens(q, selectedChain)
+      const exact = results.find((t) => t.symbol.toLowerCase() === q.toLowerCase())
+        ?? results.find((t) => t.address.toLowerCase() === q.toLowerCase())
+      const pick = exact ?? results[0]
+      if (!pick) {
+        toast.error(`No token matching "${q}" on ${selectedChain}`)
+        return
+      }
+      addToken({ symbol: pick.symbol, name: pick.name, address: pick.address, chain: pick.chain || selectedChain })
+      setQuery('')
+      setAdding(false)
+    } catch {
+      toast.error('Token search failed — try again')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const handleTokenClick = (token: WatchlistToken) => {
     // Navigate to token chart by setting it as the selected pair. Quotes against
@@ -41,10 +75,12 @@ export function WatchlistPanel() {
             {watchlist.length} tokens
           </span>
           <button
-            disabled
-            className="text-terminal-text-muted transition-colors p-0.5 opacity-50"
-            title="Watchlist provider pending"
-            aria-label="Add token to watchlist (coming soon)"
+            type="button"
+            onClick={() => setAdding((v) => !v)}
+            className="text-terminal-text-muted transition-colors p-0.5 hover:text-terminal-text"
+            title="Add token"
+            aria-label="Add token to watchlist"
+            aria-expanded={adding}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -53,9 +89,28 @@ export function WatchlistPanel() {
         </div>
       </div>
 
-      <div className="px-3 py-2 border-b border-terminal-border bg-terminal-bg-secondary shrink-0 text-xs text-terminal-text-muted">
-        Watchlist backend persistence is not connected yet.
-      </div>
+      {adding && (
+        <form
+          onSubmit={submitAdd}
+          className="flex items-center gap-2 px-3 py-2 border-b border-terminal-border bg-terminal-bg-secondary shrink-0"
+        >
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`SYMBOL or address on ${selectedChain}`}
+            aria-label="Token symbol or address"
+            className="terminal-input min-w-0 flex-1 text-xs py-1 px-2"
+          />
+          <button
+            type="submit"
+            disabled={busy || !query.trim()}
+            className="terminal-theme-control rounded-[6px] px-2.5 py-1 text-xs font-medium text-terminal-text disabled:opacity-50"
+          >
+            {busy ? 'Adding…' : 'Add'}
+          </button>
+        </form>
+      )}
 
       {/* Token list */}
       <div className="flex-1 overflow-y-auto">
@@ -66,7 +121,7 @@ export function WatchlistPanel() {
             </svg>
             <p className="text-sm text-terminal-text-muted mb-1">No tokens in watchlist</p>
             <p className="text-xs text-terminal-text-muted">
-              Watchlist controls are disabled until backend persistence is connected.
+              Press + to add a token. Saved on this device.
             </p>
           </div>
         ) : (

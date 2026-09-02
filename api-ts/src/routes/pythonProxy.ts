@@ -82,6 +82,9 @@ const TERMINAL_WEBAPP_EXACT_ROUTES = new Set([
 	'GET /webapp/copy-trading/trades',
 	'GET /webapp/alerts',
 	'POST /webapp/alerts',
+	// Co-Pilot: read-only intents (price, portfolio summary, swap *quote*). It
+	// never executes — the execute path stays behind /webapp/swap/execute.
+	'POST /webapp/copilot',
 	'GET /webapp/wallet-tracker/wallets',
 	'POST /webapp/wallet-tracker/wallets',
 	'GET /webapp/wallet-tracker/activities',
