@@ -122,7 +122,11 @@ contract SuwappuCoreRouterImplementation is ImmutableBoundUser {
         uint256 evmInSnapshot;
     }
 
-    uint128 public nextSwapId = 1;
+    // No `= 1` initializer here on purpose: state variable initializers only
+    // run in a constructor, and clones never run one — every clone's storage
+    // starts zeroed regardless of what this declaration says. nextSwapId
+    // relies only on that zero default (see the pre-increment at initiate()).
+    uint128 public nextSwapId;
     uint128 public inFlight; // 0 = free; else the active swap id
     mapping(uint128 => Swap) internal swaps;
 
@@ -252,7 +256,9 @@ contract SuwappuCoreRouterImplementation is ImmutableBoundUser {
         uint64 coreIn = _evmToCore(evmAmountIn, extraIn);
         _orderSz(baseForQuote, coreIn, limitPx); // reject unfillable sizes up front
 
-        id = nextSwapId++;
+        // Pre-increment: first id must be 1, never 0 — 0 collides with
+        // inFlight's "free" sentinel (see nextSwapId's declaration above).
+        id = ++nextSwapId;
         inFlight = id;
 
         // Snapshots BEFORE any bridging lands (async ⇒ same-tx reads are pre-deposit).
