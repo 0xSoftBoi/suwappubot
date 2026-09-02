@@ -34,6 +34,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    portfolio_snapshot_interval_seconds: int = Field(
+        default=900,
+        description=(
+            "How often PortfolioSnapshotter records a background 'refresh' "
+            "portfolio-value snapshot per eligible user, in seconds."
+        ),
+    )
+
     # Service-split knobs (env: ENABLE_BACKGROUND_SERVICES / RUN_TELEGRAM_BOT)
     enable_background_services: bool = Field(
         default=True,

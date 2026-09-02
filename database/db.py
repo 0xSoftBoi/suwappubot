@@ -461,6 +461,51 @@ def _ensure_schema(db_engine) -> None:
                 )
                 """))
 
+    # Total-USD-value snapshots for the terminal portfolio history chart.
+    # Separate from bot.models.advanced.PortfolioSnapshot (table
+    # portfolio_snapshots, daily/string-keyed, used by bot/services/pnl.py) —
+    # deliberately a different table name to avoid colliding with that
+    # existing, in-use feature. See bot/models/portfolio_snapshot.py.
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS portfolio_value_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    total_usd FLOAT NOT NULL,
+                    token_count INTEGER NOT NULL DEFAULT 0,
+                    source VARCHAR(20) NOT NULL,
+                    captured_at TIMESTAMP NOT NULL
+                )
+                """
+                if is_sqlite
+                else """
+                CREATE TABLE IF NOT EXISTS portfolio_value_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    total_usd DOUBLE PRECISION NOT NULL,
+                    token_count INTEGER NOT NULL DEFAULT 0,
+                    source VARCHAR(20) NOT NULL,
+                    captured_at TIMESTAMP NOT NULL
+                )
+                """
+            )
+        )
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_portfolio_value_snapshots_user_captured "
+                "ON portfolio_value_snapshots(user_id, captured_at)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_portfolio_value_snapshots_user_id "
+                "ON portfolio_value_snapshots(user_id)"
+            )
+        )
+
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)

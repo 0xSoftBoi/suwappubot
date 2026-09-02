@@ -13,7 +13,7 @@ import re
 import time
 import uuid
 from urllib.parse import parse_qs, unquote
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Dict, List, Any, Literal
 
@@ -31,6 +31,7 @@ from bot.config.settings import settings
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
 from bot.models.support import SupportTicket, TicketKind, TicketStatus
+from bot.models.portfolio_snapshot import PortfolioValueSnapshot
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -349,6 +350,16 @@ class WebAppPortfolio(BaseModel):
     totalUsdValue: float
     tokens: List[WebAppPortfolioToken]
     lastUpdated: str
+
+
+class WebAppPortfolioHistoryPoint(BaseModel):
+    time: int
+    value: float
+
+
+class WebAppPortfolioHistoryResponse(BaseModel):
+    period: str
+    points: List[WebAppPortfolioHistoryPoint]
 
 
 class WebAppSwap(BaseModel):
@@ -3393,23 +3404,16 @@ async def get_chains():
     return chains
 
 
-@router.get("/users/me/portfolio", response_model=WebAppPortfolio)
-async def get_my_portfolio(
-    tg_user: TelegramUser = Depends(get_telegram_user), db: Session = Depends(get_db)
-):
-    """
-    Get the current user's portfolio based on Telegram authentication.
+async def build_portfolio_for_user(user: User, db: Session) -> WebAppPortfolio:
+    """Compute a user's real cross-chain portfolio (real balances, USD via price_service).
+
+    Shared by the Telegram-auth `/users/me/portfolio` and the terminal
+    JWT-auth `/portfolio` endpoints so both surfaces return the same real
+    balances instead of one of them being a stub.
     """
     from bot.services.wallet import WalletService
 
     wallet_service = WalletService()
-
-    # Find user by telegram_id
-    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
-    if not user:
-        return WebAppPortfolio(
-            totalUsdValue=0.0, tokens=[], lastUpdated=datetime.utcnow().isoformat()
-        )
 
     # Get all active wallets
     wallets = (
@@ -3418,8 +3422,10 @@ async def get_my_portfolio(
         .all()  # noqa: E712
     )  # noqa: E712
 
-    tokens = []
+    tokens: List[WebAppPortfolioToken] = []
     total_usd = 0.0
+    # (symbol, address, chain, balance, decimals) rows, priced in one batch below.
+    pending: List[tuple] = []
 
     # Native-coin sentinel expected by the webapp's isNativeToken() allowlist.
     # Empty string is treated as "native" client-side and is used consistently
@@ -3443,7 +3449,12 @@ async def get_my_portfolio(
         "native",
     }
 
+    # New wallets (e.g. freshly created Turnkey wallets) usually have no
+    # balances. Skip the multi-chain balance scan entirely for wallets that
+    # don't even have an address yet, instead of forcing the UI to wait on it.
     for wallet in wallets:
+        if not wallet.address:
+            continue
         try:
             balances = await wallet_service.get_all_balances(wallet)
             for chain_name, chain_tokens in balances.items():
@@ -3451,7 +3462,6 @@ async def get_my_portfolio(
                 for symbol, balance in chain_tokens.items():
                     if balance > 0:
                         # Simple USD estimation (would use price service in production)
-                        usd_value = balance  # Placeholder
 
                         is_native = bool(chain_config and symbol == chain_config.native_token)
                         if is_native:
@@ -3480,24 +3490,96 @@ async def get_my_portfolio(
                                 address = UNKNOWN_ADDRESS_PLACEHOLDER
                                 decimals = None
 
-                        tokens.append(
-                            WebAppPortfolioToken(
-                                symbol=symbol,
-                                name=symbol,
-                                address=address,
-                                chain=chain_name,
-                                balance=str(balance),
-                                usdValue=usd_value,
-                                decimals=decimals,
-                            )
-                        )
-                        total_usd += usd_value
+                        pending.append((symbol, address, chain_name, balance, decimals))
         except Exception:
             continue
+
+    # Real USD pricing, one batched lookup (cached; stablecoins pinned at $1,
+    # unknown symbols price as None and contribute 0 to the total rather than
+    # a placeholder). This is what makes the snapshot total mean dollars.
+    from bot.services.price_service import price_service
+
+    symbols = sorted({row[0].upper() for row in pending})
+    prices: Dict[str, Optional[float]] = {}
+    if symbols:
+        try:
+            prices = await price_service.get_prices(symbols)
+        except Exception:
+            logger.exception("Portfolio pricing failed for user %s; USD values omitted", user.id)
+            prices = {}
+    for symbol, address, chain_name, balance, decimals in pending:
+        price = prices.get(symbol.upper())
+        usd_value = float(balance) * float(price) if price is not None else 0.0
+        total_usd += usd_value
+        tokens.append(
+            WebAppPortfolioToken(
+                symbol=symbol,
+                name=symbol,
+                address=address,
+                chain=chain_name,
+                balance=str(balance),
+                usdValue=usd_value,
+                decimals=decimals,
+            )
+        )
 
     return WebAppPortfolio(
         totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
     )
+
+
+_PORTFOLIO_SNAPSHOT_MIN_GAP = timedelta(minutes=5)
+
+
+def maybe_record_portfolio_snapshot(
+    db: Session, user_id: int, total_usd: float, token_count: int, source: str
+) -> None:
+    """Insert a portfolio_value_snapshots row, deduped to at most one per 5 minutes.
+
+    Cheap dedup guard: skip the insert if the user's most recent snapshot
+    (from any source) is younger than the gap, so hammering the request-path
+    endpoint doesn't flood the history table.
+    """
+    latest = (
+        db.query(PortfolioValueSnapshot)
+        .filter(PortfolioValueSnapshot.user_id == user_id)
+        .order_by(PortfolioValueSnapshot.captured_at.desc())
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if latest is not None:
+        latest_captured_at = latest.captured_at
+        if latest_captured_at.tzinfo is None:
+            latest_captured_at = latest_captured_at.replace(tzinfo=timezone.utc)
+        if now - latest_captured_at < _PORTFOLIO_SNAPSHOT_MIN_GAP:
+            return
+    db.add(
+        PortfolioValueSnapshot(
+            user_id=user_id,
+            total_usd=total_usd,
+            token_count=token_count,
+            source=source,
+            captured_at=now,
+        )
+    )
+    db.flush()
+
+
+@router.get("/users/me/portfolio", response_model=WebAppPortfolio)
+async def get_my_portfolio(
+    tg_user: TelegramUser = Depends(get_telegram_user), db: Session = Depends(get_db)
+):
+    """
+    Get the current user's portfolio based on Telegram authentication.
+    """
+    # Find user by telegram_id
+    user = db.query(User).filter(User.telegram_id == tg_user.id).first()
+    if not user:
+        return WebAppPortfolio(
+            totalUsdValue=0.0, tokens=[], lastUpdated=datetime.utcnow().isoformat()
+        )
+
+    return await build_portfolio_for_user(user, db)
 
 
 @router.get("/portfolio", response_model=WebAppPortfolio)
@@ -3514,24 +3596,76 @@ async def get_terminal_portfolio(
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    wallets = (
-        db.query(Wallet)
-        .filter(Wallet.user_id == user.id, Wallet.is_active == True)  # noqa: E712
-        .all()  # noqa: E712
-    )  # noqa: E712
+    portfolio = await build_portfolio_for_user(user, db)
 
-    tokens: List[WebAppPortfolioToken] = []
-    total_usd = 0.0
+    try:
+        maybe_record_portfolio_snapshot(
+            db,
+            user_id=user.id,
+            total_usd=portfolio.totalUsdValue,
+            token_count=len(portfolio.tokens),
+            source="request",
+        )
+    except Exception:
+        logger.exception("Failed to record opportunistic portfolio snapshot for user %s", user.id)
 
-    # New Turnkey wallets usually have no balances. Return an empty portfolio
-    # quickly instead of forcing the UI through slow multi-chain balance scans.
-    for wallet in wallets:
-        if not wallet.address:
-            continue
+    return portfolio
 
-    return WebAppPortfolio(
-        totalUsdValue=total_usd, tokens=tokens, lastUpdated=datetime.utcnow().isoformat()
-    )
+
+_PORTFOLIO_HISTORY_PERIODS: Dict[str, Optional[timedelta]] = {
+    "24h": timedelta(hours=24),
+    "7d": timedelta(days=7),
+    "30d": timedelta(days=30),
+    "all": None,
+}
+_PORTFOLIO_HISTORY_MAX_POINTS = 300
+
+
+def _downsample_evenly(rows: List, max_points: int) -> List:
+    n = len(rows)
+    if n <= max_points:
+        return rows
+    if max_points <= 1:
+        return [rows[-1]]
+    step = (n - 1) / (max_points - 1)
+    indices = sorted({round(i * step) for i in range(max_points)})
+    return [rows[i] for i in indices]
+
+
+@router.get("/portfolio/history", response_model=WebAppPortfolioHistoryResponse)
+async def get_terminal_portfolio_history(
+    period: str = Query("7d"),
+    auth_payload: Optional[Dict] = Depends(get_terminal_auth_payload),
+    db: Session = Depends(get_db),
+):
+    """Return downsampled total-portfolio-value history for the terminal chart."""
+    user_id = _require_terminal_user(auth_payload)
+
+    if period not in _PORTFOLIO_HISTORY_PERIODS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown period '{period}'. Expected one of: 24h, 7d, 30d, all.",
+        )
+
+    query = db.query(PortfolioValueSnapshot).filter(PortfolioValueSnapshot.user_id == user_id)
+    window = _PORTFOLIO_HISTORY_PERIODS[period]
+    if window is not None:
+        cutoff = datetime.now(timezone.utc) - window
+        query = query.filter(PortfolioValueSnapshot.captured_at >= cutoff)
+
+    rows = query.order_by(PortfolioValueSnapshot.captured_at.asc()).all()
+    rows = _downsample_evenly(rows, _PORTFOLIO_HISTORY_MAX_POINTS)
+
+    points = []
+    for row in rows:
+        captured_at = row.captured_at
+        if captured_at.tzinfo is None:
+            captured_at = captured_at.replace(tzinfo=timezone.utc)
+        points.append(
+            WebAppPortfolioHistoryPoint(time=int(captured_at.timestamp()), value=row.total_usd)
+        )
+
+    return WebAppPortfolioHistoryResponse(period=period, points=points)
 
 
 @router.post("/copilot", response_model=WebAppCopilotResponse)

@@ -72,6 +72,7 @@ from bot.services.health_monitor import health_monitor  # noqa: E402
 from bot.services.approval_notifier import approval_notifier  # noqa: E402
 from bot.services.webhook_dispatcher import webhook_dispatcher  # noqa: E402
 from bot.services.balance_refresher import balance_refresher  # noqa: E402
+from bot.services.portfolio_snapshotter import portfolio_snapshotter  # noqa: E402
 from bot.services.perps_monitor import perps_monitor  # noqa: E402
 from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor  # noqa: E402
 from bot.services.hl_ws_alerts import hl_ws_alerts  # noqa: E402
@@ -410,6 +411,13 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Terminal portfolio-history chart: periodic total-value snapshots.
+        # Guarded so a failure here never blocks the rest of boot.
+        try:
+            await portfolio_snapshotter.start()
+        except Exception:
+            logger.exception("Failed to start portfolio_snapshotter; continuing boot")
+        await asyncio.sleep(2)
         # Agent control-plane approval notifier: DMs the owning Telegram user
         # for pending api-ts approval_requests rows (gated on
         # AGENT_APPROVALS_ENABLED, no-op otherwise).
@@ -552,6 +560,7 @@ async def lifespan(app: FastAPI):
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await portfolio_snapshotter.stop()
         await approval_notifier.stop()
         await webhook_dispatcher.stop()
         await execution_scorer.stop()

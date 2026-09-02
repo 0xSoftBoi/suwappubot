@@ -65,6 +65,7 @@ from .market_data import (
     PredictionSnapshot,
     LendMetric,
 )
+from .portfolio_snapshot import PortfolioValueSnapshot
 
 __all__ = [
     "User",
@@ -148,4 +149,6 @@ __all__ = [
     "PerpMetric",
     "PredictionSnapshot",
     "LendMetric",
+    # Terminal portfolio history (total-value chart snapshots)
+    "PortfolioValueSnapshot",
 ]
