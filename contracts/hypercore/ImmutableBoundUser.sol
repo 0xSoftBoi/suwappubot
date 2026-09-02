@@ -9,8 +9,8 @@ import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
  * Mixin for a logic contract meant to be `delegatecall`-run by one EIP-1167
  * clone per user (see SuwappuCoreRouterBoundUserFactory.sol). Two addresses
  * are baked into EACH CLONE'S OWN bytecode at CREATE2 time
- * (`LibClone.cloneDeterministic`/`createDeterministicClone`) — not a storage
- * slot, not a constructor, not an initializer — laid out back to back:
+ * (`LibClone.createDeterministicClone`) — not a storage slot, not a
+ * constructor, not an initializer — laid out back to back:
  * bytes [0,20) the user this clone routes funds for, bytes [20,40) the
  * factory that deployed it. There is nothing here to front-run: both are
  * fixed the instant the clone is deployed, and contract code cannot change
