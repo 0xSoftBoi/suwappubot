@@ -176,7 +176,7 @@
       "authorizeTitle": "Autorisation",
       "authorizeBody": "L’auto-garde renvoie une transaction non signée que vous signez. L’exécution REST gérée peut signer et diffuser sous les contrôles du serveur.",
       "screenshotAlt": "Terminal Suwappu avec graphique ETH/USDC, carnet d’ordres et ticket de swap.",
-      "screenshotCaption": "Suwappu Terminal · capture produit · 31 juil. 2026",
+      "screenshotCaption": "Suwappu Terminal · capture produit",
       "mevTitle": "Chasseur de MEV interne",
       "mevBody": "Un chasseur écrit en Rust détecte le risque de sandwich sur les routes en attente avant exécution, développé en interne plutôt que sous-traité.",
       "benchTitle": "Benchmark des exécuteurs",

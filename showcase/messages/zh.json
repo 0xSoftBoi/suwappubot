@@ -176,7 +176,7 @@
       "authorizeTitle": "授权",
       "authorizeBody": "自托管流程返回未签名交易，由你签名。托管 REST 执行可在服务端控制下签名并广播。",
       "screenshotAlt": "Suwappu Terminal 展示 ETH/USDC 图表、订单簿和兑换票据。",
-      "screenshotCaption": "Suwappu Terminal · 产品截图 · 2026 年 7 月 31 日",
+      "screenshotCaption": "Suwappu Terminal · 产品截图",
       "mevTitle": "自研 MEV 搜索器",
       "mevBody": "基于 Rust 的搜索器在执行前对待处理路由进行三明治攻击检测，完全自研而非外包。",
       "benchTitle": "执行器基准测试",

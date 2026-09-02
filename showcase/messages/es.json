@@ -176,7 +176,7 @@
       "authorizeTitle": "Autorizar",
       "authorizeBody": "La autocustodia devuelve una transacción sin firmar para que tú la firmes. La ejecución REST gestionada puede firmar y transmitir bajo controles del servidor.",
       "screenshotAlt": "Terminal de Suwappu con gráfico ETH/USDC, libro de órdenes y ticket de swap.",
-      "screenshotCaption": "Suwappu Terminal · captura del producto · 31 jul 2026",
+      "screenshotCaption": "Suwappu Terminal · captura del producto",
       "mevTitle": "Buscador de MEV propio",
       "mevBody": "Un buscador escrito en Rust examina las rutas pendientes en busca de riesgo de sandwich antes de ejecutar, desarrollado internamente en lugar de tercerizado.",
       "benchTitle": "Benchmarking de ejecutores",

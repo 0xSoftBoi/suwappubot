@@ -63,10 +63,16 @@
   font-family: var(--font-serif);
   font-size: clamp(2.75rem, 5vw, 4.25rem);
   font-weight: 500;
-  line-height: 1.04;
-  letter-spacing: -0.028em;
+  line-height: 1.14;
+  letter-spacing: -0.018em;
   text-wrap: balance;
   color: var(--fg);
+}
+
+@media (min-width: 768px) {
+  .home-hero h1 {
+    text-indent: -0.02em;
+  }
 }
 
 .home-hero__lead {
@@ -357,10 +363,18 @@
   font-family: var(--font-serif);
   font-size: clamp(2.35rem, 4.5vw, 3.75rem);
   font-weight: 500;
-  line-height: 1.06;
-  letter-spacing: -0.012em;
+  line-height: 1.14;
+  letter-spacing: -0.018em;
   text-wrap: balance;
   color: var(--fg);
+}
+
+@media (min-width: 768px) {
+  .home-section__head h2,
+  .home-security h2,
+  .home-close h2 {
+    text-indent: -0.02em;
+  }
 }
 
 /* Section headers stack: headline first, explainer under it at a 65ch
@@ -619,28 +633,35 @@
   margin: clamp(2.5rem, 5vw, 4.5rem) 0 0;
 }
 
-.proof__viewport {
-  border-radius: 14px;
-}
-
 .proof__viewport:focus-visible {
   outline: 2px solid var(--sw-accent-bright, #F6A93C);
   outline-offset: 3px;
 }
 
+/* Chamfer border via the "background-as-border" trick — see
+   .home-heroshot__frame for why a border can't sit directly on a
+   clip-path-cut box. .proof__frame is the painted-hairline outer shape;
+   .proof__inner nests 1px smaller and carries the window-chrome bar,
+   background, and shadow. */
 .proof__frame {
   position: relative;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
-  background: var(--bg-elev);
+  padding: 1px;
+  background: var(--line-strong);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
   box-shadow:
     0 42px 80px -52px rgba(0, 0, 0, 0.95),
-    0 0 0 1px rgba(246, 169, 60, 0.025),
-    inset 0 1px rgba(255, 255, 255, 0.04);
+    0 0 0 1px rgba(246, 169, 60, 0.025);
 }
 
-.proof__frame::before {
+.proof__inner {
+  position: relative;
+  overflow: hidden;
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+  background: var(--bg-elev);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.proof__inner::before {
   content: '';
   display: block;
   height: 1.8rem;
@@ -648,6 +669,7 @@
   background:
     radial-gradient(circle at 0.85rem 50%, var(--sw-accent-muted, #BD7526) 0 2px, transparent 2.5px),
     radial-gradient(circle at 1.55rem 50%, var(--sw-leaf-muted, #6BAF7C) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 2.25rem 50%, rgba(255, 255, 255, 0.22) 0 2px, transparent 2.5px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01));
 }
 
@@ -655,16 +677,12 @@
   display: block;
   width: 100%;
   height: auto;
-}
-
-.proof__cap {
-  margin-top: 0.75rem;
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.04em;
-  /* --fg-faint scores 3.58:1 on the dark band — AA fail for caption-size text;
-     --fg-dim scores 7.07:1 (same fix as the surfaces label). */
-  color: var(--fg-dim);
+  /* perps-desk.png is a 3160x720 wide dashboard; cropped taller than its
+     native aspect so the crop keeps chart + order book + ticket in frame
+     and only trims the side gutters, not a data row. */
+  aspect-ratio: 3160 / 720; /* native plate ratio: show the whole desk, crop nothing */
+  object-fit: cover;
+  object-position: top center;
 }
 
 .proof__mobile-hint { display: none; }
@@ -809,7 +827,7 @@
 
 .home-faq {
   display: grid;
-  grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(32.5rem, 0.7fr) minmax(0, 1.3fr);
   gap: clamp(2rem, 7vw, 6rem);
   align-items: start;
 }
@@ -1115,7 +1133,7 @@
     display: none;
   }
 
-  .proof__frame::before {
+  .proof__inner::before {
     height: 1.4rem;
   }
 }
@@ -1438,19 +1456,54 @@
   padding: 0 1.5rem clamp(3rem, 6vh, 5rem);
 }
 
-.home-heroshot img {
+/* Chamfer border via the "background-as-border" trick: clip-path removes
+   the border along its own cut edges (browsers only stroke the four
+   rectangular sides, not a clip-path-generated edge), so a border set
+   directly on a clipped box loses its diagonal corners. The outer frame is
+   painted --line-strong and clipped to the 12px chamfer; a 1px padding
+   reveals it as a hairline around the inner shape, which is clipped 1px
+   smaller so the two chamfers nest exactly. Same geometry as --btn-cut
+   (globals.css), scaled from 9px to 12px for a plate this size. */
+.home-heroshot__frame {
+  position: relative;
+  padding: 1px;
+  background: var(--line-strong);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  /* Tinted toward the page's own hue rather than a black boilerplate shadow. */
+  box-shadow: 0 30px 80px -30px rgba(4, 6, 9, 0.9);
+}
+
+.home-heroshot__inner {
+  overflow: hidden;
+  clip-path: polygon(11px 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%, 0 11px);
+  background: var(--bg-elev);
+}
+
+.home-heroshot__img {
   display: block;
   width: 100%;
   height: auto;
   /* Cropped to a desk-like band: the full 3160x940 plate is too tall here
-     and the top of the UI is the part worth showing. */
-  aspect-ratio: 20 / 5;
+     and the top of the UI is the part worth showing. Tuned so the crop
+     lands in the row gutter under the chart header, not through a data row. */
+  aspect-ratio: 1131 / 275; /* bottom edge in the gutter under the last order-book row at 1440 */
   object-fit: cover;
   object-position: top center;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  /* Tinted toward the page's own hue rather than a black boilerplate shadow. */
-  box-shadow: 0 30px 80px -30px rgba(4, 6, 9, 0.9);
+}
+
+.proof__cap,
+.home-heroshot__cap {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  /* --fg-faint scores 3.58:1 on the dark band — AA fail for caption-size
+     text; --fg-dim scores 7.07:1 (same fix as the surfaces label). */
+  color: var(--fg-dim);
+  max-width: 44ch;
 }
 
 /* The relocated execution ticket. */
@@ -1589,8 +1642,8 @@ main > section.home-section:nth-of-type(even)::before {
 .home-research-notes strong {
   font-family: var(--font-serif);
   font-weight: 500;
-  font-size: 1.2rem;
-  line-height: 1.25;
+  font-size: 1.45rem;
+  line-height: 1.2;
   letter-spacing: -0.01em;
   text-wrap: balance;
   transition: color var(--sw-dur, 200ms) var(--sw-ease, ease);

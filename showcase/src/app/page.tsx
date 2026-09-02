@@ -227,13 +227,19 @@ export default async function Home() {
                 prominent element on the page. It still ships, still tells the
                 truth, just not as the first impression. */}
             <div className="home-heroshot">
-              <img
-                src="/proof/spot-desk.png"
-                width={3160}
-                height={940}
-                alt={h('execution.screenshotAlt')}
-                decoding="async"
-              />
+              <div className="home-heroshot__frame">
+                <div className="home-heroshot__inner">
+                  <img
+                    className="home-heroshot__img"
+                    src="/proof/spot-desk.png"
+                    width={3160}
+                    height={940}
+                    alt={h('execution.screenshotAlt')}
+                    decoding="async"
+                  />
+                </div>
+              </div>
+              <p className="home-heroshot__cap">{h('execution.screenshotCaption')}</p>
             </div>
           </div>
 

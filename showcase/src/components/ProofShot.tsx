@@ -33,16 +33,18 @@ export default function ProofShot({
     <figure className="proof">
       <div className="proof__viewport" role="region" tabIndex={0} aria-label={mobileHint}>
         <div className="proof__frame">
-          <Image
-            src={src}
-            width={width}
-            height={height}
-            alt={alt}
-            priority={priority}
-            sizes="(max-width: 680px) 900px, (max-width: 900px) 100vw, 1400px"
-            quality={92}
-            className="proof__img"
-          />
+          <div className="proof__inner">
+            <Image
+              src={src}
+              width={width}
+              height={height}
+              alt={alt}
+              priority={priority}
+              sizes="(max-width: 680px) 900px, (max-width: 900px) 100vw, 1400px"
+              quality={92}
+              className="proof__img"
+            />
+          </div>
         </div>
       </div>
       <figcaption className="proof__cap">{caption}</figcaption>

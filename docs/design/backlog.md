@@ -26,3 +26,9 @@
   Playwright frame taken right after window.scrollTo shows a stale cream band above the sticky
   header. It is a capture artefact, not a page defect (verified: with scroll-behavior forced to
   auto the top pixels are pure black). Force `html{scroll-behavior:auto}` in capture scripts.
+- (2026-09-02, craft pass 2) public/proof/perps-desk.png was captured with the Markets header
+  row half-hidden at the top and the AVAX row sliced at the bottom; the crop is baked into the
+  PNG, so the plate CSS (now native 3160/720, chamfered, hairline) cannot fix it. When plates
+  are re-shot from a real session after deploy (see the #portfolio entry), recapture perps-desk
+  with edges in row gutters, and record the capture date so the caption can carry it. The
+  spot-desk caption omits a date because none is recorded for that capture.

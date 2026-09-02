@@ -176,7 +176,7 @@
       "authorizeTitle": "Authorize",
       "authorizeBody": "Self-custody returns an unsigned transaction for you to sign. Managed REST execution can sign and broadcast under server-side controls.",
       "screenshotAlt": "Suwappu Terminal showing an ETH/USDC chart, order book, and swap ticket.",
-      "screenshotCaption": "Suwappu Terminal · product capture · 31 Jul 2026",
+      "screenshotCaption": "Suwappu Terminal · product capture",
       "mevTitle": "In-house MEV searcher",
       "mevBody": "A Rust-based searcher screens pending routes for sandwich risk before execution, in-house rather than outsourced.",
       "benchTitle": "Executor benchmarking",
