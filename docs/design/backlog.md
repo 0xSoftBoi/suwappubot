@@ -13,11 +13,10 @@
   TOOLS registry in mcpTools.ts, 22 tools) so the figure can never claim tools that
   don't exist. Remaining orphan: QuoteRaceGL (known LINES-draw bug), still not wired.
 - (2026-09-02, parity pass) #portfolio is the last homepage section with an empty
-  right column. A real Terminal plate was captured (docs/design/portfolio-plate-2026-09-02.png,
-  via terminal/scripts/capture-portfolio-plate.mjs under VITE_MOCK=1; devMock now serves
-  /webapp/swaps so the PnL tiles render) but NOT wired: EquityCurve shows "Portfolio history
-  is not connected yet." because usePortfolioHistory returns [], while the section copy
-  claims PnL is "rolled into a single equity curve in the Terminal". Either wire portfolio
-  history (api-ts + terminal) and then run the capture script and place it with ProofShot
-  like #routing's perps plate, or soften portfolio.pnlBody in all four locales. Do not ship
-  a plate that contradicts the sentence beside it.
+  right column. A Terminal plate was captured as evidence (docs/design/portfolio-plate-2026-09-02.png)
+  and showed the real product state: EquityCurve renders "Portfolio history is not connected
+  yet." because usePortfolioHistory returns [], while the section copy claims PnL is "rolled
+  into a single equity curve in the Terminal". Founder decision: wire portfolio history for
+  real (api-ts snapshot store + history endpoint, terminal hook), no mocks or fixtures. Once
+  live, capture the plate from a real session and place it with ProofShot like #routing's
+  perps plate. Do not ship a plate that contradicts the sentence beside it.
