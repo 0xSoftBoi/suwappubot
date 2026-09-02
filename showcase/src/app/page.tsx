@@ -11,6 +11,7 @@ import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
 import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
+import { publishedPosts as publishedResearchPosts } from '@/content/research';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
 import './hero-d/hero-d.css';
 import './site.css';
@@ -23,6 +24,13 @@ export const metadata: Metadata = {
 };
 
 export const revalidate = 60;
+
+// Matches the date format used on /research (see fmtDate in research/page.tsx).
+function fmtNoteDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[m - 1]} ${d}, ${y}`;
+}
 
 export default async function Home() {
   const h = await getTranslations('home');
@@ -56,6 +64,18 @@ export default async function Home() {
     { title: h('research.hlTitle'), body: h('research.hlBody') },
     { title: h('research.dataTitle'), body: h('research.dataBody') },
   ];
+
+  // '0x_cross_chain' is the only router id that needs humanising for display;
+  // every other name in stats.generated.json is already presentation-ready.
+  const routerNames = productStats.routers.map((name) =>
+    name === '0x_cross_chain' ? '0x Cross-Chain' : name
+  );
+
+  // Three most recent published research notes, newest first. Array.sort is
+  // stable, so same-day posts keep their declared order in research.ts.
+  const recentNotes = [...publishedResearchPosts]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 3);
 
   const portfolioFacts = [
     { title: h('portfolio.positionsTitle'), body: h('portfolio.positionsBody') },
@@ -171,6 +191,8 @@ export default async function Home() {
               soundOn: h('atmosphere.soundOn'),
               soundOff: h('atmosphere.soundOff'),
               videoLabel: h('atmosphere.videoLabel'),
+              motionPause: h('atmosphere.motionPause'),
+              motionPlay: h('atmosphere.motionPlay'),
             }}
           />
           <section className="home-hero" aria-labelledby="home-hero-title">
@@ -246,6 +268,20 @@ export default async function Home() {
                 </a>
               ))}
             </div>
+          </section>
+
+          {/* Venue strip: the 21 routing venues behind productStats.routerCount
+              never had a visible surface on the page. Names come straight from
+              stats.generated.json at build time so this can never drift from
+              the number quoted above. */}
+          <section className="home-venues" aria-label={h('evidence.venuesAriaLabel')}>
+            <p className="home-eyebrow home-venues__kicker">{h('evidence.venuesKicker')}</p>
+            <ul className="home-venues__list">
+              {routerNames.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
+            <small className="home-venues__note">{h('evidence.venuesFootnote')}</small>
           </section>
 
           {/* Use-case grid: 01–08, what you can DO. Its own numbering track,
@@ -352,23 +388,43 @@ export default async function Home() {
 
           <section id="research" className="home-section" aria-labelledby="research-title">
             <Reveal>
-              <div className="home-section__head home-section__head--split">
-                <div>
-                  <h2 id="research-title">{h('research.title')}</h2>
+              {/* Same left-headline/right-figure grid the routing section uses
+                  for DepthSurfaceGL, applied at section-body scope: the
+                  bullets keep the left column, real published notes fill the
+                  right instead of leaving it empty at 1440. */}
+              <div className="home-research-grid">
+                <div className="home-research-grid__main">
+                  <div className="home-section__head home-section__head--split">
+                    <div>
+                      <h2 id="research-title">{h('research.title')}</h2>
+                    </div>
+                    <p>{h('research.lead')}</p>
+                  </div>
+                  <div className="home-execution-extra">
+                    {researchFacts.map((fact) => (
+                      <article key={fact.title}>
+                        <strong>{fact.title}</strong>
+                        <p>{fact.body}</p>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="home-actions">
+                    <a className="hd__btn hd__btn--ghost" href="/research">{h('research.ctaResearch')}</a>
+                    <a className="hd__btn hd__btn--ghost" href="/signals">{h('research.ctaSignals')}</a>
+                  </div>
                 </div>
-                <p>{h('research.lead')}</p>
-              </div>
-              <div className="home-execution-extra">
-                {researchFacts.map((fact) => (
-                  <article key={fact.title}>
-                    <strong>{fact.title}</strong>
-                    <p>{fact.body}</p>
-                  </article>
-                ))}
-              </div>
-              <div className="home-actions">
-                <a className="hd__btn hd__btn--ghost" href="/research">{h('research.ctaResearch')}</a>
-                <a className="hd__btn hd__btn--ghost" href="/signals">{h('research.ctaSignals')}</a>
+
+                <ul className="home-research-notes" aria-label={h('research.notesAriaLabel')}>
+                  {recentNotes.map((note) => (
+                    <li key={note.slug}>
+                      <a href={`/research/${note.slug}`}>
+                        <time dateTime={note.date}>{fmtNoteDate(note.date)}</time>
+                        <strong>{note.title}</strong>
+                        {note.excerpt && <span>{note.excerpt.replace(/\s*[–—]\s*/g, ', ')}</span>}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </Reveal>
           </section>

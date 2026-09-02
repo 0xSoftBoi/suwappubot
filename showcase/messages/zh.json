@@ -141,7 +141,10 @@
       "openapiMeta": "机器可读规范",
       "githubMeta": "源码",
       "changelog": "更新日志",
-      "changelogMeta": "最近发布"
+      "changelogMeta": "最近发布",
+      "venuesKicker": "路由提供方 · 按链筛选",
+      "venuesFootnote": "覆盖范围按链筛选；每条路由只使用与其兼容的提供方。",
+      "venuesAriaLabel": "已集成的路由提供方"
     },
     "interfaces": {
       "eyebrow": "能力 06",
@@ -258,6 +261,7 @@
       "lead": "信号在终端与 API 中运行。研究以同样的方式发布：注明日期、署名、公开。",
       "ctaResearch": "阅读研究",
       "ctaSignals": "查看信号",
+      "notesAriaLabel": "近期研究笔记",
       "launchTitle": "新币发射检测",
       "launchBody": "发射检测器监控 Pump.fun 与 Raydium，新代币部署的瞬间即被标记。",
       "hlTitle": "HyperLiquid 生态监控",
@@ -292,7 +296,9 @@
     "atmosphere": {
       "soundOn": "声音开",
       "soundOff": "声音关",
-      "videoLabel": "开阔海面的缓慢航拍画面"
+      "videoLabel": "开阔海面的缓慢航拍画面",
+      "motionPause": "暂停动态画面",
+      "motionPlay": "播放动态画面"
     },
     "announce": {
       "tag": "新功能 · WebMCP",

@@ -141,7 +141,10 @@
       "openapiMeta": "Machine-readable schema",
       "githubMeta": "Source",
       "changelog": "Changelog",
-      "changelogMeta": "What shipped"
+      "changelogMeta": "What shipped",
+      "venuesKicker": "Routing venues · chain-gated",
+      "venuesFootnote": "Coverage is chain-gated; a route uses only venues compatible with it.",
+      "venuesAriaLabel": "Integrated routing venues"
     },
     "interfaces": {
       "eyebrow": "Capability 06",
@@ -263,7 +266,8 @@
       "dataTitle": "Market data capture",
       "dataBody": "Real-time pricing and on-chain monitoring feed the signals API and every chart in the Terminal.",
       "ctaResearch": "Read the research",
-      "ctaSignals": "Explore signals"
+      "ctaSignals": "Explore signals",
+      "notesAriaLabel": "Recent research notes"
     },
     "portfolio": {
       "eyebrow": "Capability 04",
@@ -292,7 +296,9 @@
     "atmosphere": {
       "soundOn": "Sound on",
       "soundOff": "Sound off",
-      "videoLabel": "Slow aerial footage of open ocean water"
+      "videoLabel": "Slow aerial footage of open ocean water",
+      "motionPause": "Pause motion",
+      "motionPlay": "Play motion"
     },
     "announce": {
       "tag": "New · WebMCP",

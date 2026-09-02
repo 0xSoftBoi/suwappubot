@@ -30,7 +30,35 @@ type Labels = {
   soundOn: string;
   soundOff: string;
   videoLabel: string;
+  motionPause: string;
+  motionPlay: string;
 };
+
+// Session-scoped so a visitor who pauses the loop doesn't have it spring back
+// to life on the next page in the same tab (sessionStorage, not localStorage:
+// this is a per-visit preference, not a persistent one).
+const MOTION_PAUSED_KEY = 'sw-ocean-motion-paused';
+
+function readStoredPause(): boolean {
+  try {
+    return sessionStorage.getItem(MOTION_PAUSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredPause(paused: boolean) {
+  try {
+    if (paused) {
+      sessionStorage.setItem(MOTION_PAUSED_KEY, '1');
+    } else {
+      sessionStorage.removeItem(MOTION_PAUSED_KEY);
+    }
+  } catch {
+    // Storage can be unavailable (private mode, quota) — the toggle still
+    // works for the current render, it just won't survive navigation.
+  }
+}
 
 export default function OceanAtmosphere({ labels }: { labels: Labels }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -38,6 +66,8 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
   const [variant, setVariant] = useState<Variant | null>(null);
   const [videoReady, setVideoReady] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
+  const [motionPaused, setMotionPaused] = useState(false);
+  const motionPausedRef = useRef(false);
 
   // Decide whether to load video at all, and at what size. Runs after
   // hydration, which also keeps the video off the critical path: the poster
@@ -49,7 +79,21 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
     if (connection?.saveData) return;
     if (/(^|\b)(slow-2g|2g|3g)\b/.test(connection?.effectiveType ?? '')) return;
     setVariant(window.innerWidth >= 700 ? '1080' : '720');
+
+    const paused = readStoredPause();
+    motionPausedRef.current = paused;
+    setMotionPaused(paused);
   }, []);
+
+  // Once the video element exists, honor a pause carried over from earlier
+  // in the session (or set moments ago, before the element mounted).
+  useEffect(() => {
+    if (!variant) return;
+    const video = videoRef.current;
+    if (motionPaused) {
+      video?.pause();
+    }
+  }, [variant, motionPaused]);
 
   // Don't animate or synthesize for a tab nobody is looking at.
   useEffect(() => {
@@ -59,7 +103,10 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
         video?.pause();
         ambientRef.current?.suspend();
       } else {
-        video?.play().catch(() => {});
+        // A user-initiated pause takes precedence over the visibility
+        // handler: coming back to the tab should not restart motion the
+        // visitor explicitly stopped.
+        if (!motionPausedRef.current) video?.play().catch(() => {});
         ambientRef.current?.resume();
       }
     };
@@ -84,6 +131,22 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
     }
     ambientRef.current = startAmbient();
     setSoundOn(Boolean(ambientRef.current));
+  }, []);
+
+  // WCAG 2.2.2: the loop runs longer than 5s with no other way to stop it, so
+  // it needs a real pause control. Pausing freezes the current frame in
+  // place — it does not fall back to the poster, which would visibly jump.
+  const toggleMotion = useCallback(() => {
+    const video = videoRef.current;
+    const next = !motionPausedRef.current;
+    motionPausedRef.current = next;
+    setMotionPaused(next);
+    writeStoredPause(next);
+    if (next) {
+      video?.pause();
+    } else if (!document.hidden) {
+      video?.play().catch(() => {});
+    }
   }, []);
 
   return (
@@ -124,17 +187,31 @@ export default function OceanAtmosphere({ labels }: { labels: Labels }) {
         <div className="home-ocean__vignette" />
       </div>
 
-      <button
-        type="button"
-        className={soundOn ? 'home-sound is-on' : 'home-sound'}
-        onClick={toggleSound}
-        aria-pressed={soundOn}
-      >
-        <span className="home-sound__bars" aria-hidden="true">
-          <i /><i /><i /><i />
-        </span>
-        {soundOn ? labels.soundOn : labels.soundOff}
-      </button>
+      <div className="home-atmosphere-controls">
+        {variant && (
+          <button
+            type="button"
+            className={motionPaused ? 'home-sound' : 'home-sound is-on'}
+            onClick={toggleMotion}
+            aria-pressed={motionPaused}
+            aria-label={motionPaused ? labels.motionPlay : labels.motionPause}
+          >
+            {motionPaused ? labels.motionPlay : labels.motionPause}
+          </button>
+        )}
+
+        <button
+          type="button"
+          className={soundOn ? 'home-sound is-on' : 'home-sound'}
+          onClick={toggleSound}
+          aria-pressed={soundOn}
+        >
+          <span className="home-sound__bars" aria-hidden="true">
+            <i /><i /><i /><i />
+          </span>
+          {soundOn ? labels.soundOn : labels.soundOff}
+        </button>
+      </div>
     </>
   );
 }

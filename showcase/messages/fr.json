@@ -141,7 +141,10 @@
       "openapiMeta": "Schéma lisible par machine",
       "githubMeta": "Source",
       "changelog": "Nouveautés",
-      "changelogMeta": "Dernières livraisons"
+      "changelogMeta": "Dernières livraisons",
+      "venuesKicker": "Fournisseurs de routage · filtrés par chaîne",
+      "venuesFootnote": "La couverture est filtrée par chaîne ; une route n'utilise que les fournisseurs qui lui sont compatibles.",
+      "venuesAriaLabel": "Fournisseurs de routage intégrés"
     },
     "interfaces": {
       "eyebrow": "Capacité 06",
@@ -258,6 +261,7 @@
       "lead": "Les signaux tournent dans le Terminal et via l'API. La recherche sort par le même canal : datée, attribuée, publique.",
       "ctaResearch": "Lire la recherche",
       "ctaSignals": "Explorer les signaux",
+      "notesAriaLabel": "Notes de recherche récentes",
       "launchTitle": "Détection de lancements",
       "launchBody": "Le détecteur surveille Pump.fun et Raydium et signale chaque nouveau token dès son déploiement.",
       "hlTitle": "Moniteur de l'écosystème HyperLiquid",
@@ -292,7 +296,9 @@
     "atmosphere": {
       "soundOn": "Son activé",
       "soundOff": "Son coupé",
-      "videoLabel": "Vue aérienne lente de l’océan"
+      "videoLabel": "Vue aérienne lente de l’océan",
+      "motionPause": "Mettre le mouvement en pause",
+      "motionPlay": "Reprendre le mouvement"
     },
     "announce": {
       "tag": "Nouveau · WebMCP",
