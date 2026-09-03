@@ -20,6 +20,7 @@ Providers:
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -832,6 +833,28 @@ class SwapEngine:
             )
         except Exception as e:
             logger.warning(f"Failed to log aggregator readiness state: {e}")
+
+    def wallet_execution_lock(self, wallet_id: int) -> asyncio.Lock:
+        """Return the process-wide execution lock for one wallet."""
+        if wallet_id not in self._wallet_locks:
+            if len(self._wallet_locks) >= self._wallet_locks_max:
+                # Evict unlocked entries to prevent unbounded memory growth.
+                to_remove = [key for key, lock in self._wallet_locks.items() if not lock.locked()]
+                for key in to_remove[: len(to_remove) // 2]:
+                    del self._wallet_locks[key]
+            self._wallet_locks[wallet_id] = asyncio.Lock()
+        return self._wallet_locks[wallet_id]
+
+    @asynccontextmanager
+    async def wallet_execution_context(self, wallet_id: int, *, already_locked: bool = False):
+        """Serialize wallet execution, or acknowledge a lock held by the caller."""
+        if already_locked:
+            if not self.wallet_execution_lock(wallet_id).locked():
+                raise RuntimeError("wallet execution lock was not acquired by the caller")
+            yield
+            return
+        async with self.wallet_execution_lock(wallet_id):
+            yield
 
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
@@ -4087,6 +4110,7 @@ class SwapEngine:
         user_id: int,
         idempotency_key: Optional[str] = None,
         automated: bool = False,
+        _wallet_lock_held: bool = False,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -4155,16 +4179,7 @@ class SwapEngine:
                     f"(got provider '{quote.provider}')"
                 )
 
-        # Prevent concurrent swaps from same wallet (with bounded growth)
-        if wallet_id not in self._wallet_locks:
-            if len(self._wallet_locks) >= self._wallet_locks_max:
-                # Evict unlocked entries to prevent unbounded memory growth
-                to_remove = [k for k, v in self._wallet_locks.items() if not v.locked()]
-                for k in to_remove[: len(to_remove) // 2]:
-                    del self._wallet_locks[k]
-            self._wallet_locks[wallet_id] = asyncio.Lock()
-
-        async with self._wallet_locks[wallet_id]:
+        async with self.wallet_execution_context(wallet_id, already_locked=_wallet_lock_held):
             # Idempotency: if we already created/submitted this attempt, return it
             if idempotency_key:
 
@@ -8287,3 +8302,8 @@ class SwapEngine:
                 logger.error(f"Multi-swap sub-task failed: {res}")
 
         return swap_transactions
+
+
+# Shared execution engine: its per-wallet locks must span every internal-agent
+# request in this process. Constructing an engine per request defeats that guard.
+swap_engine = SwapEngine()

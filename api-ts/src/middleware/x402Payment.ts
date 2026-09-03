@@ -346,23 +346,29 @@ export async function chargeAgentForCall(params: {
 		// No prepaid credits — if the client supplied an X-PAYMENT header and the
 		// facilitator is enabled, settle this single call directly on-chain.
 		if (paymentHeader && isFacilitatorEnabled(env.right)) {
-			// Select the entry the payer actually signed for — with several networks
-			// advertised, always using accepts[0] would reject every payment made on
-			// any other network (asset_mismatch in the cross-check).
+			// Select exactly one canonical server requirement by the v1 payload's
+			// top-level scheme/network, then bind its signed authorization recipient/value.
+			// Malformed, unmatched, or ambiguous payloads never reach the facilitator.
 			const requirements = selectRequirementsForPayment(
 				paymentHeader,
 				challenge.accepts as PaymentRequirements[],
 			)
-			const settle = await facilitatorVerifyAndSettle(env.right, paymentHeader, requirements)
-			if (settle.ok) {
-				return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }
+			if (requirements) {
+				const settle = await facilitatorVerifyAndSettle(env.right, paymentHeader, requirements)
+				if (settle.ok) {
+					return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }
+				}
+				// Don't silently discard a failed on-chain settle — surface why, so a
+				// misconfigured facilitator (bad CDP creds, wrong URL, etc.) shows up in
+				// logs instead of just looking like "client never paid". Facilitator/
+				// cdp-sdk error strings are short reason codes (e.g. "insufficient_funds",
+				// "invalid_signature") and never carry key material.
+				console.error(`[x402Payment] facilitator settle failed for ${resource}: ${settle.error}`)
+			} else {
+				console.error(
+					`[x402Payment] facilitator settle failed for ${resource}: requirements_mismatch`,
+				)
 			}
-			// Don't silently discard a failed on-chain settle — surface why, so a
-			// misconfigured facilitator (bad CDP creds, wrong URL, etc.) shows up in
-			// logs instead of just looking like "client never paid". Facilitator/
-			// cdp-sdk error strings are short reason codes (e.g. "insufficient_funds",
-			// "invalid_signature") and never carry key material.
-			console.error(`[x402Payment] facilitator settle failed for ${resource}: ${settle.error}`)
 		}
 
 		return { kind: 'insufficient', cost, challenge }

@@ -121,7 +121,7 @@ Regression: api-ts full suite 352 pass / 0 fail; `test_tempo.py` +
 - **Tokenized equities are registered but not surfaced in any UI.** Deliberate: see
   the compliance note above — they must never be presented as "buying stock".
 
-## Bug found and fixed during self-review
+## Original multi-network selector fix, now hardened
 
 `chargeAgentForCall()` passed `challenge.accepts[0]` to the facilitator no matter
 which network the payer chose. `crossCheckSignedRequirements()` compares the
@@ -132,12 +132,19 @@ Failed CLOSED, not open — the cross-check is what caught it, so there was no
 fund-loss path — but it made the second network unusable, defeating the point of
 advertising it.
 
-Fix: `selectRequirementsForPayment()` in `services/FacilitatorService.ts` picks
-the advertised entry matching the payer's signed payload — network first, then
-asset, since two networks can share a token address (Plasma reuses mainnet's
-USDC address). Undecodable/unmatched headers fall back to `accepts[0]`, where the
-existing cross-check rejects them; it never selects an entry the payer did not
-sign for. Covered by 7 tests.
+The original fix made `selectRequirementsForPayment()` in
+`services/FacilitatorService.ts` choose by network and asset. A later adversarial
+review found that its fallback was not actually bound to the whole advertised
+tuple: the settle-time cross-check omitted `scheme` and `network`, and malformed
+or unmatched payloads could still select `accepts[0]`.
+
+The hardened path now consistently uses the advertised x402 v1 protocol. It
+requires a v1 payment payload whose top-level `scheme` and `network` identify
+exactly one server-owned `accepts[]` member (including the single-entry case),
+then binds the signed EIP-3009 `authorization.to` and `authorization.value` to
+that member. Missing, unmatched, or ambiguous selections fail closed. The asset
+is never accepted from the client: the canonical advertised requirement is
+passed unchanged to both facilitator verification and settlement.
 
 ## Follow-ups (deliberately not done)
 

@@ -7,20 +7,22 @@
  * which verifies the signature and settles the transfer on-chain, so we never
  * run chain infra ourselves.
  *
- * Uses the OFFICIAL maintained `@x402/core` v2 client (`HTTPFacilitatorClient`)
- * for verify+settle rather than a hand-rolled HTTP contract — the request/
- * response schema and version negotiation track the spec. The default URL is the
- * testnet facilitator; point X402_FACILITATOR_URL at CDP's hosted facilitator
+ * Uses the OFFICIAL maintained `@x402/core` client (`HTTPFacilitatorClient`) for
+ * verify+settle rather than a hand-rolled HTTP contract. Our challenge and
+ * payment payload are x402 v1-shaped; the client posts the versioned payload and
+ * canonical requirements separately. The default URL is the testnet facilitator;
+ * point X402_FACILITATOR_URL at CDP's hosted facilitator
  * (https://api.cdp.coinbase.com/platform/v2/x402) for mainnet.
  *
  * Gated by X402_FACILITATOR_ENABLED. CDP's hosted facilitator covers
  * Base/Polygon/Arbitrum/World/Solana; our own chains (e.g. Tempo) are not
  * facilitated and must use prepaid credits / the internal verifier instead.
  *
- * SECURITY: an x402 client signs against the PaymentRequirements *it* sends back
- * (payload.accepted). We MUST cross-check those against what we advertised
- * (payTo / asset / amount) before settling, so a client can't redirect funds to
- * itself or underpay. That check is the core of this module.
+ * SECURITY: a v1 x402 client sends its chosen scheme/network at the top level and
+ * an EIP-3009 authorization under `payload`. We select exactly one matching member
+ * of the server-owned `accepts[]`, bind the signed authorization recipient/value
+ * to it, and pass that canonical server member to the facilitator. The client can
+ * never supply or rewrite the requirements used for verification/settlement.
  *
  * CDP mainnet auth is wired: when CDP_API_KEY_ID + CDP_API_KEY_SECRET are both
  * set, we use the official `@coinbase/x402` package's `createFacilitatorConfig`
@@ -42,10 +44,12 @@
 
 import { createFacilitatorConfig } from '@coinbase/x402'
 import {
+	decodePaymentSignatureHeader,
 	type FacilitatorConfig,
 	HTTPFacilitatorClient,
-	decodePaymentSignatureHeader,
 } from '@x402/core/http'
+import { isPaymentPayloadV1 } from '@x402/core/schemas'
+import type { PaymentPayloadV1 } from '@x402/core/types/v1'
 
 /** Must match EnvService's X402_FACILITATOR_URL default exactly — used to
  *  detect whether an operator explicitly overrode the facilitator URL. */
@@ -81,6 +85,32 @@ type FacilitatorEnv = {
 	/** CDP hosted mainnet facilitator auth (CDP Portal API key, not a wallet key). */
 	CDP_API_KEY_ID?: string
 	CDP_API_KEY_SECRET?: string
+}
+
+type V1FacilitatorClient = {
+	verify(
+		paymentPayload: PaymentPayloadV1,
+		paymentRequirements: PaymentRequirements,
+	): Promise<{ isValid: boolean; invalidReason?: string }>
+	settle(
+		paymentPayload: PaymentPayloadV1,
+		paymentRequirements: PaymentRequirements,
+	): Promise<{
+		success: boolean
+		errorReason?: string
+		transaction?: string
+		network?: string
+		payer?: string
+	}>
+}
+
+type V1FacilitatorClientFactory = (config: FacilitatorConfig) => V1FacilitatorClient
+
+const createV1FacilitatorClient: V1FacilitatorClientFactory = (config) => {
+	// @x402/core ships v1 payload/requirements types and its HTTP runtime forwards
+	// both objects without reshaping. Its current HTTP method declarations expose
+	// only the v2 aliases, so isolate that declaration mismatch at this boundary.
+	return new HTTPFacilitatorClient(config) as unknown as V1FacilitatorClient
 }
 
 export function isFacilitatorEnabled(env: FacilitatorEnv): boolean {
@@ -146,33 +176,63 @@ export function resolveFacilitatorConfig(env: FacilitatorEnv): FacilitatorConfig
 }
 
 /**
- * SECURITY: validate the client-signed requirements (payload.accepted) against
- * what we advertised before settling. An x402 client controls the requirements
- * it signs, so without this a client could redirect funds (payTo), pay the wrong
- * token (asset), or underpay (amount). payTo/asset are compared case-insensitively
- * (EVM address + token symbol/address casing varies); amount is compared as
- * atomic-unit BigInts (paid >= advertised passes; overpayment is allowed).
+ * SECURITY: validate a v1 payment payload against one canonical advertised
+ * requirement. Top-level version/scheme/network identify the server member;
+ * signed EIP-3009 authorization.to/value bind its recipient and minimum amount.
+ * The asset is intentionally not read from the client: it comes only from the
+ * canonical server requirement later passed to facilitator verify and settle.
  *
  * Exported as a pure function so it is unit-testable without a live facilitator.
  */
 export function crossCheckSignedRequirements(
-	accepted: { payTo: string; asset: string; amount: string },
-	requirements: Pick<PaymentRequirements, 'payTo' | 'asset' | 'maxAmountRequired'>,
+	paymentPayload: {
+		x402Version?: unknown
+		scheme?: unknown
+		network?: unknown
+		payload?: unknown
+	},
+	requirements: Pick<PaymentRequirements, 'scheme' | 'network' | 'payTo' | 'maxAmountRequired'>,
 ): { ok: true } | { ok: false; error: string } {
-	if (String(accepted.payTo).toLowerCase() !== requirements.payTo.toLowerCase()) {
+	if (paymentPayload.x402Version !== 1) {
+		return { ok: false, error: 'version_mismatch' }
+	}
+	if (String(paymentPayload.scheme) !== requirements.scheme) {
+		return { ok: false, error: 'scheme_mismatch' }
+	}
+	if (String(paymentPayload.network) !== requirements.network) {
+		return { ok: false, error: 'network_mismatch' }
+	}
+
+	const body = paymentPayload.payload
+	if (!body || typeof body !== 'object') {
+		return { ok: false, error: 'authorization_missing' }
+	}
+	const authorization = (body as Record<string, unknown>).authorization
+	if (!authorization || typeof authorization !== 'object') {
+		return { ok: false, error: 'authorization_missing' }
+	}
+	const { to, value } = authorization as Record<string, unknown>
+	if (typeof to !== 'string' || to.toLowerCase() !== requirements.payTo.toLowerCase()) {
 		return { ok: false, error: 'payTo_mismatch' }
 	}
-	if (String(accepted.asset).toLowerCase() !== requirements.asset.toLowerCase()) {
-		return { ok: false, error: 'asset_mismatch' }
-	}
 	try {
-		if (BigInt(accepted.amount) < BigInt(requirements.maxAmountRequired)) {
+		if (typeof value !== 'string' || BigInt(value) < BigInt(requirements.maxAmountRequired)) {
 			return { ok: false, error: 'amount_too_low' }
 		}
 	} catch {
 		return { ok: false, error: 'amount_unparseable' }
 	}
 	return { ok: true }
+}
+
+function decodeV1PaymentHeader(paymentHeader: string): PaymentPayloadV1 | undefined {
+	let decoded: unknown
+	try {
+		decoded = decodePaymentSignatureHeader(paymentHeader) as unknown
+	} catch {
+		return undefined
+	}
+	return isPaymentPayloadV1(decoded) ? (decoded as PaymentPayloadV1) : undefined
 }
 
 /**
@@ -183,48 +243,29 @@ export function crossCheckSignedRequirements(
  * crossCheckSignedRequirements fail with asset_mismatch, so a payment on any
  * network other than the first would never settle.
  *
- * Matching is on `network` first (the payer's actual choice) and then `asset`,
- * because two networks can legitimately share a token address — Plasma reuses
- * mainnet's USDC address, for example, so asset alone is not a unique key.
- *
- * Falls back to the first entry when the header can't be decoded or nothing
- * matches: the caller's cross-check then rejects it, which is the safe outcome.
- * This never selects an entry the payer did not sign for.
+ * V1 identifies the chosen requirement by the top-level scheme/network pair.
+ * That pair must select exactly one advertised member; duplicates are ambiguous
+ * and fail closed. The signed authorization recipient/value must then validate
+ * against that canonical member. There is no first-entry or asset fallback.
  */
 export function selectRequirementsForPayment(
 	paymentHeader: string,
 	accepts: PaymentRequirements[],
-): PaymentRequirements {
-	const fallback = accepts[0]
-	if (accepts.length <= 1) return fallback
+): PaymentRequirements | undefined {
+	const paymentPayload = decodeV1PaymentHeader(paymentHeader)
+	if (!paymentPayload) return undefined
 
-	let accepted: { network?: string; asset?: string } | undefined
-	try {
-		accepted = decodePaymentSignatureHeader(paymentHeader)?.accepted as typeof accepted
-	} catch {
-		return fallback
-	}
-	if (!accepted) return fallback
+	const matches = accepts.filter(
+		(requirements) =>
+			requirements.scheme === paymentPayload.scheme &&
+			requirements.network === paymentPayload.network,
+	)
+	if (matches.length !== 1) return undefined
 
-	const network = accepted.network ? String(accepted.network).toLowerCase() : undefined
-	const asset = accepted.asset ? String(accepted.asset).toLowerCase() : undefined
-
-	if (network) {
-		const byNetwork = accepts.filter((a) => a.network.toLowerCase() === network)
-		if (byNetwork.length === 1) return byNetwork[0]
-		if (byNetwork.length > 1 && asset) {
-			const exact = byNetwork.find((a) => a.asset.toLowerCase() === asset)
-			if (exact) return exact
-		}
-		if (byNetwork.length > 1) return byNetwork[0]
-	}
-
-	if (asset) {
-		const byAsset = accepts.find((a) => a.asset.toLowerCase() === asset)
-		if (byAsset) return byAsset
-	}
-
-	return fallback
+	const requirements = matches[0]
+	return requirements && crossCheckSignedRequirements(paymentPayload, requirements).ok
+		? requirements
+		: undefined
 }
 
 /**
@@ -236,33 +277,25 @@ export async function facilitatorVerifyAndSettle(
 	env: FacilitatorEnv,
 	paymentHeader: string,
 	requirements: PaymentRequirements,
+	clientFactory: V1FacilitatorClientFactory = createV1FacilitatorClient,
 ): Promise<SettleResult> {
 	if (!isFacilitatorEnabled(env)) return { ok: false, error: 'facilitator_disabled' }
 
-	// Decode the payment header into a v2 PaymentPayload (carries `accepted`, the
-	// PaymentRequirements the client actually signed against).
-	let payload: ReturnType<typeof decodePaymentSignatureHeader>
-	try {
-		payload = decodePaymentSignatureHeader(paymentHeader)
-	} catch {
-		return { ok: false, error: 'invalid_payment_header' }
-	}
+	const payload = decodeV1PaymentHeader(paymentHeader)
+	if (!payload) return { ok: false, error: 'invalid_payment_header' }
 
-	const accepted = payload?.accepted
-	if (!accepted) return { ok: false, error: 'missing_accepted_requirements' }
-
-	// SECURITY cross-check: the client-signed requirements must match what we
-	// advertised, or settling would send money somewhere we didn't intend.
-	const check = crossCheckSignedRequirements(accepted, requirements)
+	// Defense in depth: even though the caller selected this canonical server
+	// requirement, validate the v1 payload against it again before any HTTP call.
+	const check = crossCheckSignedRequirements(payload, requirements)
 	if (!check.ok) return check
 
 	try {
-		const client = new HTTPFacilitatorClient(resolveFacilitatorConfig(env))
+		const client = clientFactory(resolveFacilitatorConfig(env))
 
-		const v = await client.verify(payload, accepted)
+		const v = await client.verify(payload, requirements)
 		if (!v.isValid) return { ok: false, error: v.invalidReason || 'payment_invalid' }
 
-		const s = await client.settle(payload, accepted)
+		const s = await client.settle(payload, requirements)
 		if (!s.success) return { ok: false, error: s.errorReason || 'settle_failed' }
 
 		return { ok: true, txHash: s.transaction, network: String(s.network), payer: s.payer }
