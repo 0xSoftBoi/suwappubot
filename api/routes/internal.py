@@ -296,12 +296,14 @@ def _is_execution_lock_contention(error: OperationalError) -> bool:
 
 
 def _lock_managed_agent_identity(session, agent_int_id: int) -> None:
-    """Serialize first registration on PostgreSQL before a User row exists."""
+    """Serialize first registration without blocking the async event-loop thread."""
     if session.bind is not None and session.bind.dialect.name == "postgresql":
-        session.execute(
-            text("SELECT pg_advisory_xact_lock(:identity_key)"),
+        acquired = session.execute(
+            text("SELECT pg_try_advisory_xact_lock(:identity_key)"),
             {"identity_key": agent_int_id},
-        )
+        ).scalar()
+        if acquired is not True:
+            raise HTTPException(status_code=409, detail="Managed wallet provisioning is busy")
 
 
 @router.post("/agent/provision-wallet")
@@ -326,7 +328,7 @@ async def provision_agent_wallet(
             user = (
                 session.query(User)
                 .filter(User.telegram_id == agent_int_id)
-                .with_for_update()
+                .with_for_update(nowait=True)
                 .first()
             )
             if user and user.username != agent_username:
@@ -350,7 +352,7 @@ async def provision_agent_wallet(
                     Wallet.chain_type == request.chain_type,
                     Wallet.is_active.is_(True),
                 )
-                .with_for_update()
+                .with_for_update(nowait=True)
                 .all()
             )
             if len(active_wallets) > 1:

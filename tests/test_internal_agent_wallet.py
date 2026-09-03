@@ -116,6 +116,33 @@ def test_concurrent_provision_is_idempotent(client):
         assert session.query(Wallet).count() == 1
 
 
+def test_provision_uses_nonblocking_database_locks_in_async_route():
+    lock_source = inspect.getsource(internal._lock_managed_agent_identity)
+    route_source = inspect.getsource(internal.provision_agent_wallet)
+
+    assert "pg_try_advisory_xact_lock" in lock_source
+    assert "SELECT pg_advisory_xact_lock" not in lock_source
+    assert route_source.count(".with_for_update(nowait=True)") == 2
+
+
+def test_provision_reports_busy_when_advisory_lock_is_unavailable():
+    class Result:
+        @staticmethod
+        def scalar():
+            return False
+
+    session = SimpleNamespace(
+        bind=SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+        execute=lambda *_args, **_kwargs: Result(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        internal._lock_managed_agent_identity(session, 42)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Managed wallet provisioning is busy"
+
+
 def test_provision_adopts_legacy_turnkey_identity_without_wallet_or_account_ids(client):
     payload = _provision_payload()
     payload.pop("turnkey_wallet_id")

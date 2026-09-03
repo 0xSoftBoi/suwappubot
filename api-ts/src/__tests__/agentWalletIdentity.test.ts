@@ -27,6 +27,11 @@ let updateCalls: Record<string, unknown>[] = []
 let provisionBodies: Record<string, unknown>[] = []
 let provisionAddress = ADDRESS
 let verifyWalletCalls = 0
+let verifyWalletFailure = false
+let verifiedWalletInputs: Array<{ agentId: number; subOrgId: string; address: string }> = []
+let createPolicySubOrgs: string[] = []
+let listPolicySubOrgs: string[] = []
+let deletePolicySubOrgs: string[] = []
 
 const envLayer = Layer.succeed(EnvService, {
 	INTERNAL_API_KEY: 'internal-test-key',
@@ -65,14 +70,35 @@ const turnkeyLayer = Layer.succeed(TurnkeyService, {
 			accountId: 'turnkey-account-a',
 		})
 	},
-	verifyAgentWallet: (_agentId: number, subOrgId: string, address: string) => {
+	verifyAgentWallet: (agentId: number, subOrgId: string, address: string) => {
 		verifyWalletCalls++
+		verifiedWalletInputs.push({ agentId, subOrgId, address })
+		if (verifyWalletFailure) return Effect.fail(new Error('provider ownership mismatch'))
 		return Effect.succeed({
 			address,
 			subOrgId,
 			walletId: subOrgId === 'legacy-turnkey-sub-org-a' ? 'legacy-wallet-a' : 'turnkey-wallet-a',
 			accountId: subOrgId === 'legacy-turnkey-sub-org-a' ? 'legacy-account-a' : 'turnkey-account-a',
 		})
+	},
+	createPolicy: (subOrgId: string) => {
+		createPolicySubOrgs.push(subOrgId)
+		return Effect.succeed('agent-policy-a')
+	},
+	listPolicies: (subOrgId: string) => {
+		listPolicySubOrgs.push(subOrgId)
+		return Effect.succeed([
+			{
+				policyId: 'agent-policy-a',
+				policyName: 'agent-spending-limit-60s',
+				effect: 'EFFECT_DENY',
+				condition: 'eth.value <= 100',
+			},
+		])
+	},
+	deletePolicy: (subOrgId: string) => {
+		deletePolicySubOrgs.push(subOrgId)
+		return Effect.succeed(true)
 	},
 } as any)
 const testLayer = Layer.mergeAll(envLayer, agentLayer, turnkeyLayer)
@@ -115,6 +141,11 @@ beforeEach(() => {
 	provisionBodies = []
 	provisionAddress = ADDRESS
 	verifyWalletCalls = 0
+	verifyWalletFailure = false
+	verifiedWalletInputs = []
+	createPolicySubOrgs = []
+	listPolicySubOrgs = []
+	deletePolicySubOrgs = []
 })
 
 afterAll(() => {
@@ -325,9 +356,83 @@ describe('managed wallet metadata ownership', () => {
 	it('preserves server wallet fields when caller metadata is replaced', () => {
 		expect(
 			preserveManagedWalletMetadata(
-				{ wallet_address: ADDRESS, internal_wallet_id: 902, caller: 'old' },
+				{
+					wallet_address: ADDRESS,
+					internal_wallet_id: 902,
+					walletAddress: 'legacy-forged-address',
+					subOrgId: 'legacy-forged-sub-org',
+					caller: 'old',
+				},
 				{ caller: 'new', wallet_sub_org_id: 'forged', internal_user_id: 666 },
 			),
 		).toEqual({ caller: 'new', wallet_address: ADDRESS, internal_wallet_id: 902 })
+	})
+})
+
+describe('managed wallet policy ownership', () => {
+	const provisionedMetadata = {
+		wallet_address: ADDRESS,
+		wallet_sub_org_id: 'turnkey-sub-org-a',
+		turnkey_wallet_id: 'turnkey-wallet-a',
+		turnkey_account_id: 'turnkey-account-a',
+		internal_user_id: 901,
+		internal_wallet_id: 902,
+		managed_wallet_identity_version: 2,
+	}
+
+	it('attests canonical ownership before every policy operation', async () => {
+		TEST_AGENT.metadata = {
+			...provisionedMetadata,
+			walletAddress: '0x0000000000000000000000000000000000000001',
+			subOrgId: 'forged-camel-case-sub-org',
+		}
+
+		const created = await agentRoutes.request('/wallet/policy', {
+			method: 'POST',
+			headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				type: 'spending_limit',
+				params: { maxAmountWei: '100', timeWindowSeconds: 60 },
+			}),
+		})
+		const listed = await agentRoutes.request('/wallet/policies', { headers: AUTH_HEADERS })
+		const deleted = await agentRoutes.request('/wallet/policy/agent-policy-a', {
+			method: 'DELETE',
+			headers: AUTH_HEADERS,
+		})
+
+		expect([created.status, listed.status, deleted.status]).toEqual([200, 200, 200])
+		expect(verifiedWalletInputs).toEqual([
+			{ agentId: TEST_AGENT.id, subOrgId: 'turnkey-sub-org-a', address: ADDRESS },
+			{ agentId: TEST_AGENT.id, subOrgId: 'turnkey-sub-org-a', address: ADDRESS },
+			{ agentId: TEST_AGENT.id, subOrgId: 'turnkey-sub-org-a', address: ADDRESS },
+		])
+		expect(createPolicySubOrgs).toEqual(['turnkey-sub-org-a'])
+		expect(listPolicySubOrgs).toEqual(['turnkey-sub-org-a', 'turnkey-sub-org-a'])
+		expect(deletePolicySubOrgs).toEqual(['turnkey-sub-org-a'])
+	})
+
+	it('fails closed before policy access when provider attestation fails', async () => {
+		TEST_AGENT.metadata = { ...provisionedMetadata }
+		verifyWalletFailure = true
+
+		const created = await agentRoutes.request('/wallet/policy', {
+			method: 'POST',
+			headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				type: 'spending_limit',
+				params: { maxAmountWei: '100', timeWindowSeconds: 60 },
+			}),
+		})
+		const listed = await agentRoutes.request('/wallet/policies', { headers: AUTH_HEADERS })
+		const deleted = await agentRoutes.request('/wallet/policy/agent-policy-a', {
+			method: 'DELETE',
+			headers: AUTH_HEADERS,
+		})
+
+		expect([created.status, listed.status, deleted.status]).toEqual([502, 502, 502])
+		expect(createPolicySubOrgs).toHaveLength(0)
+		expect(listPolicySubOrgs).toHaveLength(0)
+		expect(deletePolicySubOrgs).toHaveLength(0)
 	})
 })

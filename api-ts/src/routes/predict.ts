@@ -3,6 +3,7 @@ import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
+import { attestManagedAgentWallet } from '../lib/managedAgentWallet'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
 import { agentBearerAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
@@ -215,26 +216,15 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
 			const turnkey = yield* TurnkeyService
+			const wallet = yield* attestManagedAgentWallet(agent)
+			const walletAddress = wallet.address
+			const subOrgId = wallet.subOrgId
 
 			// Step 1: Get or lazy-init CLOB API credentials
 			let credentials = yield* credService.getCredentials(agentId)
 
 			if (!credentials) {
 				// Need to create CLOB API credentials via wallet signature
-				const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress
-				if (!walletAddress) {
-					return yield* Effect.fail(
-						new ValidationError({ message: 'Agent has no wallet address configured for Polymarket trading' }),
-					)
-				}
-
-				const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId
-				if (!subOrgId) {
-					return yield* Effect.fail(
-						new ValidationError({ message: 'Agent has no Turnkey sub-org configured' }),
-					)
-				}
-
 				const timestamp = Math.floor(Date.now() / 1000)
 				const authMessage = buildClobAuthMessage(timestamp)
 
@@ -274,8 +264,6 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 			// into the order's `builder` field — mirrors _BUILDER_CODE_RE in
 			// bot/services/polymarket_api.py.
 			const salt = BigInt('0x' + randomBytes(8).toString('hex')).toString()
-			const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
-			const subOrgId = (agent.metadata as Record<string, string> | null)?.subOrgId || ''
 			const builderCode = resolveBuilderCode(process.env.POLYMARKET_BUILDER_CODE)
 
 			// CLOB amount math (6-decimal base units for both collateral and shares).
@@ -369,12 +357,12 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 		return c.json({ error: 'Validation Error', message: 'Invalid order ID' }, 400)
 	}
 	const agentId = String(agent.id)
-	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
+			const wallet = yield* attestManagedAgentWallet(agent)
 
 			const credentials = yield* credService.getCredentials(agentId)
 			if (!credentials) {
@@ -383,7 +371,7 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 				)
 			}
 
-			return yield* pm.cancelOrder(credentials, walletAddress, orderId).pipe(
+			return yield* pm.cancelOrder(credentials, wallet.address, orderId).pipe(
 				Effect.mapError((e) => new ExternalServiceError({
 					message: `CLOB cancel failed: ${e.message}`,
 					service: 'polymarket-clob',
@@ -404,12 +392,12 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 predictRoutes.get('/positions', agentBearerAuth(), async (c) => {
 	const agent = c.get('agent')
 	const agentId = String(agent.id)
-	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
+			const wallet = yield* attestManagedAgentWallet(agent)
 
 			const credentials = yield* credService.getCredentials(agentId)
 			if (!credentials) {
@@ -418,7 +406,7 @@ predictRoutes.get('/positions', agentBearerAuth(), async (c) => {
 				)
 			}
 
-			const positions = yield* pm.getPositions(credentials, walletAddress).pipe(
+			const positions = yield* pm.getPositions(credentials, wallet.address).pipe(
 				Effect.mapError((e) => new ExternalServiceError({
 					message: `CLOB positions fetch failed: ${e.message}`,
 					service: 'polymarket-clob',
@@ -466,12 +454,12 @@ predictRoutes.get('/orders', agentBearerAuth(), async (c) => {
 	const agent = c.get('agent')
 	const agentId = String(agent.id)
 	const status = c.req.query('status')
-	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const pm = yield* PolymarketService
 			const credService = yield* PolymarketCredentialService
+			const wallet = yield* attestManagedAgentWallet(agent)
 
 			const credentials = yield* credService.getCredentials(agentId)
 			if (!credentials) {
@@ -480,7 +468,7 @@ predictRoutes.get('/orders', agentBearerAuth(), async (c) => {
 				)
 			}
 
-			return yield* pm.getOrders(credentials, walletAddress, status).pipe(
+			return yield* pm.getOrders(credentials, wallet.address, status).pipe(
 				Effect.mapError((e) => new ExternalServiceError({
 					message: `CLOB orders fetch failed: ${e.message}`,
 					service: 'polymarket-clob',

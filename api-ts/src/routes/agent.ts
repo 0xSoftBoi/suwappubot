@@ -12,6 +12,13 @@ import type { DbClient } from '../db/client'
 import { agents, agentCredits, agentCreditTopups, agentSubscriptions, auditLogs, organizations, policyKillSwitches, recurringSubscriptions, requireDb, swapTransactions, webhookEvents } from '../db'
 import { agentLinkCodes } from '../db/schema/agentLinkCodes'
 import { type EconomicTerms, evmQuoteUsdValue, termsFromEvmQuote, termsFromSolanaQuote } from '../lib/approvalTerms'
+import { attestManagedAgentWallet } from '../lib/managedAgentWallet'
+import {
+	MANAGED_WALLET_IDENTITY_VERSION,
+	type ManagedAgentWalletIdentity,
+	managedAgentWalletIdentityFromMetadata,
+	managedAgentWalletIsProvisioned,
+} from '../lib/managedWalletMetadata'
 import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '../config/constants'
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
@@ -114,41 +121,6 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
 }
 
-type ManagedAgentWalletIdentity = {
-	address: string
-	subOrgId: string
-	walletId?: string
-	accountId?: string
-}
-
-// Version 1 existed while callers could still forge agent metadata. Version 2
-// is only written after reserved-key enforcement and provider attestation.
-const MANAGED_WALLET_IDENTITY_VERSION = 2
-
-/**
- * Read the durable Turnkey identity stored before Python provisioning. Keeping
- * this separate from the Python row IDs lets a retry resume the same wallet
- * after a timeout instead of minting another Turnkey wallet.
- */
-export function managedAgentWalletIdentityFromMetadata(
-	metadata: unknown,
-): ManagedAgentWalletIdentity | null {
-	const value = (metadata || {}) as Record<string, unknown>
-	const address = value.wallet_address
-	const subOrgId = value.wallet_sub_org_id
-	const walletId = value.turnkey_wallet_id
-	const accountId = value.turnkey_account_id
-	if (!isEvmAddress(address) || typeof subOrgId !== 'string' || !subOrgId) {
-		return null
-	}
-	return {
-		address,
-		subOrgId,
-		...(typeof walletId === 'string' && walletId ? { walletId } : {}),
-		...(typeof accountId === 'string' && accountId ? { accountId } : {}),
-	}
-}
-
 function positiveSafeInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
@@ -164,15 +136,10 @@ function withoutManagedWalletProvisionLease(
 	return rest
 }
 
-export function managedAgentWalletIsProvisioned(metadata: unknown): boolean {
-	const value = (metadata || {}) as Record<string, unknown>
-	return (
-		managedAgentWalletIdentityFromMetadata(value) !== null &&
-		value.managed_wallet_identity_version === MANAGED_WALLET_IDENTITY_VERSION &&
-		positiveSafeInteger(value.internal_user_id) &&
-		positiveSafeInteger(value.internal_wallet_id)
-	)
-}
+export {
+	managedAgentWalletIdentityFromMetadata,
+	managedAgentWalletIsProvisioned,
+} from '../lib/managedWalletMetadata'
 
 /**
  * Canonical agent identifier used EVERYWHERE an agent-scoped varchar id is
@@ -3366,22 +3333,17 @@ agentRoutes.post('/wallet/policy', async (c) => {
 		return agentError(c, 400, 'VALIDATION_ERROR', 'Invalid request', { details: formatZodErrors(parsed.error) })
 	}
 
-	const metadata = (agent.metadata || {}) as Record<string, unknown>
-	const subOrgId = metadata.wallet_sub_org_id as string
-	if (!subOrgId) {
-		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
-	}
-
 	const { type, params } = parsed.data
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
+			const wallet = yield* attestManagedAgentWallet(agent)
 			const turnkeyService = yield* TurnkeyService
 
 			if (type === 'spending_limit') {
 				const condition = `eth.value <= ${params.maxAmountWei}`
 				const policyId = yield* turnkeyService.createPolicy(
-					subOrgId,
+					wallet.subOrgId,
 					`${AGENT_POLICY_PREFIX}spending-limit-${params.timeWindowSeconds}s`,
 					'EFFECT_DENY',
 					condition,
@@ -3391,7 +3353,7 @@ agentRoutes.post('/wallet/policy', async (c) => {
 				const addresses = params.allowedAddresses!.map(a => `"${a.toLowerCase()}"`).join(', ')
 				const condition = `eth.tx.to in [${addresses}]`
 				const policyId = yield* turnkeyService.createPolicy(
-					subOrgId,
+					wallet.subOrgId,
 					`${AGENT_POLICY_PREFIX}whitelist-${params.allowedAddresses!.length}`,
 					'EFFECT_ALLOW',
 					condition,
@@ -3402,7 +3364,8 @@ agentRoutes.post('/wallet/policy', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
-		return agentError(c, 500, 'INTERNAL', result.left.message)
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, policy: result.right })
@@ -3411,21 +3374,18 @@ agentRoutes.post('/wallet/policy', async (c) => {
 // GET /v1/agent/wallet/policies - List policies for agent wallet
 agentRoutes.get('/wallet/policies', async (c) => {
 	const agent = c.get('agent')
-	const metadata = (agent.metadata || {}) as Record<string, unknown>
-	const subOrgId = metadata.wallet_sub_org_id as string
-	if (!subOrgId) {
-		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
-	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
+			const wallet = yield* attestManagedAgentWallet(agent)
 			const turnkeyService = yield* TurnkeyService
-			return yield* turnkeyService.listPolicies(subOrgId)
+			return yield* turnkeyService.listPolicies(wallet.subOrgId)
 		})
 	)
 
 	if (Either.isLeft(result)) {
-		return agentError(c, 500, 'INTERNAL', result.left.message)
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
 	}
 
 	return c.json({ success: true, policies: result.right })
@@ -3435,19 +3395,15 @@ agentRoutes.get('/wallet/policies', async (c) => {
 agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 	const agent = c.get('agent')
 	const policyId = c.req.param('policyId')
-	const metadata = (agent.metadata || {}) as Record<string, unknown>
-	const subOrgId = metadata.wallet_sub_org_id as string
-	if (!subOrgId) {
-		return agentError(c, 400, 'WALLET_NOT_FOUND', 'No managed wallet found', { hint: 'Create a wallet first' })
-	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
+			const wallet = yield* attestManagedAgentWallet(agent)
 			const turnkeyService = yield* TurnkeyService
 			// Only allow deleting agent-created policies. An agent must not be able to
 			// remove admin/guardrail policies (spending caps, address whitelists) on its
 			// own sub-org and then swap freely. Identify by the agent name-prefix.
-			const policies = yield* turnkeyService.listPolicies(subOrgId)
+			const policies = yield* turnkeyService.listPolicies(wallet.subOrgId)
 			const target = policies.find((p) => p.policyId === policyId)
 			if (!target) {
 				return yield* Effect.fail(new ValidationError({ message: 'Policy not found' }))
@@ -3457,7 +3413,7 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 					new ValidationError({ message: 'Cannot delete a protected (non-agent) policy' }),
 				)
 			}
-			return yield* turnkeyService.deletePolicy(subOrgId, policyId)
+			return yield* turnkeyService.deletePolicy(wallet.subOrgId, policyId)
 		})
 	)
 

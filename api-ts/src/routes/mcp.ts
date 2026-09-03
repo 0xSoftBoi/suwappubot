@@ -31,6 +31,7 @@ import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { parseMppDirectoryResponse } from '../lib/mppDirectory'
+import { attestManagedAgentWallet } from '../lib/managedAgentWallet'
 import { logger } from '../lib/logger'
 import openApiSpec from '../../openapi-agent.json'
 import { requireDb, swapTransactions } from '../db'
@@ -1024,14 +1025,12 @@ async function handleGetSwapHistory(args: Record<string, unknown>, agent: Agent)
 // Mirrors GET /v1/agent/wallet/policies (src/routes/agent.ts)
 async function handleListWalletPolicies(args: Record<string, unknown>, agent: Agent) {
 	void args // wallet_address is accepted for parity but the agent's managed wallet is always used (matches REST route behavior)
-	const metadata = (agent.metadata || {}) as Record<string, unknown>
-	const subOrgId = metadata.wallet_sub_org_id as string | undefined
-	if (!subOrgId) return { isError: true, content: [{ type: 'text', text: 'No managed wallet found for this agent.' }] }
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
+			const wallet = yield* attestManagedAgentWallet(agent)
 			const turnkeyService = yield* TurnkeyService
-			return yield* turnkeyService.listPolicies(subOrgId)
+			return yield* turnkeyService.listPolicies(wallet.subOrgId)
 		}),
 	)
 	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
