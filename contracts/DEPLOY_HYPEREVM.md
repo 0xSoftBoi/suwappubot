@@ -35,7 +35,9 @@ Foundry aliases (in `foundry.toml`): `hyperevm_testnet`, `hyperevm_mainnet`.
 
 ## SuwappuCoreRouter status
 
-`hypercore/SuwappuCoreRouter.sol` — native spot swaps against the HyperCore
+`hypercore/SuwappuCoreRouterMultiUser.sol` (renamed from `SuwappuCoreRouter.sol`;
+see `hypercore/SuwappuCoreRouterBoundUserImpl.sol` for the per-user-clone
+version this repo is moving to) — native spot swaps against the HyperCore
 book (initiate → execute → settle → claim; forceRelease/retry for liveness).
 
 - **Review:** cleared money-path review at **SHIP-TO-TESTNET** after 4 adversarial
