@@ -13,11 +13,11 @@
 
 # ---- Web framework / server ----
 fastapi==0.141.1
-uvicorn[standard]>=0.52.1,<1.0          # ASGI server — entrypoint
+uvicorn[standard]>=0.52.4,<1.0          # ASGI server — entrypoint
 uvloop>=0.19,<1.0                     # fast event loop (api/main.py)
 
 # ---- Error tracking (optional; no-op unless SENTRY_DSN is set) ----
-sentry-sdk[fastapi]==2.66.1
+sentry-sdk[fastapi]==2.68.1
 
 # ---- Telegram bot ----
 python-telegram-bot[rate-limiter]==22.8
@@ -48,17 +48,17 @@ openai==2.53.0
 aegis-shield @ git+https://github.com/gaiarobotics/aegis@e3e87b3791fb99e5ddee767dee20a3ef1bf2b99e
 
 # ---- Database ----
-SQLAlchemy==2.0.51
+SQLAlchemy==2.0.52
 psycopg2-binary>=2.9,<3.0             # PostgreSQL driver
 
 # ---- Pydantic / settings ----
-pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic==2.13.5
+pydantic-settings==2.15.0
 # Security floor: PYSEC-2026-2270 is fixed in python-dotenv 1.2.2.
-python-dotenv>=1.2.2
+python-dotenv>=1.2.3
 
 # ---- Crypto / encryption ----
-cryptography==50.0.0
+cryptography==50.0.1
 dnspython==2.8.0                      # DKIM TXT lookup for email social recovery
 PyJWT==2.13.0
 pyotp==2.10.0
@@ -84,7 +84,7 @@ starknet-py>=0.28.1; python_version >= "3.10"
 # ---- Perps / Polymarket / Hyperliquid ----
 hyperliquid-python-sdk==0.24.0
 py-clob-client>=0.20                  # Polymarket CLOB (imported as py_clob_client)
-msgpack==1.2.1
+msgpack==1.2.2
 
 # ---- Discord integration ----
 discord.py>=2.3,<3.0
@@ -97,7 +97,7 @@ Pillow>=12.3.0                          # imported as PIL
 redis==8.1.0
 
 # ---- Serialization / misc ----
-orjson>=3.10
+orjson>=3.12.0
 
 # ---- AWS KMS ----
 # boto3 is intentionally NOT a runtime dependency — imported lazily in
