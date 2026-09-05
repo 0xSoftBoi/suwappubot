@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, type ReactNode } from 'react';
-import type { SwapPreview } from './deskApi';
-import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
+import { previewHops, type SwapPreview } from './deskApi';
+import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, hopVerb, num } from './format';
 import { RULE_META, type MandateVerdict } from './mandate';
 import styles from './route-dossier.module.css';
 
@@ -36,43 +36,15 @@ interface FlowHop {
 export interface FlowSpec {
   source: FlowEndpoint;
   out: FlowEndpoint;
+  /** Never empty: the main-path edges carry what each leg sells, then what the last delivers. */
   hops: FlowHop[];
-  /** Labels riding the main-path edges, one per edge (hops.length + 1). */
-  edgeLabels: Array<string | null>;
 }
 
-const verb = (t: string) => (t === 'cross' ? 'RELAY' : t === 'swap' ? 'SWAP' : t.toUpperCase());
+const verb = (t: string) => hopVerb(t).toUpperCase();
 
-/** Labels riding the main path: what enters, what each later leg sells, what arrives. */
-const mainEdgeLabels = (
-  hops: FlowHop[],
-  first: string | null,
-  last: string | null,
-): Array<string | null> => [first, ...hops.slice(1).map((h) => h.inAmount), last];
-
-/** A priced single trade → flow spec. Falls back to one honest hop. */
+/** A priced single trade → flow spec. */
 export function specFromPreview(p: SwapPreview): FlowSpec {
-  const rawHops =
-    Array.isArray(p.hops) && p.hops.length > 0
-      ? p.hops
-      : [
-          {
-            index: 0,
-            type: p.fromChain === p.toChain ? 'swap' : 'cross',
-            tool: p.route,
-            toolName: p.route,
-            fromChain: p.fromChain,
-            toChain: p.toChain,
-            fromToken: p.fromToken.symbol,
-            toToken: p.toToken.symbol,
-            fromAmount: p.fromAmount,
-            toAmount: p.toAmount,
-            estimatedGasUsd: p.estimatedGasUsd,
-            feeUsd: p.bridgeFeeUsd,
-            estimatedDurationSeconds: p.estimatedDurationSeconds,
-          },
-        ];
-  const hops: FlowHop[] = rawHops.map((h) => ({
+  const hops: FlowHop[] = previewHops(p).map((h) => ({
     key: `hop-${h.index}`,
     type: h.type,
     tool: h.toolName || h.tool,
@@ -95,11 +67,6 @@ export function specFromPreview(p: SwapPreview): FlowSpec {
       sub: `on ${p.toChain} · floor ≥ ${fmtAmount(p.toAmountMin)}`,
     },
     hops,
-    edgeLabels: mainEdgeLabels(
-      hops,
-      `${fmtAmount(p.fromAmount)} ${p.fromToken.symbol}`,
-      `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
-    ),
   };
 }
 
@@ -144,7 +111,6 @@ export function specFromPlanLegs(
       sub: `on ${last.toChain}${last.preview ? ` · ${fmtUsd(last.preview.toAmountUsd)}` : ''}`,
     },
     hops,
-    edgeLabels: mainEdgeLabels(hops, hops[0].inAmount, hops[hops.length - 1].outAmount),
   };
 }
 
@@ -215,7 +181,8 @@ export function RouteFlowSvg({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: s
         {Array.from({ length: k + 1 }, (_, e) => {
           const x1 = e === 0 ? xs.sourceX + END_W : xs.hopX(e - 1) + HOP_W;
           const x2 = e === k ? xs.outX : xs.hopX(e);
-          const label = spec.edgeLabels[e];
+          // What rides this edge: the leg ahead's input, or the last leg's output.
+          const label = e < k ? spec.hops[e].inAmount : spec.hops[k - 1].outAmount;
           return (
             <g key={`e-${e}`}>
               <path d={mainEdge(x1, x2)} className={styles.mainEdge} />

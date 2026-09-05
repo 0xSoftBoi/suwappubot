@@ -6,6 +6,7 @@ import {
   findTokens,
   getPrices,
   listChains,
+  previewHops,
   previewSwap,
   type ChainInfo,
   type RouteOrder,
@@ -66,7 +67,7 @@ const agentWritten = (text: string): AgentWrittenText => ({
 });
 import styles from './agent-desk.module.css';
 import DeskFlow from './DeskFlow';
-import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
+import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, hopVerb, num } from './format';
 import RouteDossier, {
   CompactFlow,
   specFromPlanLegs,
@@ -174,9 +175,8 @@ const nextId = (prefix: string) => {
 };
 
 
-/** How many legs the routed quote really is. 1 when the API predates hops. */
-const hopCountOf = (p: SwapPreview | null | undefined): number =>
-  p ? (p.hopCount ?? p.hops?.length ?? 1) : 0;
+/** How many legs the routed quote really is. */
+const hopCountOf = (p: SwapPreview): number => previewHops(p).length;
 
 /**
  * One compact line per route leg, for tool results and the receipt. Most
@@ -184,11 +184,9 @@ const hopCountOf = (p: SwapPreview | null | undefined): number =>
  * another swap — and an agent sizing or explaining a trade needs each leg,
  * not a flattened tool-name string.
  */
-function hopLines(p: SwapPreview | null | undefined): string[] {
-  if (!p) return [];
-  if (!Array.isArray(p.hops) || p.hops.length === 0) return [p.route];
-  return p.hops.map((h) => {
-    const verb = h.type === 'cross' ? 'relay' : h.type === 'swap' ? 'swap' : h.type;
+function hopLines(p: SwapPreview): string[] {
+  return previewHops(p).map((h) => {
+    const verb = hopVerb(h.type);
     const where =
       h.fromChain && h.toChain && h.fromChain !== h.toChain
         ? ` (${hopChainLabel(h.fromChain, h.toChain)})`
