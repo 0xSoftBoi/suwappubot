@@ -196,5 +196,6 @@ ADRs 0001–0005.
   and Turnkey backup-key export was failing with 400 for every wallet created
   since Aug 31 (`ACTIVITY_TYPE_EXPORT_WALLET` requires a `targetPublicKey`;
   the client sends none). Neither surfaced in any UI or health check.
-  `_add_referral_referee_id_column` reconciles the column; the export needs a
-  deliberate HPKE implementation, not a blind patch.
+  `_add_referral_referee_id_column` reconciles the column; `bot/utils/turnkey_hpke.py`
+  ports Turnkey's HPKE (cross-checked against a vector from `@turnkey/crypto`)
+  so `export_wallet` sends a target key and decrypts the signed bundle.

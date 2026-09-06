@@ -10,6 +10,13 @@ import json
 import re
 import time
 import logging
+
+from bot.utils.turnkey_hpke import (
+    PRODUCTION_SIGNER_SIGN_PUBLIC_KEY,
+    TurnkeyBundleError,
+    decrypt_export_bundle,
+    generate_target_keypair,
+)
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 import aiohttp
@@ -616,45 +623,68 @@ class TurnkeyClient:
 
     # === Import/Export ===
 
+    # Turnkey signer-enclave key that signs export bundles. Overridable for tests
+    # (a self-signed bundle) — never override this in production.
+    export_signer_public_key_hex: str = PRODUCTION_SIGNER_SIGN_PUBLIC_KEY
+
     async def export_wallet(
         self,
         wallet_id: str,
         organization_id: Optional[str] = None,
     ) -> str:
         """
-        Export a wallet's private key from Turnkey using ACTIVITY_TYPE_EXPORT_WALLET.
+        Export a wallet's mnemonic from Turnkey via ACTIVITY_TYPE_EXPORT_WALLET and
+        derive the private key.
 
-        Turnkey returns the mnemonic/key via an encrypted bundle. For server-side
-        export we use Turnkey's plaintext export (no HPKE) which is available when
-        using API key auth from the parent org.
+        Turnkey has no plaintext export. The activity REQUIRES a P-256
+        ``targetPublicKey``; the response is an HPKE bundle encrypted to it and
+        signed by Turnkey's signer enclave. Sending only ``walletId`` (as this
+        method used to) is rejected with ``400 invalid request`` — production
+        logged that for every wallet created since 2026-08-31, so no backup key
+        was ever stored. The ephemeral target key lives only in this call.
 
         Args:
             wallet_id: Turnkey wallet ID to export
-            organization_id: Target organization
+            organization_id: Organization that owns the wallet (sub-org for user wallets)
 
         Returns:
             Private key hex string
         """
+        org_id = organization_id or self._org_id
+        target = generate_target_keypair()
         params = {
             "walletId": wallet_id,
+            "targetPublicKey": target.public_uncompressed_hex,
         }
 
         result = await self._submit_activity(
             "ACTIVITY_TYPE_EXPORT_WALLET",
             params,
-            organization_id=organization_id,
+            organization_id=org_id,
         )
 
-        export_result = result.get("exportWalletResult", {})
-        mnemonic = export_result.get("mnemonic", "")
+        export_result = result.get("exportWalletResult", {}) or {}
+        bundle = export_result.get("exportBundle", "")
+        if not bundle:
+            raise TurnkeyActivityError("export_wallet", "Turnkey export returned no exportBundle")
 
+        try:
+            plaintext = decrypt_export_bundle(
+                bundle,
+                target.private_hex,
+                org_id,
+                expected_signer_public_hex=self.export_signer_public_key_hex,
+            )
+        except TurnkeyBundleError as exc:
+            raise TurnkeyActivityError("export_wallet", f"Export bundle rejected: {exc}") from exc
+
+        mnemonic = plaintext.decode("utf-8", errors="strict").strip()
         if not mnemonic:
             raise TurnkeyActivityError(
-                "export_wallet", "Turnkey export returned empty mnemonic/key"
+                "export_wallet", "Turnkey export bundle decrypted to nothing"
             )
 
-        # Derive private key from mnemonic for the appropriate path
-        # Turnkey returns the mnemonic — we derive the key for the wallet's path
+        # Derive the private key for the wallet's path from the mnemonic.
         return self._derive_key_from_mnemonic(mnemonic)
 
     @staticmethod
