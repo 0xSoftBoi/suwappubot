@@ -240,6 +240,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
       <div className="grid grid-cols-2 gap-1">
         <button
           onClick={() => setSide('long')}
+          aria-pressed={side === 'long'}
           className={`rounded-terminal-control border py-2 text-sm font-semibold transition-colors
             ${
               side === 'long'
@@ -251,6 +252,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
         </button>
         <button
           onClick={() => setSide('short')}
+          aria-pressed={side === 'short'}
           className={`rounded-terminal-control border py-2 text-sm font-semibold transition-colors
             ${
               side === 'short'

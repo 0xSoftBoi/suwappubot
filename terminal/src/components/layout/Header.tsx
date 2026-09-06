@@ -88,6 +88,14 @@ export function Header() {
   } = useAuth()
   const isMobile = useIsMobile()
   const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
 
   const shortAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
@@ -257,9 +265,9 @@ export function Header() {
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
-            className="terminal-theme-control flex h-11 w-11 shrink-0 items-center justify-center rounded-[7px] text-terminal-text-secondary"
+            className="terminal-theme-control relative z-[55] flex h-11 w-11 shrink-0 items-center justify-center rounded-[7px] text-terminal-text-secondary"
             title="Terminal menu"
-            aria-label="Open terminal menu"
+            aria-label={menuOpen ? 'Close terminal menu' : 'Open terminal menu'}
             aria-expanded={menuOpen}
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -276,6 +284,18 @@ export function Header() {
           {isAuthenticated && !needsTradingProof ? authButton : walletButton}
         </div>
 
+        {menuOpen && (
+          /* Tap-outside closes the drawer. Without this the only way out was
+             the same hamburger button, and every tap on the chart toolbar
+             underneath was swallowed by the open menu. Sits below the header
+             (z-60) so the hamburger itself stays a real, labelled toggle. */
+          <button
+            type="button"
+            aria-label="Close terminal menu"
+            onClick={() => setMenuOpen(false)}
+            className="fixed inset-0 z-[50] cursor-default bg-transparent"
+          />
+        )}
         {menuOpen && (
           <div className="terminal-mobile-header-menu terminal-theme-overlay absolute left-0 right-0 top-[calc(100%+6px)] z-[80] flex flex-col gap-3 overflow-y-auto p-3">
             <ModeSwitch className="terminal-mobile-mode-switch w-full justify-between" />
