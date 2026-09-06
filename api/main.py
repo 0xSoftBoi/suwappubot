@@ -68,6 +68,7 @@ from bot.services.swap_engine import SwapEngine  # noqa: E402
 from bot.services.tx_poller import tx_poller  # noqa: E402
 from bot.services.execution_scorer import execution_scorer  # noqa: E402
 from bot.services.withdraw_reconciler import withdraw_reconciler  # noqa: E402
+from bot.services.backup_export_backfill import backup_export_backfill  # noqa: E402
 from bot.services.health_monitor import health_monitor  # noqa: E402
 from bot.services.approval_notifier import approval_notifier  # noqa: E402
 from bot.services.webhook_dispatcher import webhook_dispatcher  # noqa: E402
@@ -410,6 +411,10 @@ async def lifespan(app: FastAPI):
         await asyncio.sleep(2)
         await balance_refresher.start()
         await asyncio.sleep(2)
+        # Retries Turnkey backup-key exports for wallets created while the
+        # export call was broken (see bot/services/backup_export_backfill.py).
+        await backup_export_backfill.start()
+        await asyncio.sleep(2)
         # Agent control-plane approval notifier: DMs the owning Telegram user
         # for pending api-ts approval_requests rows (gated on
         # AGENT_APPROVALS_ENABLED, no-op otherwise).
@@ -552,6 +557,7 @@ async def lifespan(app: FastAPI):
         await withdraw_reconciler.stop()
         await health_monitor.stop()
         await balance_refresher.stop()
+        await backup_export_backfill.stop()
         await approval_notifier.stop()
         await webhook_dispatcher.stop()
         await execution_scorer.stop()
