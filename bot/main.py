@@ -380,8 +380,29 @@ for _noisy in ("httpx", "httpcore", "urllib3", "telegram.request"):
 logger = logging.getLogger(__name__)
 
 
+# Telegram BadRequests that mean "nothing to do", not "something broke":
+# re-rendering identical content, editing a message the user already
+# dismissed, or answering a callback after its 30s window. The handler used to
+# log each as ERROR and reply "An error occurred" to the user for a no-op tap.
+_BENIGN_TELEGRAM_ERRORS = (
+    "message is not modified",
+    "message to edit not found",
+    "query is too old",
+    "message can't be deleted",
+)
+
+
+def _is_benign_telegram_error(error: BaseException) -> bool:
+    text = str(error).lower()
+    return any(marker in text for marker in _BENIGN_TELEGRAM_ERRORS)
+
+
 async def error_handler(update: Update, context) -> None:
     """Handle errors with user-friendly messages."""
+    if _is_benign_telegram_error(context.error):
+        logger.debug(f"Ignoring benign Telegram error: {context.error}")
+        return
+
     logger.error(f"Exception while handling an update: {context.error}")
 
     if update and update.effective_message:
