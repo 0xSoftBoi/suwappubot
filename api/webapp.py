@@ -4182,9 +4182,12 @@ def _swap_engine():
     engine's in-flight quote de-duplication only works when callers share one.
     """
     global _SWAP_ENGINE
-    if _SWAP_ENGINE is None:
-        from bot.services.swap_engine import SwapEngine
+    from bot.services.swap_engine import SwapEngine
 
+    # Rebuild if the class was swapped (tests monkeypatch
+    # bot.services.swap_engine.SwapEngine) so a cached instance from another
+    # test or an older class never leaks across.
+    if _SWAP_ENGINE is None or type(_SWAP_ENGINE) is not SwapEngine:
         _SWAP_ENGINE = SwapEngine()
     return _SWAP_ENGINE
 
