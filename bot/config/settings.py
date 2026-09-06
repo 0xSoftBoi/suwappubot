@@ -826,6 +826,12 @@ class Settings(BaseSettings):
         if alchemy_url:
             urls.append(alchemy_url)
 
+        # Helius for Solana. The public mainnet-beta endpoint 403s/429s server
+        # IPs (production balance fetches were failing on it) while the Helius
+        # key was already configured for the data proxy — use it for RPC too.
+        if chain_name.lower() == "solana" and self.helius_api_key:
+            urls.insert(0, f"https://mainnet.helius-rpc.com/?api-key={self.helius_api_key}")
+
         # Public RPCs as fallback
         attr_name = f"{chain_name.lower().replace('-', '_')}_rpc_url"
         urls_str = getattr(self, attr_name, "")
@@ -836,7 +842,12 @@ class Settings(BaseSettings):
             return ""
 
         # If we have Infura/Alchemy, prefer them (first 70% of the time)
-        if len(urls) > 1 and (self.infura_api_key or self.alchemy_api_key):
+        has_keyed_provider = bool(
+            self.infura_api_key
+            or self.alchemy_api_key
+            or (chain_name.lower() == "solana" and self.helius_api_key)
+        )
+        if len(urls) > 1 and has_keyed_provider:
             return urls[0] if random.random() < 0.7 else random.choice(urls)
 
         return random.choice(urls)

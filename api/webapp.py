@@ -4171,6 +4171,24 @@ def _min_received_human(quote, to_symbol: str, to_chain: str) -> str:
     return _plain_amount(candidates[0]) if candidates else raw
 
 
+_SWAP_ENGINE = None
+
+
+def _swap_engine():
+    """Process-wide SwapEngine, like the Telegram handlers use.
+
+    Each request used to construct a fresh engine (re-initialising every
+    aggregator client and logging "Swap aggregators ready" per quote); the
+    engine's in-flight quote de-duplication only works when callers share one.
+    """
+    global _SWAP_ENGINE
+    if _SWAP_ENGINE is None:
+        from bot.services.swap_engine import SwapEngine
+
+        _SWAP_ENGINE = SwapEngine()
+    return _SWAP_ENGINE
+
+
 @router.post("/swap/quote", response_model=WebAppSwapQuoteResponse)
 async def create_terminal_swap_quote(
     body: WebAppSwapQuoteRequest,
@@ -4202,7 +4220,7 @@ async def create_terminal_swap_quote(
             from_address = wallet.address
 
     try:
-        quote = await SwapEngine().get_quote(
+        quote = await _swap_engine().get_quote(
             from_chain=body.fromChain,
             to_chain=body.toChain,
             from_token=from_symbol,
@@ -4331,7 +4349,7 @@ async def execute_terminal_swap(
     _require_server_signing_wallet(wallet)
 
     try:
-        swap = await SwapEngine().execute_swap(
+        swap = await _swap_engine().execute_swap(
             quote=quote,
             wallet_id=wallet.id,
             user_id=user_id,
@@ -4396,7 +4414,7 @@ async def build_terminal_swap(
             tier = _SOLANA_PRIORITY_TIERS.get(
                 (body.priority or "normal").lower(), _SOLANA_PRIORITY_TIERS["normal"]
             )
-            quote, payload = await SwapEngine().build_external_solana_swap(
+            quote, payload = await _swap_engine().build_external_solana_swap(
                 from_token=from_symbol,
                 to_token=to_symbol,
                 amount=amount,
@@ -4411,7 +4429,7 @@ async def build_terminal_swap(
                 ),
             )
         else:
-            quote, payload = await SwapEngine().build_external_evm_swap(
+            quote, payload = await _swap_engine().build_external_evm_swap(
                 from_chain=body.fromChain,
                 to_chain=body.toChain,
                 from_token=from_symbol,

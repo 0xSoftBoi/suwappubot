@@ -30,6 +30,17 @@ _session: Optional[aiohttp.ClientSession] = None
 _lock = asyncio.Lock()
 
 
+# aiohttp's default UA ("Python/3.x aiohttp/x") is blocked outright by the
+# Cloudflare fronts on several quote providers: production logged a 403 HTML
+# error page from api.cow.fi on every single quote, so CoW never contributed a
+# route. The OKX client already sends a browser UA for the same reason; make it
+# the session default so every provider behind a WAF gets the same treatment.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36 Suwappu/1.0"
+)
+
+
 async def get_session() -> aiohttp.ClientSession:
     """Get or create a shared aiohttp session with connection pooling."""
     global _session
@@ -59,6 +70,7 @@ async def get_session() -> aiohttp.ClientSession:
                     timeout=timeout,
                     raise_for_status=False,
                     json_serialize=_json_serialize if HAS_ORJSON else None,
+                    headers={"User-Agent": DEFAULT_USER_AGENT},
                 )
 
     return _session
