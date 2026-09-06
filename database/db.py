@@ -570,6 +570,11 @@ def _ensure_schema(db_engine) -> None:
     # --- referral_rewards: multi-tier column ---
     _add_referral_tier_column(db_engine, inspector, is_sqlite)
 
+    # --- referrals: reconcile legacy referred_id with the ORM's referee_id ---
+    # Must run before the v2/stream column migrations: they only add columns,
+    # but every ORM read of the table was failing on the missing referee_id.
+    _add_referral_referee_id_column(db_engine, inspector, is_sqlite)
+
     # --- referral v2 columns ---
     _add_referral_v2_columns(db_engine, inspector, is_sqlite)
 
@@ -2144,6 +2149,62 @@ def _add_referral_tier_column(db_engine, inspector, is_sqlite: bool) -> None:
             ddl = "ALTER TABLE referral_rewards ADD COLUMN IF NOT EXISTS referral_tier INTEGER DEFAULT 1"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
+
+
+def _add_referral_referee_id_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Reconcile referrals.referee_id with the legacy referred_id column (idempotent).
+
+    Production's `referrals` table predates bot/models/referral.py and names the
+    referred user `referred_id`; the ORM model names it `referee_id`. Every ORM
+    query against the table (fee_service's referee-rebate lookup runs on each
+    quote) failed with `column referrals.referee_id does not exist`, so the
+    first-5-swaps rebate was never applied and every new referral insert would
+    have hit the legacy NOT NULL on referred_id.
+
+    Fix: add referee_id, backfill it from referred_id, index it, and (Postgres)
+    relax the legacy NOT NULL so ORM inserts that only know referee_id succeed.
+    referred_id is left in place for anything still reading it.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "referrals" not in tables:
+        return
+    try:
+        cols = {c["name"] for c in inspector.get_columns("referrals")}
+    except Exception:
+        return
+
+    try:
+        if "referee_id" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE referrals ADD COLUMN referee_id INTEGER"
+            else:
+                ddl = "ALTER TABLE referrals ADD COLUMN IF NOT EXISTS referee_id INTEGER"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+                if "referred_id" in cols:
+                    conn.execute(
+                        text(
+                            "UPDATE referrals SET referee_id = referred_id"
+                            " WHERE referee_id IS NULL AND referred_id IS NOT NULL"
+                        )
+                    )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_referrals_referee_id"
+                        " ON referrals(referee_id)"
+                    )
+                )
+            logger.info("Added referrals.referee_id (backfilled from referred_id)")
+
+        # Legacy column must not block ORM inserts that only populate referee_id.
+        if "referred_id" in cols and not is_sqlite:
+            with db_engine.begin() as conn:
+                conn.execute(text("ALTER TABLE referrals ALTER COLUMN referred_id DROP NOT NULL"))
+    except Exception as e:
+        logger.warning(f"Failed to reconcile referrals.referee_id: {e}")
 
 
 def _add_referral_v2_columns(db_engine, inspector, is_sqlite: bool) -> None:

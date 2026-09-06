@@ -188,3 +188,13 @@ ADRs 0001–0005.
 - **Also**: Li.Fi's token list is for routing, not identity — Ethereum carries
   "Pepe Community" as `PEPE` and lacks the canonical one. Terminal search
   ranks python-api's curated registry first and sinks Li.Fi-flagged contracts.
+
+### Read the Railway logs before calling a service healthy
+- **What**: A browser walk of the terminal looked clean while python-api was
+  logging `column referrals.referee_id does not exist` on every quote for a
+  referred user (the table predates the ORM model and names it `referred_id`),
+  and Turnkey backup-key export was failing with 400 for every wallet created
+  since Aug 31 (`ACTIVITY_TYPE_EXPORT_WALLET` requires a `targetPublicKey`;
+  the client sends none). Neither surfaced in any UI or health check.
+  `_add_referral_referee_id_column` reconciles the column; the export needs a
+  deliberate HPKE implementation, not a blind patch.
