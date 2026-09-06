@@ -68,11 +68,7 @@ const agentWritten = (text: string): AgentWrittenText => ({
 import styles from './agent-desk.module.css';
 import DeskFlow from './DeskFlow';
 import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, hopVerb, num } from './format';
-import RouteDossier, {
-  CompactFlow,
-  specFromPlanLegs,
-  specFromPreview,
-} from './RouteDossier';
+import RouteDossier, { CompactFlow, specFromPreview } from './RouteDossier';
 
 // ── Model ───────────────────────────────────────────────────────────
 
@@ -104,9 +100,6 @@ interface PlanStep {
   swap?: SwapBody;
   alert?: AlertBody;
   verdict: MandateVerdict | null;
-  /** True when this leg sells the previous swap leg's estimated output
-      (`amount: "@prev"`) — a chained relay, not new money entering the plan. */
-  chainedFromPrevious?: boolean;
 }
 
 interface Override {
@@ -219,25 +212,6 @@ function notionalOf(p: Proposal): number | null {
 /** A proposal the desk will not let the human approve as things stand. */
 const isBlocked = (p: Proposal) =>
   Boolean(p.verdict && !p.verdict.withinMandate && p.override?.granted !== true);
-
-/**
- * Groups a plan's swap legs into relays: each non-chained leg starts a
- * sequence, each chained leg extends the current one. Only multi-leg
- * sequences are returned; a lone leg has no chain to draw. Derived on
- * render (never stored) so rehydrated sessions can't drift.
- */
-function chainedPlanSequences(steps: PlanStep[]): PlanStep[][] {
-  const sequences: PlanStep[][] = [];
-  for (const s of steps) {
-    if (!s.swap) continue;
-    if (s.chainedFromPrevious && sequences.length > 0) {
-      sequences[sequences.length - 1].push(s);
-    } else {
-      sequences.push([s]);
-    }
-  }
-  return sequences.filter((seq) => seq.length > 1);
-}
 
 /**
  * evaluateMandate() pushes violations in priority order (caps, then chain,
@@ -750,9 +724,8 @@ export default function AgentDesk() {
                   step: i + 1,
                   kind: s.kind,
                   note: s.note ? agentWritten(s.note) : null,
-                  chainedFromPrevious: s.chainedFromPrevious ?? false,
                   summary: s.swap
-                    ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                    ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
                     : s.alert
                       ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
                       : null,
@@ -882,9 +855,8 @@ export default function AgentDesk() {
                 step: i + 1,
                 kind: s.kind,
                 note: s.note,
-                chainedFromPrevious: s.chainedFromPrevious ?? false,
                 summary: s.swap
-                  ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
+                  ? `${s.swap.amount} ${s.swap.fromToken} (${s.swap.fromChain}) → ${s.swap.toToken} (${s.swap.toChain})`
                   : s.alert
                     ? `${s.alert.symbol} ${s.alert.direction} ${fmtUsd(s.alert.targetPrice)}`
                     : null,
@@ -1258,39 +1230,16 @@ export default function AgentDesk() {
         if (args.steps.length > 5) throw new Error('a plan is capped at 5 steps');
 
         const steps: PlanStep[] = [];
-        // The last priced swap leg, so `amount: "@prev"` can chain: leg N
-        // sells what leg N-1 is estimated to deliver. This is what makes a
-        // plan a real multi-hop relay instead of N unrelated tickets.
-        let prevSwap: SwapBody | null = null;
         for (const raw of args.steps) {
           const kind = String(raw.kind ?? 'swap') === 'alert' ? 'alert' : 'swap';
           const note = raw.note ? String(raw.note) : null;
           if (kind === 'swap') {
-            const rawAmount = String(raw.amount ?? '').trim();
-            const chained = /^@?prev(ious)?$/i.test(rawAmount);
-            if (chained) {
-              if (!prevSwap) {
-                throw new Error('amount "@prev" needs an earlier swap step to chain from');
-              }
-              if (!prevSwap.preview) {
-                throw new Error(
-                  `cannot chain from the previous swap step: it failed to price (${prevSwap.previewError ?? 'no quote'})`,
-                );
-              }
-            }
-            const prevOut = chained ? prevSwap!.preview! : null;
             const t: Ticket = {
-              fromChain: String(
-                raw.fromChain ?? (chained ? prevSwap!.toChain : ticketRef.current.fromChain),
-              ),
-              toChain: String(
-                raw.toChain ??
-                  raw.fromChain ??
-                  (chained ? prevSwap!.toChain : ticketRef.current.toChain),
-              ),
-              fromToken: String(raw.fromToken ?? (prevOut ? prevOut.toToken.symbol : '')),
+              fromChain: String(raw.fromChain ?? ticketRef.current.fromChain),
+              toChain: String(raw.toChain ?? raw.fromChain ?? ticketRef.current.toChain),
+              fromToken: String(raw.fromToken ?? ''),
               toToken: String(raw.toToken ?? ''),
-              amount: chained ? prevOut!.toAmount : rawAmount,
+              amount: String(raw.amount ?? '').trim(),
               slippagePercent:
                 typeof raw.slippagePercent === 'number'
                   ? raw.slippagePercent
@@ -1300,23 +1249,8 @@ export default function AgentDesk() {
             if (!t.fromToken || !t.toToken || !t.amount) {
               throw new Error('every swap step needs fromToken, toToken and amount');
             }
-            // A chained leg must actually pick up where the last one lands —
-            // otherwise "@prev" would quietly price a trade that can't follow.
-            if (chained && prevOut) {
-              if (t.fromToken.toLowerCase() !== prevOut.toToken.symbol.toLowerCase()) {
-                throw new Error(
-                  `chained step sells ${t.fromToken} but the previous leg delivers ${prevOut.toToken.symbol}`,
-                );
-              }
-              if (t.fromChain !== prevSwap!.toChain) {
-                throw new Error(
-                  `chained step starts on ${t.fromChain} but the previous leg lands on ${prevSwap!.toChain}`,
-                );
-              }
-            }
             const body = await priceOne(t);
-            steps.push({ kind, note, swap: body, verdict: judge(body), chainedFromPrevious: chained });
-            prevSwap = body;
+            steps.push({ kind, note, swap: body, verdict: judge(body) });
           } else {
             const symbol = String(raw.symbol ?? '').toUpperCase();
             const direction = String(raw.direction ?? 'above');
@@ -1338,11 +1272,7 @@ export default function AgentDesk() {
           }
         }
 
-        // Combined notional counts NEW money only: a chained leg re-trades
-        // value an earlier leg already brought in, so summing it again would
-        // double-charge the daily cap for a single multi-hop relay.
         const priced = steps
-          .filter((s) => !s.chainedFromPrevious)
           .map((s) => num(s.swap?.preview?.fromAmountUsd))
           .filter((n): n is number => n !== null);
         const combinedUsd = priced.length > 0 ? priced.reduce((a, b) => a + b, 0) : null;
@@ -1394,7 +1324,6 @@ export default function AgentDesk() {
           verdict: rollup,
           override: null,
         };
-        const chainedLegs = steps.filter((s) => s.chainedFromPrevious).length;
         return {
           ...addProposal(proposal),
           shownToHuman: {
@@ -1402,17 +1331,10 @@ export default function AgentDesk() {
             combinedUsd,
             legs: steps.map((s) =>
               s.swap
-                ? `${s.chainedFromPrevious ? '↳ ' : ''}${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
+                ? `${s.swap.amount} ${s.swap.fromToken} → ${s.swap.toToken}`
                 : `alert ${s.alert?.symbol} ${s.alert?.direction} ${s.alert?.targetPrice}`,
             ),
           },
-          ...(chainedLegs > 0
-            ? {
-                chaining:
-                  `${chainedLegs} leg(s) sell the previous leg's estimated output. ` +
-                  'Amounts are indicative: what a later leg really trades is what the earlier leg actually delivers at signing, and the human signs one leg at a time in order.',
-              }
-            : {}),
         };
       },
 
@@ -2123,6 +2045,7 @@ export default function AgentDesk() {
         {preview && !comparison && (
           <div className={styles.fullRow}>
             <RouteDossier
+              key={preview.previewId}
               preview={preview}
               verdict={judge({ ...ticket, preview, previewError: null })}
               slippagePercent={ticket.slippagePercent}
@@ -2222,41 +2145,6 @@ export default function AgentDesk() {
                     />
                   )}
 
-                  {/* Chained legs form a relay: draw each multi-leg sequence
-                      as a value flow, so the human sees leg 2 selling what
-                      leg 1 delivers before approving the whole thing. */}
-                  {p.plan &&
-                    chainedPlanSequences(p.plan.steps).map((seq, si) => {
-                      const spec = specFromPlanLegs(
-                        seq.map((s) => ({
-                          fromChain: s.swap!.fromChain,
-                          toChain: s.swap!.toChain,
-                          fromToken: s.swap!.fromToken,
-                          toToken: s.swap!.toToken,
-                          amount: s.swap!.amount,
-                          preview: s.swap!.preview,
-                        })),
-                      );
-                      return (
-                        spec && (
-                          <CompactFlow
-                            key={`${p.id}-seq-${si}`}
-                            spec={spec}
-                            ariaLabel={`Chained relay ${si + 1}: ${seq.length} legs, each selling the previous leg's estimated output.`}
-                            laneHeader={
-                              <>
-                                <b>RELAY {String(si + 1).padStart(2, '0')}</b>
-                                <span>
-                                  {seq.length} CHAINED LEGS · LATER LEGS SELL WHAT EARLIER LEGS
-                                  DELIVER
-                                </span>
-                              </>
-                            }
-                          />
-                        )
-                      );
-                    })}
-
                   {p.plan && (
                     <ol className={styles.planSteps}>
                       {p.plan.steps.map((s, i) => {
@@ -2301,11 +2189,6 @@ export default function AgentDesk() {
                                 </>
                               )}
                               {s.note && <em className={styles.planNote}> ({s.note})</em>}
-                              {s.chainedFromPrevious && (
-                                <span className={styles.planTag}>
-                                  chained · sells the previous leg&apos;s output
-                                </span>
-                              )}
                               {state === 'signed' && (
                                 <span className={styles.planTag}>signed</span>
                               )}
@@ -2354,9 +2237,6 @@ export default function AgentDesk() {
                           <span className={styles.planIndex}>Σ</span>
                           <span>
                             Combined notional <strong>{fmtUsd(p.plan.combinedUsd)}</strong>
-                            {p.plan.steps.some((s) => s.chainedFromPrevious) && (
-                              <> · chained legs re-trade earlier output, counted once</>
-                            )}
                           </span>
                         </li>
                       )}

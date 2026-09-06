@@ -61,14 +61,10 @@ export interface SwapPreview {
   toToken: { address: string; symbol: string; decimals: number };
   /** Human-readable, as requested — the API echoes it back rather than wei. */
   fromAmount: string;
-  fromAmountBaseUnits?: string;
-  fromTokenDecimals?: number;
   fromAmountUsd: string;
-  /** Human-readable, like fromAmount — base units live alongside. */
+  /** Human-readable, like fromAmount. */
   toAmount: string;
   toAmountMin: string;
-  toAmountBaseUnits?: string;
-  toAmountMinBaseUnits?: string;
   toAmountUsd: string;
   exchangeRate: string;
   priceImpact: string;
@@ -122,8 +118,6 @@ export interface PreviewParams {
   order?: RouteOrder;
 }
 
-class DeskApiError extends Error {}
-
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { Accept: 'application/json' },
@@ -135,7 +129,7 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!res.ok || body === null) {
     const detail =
       (body && (body.message || body.error)) || `${res.status} ${res.statusText}`;
-    throw new DeskApiError(detail);
+    throw new Error(detail);
   }
   return body as T;
 }

@@ -77,16 +77,13 @@ says so, and so does `read_mandate`'s own payload.
    *proposal*. `propose_swap` / `propose_plan` return
    `awaiting_human_approval` (or `blocked_by_mandate_awaiting_human`) and a
    `proposalId`. Nothing else happens.
-2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — bridge,
-   buy, set an alert — prices every leg, rolls them into one combined notional,
-   and asks for one approval. Agents think in plans; the desk lets them.
-   Steps **chain**: a swap leg with `amount: "@prev"` sells the previous swap
-   leg's estimated output, inheriting its landing chain and token — the shape
-   of a real multi-hop relay, where later legs trade what earlier legs deliver
-   rather than new money. A chained leg that doesn't pick up where the last
-   one lands (wrong token, wrong chain) is refused at proposal time, and the
-   combined notional counts new money once instead of re-billing the daily
-   cap for every re-trade of it.
+2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — a
+   cross-chain swap, then an alert on what it bought — prices every leg, rolls
+   them into one combined notional, and asks for one approval. Agents think in
+   plans; the desk lets them. A cross-chain trade is one swap step, not a
+   bridge step plus a buy step: the aggregator already routes it as a single
+   multi-hop quote (see `hops` below), priced together and signed as one
+   handoff.
 3. **The agent waits for a person, not a poll.** `check_approval(proposalId,
    waitSeconds)` blocks up to 120s and resolves the instant the human clicks,
    carrying back any note they typed. Proposals expire after 10 minutes.
@@ -159,7 +156,7 @@ instruction-injection-shaped description is now gone.
 | `compare_routes` | read | The same swap as RECOMMENDED / FASTEST / CHEAPEST / SAFEST |
 | `read_desk` | read | Ticket, quote, mandate headroom, proposals, activity |
 | `propose_swap` | propose | One trade + rationale in front of the human |
-| `propose_plan` | propose | An ordered multi-step plan as one approval; `amount: "@prev"` chains a leg onto the previous leg's output |
+| `propose_plan` | propose | An ordered multi-step plan as one approval |
 | `propose_price_alert` | propose | An alert to arm in the bot |
 | `check_approval` | read | Block on / poll the human's decision, with their note |
 | `request_override` | unlocked | Only while blocked: argue for bending one rule |

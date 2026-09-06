@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo } from 'react';
 import { previewHops, type SwapPreview } from './deskApi';
 import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, hopVerb, num } from './format';
 import { RULE_META, type MandateVerdict } from './mandate';
@@ -65,50 +65,6 @@ export function specFromPreview(p: SwapPreview): FlowSpec {
       label: 'YOU RECEIVE',
       amount: `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
       sub: `on ${p.toChain} · floor ≥ ${fmtAmount(p.toAmountMin)}`,
-    },
-    hops,
-  };
-}
-
-/**
- * A chained plan sequence (leg N sells leg N-1's estimated output) → flow
- * spec: each leg is a node, the connecting edges carry what the previous
- * leg delivers.
- */
-export function specFromPlanLegs(
-  legs: Array<{
-    fromChain: string;
-    toChain: string;
-    fromToken: string;
-    toToken: string;
-    amount: string;
-    preview: SwapPreview | null;
-  }>,
-): FlowSpec | null {
-  if (legs.length === 0) return null;
-  const first = legs[0];
-  const last = legs[legs.length - 1];
-  const hops: FlowHop[] = legs.map((l, i) => ({
-    key: `leg-${i}`,
-    type: l.fromChain === l.toChain ? 'swap' : 'cross',
-    tool: l.preview?.route ?? 'unpriced',
-    chains: hopChainLabel(l.fromChain, l.toChain),
-    inAmount: `${fmtAmount(l.amount)} ${l.fromToken}`,
-    outAmount: l.preview ? `${fmtAmount(l.preview.toAmount)} ${l.toToken}` : null,
-    feeUsd: num(l.preview?.bridgeFeeUsd) ?? 0,
-    gasUsd: num(l.preview?.estimatedGasUsd) ?? 0,
-    durationSeconds: l.preview?.estimatedDurationSeconds ?? null,
-  }));
-  return {
-    source: {
-      label: 'NEW MONEY IN',
-      amount: `${fmtAmount(first.amount)} ${first.fromToken}`,
-      sub: `on ${first.fromChain}${first.preview ? ` · ${fmtUsd(first.preview.fromAmountUsd)}` : ''}`,
-    },
-    out: {
-      label: 'SEQUENCE ENDS',
-      amount: last.preview ? `${fmtAmount(last.preview.toAmount)} ${last.toToken}` : last.toToken,
-      sub: `on ${last.toChain}${last.preview ? ` · ${fmtUsd(last.preview.toAmountUsd)}` : ''}`,
     },
     hops,
   };
@@ -277,22 +233,10 @@ export function RouteFlowSvg({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: s
   );
 }
 
-/**
- * A flow embedded in a light proposal card: the dark instrument inset, with
- * an optional lane header (e.g. "RELAY 01") above the graph.
- */
-export function CompactFlow({
-  spec,
-  ariaLabel,
-  laneHeader,
-}: {
-  spec: FlowSpec;
-  ariaLabel: string;
-  laneHeader?: ReactNode;
-}) {
+/** A flow embedded in a light proposal card: the dark instrument, inset. */
+export function CompactFlow({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: string }) {
   return (
     <div className={styles.compact}>
-      {laneHeader && <p className={styles.laneBar}>{laneHeader}</p>}
       <RouteFlowSvg spec={spec} ariaLabel={ariaLabel} />
     </div>
   );
@@ -338,8 +282,7 @@ export default function RouteDossier({
           {crossChain
             ? `${preview.fromChain.toUpperCase()} → ${preview.toChain.toUpperCase()}`
             : `ON ${preview.fromChain.toUpperCase()}`}{' '}
-          · {spec.hops.length} {spec.hops.length === 1 ? 'LEG' : 'LEGS'}, {spec.hops.length + 1}{' '}
-          TRANSFERS
+          · {spec.hops.length} {spec.hops.length === 1 ? 'LEG' : 'LEGS'}
         </span>
         <span className={styles.headId}>INDICATIVE · NOT EXECUTABLE</span>
       </p>
@@ -398,8 +341,7 @@ export default function RouteDossier({
       </div>
 
       <p className={styles.sectionBar}>
-        <span className={styles.sectionNum}>01</span> VALUE FLOW · {spec.hops.length + 2} NODES,{' '}
-        {spec.hops.length + 1} TRANSFERS
+        <span className={styles.sectionNum}>01</span> VALUE FLOW
       </p>
       <RouteFlowSvg
         spec={spec}
