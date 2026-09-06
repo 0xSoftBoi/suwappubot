@@ -8,7 +8,8 @@ export const defaultLocale: Locale = 'en';
 /** Resolve the active locale for the current request.
  *  Priority: NEXT_LOCALE cookie → Accept-Language header → default (en). */
 async function resolveLocale(): Promise<Locale> {
-  // 1. Explicit override from cookie (set by LanguageSwitcher).
+  // 1. Explicit override from cookie. Nothing in the site sets it today (the
+  //    switcher was removed); it stays honoured for visitors who still carry it.
   const cookieStore = await cookies();
   const fromCookie = cookieStore.get('NEXT_LOCALE')?.value;
   if (fromCookie && (locales as readonly string[]).includes(fromCookie)) {

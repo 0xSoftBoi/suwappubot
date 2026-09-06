@@ -12,3 +12,5 @@
   `mcpToolCount`/`mcpTools` field in stats.generated.json (parsed from api-ts's real
   TOOLS registry in mcpTools.ts, 22 tools) so the figure can never claim tools that
   don't exist. Remaining orphan: QuoteRaceGL (known LINES-draw bug), still not wired.
+- (2026-09-06) QuoteRaceGL deleted rather than fixed: two weeks unwired with a known
+  draw bug is a component nobody wants. It is in git history if the idea returns.

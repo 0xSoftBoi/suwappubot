@@ -29,9 +29,11 @@ Every page MUST use, unless it already deliberately doesn't:
   import it (about, pricing, research, contact, legal, docs layout, …). Do not
   copy imports from those pages; migration to SummerNav is tracked separately —
   don't grow the legacy set.
-- `src/app/classic/` — the archived previous home page. Reference only.
-- `src/app/hero-a` … `hero-e` — hero experiments. The live home imports
-  `hero-d/hero-d.css`; treat the others as dead.
+- The archived previous home page (`classic/`) and the hero experiments
+  (`hero-a` … `hero-e`) were deleted in Sept 2026; they live in git history
+  only. The live home's hero styles are `src/app/hero.css`. Do not resurrect
+  a dead route as "reference": an unlinked page is still a public URL that
+  ships, builds, and drifts.
 
 ## Known traps
 
