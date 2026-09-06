@@ -631,6 +631,8 @@ class TurnkeyClient:
         self,
         wallet_id: str,
         organization_id: Optional[str] = None,
+        chain_type: str = "evm",
+        expected_address: Optional[str] = None,
     ) -> str:
         """
         Export a wallet's mnemonic from Turnkey via ACTIVITY_TYPE_EXPORT_WALLET and
@@ -646,9 +648,14 @@ class TurnkeyClient:
         Args:
             wallet_id: Turnkey wallet ID to export
             organization_id: Organization that owns the wallet (sub-org for user wallets)
+            chain_type: "evm" or "solana" — selects the derivation path and the
+                key encoding the fallback signer expects.
+            expected_address: The wallet's on-record address. When given, the
+                derived key MUST reproduce it or the export is rejected, so a
+                wrong path can never be stored as a "backup".
 
         Returns:
-            Private key hex string
+            EVM: hex private key (no 0x). Solana: base58 64-byte keypair.
         """
         org_id = organization_id or self._org_id
         target = generate_target_keypair()
@@ -684,8 +691,53 @@ class TurnkeyClient:
                 "export_wallet", "Turnkey export bundle decrypted to nothing"
             )
 
-        # Derive the private key for the wallet's path from the mnemonic.
-        return self._derive_key_from_mnemonic(mnemonic)
+        # Derive the account key for the wallet's chain and prove it matches.
+        return self.derive_backup_key(mnemonic, chain_type, expected_address)
+
+    @staticmethod
+    def derive_backup_key(
+        mnemonic: str, chain_type: str = "evm", expected_address: Optional[str] = None
+    ) -> str:
+        """Turn an exported wallet mnemonic into the fallback-signer key.
+
+        EVM:    BIP-44 m/44'/60'/0'/0/0 (eth_account) → hex secp256k1 key.
+        Solana: SLIP-0010 ed25519 m/44'/501'/0'/0' — the path Turnkey uses when
+                it creates the account (see create_wallet) → base58 64-byte
+                keypair, which is what turnkey_fallback's Keypair.from_bytes
+                loads. The previous code derived the EVM key for every wallet,
+                so a Solana wallet's "backup" could never have signed anything.
+        """
+        kind = (chain_type or "evm").lower()
+        if kind == "solana":
+            import base58
+            from eth_account.hdaccount.mnemonic import Mnemonic
+            from solders.keypair import Keypair
+
+            from bot.utils.slip10 import derive_ed25519_seed
+
+            seed = Mnemonic.to_seed(mnemonic.strip())
+            keypair = Keypair.from_seed(derive_ed25519_seed(seed, "m/44'/501'/0'/0'"))
+            derived = str(keypair.pubkey())
+            if expected_address and derived != expected_address:
+                raise TurnkeyActivityError(
+                    "export_wallet",
+                    f"Derived Solana address {derived[:8]}… does not match wallet"
+                    f" {expected_address[:8]}…; refusing to store a mismatched backup",
+                )
+            return base58.b58encode(bytes(keypair)).decode("ascii")
+
+        key_hex = TurnkeyClient._derive_key_from_mnemonic(mnemonic)
+        if expected_address:
+            from eth_account import Account
+
+            derived = Account.from_key("0x" + key_hex).address
+            if derived.lower() != expected_address.lower():
+                raise TurnkeyActivityError(
+                    "export_wallet",
+                    f"Derived EVM address {derived[:10]}… does not match wallet"
+                    f" {expected_address[:10]}…; refusing to store a mismatched backup",
+                )
+        return key_hex
 
     @staticmethod
     def _derive_key_from_mnemonic(mnemonic: str) -> str:

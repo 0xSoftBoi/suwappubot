@@ -35,6 +35,8 @@ async def export_and_backup_wallet(wallet_row, turnkey_client, session) -> bool:
         raw_key = await turnkey_client.export_wallet(
             wallet_id=wallet_row.turnkey_wallet_id,
             organization_id=wallet_row.turnkey_sub_org_id,
+            chain_type=getattr(wallet_row, "chain_type", "evm") or "evm",
+            expected_address=getattr(wallet_row, "address", None),
         )
 
         if not raw_key:

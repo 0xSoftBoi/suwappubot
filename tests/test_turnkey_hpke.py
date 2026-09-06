@@ -163,7 +163,7 @@ async def test_export_wallet_sends_target_key_and_decrypts_bundle(monkeypatch):
         return {"exportWalletResult": {"walletId": params["walletId"], "exportBundle": bundle}}
 
     monkeypatch.setattr(client, "_submit_activity", fake_submit)
-    monkeypatch.setattr(client, "_derive_key_from_mnemonic", lambda m: f"derived:{m}")
+    monkeypatch.setattr(client, "derive_backup_key", lambda m, c="evm", a=None: f"derived:{m}")
 
     out = await client.export_wallet("wallet-1", organization_id="sub-org-9")
 
