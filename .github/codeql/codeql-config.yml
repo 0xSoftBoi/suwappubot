@@ -1,9 +1,4 @@
 name: CodeQL config
 
-# Vendored third-party code is reference material, not our attack surface —
-# flet-curve/ (michwill/flet-curve-demo, plus vendor/electric-router) ships
-# with its own upstream. Scanning it gates our PRs on upstream findings we
-# would not patch in place (we'd fix them upstream), so exclude it. Every
-# first-party path stays scanned.
-paths-ignore:
-  - flet-curve
+# Every first-party path is scanned. The one exclusion this file used to carry
+# (the vendored flet-curve/ fork) was deleted from the repo in Sept 2026.

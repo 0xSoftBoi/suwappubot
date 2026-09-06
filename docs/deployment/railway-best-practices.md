@@ -17,8 +17,8 @@ Railway has deprecated `railway.json` / `railway.toml` in favour of
 
 This repo ships **7** CaC files (`railway.python-api.json`,
 `railway.python-worker.json`, `railway.showcase.json`, `railway.terminal.json`,
-`railway.webapp.json`, `railway.monitor.json`, `railway.suwappubot.json`,
-`api-ts/railway.json`). On 2026-12-01 every one of them silently stops being
+`railway.webapp.json`, `railway.monitor.json`, `api-ts/railway.json`;
+`railway.suwappubot.json` and its no-op Dockerfile were deleted in Sept 2026). On 2026-12-01 every one of them silently stops being
 read and each service falls back to whatever is set in the dashboard. Nothing
 breaks loudly — deploys just quietly start using different settings.
 
@@ -40,8 +40,7 @@ anything else needs the service's *Config File* setting (or the
 | terminal | `/` | `railway.terminal.json` | **No** | no `configFile`, no `RAILWAY_CONFIG_FILE` |
 | webapp | `/` | `railway.webapp.json` | **No** | no `configFile`; live config has **no watchPatterns at all** |
 | showcase | `/` | `railway.showcase.json` | Yes | `configFile: railway.showcase.json` |
-| *(none)* | — | `railway.monitor.json` | **Orphan** | no `monitor` service exists in the project |
-| *(none)* | — | `railway.suwappubot.json` | **Orphan** | no `suwappubot` service exists in the project |
+| *(none)* | — | `railway.monitor.json` | **Orphan** | no `monitor` service exists in the project yet; it is the intended cron probe (see monitoring.md) |
 
 Consequences today, before the deprecation even lands:
 
@@ -255,10 +254,10 @@ does not trigger a redeploy; it applies on each service's next deployment.
    cannot be hand-authored safely (omit means delete across 22 services).
 2. Set `VITE_TURNKEY_PROXY_URL` on the webapp service if the Turnkey proxy is
    intended (§7) — it is a config value nobody here can invent.
-3. Decide the fate of the two orphaned files, `railway.monitor.json` and
-   `railway.suwappubot.json` — no matching service exists in the project. They
-   are left in place rather than deleted, because a service may be intended
-   later; if not, delete them so they stop reading as live config.
+3. Create the `monitor` cron service from `railway.monitor.json` (monitoring.md
+   describes it as the second uptime scheduler) or delete the file. The other
+   orphan, `railway.suwappubot.json`, was a no-op image that only printed
+   "deprecated"; it was deleted in Sept 2026.
 4. Optional build-speed win, not taken: Railway supports Dockerfile cache
    mounts (`--mount=type=cache,id=s/<service id>-<path>,target=<path>`,
    <https://docs.railway.com/builds/dockerfiles#cache-mounts>). A pip cache on

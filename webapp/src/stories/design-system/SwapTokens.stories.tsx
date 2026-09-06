@@ -276,7 +276,7 @@ export const ProviderColors: Story = {
       <div className="p-8 bg-suwappu-bg min-h-screen">
         <h1 className="font-heading text-2xl font-bold text-suwappu-purple-deep mb-2">Provider Brand Colors</h1>
         <p className="font-body text-suwappu-text-secondary mb-8">
-          Brand colors for all 9 swap providers. Used in ProviderLogo, QuoteComparison, and route displays.
+          Brand colors for all 9 swap providers, used in route displays.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">

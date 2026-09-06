@@ -2,9 +2,9 @@ import { TerminalEmptyState } from '../foundation'
 
 // NOTE: The /webapp/dca/orders endpoint does not exist in api-ts yet, so this
 // surface is gated as an honest "coming soon" empty state (§3.6) rather than a
-// disabled ghost form or a panel that silently 404s. DCAOrderCard/CreateDCAForm
-// stay in the module and get their own register sweep so re-wiring them once
-// the backend route lands is a one-line swap, not a rebuild.
+// disabled ghost form or a panel that silently 404s. The form, order card and
+// useDCA hook that once sat beside this were deleted rather than kept "for
+// later" (git history has them); build against the real route when it lands.
 export function DCAManager() {
   return (
     <div className="p-4 flex flex-col gap-3 h-full">

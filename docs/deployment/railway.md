@@ -27,7 +27,7 @@ to read). Set them as below.
 
 | Service | Root Directory (dashboard) | Config path (dashboard) | Listens on | Notes |
 |---|---|---|---|---|
-| **python-api** (FastAPI + Telegram bot) | `/` (repo root) | `railway.python-api.json` | `$PORT` (CMD expands it) | New self-contained image + `requirements.txt`. The old `api/Dockerfile` needs the private ECR base — do **not** use it on Railway. |
+| **python-api** (FastAPI + Telegram bot) | `/` (repo root) | `railway.python-api.json` | `$PORT` (CMD expands it) | New self-contained image + `requirements.txt`. The old ECS `api/Dockerfile` (private ECR base) was deleted in Sept 2026 along with the ECS deploy workflows. |
 | **api-ts** (Hono + Effect) | `api-ts` | `railway.json` (auto-detected) | `$PORT` (`Bun.serve({port: env.PORT})`) | Existing Dockerfile works as-is (public ECR base, no AWS auth). |
 | **terminal** (Vite + nginx) | `/` (repo root) | `railway.terminal.json` | `$PORT` (`terminal/nginx.conf` is `listen ${PORT}`, envsubst'd at start; Dockerfile defaults `PORT=8080`) | Build context is repo root (copies `packages/design-tokens`). No target-port override needed. `VITE_API_URL` is baked at build time — see below. |
 | **showcase** (Next.js) | `/` (repo root) | `railway.showcase.json` | `$PORT` (`next start`) | Requires the root context for `packages/design-tokens`. |

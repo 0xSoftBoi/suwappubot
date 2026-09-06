@@ -53,8 +53,8 @@ export function Stocks() {
     staleTime: 2 * 60 * 1000,
   })
 
-  // Deep-link into Swap with the selected stock's mint as the "to" token on Solana.
-  // Matches the pattern used by TokenDetail.tsx: /swap?to=<address>&chain=solana
+  // Deep-link into Swap with the selected stock's mint as the "to" token on Solana:
+  // /swap?to=<address>&chain=solana
   function handleTrade(stock: StockEntry) {
     navigate(`/swap?to=${encodeURIComponent(stock.mint)}&chain=solana`)
   }

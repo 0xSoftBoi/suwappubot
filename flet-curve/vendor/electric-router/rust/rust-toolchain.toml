@@ -1,7 +1,0 @@
-# Pinned so a native build and a wasm build share codegen: the byte-identical
-# solver differential in tests/test_wasm_differential.py depends on it.  Same
-# version as the system's rust-bin, so /usr/bin/cargo agrees with this one.
-[toolchain]
-channel = "1.96.1"
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
-profile = "minimal"

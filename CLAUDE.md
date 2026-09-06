@@ -126,7 +126,7 @@ cd mobile && bun install && bun run ios
 | `packages/sdk/` | Client SDK + shared TypeScript types (`packages/sdk/src/types.ts`) across api-ts, webapp, mobile |
 | `webapp/` | React + Vite Telegram Mini App |
 | `mobile/` | Expo iOS app |
-| `infra/` | AWS CDK infrastructure definitions |
+| `infra/` | Railway config for the HyperUnit egress proxy (Caddy); the old AWS CDK is gone |
 
 ## Code Changes
 
@@ -137,7 +137,7 @@ cd mobile && bun install && bun run ios
 
 ## Deployment
 
-**Deploy target is Railway, NOT AWS ECS.** Production sites are live on Railway. Before diagnosing any deploy/health failure, first state which environment you're inspecting (prod URL, Railway service, or local dev) and confirm the deploy target. Do NOT propose fixes until that's confirmed — a live-production symptom is not a local-dev bug. (The `infra/` AWS CDK dir is legacy/unused for app deploys.)
+**Deploy target is Railway, NOT AWS ECS.** Production sites are live on Railway. Before diagnosing any deploy/health failure, first state which environment you're inspecting (prod URL, Railway service, or local dev) and confirm the deploy target. Do NOT propose fixes until that's confirmed — a live-production symptom is not a local-dev bug. The AWS ECS deploy workflows and their Dockerfile were deleted in Sept 2026; there is no AWS path left.
 
 **Environments**:
 - **Production**: `main` branch → Railway (see `docs/deployment/railway.md`)
