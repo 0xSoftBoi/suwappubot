@@ -94,6 +94,7 @@ class APIRateLimiter:
             "coingecko": (1, 5),  # 1 req/sec, burst 5 (free tier)
             "sunswap": (10, 20),  # 10 req/sec, burst 20 (shares TronGrid)
             "okx_dex": (5, 10),  # 5 req/sec, burst 10
+            "relay": (50 / 60, 5),  # keyless quotes are capped at 50 req/min
             "rpc": (20, 50),  # 20 req/sec per RPC
         }
 

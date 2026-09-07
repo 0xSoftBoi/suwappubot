@@ -7,6 +7,7 @@ Routing Priority (for maximum user value):
 3. Jupiter + Jito - Solana swaps with MEV protection
 4. Circle CCTP - Cross-chain USDC (zero bridge fee)
 5. Across Protocol - Fast EVM bridges (~0.04% fee)
+5.5. Relay - Fast solver-network cross-chain (any token, incl. cross-VM)
 6. Wormhole - Solana <-> EVM bridges
 7. Li.Fi - Aggregated fallback
 8. LayerZero/Stargate - Same-token bridges
@@ -17,12 +18,14 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 
+from bot.config.settings import settings
 from bot.services.tempo_dex_api import tempo_dex_api
 from bot.services.lifi_api import LiFiAPI
 from bot.services.jupiter_api import JupiterAPI
 from bot.services.layerzero_api import LayerZeroAPI
 from bot.services.cctp_api import CircleCCTPAPI
 from bot.services.across_api import AcrossAPI
+from bot.services.relay_api import RelayAPI
 from bot.services.wormhole_api import WormholeAPI
 from bot.services.bridge.registry import get_bridge_quotes
 from bot.services.cow_api import cow_api
@@ -103,7 +106,7 @@ def is_native_rail_route(provider: str) -> bool:
 class RouteOption:
     """A single route option from a provider."""
 
-    provider: str  # tempo_dex, cow, socket, jito, lifi, jupiter, layerzero, cctp, across, wormhole
+    provider: str  # tempo_dex, cow, socket, jito, lifi, jupiter, layerzero, cctp, across, relay
     provider_display: str  # "CoW", "Socket", "Jito", "Li.Fi", "Jupiter", etc.
 
     from_chain: str
@@ -143,6 +146,7 @@ class SmartRouter:
     3. Jupiter + Jito - Solana swaps with MEV protection
     4. Circle CCTP - Cross-chain USDC (zero bridge fee)
     5. Across Protocol - Fast EVM bridges (~0.04% fee)
+    5.5. Relay - Fast solver-network cross-chain (any token, incl. cross-VM)
     6. Wormhole - Solana <-> EVM routes
     7. Li.Fi - Aggregated fallback
     8. LayerZero/Stargate - Same-token bridges
@@ -163,6 +167,7 @@ class SmartRouter:
         self.layerzero = LayerZeroAPI()
         self.cctp = CircleCCTPAPI()
         self.across = AcrossAPI()
+        self.relay = RelayAPI()
         self.wormhole = WormholeAPI()
 
     async def get_all_routes(
@@ -264,6 +269,25 @@ class SmartRouter:
                 tasks.append(
                     self._get_across_route(
                         from_chain, to_chain, from_token, from_amount, from_address, to_address
+                    )
+                )
+
+        # ============================================================
+        # PRIORITY 5.5: Relay (solver-network cross-chain, any token — not
+        # restricted to same-token like Across, so it also races cross-VM
+        # routes e.g. EVM -> Solana that Across can't quote at all)
+        # ============================================================
+        if not is_same_chain and settings.relay_enabled:
+            if self.relay.is_supported_route(from_chain, to_chain):
+                tasks.append(
+                    self._get_relay_route(
+                        from_chain,
+                        to_chain,
+                        from_token,
+                        to_token,
+                        from_amount,
+                        from_address,
+                        to_address,
                     )
                 )
 
@@ -704,6 +728,60 @@ class SmartRouter:
             logger.debug(f"Across route error: {e}")
             return None
 
+    async def _get_relay_route(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        from_amount: str,
+        from_address: str,
+        to_address: Optional[str],
+    ) -> Optional[RouteOption]:
+        """Get route from Relay (solver-network cross-chain, any token/VM)."""
+        try:
+            from_token_address = get_token_address(from_token, from_chain)
+            to_token_address = get_token_address(to_token, to_chain)
+            if not from_token_address or not to_token_address:
+                return None
+
+            quote = await self.relay.get_quote(
+                from_chain=from_chain,
+                to_chain=to_chain,
+                from_token_address=from_token_address,
+                to_token_address=to_token_address,
+                amount_raw=from_amount,
+                from_address=from_address,
+                to_address=to_address,
+            )
+
+            prices = await price_service.get_prices([to_token])
+            to_price = prices.get(to_token.upper(), 1)
+            output_usd = quote.to_amount_human * to_price
+
+            return RouteOption(
+                provider="relay",
+                provider_display="Relay",
+                from_chain=from_chain,
+                from_token=from_token,
+                from_amount=from_amount,
+                from_amount_human=quote.from_amount_human,
+                to_chain=to_chain,
+                to_token=to_token,
+                to_amount=quote.to_amount,
+                to_amount_human=quote.to_amount_human,
+                gas_cost_usd=quote.gas_cost_usd,
+                bridge_fee_usd=quote.relayer_fee_usd + quote.app_fee_usd,
+                total_cost_usd=quote.total_cost_usd,
+                output_usd=output_usd,
+                net_output_usd=output_usd - quote.total_cost_usd,
+                execution_time_seconds=quote.estimated_fill_time,
+                raw_quote=quote.raw_quote,
+            )
+        except Exception as e:
+            logger.debug(f"Relay route error: {e}")
+            return None
+
     async def _get_wormhole_route(
         self,
         from_chain: str,
@@ -1025,6 +1103,7 @@ class SmartRouter:
             "jito": 0.97,  # Jito - Solana MEV protection
             "cctp": 0.98,  # Circle's native protocol - very reliable
             "across": 0.95,  # Intent-based, relayer-backed
+            "relay": 0.95,  # Intent-based, solver-backed
             "wormhole": 0.90,  # Guardian network
             "lifi": 0.88,  # Aggregator
             "jupiter": 0.95,  # Solana native
@@ -1039,6 +1118,7 @@ class SmartRouter:
             "socket": 0.3,  # Some routes may have MEV exposure
             "cctp": 0.8,  # Protocol-level, less MEV exposure
             "across": 0.7,  # Intent-based, partial protection
+            "relay": 0.7,  # Intent-based, partial protection
             "wormhole": 0.5,  # Cross-chain, moderate exposure
             "lifi": 0.3,  # Depends on underlying route
             "jupiter": 0.2,  # No inherent MEV protection
@@ -1146,6 +1226,8 @@ class SmartRouter:
                 feature_badge = " 💰 $0 bridge fee"
             elif route.provider == "across":
                 feature_badge = " ⚡ ~0.04% fee"
+            elif route.provider == "relay":
+                feature_badge = " ⚡ Solver network"
 
             lines.append(
                 f"{badge} *{route.provider_display}*{feature_badge}\n"

@@ -42,6 +42,7 @@ from bot.services.ccip_api import ChainlinkCCIPAPI
 from bot.services.cctp_api import CircleCCTPAPI
 from bot.services.bridge.usdt0_api import usdt0_api
 from bot.services.across_api import AcrossAPI
+from bot.services.relay_api import RelayAPI
 from bot.services.wormhole_api import WormholeAPI
 from bot.services.cow_api import cow_api
 from bot.services.socket_api import socket_api, SocketError
@@ -104,6 +105,7 @@ EXECUTABLE_PROVIDERS = frozenset(
         "layerzero",
         "cctp",
         "across",
+        "relay",
         "wormhole",
         "sunswap",
         "okx_dex",
@@ -780,6 +782,7 @@ class SwapEngine:
         self.ccip = ChainlinkCCIPAPI()
         self.cctp = CircleCCTPAPI()
         self.across = AcrossAPI()
+        self.relay = RelayAPI()
         self.wormhole = WormholeAPI()
         self.sunswap = SunSwapAPI()
         self.okx_dex = OKXDEXAPI()
@@ -969,6 +972,18 @@ class SwapEngine:
         if from_token != to_token:
             return False
         return self.across.is_supported_route(from_chain, to_chain, from_token)
+
+    def _is_relay_route(
+        self, from_chain: str, to_chain: str, from_token: str, to_token: str
+    ) -> bool:
+        """Relay: fast solver-network cross-chain swaps/bridges. Unlike Across,
+        Relay isn't limited to same-token routes — but we only race it
+        cross-chain here; same-chain swaps stay on the EVM DEX aggregators."""
+        if not settings.relay_enabled:
+            return False
+        if from_chain.lower() == to_chain.lower():
+            return False
+        return self.relay.is_supported_route(from_chain, to_chain)
 
     def _is_0x_robinhood_cross_chain_route(self, from_chain: str, to_chain: str) -> bool:
         """0x bridge+swap fallback for Robinhood funding, scoped deliberately.
@@ -1863,6 +1878,21 @@ class SwapEngine:
                         amount_raw,
                         from_address,
                         to_address,
+                    )
+                )
+            # Relay: fast solver-network cross-chain (not restricted to same-token).
+            if self._is_relay_route(from_chain, to_chain, from_token, to_token):
+                tasks.append(
+                    self._get_relay_quote(
+                        from_chain,
+                        to_chain,
+                        from_token,
+                        to_token,
+                        amount,
+                        amount_raw,
+                        from_address,
+                        to_address,
+                        slippage,
                     )
                 )
             # Wormhole: cross-chain incl. EVM->Solana (Solana->EVM gated, see #250).
@@ -3716,6 +3746,73 @@ class SwapEngine:
             time_trusted=True,  # real estimatedFillTimeSec from Across's own API
         )
 
+    async def _get_relay_quote(
+        self,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount: float,
+        amount_raw: str,
+        from_address: str,
+        to_address: Optional[str],
+        slippage: float,
+    ) -> SwapQuote:
+        """Relay (relay.link) quote: fast solver-network cross-chain swap/bridge.
+
+        Unlike Across, Relay isn't restricted to same-token routes, so it can
+        quote cross-VM swaps (e.g. Base USDC -> Solana SOL) directly.
+        """
+        from_token_address = get_token_address(from_token, from_chain)
+        to_token_address = get_token_address(to_token, to_chain)
+        if not from_token_address or not to_token_address:
+            raise SwapError(
+                f"Token not supported: {from_token} on {from_chain} or {to_token} on {to_chain}"
+            )
+
+        slippage_bps = int(round(slippage * 100)) if slippage else None
+        quote = await self.relay.get_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token_address=from_token_address,
+            to_token_address=to_token_address,
+            amount_raw=amount_raw,
+            from_address=from_address,
+            to_address=to_address,
+            slippage_bps=slippage_bps,
+        )
+
+        return SwapQuote(
+            provider="relay",
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            from_amount=quote.from_amount,
+            from_amount_human=quote.from_amount_human,
+            to_amount=quote.to_amount,
+            to_amount_human=quote.to_amount_human,
+            to_amount_min=quote.to_amount_min,
+            gas_cost_usd=quote.gas_cost_usd,
+            gas_cost_trusted=True,  # fees.gas.amountUsd is Relay's own figure
+            fee_cost_usd=quote.relayer_fee_usd + quote.app_fee_usd,
+            total_cost_usd=quote.total_cost_usd,
+            estimated_time=quote.estimated_fill_time,
+            time_trusted=True,  # real details.timeEstimate from Relay's own API
+            # Relay reports totalImpact.percent as a signed cost (e.g. "-0.40");
+            # the engine (and execution_sync) treat price_impact as a magnitude.
+            price_impact=abs(quote.price_impact_pct),
+            exchange_rate=self._rate(quote.to_amount_human, amount),
+            raw_quote={
+                "request_id": quote.request_id,
+                "steps": quote.steps,
+                "recipient": to_address or from_address,
+                # Carried into execution so the fresh re-quote uses the SAME
+                # slippage the user accepted, not Relay's default.
+                "slippage_bps": slippage_bps,
+            },
+        )
+
     async def _get_wormhole_quote(
         self,
         from_chain: str,
@@ -3938,6 +4035,22 @@ class SwapEngine:
             tasks.append(
                 self._get_across_quote(
                     from_chain, to_chain, from_token, amount, amount_raw, from_address, to_address
+                )
+            )
+
+        # Relay — fast solver-network cross-chain (not restricted to same-token)
+        if self._is_relay_route(from_chain, to_chain, from_token, to_token):
+            tasks.append(
+                self._get_relay_quote(
+                    from_chain,
+                    to_chain,
+                    from_token,
+                    to_token,
+                    amount,
+                    amount_raw,
+                    from_address,
+                    to_address,
+                    slippage,
                 )
             )
 
@@ -4397,6 +4510,8 @@ class SwapEngine:
                     tx_hash = await self._execute_cctp_swap(quote, wallet)
                 elif quote.provider == "across":
                     tx_hash = await self._execute_across_swap(quote, wallet)
+                elif quote.provider == "relay":
+                    tx_hash = await self._execute_relay_swap(quote, wallet)
                 elif quote.provider == "wormhole":
                     tx_hash = await self._execute_wormhole_swap(quote, wallet)
                 elif quote.provider == "sunswap":
@@ -6289,6 +6404,147 @@ class SwapEngine:
 
         logger.info(f"Across deposit tx: {deposit_hash.hex()}")
         return deposit_hash.hex()
+
+    async def _execute_relay_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+        """Execute a cross-chain swap/bridge via Relay (solver-network intents).
+
+        Relay's quote already returns ready-to-sign steps (approve, then
+        deposit) — unlike Across, execution doesn't need to hand-build
+        calldata. EVM origins only; non-EVM origins (Solana/Bitcoin/TON/Tron)
+        are quote-only for now (see relay_api.py module docstring / spec
+        non-goals).
+        """
+        wallet = await self._get_wallet_for_signing(wallet_data)
+        if not wallet:
+            raise SwapError("Wallet not found for signing")
+
+        chain = get_chain_by_name(quote.from_chain)
+        if chain is None or chain.chain_type != ChainType.EVM:
+            raise SwapError(
+                f"Relay execution only supports EVM origin chains today (got {quote.from_chain})"
+            )
+
+        web3 = rpc_manager.get_web3(quote.from_chain)
+
+        # Honor the recipient captured at quote time; fall back to the sender.
+        recipient = (quote.raw_quote or {}).get("recipient") or wallet_data["address"]
+
+        from_token_address = get_token_address(quote.from_token, quote.from_chain)
+        to_token_address = get_token_address(quote.to_token, quote.to_chain)
+        if not from_token_address or not to_token_address:
+            raise SwapError(
+                f"Token not supported: {quote.from_token} on {quote.from_chain} or "
+                f"{quote.to_token} on {quote.to_chain}"
+            )
+
+        # Quotes expire fast (solver-priced) — re-quote fresh for the same
+        # recipient right before executing, exactly like Across does.
+        relay_quote = await self.relay.get_quote(
+            from_chain=quote.from_chain,
+            to_chain=quote.to_chain,
+            from_token_address=from_token_address,
+            to_token_address=to_token_address,
+            amount_raw=quote.from_amount,
+            from_address=wallet_data["address"],
+            to_address=recipient,
+            slippage_bps=(quote.raw_quote or {}).get("slippage_bps"),
+        )
+
+        if not relay_quote.steps:
+            raise SwapError("Relay returned no executable steps")
+
+        # MONEY-PATH guard: the user accepted `quote.to_amount_min`. If the fresh
+        # solver price moved so far that Relay's new guaranteed minimum is below
+        # what was shown, refuse rather than silently fill worse.
+        try:
+            accepted_min = int(quote.to_amount_min or 0)
+            fresh_min = int(relay_quote.to_amount_min or 0)
+        except (TypeError, ValueError):
+            accepted_min, fresh_min = 0, 0
+        if accepted_min and fresh_min < accepted_min:
+            raise SwapError(
+                "Relay price moved: guaranteed output "
+                f"{relay_quote.to_amount_human} {quote.to_token} is below the "
+                f"{quote.to_amount_human} you accepted. Please re-quote."
+            )
+
+        # MONEY-PATH guard: only ever sign for the origin chain. A step whose
+        # chainId differs would be signed with this chain's key/nonce and either
+        # fail or, worse, execute somewhere the user did not look at.
+        for step in relay_quote.steps:
+            step_chain = int(step.get("chainId") or chain.chain_id)
+            if step_chain != int(chain.chain_id):
+                raise SwapError(
+                    f"Relay step {step.get('step_id')} targets chain {step_chain}, "
+                    f"expected origin chain {chain.chain_id}"
+                )
+
+        deposit_tx_hash: Optional[str] = None
+        last_tx_hash: Optional[str] = None
+
+        for step in relay_quote.steps:
+            nonce = await asyncio.to_thread(
+                lambda: web3.eth.get_transaction_count(wallet_data["address"])
+            )
+            tx = {
+                "to": Web3.to_checksum_address(step["to"]),
+                "data": step["data"],
+                "value": int(step.get("value", 0) or 0),
+                "nonce": nonce,
+                "chainId": int(step.get("chainId") or chain.chain_id),
+            }
+
+            step_gas = step.get("gas")
+            if step_gas:
+                tx["gas"] = int(step_gas)
+            else:
+                try:
+                    tx["gas"] = await asyncio.to_thread(
+                        lambda: web3.eth.estimate_gas(
+                            {
+                                "from": wallet_data["address"],
+                                "to": tx["to"],
+                                "data": tx["data"],
+                                "value": tx["value"],
+                            }
+                        )
+                    )
+                except Exception:
+                    # Mirrors Across's flat deposit gas limit fallback.
+                    tx["gas"] = 300000
+
+            # Our EVM send path is legacy-gasPrice everywhere (see chains.py);
+            # Relay's step also carries maxFeePerGas/maxPriorityFeePerGas for
+            # EIP-1559 callers, which we intentionally don't use here.
+            tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
+
+            signed_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
+            sent_hash = await asyncio.to_thread(
+                lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_hex.replace("0x", "")))
+            )
+            tx_hash_hex = sent_hash.hex()
+            last_tx_hash = tx_hash_hex
+            logger.info(f"Relay {step['step_id']} tx: {tx_hash_hex}")
+
+            if step["step_id"] == "deposit":
+                deposit_tx_hash = tx_hash_hex
+
+            # Steps must land in order (approve before deposit): wait for
+            # confirmation before sending the next one.
+            await asyncio.to_thread(
+                lambda: web3.eth.wait_for_transaction_receipt(sent_hash, timeout=120)
+            )
+
+        # Record the request id so the tx poller can later call
+        # relay_api.get_status(request_id) against GET /intents/status/v3.
+        # There is no existing generic bridge-status hook the Across path
+        # feeds into (Across execution doesn't record deposit_id either) —
+        # TODO(tx_poller): wire relay_quote.request_id into a status-polling
+        # job once one exists for intent-based bridges generally.
+        quote.raw_quote = dict(quote.raw_quote or {})
+        quote.raw_quote["request_id"] = relay_quote.request_id
+
+        return deposit_tx_hash or last_tx_hash
 
     async def _execute_wormhole_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Wormhole (Solana <-> EVM)."""

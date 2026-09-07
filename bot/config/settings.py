@@ -453,6 +453,29 @@ class Settings(BaseSettings):
             "rate limits; quotes work without it in dev/testnet."
         ),
     )
+    relay_api_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Relay (relay.link) API key, sent as x-api-key. Raises rate limits. "
+            "Quotes work without it; only send `referrer` when a key is set "
+            "(relay.link 401s UNAUTHORIZED_QUOTE on referrer without a key)."
+        ),
+    )
+    relay_app_fee_recipient: Optional[str] = Field(
+        default=None,
+        description=(
+            "EVM address that accrues Relay app fees (claimable via Relay's "
+            "claim-app-fees endpoint). None = no app fee attached to quotes."
+        ),
+    )
+    relay_app_fee_bps: int = Field(
+        default=0,
+        description="Relay app fee in bps attached to every Relay quote. 0 = no app fee.",
+    )
+    relay_enabled: bool = Field(
+        default=True,
+        description="Enable Relay (relay.link) as a cross-chain swap provider.",
+    )
 
     # CCTP V2 native-USDC deposit relayer (completes burns on HyperEVM). The
     # relayer wallet pays HYPE gas for the destination mint + a small gas-drop so
