@@ -983,6 +983,11 @@ class SwapEngine:
             return False
         if from_chain.lower() == to_chain.lower():
             return False
+        # Execution signs EVM steps only. A Solana-origin quote returns Solana
+        # instructions we cannot sign, so do not let it enter (and win) the race.
+        origin = get_chain_by_name(from_chain)
+        if origin is None or origin.chain_type != ChainType.EVM:
+            return False
         return self.relay.is_supported_route(from_chain, to_chain)
 
     def _is_0x_robinhood_cross_chain_route(self, from_chain: str, to_chain: str) -> bool:
@@ -6408,11 +6413,10 @@ class SwapEngine:
     async def _execute_relay_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a cross-chain swap/bridge via Relay (solver-network intents).
 
-        Relay's quote already returns ready-to-sign steps (approve, then
-        deposit) — unlike Across, execution doesn't need to hand-build
-        calldata. EVM origins only; non-EVM origins (Solana/Bitcoin/TON/Tron)
-        are quote-only for now (see relay_api.py module docstring / spec
-        non-goals).
+        Relay's quote returns ready-to-sign steps (approve, then deposit). We
+        never sign them blind: every step is checked against the quote the
+        user approved before a single byte is signed. EVM origins only;
+        non-EVM origins are quote-only (see relay_api.py / spec non-goals).
         """
         wallet = await self._get_wallet_for_signing(wallet_data)
         if not wallet:
@@ -6423,11 +6427,13 @@ class SwapEngine:
             raise SwapError(
                 f"Relay execution only supports EVM origin chains today (got {quote.from_chain})"
             )
-
+        origin_chain_id = int(chain.chain_id)
+        sender = wallet_data["address"]
         web3 = rpc_manager.get_web3(quote.from_chain)
 
+        raw = dict(quote.raw_quote or {})
         # Honor the recipient captured at quote time; fall back to the sender.
-        recipient = (quote.raw_quote or {}).get("recipient") or wallet_data["address"]
+        recipient = raw.get("recipient") or sender
 
         from_token_address = get_token_address(quote.from_token, quote.from_chain)
         to_token_address = get_token_address(quote.to_token, quote.to_chain)
@@ -6436,115 +6442,196 @@ class SwapEngine:
                 f"Token not supported: {quote.from_token} on {quote.from_chain} or "
                 f"{quote.to_token} on {quote.to_chain}"
             )
+        is_native_origin = from_token_address.lower() == NATIVE_TOKEN_ADDRESS.lower()
 
-        # Quotes expire fast (solver-priced) — re-quote fresh for the same
-        # recipient right before executing, exactly like Across does.
+        try:
+            input_amount = int(quote.from_amount)
+        except (TypeError, ValueError):
+            raise SwapError(f"Relay: invalid input amount {quote.from_amount!r}")
+        if input_amount <= 0:
+            raise SwapError("Relay: input amount must be positive")
+
+        # Slippage: re-quote with what the user accepted. On paths that lost
+        # raw_quote (agent/webapp rehydration) fall back to our configured
+        # default rather than Relay's own default (200 bps measured live).
+        slippage_bps = raw.get("slippage_bps")
+        if slippage_bps is None:
+            slippage_bps = int(round(float(getattr(settings, "default_slippage", 0.5)) * 100))
+
+        # Quotes expire fast (solver-priced): re-quote right before executing.
         relay_quote = await self.relay.get_quote(
             from_chain=quote.from_chain,
             to_chain=quote.to_chain,
             from_token_address=from_token_address,
             to_token_address=to_token_address,
             amount_raw=quote.from_amount,
-            from_address=wallet_data["address"],
+            from_address=sender,
             to_address=recipient,
-            slippage_bps=(quote.raw_quote or {}).get("slippage_bps"),
+            slippage_bps=int(slippage_bps),
         )
-
-        if not relay_quote.steps:
+        steps = relay_quote.steps
+        if not steps:
             raise SwapError("Relay returned no executable steps")
 
-        # MONEY-PATH guard: the user accepted `quote.to_amount_min`. If the fresh
-        # solver price moved so far that Relay's new guaranteed minimum is below
-        # what was shown, refuse rather than silently fill worse.
+        # MONEY-PATH guard 1: the fresh guaranteed minimum may not be below the
+        # minimum the user approved. Shared helper fails closed on unparseable
+        # input; additionally refuse an approved minimum of zero (a rehydrated
+        # quote missing to_amount_min would otherwise carry no protection).
         try:
-            accepted_min = int(quote.to_amount_min or 0)
-            fresh_min = int(relay_quote.to_amount_min or 0)
+            approved_min = int(quote.to_amount_min)
         except (TypeError, ValueError):
-            accepted_min, fresh_min = 0, 0
-        if accepted_min and fresh_min < accepted_min:
+            raise SwapError("Relay: approved quote has no valid minimum output; please re-quote")
+        if approved_min <= 0:
+            raise SwapError("Relay: approved quote carries no minimum output; please re-quote")
+        self._assert_fresh_min_out_acceptable(quote, relay_quote.to_amount_min, "Relay")
+
+        # MONEY-PATH guard 2: validate every step against what was approved
+        # before signing anything.
+        quoted_deposit_to = None
+        for s in raw.get("steps") or []:
+            if isinstance(s, dict) and s.get("step_id") == "deposit" and s.get("to"):
+                quoted_deposit_to = str(s["to"]).lower()
+
+        deposit_steps = [s for s in steps if s.get("step_id") == "deposit"]
+        if len(deposit_steps) != 1 or steps[-1].get("step_id") != "deposit":
             raise SwapError(
-                "Relay price moved: guaranteed output "
-                f"{relay_quote.to_amount_human} {quote.to_token} is below the "
-                f"{quote.to_amount_human} you accepted. Please re-quote."
+                f"Relay: expected exactly one final deposit step, got "
+                f"{[s.get('step_id') for s in steps]}"
             )
-
-        # MONEY-PATH guard: only ever sign for the origin chain. A step whose
-        # chainId differs would be signed with this chain's key/nonce and either
-        # fail or, worse, execute somewhere the user did not look at.
-        for step in relay_quote.steps:
-            step_chain = int(step.get("chainId") or chain.chain_id)
-            if step_chain != int(chain.chain_id):
+        allowed_step_ids = {"approve", "deposit"}
+        total_native_value = 0
+        for step in steps:
+            step_id = step.get("step_id")
+            if step_id not in allowed_step_ids:
+                raise SwapError(f"Relay: unexpected step {step_id!r}; refusing to sign")
+            if int(step.get("chainId") or 0) != origin_chain_id:
                 raise SwapError(
-                    f"Relay step {step.get('step_id')} targets chain {step_chain}, "
-                    f"expected origin chain {chain.chain_id}"
+                    f"Relay step {step_id} targets chain {step.get('chainId')}, "
+                    f"expected origin chain {origin_chain_id}"
                 )
-
-        deposit_tx_hash: Optional[str] = None
-        last_tx_hash: Optional[str] = None
-
-        for step in relay_quote.steps:
-            nonce = await asyncio.to_thread(
-                lambda: web3.eth.get_transaction_count(wallet_data["address"])
+            value = int(step.get("value") or 0)
+            if value < 0:
+                raise SwapError(f"Relay step {step_id} has negative value")
+            total_native_value += value
+            data = str(step.get("data") or "")
+            if step_id == "approve":
+                if is_native_origin:
+                    raise SwapError("Relay: approve step on a native-token swap; refusing")
+                if str(step.get("to", "")).lower() != from_token_address.lower():
+                    raise SwapError(
+                        f"Relay approve targets {step.get('to')}, expected input token "
+                        f"{from_token_address}"
+                    )
+                if value != 0:
+                    raise SwapError("Relay approve step carries native value; refusing")
+                if not data.lower().startswith("0x095ea7b3") or len(data) < 10 + 128:
+                    raise SwapError("Relay approve step is not an ERC-20 approve call")
+                approve_amount = int(data[10 + 64 : 10 + 128], 16)
+                if approve_amount > input_amount:
+                    raise SwapError(
+                        f"Relay approve amount {approve_amount} exceeds input {input_amount}"
+                    )
+            else:  # deposit
+                if is_native_origin:
+                    if value != input_amount:
+                        raise SwapError(
+                            f"Relay deposit value {value} != approved input {input_amount}"
+                        )
+                elif value != 0:
+                    raise SwapError("Relay deposit on an ERC-20 swap carries native value")
+                if quoted_deposit_to and str(step.get("to", "")).lower() != quoted_deposit_to:
+                    raise SwapError(
+                        f"Relay deposit target changed since quote "
+                        f"({step.get('to')} vs {quoted_deposit_to}); please re-quote"
+                    )
+        if is_native_origin and total_native_value != input_amount:
+            raise SwapError(
+                f"Relay steps move {total_native_value} native, approved {input_amount}"
             )
-            tx = {
-                "to": Web3.to_checksum_address(step["to"]),
-                "data": step["data"],
-                "value": int(step.get("value", 0) or 0),
-                "nonce": nonce,
-                "chainId": int(step.get("chainId") or chain.chain_id),
-            }
 
+        # Gas plan: Relay's per-step gas is a quote-time estimate; buffer it.
+        gas_price = apply_min_gas_price(
+            quote.from_chain, await asyncio.to_thread(lambda: web3.eth.gas_price)
+        )
+        planned_gas: list = []
+        for step in steps:
             step_gas = step.get("gas")
             if step_gas:
-                tx["gas"] = int(step_gas)
+                planned_gas.append(int(int(step_gas) * 1.25))
             else:
                 try:
-                    tx["gas"] = await asyncio.to_thread(
-                        lambda: web3.eth.estimate_gas(
+                    est = await asyncio.to_thread(
+                        lambda s=step: web3.eth.estimate_gas(
                             {
-                                "from": wallet_data["address"],
-                                "to": tx["to"],
-                                "data": tx["data"],
-                                "value": tx["value"],
+                                "from": sender,
+                                "to": Web3.to_checksum_address(s["to"]),
+                                "data": s["data"],
+                                "value": int(s.get("value") or 0),
                             }
                         )
                     )
+                    planned_gas.append(int(est * 1.25))
                 except Exception:
-                    # Mirrors Across's flat deposit gas limit fallback.
-                    tx["gas"] = 300000
+                    planned_gas.append(300000)
 
-            # Our EVM send path is legacy-gasPrice everywhere (see chains.py);
-            # Relay's step also carries maxFeePerGas/maxPriorityFeePerGas for
-            # EIP-1559 callers, which we intentionally don't use here.
-            tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
+        # Native balance must cover every step's gas plus the deposit value, or
+        # the approve lands and the deposit fails, leaving a live allowance.
+        native_balance_wei = await asyncio.to_thread(lambda: web3.eth.get_balance(sender))
+        required_wei = gas_price * sum(planned_gas) + total_native_value
+        if native_balance_wei < required_wei:
+            raise SwapError(
+                f"Insufficient {chain.native_token if hasattr(chain, 'native_token') else 'gas'} "
+                f"for Relay swap: need ~{required_wei / 1e18:.6f}, have "
+                f"{native_balance_wei / 1e18:.6f}"
+            )
+
+        deposit_tx_hash: Optional[str] = None
+        for idx, step in enumerate(steps):
+            nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+            tx = {
+                "to": Web3.to_checksum_address(step["to"]),
+                "data": step["data"],
+                "value": int(step.get("value") or 0),
+                "nonce": nonce,
+                "chainId": origin_chain_id,
+                "gas": planned_gas[idx],
+                # Legacy gasPrice: our EVM send path is legacy everywhere (chains.py).
+                "gasPrice": gas_price,
+            }
 
             signed_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
             sent_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_hex.replace("0x", "")))
             )
             tx_hash_hex = sent_hash.hex()
-            last_tx_hash = tx_hash_hex
             logger.info(f"Relay {step['step_id']} tx: {tx_hash_hex}")
 
             if step["step_id"] == "deposit":
+                # Final step. Like Across, return as soon as it is broadcast: a
+                # receipt timeout here would record a landed deposit as FAILED
+                # and invite a double bridge.
                 deposit_tx_hash = tx_hash_hex
+                break
 
-            # Steps must land in order (approve before deposit): wait for
-            # confirmation before sending the next one.
-            await asyncio.to_thread(
+            # Intermediate step (approve): it must land and succeed before the
+            # deposit is sent, and a reverted approve must not be followed by a
+            # deposit that will also revert.
+            receipt = await asyncio.to_thread(
                 lambda: web3.eth.wait_for_transaction_receipt(sent_hash, timeout=120)
             )
+            if not receipt or int(receipt.get("status", 0)) != 1:
+                raise SwapError(f"Relay {step['step_id']} reverted: {tx_hash_hex}")
 
-        # Record the request id so the tx poller can later call
-        # relay_api.get_status(request_id) against GET /intents/status/v3.
-        # There is no existing generic bridge-status hook the Across path
-        # feeds into (Across execution doesn't record deposit_id either) —
-        # TODO(tx_poller): wire relay_quote.request_id into a status-polling
-        # job once one exists for intent-based bridges generally.
-        quote.raw_quote = dict(quote.raw_quote or {})
-        quote.raw_quote["request_id"] = relay_quote.request_id
+        if not deposit_tx_hash:
+            raise SwapError("Relay: deposit step was not sent")
 
-        return deposit_tx_hash or last_tx_hash
+        # Record the request id for status polling (GET /intents/status/v3).
+        # TODO(tx_poller): persist request_id and poll relay_api.get_status so a
+        # FAILED/REFUNDED intent is not recorded as a completed swap.
+        raw["request_id"] = relay_quote.request_id
+        quote.raw_quote = raw
+
+        return deposit_tx_hash
 
     async def _execute_wormhole_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a bridge via Wormhole (Solana <-> EVM)."""

@@ -11,7 +11,7 @@ Key facts (measured live, see docs/research/relay/04-live-api-probe.md):
   with a key. `appFees` works fine unauthenticated.
 - ERC-20 flows return an `approve` step then a `deposit` step; native flows are
   a single `deposit` step with `value` set. Execute steps in order.
-- Status is polled via `GET /intents/status?requestId=0x...`.
+- Status is polled via `GET /intents/status/v3?requestId=0x...`.
 """
 
 import logging
@@ -124,10 +124,12 @@ class RelayAPI:
             async with session.get(f"{self.api_url}/chains") as response:
                 if response.status != 200:
                     logger.warning(f"Relay /chains returned {response.status}; keeping old cache")
+                    self._backoff_chains_refresh()
                     return
                 data = await response.json()
             chains = data.get("chains") if isinstance(data, dict) else data
             if not isinstance(chains, list):
+                self._backoff_chains_refresh()
                 return
             cache = {}
             for c in chains:
@@ -138,6 +140,13 @@ class RelayAPI:
             self._chains_cache_ts = time.time()
         except Exception as e:  # noqa: BLE001 - must never block a quote
             logger.warning(f"Relay refresh_chains failed (non-fatal): {e}")
+            self._backoff_chains_refresh()
+
+    def _backoff_chains_refresh(self, seconds: float = 300.0) -> None:
+        """After a failed refresh, do not retry on every quote: that would
+        re-fetch ~150 KB and burn a rate-limit token per quote while Relay is
+        degraded. Retry after `seconds` instead (shorter than the 1h TTL)."""
+        self._chains_cache_ts = time.time() - self._chains_cache_ttl_sec + seconds
 
     async def _ensure_chains_fresh(self) -> None:
         if time.time() - self._chains_cache_ts > self._chains_cache_ttl_sec:
@@ -198,14 +207,25 @@ class RelayAPI:
                     raise RelayError(f"Malformed transaction in Relay response: {tx}")
                 check = item.get("check") or {}
                 gas = tx.get("gas")
+                try:
+                    value = int(tx.get("value", 0) or 0)
+                    chain_id = int(tx.get("chainId", 0) or 0)
+                    gas_int = int(gas) if gas not in (None, "") else None
+                except (TypeError, ValueError) as e:
+                    raise RelayError(f"Non-numeric field in Relay step {step_id!r}: {e}")
+                if chain_id <= 0:
+                    # Never let a missing chainId be "filled in" downstream.
+                    raise RelayError(f"Relay step {step_id!r} has no chainId: {tx}")
+                if value < 0:
+                    raise RelayError(f"Relay step {step_id!r} has negative value: {tx}")
                 steps.append(
                     {
                         "step_id": step_id,
                         "to": tx["to"],
                         "data": tx["data"],
-                        "value": int(tx.get("value", 0) or 0),
-                        "chainId": int(tx.get("chainId", 0) or 0),
-                        "gas": int(gas) if gas not in (None, "") else None,
+                        "value": value,
+                        "chainId": chain_id,
+                        "gas": gas_int,
                         "maxFeePerGas": tx.get("maxFeePerGas"),
                         "maxPriorityFeePerGas": tx.get("maxPriorityFeePerGas"),
                         "check_endpoint": check.get("endpoint"),
@@ -243,6 +263,17 @@ class RelayAPI:
 
         steps = self._normalize_steps(data.get("steps") or [])
 
+        # The guaranteed minimum is a money-path field: require it, never
+        # substitute the expected amount for it.
+        minimum_amount = currency_out.get("minimumAmount")
+        if minimum_amount in (None, ""):
+            raise RelayError("Relay quote has no currencyOut.minimumAmount")
+        try:
+            if int(minimum_amount) <= 0:
+                raise RelayError(f"Relay quote minimumAmount must be positive: {minimum_amount}")
+        except (TypeError, ValueError):
+            raise RelayError(f"Relay quote minimumAmount is not numeric: {minimum_amount!r}")
+
         return RelayQuote(
             request_id=data.get("requestId", ""),
             from_chain=from_chain,
@@ -251,13 +282,17 @@ class RelayAPI:
             to_token=to_token,
             from_amount=str(currency_in.get("amount", "0")),
             to_amount=str(currency_out.get("amount", "0")),
-            to_amount_min=str(currency_out.get("minimumAmount", currency_out.get("amount", "0"))),
+            to_amount_min=str(minimum_amount),
             from_amount_human=float(currency_in.get("amountFormatted", 0) or 0),
             to_amount_human=float(currency_out.get("amountFormatted", 0) or 0),
             gas_cost_usd=gas_cost_usd,
             relayer_fee_usd=relayer_fee_usd,
             app_fee_usd=app_fee_usd,
-            total_cost_usd=gas_cost_usd + relayer_fee_usd + app_fee_usd,
+            # Relay's currencyOut is ALREADY net of relayer + app fees (verified
+            # on the live fixture: 25.0 - 0.02539 - 0.075 = 24.89961). Only the
+            # origin gas is an additional cost the user pays; relayer/app fees
+            # are display-only so quote ranking does not deduct them twice.
+            total_cost_usd=gas_cost_usd,
             price_impact_pct=price_impact_pct,
             estimated_fill_time=int(details.get("timeEstimate", 0) or 0),
             steps=steps,

@@ -127,8 +127,11 @@ async def test_quote_v2_parses_fixture(relay):
     assert quote.gas_cost_usd == pytest.approx(0.001140, abs=1e-6)
     assert quote.relayer_fee_usd == pytest.approx(0.025387, abs=1e-6)
     assert quote.app_fee_usd == pytest.approx(0.074993, abs=1e-6)
-    assert quote.total_cost_usd == pytest.approx(
-        quote.gas_cost_usd + quote.relayer_fee_usd + quote.app_fee_usd
+    # currencyOut is already net of relayer + app fees (25.0 - 0.02539 - 0.075
+    # = 24.89961 in the fixture), so only origin gas is an extra cost.
+    assert quote.total_cost_usd == pytest.approx(quote.gas_cost_usd)
+    assert quote.to_amount_human == pytest.approx(
+        quote.from_amount_human - 0.02539 - 0.075, abs=1e-3
     )
     assert quote.price_impact_pct == pytest.approx(-0.40)
     assert quote.estimated_fill_time == 1

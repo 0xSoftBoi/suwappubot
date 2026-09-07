@@ -771,7 +771,10 @@ class SmartRouter:
                 to_amount=quote.to_amount,
                 to_amount_human=quote.to_amount_human,
                 gas_cost_usd=quote.gas_cost_usd,
+                # Display only: Relay's output amount is already net of these.
                 bridge_fee_usd=quote.relayer_fee_usd + quote.app_fee_usd,
+                # total_cost_usd is origin gas only (see RelayAPI._parse_quote),
+                # so net output does not deduct the relayer/app fee twice.
                 total_cost_usd=quote.total_cost_usd,
                 output_usd=output_usd,
                 net_output_usd=output_usd - quote.total_cost_usd,
