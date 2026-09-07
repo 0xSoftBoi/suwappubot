@@ -184,11 +184,36 @@ class GuardConfig:
         if settings is None:
             from bot.config.settings import settings
 
+        # Sanitize rather than raise: a typo in an env var must never take the
+        # process down at boot, and must never silently disarm the guard either.
+        defaults = cls()
+        soft = float(settings.memory_guard_soft_gb) * GB
+        hard = float(settings.memory_guard_hard_gb) * GB
+        if soft <= 0:
+            logger.warning("MEMORY_GUARD_SOFT_GB must be > 0; using default")
+            soft = defaults.soft_bytes
+        if hard <= soft:
+            logger.warning(
+                "MEMORY_GUARD_HARD_GB (%.2f) must exceed the soft limit (%.2f); using 2x soft",
+                hard / GB,
+                soft / GB,
+            )
+            hard = soft * 2
+        interval = float(settings.memory_guard_interval_seconds)
+        if interval < 1:
+            logger.warning("MEMORY_GUARD_INTERVAL_SECONDS must be >= 1; using default")
+            interval = defaults.interval_seconds
+        action = str(settings.memory_guard_hard_action).strip().lower()
+        if action not in ("exit", "log"):
+            logger.warning(
+                "MEMORY_GUARD_HARD_ACTION=%r is not 'exit' or 'log'; using 'exit'", action
+            )
+            action = "exit"
         return cls(
-            soft_bytes=int(float(settings.memory_guard_soft_gb) * GB),
-            hard_bytes=int(float(settings.memory_guard_hard_gb) * GB),
-            interval_seconds=float(settings.memory_guard_interval_seconds),
-            hard_action=str(settings.memory_guard_hard_action).lower(),
+            soft_bytes=int(soft),
+            hard_bytes=int(hard),
+            interval_seconds=interval,
+            hard_action=action,
         )
 
 

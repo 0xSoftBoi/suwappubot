@@ -1327,6 +1327,7 @@ async def health_ready():
                 "redis": "connected" if redis_ok else "memory-fallback",
                 "bot": bot_status,
                 "background_services": svc_heartbeats,
+                "memory": checks["memory"],
             },
             # Optional non-critical services that failed to start (or, for
             # periodic tasks, most recently failed) — never affects

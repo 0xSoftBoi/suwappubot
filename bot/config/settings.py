@@ -558,8 +558,9 @@ class Settings(BaseSettings):
         default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
     )
 
-    # Starknet RPC. Order tried by WalletService._starknet_rpc_urls():
-    # explicit starknet_rpc_url → Alchemy (derived from alchemy_api_key) →
+    # Starknet RPC. Order tried by Settings.starknet_rpc_urls() (consumed by
+    # wallet.py, starknet/client.py, tx_poller.py): explicit starknet_rpc_url →
+    # Alchemy (derived from alchemy_api_key, host follows starknet_chain_id) →
     # starknet_rpc_fallback_url. Lava's keyless endpoint was discontinued
     # (HTTP 410 on every call from 2026-09; the worker logged two warnings per
     # balance call for weeks) and Blast's public endpoint is gone too — verify
@@ -1673,8 +1674,9 @@ class Settings(BaseSettings):
         if self.starknet_rpc_url:
             urls.append(self.starknet_rpc_url)
         if self.alchemy_api_key:
+            network = "sepolia" if str(self.starknet_chain_id).lower() == "sepolia" else "mainnet"
             urls.append(
-                "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/"
+                f"https://starknet-{network}.g.alchemy.com/starknet/version/rpc/v0_8/"
                 f"{self.alchemy_api_key}"
             )
         if self.starknet_rpc_fallback_url and self.starknet_rpc_fallback_url not in urls:

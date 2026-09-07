@@ -462,10 +462,13 @@ So these two approved items need the dashboard or the `railway` CLI:
    Settings → Resources. Suggested: `python-worker` 4 GB / 2 vCPU (peak was 31.7 GB),
    `python-api` 2 GB / 1 vCPU, `api-ts` 1 GB / 1 vCPU, static surfaces 512 MB / 0.5 vCPU.
 
-   Confirmed unreachable programmatically: `update-service` has no resource field
-   ("Scaling (replicas/regions) and source changes are not handled by this tool"), and
-   the `railway-agent` fallback returns "Agent usage limit reached". Dashboard or
-   `railway` CLI only.
+   ~~Confirmed unreachable programmatically~~ — **stale as of 2026-09-07.**
+   `update-service` still has no resource field, but the `railway-agent` tool (which
+   returned "Agent usage limit reached" on 2026-08-27) succeeded on 2026-09-07 and set
+   `python-worker` to 8 GiB / 2 vCPU via `deploy.limitOverride.containers`. Two caveats:
+   the override only enforces on a *fresh deployment* (an in-place restart kept
+   `MEMORY_LIMIT_GB = 32`), and the same key is now in `railway.python-worker.json`, so
+   config-as-code applies it on every deploy regardless of the dashboard value.
 
 ## 5. Coverage / QA
 
