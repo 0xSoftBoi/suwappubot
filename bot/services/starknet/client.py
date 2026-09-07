@@ -15,8 +15,18 @@ import asyncio
 import logging
 import time
 from typing import Optional
+from urllib.parse import urlsplit
 
 from bot.config.settings import settings
+
+
+def _host(url: str) -> str:
+    """Log-safe form of an RPC URL: the Alchemy URL carries the API key in its path."""
+    try:
+        return urlsplit(url).netloc or "<malformed-url>"
+    except Exception:  # never let logging raise
+        return "<unparseable-url>"
+
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +124,8 @@ class StarknetClientManager:
             for url in urls[1:]:
                 fallback = self._client_for(url)
                 if await self._is_healthy(fallback):
-                    logger.info("Starknet RPC failover: using %s", url)
+                    # _safe_url: the Alchemy URL carries the API key in its path.
+                    logger.info("Starknet RPC failover: using %s", _host(url))
                     return fallback
 
             # Nothing passed the probe — return primary and let the caller's
