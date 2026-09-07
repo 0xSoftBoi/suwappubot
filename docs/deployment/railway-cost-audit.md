@@ -170,6 +170,18 @@ Pinning it would need a heap profile or the logs from that window, not static an
 > the Telegram handler tree is no longer imported in worker mode. The next
 > excursion will log its allocation sites at 3 GB; **that report is the
 > root-cause lead this audit could not produce.**
+>
+> Executed live the same day, outside the deploy: the 8 GiB / 2 vCPU limit was
+> applied to the production worker via Railway's agent (an in-place restart did
+> **not** pick it up — `MEMORY_LIMIT_GB` still read 32 — so it enforces on the
+> next fresh deployment); the worker was restarted, dropping RSS 2.04 → 0.26 GB;
+> app sleeping was enabled on the seven dev HTTP services (two were already
+> sleeping, four redeployed, `showcase`/marketdata frontends apply on their next
+> deploy). The live deployment's log also shows cold starts on 09-02 17:23Z,
+> 09-03 01:24Z and 09-07 09:48Z — three crashes in six days, not one a week.
+> Separately, every Starknet call had been failing with HTTP 410 for weeks
+> (Lava discontinued the keyless endpoint that was the hard-coded fallback);
+> fixed in the same branch.
 
 **Action — cap the outcome rather than hunt the cause.** This is precisely the case for
 F3's memory limit: a 4 GB ceiling on `python-worker` bounds the blast radius whether or
