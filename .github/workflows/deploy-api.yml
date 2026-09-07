@@ -1,0 +1,79 @@
+name: Deploy API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  AWS_ACCOUNT_ID: "905418423235"
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: suwappu-cluster
+  API_REPOSITORY: suwappu
+  API_SERVICE: suwappu-bot-prod
+
+jobs:
+  deploy-api:
+    name: Deploy API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="${ECR_REGISTRY}/${API_REPOSITORY}"
+
+          docker build \
+            --platform linux/amd64 \
+            -f api/Dockerfile \
+            -t "${IMAGE}:${IMAGE_TAG}" \
+            -t "${IMAGE}:latest" \
+            .
+
+          docker push "${IMAGE}:${IMAGE_TAG}"
+          docker push "${IMAGE}:latest"
+
+      - name: Redeploy API service
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${API_SERVICE}" \
+            --force-new-deployment
+
+          aws ecs wait services-stable \
+            --region "${AWS_REGION}" \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${API_SERVICE}"
+
+      - name: Verify API
+        run: |
+          set -euo pipefail
+          curl -fsS https://api.suwappu.bot/health
+          curl -fsS -H 'Origin: https://terminal.suwappu.bot' \
+            'https://api.suwappu.bot/webapp/tokens/popular?chain=ethereum' \
+            -D /tmp/headers.txt -o /tmp/tokens.json
+          grep -qi 'access-control-allow-origin: https://terminal.suwappu.bot' /tmp/headers.txt
+          grep -q 'USDC' /tmp/tokens.json

@@ -137,7 +137,7 @@ cd mobile && bun install && bun run ios
 
 ## Deployment
 
-**Deploy target is Railway, NOT AWS ECS.** Production sites are live on Railway. Before diagnosing any deploy/health failure, first state which environment you're inspecting (prod URL, Railway service, or local dev) and confirm the deploy target. Do NOT propose fixes until that's confirmed — a live-production symptom is not a local-dev bug. The AWS ECS deploy workflows and their Dockerfile were deleted in Sept 2026; there is no AWS path left.
+**Deploy target is Railway, NOT AWS ECS.** Production sites are live on Railway. Before diagnosing any deploy/health failure, first state which environment you're inspecting (prod URL, Railway service, or local dev) and confirm the deploy target. Do NOT propose fixes until that's confirmed — a live-production symptom is not a local-dev bug. (The AWS ECS workflows `deploy-api.yml` / `deploy-frontend.yml` and `api/Dockerfile` are manual-only and kept for reversibility; they are not the deploy path.)
 
 **Environments**:
 - **Production**: `main` branch → Railway (see `docs/deployment/railway.md`)
