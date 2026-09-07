@@ -119,6 +119,7 @@ Protocol/economics work can exist without being production execution authority.
 - Economics/rewards: [`economics/`](economics/) · [`rewards/`](rewards/)
 - Forward-looking work: [`plans/`](plans/) · [NEXT.md](NEXT.md)
 - Point-in-time evidence: [`research/`](research/)
+  - Competitive study of Relay (relay.link), 2026-09: [`research/relay/00-executive-summary.md`](research/relay/00-executive-summary.md) — live API probe, fee curve, firehose market sample, docs screenshots, and the `relay` swap provider built from it
 - Design studies/system: [`design/`](design/)
 
 `bot/services/execution_sync*.py` remains **shadow** evidence infrastructure unless
