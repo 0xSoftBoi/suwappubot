@@ -122,9 +122,11 @@ the repo-wide cut. Commits 08f7449 and 1d8a5b4 are themselves restores.
 - Python env schema: PASS (338 vars)
 - Builder docs contract (regen-docs, gen-llms, check-doc-contract, git diff): PASS
 - showcase stats:check: PASS
-- terminal test lane: 100/100 (build re-run pending after restore)
-- webapp tests: 55/55 (re-run pending after restore)
-- showcase build + webmcp smoke 92/92 (re-run pending after restore)
+- terminal: build + 100/100 tests, re-run on the restored tree: PASS
+- webapp: build (tsc + vite) + 55/55 tests, re-run on the restored tree: PASS
+- showcase: build (175 pages), re-run on the restored tree: PASS. The webmcp
+  smoke suite (92/92 before the restore) was not re-run afterwards because no
+  restore touched showcase/src/app/agent-terminal.
 - Terminal's 3 tsc errors: files byte-identical to main and import nothing
   deleted, so pre-existing. CI's terminal lane runs `bun run test` + `vite build`,
   not tsc, which is why they never failed CI.
