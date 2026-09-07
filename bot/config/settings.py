@@ -1663,25 +1663,38 @@ class Settings(BaseSettings):
         description="Require re-confirmation before Telegram/web approve decisions are honored",
     )
 
-    def starknet_rpc_urls(self) -> list[str]:
-        """Starknet JSON-RPC endpoints in failover order: explicit → Alchemy → keyless.
+    def starknet_rpc_endpoints(self) -> list[tuple[str, str]]:
+        """Starknet JSON-RPC endpoints as (label, url) in failover order:
+        explicit → Alchemy → keyless.
 
         Single source of truth for wallet.py, starknet/client.py and tx_poller.py.
         Alchemy serves Starknet on the same ALCHEMY_API_KEY the worker already
         carries for EVM, so a keyed endpoint is preferred over any free one.
+
+        The label is what gets logged. The Alchemy URL carries the API key in its
+        path, so callers must never log the URL (or anything derived from it —
+        CodeQL tracks taint through urlsplit); log the literal label instead.
         """
-        urls: list[str] = []
+        endpoints: list[tuple[str, str]] = []
         if self.starknet_rpc_url:
-            urls.append(self.starknet_rpc_url)
+            endpoints.append(("explicit", self.starknet_rpc_url))
         if self.alchemy_api_key:
             network = "sepolia" if str(self.starknet_chain_id).lower() == "sepolia" else "mainnet"
-            urls.append(
-                f"https://starknet-{network}.g.alchemy.com/starknet/version/rpc/v0_8/"
-                f"{self.alchemy_api_key}"
+            endpoints.append(
+                (
+                    f"alchemy-{network}",
+                    f"https://starknet-{network}.g.alchemy.com/starknet/version/rpc/v0_8/"
+                    f"{self.alchemy_api_key}",
+                )
             )
-        if self.starknet_rpc_fallback_url and self.starknet_rpc_fallback_url not in urls:
-            urls.append(self.starknet_rpc_fallback_url)
-        return urls
+        fallback = self.starknet_rpc_fallback_url
+        if fallback and fallback not in (u for _, u in endpoints):
+            endpoints.append(("fallback", fallback))
+        return endpoints
+
+    def starknet_rpc_urls(self) -> list[str]:
+        """URLs only, same order as starknet_rpc_endpoints(). Never log these."""
+        return [url for _, url in self.starknet_rpc_endpoints()]
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

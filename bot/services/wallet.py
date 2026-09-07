@@ -18,7 +18,7 @@ import base58
 import aiohttp
 
 from bot.config.settings import settings
-from bot.services.rpc_manager import rpc_manager, _safe_url
+from bot.services.rpc_manager import rpc_manager
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.utils.encryption import encrypt_private_key
@@ -1069,11 +1069,11 @@ class WalletService:
 
     async def _starknet_rpc_call(self, method: str, params, timeout: float = 6.0):
         """JSON-RPC call against the Starknet RPC with primary→fallback failover."""
-        urls = settings.starknet_rpc_urls()
+        endpoints = settings.starknet_rpc_endpoints()
 
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
         last_error: Optional[Exception] = None
-        for url in urls:
+        for label, url in endpoints:
             try:
                 async with self._http_session() as session:
                     async with session.post(
@@ -1089,10 +1089,9 @@ class WalletService:
                         return data.get("result")
             except Exception as e:
                 last_error = e
-                # _safe_url: the Alchemy URL carries the API key in its path.
-                logger.warning(
-                    "Starknet RPC %s failed on %s: %s", method, _safe_url(url), str(e)[:80]
-                )
+                # Log the endpoint label, never the URL: the Alchemy URL carries
+                # the API key in its path (CodeQL clear-text-logging).
+                logger.warning("Starknet RPC %s failed on %s: %s", method, label, str(e)[:80])
         raise ConnectionError(f"All Starknet RPCs failed for {method}: {last_error}")
 
     async def get_starknet_token_balance_raw(self, token_symbol: str, address: str) -> int:

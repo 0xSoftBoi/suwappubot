@@ -15,18 +15,8 @@ import asyncio
 import logging
 import time
 from typing import Optional
-from urllib.parse import urlsplit
 
 from bot.config.settings import settings
-
-
-def _host(url: str) -> str:
-    """Log-safe form of an RPC URL: the Alchemy URL carries the API key in its path."""
-    try:
-        return urlsplit(url).netloc or "<malformed-url>"
-    except Exception:  # never let logging raise
-        return "<unparseable-url>"
-
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +65,20 @@ class StarknetClientManager:
             self._lock = asyncio.Lock()
         return self._lock
 
-    def _rpc_urls(self) -> list[str]:
-        """Ordered candidate RPC URLs (primary first, fallback last)."""
-        urls = settings.starknet_rpc_urls()  # explicit → Alchemy (keyed) → keyless
+    def _rpc_endpoints(self) -> list[tuple[str, str]]:
+        """Ordered (label, url) candidates: explicit → Alchemy (keyed) → keyless.
+
+        Only the label is ever logged — the Alchemy URL carries the API key.
+        """
+        endpoints = list(settings.starknet_rpc_endpoints())
         # Keyless public endpoint of last resort (verified live 2026-06-11).
-        if STARKNET_PUBLICNODE_URL not in urls:
-            urls.append(STARKNET_PUBLICNODE_URL)
-        return urls
+        if STARKNET_PUBLICNODE_URL not in (u for _, u in endpoints):
+            endpoints.append(("publicnode", STARKNET_PUBLICNODE_URL))
+        return endpoints
+
+    def _rpc_urls(self) -> list[str]:
+        """Ordered candidate RPC URLs (primary first, fallback last). Never log these."""
+        return [url for _, url in self._rpc_endpoints()]
 
     def _client_for(self, url: str) -> "FullNodeClient":
         _require_starknet_py()
@@ -101,7 +98,8 @@ class StarknetClientManager:
     async def get_client(self) -> "FullNodeClient":
         """Get a healthy FullNodeClient (primary preferred, fallback on failure)."""
         _require_starknet_py()
-        urls = self._rpc_urls()
+        endpoints = self._rpc_endpoints()
+        urls = [url for _, url in endpoints]
         primary = urls[0]
         now = time.monotonic()
 
@@ -121,11 +119,11 @@ class StarknetClientManager:
                 return client
 
             self._primary_failed_until = now + HEALTH_CHECK_TTL
-            for url in urls[1:]:
+            for label, url in endpoints[1:]:
                 fallback = self._client_for(url)
                 if await self._is_healthy(fallback):
-                    # _safe_url: the Alchemy URL carries the API key in its path.
-                    logger.info("Starknet RPC failover: using %s", _host(url))
+                    # Label, never the URL: the Alchemy URL carries the API key.
+                    logger.info("Starknet RPC failover: using %s", label)
                     return fallback
 
             # Nothing passed the probe — return primary and let the caller's
