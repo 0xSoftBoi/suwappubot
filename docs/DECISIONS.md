@@ -13,6 +13,27 @@ ADRs 0001–0005.
 
 ## Deployment & Operations
 
+### python-worker memory: bound it in-process, don't hunt it cold (2026-09)
+- **What**: `bot/services/memory_guard.py` samples RSS every 15s. Above
+  `MEMORY_GUARD_SOFT_GB` (3) it arms `tracemalloc` and logs the top allocation
+  sites, live-task histogram and gc type histogram; above
+  `MEMORY_GUARD_HARD_GB` (6) it logs the same and `os._exit(137)` so Railway's
+  `ON_FAILURE` policy restarts it. `railway.python-worker.json` also carries
+  `deploy.limitOverride.containers.memoryBytes` (8 GB) as the platform-side
+  ceiling, and `api/Dockerfile.railway` sets `MALLOC_ARENA_MAX=2`.
+- **Why**: the worker ballooned 2 GB → 27–31 GB on 2026-08-22 and again
+  2026-09-07 ~09:39Z, then vanished from the logs with no traceback — a
+  platform SIGKILL at the 32 GB plan ceiling. Two weeks of static analysis
+  (cost audit F2) found nothing because a SIGKILL leaves no evidence; the
+  only way to learn the cause is to have the process report *while* it is
+  climbing. Railway bills RAM per minute, so a 6 GB self-restart is ~5x
+  cheaper per incident than the kill it replaces, and `ON_FAILURE` only
+  restarts on a nonzero exit — a graceful SIGTERM exits 0 and would stay down.
+- **Consequence if ignored**: every recurrence costs a silent multi-GB-hour,
+  stops `fee_sweeper`/`order_service`/`tx_poller` until the retry cap is hit,
+  and teaches us nothing. When the soft report fires, read it and fix the
+  loop it names; do not raise the thresholds to make it quiet.
+
 ### Railway: a service's source config is not a GitHub connection (2026-08)
 - **What**: `serviceInstanceUpdate` writes `repo`/`branch` onto a service;
   `serviceConnect` performs the GitHub authorization and webhook handshake.

@@ -44,6 +44,29 @@ class Settings(BaseSettings):
         description="Run the Telegram bot (Application build + webhook/polling). Set to false on the 'python-worker' service so only one instance consumes Telegram updates.",
     )
 
+    # In-process memory guard (bot/services/memory_guard.py). python-worker
+    # balloons from ~2 GB to ~30 GB roughly weekly and gets SIGKILLed with no
+    # traceback; this samples RSS, arms tracemalloc above the soft limit so the
+    # culprit is logged, and exits 137 above the hard limit so the platform
+    # restarts a 6 GB process instead of billing a 30 GB one.
+    memory_guard_enabled: bool = Field(
+        default=True, description="Run the RSS watchdog (soft: diagnose, hard: restart)."
+    )
+    memory_guard_soft_gb: float = Field(
+        default=3.0,
+        description="RSS (GB) above which tracemalloc is armed and allocation reports are logged.",
+    )
+    memory_guard_hard_gb: float = Field(
+        default=6.0,
+        description="RSS (GB) above which the process exits 137 (MEMORY_GUARD_HARD_ACTION=exit) or logs.",
+    )
+    memory_guard_interval_seconds: int = Field(
+        default=15, description="Seconds between memory guard samples."
+    )
+    memory_guard_hard_action: str = Field(
+        default="exit", description="What to do at the hard limit: 'exit' (restart) or 'log'."
+    )
+
     # Database
     database_url: str = Field(default="sqlite:///bot.db", description="Database connection URL")
 

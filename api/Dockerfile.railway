@@ -40,8 +40,19 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # ---- Runtime: slim image, no build tools, non-root ----
 FROM python:3.12-slim-bookworm AS runtime
 
+# MALLOC_ARENA_MAX=2: glibc gives every thread that mallocs its own 64 MB arena
+# (default cap = 8 x cores, i.e. 256 on a 32-vCPU host). This process runs
+# asyncio loops plus SQLAlchemy sync sessions in executor threads, so freed
+# memory scatters across dozens of arenas and is never returned to the OS —
+# RSS ratchets up and Railway bills the resident figure. Two arenas is the
+# standard container setting (Heroku's and Kubernetes' recommendation for
+# Python/Ruby); it trades a little lock contention nobody will notice here
+# for materially lower steady-state RSS. MALLOC_TRIM_THRESHOLD_ makes glibc
+# hand back free heap top more eagerly after a transient spike.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072 \
     PATH="/opt/venv/bin:$PATH"
 
 # libpq5 is the runtime lib for psycopg2 (psycopg2-binary bundles it, but keep it for the

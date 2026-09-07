@@ -152,6 +152,25 @@ of the unbounded-container patterns above; it looks more like one pathological i
 (an enormous RPC response buffered in full, a runaway batch) than a steady accumulation.
 Pinning it would need a heap profile or the logs from that window, not static analysis.
 
+> **Update 2026-09-07 — it recurred, and it is a crash, not a recovery.**
+> 7-day metrics now show max **30.2 GB** (120h window) and **27.5 GB** inside the
+> last 24h. Bisecting the 24h window puts the excursion in the 6–12h-ago band,
+> and the deploy log for that band shows the last normal line at 09:39:04Z
+> (`bot.services.wallet – RPC call timed out` ×5), then **nothing until a cold
+> process start at 09:48:46Z** (handler-import warnings, "Starting consolidated
+> Suwappu Monolith", memory min 0.44 GB). No Python traceback, no `MemoryError`:
+> the platform SIGKILLed the container. Both incidents were preceded by a burst
+> of wallet-service RPC timeouts (08:39Z: ×8 then `All RPCs circuit-open for
+> citrea`; 09:39Z: ×5) — suggestive, not proof.
+>
+> Shipped in response (this section's "Action" below, now done):
+> `bot/services/memory_guard.py` (soft 3 GB → tracemalloc + task/type report;
+> hard 6 GB → exit 137), `deploy.limitOverride.containers.memoryBytes = 8 GiB`
+> in `railway.python-worker.json`, `MALLOC_ARENA_MAX=2` in the Dockerfile, and
+> the Telegram handler tree is no longer imported in worker mode. The next
+> excursion will log its allocation sites at 3 GB; **that report is the
+> root-cause lead this audit could not produce.**
+
 **Action — cap the outcome rather than hunt the cause.** This is precisely the case for
 F3's memory limit: a 4 GB ceiling on `python-worker` bounds the blast radius whether or
 not the cause is ever found, and the service already restarts `ON_FAILURE`. Add an alert

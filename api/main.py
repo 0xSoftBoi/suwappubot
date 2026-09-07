@@ -91,13 +91,22 @@ from bot.models.agent import RegisteredAgent  # noqa: E402
 from bot.utils.db_monitor import setup_db_monitoring  # noqa: E402
 from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded  # noqa: E402
 from bot.utils.telegram_safe import safe_md  # noqa: E402
-from bot.main import add_handlers  # noqa: E402
+
+# NOT `from bot.main import add_handlers` at module level: that pulls the entire
+# Telegram handler tree (40+ modules and everything they import) into a process
+# that, in worker mode, never registers a handler. It is imported lazily inside
+# the RUN_TELEGRAM_BOT branch below. The one side effect the worker *did* rely
+# on from that import — log format + httpx/urllib3 token-leak silencing — is now
+# explicit here.
+from bot.utils.logging_setup import configure_logging  # noqa: E402
+from bot.services.memory_guard import memory_guard, GuardConfig  # noqa: E402
 from telegram.ext import AIORateLimiter, Application, PicklePersistence  # noqa: E402
 from telegram import Update  # noqa: E402
 from contextlib import asynccontextmanager, contextmanager  # noqa: E402
 
 import logging  # noqa: E402
 
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Tracks optional/non-critical services that failed to start (or, for
@@ -147,6 +156,17 @@ def _track_degraded(name: str, log_prefix: str, auto_clear: bool = True):
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
+
+    # Memory guard first, before anything that can allocate: it is the only
+    # thing standing between a runaway loop and a 30 GB bill (see
+    # bot/services/memory_guard.py). Independent of DB/Redis availability.
+    if settings.memory_guard_enabled:
+        try:
+            memory_guard.config = GuardConfig.from_settings()
+            await memory_guard.start()
+        except Exception as e:
+            logger.warning(f"Memory guard failed to start (non-fatal): {e}")
+            _mark_degraded("memory_guard", e)
 
     # 0. Error tracking (no-op unless SENTRY_DSN is set; never raises)
     from bot.services.sentry_service import init_sentry
@@ -222,6 +242,8 @@ async def lifespan(app: FastAPI):
                 .rate_limiter(AIORateLimiter(max_retries=3))
             )
         bot_app = _bot_builder.build()
+        from bot.main import add_handlers
+
         add_handlers(bot_app)
 
     # Store bot_app (or None in worker mode) in app.state for webhook endpoint access
@@ -539,6 +561,8 @@ async def lifespan(app: FastAPI):
             await bot_app.shutdown()
         except Exception:
             pass
+
+    await memory_guard.stop()
 
     # Only stop services if they were started
     if db_success and enable_background_services:
@@ -1280,6 +1304,9 @@ async def health_ready():
         "redis": redis_ok,
         "bot": bot_status in ("polling", "webhook"),
         "services": svc_heartbeats,
+        # RSS as seen by the process itself; peak_gb is the tell for a balloon
+        # that already came and went since the last restart.
+        "memory": memory_guard.snapshot(),
     }
     # Critical: DB must be up; Redis + bot strongly preferred
     is_ready = checks["database"]
