@@ -1,0 +1,521 @@
+URL: https://docs.relay.link/references/api/get-quote-v2
+TITLE: Get Quote - Relay
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+
+Use this file to discover all available pages before exploring further.
+
+Skip to main content
+Relay home page
+Search...
+⌘KAsk Assistant⌘I
+Support
+Get in Touch
+Try Relay
+Try Relay
+Search...
+Navigation
+API Reference
+Get Quote
+Overview
+API Reference
+RelayKit
+Relay Protocol
+Changelog
+API Overview
+Quickstart
+API keys and Rate Limits
+Core Concepts
+Integration Guides
+Migration Guides
+Chains, Tokens, Contracts
+Troubleshooting
+API Reference
+Core
+POST
+Get Quote
+POST
+Submit Permit
+GET
+Get Status
+GET
+Get Requests
+Utilities
+GET
+Get Chains
+GET
+Get Chains Liquidity
+POST
+Get Currencies
+GET
+Get Token Price
+POST
+Transactions Index
+POST
+Transactions Single
+POST
+Deposit Address Reindex
+GET
+Get App Fee Balances
+POST
+Claim App Fees
+GET
+Get Usage
+Advanced
+POST
+Fast Fill
+GET
+Get Swap Sources
+POST
+Gasless Execution
+Withdrawals
+Deprecated
+Websockets
+WSS
+Intent Status
+cURL
+
+cURL
+
+curl --request POST \
+  --url https://api.relay.link/quote/v2 \
+  --header 'Content-Type: application/json' \
+  --data '
+{
+  "user": "0x03508bb71268bba25ecacc8f620e01866650532c",
+  "originChainId": 8453,
+  "destinationChainId": 10,
+  "originCurrency": "0x0000000000000000000000000000000000000000",
+  "destinationCurrency": "0x0000000000000000000000000000000000000000",
+  "amount": "1000000000000000000",
+  "tradeType": "EXACT_INPUT"
+}
+'
+200
+400
+401
+429
+500
+{
+  "requestId": "<string>",
+  "steps": [
+    {
+      "id": "deposit",
+      "action": "Confirm transaction in your wallet",
+      "description": "Depositing funds to the relayer to execute the swap for USDC",
+      "kind": "transaction",
+      "requestId": "0x92b99e6e1ee1deeb9531b5ad7f87091b3d71254b3176de9e8b5f6c6d0bd3a331",
+      "items": [
+        {
+          "status": "incomplete",
+          "data": {
+            "from": "0x0CccD55A5Ac261Ea29136831eeaA93bfE07f5Db6",
+            "to": "0xf70da97812cb96acdf810712aa562db8dfa3dbef",
+            "data": "0x00fad611",
+            "value": "1000000000000000000",
+            "maxFeePerGas": "12205661344",
+            "maxPriorityFeePerGas": "2037863396",
+            "chainId": 1
+          },
+          "check": {
+            "endpoint": "/intents/status?requestId=0x92b99e6e1ee1deeb9531b5ad7f87091b3d71254b3176de9e8b5f6c6d0bd3a331",
+            "method": "GET"
+          }
+        }
+      ]
+    }
+  ],
+  "fees": {
+    "gas": {
+      "currency": {
+        "chainId": 8453,
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "decimals": 6,
+        "metadata": {
+          "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+          "verified": false,
+          "isNative": false
+        }
+      },
+      "amount": "30754920",
+      "amountFormatted": "30.75492",
+      "amountUsd": "30.901612",
+      "minimumAmount": "30454920"
+    },
+    "relayer": {
+      "currency": {
+        "chainId": 8453,
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "decimals": 6,
+        "metadata": {
+          "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+          "verified": false,
+          "isNative": false
+        }
+      },
+      "amount": "30754920",
+      "amountFormatted": "30.75492",
+      "amountUsd": "30.901612",
+      "minimumAmount": "30454920"
+    },
+    "relayerGas": {
+      "currency": {
+        "chainId": 8453,
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "decimals": 6,
+        "metadata": {
+          "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+          "verified": false,
+          "isNative": false
+        }
+      },
+      "amount": "30754920",
+      "amountFormatted": "30.75492",
+      "amountUsd": "30.901612",
+      "minimumAmount": "30454920"
+    },
+    "relayerService": {
+      "currency": {
+        "chainId": 8453,
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "decimals": 6,
+        "metadata": {
+          "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+          "verified": false,
+          "isNative": false
+        }
+      },
+      "amount": "30754920",
+      "amountFormatted": "30.75492",
+      "amountUsd": "30.901612",
+      "minimumAmount": "30454920"
+    },
+    "app": {
+      "currency": {
+        "chainId": 8453,
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "decimals": 6,
+        "metadata": {
+          "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+          "verified": false,
+          "isNative": false
+        }
+      },
+      "amount": "30754920",
+      "amountFormatted": "30.75492",
+      "amountUsd": "30.901612",
+      "minimumAmount": "30454920"
+    },
+    "subsidized": {
+      "currency": {
+        "chainId": 8453,
+        "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "decimals": 6,
+        "metadata": {
+          "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+          "verified": false,
+          "isNative": false
+        }
+      },
+      "amount": "30754920",
+      "amountFormatted": "30.75492",
+      "amountUsd": "30.901612",
+      "minimumAmount": "30454920"
+    }
+  },
+  "feeSponsorship": {
+    "quoted": {
+      "selectedComponents": [
+        "execution"
+      ],
+      "capHit": true,
+      "components": {
+        "execution": {
+          "selected": true,
+          "total": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "sponsored": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "userPays": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          }
+        },
+        "swap": {
+          "selected": true,
+          "total": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "sponsored": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "userPays": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          }
+        },
+        "relay": {
+          "selected": true,
+          "total": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "sponsored": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "userPays": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          }
+        },
+        "app": {
+          "selected": true,
+          "total": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "sponsored": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "userPays": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          }
+        },
+        "rent": {
+          "selected": true,
+          "total": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "sponsored": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://ethereum-optimism.github.io/data/USDC/logo.png",
+                "verified": false,
+                "isNative": false
+              }
+            },
+            "amount": "30754920",
+            "amountFormatted": "30.75492",
+            "amountUsd": "30.901612",
+            "minimumAmount": "30454920"
+          },
+          "userPays": {
+            "currency": {
+              "chainId": 8453,
+              "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+              "symbol": "USDC",
+              "name": "USD Coin",
+              "decimals": 6,
+              "metadata": {
+                "logoURI": "https://

@@ -1,0 +1,95 @@
+URL: https://docs.relay.link/how-relay-works
+TITLE: How Relay Works - Relay
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+
+Use this file to discover all available pages before exploring further.
+
+Skip to main content
+Relay home page
+Search...
+⌘KAsk Assistant⌘I
+Support
+Get in Touch
+Try Relay
+Try Relay
+Search...
+Navigation
+Introduction
+How Relay Works
+Overview
+API Reference
+RelayKit
+Relay Protocol
+Changelog
+Introduction
+What is Relay?
+How Relay Works
+Solutions
+Payment Service Providers
+Wallets & Wallet Providers
+Multichain Apps
+Chains
+Commerce & Payments
+Use Cases
+Bridging & Onboarding
+Swaps
+Call Execution
+Features
+App Fees
+Fee Sponsorship
+Deposit Addresses
+Gas Top-Up
+Gasless Execution
+Fast Fill
+Gasless Swaps
+Price Stabilization
+Safety & Security
+Compliance
+Unsupported Exchanges
+Bug Bounty Program
+MEV protection
+Community Support
+Contract Audits
+Resources
+Supported Chains
+Integrating using AI
+Support
+Brand Assets
+On this page
+The Relay Stack
+Introduction
+How Relay Works
+Copy pageCopy page
+
+Learn how Relay quotes, routes, executes, and settles onchain transactions
+
+Copy pageCopy page
+Relay coordinates payments, swaps, bridges, and onchain calls from quote through completion.
+Quote: The application requests a quote for the user’s intended outcome. Relay returns the expected result, total cost, and the steps required to complete the transaction.
+Execute: The user signs the transaction steps included in the quote. Same-chain transactions execute directly on the source chain. For cross-chain transactions, execution deposits the user’s funds and order into the Relay Depository Contract.
+Fill: For a cross-chain transaction, a solver completes the requested action on the destination chain while the user’s funds remain in the Relay Depository Contract.
+Settle: After the solver proves the fill onchain, the protocol releases the deposited funds to the solver.
+Applications can track every transaction through completion, regardless of its route.
+​
+The Relay Stack
+Relay API
+Request quotes, execute transactions, track status, and retrieve supported network data.
+RelayKit
+Use the SDK, React hooks, and UI components to add Relay to your application.
+Relay Protocol
+Learn how the non-custodial protocol coordinates users, solvers, and smart contracts.
+Relay App
+Explore supported routes and transact through the same infrastructure available to integrators.
+
+Was this page helpful?
+
+YesNo
+What is Relay?
+Payment Service Providers
+twitter
+Powered byThis documentation is built and hosted on Mintlify, a developer documentation platform
+Assistant
+Responses are generated using AI and may contain mistakes.

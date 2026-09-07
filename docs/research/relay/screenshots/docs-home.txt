@@ -1,0 +1,43 @@
+URL: https://docs.relay.link/
+TITLE: Relay Docs - Relay
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+
+Use this file to discover all available pages before exploring further.
+
+Skip to main content
+Relay home page
+Search...
+⌘K
+Ask Assistant
+⌘I
+Support
+Get in Touch
+Try Relay
+Overview
+API Reference
+RelayKit
+Relay Protocol
+Changelog
+
+Welcome to the Relay Docs
+
+Quickstart
+
+Execute your first cross-chain transaction in under 5 minutes.
+
+Get started →
+API Reference
+
+Integrate our unified Quote, Execute, and Status endpoints.
+
+View reference →
+What is Relay?
+
+Explore Relay’s payment use cases and integration paths.
+
+Explore Relay 101 →
+Assistant
+Responses are generated using AI and may contain mistakes.

@@ -1,0 +1,227 @@
+URL: https://docs.relay.link/changelog
+TITLE: Changelog - Relay
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+
+Use this file to discover all available pages before exploring further.
+
+Skip to main content
+Relay home page
+Search...
+⌘K
+Ask Assistant
+⌘I
+Support
+Get in Touch
+Try Relay
+Overview
+API Reference
+RelayKit
+Relay Protocol
+Changelog
+Changelog
+Copy page
+
+Record of new endpoints, breaking changes, deprecations, and default-behavior changes across Relay products
+
+​
+2026-09-01
+API
+UI Kit
+​
+API
+Deprecated
+GET /requests/:requestId/signature and GET /requests/:requestId/signature/v2 are deprecated. They keep working for now, but they should not be used in new integrations and will be retired. Both returned a solver signature over a small subset of intent fields, which never covered the minimum output amount, required a second call after the quote, returned only partial data until the request reached a terminal state, and behaved inconsistently across chains.
+Replacement
+verify a quote deterministically and offline instead: pass includeProtocolData: true to POST /quote/v2, inspect the returned protocol.v2.orderData, recompute the order id with getOrderId from the public @relay-protocol/settlement-sdk package, and confirm the deposit transaction commits to that order id. See Input Validation. Deposit address deposits are not yet covered by this flow.
+​
+RelayKit
+UI Kit 11.0.5 — Patch
+Align swap widget fee display with the Dashboard and transaction page: (e6ca48c) “Swap Impact” is now “Swap Cost”, “Relay Fee” is “Platform Fee” (with a green “(Reward)” note when Relay pays the user), “Execution Fee” is “Execution Cost”, and “Network cost” is “Deposit gas”. Credits render green with a leading ”+”, zero fees display as “
+0.00
+"
+𝑖
+𝑛
+𝑠
+𝑡
+𝑒
+𝑎
+𝑑
+𝑜
+𝑓
+"
+−
+"
+,
+𝑎
+𝑛
+𝑑
+𝑠
+𝑢
+𝑏
+−
+𝑐
+𝑒
+𝑛
+𝑡
+𝑣
+𝑎
+𝑙
+𝑢
+𝑒
+𝑠
+𝑎
+𝑠
+𝑠
+𝑖
+𝑔
+𝑛
+𝑒
+𝑑
+"
++
+\<
+0.00"insteadof"−",andsub−centvaluesassigned"+\<0.01” / ”-< $0.01”.
+​
+2026-08-26
+API
+​
+API
+Behavior change
+POST /authorize (elevated API keys): rate limiting is now scoped per (API key, wallet) at 5 requests per 60 seconds, with a separate 30 requests per 60 seconds aggregate ceiling per API key. Previously all /authorize calls under one elevated API key shared a single 5-per-60-second bucket, so concurrent authorizations from different end-users could reject each other even when no individual wallet exceeded the intended threshold. Self-serve /authorize limits are unchanged. See Elevated Rate Limits.
+​
+2026-08-25
+UI Kit
+Adapters
+​
+RelayKit
+UI Kit 11.0.4 — Patch
+Replace Backpack with Nightly and OKX as the Eclipse wallet connectors, since Backpack dropped Eclipse support (8fb110e)
+UI Kit 11.0.4 — Patch
+Fix the swap completion view showing a provisional token and amount as (d097a11) received. Destination actual values from GET /requests/v3 are now only displayed once the request status is success — before that, the quoted output token and amount are shown instead of intermediate route values (e.g. an origin swap’s USDC output on a route that delivers a different token). The transaction modal also keeps polling the request until it reaches a terminal status (success, failure, or refund) so the final received amount replaces the quoted one.
+SVM adapter 21.0.3 — Patch
+Skip address lookup tables that can’t be resolved on the connected chain instead of crashing before signing (8fb110e)
+​
+2026-08-20
+API
+​
+API
+Behavior change
+POST /execute: executionOptions.referrer is now optional. Gasless execution requests that omit it are accepted; requests that still supply it are handled the same as before. The x-api-key check already scopes the endpoint to the caller’s integrator, so referrer no longer needs to be part of the required set. Field shape and semantics are unchanged.
+​
+2026-08-19
+API
+​
+API
+Added
+GET /requests/v3: referrer is again supported as a filter — both as a top-level query parameter and as a referrer / not:referrer key inside any filters group — with exact-match semantics. Because referrer values are guessable, a referrer filter must be paired with the top-level apiKey parameter, and every supplied key must belong to the authenticating integrator. Requests without the apiKey pairing return 400; requests whose supplied keys are not owned by the caller (or which cannot resolve to an integrator identity) return 403. Empty referrer values are rejected. See the migration guide.
+​
+2026-08-14
+SDK
+UI Kit
+​
+RelayKit
+Added
+Pricing an XRP route before a wallet connects now works, and isDeadAddress recognises the Tron, Zero, and XRP placeholder addresses alongside the existing ones. — SDK 7.0.2, UI Kit 11.0.3 (e9dbac1)
+​
+2026-08-13
+API
+​
+API
+Behavior change
+POST /quote, POST /quote/v2, and POST /price: same-chain Solana quotes now reject at quote time when the compiled deposit transaction would exceed 1232 bytes, matching the existing behavior for Solana-origin cross-chain quotes (see the 2026-05-29 entry). Previously same-chain oversized quotes returned 200 with steps the wallet could not serialize.
+POST /quote, POST /quote/v2, and POST /price: the Solana deposit-transaction size gate now enforces the raw 1232-byte wire limit. Quotes between 1173 and 1232 bytes — valid on the wire as returned — are now accepted, and the previously reserved 60-byte compute-budget headroom is advisory. Clients that prepend compute-budget instructions at send time are responsible for checking their remaining room against the returned steps. This reverses the 2026-07-09 change that had cut the effective quote-time limit to 1172 bytes.
+Added
+POST /quote and POST /quote/v2: the new optional subsidizationBps request field lets sponsors cover a fixed share of each selected sponsorable fee bucket instead of covering it in full. Values are integer basis points in the range 0–10000 (10000 = 100%). Requires subsidizeFees: true. Applied per bucket before maxSubsidizationAmount, which continues to cap the sponsor’s total contribution. Currently supported only on swap execution flows — bridge and deposit-address flows return 400 when set. Omitting the field preserves the previous full-coverage behavior. See Fee Sponsorship.
+GET /requests/v2, GET /requests/v3, and GET /integrators/quote-data: the feeSponsorship object now includes subsidizationBps on both the quoted and actual phases, reflecting the share configured at quote time when one was set. Absent when the field was not configured on the request.
+POST /quote, POST /quote/v2, and POST /price: the response errorCode enum gains SOLANA_TX_TOO_LARGE, returned with 400 when the compiled Solana deposit transaction would exceed Solana’s 1232-byte wire limit and cannot be signed or broadcast. The response message reports the measured transaction size and how many bytes it lands over, so clients can see how far over the quote is without recompiling the message themselves. See Handling Quote Errors and Solana Support.
+​
+2026-08-07
+API
+​
+API
+Added
+GET /intents/status/v3: the response now includes failReason and refundFailReason, matching the fields already returned on GET /requests/v3 and the request.status.updated webhook / websocket event. failReason returns "N/A" on non-failure statuses and the recorded reason (or "UNKNOWN") on failure, fallback, and refund statuses. refundFailReason defaults to "N/A" when no refund-leg failure is recorded. Integrators polling status can now read these values directly without a follow-up call to GET /requests/v3. See Handling Execution Errors for the full enum.
+GET /intents/status/v3, GET /requests/v3, and the request.status.updated webhook: the refundFailReason enum gains MANUAL_REFUND_REQUIRED, returned when the refund leg could not be automatically executed and requires manual intervention (for example, when the origin funds cannot be programmatically returned to the depositor).
+​
+2026-08-06
+API
+​
+API
+Added
+GET /requests/v3: the response data object now includes apiKeyName, the display name of the API key that created the request. It is returned only when the caller authenticates with an API key belonging to the request’s owning integrator and passes includeAuthenticatedData=true — the same gate as data.referrer and data.platformFee. null when the owning API key has no name set. See the migration guide.
+​
+2026-08-04
+API
+SDK
+UI Kit
+​
+API
+Behavior change
+GET /requests/v2: 429 responses now return a route-specific body — message, successor, migrationGuide — distinct from the generic rate-limit body used by every other endpoint. No Retry-After header or field is emitted. Migrate to GET /requests/v3 — see the sunset timeline.
+Added
+GET /requests/v3: the filters AND/OR parameter now accepts null as a null-check operator on any recognised key. {"depositAddress": null} matches requests where the field is empty (does not exist); {"not:depositAddress": null} matches requests where the field is present. Null-checks work across identity, address, chain, currency, and status-style fields, including the composite user filter and the case-insensitive currencyInSymbol / currencyOutSymbol fields. Arrays that mix null with real values for the same key return 400. See the migration guide.
+GET /requests/v2: every response now carries Deprecation, Sunset, and Link headers pointing to GET /requests/v3 and the migration guide, on 2xx, 4xx, and 5xx alike. The Deprecation header is a structured-field Date (@<unix-seconds>), Sunset is an RFC 7231 HTTP-date, and Link includes three relations — deprecation, sunset, and successor-version. The three headers are also listed in the API’s Access-Control-Expose-Headers, so browser clients using fetch or XMLHttpRequest can read them cross-origin.
+GET /requests/v2: the 200 response body gains a top-level deprecation object with message, deprecatedAt, throttledFrom, sunsetAt, successor, and migrationGuide, mirroring the header timeline for clients that read the body rather than headers.
+​
+RelayKit
+Changed
+The SDK’s generated API types were regenerated to match the API schema. No runtime behavior changed. — SDK 7.0.1 (fb843c4, a443358, ef54ef1)
+UI Kit 11.0.2 — Patch
+Add Robinhood Chain, Linea, Monad, Soneium, MegaETH, and Tempo to Uniswap Wallet’s supported chains (78bf766)
+​
+2026-08-03
+API
+UI Kit
+​
+API
+Added
+GET /requests/v3: the new opt-in includeTotal boolean query parameter (defaults to false) returns an exact total field on the response with the count of requests matching the current filters, independent of limit and continuation. The count reflects all matches across the full data window, not just the returned page. Because computing the exact count adds meaningful query latency, keep includeTotal off on the hot list-fetch path and enable it only when the total is needed (e.g. rendering a “X of Y results” header). Pagination behavior is unchanged.
+​
+RelayKit
+UI Kit 11.0.1 — Patch
+Normalize Uniswap Wallet connector name so its chain restrictions apply (4ed6905)
+​
+2026-07-30
+API
+​
+API
+Behavior change
+GET /requests/v3: for requests where an origin deposit was observed on-chain but no fill was ever attempted (for example, a double-spent Bitcoin deposit that fails before solve), data.route.actual.origin.inputCurrency now reflects the actual deposited amount and currency instead of mirroring data.route.quoted.origin.inputCurrency. data.route.actual.origin.outputCurrency is null in this case — no fill occurred, so no output currency was observed — and data.route.actual.destination continues to fall back to data.route.quoted.destination. Previously the entire data.route.actual object silently mirrored data.route.quoted on these rows, hiding the real deposit amount from integrators reading the actual-side fields. Requests that reached a fill attempt are unaffected.
+GET /requests/v3: for TON-origin requests, data.inTxs[].txHash is now the bare 64-character hex transaction hash, suitable for opening on Tonviewer at /transaction/{TX_HASH}. Previously this field returned an internal composite identifier that had to be parsed before it could be linked to an explorer. Non-TON origins and data.outTxs[] are unaffected. This mirrors the fix previously shipped for GET /requests/v2 on 2026-06-19.
+​
+2026-07-28
+API
+UI Kit
+​
+API
+Behavior change
+POST /quote, POST /quote/v2, and POST /price: transient failures that previously collapsed into a generic 500 with errorCode: "UNKNOWN_ERROR" are now classified. Transient infrastructure failures (including raw transport timeouts) return 503 with errorCode: "SERVICE_UNAVAILABLE", transient price-feed failures return 503 with errorCode: "PRICE_FETCH_FAILED", and quote requests for token pairs that cannot be priced return 400 with errorCode: "UNSUPPORTED_CURRENCY". Only genuinely unclassified failures still return 500 UNKNOWN_ERROR. Both 503 codes are retryable — see Handling Quote Errors.
+Added
+POST /quote, POST /quote/v2, and POST /price: the response errorCode enum gains SERVICE_UNAVAILABLE and PRICE_FETCH_FAILED for transient upstream failures where the request should be retried.
+GET /requests/v3: the elevated per-key rate limit is now 20 requests per second, up from the previously shared 10 rps bucket. GET /requests and GET /requests/v2 continue at 10 rps. Default (non-elevated) limits are unchanged. See Elevated Rate Limits.
+​
+RelayKit
+UI Kit 11.0.0 — Major
+Migrate wallet balance fetching from Dune (sunset) to Codex (e426f05)
+Breaking changes:
+duneConfig provider option removed — use codexConfig ({ apiBaseUrl?, apiKey? }). The default api base url is https://graph.codex.io; override it to proxy requests and protect your api key.
+useDuneBalances hook removed — use useCodexBalances(address, queryOptions). The mainnet/testnet parameter is gone; balances are fetched from Codex-supported networks and filtered by your configured chains.
+isDuneBalance removed from useCurrencyBalance’s return value.
+useMultiWalletBalances no longer takes the mainnet/testnet parameter.
+Other changes:
+New useSolanaBalance hook: selected SVM tokens (Solana and Eclipse) now fetch balances directly from the chain’s RPC (native via getBalance, SPL via getTokenAccountsByOwner) instead of an indexer, so post-swap balances are fresh and the aggressive periodic refetch workaround is gone. The internal eclipse-only balance hook is gone; Eclipse flows through the same path.
+Native SVM balances (SOL, Eclipse ETH) in the consolidated token selector list are fetched from their RPCs and merged with Codex results, since Codex does not index native SVM balances (nor Eclipse at all). Their USD values come from Codex prices for wrapped SOL / mainnet WETH.
+Spam filtering: Codex’s removeScams plus an isScam drop, and a liquidity heuristic replacing Dune’s spam scoring — tokens whose pool liquidity is under $1k or below the balance’s usd value have their usd value stripped so they can’t crowd out real holdings in the token selector (balances still display).
+Known loss: Soon balances are gone from the token selector list; Soon is no longer a supported chain.
+UI Kit 11.0.0 — Patch
+Restrict Robinhood Wallet to its supported chains (d8c713c)
+​
+2026-07-27
+API
+​
+API
+Behavior change
+GET /re

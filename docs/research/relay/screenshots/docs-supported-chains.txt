@@ -1,0 +1,107 @@
+URL: https://docs.relay.link/references/api/api_resources/supported-chains
+TITLE: Supported Chains - Relay
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+
+Use this file to discover all available pages before exploring further.
+
+Skip to main content
+Relay home page
+Search...
+⌘K
+Ask Assistant
+⌘I
+Support
+Get in Touch
+Try Relay
+Overview
+API Reference
+RelayKit
+Relay Protocol
+Changelog
+API Overview
+Quickstart
+API keys and Rate Limits
+Core Concepts
+Integration Guides
+Migration Guides
+Chains, Tokens, Contracts
+Supported Chains
+Contract Addresses
+Supported Tokens & Routes
+Troubleshooting
+API Reference
+Core
+POST
+Get Quote
+POST
+Submit Permit
+GET
+Get Status
+GET
+Get Requests
+Utilities
+GET
+Get Chains
+GET
+Get Chains Liquidity
+POST
+Get Currencies
+GET
+Get Token Price
+POST
+Transactions Index
+POST
+Transactions Single
+POST
+Deposit Address Reindex
+GET
+Get App Fee Balances
+POST
+Claim App Fees
+GET
+Get Usage
+Advanced
+POST
+Fast Fill
+GET
+Get Swap Sources
+POST
+Gasless Execution
+Withdrawals
+Deprecated
+Websockets
+WSS
+Intent Status
+On this page
+Supported Chains
+Mainnets
+Testnets
+Adding Relay to Your Chain
+Chains, Tokens, Contracts
+Supported Chains
+Copy page
+Relay is currently supported on the following chains. Please reach out to learn more about how to add Relay to your chain.
+​
+Supported Chains
+​
+Mainnets
+​
+Testnets
+​
+Adding Relay to Your Chain
+Relay can easily be added to any EVM-chain, such as OP stack rollups, Arbitrum Orbit chains, or more. Please feel free to Reach Out to discuss getting your chain supported today!
+
+Was this page helpful?
+
+Yes
+No
+Migrating to Requests v3
+Contract Addresses
+twitter
+Powered by
+This documentation is built and hosted on Mintlify, a developer documentation platform
+Assistant
+Responses are generated using AI and may contain mistakes.

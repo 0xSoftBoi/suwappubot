@@ -1,0 +1,201 @@
+URL: https://docs.relay.link/references/api/api_guides/webhooks
+TITLE: Webhooks - Relay
+
+Documentation Index
+
+Fetch the complete documentation index at: /llms.txt
+
+Use this file to discover all available pages before exploring further.
+
+Skip to main content
+Relay home page
+Search...
+⌘K
+Ask Assistant
+⌘I
+Support
+Get in Touch
+Try Relay
+Overview
+API Reference
+RelayKit
+Relay Protocol
+Changelog
+API Overview
+Quickstart
+API keys and Rate Limits
+Core Concepts
+Integration Guides
+Bridging Integration Guide
+Call Execution Integration Guide
+Transaction Indexing
+Base Builder Codes
+Smart Accounts in Relay
+Chain Support Guides
+Deep Linking
+Websockets
+Webhooks
+Migration Guides
+Chains, Tokens, Contracts
+Troubleshooting
+API Reference
+Core
+POST
+Get Quote
+POST
+Submit Permit
+GET
+Get Status
+GET
+Get Requests
+Utilities
+GET
+Get Chains
+GET
+Get Chains Liquidity
+POST
+Get Currencies
+GET
+Get Token Price
+POST
+Transactions Index
+POST
+Transactions Single
+POST
+Deposit Address Reindex
+GET
+Get App Fee Balances
+POST
+Claim App Fees
+GET
+Get Usage
+Advanced
+POST
+Fast Fill
+GET
+Get Swap Sources
+POST
+Gasless Execution
+Withdrawals
+Deprecated
+Websockets
+WSS
+Intent Status
+On this page
+Configuring a Webhook
+Webhook Events
+Example Payload
+Verification
+Webhook Delivery & Reliability
+Integration Guides
+Webhooks
+Copy page
+
+Simplify your Integration with Low-Latency Relay Webhooks
+
+Building applications at scale requires integrating with Relay’s system at instant speed. Rather than polling the API for status updates, webhooks push transaction lifecycle events directly to your server the moment they happen. Configure a webhook endpoint and Relay will notify your backend in real time as quotes are processed — lightweight, no polling, low latency.
+​
+Configuring a Webhook
+Webhooks are self-serve in the Relay Dashboard. Each API key can have a single webhook endpoint, and any requests tied to that key will post events to it. To configure one:
+Sign in to the Relay Dashboard.
+Open the API keys tab.
+Open the actions menu on the key you want to configure and select Configure Webhook.
+Enable the webhook and enter your Webhook URL — an HTTPS endpoint to POST to when the status of a request changes (e.g. https://my.server/receive-relay-event).
+Optionally add Custom Headers to include on every webhook request (e.g. Authorization: Bearer 0x123), then save.
+​
+Webhook Events
+Relay Webhooks specifically stream transaction statuses for both cross and same-chain status, though the stages differ slightly.
+status	indication
+waiting	waiting for origin chain deposit
+depositing	origin deposit confirmed via /execute API, fill pending
+pending	origin chain deposit confirmed, fill pending submission
+submitted	fill submitted on destination chain
+success	fill succeeded
+failure	fill failed
+refund	refunded
+​
+Example Payload
+{
+  "event": "request.status.updated",
+  "timestamp": 1774993296140,
+  "data": {
+    "status": "refund",
+    "inTxHashes": [
+      "0x..."
+    ],
+    "txHashes": [],
+    "updatedAt": 1774993296121,
+    "originChainId": 8453,
+    "destinationChainId": 42161,
+    "depositAddress": {
+      "address": "0x..",
+      "depositAddressType": "open", // open / strict
+      "depositor": "0x..", //nullable
+      "depositTxHash": "0x..", //nullable — origin-chain tx hash of the depositor's transfer into the deposit address
+    }, //nullable
+    "requestId": "0x...",
+    "referrer": "your-referrer", //nullable — echoes the referrer supplied on the originating quote request
+    "details": null,
+    "failReason": "DOUBLE_SPEND",
+    "refundFailReason": "N/A"
+  }
+}
+
+The referrer field echoes the value supplied on the originating quote request, or null if no referrer was provided. Use it to attribute webhook events back to the request source (campaign, partner, or integration surface) without an extra lookup.
+The details, failReason, and refundFailReason fields mirror the same fields returned by GET /intents/status/v3:
+Field	Description
+details	Additional status context (e.g. decoded revert data on failures). null when no extra detail is available.
+failReason	Reason a fill failed. Returns "N/A" on non-failure statuses. On failure, fallback, and refund statuses, returns the recorded reason or "UNKNOWN" when no specific reason is available. See /intents/status/v3 for the enum.
+refundFailReason	Reason a refund leg failed. Defaults to "N/A" when no refund-leg failure is recorded. See /intents/status/v3 for the enum.
+By default we post all status updates. If you’re only interested in certain statuses you can filter on the status property in your endpoint.
+​
+Verification
+Each webhook request includes two headers for verification:
+Header	Description
+X-Signature-Timestamp	Unix timestamp of when the webhook was sent
+X-Signature-SHA256	HMAC-SHA256 signature of the request
+To verify a webhook is authentic, compute the HMAC-SHA256 hash of ${timestamp}.${body} using your API key as the secret, and compare it to the X-Signature-SHA256 header value.
+Example Verification
+import crypto from 'crypto';
+
+function verifyWebhook(req, apiKey) {
+  const timestamp = req.headers['x-signature-timestamp'];
+  const signature = req.headers['x-signature-sha256'];
+  const body = JSON.stringify(req.body);
+
+  const expected = crypto
+    .createHmac('sha256', apiKey)
+    .update(`${timestamp}.${body}`)
+    .digest('hex');
+
+  const signatureBuffer = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+
+  return (
+    signatureBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+  );
+}
+
+Requests that fail verification should be rejected with a non-2xx status code.
+​
+Webhook Delivery & Reliability
+Relay’s built-in webhook service includes up to 10 retries with exponential backoff. For most integrations, this is sufficient.
+For production deployments requiring guaranteed delivery, routing, fan-out, or detailed observability, we recommend using a webhook gateway like Hookdeck. A gateway sits between Relay and your server, giving you:
+Guaranteed delivery with configurable retry policies
+Routing & fan-out to multiple destinations from a single source
+Event inspection & replay for debugging
+Rate limiting to match your server’s capacity
+To set this up, use your Hookdeck ingestion URL as the Relay webhook endpoint and route events to your server from there. See Hookdeck’s getting started guide for setup instructions.
+
+Was this page helpful?
+
+Yes
+No
+Websockets
+Migrating to Requests v3
+twitter
+Powered by
+This documentation is built and hosted on Mintlify, a developer documentation platform
+Assistant
+Responses are generated using AI and may contain mistakes.
