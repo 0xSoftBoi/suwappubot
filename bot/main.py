@@ -358,24 +358,12 @@ except ImportError:
     CPP_CORE_AVAILABLE = False
 
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=getattr(logging, settings.log_level.upper()),
-)
+# Configure logging. Lives in bot/utils/logging_setup.py (format + the
+# httpx/urllib3 token-leak silencing) because api/main.py no longer imports
+# this module in worker mode and must apply the same setup itself.
+from bot.utils.logging_setup import configure_logging  # noqa: E402
 
-# SECRET LEAK: httpx logs every request URL at INFO, and the Telegram Bot API
-# puts the bot token IN the path — so a plain INFO log level published the full
-# token to Railway logs on every API call:
-#
-#   httpx - INFO - HTTP Request: POST https://api.telegram.org/bot<TOKEN>/sendMessage
-#
-# Anyone who can read the logs can then read every message and post as the bot.
-# The same applies to any other client whose credentials ride in a URL, so pin
-# the HTTP libraries to WARNING regardless of LOG_LEVEL rather than relying on
-# the deploy never being set to INFO/DEBUG.
-for _noisy in ("httpx", "httpcore", "urllib3", "telegram.request"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+configure_logging()
 
 logger = logging.getLogger(__name__)
 

@@ -44,6 +44,29 @@ class Settings(BaseSettings):
         description="Run the Telegram bot (Application build + webhook/polling). Set to false on the 'python-worker' service so only one instance consumes Telegram updates.",
     )
 
+    # In-process memory guard (bot/services/memory_guard.py). python-worker
+    # balloons from ~2 GB to ~30 GB roughly weekly and gets SIGKILLed with no
+    # traceback; this samples RSS, arms tracemalloc above the soft limit so the
+    # culprit is logged, and exits 137 above the hard limit so the platform
+    # restarts a 6 GB process instead of billing a 30 GB one.
+    memory_guard_enabled: bool = Field(
+        default=True, description="Run the RSS watchdog (soft: diagnose, hard: restart)."
+    )
+    memory_guard_soft_gb: float = Field(
+        default=3.0,
+        description="RSS (GB) above which tracemalloc is armed and allocation reports are logged.",
+    )
+    memory_guard_hard_gb: float = Field(
+        default=6.0,
+        description="RSS (GB) above which the process exits 137 (MEMORY_GUARD_HARD_ACTION=exit) or logs.",
+    )
+    memory_guard_interval_seconds: int = Field(
+        default=15, description="Seconds between memory guard samples."
+    )
+    memory_guard_hard_action: str = Field(
+        default="exit", description="What to do at the hard limit: 'exit' (restart) or 'log'."
+    )
+
     # Database
     database_url: str = Field(default="sqlite:///bot.db", description="Database connection URL")
 
@@ -535,18 +558,24 @@ class Settings(BaseSettings):
         default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
     )
 
-    # Starknet RPC (Alchemy primary, Lava fallback — see starknet plan doc)
+    # Starknet RPC. Order tried by Settings.starknet_rpc_urls() (consumed by
+    # wallet.py, starknet/client.py, tx_poller.py): explicit starknet_rpc_url →
+    # Alchemy (derived from alchemy_api_key, host follows starknet_chain_id) →
+    # starknet_rpc_fallback_url. Lava's keyless endpoint was discontinued
+    # (HTTP 410 on every call from 2026-09; the worker logged two warnings per
+    # balance call for weeks) and Blast's public endpoint is gone too — verify
+    # any keyless URL with a starknet_blockNumber POST before trusting it.
     starknet_rpc_url: Optional[str] = Field(
         default=None,
         description=(
-            "Starknet mainnet RPC URL (e.g. Alchemy "
-            "https://starknet-mainnet.g.alchemy.com/v2/$KEY). Falls back to "
-            "starknet_rpc_fallback_url when unset or unhealthy."
+            "Starknet mainnet RPC URL. Optional: when unset and ALCHEMY_API_KEY is "
+            "set, https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/$KEY "
+            "is used; then starknet_rpc_fallback_url."
         ),
     )
     starknet_rpc_fallback_url: str = Field(
-        default="https://rpc.starknet.lava.build",
-        description="Starknet fallback RPC (Lava, keyless, verified live)",
+        default="https://api.zan.top/public/starknet-mainnet",
+        description="Starknet keyless fallback RPC (ZAN public; verified live 2026-09-07)",
     )
     starknet_chain_id: str = Field(
         default="mainnet",
@@ -1633,6 +1662,39 @@ class Settings(BaseSettings):
         default=False,
         description="Require re-confirmation before Telegram/web approve decisions are honored",
     )
+
+    def starknet_rpc_endpoints(self) -> list[tuple[str, str]]:
+        """Starknet JSON-RPC endpoints as (label, url) in failover order:
+        explicit → Alchemy → keyless.
+
+        Single source of truth for wallet.py, starknet/client.py and tx_poller.py.
+        Alchemy serves Starknet on the same ALCHEMY_API_KEY the worker already
+        carries for EVM, so a keyed endpoint is preferred over any free one.
+
+        The label is what gets logged. The Alchemy URL carries the API key in its
+        path, so callers must never log the URL (or anything derived from it —
+        CodeQL tracks taint through urlsplit); log the literal label instead.
+        """
+        endpoints: list[tuple[str, str]] = []
+        if self.starknet_rpc_url:
+            endpoints.append(("explicit", self.starknet_rpc_url))
+        if self.alchemy_api_key:
+            network = "sepolia" if str(self.starknet_chain_id).lower() == "sepolia" else "mainnet"
+            endpoints.append(
+                (
+                    f"alchemy-{network}",
+                    f"https://starknet-{network}.g.alchemy.com/starknet/version/rpc/v0_8/"
+                    f"{self.alchemy_api_key}",
+                )
+            )
+        fallback = self.starknet_rpc_fallback_url
+        if fallback and fallback not in (u for _, u in endpoints):
+            endpoints.append(("fallback", fallback))
+        return endpoints
+
+    def starknet_rpc_urls(self) -> list[str]:
+        """URLs only, same order as starknet_rpc_endpoints(). Never log these."""
+        return [url for _, url in self.starknet_rpc_endpoints()]
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
