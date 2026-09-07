@@ -1,0 +1,2183 @@
+[
+ {
+  "id": 1,
+  "name": "ethereum",
+  "displayName": "Ethereum",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://etherscan.io",
+  "solverCurrencies": [
+   {
+    "id": "anime",
+    "symbol": "ANIME",
+    "name": "Animecoin",
+    "address": "0x4dc26fc5854e7648a064a4abd590bbe71724c277",
+    "decimals": 18
+   },
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    "decimals": 18
+   },
+   {
+    "id": "synd",
+    "symbol": "SYND",
+    "name": "synd",
+    "address": "0x1bab804803159ad84b8854581aa53ac72455614e",
+    "decimals": 18
+   },
+   {
+    "id": "usde",
+    "symbol": "USDe",
+    "name": "USDe",
+    "address": "0x4c9edd5852cd905f086c759e8383e09bff1e68b3",
+    "decimals": 18
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "decimals": 6
+   },
+   {
+    "id": "plume",
+    "symbol": "PLUME",
+    "name": "PLUME",
+    "address": "0x4c1746a800d224393fe2470c70a35717ed4ea5f1",
+    "decimals": 18
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    "decimals": 6
+   },
+   {
+    "id": "musd",
+    "symbol": "mUSD",
+    "name": "MetaMask USD",
+    "address": "0xaca92e438df0b2401ff60da7e4337b687a2435da",
+    "decimals": 6
+   },
+   {
+    "id": "dai",
+    "symbol": "DAI",
+    "name": "Dai Stablecoin",
+    "address": "0x6b175474e89094c44da98b954eedeac495271d0f",
+    "decimals": 18
+   },
+   {
+    "id": "ape",
+    "symbol": "APE",
+    "name": "ApeCoin",
+    "address": "0x4d224452801aced8b2f0aebe155379bb5d594381",
+    "decimals": 18
+   },
+   {
+    "id": "sipher",
+    "symbol": "SIPHER",
+    "name": "Sipher Token",
+    "address": "0x9f52c8ecbee10e00d9faaac5ee9ba0ff6550f511",
+    "decimals": 18
+   },
+   {
+    "id": "usdg",
+    "symbol": "USDG",
+    "name": "Global Dollar",
+    "address": "0xe343167631d89b6ffc58b88d6b7fb0228795491d",
+    "decimals": 6
+   },
+   {
+    "id": "ausd",
+    "symbol": "AUSD",
+    "name": "AUSD",
+    "address": "0x00000000efe302beaa2b3e6e1b18d08d69a9012a",
+    "decimals": 6
+   },
+   {
+    "id": "pyusd",
+    "symbol": "PYUSD",
+    "name": "PayPal USD",
+    "address": "0x6c3ea9036406852006290770bedfcaba0e23a0e8",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 10,
+  "name": "optimism",
+  "displayName": "Optimism",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://optimistic.etherscan.io",
+  "solverCurrencies": [
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0x4200000000000000000000000000000000000006",
+    "decimals": 18
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+    "decimals": 6
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "0x94b008aa00579c1307b0ef2c499ad98a8ce58e58",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 25,
+  "name": "cronos",
+  "displayName": "Cronos",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "cronos",
+   "symbol": "CRO",
+   "name": "Cronos",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://cronoscan.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x3d7f2c478aafdb65542bcb44bceec05849999d2d",
+    "decimals": 6
+   },
+   {
+    "id": "usdc.e-cronos",
+    "symbol": "USDC.e",
+    "name": "USDCoin (bridged)",
+    "address": "0xc21223249ca28397b4b6541dffaecc539bff0c59",
+    "decimals": 6
+   },
+   {
+    "id": "cronos",
+    "symbol": "CRO",
+    "name": "Cronos",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 56,
+  "name": "bsc",
+  "displayName": "BNB",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "bnb",
+   "symbol": "BNB",
+   "name": "Binance Coin",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://bscscan.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDCoin",
+    "address": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+    "decimals": 18
+   },
+   {
+    "id": "somi",
+    "symbol": "SOMI",
+    "name": "SomniaOFT",
+    "address": "0xa9616e5e23ec1582c2828b025becf3ef610e266f",
+    "decimals": 18
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "0x55d398326f99059ff775485246999027b3197955",
+    "decimals": 18
+   },
+   {
+    "id": "usde",
+    "symbol": "USDe",
+    "name": "USDe",
+    "address": "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",
+    "decimals": 18
+   },
+   {
+    "id": "bnb",
+    "symbol": "BNB",
+    "name": "Binance Coin",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 100,
+  "name": "gnosis",
+  "displayName": "Gnosis",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "dai",
+   "symbol": "xDAI",
+   "name": "xDai",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://gnosisscan.io",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x2a22f9c3b484c3629090feed35f17ff8f88f76f0",
+    "decimals": 6
+   },
+   {
+    "id": "dai",
+    "symbol": "xDAI",
+    "name": "xDai",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 130,
+  "name": "unichain",
+  "displayName": "Unichain",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://uniscan.xyz",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDCoin",
+    "address": "0x078d782b760474a361dda0af3839290b0ef57ad6",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 137,
+  "name": "polygon",
+  "displayName": "Polygon",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "matic",
+   "symbol": "POL",
+   "name": "POL",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://polygonscan.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc.e",
+    "symbol": "USDC.e",
+    "name": "USDCoin (bridged)",
+    "address": "0x2791bca1f2de4661ed88a30c99a7a9449aa84174",
+    "decimals": 6
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+    "decimals": 6
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+    "decimals": 6
+   },
+   {
+    "id": "pusd",
+    "symbol": "pUSD",
+    "name": "Polymarket USD",
+    "address": "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 143,
+  "name": "monad",
+  "displayName": "Monad",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "mon",
+   "symbol": "MON",
+   "name": "Monad",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://monadvision.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+    "decimals": 6
+   },
+   {
+    "id": "musd",
+    "symbol": "mUSD",
+    "name": "MetaMask USD",
+    "address": "0xaca92e438df0b2401ff60da7e4337b687a2435da",
+    "decimals": 6
+   },
+   {
+    "id": "mon",
+    "symbol": "MON",
+    "name": "Monad",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 146,
+  "name": "sonic",
+  "displayName": "Sonic",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "s",
+   "symbol": "S",
+   "name": "S",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://sonicscan.org",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x29219dd400f2bf60e5a23d13be72b486d4038894",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 169,
+  "name": "manta-pacific",
+  "displayName": "Manta Pacific",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://pacific-explorer.manta.network",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 288,
+  "name": "boba",
+  "displayName": "Boba Network",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://bobascan.com",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 324,
+  "name": "zksync",
+  "displayName": "zkSync Era",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.zksync.io",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 360,
+  "name": "shape",
+  "displayName": "Shape",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://shapescan.xyz",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 480,
+  "name": "world-chain",
+  "displayName": "World Chain",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://worldscan.org",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDC",
+    "address": "0x79a02482a880bce3f13e09da970dc34db4cd24d1",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 747,
+  "name": "flow-evm",
+  "displayName": "Flow EVM",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "flow",
+   "symbol": "FLOW",
+   "name": "FLOW Token",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://evm.flowscan.io",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "Bridged USDC (Stargate)",
+    "address": "0xf1815bd50389c46847f0bda824ec8da914045d14",
+    "decimals": 6
+   },
+   {
+    "id": "flow",
+    "symbol": "FLOW",
+    "name": "FLOW Token",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 988,
+  "name": "stable",
+  "displayName": "Stable",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "gusdt",
+   "symbol": "gUSDT",
+   "name": "gUSDT",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://stablescan.xyz",
+  "solverCurrencies": [
+   {
+    "id": "usdt",
+    "symbol": "USDT0",
+    "name": "USDT0",
+    "address": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 999,
+  "name": "hyperevm",
+  "displayName": "HyperEVM",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "hype",
+   "symbol": "HYPE",
+   "name": "HYPE",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://hyperevmscan.io",
+  "solverCurrencies": [
+   {
+    "id": "usdt",
+    "symbol": "USD\u20ae0",
+    "name": "USD\u20ae0",
+    "address": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+    "decimals": 6
+   },
+   {
+    "id": "usde",
+    "symbol": "USDe",
+    "name": "USDeOFT",
+    "address": "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",
+    "decimals": 18
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDC",
+    "address": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+    "decimals": 6
+   },
+   {
+    "id": "hype",
+    "symbol": "HYPE",
+    "name": "HYPE",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 1088,
+  "name": "metis",
+  "displayName": "Metis",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "metis",
+   "symbol": "METIS",
+   "name": "METIS",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://explorer.metis.io",
+  "solverCurrencies": [
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0x420000000000000000000000000000000000000a",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 1135,
+  "name": "lisk",
+  "displayName": "Lisk",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://blockscout.lisk.com",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 1337,
+  "name": "hyperliquid",
+  "displayName": "Hyperliquid",
+  "vmType": "hypevm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "usdc",
+   "symbol": "USDC",
+   "name": "USDC (Perps)",
+   "address": "0x00000000000000000000000000000000",
+   "decimals": 8,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://app.hyperliquid.xyz/explorer",
+  "solverCurrencies": [
+   {
+    "id": "usde",
+    "symbol": "USDe",
+    "name": "USDe (Spot)",
+    "address": "0x2e6d84f2d7ca82e6581e03523e4389f7",
+    "decimals": 2
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDC (Perps)",
+    "address": "0x00000000000000000000000000000000",
+    "decimals": 8
+   }
+  ]
+ },
+ {
+  "id": 1868,
+  "name": "soneium",
+  "displayName": "Soneium",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://soneium.blockscout.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC.e",
+    "name": "Bridged USDC (Soneium)",
+    "address": "0xba9986d2381edf1da03b0b9c1f8b00dc4aacc369",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 2020,
+  "name": "ronin",
+  "displayName": "Ronin",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "ron",
+   "symbol": "RON",
+   "name": "RON",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.roninchain.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x0b7007c13325c48911f73a2dad5fa5dcbf808adc",
+    "decimals": 6
+   },
+   {
+    "id": "ron",
+    "symbol": "RON",
+    "name": "RON",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 2741,
+  "name": "abstract",
+  "displayName": "Abstract",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://abscan.org",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x84a71ccd554cc1b02749b35d22f684cc8ec987e1",
+    "decimals": 6
+   },
+   {
+    "id": "pengu",
+    "symbol": "PENGU",
+    "name": "Pudgy Penguins",
+    "address": "0x9ebe3a824ca958e4b3da772d2065518f009cba62",
+    "decimals": 18
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 2818,
+  "name": "morph",
+  "displayName": "Morph",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.morphl2.io",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 4217,
+  "name": "tempo",
+  "displayName": "Tempo",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "usd",
+   "symbol": "USD",
+   "name": "USD",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://explore.tempo.xyz",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x20c000000000000000000000b9537d11c60e8b50",
+    "decimals": 6
+   },
+   {
+    "id": "pathusd",
+    "symbol": "PathUSD",
+    "name": "Path USD",
+    "address": "0x20c0000000000000000000000000000000000000",
+    "decimals": 6
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT0",
+    "name": "USDT0",
+    "address": "0x20c00000000000000000000014f22ca97301eb73",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 4326,
+  "name": "megaeth",
+  "displayName": "MegaETH",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://megaeth.blockscout.com",
+  "solverCurrencies": [
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "USDT",
+    "address": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+    "decimals": 6
+   },
+   {
+    "id": "usdm",
+    "symbol": "USDm",
+    "name": "MegaUSD (USDm)",
+    "address": "0xfafddbb3fc7688494971a79cc65dca3ef82079e7",
+    "decimals": 18
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 4663,
+  "name": "robinhood",
+  "displayName": "Robinhood Chain",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://8crv4vmq6tiu1yqr.blockscout.com",
+  "solverCurrencies": [
+   {
+    "id": "usdg",
+    "symbol": "USDG",
+    "name": "Global Dollar",
+    "address": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 5000,
+  "name": "mantle",
+  "displayName": "Mantle",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "mnt",
+   "symbol": "MNT",
+   "name": "MNT",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://mantlescan.xyz",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x09bc4e0d864854c6afb6eb9a9cdf58ac190d0df9",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 5031,
+  "name": "somnia",
+  "displayName": "Somnia",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "somi",
+   "symbol": "SOMI",
+   "name": "Somnia",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.somnia.network",
+  "solverCurrencies": [
+   {
+    "id": "somi",
+    "symbol": "SOMI",
+    "name": "Somnia",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 5330,
+  "name": "superseed",
+  "displayName": "Superseed",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.superseed.xyz",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 8333,
+  "name": "B3",
+  "displayName": "B3",
+  "vmType": "evm",
+  "depositEnabled": false,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.b3.fun",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x2af198a85f9aa11cd6042a0596fbf23978514da3",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 8453,
+  "name": "base",
+  "displayName": "Base",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://basescan.org",
+  "solverCurrencies": [
+   {
+    "id": "btc",
+    "symbol": "cbBTC",
+    "name": "Coinbase Wrapped BTC",
+    "address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+    "decimals": 8
+   },
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0x4200000000000000000000000000000000000006",
+    "decimals": 18
+   },
+   {
+    "id": "synd",
+    "symbol": "SYND",
+    "name": "synd",
+    "address": "0x11dc28d01984079b7efe7763b533e6ed9e3722b9",
+    "decimals": 18
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+    "decimals": 6
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    "decimals": 6
+   },
+   {
+    "id": "sol",
+    "symbol": "SOL",
+    "name": "Solana",
+    "address": "0x311935cd80b76769bf2ecc9d8ab7635b2139cf82",
+    "decimals": 9
+   },
+   {
+    "id": "degen",
+    "symbol": "DEGEN",
+    "name": "Degen",
+    "address": "0x4ed4e862860bed51a9570b96d89af5e1b0efefed",
+    "decimals": 18
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 9745,
+  "name": "plasma",
+  "displayName": "Plasma",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "xpl",
+   "symbol": "XPL",
+   "name": "XPL",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://plasmascan.to",
+  "solverCurrencies": [
+   {
+    "id": "usdt",
+    "symbol": "USD\u20ae0",
+    "name": "USD\u20ae0",
+    "address": "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb",
+    "decimals": 6
+   },
+   {
+    "id": "xpl",
+    "symbol": "XPL",
+    "name": "XPL",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 33139,
+  "name": "apechain",
+  "displayName": "ApeChain",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "ape",
+   "symbol": "APE",
+   "name": "ApeCoin",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://apescan.io",
+  "solverCurrencies": [
+   {
+    "id": "ape",
+    "symbol": "APE",
+    "name": "ApeCoin",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 34443,
+  "name": "mode",
+  "displayName": "Mode",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.mode.network",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 42018,
+  "name": "mythos",
+  "displayName": "Mythos",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://mythos-mainnet.explorer.alchemy.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC.e",
+    "name": "Bridged USDC (Mythos)",
+    "address": "0x0685b38c8228f595688dec1d7c69d036b3ee52d7",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 42161,
+  "name": "arbitrum",
+  "displayName": "Arbitrum",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://arbiscan.io",
+  "solverCurrencies": [
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+    "decimals": 18
+   },
+   {
+    "id": "anime",
+    "symbol": "ANIME",
+    "name": "Animecoin",
+    "address": "0x37a645648df29205c6261289983fb04ecd70b4b3",
+    "decimals": 18
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    "decimals": 6
+   },
+   {
+    "id": "ape",
+    "symbol": "APE",
+    "name": "ApeCoin",
+    "address": "0x7f9fbf9bdd3f4105c478b996b648fe6e828a1e98",
+    "decimals": 18
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 42220,
+  "name": "celo",
+  "displayName": "Celo",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "celo",
+   "symbol": "CELO",
+   "name": "CELO",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://celoscan.io",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDCoin",
+    "address": "0xceba9300f2b948710d2653dd7b07f33a8b32118c",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 43114,
+  "name": "avalanche",
+  "displayName": "Avalanche",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "avax",
+   "symbol": "AVAX",
+   "name": "Avax",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://snowtrace.io",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+    "decimals": 6
+   },
+   {
+    "id": "gun",
+    "symbol": "GUN",
+    "name": "GUN",
+    "address": "0x26debd39d5ed069770406fca10a0e4f8d2c743eb",
+    "decimals": 18
+   },
+   {
+    "id": "usde",
+    "symbol": "USDe",
+    "name": "USDe",
+    "address": "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 43419,
+  "name": "gunz",
+  "displayName": "Gunz",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "gun",
+   "symbol": "GUN",
+   "name": "GUN",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://gunzscan.io",
+  "solverCurrencies": [
+   {
+    "id": "gun",
+    "symbol": "GUN",
+    "name": "GUN",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 48900,
+  "name": "zircuit",
+  "displayName": "Zircuit",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.zircuit.com",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 57073,
+  "name": "ink",
+  "displayName": "Ink",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.inkonchain.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDC",
+    "address": "0x2d270e6886d130d724215a266106e6832161eaed",
+    "decimals": 6
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT0",
+    "name": "Tether USDT",
+    "address": "0x0200c29006150606b650577bbe7b6248f58470c1",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 59144,
+  "name": "linea",
+  "displayName": "Linea",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://lineascan.build",
+  "solverCurrencies": [
+   {
+    "id": "musd",
+    "symbol": "mUSD",
+    "name": "MetaMask USD",
+    "address": "0xaca92e438df0b2401ff60da7e4337b687a2435da",
+    "decimals": 6
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x176211869ca2b568f2a7d4ee941e073a821ee1ff",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 60808,
+  "name": "bob",
+  "displayName": "BOB",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.gobob.xyz",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 69000,
+  "name": "animechain",
+  "displayName": "Animechain",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "anime",
+   "symbol": "ANIME",
+   "name": "Animecoin",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer-animechain-39xf6m45e3.t.conduit.xyz",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x401ecb1d350407f13ba348573e5630b83638e30d",
+    "decimals": 6
+   },
+   {
+    "id": "anime",
+    "symbol": "ANIME",
+    "name": "Animecoin",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 80094,
+  "name": "berachain",
+  "displayName": "Berachain",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "bera",
+   "symbol": "BERA",
+   "name": "BERA Token",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": false
+  },
+  "explorerUrl": "https://beratrail.io",
+  "solverCurrencies": [
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0x2f6f07cdcf3588944bf4c42ac74ff24bf56e7590",
+    "decimals": 18
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x549943e04f40284185054145c6e4e9568c1d3241",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 81457,
+  "name": "blast",
+  "displayName": "Blast",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://blastscan.io",
+  "solverCurrencies": [
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0x4300000000000000000000000000000000000004",
+    "decimals": 18
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 97477,
+  "name": "doma",
+  "displayName": "Doma",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.doma.xyz",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC.e",
+    "name": "Bridged USDC (Stargate)",
+    "address": "0x31eef89d5215c305304a2fa5376a1f1b6c5dc477",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 98866,
+  "name": "plume",
+  "displayName": "Plume",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "plume",
+   "symbol": "PLUME",
+   "name": "PLUME",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.plume.org",
+  "solverCurrencies": [
+   {
+    "id": "weth",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "address": "0xca59ca09e5602fae8b629dee83ffa819741f14be",
+    "decimals": 18
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "0x78add880a697070c1e765ac44d65323a0dcce913",
+    "decimals": 6
+   },
+   {
+    "id": "plumeusd",
+    "symbol": "pUSD",
+    "name": "pUSD",
+    "address": "0xdddd73f5df1f0dc31373357beac77545dc5a6f3f",
+    "decimals": 6
+   },
+   {
+    "id": "plume",
+    "symbol": "PLUME",
+    "name": "PLUME",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 534352,
+  "name": "scroll",
+  "displayName": "Scroll",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://scrollscan.com",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 537724,
+  "name": "xrp",
+  "displayName": "XRP",
+  "vmType": "xrpvm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "xrp",
+   "symbol": "XRP",
+   "name": "XRP",
+   "address": "xrp",
+   "decimals": 6,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://xrpscan.com",
+  "solverCurrencies": [
+   {
+    "id": "xrp",
+    "symbol": "XRP",
+    "name": "XRP",
+    "address": "xrp",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 685689,
+  "name": "gensyn",
+  "displayName": "Gensyn",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://gensyn-mainnet.explorer.alchemy.com",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USDC",
+    "address": "0x5b32c997211621d55a89cc5abaf1cc21f3a6ddf5",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 747474,
+  "name": "katana",
+  "displayName": "Katana",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.katanarpc.com",
+  "solverCurrencies": [
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Vault Bridge USDT",
+    "address": "0x2dca96907fde857dd3d816880a0df407eeb2d2f2",
+    "decimals": 6
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "Vault Bridge USDC",
+    "address": "0x203a662b0bd271a6ed5a60edfbd04bfce608fd36",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 3586256,
+  "name": "lighter",
+  "displayName": "Lighter",
+  "vmType": "lvm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "usdc",
+   "symbol": "USDC (Perp)",
+   "name": "USD Coin (Perp)",
+   "address": "0",
+   "decimals": 6,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://lighter.exchange/explorer",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH (Spot)",
+    "name": "Ether (Spot)",
+    "address": "1",
+    "decimals": 8
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC (Perp)",
+    "name": "USD Coin (Perp)",
+    "address": "0",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 5064014,
+  "name": "ethereal",
+  "displayName": "Ethereal",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "usde",
+   "symbol": "USDe",
+   "name": "USDe",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.ethereal.trade",
+  "solverCurrencies": [
+   {
+    "id": "usde",
+    "symbol": "USDe",
+    "name": "USDe",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 7777777,
+  "name": "zora",
+  "displayName": "Zora",
+  "vmType": "evm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "0x0000000000000000000000000000000000000000",
+   "decimals": 18,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://explorer.zora.energy",
+  "solverCurrencies": [
+   {
+    "id": "usdc",
+    "symbol": "USDzC",
+    "name": "USD Coin (Bridged from Ethereum)",
+    "address": "0xcccccccc7021b32ebb4e8c08314bd62f7c653ec4",
+    "decimals": 6
+   },
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "0x0000000000000000000000000000000000000000",
+    "decimals": 18
+   }
+  ]
+ },
+ {
+  "id": 8253038,
+  "name": "bitcoin",
+  "displayName": "Bitcoin",
+  "vmType": "bvm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "btc",
+   "symbol": "BTC",
+   "name": "Bitcoin",
+   "address": "bc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqmql8k8",
+   "decimals": 8,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://mempool.space",
+  "solverCurrencies": [
+   {
+    "id": "btc",
+    "symbol": "BTC",
+    "name": "Bitcoin",
+    "address": "bc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqmql8k8",
+    "decimals": 8
+   }
+  ]
+ },
+ {
+  "id": 9286185,
+  "name": "eclipse",
+  "displayName": "Eclipse",
+  "vmType": "svm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "eth",
+   "symbol": "ETH",
+   "name": "Ether",
+   "address": "11111111111111111111111111111111",
+   "decimals": 9,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://eclipsescan.xyz",
+  "solverCurrencies": [
+   {
+    "id": "eth",
+    "symbol": "ETH",
+    "name": "Ether",
+    "address": "11111111111111111111111111111111",
+    "decimals": 9
+   }
+  ]
+ },
+ {
+  "id": 224235520,
+  "name": "ton",
+  "displayName": "TON",
+  "vmType": "tonvm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "ton",
+   "symbol": "GRAM",
+   "name": "Gram",
+   "address": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+   "decimals": 9,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://tonviewer.com",
+  "solverCurrencies": [
+   {
+    "id": "ton",
+    "symbol": "GRAM",
+    "name": "Gram",
+    "address": "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+    "decimals": 9
+   }
+  ]
+ },
+ {
+  "id": 728126428,
+  "name": "tron",
+  "displayName": "Tron",
+  "vmType": "tvm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "trx",
+   "symbol": "TRX",
+   "name": "TRX",
+   "address": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+   "decimals": 6,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://tronscan.org/#",
+  "solverCurrencies": [
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    "decimals": 6
+   },
+   {
+    "id": "trx",
+    "symbol": "TRX",
+    "name": "TRX",
+    "address": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+    "decimals": 6
+   }
+  ]
+ },
+ {
+  "id": 792703809,
+  "name": "solana",
+  "displayName": "Solana",
+  "vmType": "svm",
+  "depositEnabled": true,
+  "disabled": false,
+  "currency": {
+   "id": "sol",
+   "symbol": "SOL",
+   "name": "Solana",
+   "address": "11111111111111111111111111111111",
+   "decimals": 9,
+   "supportsBridging": true
+  },
+  "explorerUrl": "https://solscan.io",
+  "solverCurrencies": [
+   {
+    "id": "pengu",
+    "symbol": "PENGU",
+    "name": "Pudgy Penguins",
+    "address": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+    "decimals": 6
+   },
+   {
+    "id": "usdc",
+    "symbol": "USDC",
+    "name": "USD Coin",
+    "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "decimals": 6
+   },
+   {
+    "id": "usdt",
+    "symbol": "USDT",
+    "name": "USDT",
+    "address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    "decimals": 6
+   },
+   {
+    "id": "cash",
+    "symbol": "CASH",
+    "name": "CASH",
+    "address": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+    "decimals": 6
+   },
+   {
+    "id": "pyusd",
+    "symbol": "PYUSD",
+    "name": "PayPal USD",
+    "address": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+    "decimals": 6
+   },
+   {
+    "id": "usdg",
+    "symbol": "USDG",
+    "name": "Global Dollar",
+    "address": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+    "decimals": 6
+   },
+   {
+    "id": "sol",
+    "symbol": "SOL",
+    "name": "Solana",
+    "address": "11111111111111111111111111111111",
+    "decimals": 9
+   }
+  ]
+ }
+]
