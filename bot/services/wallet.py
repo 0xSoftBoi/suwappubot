@@ -1069,11 +1069,7 @@ class WalletService:
 
     async def _starknet_rpc_call(self, method: str, params, timeout: float = 6.0):
         """JSON-RPC call against the Starknet RPC with primary→fallback failover."""
-        urls = []
-        if settings.starknet_rpc_url:
-            urls.append(settings.starknet_rpc_url)
-        if settings.starknet_rpc_fallback_url not in urls:
-            urls.append(settings.starknet_rpc_fallback_url)
+        urls = settings.starknet_rpc_urls()
 
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
         last_error: Optional[Exception] = None

@@ -558,18 +558,23 @@ class Settings(BaseSettings):
         default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
     )
 
-    # Starknet RPC (Alchemy primary, Lava fallback — see starknet plan doc)
+    # Starknet RPC. Order tried by WalletService._starknet_rpc_urls():
+    # explicit starknet_rpc_url → Alchemy (derived from alchemy_api_key) →
+    # starknet_rpc_fallback_url. Lava's keyless endpoint was discontinued
+    # (HTTP 410 on every call from 2026-09; the worker logged two warnings per
+    # balance call for weeks) and Blast's public endpoint is gone too — verify
+    # any keyless URL with a starknet_blockNumber POST before trusting it.
     starknet_rpc_url: Optional[str] = Field(
         default=None,
         description=(
-            "Starknet mainnet RPC URL (e.g. Alchemy "
-            "https://starknet-mainnet.g.alchemy.com/v2/$KEY). Falls back to "
-            "starknet_rpc_fallback_url when unset or unhealthy."
+            "Starknet mainnet RPC URL. Optional: when unset and ALCHEMY_API_KEY is "
+            "set, https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/$KEY "
+            "is used; then starknet_rpc_fallback_url."
         ),
     )
     starknet_rpc_fallback_url: str = Field(
-        default="https://rpc.starknet.lava.build",
-        description="Starknet fallback RPC (Lava, keyless, verified live)",
+        default="https://api.zan.top/public/starknet-mainnet",
+        description="Starknet keyless fallback RPC (ZAN public; verified live 2026-09-07)",
     )
     starknet_chain_id: str = Field(
         default="mainnet",
@@ -1656,6 +1661,25 @@ class Settings(BaseSettings):
         default=False,
         description="Require re-confirmation before Telegram/web approve decisions are honored",
     )
+
+    def starknet_rpc_urls(self) -> list[str]:
+        """Starknet JSON-RPC endpoints in failover order: explicit → Alchemy → keyless.
+
+        Single source of truth for wallet.py, starknet/client.py and tx_poller.py.
+        Alchemy serves Starknet on the same ALCHEMY_API_KEY the worker already
+        carries for EVM, so a keyed endpoint is preferred over any free one.
+        """
+        urls: list[str] = []
+        if self.starknet_rpc_url:
+            urls.append(self.starknet_rpc_url)
+        if self.alchemy_api_key:
+            urls.append(
+                "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/"
+                f"{self.alchemy_api_key}"
+            )
+        if self.starknet_rpc_fallback_url and self.starknet_rpc_fallback_url not in urls:
+            urls.append(self.starknet_rpc_fallback_url)
+        return urls
 
     model_config = ConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

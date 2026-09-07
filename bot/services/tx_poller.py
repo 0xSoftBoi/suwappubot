@@ -797,7 +797,7 @@ class TransactionPoller:
                 "params": [tx_hash],
                 "id": 1,
             }
-            rpc_url = settings.starknet_rpc_url or settings.starknet_rpc_fallback_url
+            rpc_url = settings.starknet_rpc_urls()[0]
 
             async def _do_starknet():
                 async with http_session.post(rpc_url, json=payload) as response:

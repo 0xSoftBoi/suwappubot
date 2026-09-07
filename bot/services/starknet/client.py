@@ -67,11 +67,7 @@ class StarknetClientManager:
 
     def _rpc_urls(self) -> list[str]:
         """Ordered candidate RPC URLs (primary first, fallback last)."""
-        urls = []
-        if settings.starknet_rpc_url:
-            urls.append(settings.starknet_rpc_url)
-        if settings.starknet_rpc_fallback_url not in urls:
-            urls.append(settings.starknet_rpc_fallback_url)
+        urls = settings.starknet_rpc_urls()  # explicit → Alchemy (keyed) → keyless
         # Keyless public endpoint of last resort (verified live 2026-06-11).
         if STARKNET_PUBLICNODE_URL not in urls:
             urls.append(STARKNET_PUBLICNODE_URL)
