@@ -119,11 +119,14 @@ class StarknetClientManager:
                 return client
 
             self._primary_failed_until = now + HEALTH_CHECK_TTL
-            for label, url in endpoints[1:]:
+            for index, (_label, url) in enumerate(endpoints[1:], start=2):
                 fallback = self._client_for(url)
                 if await self._is_healthy(fallback):
-                    # Label, never the URL: the Alchemy URL carries the API key.
-                    logger.info("Starknet RPC failover: using %s", label)
+                    # Log the position only. The Alchemy URL carries the API key,
+                    # and CodeQL tracks taint from it into the sibling label too.
+                    logger.info(
+                        "Starknet RPC failover: using endpoint %d of %d", index, len(endpoints)
+                    )
                     return fallback
 
             # Nothing passed the probe — return primary and let the caller's
