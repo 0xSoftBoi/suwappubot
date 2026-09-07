@@ -1,0 +1,82 @@
+{
+ "chain_id": 100,
+ "fingerprint": "8d179ca9868ae7e9",
+ "unquotable": {},
+ "verdicts": {
+  "0x056c6c5e684cec248635ed86033378cc444459b0": {
+   "family": "twocrypto",
+   "legacy_fee": true,
+   "legacy_mul2": true,
+   "legacy_pool": true,
+   "stable": false,
+   "v21": true
+  },
+  "0x0ecec6f5276d2ec6bb864f063d2b76393d6a1a74": {
+   "family": "twocrypto",
+   "legacy_fee": false,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": true,
+   "v21": true
+  },
+  "0x4a053d86bcccdfb6f85c46b38c5873129212dc1f": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported",
+   "subtract_one": true
+  },
+  "0x7f90122bf0700f9e7e1f688fe926940e8839f353": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "plain",
+   "subtract_one": true
+  },
+  "0x845c8bc94610807fcbab5dd2bc7ac9dabaff3c55": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported",
+   "subtract_one": true
+  },
+  "0x85d62ba914912803588fcd5a722483235b785263": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported",
+   "subtract_one": true
+  },
+  "0x9af34331175e053bcff330d7bb7a6ea2ba53e83d": {
+   "family": "twocrypto",
+   "legacy_fee": false,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": true,
+   "v21": true
+  },
+  "0x9c9ddda2a6bda693856b9081baebbe1444ffcc37": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported",
+   "subtract_one": true
+  },
+  "0xb5814811dc4fc2ac127a1f8fb708460bf9fad619": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported",
+   "subtract_one": true
+  },
+  "0xf3d8f3de71657d342db60dd714c8a2ae37eac6b4": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported",
+   "subtract_one": true
+  },
+  "0xfb8b95fb2296a0ad4b6b1419fdaa5aa5f13e4009": {
+   "family": "twocrypto",
+   "legacy_fee": false,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": true,
+   "v21": true
+  }
+ },
+ "version": 1
+}

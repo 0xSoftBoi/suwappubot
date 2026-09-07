@@ -1,0 +1,4 @@
+# Large binaries: future versions go to LFS.  Existing blobs stay in the
+# pack -- converting them would rewrite every commit hash, and the point here
+# is to stop the growth, not to reclaim what is already spent.
+*.gz filter=lfs diff=lfs merge=lfs -text

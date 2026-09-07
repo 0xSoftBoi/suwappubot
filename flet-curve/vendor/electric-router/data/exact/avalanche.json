@@ -1,0 +1,38 @@
+{
+ "chain_id": 43114,
+ "fingerprint": "8105012d58ca2413",
+ "unquotable": {
+  "0x7f90122bf0700f9e7e1f688fe926940e8839f353": "279110e9988c"
+ },
+ "verdicts": {
+  "0x1da20ac34187b2d9c74f729b85acb225d3341b25": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "plain"
+  },
+  "0x3a43a5851a3e3e0e25a3c1089670269786be1577": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "plain"
+  },
+  "0x864490cf55dc2dee3f0ca4d06f5f80b2bb154a03": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xaea2e71b631fa93683bcf256a8689dfa0e094fcd": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "plain"
+  },
+  "0xb755b949c126c04e0348dd881a5cf55d424742b2": {
+   "family": "tricrypto-2021"
+  },
+  "0xd7bb79aee866672419999a0496d99c54741d67b5": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "plain"
+  }
+ },
+ "version": 1
+}
