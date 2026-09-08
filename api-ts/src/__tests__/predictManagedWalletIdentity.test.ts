@@ -20,7 +20,12 @@ const TEST_AGENT = {
 } as any
 
 let verifyFailure = false
-let verifyInputs: Array<{ agentId: number; subOrgId: string; address: string }> = []
+let verifyInputs: Array<{
+	agentId: number
+	subOrgId: string
+	address: string
+	chainType: string
+}> = []
 let signInputs: Array<{
 	subOrgId: string
 	payload: string
@@ -35,8 +40,8 @@ const agentLayer = Layer.succeed(AgentService, {
 } as any)
 
 const turnkeyLayer = Layer.succeed(TurnkeyService, {
-	verifyAgentWallet: (agentId: number, subOrgId: string, address: string) => {
-		verifyInputs.push({ agentId, subOrgId, address })
+	verifyAgentWallet: (agentId: number, subOrgId: string, address: string, chainType: string) => {
+		verifyInputs.push({ agentId, subOrgId, address, chainType })
 		if (verifyFailure) return Effect.fail(new Error('provider ownership mismatch'))
 		return Effect.succeed({
 			address,
@@ -146,7 +151,12 @@ describe('POST /v1/agent/predict/order — managed wallet ownership', () => {
 
 		expect(response.status).toBe(502)
 		expect(verifyInputs).toEqual([
-			{ agentId: TEST_AGENT.id, subOrgId: 'turnkey-sub-org-a', address: ADDRESS },
+			{
+				agentId: TEST_AGENT.id,
+				subOrgId: 'turnkey-sub-org-a',
+				address: ADDRESS,
+				chainType: 'evm',
+			},
 		])
 		expect(signInputs).toHaveLength(0)
 		expect(placedWallets).toHaveLength(0)
@@ -167,7 +177,12 @@ describe('POST /v1/agent/predict/order — managed wallet ownership', () => {
 
 		expect(response.status).toBe(200)
 		expect(verifyInputs).toEqual([
-			{ agentId: TEST_AGENT.id, subOrgId: 'turnkey-sub-org-a', address: ADDRESS },
+			{
+				agentId: TEST_AGENT.id,
+				subOrgId: 'turnkey-sub-org-a',
+				address: ADDRESS,
+				chainType: 'evm',
+			},
 		])
 		expect(signInputs).toHaveLength(2)
 		expect(signInputs[0]).toMatchObject({
