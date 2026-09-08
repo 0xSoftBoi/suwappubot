@@ -17,7 +17,13 @@
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 5,
+    "restartPolicyMaxRetries": 10,
+    "limitOverride": {
+      "containers": {
+        "cpu": 2,
+        "memoryBytes": 8589934592
+      }
+    },
     "multiRegionConfig": {
       "us-east4-eqdc4a": { "numReplicas": 1 }
     },
