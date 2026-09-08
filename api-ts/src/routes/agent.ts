@@ -2487,18 +2487,42 @@ agentRoutes.post('/wallets', async (c) => {
 						service: 'turnkey',
 						cause: e,
 					})))
-				walletMetadata = {
-					...withoutManagedWalletProvisionLease(currentMetadata),
-					wallet_address: createdWallet.address,
-					wallet_sub_org_id: createdWallet.subOrgId,
-					turnkey_wallet_id: createdWallet.walletId,
-					...(createdWallet.accountId && { turnkey_account_id: createdWallet.accountId }),
-				}
-				const published = yield* agentService.compareAndSetMetadata(agent.id, claimedMetadata, walletMetadata)
-				if (Option.isNone(published)) {
-					return yield* Effect.fail(new DatabaseError({
-						message: 'Managed wallet was created but its provisioning lease was lost; operator repair is required',
-					}))
+				// Caller-owned metadata may change after the lease is claimed. Reload
+				// and CAS against the latest record while proving that our lease token
+				// is still present; this publishes the already-created provider identity
+				// without discarding the concurrent metadata update or minting again.
+				for (let publishAttempt = 0; publishAttempt < 10; publishAttempt++) {
+					const latestOption = yield* agentService.getAgentById(agent.id)
+					if (Option.isNone(latestOption)) {
+						return yield* Effect.fail(new NotFoundError({ message: 'Agent not found' }))
+					}
+					const latestMetadata = (latestOption.value.metadata as Record<string, unknown>) || {}
+					if (latestMetadata.managed_wallet_provision_token !== token) {
+						return yield* Effect.fail(new DatabaseError({
+							message: 'Managed wallet was created but its provisioning lease was lost; operator repair is required',
+						}))
+					}
+					const publishMetadata = {
+						...withoutManagedWalletProvisionLease(latestMetadata),
+						wallet_address: createdWallet.address,
+						wallet_sub_org_id: createdWallet.subOrgId,
+						turnkey_wallet_id: createdWallet.walletId,
+						...(createdWallet.accountId && { turnkey_account_id: createdWallet.accountId }),
+					}
+					const published = yield* agentService.compareAndSetMetadata(
+						agent.id,
+						latestOption.value.metadata as Record<string, unknown> | null,
+						publishMetadata,
+					)
+					if (Option.isSome(published)) {
+						walletMetadata = publishMetadata
+						break
+					}
+					if (publishAttempt === 9) {
+						return yield* Effect.fail(new DatabaseError({
+							message: 'Failed to publish the created managed wallet identity',
+						}))
+					}
 				}
 				wallet = createdWallet
 				created = true

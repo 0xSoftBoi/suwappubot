@@ -23,6 +23,7 @@ export const MANAGED_WALLET_METADATA_KEYS = [
 const MANAGED_WALLET_METADATA_KEY_SET = new Set<string>(MANAGED_WALLET_METADATA_KEYS)
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
+const EVM_ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
 export type ManagedAgentWalletIdentity = {
 	address: string
@@ -51,6 +52,7 @@ export function managedAgentWalletIdentityFromMetadata(
 	if (
 		typeof address !== 'string' ||
 		!EVM_ADDRESS_RE.test(address) ||
+		address.toLowerCase() === EVM_ZERO_ADDRESS ||
 		typeof subOrgId !== 'string' ||
 		!subOrgId
 	) {

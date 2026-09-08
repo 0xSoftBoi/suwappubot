@@ -21,7 +21,13 @@ const TEST_AGENT = {
 
 let verifyFailure = false
 let verifyInputs: Array<{ agentId: number; subOrgId: string; address: string }> = []
-let signInputs: Array<{ subOrgId: string; signWith: string }> = []
+let signInputs: Array<{
+	subOrgId: string
+	payload: string
+	signWith: string
+	hashFunction: string
+	encoding: string
+}> = []
 let placedWallets: string[] = []
 
 const agentLayer = Layer.succeed(AgentService, {
@@ -39,8 +45,14 @@ const turnkeyLayer = Layer.succeed(TurnkeyService, {
 			accountId: 'turnkey-account-a',
 		})
 	},
-	signRawPayload: (subOrgId: string, _payload: string, signWith: string) => {
-		signInputs.push({ subOrgId, signWith })
+	signRawPayload: (
+		subOrgId: string,
+		payload: string,
+		signWith: string,
+		hashFunction: string,
+		encoding: string,
+	) => {
+		signInputs.push({ subOrgId, payload, signWith, hashFunction, encoding })
 		return Effect.succeed({ r: '1', s: '2', v: '27', signature: '0xsigned' })
 	},
 } as any)
@@ -157,10 +169,21 @@ describe('POST /v1/agent/predict/order — managed wallet ownership', () => {
 		expect(verifyInputs).toEqual([
 			{ agentId: TEST_AGENT.id, subOrgId: 'turnkey-sub-org-a', address: ADDRESS },
 		])
-		expect(signInputs).toEqual([
-			{ subOrgId: 'turnkey-sub-org-a', signWith: ADDRESS },
-			{ subOrgId: 'turnkey-sub-org-a', signWith: ADDRESS },
-		])
+		expect(signInputs).toHaveLength(2)
+		expect(signInputs[0]).toMatchObject({
+			subOrgId: 'turnkey-sub-org-a',
+			signWith: ADDRESS,
+			hashFunction: 'HASH_FUNCTION_KECCAK256',
+			encoding: 'PAYLOAD_ENCODING_TEXT_UTF8',
+		})
+		expect(signInputs[0]?.payload).toContain('I want to create a CLOB API key')
+		expect(signInputs[1]).toMatchObject({
+			subOrgId: 'turnkey-sub-org-a',
+			signWith: ADDRESS,
+			hashFunction: 'HASH_FUNCTION_NO_OP',
+			encoding: 'PAYLOAD_ENCODING_HEXADECIMAL',
+		})
+		expect(signInputs[1]?.payload).toMatch(/^[0-9a-f]{64}$/i)
 		expect(placedWallets).toEqual([ADDRESS])
 	})
 })

@@ -32,6 +32,7 @@ let verifiedWalletInputs: Array<{ agentId: number; subOrgId: string; address: st
 let createPolicySubOrgs: string[] = []
 let listPolicySubOrgs: string[] = []
 let deletePolicySubOrgs: string[] = []
+let mutateAfterLeaseClaim = false
 
 const envLayer = Layer.succeed(EnvService, {
 	INTERNAL_API_KEY: 'internal-test-key',
@@ -50,7 +51,14 @@ const agentLayer = Layer.succeed(AgentService, {
 			return Effect.succeed(Option.none())
 		}
 		TEST_AGENT.metadata = replacement
-		updateCalls.push(replacement)
+		if (
+			mutateAfterLeaseClaim &&
+			typeof replacement.managed_wallet_provision_token === 'string'
+		) {
+			TEST_AGENT.metadata = { ...replacement, caller_note: 'concurrent-update' }
+			mutateAfterLeaseClaim = false
+		}
+		updateCalls.push(TEST_AGENT.metadata as Record<string, unknown>)
 		return Effect.succeed(Option.some({ ...TEST_AGENT }))
 	},
 	updateAgent: (_agentId: number, update: { metadata?: Record<string, unknown> }) => {
@@ -146,6 +154,7 @@ beforeEach(() => {
 	createPolicySubOrgs = []
 	listPolicySubOrgs = []
 	deletePolicySubOrgs = []
+	mutateAfterLeaseClaim = false
 })
 
 afterAll(() => {
@@ -181,6 +190,15 @@ describe('POST /v1/agent/wallets — one authoritative managed identity', () => 
 				managed_wallet_identity_version: 2,
 			}),
 		).toBe(true)
+	})
+
+	it('rejects a zero address as managed wallet identity', () => {
+		expect(
+			managedAgentWalletIdentityFromMetadata({
+				wallet_address: '0x0000000000000000000000000000000000000000',
+				wallet_sub_org_id: 'turnkey-sub-org-a',
+			}),
+		).toBeNull()
 	})
 
 	it('registers and advertises the same Turnkey wallet, then returns it idempotently', async () => {
@@ -226,6 +244,24 @@ describe('POST /v1/agent/wallets — one authoritative managed identity', () => 
 			managed_wallet_identity_version: 2,
 		})
 		expect((TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBeUndefined()
+	})
+
+	it('publishes a newly minted wallet across a concurrent caller metadata update', async () => {
+		mutateAfterLeaseClaim = true
+
+		const response = await agentRoutes.request('/wallets', {
+			method: 'POST',
+			headers: AUTH_HEADERS,
+		})
+
+		expect(response.status).toBe(201)
+		expect(createWalletCalls).toBe(1)
+		expect(TEST_AGENT.metadata).toMatchObject({
+			caller_note: 'concurrent-update',
+			wallet_address: ADDRESS,
+			wallet_sub_org_id: 'turnkey-sub-org-a',
+			turnkey_wallet_id: 'turnkey-wallet-a',
+		})
 	})
 
 	it('repairs legacy A/B metadata by adopting funded wallet A without minting A2', async () => {

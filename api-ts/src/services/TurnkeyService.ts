@@ -9,6 +9,54 @@ export interface TurnkeyWallet {
 	address: string
 }
 
+export type AgentTurnkeyWallet = Omit<TurnkeyWallet, 'accountId'> & {
+	accountId?: string
+}
+
+type CreatedWalletAccount = {
+	walletAccountId: string
+	address: string
+}
+
+type CreatedWalletAccountsApi = {
+	getWalletAccounts: (input: {
+		organizationId: string
+		walletId: string
+	}) => Promise<{ accounts: CreatedWalletAccount[] }>
+}
+
+/** Resolve an eventually-consistent account without losing the durable wallet identity. */
+export async function resolveCreatedAgentWalletAccount(
+	api: CreatedWalletAccountsApi,
+	subOrgId: string,
+	walletId: string,
+	address: string,
+	chainType: 'evm' | 'solana',
+	options: { attempts?: number; delayMs?: number } = {},
+): Promise<CreatedWalletAccount | undefined> {
+	const attempts = Math.max(1, options.attempts ?? 5)
+	const delayMs = Math.max(0, options.delayMs ?? 100)
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		try {
+			const accounts = await api.getWalletAccounts({ organizationId: subOrgId, walletId })
+			const account = accounts.accounts.find((candidate) =>
+				chainType === 'evm'
+					? candidate.address.toLowerCase() === address.toLowerCase()
+					: candidate.address === address,
+			)
+			if (account) return account
+		} catch {
+			// The create response already contains the durable org/wallet/address.
+			// Retry account discovery, then let the caller persist that partial
+			// identity so a later provider attestation can complete it.
+		}
+		if (attempt + 1 < attempts && delayMs > 0) {
+			await new Promise((resolve) => setTimeout(resolve, delayMs))
+		}
+	}
+	return undefined
+}
+
 export interface RawSignatureResult {
 	r: string
 	s: string
@@ -57,7 +105,7 @@ export interface TurnkeyServiceInterface {
 	readonly createAgentWallet: (
 		agentId: number,
 		chainType: 'evm' | 'solana'
-	) => Effect.Effect<TurnkeyWallet, Error>
+	) => Effect.Effect<AgentTurnkeyWallet, Error>
 	readonly verifyAgentWallet: (
 		agentId: number,
 		subOrgId: string,
@@ -529,26 +577,20 @@ export const TurnkeyServiceLive = Layer.effect(
 				if (!address) {
 					return yield* Effect.fail(new Error('Agent wallet creation failed - no address returned'))
 				}
-				const accounts = yield* Effect.tryPromise({
-					try: () => turnkeyClient.apiClient().getWalletAccounts({
-						organizationId: subOrgId,
-						walletId: wallet.walletId,
-					}),
-					catch: (err) => new Error(`Failed to resolve created agent wallet account: ${err}`),
-				})
-				const account = accounts.accounts.find((candidate) =>
-					isEvm
-						? candidate.address.toLowerCase() === address.toLowerCase()
-						: candidate.address === address,
+				const account = yield* Effect.promise(() =>
+					resolveCreatedAgentWalletAccount(
+						turnkeyClient.apiClient(),
+						subOrgId,
+						wallet.walletId,
+						address,
+						chainType,
+					),
 				)
-				if (!account) {
-					return yield* Effect.fail(new Error('Agent wallet creation failed - account not found'))
-				}
 
 				return {
 					subOrgId,
 					walletId: wallet.walletId,
-					accountId: account.walletAccountId,
+					...(account && { accountId: account.walletAccountId }),
 					address,
 				}
 			})
