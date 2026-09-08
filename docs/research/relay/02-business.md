@@ -4,7 +4,7 @@ Method: WebSearch plus third-party fetches. DefiLlama endpoints were blocked by 
 
 ## Company and team
 - Built by **Reservoir Tools, Inc.** (founded 2021), originally NFT and token trading infrastructure for apps (Coinbase, OpenSea, Magic Eden, MetaMask, Zora). Source: The Block, Feb 2025, https://www.theblock.co/post/338994/token-trading-reservoir-funding
-- Founder and CEO: **Peter Watts** (@ptrwtts). A co-founder/COO name appears in one secondary source only: UNVERIFIED.
+- Founder and CEO: **Peter Watts** (@ptrwtts). Co-founder and COO: **Jason Maier** (LinkedIn). VP of Engineering: **Julien Genestoux** (quoted in the CoinGecko case study). Hiring via https://jobs.ashbyhq.com/relayprotocol.
 - Headcount ~25 at Series A (Feb 2025), plan to reach 40 by end of 2025. Mostly US-based.
 - Relay "began as a side project to power Zora's cross-chain NFT minting" before becoming the main product line. https://relay.link/blog/introducing-relay-v2
 
@@ -25,7 +25,8 @@ Total ≈ $43M. Series A terms included token warrants. Sources: The Block; FinS
 - LIVE: median ticket $25, p90 $390, p99 $3,000. This is retail flow.
 - LIVE: 96.9% success, 2.0% refunded, 0.1% failed; top fail reason `EXECUTION_REVERTED`.
 - Do not confuse with the unrelated "RelayChain" BaaS project on DefiLlama (`defillama.com/protocol/relaychain`).
-- Relay Chain (Feb 2026): solvers accrue a running Hub balance and batch-settle claims instead of per-order settlement, cutting capital-recovery cost per fill.
+- Relay Chain (Feb 2026): solvers accrue a running Hub balance and batch-settle claims instead of per-order settlement. Built on **Sovereign SDK with Celestia data availability** (Celestia blog), claiming ~1 ms soft confirmations, 30K ops/s and ~$0.005 per order settlement. See 14-primary-sources.md.
+- DefiLlama bridge page (snippet): **$79.28M / 24h** on 2026-09-08. Our 40K-request API sample extrapolates to ~$1.09B/day of API-level activity; the gap is same-chain and Solana/Robinhood flow DefiLlama does not index (06-firehose-intel.md).
 
 ## Customers and integrators
 - Publicly named: Coinbase, OpenSea, Magic Eden, MetaMask, Zora, Phantom, Axiom, Fun.xyz, fomo.
@@ -42,6 +43,8 @@ Total ≈ $43M. Series A terms included token warrants. Sources: The Block; FinS
 - Relay charges the user a **relayer fee** (solver service + destination gas) embedded in the quote. LIVE measured: ~0.10% on a $25 swap, ~0.0095% on $50K and $1M stable transfers, about a $0.02 floor. Cross-VM to Solana ~0.15%.
 - Integrators add **app fees** in bps on input, accrued in USDC on Base, claimable free on Base. LIVE: 78% of requests carried an app fee; modal integrator fees are 50 bps (32%) and 45 bps (28%), then 10–15 bps (13%), a few at 85–100 bps. Integrators collected $1,554 on $742K in the sample (0.21% blended).
 - API keys are free and self-serve; elevated limits on request. No public enterprise price list.
+- **Integrator revenue share** (docs): requires API key, KYB, and $10M+ trailing-30-day volume; $10M–$100M/month earns 0–34% of Relay's fee by transaction type, $100M–$1B/month earns 0–67%. Below $10M/month you keep only your own app fee.
+- **Platform fee schedule** (docs): bridge and wrap 0.00%, stablecoin swap 0.01%, major swap 0.06%, minor swap 0.15%, plus a $0.02 flat execution fee; HyperLiquid deposits carry a $1 activation fee.
 - Fee sponsorship and gasless execution are prepaid from an integrator balance: Relay becomes a payments processor for the app.
 
 ## Competitive landscape

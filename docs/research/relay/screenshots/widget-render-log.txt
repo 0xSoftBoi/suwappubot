@@ -1,0 +1,14 @@
+widget-mobile-selector console: analytics SWAP_INPUT_FOCUSED {}
+widget-mobile-selector console: analytics QUOTE_REQUESTED {"parameters":{"user":"0x000000000000000000000000000000000000dead","originChainId":8453,"destinationChainId":42161,"originCurrency":"0x833589fcd6edb6e08f4c7c32d4f71b54bda0291
+widget-mobile-selector: GET /chains?referrer=127.0.0.1 → 200
+widget-mobile-selector: POST /currencies/v2 → 200
+widget-mobile-selector: GET /currencies/trending?referrer=127.0.0.1 → 200
+widget-mobile-selector: GET /currencies/token/price?address=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913&chainId=8453&referrer=127.0.0.1 → 200
+widget-mobile-selector: GET /currencies/token/price?address=0x0000000000000000000000000000000000000000&chainId=42161&referrer=127.0.0.1 → 200
+widget-mobile-selector: POST /currencies/v2 → 200
+widget-mobile-selector: POST /quote/v2 → 200
+widget-mobile-selector console: analytics QUOTE_RECEIVED {"parameters":{"user":"0x000000000000000000000000000000000000dead","originChainId":8453,"destinationChainId":42161,"originCurrency":"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913
+widget-mobile-selector console: analytics SWAP_START_TOKEN_SELECT {"direction":"input"}
+widget-mobile-selector console: analytics QUOTE_REQUESTED {"parameters":{"user":"0x000000000000000000000000000000000000dead","originChainId":8453,"destinationChainId":42161,"originCurrency":"0x833589fcd6edb6e08f4c7c32d4f71b54bda0291
+widget-mobile-selector: POST /quote/v2 → 200
+widget-mobile-selector console: analytics QUOTE_RECEIVED {"parameters":{"user":"0x000000000000000000000000000000000000dead","originChainId":8453,"destinationChainId":42161,"originCurrency":"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913

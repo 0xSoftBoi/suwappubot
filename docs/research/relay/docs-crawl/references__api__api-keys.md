@@ -1,0 +1,114 @@
+# API keys and Rate Limits - Relay
+
+Source: https://docs.relay.link/references/api/api-keys
+
+On this page
+Creating an API key
+Tracking requests
+Default Rate Limits
+Elevated Rate Limits
+How to Use an API key
+HTTP requests
+SDK usage
+Proxy API
+Keeping Your API key Secure
+API keys and Rate Limits
+Copy page
+
+Create API keys in the Relay Dashboard to authenticate requests and manage your rate limits
+
+Relay enforces rate limits to keep the platform reliable for every integrator. You manage API keys in the Relay Dashboard — create new API keys, rotate existing ones, and inspect individual requests. Default limits listed below apply to self-serve API keys.
+​
+Creating an API key
+API keys are self-serve. To create one:
+Sign in to the Relay Dashboard.
+Open the API keys tab.
+Click Create key, give it a label (e.g. production, staging), and copy the key.
+Use a separate key per environment (production, staging, local). Per-key request history makes it easy to spot a misbehaving deploy without revoking the wrong credential.
+​
+Tracking requests
+The Relay Dashboard is also where you observe what your integration is doing in production:
+Requests — full history of quotes and intents made with each key, with status, route, amounts, and timing.
+Advanced filtering — narrow the table by chain, currency, amount, status, time, and more, combining conditions with AND/OR logic to isolate exactly the requests you care about.
+Custom views — save any combination of filters, sort order, and columns as a reusable view for your team, each with its own name, icon, and color.
+Keys — create, rename, and revoke keys for your account.
+Webhooks — configure a per-key webhook endpoint so transaction status updates are pushed to your backend instead of polling.
+When debugging a specific transaction, paste the requestId from your application into the dashboard’s search to jump straight to the matching record.
+​
+Default Rate Limits
+The following limits apply per API key:
+Endpoint	Limit
+/quote	50 requests per minute
+/requests	200 requests per minute
+/transactions/status	200 requests per minute
+Other endpoints	200 requests per minute
+​
+Elevated Rate Limits
+Higher limits are available on request, applied per key:
+Endpoint	Limit
+/quote	10 requests per second
+/requests/v3	20 requests per second
+/requests	10 requests per second
+/transactions/status	10 requests per second
+/authorize	5 requests per minute per (API key, wallet), with a 30 requests per minute aggregate ceiling per API key
+Other endpoints	200 requests per minute
+/requests and /requests/v2 share the 10 rps bucket; /requests/v3 has its own 20 rps bucket.
+/authorize is bucketed by the wallet field in the request body alongside your API key, so concurrent authorizations from different end-users don’t compete for the same bucket. The aggregate per-key ceiling still applies across all wallets and bounds total volume of the on-chain authorization path.
+To request higher limits, get in touch through the support widget in the Relay Dashboard.
+Already hitting a limit? See Handling Rate Limits for how to recover from 429 responses and reduce your request volume before requesting an upgrade.
+​
+How to Use an API key
+​
+HTTP requests
+Pass the key in the request headers on every request:
+x-api-key: YOUR_API_KEY
+
+​
+SDK usage
+Global API key
+SDK action API key
+// Set apiKey only when using the SDK server-side.
+import {
+  createClient,
+  MAINNET_RELAY_API,
+} from "@relayprotocol/relay-sdk";
+
+createClient({
+  baseApiUrl: MAINNET_RELAY_API,
+  apiKey: "YOUR_API_KEY",
+  // ...other parameters
+});
+
+​
+Proxy API
+If you’re calling the SDK from the browser, stand up a proxy that appends the key server-side and point baseApiUrl at it. This keeps the key out of client bundles while preserving your key’s rate limits.
+import {
+  createClient,
+  MAINNET_RELAY_API,
+} from "@relayprotocol/relay-sdk";
+
+createClient({
+  baseApiUrl: "https://my-proxy.relay.link", // Replace with your proxy endpoint
+  // ...other parameters
+});
+
+​
+Keeping Your API key Secure
+Treat your API key like a password. It’s tied to your account, controls your rate limits, and every request made with it is attributed to you.
+If your key is leaked, anyone holding it can consume your rate limits or make requests on your behalf. Revoke and re-create the key in the Relay Dashboard immediately if you suspect it has been compromised.
+Best practices:
+Keep it server-side only — never expose it in client-side or frontend code. Use a proxy API if calling Relay from the browser.
+Use environment variables — store the key in environment variables, not hardcoded in source code.
+Don’t commit it to version control — add it to .gitignore or use a secrets manager.
+Restrict access — only share the key with team members who need it.
+Rotate regularly — create a new key in the Relay Dashboard and revoke the old one whenever a team member with access leaves.
+
+Was this page helpful?
+
+Yes
+No
+Quickstart
+Understanding Step Execution
+twitter
+Powered by
+This documentation is built and hosted on Mintlify, a developer documentation platform

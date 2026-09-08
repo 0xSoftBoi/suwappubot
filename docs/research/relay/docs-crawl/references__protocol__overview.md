@@ -1,0 +1,74 @@
+# Relay Settlement - Relay
+
+Source: https://docs.relay.link/references/protocol/overview
+
+On this page
+How It Works
+Speed
+Cost
+Capital Efficiency
+Coverage
+UX
+Settlement
+Relay Settlement
+Copy page
+
+A crosschain settlement protocol optimized for speed, cost, and reliability
+
+Relay Settlement is a hyper-optimized intents protocol, designed for high-performance solvers that want to offer non-custodial crosschain relaying with the minimum possible overhead. It’s optimized on 5 key dimensions:
+Speed — Sub-second fills with optimistic execution
+Cost — Minimal overhead on top of raw transfers
+Capital Efficiency — Flexible batching for maximum inventory re-use
+Coverage — Works on any chain, with minimal effort to deploy to new chains and VMs
+UX — Simple transfer flows + fast refunds
+Unlike other intent protocols, Relay Settlement does not attempt to be a solver marketplace, or offer any sort of orderflow auction. It’s a pure utility, designed to be used by solvers that already have their own orderflow and just need efficient settlement.
+​
+How It Works
+Relay Settlement works similarly to other crosschain intent protocols:
+User locks funds on the origin chain
+Solver fills the intent on the destination chain
+Solver proves fulfillment, to unlock payment
+The main difference is that instead of settlement happening point-to-point between the origin and destination, it all happens on the Relay Chain. Solvers cheaply settle thousands of orders in real-time, accrue a balance, and then claim in a batch with one efficient proof when they need access to funds.
+​
+Speed
+Relay is designed for sub-second fill times in production. Several design choices enable this:
+Optimistic execution — Solvers fill orders before origin chain finality, taking on minimal confirmation risk for recent blocks
+No auction delay — There is no orderflow auction or solver competition window. Solvers receive orders and fill immediately.
+Instant settlement — The solver’s Hub balance updates as soon as the Oracle attests the fill, giving solvers confidence to fill aggressively without waiting for batch cycles
+The result is a user experience where crosschain transfers feel as fast as same-chain transfers.
+​
+Cost
+Crosschain intent systems can consume significant gas: passing order objects in calldata, verifying correct fulfillment, tracking intent status, emitting events. These might seem insignificant in an age of abundant blockspace, but add up in aggregate. Any gas paid is a wholesale cost that comes out before the solver’s margin.
+Relay keeps gas consumption to an absolute minimum, as close to raw transfers as possible:
+Low-overhead deposits — Native-token deposits can be close to a raw transfer cost (~21,000 gas), while ERC20 deposits still avoid the heavier escrow patterns common in other protocols
+Zero-overhead fills — Solvers can fill with a simple transfer, no contract interaction needed on destination
+~$0.005 settlement — Orders settle on a dedicated low-cost chain, not the origin
+This enables lower costs for users, and higher margins for solvers.
+​
+Capital Efficiency
+A core concern for solvers is getting paid as quickly as possible, in order to re-use capital for future orderflow.
+Claiming payment for every intent on the origin can be expensive, so most high-volume solvers want some form of batching. But not all batching is the same — some protocols globally batch all intents on an hourly interval, resulting in significant capital lockup.
+Relay Settlement allows solvers to withdraw whenever they want, choosing their optimal point on the trade-off spectrum between cost and capital efficiency. Settle thousands of orders in real-time on the Hub, and batch withdrawals on your own schedule.
+​
+Coverage
+Relay can work on any chain, and deployment to new chains and VMs is designed to be as simple as possible — so it can be ready day 1.
+Heavy logic is shifted to the Relay Chain, so each new VM is a small module
+Pull-based verification allows oracles to watch more chains with fewer resources
+No dependencies on specific EIPs, precompiles, or advanced RPC methods
+This has allowed Relay to expand to 80+ chains. More often than not, it’s available weeks before a chain publicly launches.
+​
+UX
+Too many protocols prioritize protocol simplicity over end-user simplicity. Relay’s philosophy is different — if there’s any opportunity to reduce user friction, it takes it, even at the expense of protocol complexity.
+Deposit UX
+Users don’t want to make two transactions to approve and deposit. Gasless flows can be great, but shouldn’t be forced on users with gas. Relay allows depositing via a simple transfer, for both native and ERC20 tokens — a UX that can compete with centralized exchanges.
+Failure UX
+For most intent protocols, failures are an afterthought. If something goes wrong, the user is forced to manually collect their funds out of escrow, often after a delay. Relay allows solvers to instantly refund once they determine an order can’t be filled, abstracting complexity and giving users a UX that feels similar to using a single chain.
+
+Was this page helpful?
+
+Yes
+No
+How It Works
+twitter
+Powered by
+This documentation is built and hosted on Mintlify, a developer documentation platform

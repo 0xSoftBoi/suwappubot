@@ -1,0 +1,101 @@
+# Addresses - Relay
+
+Source: https://docs.relay.link/references/protocol/addresses
+
+On this page
+Relay Chain
+Aurora
+Depository Contracts
+Contracts
+Addresses
+Copy page
+
+Contract addresses for the Relay Settlement Protocol
+
+​
+Relay Chain
+Core settlement contracts deployed on the Relay Chain (Chain ID 537713).
+Contract	Address
+Hub	0xDDD361727C22A01EB137880678A20b0BEaE69318
+Oracle	0xd4b9fdB83C723c096d7fBE72da252aa23f1387aa
+​
+Aurora
+The Allocator and Security Council multisig are deployed on Aurora for integration with the NEAR MPC network.
+Contract	Address
+Allocator	0x7EdA04920F22ba6A2b9f2573fd9a6F6F1946Ff9f
+Security Council Multisig	0xb538ee6515F9d16eBD0BACD0503733815c9b070c
+​
+Depository Contracts
+Depository contracts are deployed on every supported origin chain. The list below is fetched live from the Chains API and stays in sync as new chains are added.
+Chain	Address	VM Type	Chain ID
+Ethereum	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	1
+Optimism	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	10
+Cronos	0x59916da825d2d2ec1bf878d71c88826f6633ecca	ethereum-vm	25
+BNB	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	56
+Gnosis	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	100
+Unichain	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	130
+Polygon	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	137
+Monad	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	143
+Sonic	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	146
+Manta Pacific	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	169
+Boba Network	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	288
+zkSync Era	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	324
+Shape	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	360
+World Chain	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	480
+Flow EVM	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	747
+Stable	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	988
+HyperEVM	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	999
+Metis	0x59916da825d2d2ec1bf878d71c88826f6633ecca	ethereum-vm	1088
+Lisk	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	1135
+Hyperliquid	0x66cf0aace1b4e562593bec10ec7868fba9932224	hyperliquid-vm	1337
+Soneium	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	1868
+Ronin	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	2020
+Abstract	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	2741
+Morph	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	2818
+Tempo	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	4217
+MegaETH	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	4326
+Robinhood Chain	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	4663
+Mantle	0x59916da825d2d2ec1bf878d71c88826f6633ecca	ethereum-vm	5000
+Somnia	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	5031
+Superseed	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	5330
+B3	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	8333
+Base	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	8453
+Plasma	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	9745
+ApeChain	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	33139
+Mode	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	34443
+Mythos	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	42018
+Arbitrum	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	42161
+Celo	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	42220
+Avalanche	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	43114
+Gunz	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	43419
+Zircuit	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	48900
+Ink	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	57073
+Linea	0x59916da825d2d2ec1bf878d71c88826f6633ecca	ethereum-vm	59144
+BOB	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	60808
+Animechain	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	69000
+Berachain	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	80094
+Blast	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	81457
+Doma	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	97477
+Plume	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	98866
+Scroll	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	534352
+XRP	rJBdWA9p5KwBoqSQTyMdg3UHLsJVzGVu5m	xrpvm	537724
+Gensyn	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	685689
+Katana	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	747474
+Lighter	731033	lighter-vm	3586256
+Ethereal	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	5064014
+Zora	0x4cd00e387622c35bddb9b4c962c136462338bc31	ethereum-vm	7777777
+Bitcoin	bc1qzmtn0q92ayejt2hpffvlktcpmyy7vvsd06sefu	bitcoin-vm	8253038
+Eclipse	99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2	solana-vm	9286185
+TON	EQCrdGsDTqA2t6xRR4N6V4J705F7w_VQbUdHnofsh-8lVIPs	tonvm	224235520
+Tron	TXtEs6t2oUWQsNos7m68gbHdE9Q5n6x2oN	tron-vm	728126428
+Solana	99vQwtBwYtrqqD9YSXbdum3KBdxPAVxYTaQ3cfnJSrN2	solana-vm	792703809
+
+Was this page helpful?
+
+Yes
+No
+Third-Party Oracle
+EVM Depository Reference
+twitter
+Powered by
+This documentation is built and hosted on Mintlify, a developer documentation platform

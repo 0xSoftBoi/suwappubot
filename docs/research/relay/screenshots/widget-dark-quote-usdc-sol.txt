@@ -1,0 +1,12 @@
+LOCAL RENDER of @relayprotocol/relay-kit-ui SwapWidget (?theme=dark&amount=25&to=sol)
+
+Sell
+USDC
+Base
+$25.00
+Buy
+Enter Address
+SOL
+$0.00
+Invalid recipient address 0xf3d63166f0ca56c3c1a3508fce03ff0cf3fb691e for chain 792703809
+CONNECT WALLET

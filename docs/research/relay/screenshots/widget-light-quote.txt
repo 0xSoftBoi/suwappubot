@@ -1,0 +1,20 @@
+LOCAL RENDER of @relayprotocol/relay-kit-ui SwapWidget (?theme=light&amount=250)
+
+Sell
+USDC
+Base
+$249.97
+Buy
+Enter Address
+ETH
+Arbitrum One
+$248.69
+(-0.51%)
+Max Slippage
+Auto
+2%
+1 USDC = 0.0004 ETH
+~ 1s
+•
+< $0.01
+CONNECT WALLET

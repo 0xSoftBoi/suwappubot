@@ -1,5 +1,5 @@
 """Sample Relay's public /requests/v2 firehose and aggregate market intel."""
-import json, sys, time, urllib.request, collections, statistics, os
+import json, sys, time, urllib.request, collections, statistics, os, gzip
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
 OUT = "/home/user/suwappubot/docs/research/relay/"
@@ -37,10 +37,10 @@ while len(rows) < N:
         })
     cont = d.get("continuation")
     if not cont: break
-    time.sleep(0.25)
+    time.sleep(0.4)
 
 rows = rows[:N]
-with open(os.path.join(OUT, "probe/firehose-sample.jsonl"), "w") as f:
+with gzip.open(os.path.join(OUT, "probe/firehose-sample.jsonl.gz"), "wt") as f:
     for r in rows: f.write(json.dumps(r) + "\n")
 
 def name(cid): return CHAINS.get(cid, str(cid))
