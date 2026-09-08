@@ -1690,6 +1690,13 @@ class Settings(BaseSettings):
         fallback = self.starknet_rpc_fallback_url
         if fallback and fallback not in (u for _, u in endpoints):
             endpoints.append(("fallback", fallback))
+        # Keyless endpoint of last resort (verified live 2026-09-07). Observed in
+        # production the same day: Alchemy answered 429 on every worker call and
+        # ZAN dropped the connection under the same burst, so one keyless
+        # fallback is not enough.
+        publicnode = "https://starknet.publicnode.com"
+        if publicnode not in (u for _, u in endpoints):
+            endpoints.append(("publicnode", publicnode))
         return endpoints
 
     def starknet_rpc_urls(self) -> list[str]:

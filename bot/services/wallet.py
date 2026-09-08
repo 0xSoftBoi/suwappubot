@@ -35,6 +35,13 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
+# Starknet endpoint cooldowns, keyed by the label from settings.starknet_rpc_endpoints().
+# Module-level on purpose: WalletService is instantiated in several places and the
+# breaker must be shared, or every instance re-discovers the same dead endpoint.
+_STARKNET_COOLDOWN: dict[str, float] = {}
+_STARKNET_QUOTA_COOLDOWN_SECONDS = 120.0  # HTTP 429: the provider told us to back off
+_STARKNET_FAILURE_COOLDOWN_SECONDS = 30.0
+
 # Solana token program ids — one getTokenAccountsByOwner per program returns
 # every token account the owner has, so a portfolio fetch is 3 RPC calls
 # (getBalance + classic SPL + Token-2022) instead of one call per mint.
@@ -1068,12 +1075,24 @@ class WalletService:
         return hex(digest & ((1 << 250) - 1))
 
     async def _starknet_rpc_call(self, method: str, params, timeout: float = 6.0):
-        """JSON-RPC call against the Starknet RPC with primary→fallback failover."""
+        """JSON-RPC call against the Starknet RPC with primary→fallback failover.
+
+        Endpoints that just failed are skipped for a cooldown (2 min on HTTP 429,
+        30 s otherwise). Without it the balance refresher re-hit a quota-exhausted
+        Alchemy on every token of every Starknet wallet, every pass — a warning
+        storm that cost a failover round-trip per call and never succeeded.
+        """
         endpoints = settings.starknet_rpc_endpoints()
+        now = time.monotonic()
+        live = [(l, u) for l, u in endpoints if _STARKNET_COOLDOWN.get(l, 0.0) <= now]
+        if not live:
+            raise ConnectionError(
+                f"All Starknet RPCs cooling down after failures ({method} not attempted)"
+            )
 
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
         last_error: Optional[Exception] = None
-        for label, url in endpoints:
+        for label, url in live:
             try:
                 async with self._http_session() as session:
                     async with session.post(
@@ -1089,9 +1108,22 @@ class WalletService:
                         return data.get("result")
             except Exception as e:
                 last_error = e
+                reason = str(e)[:80]
+                cooldown = (
+                    _STARKNET_QUOTA_COOLDOWN_SECONDS
+                    if "http_429" in reason
+                    else _STARKNET_FAILURE_COOLDOWN_SECONDS
+                )
+                _STARKNET_COOLDOWN[label] = time.monotonic() + cooldown
                 # Log the endpoint label, never the URL: the Alchemy URL carries
                 # the API key in its path (CodeQL clear-text-logging).
-                logger.warning("Starknet RPC %s failed on %s: %s", method, label, str(e)[:80])
+                logger.warning(
+                    "Starknet RPC %s failed on %s: %s (cooling down %ds)",
+                    method,
+                    label,
+                    reason,
+                    int(cooldown),
+                )
         raise ConnectionError(f"All Starknet RPCs failed for {method}: {last_error}")
 
     async def get_starknet_token_balance_raw(self, token_symbol: str, address: str) -> int:
