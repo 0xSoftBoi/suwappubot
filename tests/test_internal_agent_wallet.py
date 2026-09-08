@@ -1,7 +1,7 @@
 """Regression coverage for the cross-stack managed-agent wallet identity."""
 
-import inspect
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Query
 
 from api.routes import internal
 from bot.models.user import User, Wallet
@@ -116,13 +117,20 @@ def test_concurrent_provision_is_idempotent(client):
         assert session.query(Wallet).count() == 1
 
 
-def test_provision_uses_nonblocking_database_locks_in_async_route():
-    lock_source = inspect.getsource(internal._lock_managed_agent_identity)
-    route_source = inspect.getsource(internal.provision_agent_wallet)
+def test_provision_uses_nonblocking_database_locks(client, monkeypatch):
+    lock_options = []
+    original_with_for_update = Query.with_for_update
 
-    assert "pg_try_advisory_xact_lock" in lock_source
-    assert "SELECT pg_advisory_xact_lock" not in lock_source
-    assert route_source.count(".with_for_update(nowait=True)") == 2
+    def capture_lock_options(query, *args, **options):
+        lock_options.append(options)
+        return original_with_for_update(query, *args, **options)
+
+    monkeypatch.setattr(Query, "with_for_update", capture_lock_options)
+
+    response = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+
+    assert response.status_code == 200
+    assert lock_options == [{"nowait": True}, {"nowait": True}]
 
 
 def test_provision_reports_busy_when_advisory_lock_is_unavailable():
@@ -141,6 +149,44 @@ def test_provision_reports_busy_when_advisory_lock_is_unavailable():
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "Managed wallet provisioning is busy"
+
+
+def test_provision_database_work_does_not_block_the_event_loop(monkeypatch):
+    monkeypatch.setenv("INTERNAL_API_KEY", "internal-test-key")
+    database_started = threading.Event()
+    allow_database_to_finish = threading.Event()
+    events = []
+
+    @contextmanager
+    def slow_session():
+        events.append("database-started")
+        database_started.set()
+        allow_database_to_finish.wait(timeout=0.2)
+        events.append("database-finished")
+        raise HTTPException(status_code=418, detail="test complete")
+        yield  # pragma: no cover
+
+    request = internal.AgentProvisionRequest(**_provision_payload())
+
+    async def heartbeat():
+        while not database_started.is_set():
+            await asyncio.sleep(0)
+        events.append("event-loop-responsive")
+        allow_database_to_finish.set()
+
+    async def exercise():
+        with patch.object(internal, "get_session", new=slow_session):
+            results = await asyncio.gather(
+                internal.provision_agent_wallet(request, "internal-test-key"),
+                heartbeat(),
+                return_exceptions=True,
+            )
+        return results
+
+    results = asyncio.run(exercise())
+
+    assert isinstance(results[0], HTTPException)
+    assert events.index("event-loop-responsive") < events.index("database-finished")
 
 
 def test_provision_adopts_legacy_turnkey_identity_without_wallet_or_account_ids(client):
@@ -324,20 +370,6 @@ def test_execute_rejects_inactive_managed_wallet(client):
     execute_swap.assert_not_awaited()
 
 
-def test_execute_uses_nowait_identity_locks_inside_async_wallet_lock():
-    guard_source = inspect.getsource(internal._require_agent_execution_wallet)
-    route_source = inspect.getsource(internal.execute_agent_swap)
-
-    assert guard_source.count(".with_for_update(nowait=True)") == 2
-    assert "yield" in guard_source
-    assert "async with swap_engine.wallet_execution_context" in route_source
-    assert "with _require_agent_execution_wallet(request):" in route_source
-    assert route_source.index(
-        "async with swap_engine.wallet_execution_context"
-    ) < route_source.index("with _require_agent_execution_wallet(request):")
-    assert "_wallet_lock_held=True" in route_source
-
-
 def test_execute_maps_nowait_row_contention_cleanly():
     class LockUnavailable(Exception):
         sqlstate = "55P03"
@@ -366,6 +398,71 @@ def test_execute_maps_nowait_row_contention_cleanly():
     assert exc_info.value.detail == "Managed wallet execution is already in progress"
 
 
+def test_execute_identity_guard_uses_fk_compatible_row_locks():
+    lock_options = []
+    expected_telegram_id, expected_username = internal._managed_agent_user_identity(
+        UUID(AGENT_UUID)
+    )
+    rows = {
+        User: SimpleNamespace(
+            id=1,
+            telegram_id=expected_telegram_id,
+            username=expected_username,
+        ),
+        Wallet: SimpleNamespace(
+            id=2,
+            user_id=1,
+            address=ADDRESS,
+            wallet_provider="turnkey",
+            is_active=True,
+            chain_type="evm",
+        ),
+    }
+
+    class Query:
+        def __init__(self, row):
+            self.row = row
+
+        def filter(self, *_args):
+            return self
+
+        def with_for_update(self, **options):
+            lock_options.append(options)
+            return self
+
+        def first(self):
+            return self.row
+
+    class Session:
+        def query(self, model):
+            return Query(rows[model])
+
+    @contextmanager
+    def fake_session():
+        yield Session()
+
+    request = internal.AgentSwapRequest(
+        agent_id=42,
+        agent_uuid=AGENT_UUID,
+        wallet_address=ADDRESS,
+        internal_user_id=1,
+        internal_wallet_id=2,
+        chain_type="evm",
+        quote_data={},
+    )
+
+    with patch.object(internal, "get_session", new=fake_session):
+        with internal._require_agent_execution_wallet(request):
+            pass
+
+    # FOR NO KEY UPDATE NOWAIT blocks identity changes while remaining compatible
+    # with the foreign-key key-share lock taken by SwapTransaction inserts.
+    assert lock_options == [
+        {"nowait": True, "key_share": True},
+        {"nowait": True, "key_share": True},
+    ]
+
+
 def test_engine_rejects_unproven_already_locked_bypass():
     from bot.services.swap_engine import swap_engine
 
@@ -380,6 +477,83 @@ def test_engine_rejects_unproven_already_locked_bypass():
         async with swap_engine.wallet_execution_context(wallet_id):
             async with swap_engine.wallet_execution_context(wallet_id, already_locked=True):
                 pass
+
+    asyncio.run(exercise())
+
+
+def test_engine_rejects_already_locked_bypass_from_another_task():
+    from bot.services.swap_engine import SwapEngine
+
+    engine = object.__new__(SwapEngine)
+    engine._wallet_locks = {}
+    engine._wallet_lock_users = {}
+    engine._wallet_lock_owners = {}
+    engine._wallet_locks_max = 1000
+
+    async def exercise():
+        acquired = asyncio.Event()
+        release = asyncio.Event()
+
+        async def owner():
+            async with engine.wallet_execution_context(123):
+                acquired.set()
+                await release.wait()
+
+        task = asyncio.create_task(owner())
+        await acquired.wait()
+        try:
+            with pytest.raises(RuntimeError, match="was not acquired"):
+                async with engine.wallet_execution_context(123, already_locked=True):
+                    pass
+        finally:
+            release.set()
+            await task
+
+    asyncio.run(exercise())
+
+
+def test_engine_does_not_evict_a_wallet_lock_with_queued_waiters():
+    from bot.services.swap_engine import SwapEngine
+
+    engine = object.__new__(SwapEngine)
+    engine._wallet_locks = {}
+    engine._wallet_lock_users = {}
+    engine._wallet_lock_owners = {}
+    engine._wallet_locks_max = 2
+
+    async def exercise():
+        owner_acquired = asyncio.Event()
+        release_owner = asyncio.Event()
+        waiter_acquired = asyncio.Event()
+        release_waiter = asyncio.Event()
+
+        async def owner():
+            async with engine.wallet_execution_context(1):
+                owner_acquired.set()
+                await release_owner.wait()
+            # Lock.release() wakes the queued waiter, but it has not resumed yet.
+            # Filling the cache in this window must not replace its lock object.
+            engine.wallet_execution_lock(3)
+
+        async def waiter():
+            async with engine.wallet_execution_context(1):
+                waiter_acquired.set()
+                await release_waiter.wait()
+
+        owner_task = asyncio.create_task(owner())
+        await owner_acquired.wait()
+        original_lock = engine.wallet_execution_lock(1)
+        engine.wallet_execution_lock(2)
+        waiter_task = asyncio.create_task(waiter())
+        await asyncio.sleep(0)
+
+        release_owner.set()
+        await owner_task
+        assert engine.wallet_execution_lock(1) is original_lock
+
+        await waiter_acquired.wait()
+        release_waiter.set()
+        await waiter_task
 
     asyncio.run(exercise())
 

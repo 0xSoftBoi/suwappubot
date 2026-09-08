@@ -790,6 +790,12 @@ class SwapEngine:
         self.propamm_titan = PropAMMAPI()
         self.wallet_service = WalletService()
         self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
+        # Count owners plus queued waiters separately from asyncio.Lock.locked().
+        # asyncio briefly reports an unlocked lock after release while a queued
+        # waiter is being resumed; evicting it in that window creates a second
+        # lock for the same wallet and permits concurrent signing.
+        self._wallet_lock_users: dict[int, int] = {}
+        self._wallet_lock_owners: dict[int, asyncio.Task] = {}
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
         # MONEY-PATH: exact-request singleflight only.  This is deliberately
         # separate from quote_cache: it changes no TTL/freshness behavior and
@@ -838,9 +844,16 @@ class SwapEngine:
         """Return the process-wide execution lock for one wallet."""
         if wallet_id not in self._wallet_locks:
             if len(self._wallet_locks) >= self._wallet_locks_max:
-                # Evict unlocked entries to prevent unbounded memory growth.
-                to_remove = [key for key, lock in self._wallet_locks.items() if not lock.locked()]
-                for key in to_remove[: len(to_remove) // 2]:
+                # Evict only entries with neither an owner nor queued waiters.
+                # `lock.locked()` alone is insufficient: release() marks an
+                # asyncio.Lock unlocked before its first waiter resumes.
+                to_remove = [
+                    key
+                    for key, lock in self._wallet_locks.items()
+                    if not lock.locked() and self._wallet_lock_users.get(key, 0) == 0
+                ]
+                remove_count = max(1, len(to_remove) // 2) if to_remove else 0
+                for key in to_remove[:remove_count]:
                     del self._wallet_locks[key]
             self._wallet_locks[wallet_id] = asyncio.Lock()
         return self._wallet_locks[wallet_id]
@@ -848,13 +861,29 @@ class SwapEngine:
     @asynccontextmanager
     async def wallet_execution_context(self, wallet_id: int, *, already_locked: bool = False):
         """Serialize wallet execution, or acknowledge a lock held by the caller."""
+        current_task = asyncio.current_task()
         if already_locked:
-            if not self.wallet_execution_lock(wallet_id).locked():
+            if self._wallet_lock_owners.get(wallet_id) is not current_task:
                 raise RuntimeError("wallet execution lock was not acquired by the caller")
             yield
             return
-        async with self.wallet_execution_lock(wallet_id):
-            yield
+
+        lock = self.wallet_execution_lock(wallet_id)
+        self._wallet_lock_users[wallet_id] = self._wallet_lock_users.get(wallet_id, 0) + 1
+        try:
+            async with lock:
+                self._wallet_lock_owners[wallet_id] = current_task
+                try:
+                    yield
+                finally:
+                    if self._wallet_lock_owners.get(wallet_id) is current_task:
+                        del self._wallet_lock_owners[wallet_id]
+        finally:
+            remaining = self._wallet_lock_users[wallet_id] - 1
+            if remaining:
+                self._wallet_lock_users[wallet_id] = remaining
+            else:
+                del self._wallet_lock_users[wallet_id]
 
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""

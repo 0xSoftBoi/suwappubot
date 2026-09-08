@@ -10,7 +10,6 @@ import hmac
 import logging
 import re
 from contextlib import contextmanager
-from contextvars import ContextVar
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
@@ -23,7 +22,7 @@ from bot.config.settings import settings
 from bot.services.wallet import WalletService
 from bot.services.x402_service import x402_service
 from bot.models.user import Wallet
-from database.db import get_session
+from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
@@ -253,9 +252,6 @@ class AgentProvisionRequest(BaseModel):
 
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _SOLANA_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
-_provision_retry_count: ContextVar[int] = ContextVar(
-    "managed_agent_provision_retry_count", default=0
-)
 
 
 def _managed_agent_user_identity(agent_uuid: UUID) -> tuple[int, str]:
@@ -306,6 +302,118 @@ def _lock_managed_agent_identity(session, agent_int_id: int) -> None:
             raise HTTPException(status_code=409, detail="Managed wallet provisioning is busy")
 
 
+def _provision_agent_wallet_in_db(request: AgentProvisionRequest) -> dict:
+    """Run one managed-wallet registration transaction on the DB executor."""
+    from bot.models.user import User
+
+    agent_uuid = request.agent_uuid
+    agent_int_id, agent_username = _managed_agent_user_identity(agent_uuid)
+    address = _canonical_provision_address(request)
+    wallet_name = f"agent_{str(agent_uuid)[:8]}"
+
+    with get_session() as session:
+        # Serialize even the first insert, when there is no User row to lock.
+        _lock_managed_agent_identity(session, agent_int_id)
+        user = (
+            session.query(User)
+            .filter(User.telegram_id == agent_int_id)
+            .with_for_update(nowait=True)
+            .first()
+        )
+        if user and user.username != agent_username:
+            raise HTTPException(status_code=409, detail="Managed agent identity collision")
+        if not user:
+            user = User(
+                telegram_id=agent_int_id,
+                username=agent_username,
+                first_name="Managed Agent",
+            )
+            session.add(user)
+            session.flush()
+            logger.info(f"Created agent user: id={user.id}, telegram_id={agent_int_id}")
+        user_id = user.id
+
+        active_wallets = (
+            session.query(Wallet)
+            .filter(
+                Wallet.user_id == user_id,
+                Wallet.wallet_provider == "turnkey",
+                Wallet.chain_type == request.chain_type,
+                Wallet.is_active.is_(True),
+            )
+            .with_for_update(nowait=True)
+            .all()
+        )
+        if len(active_wallets) > 1:
+            raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
+
+        address_match = (
+            func.lower(Wallet.address) == address.lower()
+            if request.chain_type == "evm"
+            else Wallet.address == address
+        )
+        identity_filters = [address_match]
+        if request.turnkey_wallet_id:
+            identity_filters.append(Wallet.turnkey_wallet_id == request.turnkey_wallet_id)
+        if request.turnkey_account_id:
+            identity_filters.append(Wallet.turnkey_account_id == request.turnkey_account_id)
+        candidates = session.query(Wallet).filter(or_(*identity_filters)).all()
+        if len(candidates) > 1:
+            raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
+
+        if active_wallets:
+            wallet = active_wallets[0]
+            if candidates and candidates[0].id != wallet.id:
+                raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
+        elif candidates:
+            wallet = candidates[0]
+        else:
+            wallet = None
+
+        if wallet is not None:
+            identity_matches = (
+                wallet.user_id == user_id
+                and wallet.wallet_provider == "turnkey"
+                and wallet.is_active is True
+                and wallet.turnkey_sub_org_id == request.turnkey_sub_org_id
+                and (
+                    not request.turnkey_wallet_id
+                    or wallet.turnkey_wallet_id == request.turnkey_wallet_id
+                )
+                and (
+                    not request.turnkey_account_id
+                    or wallet.turnkey_account_id == request.turnkey_account_id
+                )
+                and wallet.chain_type == request.chain_type
+                and _wallet_addresses_match(wallet.address, address, request.chain_type)
+            )
+            if not identity_matches:
+                raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
+        else:
+            wallet = Wallet(
+                user_id=user_id,
+                name=wallet_name,
+                address=address,
+                encrypted_private_key=None,
+                encryption_scheme="turnkey",
+                wallet_provider="turnkey",
+                turnkey_sub_org_id=request.turnkey_sub_org_id,
+                turnkey_wallet_id=request.turnkey_wallet_id,
+                turnkey_account_id=request.turnkey_account_id,
+                chain_type=request.chain_type,
+                is_active=True,
+                is_default=True,
+            )
+            session.add(wallet)
+            session.flush()
+
+        return {
+            "internal_user_id": user_id,
+            "internal_wallet_id": wallet.id,
+            "address": wallet.address,
+        }
+
+
 @router.post("/agent/provision-wallet")
 async def provision_agent_wallet(
     request: AgentProvisionRequest,
@@ -315,144 +423,33 @@ async def provision_agent_wallet(
     _verify_internal_key(x_internal_key)
 
     try:
-        from bot.models.user import User
-
-        agent_uuid = request.agent_uuid
-        agent_int_id, agent_username = _managed_agent_user_identity(agent_uuid)
-        address = _canonical_provision_address(request)
-        wallet_name = f"agent_{str(agent_uuid)[:8]}"
-
-        with get_session() as session:
-            # Serialize even the first insert, when there is no User row to lock.
-            _lock_managed_agent_identity(session, agent_int_id)
-            user = (
-                session.query(User)
-                .filter(User.telegram_id == agent_int_id)
-                .with_for_update(nowait=True)
-                .first()
-            )
-            if user and user.username != agent_username:
-                raise HTTPException(status_code=409, detail="Managed agent identity collision")
-            if not user:
-                user = User(
-                    telegram_id=agent_int_id,
-                    username=agent_username,
-                    first_name="Managed Agent",
-                )
-                session.add(user)
-                session.flush()
-                logger.info(f"Created agent user: id={user.id}, telegram_id={agent_int_id}")
-            user_id = user.id
-
-            active_wallets = (
-                session.query(Wallet)
-                .filter(
-                    Wallet.user_id == user_id,
-                    Wallet.wallet_provider == "turnkey",
-                    Wallet.chain_type == request.chain_type,
-                    Wallet.is_active.is_(True),
-                )
-                .with_for_update(nowait=True)
-                .all()
-            )
-            if len(active_wallets) > 1:
-                raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
-
-            address_match = (
-                func.lower(Wallet.address) == address.lower()
-                if request.chain_type == "evm"
-                else Wallet.address == address
-            )
-            identity_filters = [address_match]
-            if request.turnkey_wallet_id:
-                identity_filters.append(Wallet.turnkey_wallet_id == request.turnkey_wallet_id)
-            if request.turnkey_account_id:
-                identity_filters.append(Wallet.turnkey_account_id == request.turnkey_account_id)
-            candidates = session.query(Wallet).filter(or_(*identity_filters)).all()
-            if len(candidates) > 1:
-                raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
-
-            if active_wallets:
-                wallet = active_wallets[0]
-                if candidates and candidates[0].id != wallet.id:
-                    raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
-            elif candidates:
-                wallet = candidates[0]
-            else:
-                wallet = None
-
-            if wallet is not None:
-                identity_matches = (
-                    wallet.user_id == user_id
-                    and wallet.wallet_provider == "turnkey"
-                    and wallet.is_active is True
-                    and wallet.turnkey_sub_org_id == request.turnkey_sub_org_id
-                    and (
-                        not request.turnkey_wallet_id
-                        or wallet.turnkey_wallet_id == request.turnkey_wallet_id
-                    )
-                    and (
-                        not request.turnkey_account_id
-                        or wallet.turnkey_account_id == request.turnkey_account_id
-                    )
-                    and wallet.chain_type == request.chain_type
-                    and _wallet_addresses_match(wallet.address, address, request.chain_type)
-                )
-                if not identity_matches:
-                    raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
-            else:
-                wallet = Wallet(
-                    user_id=user_id,
-                    name=wallet_name,
-                    address=address,
-                    encrypted_private_key=None,
-                    encryption_scheme="turnkey",
-                    wallet_provider="turnkey",
-                    turnkey_sub_org_id=request.turnkey_sub_org_id,
-                    turnkey_wallet_id=request.turnkey_wallet_id,
-                    turnkey_account_id=request.turnkey_account_id,
-                    chain_type=request.chain_type,
-                    is_active=True,
-                    is_default=True,
-                )
-                session.add(wallet)
-                session.flush()
-
-            wallet_id = wallet.id
-            wallet_address = wallet.address
+        for retry_count in range(4):
+            try:
+                result = await run_in_db(_provision_agent_wallet_in_db, request)
+                break
+            except OperationalError as error:
+                # PostgreSQL is serialized by the advisory lock above. SQLite
+                # reports write contention instead, so retry the complete,
+                # idempotent transaction after rollback.
+                if "database is locked" not in str(error).lower() or retry_count == 3:
+                    raise
+                await asyncio.sleep(0.05 * (retry_count + 1))
 
         logger.info(
             "Provisioned managed wallet for agent %s: user_id=%s, wallet_id=%s",
-            str(agent_uuid)[:8],
-            user_id,
-            wallet_id,
+            str(request.agent_uuid)[:8],
+            result["internal_user_id"],
+            result["internal_wallet_id"],
         )
-
-        return {
-            "internal_user_id": user_id,
-            "internal_wallet_id": wallet_id,
-            "address": wallet_address,
-        }
+        return result
 
     except HTTPException:
         raise
-    except OperationalError as e:
-        # PostgreSQL is serialized by the advisory lock above. SQLite (used by
-        # focused tests and some local installs) reports write contention
-        # instead, so retry the complete idempotent transaction a bounded number
-        # of times after rollback rather than exposing a transient 500.
-        retry_count = _provision_retry_count.get()
-        if "database is locked" in str(e).lower() and retry_count < 3:
-            token = _provision_retry_count.set(retry_count + 1)
-            try:
-                await asyncio.sleep(0.05 * (retry_count + 1))
-                return await provision_agent_wallet(request, x_internal_key)
-            finally:
-                _provision_retry_count.reset(token)
-        logger.error("Agent provision database contention: %s", type(e).__name__)
+    except OperationalError as error:
+        logger.error("Agent provision database contention: %s", type(error).__name__)
         raise HTTPException(status_code=503, detail="Agent wallet provisioning busy")
-    except Exception as e:
-        logger.error(f"Agent provision failed: {e}")
+    except Exception as error:
+        logger.error("Agent provision failed: %s", error)
         raise HTTPException(status_code=500, detail="Agent wallet provisioning failed")
 
 
@@ -490,13 +487,16 @@ def _require_agent_execution_wallet(request: AgentSwapRequest):
             user = (
                 session.query(User)
                 .filter(User.id == request.internal_user_id)
-                .with_for_update(nowait=True)
+                # FOR NO KEY UPDATE preserves identity stability while allowing
+                # SwapTransaction's FK check to take FOR KEY SHARE in the engine's
+                # separate DB session. FOR UPDATE here self-deadlocks that insert.
+                .with_for_update(nowait=True, key_share=True)
                 .first()
             )
             wallet = (
                 session.query(Wallet)
                 .filter(Wallet.id == request.internal_wallet_id)
-                .with_for_update(nowait=True)
+                .with_for_update(nowait=True, key_share=True)
                 .first()
             )
             if wallet is None or user is None:
