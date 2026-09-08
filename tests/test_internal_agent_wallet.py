@@ -101,6 +101,33 @@ def test_provision_registers_turnkey_wallet_idempotently(client):
     assert wallet.turnkey_account_id == "turnkey-account-a"
 
 
+def test_provision_and_execution_reject_the_evm_zero_address(client):
+    zero_address = "0x" + "0" * 40
+
+    provision = _post(
+        client,
+        "/internal/agent/provision-wallet",
+        _provision_payload(address=zero_address),
+    )
+    assert provision.status_code == 422
+
+    request = internal.AgentSwapRequest(
+        agent_id=42,
+        agent_uuid=AGENT_UUID,
+        wallet_address=zero_address,
+        internal_user_id=1,
+        internal_wallet_id=2,
+        chain_type="evm",
+        quote_data={},
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        internal._require_agent_execution_wallet(request)
+    assert exc_info.value.status_code == 422
+
+    with get_session() as session:
+        assert session.query(Wallet).count() == 0
+
+
 def test_concurrent_provision_is_idempotent(client):
     with ThreadPoolExecutor(max_workers=2) as executor:
         responses = list(
@@ -421,8 +448,7 @@ def test_execute_maps_nowait_row_contention_cleanly():
         patch.object(internal, "get_session", new=locked_session),
         pytest.raises(HTTPException) as exc_info,
     ):
-        with internal._require_agent_execution_wallet(request):
-            pass
+        internal._require_agent_execution_wallet(request)
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "Managed wallet execution is already in progress"
@@ -482,8 +508,7 @@ def test_execute_identity_guard_uses_fk_compatible_row_locks():
     )
 
     with patch.object(internal, "get_session", new=fake_session):
-        with internal._require_agent_execution_wallet(request):
-            pass
+        internal._require_agent_execution_wallet(request)
 
     # FOR NO KEY UPDATE NOWAIT blocks identity changes while remaining compatible
     # with the foreign-key key-share lock taken by SwapTransaction inserts.
@@ -494,21 +519,36 @@ def test_execute_identity_guard_uses_fk_compatible_row_locks():
 
 
 def test_engine_rejects_unproven_already_locked_bypass():
-    from bot.services.swap_engine import swap_engine
+    from bot.services.swap_engine import SwapEngine
 
     wallet_id = 987654
-    swap_engine._wallet_locks.pop(wallet_id, None)
+    engine = object.__new__(SwapEngine)
+    engine._wallet_locks = {}
+    engine._wallet_lock_users = {}
+    engine._wallet_lock_owners = {}
+    engine._wallet_locks_max = 1000
 
     async def exercise():
         with pytest.raises(RuntimeError, match="was not acquired"):
-            async with swap_engine.wallet_execution_context(wallet_id, already_locked=True):
+            async with engine.wallet_execution_context(wallet_id, already_locked=True):
                 pass
 
-        async with swap_engine.wallet_execution_context(wallet_id):
-            async with swap_engine.wallet_execution_context(wallet_id, already_locked=True):
+        async with engine.wallet_execution_context(wallet_id):
+            async with engine.wallet_execution_context(wallet_id, already_locked=True):
                 pass
 
     asyncio.run(exercise())
+
+
+def test_swap_engine_instances_share_process_execution_lock_state():
+    from bot.services.swap_engine import SwapEngine
+
+    first = SwapEngine()
+    second = SwapEngine()
+
+    assert first._wallet_locks is second._wallet_locks
+    assert first._wallet_lock_users is second._wallet_lock_users
+    assert first._wallet_lock_owners is second._wallet_lock_owners
 
 
 def test_engine_rejects_already_locked_bypass_from_another_task():
@@ -607,24 +647,21 @@ def test_concurrent_execute_orders_async_wallet_lock_before_db_guard(client):
         },
     )
 
-    from bot.services.swap_engine import swap_engine
+    import bot.services.swap_engine as swap_engine_module
+    from bot.services.swap_engine import SwapEngine
 
-    swap_engine._wallet_locks.pop(provisioned["internal_wallet_id"], None)
+    engine = object.__new__(SwapEngine)
+    engine._wallet_locks = {}
+    engine._wallet_lock_users = {}
+    engine._wallet_lock_owners = {}
+    engine._wallet_locks_max = 1000
     events = []
-    active_guards = 0
+    event_loop_thread_id = threading.get_ident()
 
-    @contextmanager
     def guarded(_request):
-        nonlocal active_guards
-        assert swap_engine.wallet_execution_lock(provisioned["internal_wallet_id"]).locked()
-        active_guards += 1
-        assert active_guards == 1
-        events.append("db-enter")
-        try:
-            yield
-        finally:
-            events.append("db-exit")
-            active_guards -= 1
+        assert threading.get_ident() != event_loop_thread_id
+        assert engine.wallet_execution_lock(provisioned["internal_wallet_id"]).locked()
+        events.append("db-validate")
 
     async def execute_swap(**kwargs):
         assert kwargs["_wallet_lock_held"] is True
@@ -635,8 +672,9 @@ def test_concurrent_execute_orders_async_wallet_lock_before_db_guard(client):
 
     async def run_concurrently():
         with (
+            patch.object(swap_engine_module, "swap_engine", new=engine),
             patch.object(internal, "_require_agent_execution_wallet", new=guarded),
-            patch.object(swap_engine, "execute_swap", new=execute_swap),
+            patch.object(engine, "execute_swap", new=execute_swap),
         ):
             return await asyncio.wait_for(
                 asyncio.gather(
@@ -650,12 +688,10 @@ def test_concurrent_execute_orders_async_wallet_lock_before_db_guard(client):
 
     assert len(results) == 2
     assert events == [
-        "db-enter",
+        "db-validate",
         "engine-start",
         "engine-end",
-        "db-exit",
-        "db-enter",
+        "db-validate",
         "engine-start",
         "engine-end",
-        "db-exit",
     ]

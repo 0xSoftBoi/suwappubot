@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { Effect, Layer, Option } from 'effect'
 import { EnvService } from '../config/EnvService'
 import {
@@ -23,9 +23,12 @@ const TEST_AGENT = {
 } as any
 
 let createWalletCalls = 0
+let createdWalletAddress = ADDRESS
 let updateCalls: Record<string, unknown>[] = []
 let provisionBodies: Record<string, unknown>[] = []
 let provisionAddress = ADDRESS
+let provisionGate: Promise<void> | null = null
+let onProvisionStarted: (() => void) | null = null
 let verifyWalletCalls = 0
 let verifyWalletFailure = false
 let verifiedWalletInputs: Array<{ agentId: number; subOrgId: string; address: string }> = []
@@ -72,7 +75,7 @@ const turnkeyLayer = Layer.succeed(TurnkeyService, {
 	createAgentWallet: () => {
 		createWalletCalls++
 		return Effect.succeed({
-			address: ADDRESS,
+			address: createdWalletAddress,
 			subOrgId: 'turnkey-sub-org-a',
 			walletId: 'turnkey-wallet-a',
 			accountId: 'turnkey-account-a',
@@ -129,6 +132,8 @@ beforeAll(async () => {
 		async (_input: string | URL | Request, init?: RequestInit) => {
 			const body = JSON.parse(String(init?.body)) as Record<string, unknown>
 			provisionBodies.push(body)
+			onProvisionStarted?.()
+			if (provisionGate) await provisionGate
 			return new Response(
 				JSON.stringify({
 					internal_user_id: 901,
@@ -145,9 +150,12 @@ beforeAll(async () => {
 beforeEach(() => {
 	TEST_AGENT.metadata = null
 	createWalletCalls = 0
+	createdWalletAddress = ADDRESS
 	updateCalls = []
 	provisionBodies = []
 	provisionAddress = ADDRESS
+	provisionGate = null
+	onProvisionStarted = null
 	verifyWalletCalls = 0
 	verifyWalletFailure = false
 	verifiedWalletInputs = []
@@ -246,6 +254,43 @@ describe('POST /v1/agent/wallets — one authoritative managed identity', () => 
 		expect((TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBeUndefined()
 	})
 
+	it('retains the provisioning lease until Python registration completes', async () => {
+		let releaseProvision!: () => void
+		let markProvisionStarted!: () => void
+		provisionGate = new Promise<void>((resolve) => { releaseProvision = resolve })
+		const provisionStarted = new Promise<void>((resolve) => { markProvisionStarted = resolve })
+		onProvisionStarted = markProvisionStarted
+
+		const firstRequest = agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+		await provisionStarted
+		const secondRequest = agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+		await new Promise((resolve) => setTimeout(resolve, 50))
+
+		expect(provisionBodies).toHaveLength(1)
+		expect(TEST_AGENT.metadata).toMatchObject({
+			wallet_address: ADDRESS,
+		})
+		expect(typeof (TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBe('string')
+
+		releaseProvision()
+		const [first, second] = await Promise.all([firstRequest, secondRequest])
+		expect([first.status, second.status].sort()).toEqual([200, 201])
+		expect(createWalletCalls).toBe(1)
+		expect(provisionBodies).toHaveLength(2)
+		expect((TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBeUndefined()
+	})
+
+	it('rejects an invalid provider address before publishing or calling Python', async () => {
+		createdWalletAddress = '0x0000000000000000000000000000000000000000'
+
+		const response = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+		expect(response.status).toBe(502)
+		expect(createWalletCalls).toBe(1)
+		expect(provisionBodies).toHaveLength(0)
+		expect(TEST_AGENT.metadata).not.toHaveProperty('wallet_address')
+	})
+
 	it('publishes a newly minted wallet across a concurrent caller metadata update', async () => {
 		mutateAfterLeaseClaim = true
 
@@ -341,6 +386,35 @@ describe('POST /v1/agent/wallets — one authoritative managed identity', () => 
 		expect(response.status).toBe(500)
 		expect(createWalletCalls).toBe(0)
 		expect(provisionBodies).toHaveLength(0)
+	})
+
+	it('returns an explicit conflict when another provisioning lease outlives the wait budget', async () => {
+		const realNow = Date.now()
+		TEST_AGENT.metadata = {
+			managed_wallet_provision_token: 'active-lease',
+			managed_wallet_provision_started_at: new Date(realNow).toISOString(),
+		}
+		let simulatedNow = realNow
+		const nowSpy = spyOn(Date, 'now').mockImplementation(() => {
+			simulatedNow += 1_001
+			return simulatedNow
+		})
+
+		try {
+			const response = await agentRoutes.request('/wallets', {
+				method: 'POST',
+				headers: AUTH_HEADERS,
+			})
+			const body = (await response.json()) as Record<string, unknown>
+
+			expect(response.status).toBe(409)
+			expect(body.error).toBe('Managed wallet provisioning is already in progress')
+			expect(body.retry_after_ms).toBe(1_000)
+			expect(createWalletCalls).toBe(0)
+			expect(provisionBodies).toHaveLength(0)
+		} finally {
+			nowSpy.mockRestore()
+		}
 	})
 
 	it('keeps a newly minted identity pending when Python returns a different address', async () => {

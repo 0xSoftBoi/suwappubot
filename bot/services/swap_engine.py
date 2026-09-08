@@ -77,6 +77,14 @@ from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
 
+# MONEY-PATH: execution serialization belongs to the process, not an engine
+# instance. Several legacy surfaces still construct SwapEngine directly; shared
+# registries keep those paths on the same per-wallet lock and make new instances
+# safe by construction.
+_PROCESS_WALLET_LOCKS: dict[int, asyncio.Lock] = {}
+_PROCESS_WALLET_LOCK_USERS: dict[int, int] = {}
+_PROCESS_WALLET_LOCK_OWNERS: dict[int, asyncio.Task] = {}
+
 # Providers that execute_swap can actually execute. This must stay in sync with
 # the dispatch chain in execute_swap -- one entry per `elif quote.provider ==`
 # branch. It is an allowlist rather than a denylist on purpose: `quote.provider`
@@ -789,13 +797,13 @@ class SwapEngine:
         self.kyberswap = KyberSwapAPI()
         self.propamm_titan = PropAMMAPI()
         self.wallet_service = WalletService()
-        self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
+        self._wallet_locks = _PROCESS_WALLET_LOCKS
         # Count owners plus queued waiters separately from asyncio.Lock.locked().
         # asyncio briefly reports an unlocked lock after release while a queued
         # waiter is being resumed; evicting it in that window creates a second
         # lock for the same wallet and permits concurrent signing.
-        self._wallet_lock_users: dict[int, int] = {}
-        self._wallet_lock_owners: dict[int, asyncio.Task] = {}
+        self._wallet_lock_users = _PROCESS_WALLET_LOCK_USERS
+        self._wallet_lock_owners = _PROCESS_WALLET_LOCK_OWNERS
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
         # MONEY-PATH: exact-request singleflight only.  This is deliberately
         # separate from quote_cache: it changes no TTL/freshness behavior and
@@ -8333,6 +8341,6 @@ class SwapEngine:
         return swap_transactions
 
 
-# Shared execution engine: its per-wallet locks must span every internal-agent
-# request in this process. Constructing an engine per request defeats that guard.
+# Preferred shared engine. The execution registries are also module-shared so
+# legacy and dependency-injected SwapEngine instances cannot bypass its locks.
 swap_engine = SwapEngine()

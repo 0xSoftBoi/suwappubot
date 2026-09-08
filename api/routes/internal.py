@@ -9,7 +9,6 @@ import hashlib
 import hmac
 import logging
 import re
-from contextlib import contextmanager
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
@@ -252,6 +251,13 @@ class AgentProvisionRequest(BaseModel):
 
 _EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _SOLANA_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+_EVM_ZERO_ADDRESS = "0x" + "0" * 40
+
+
+def _is_valid_managed_address(address: str, chain_type: str) -> bool:
+    if chain_type == "evm":
+        return bool(_EVM_ADDRESS_RE.fullmatch(address)) and address.lower() != _EVM_ZERO_ADDRESS
+    return bool(_SOLANA_ADDRESS_RE.fullmatch(address))
 
 
 def _managed_agent_user_identity(agent_uuid: UUID) -> tuple[int, str]:
@@ -269,12 +275,7 @@ def _managed_agent_user_identity(agent_uuid: UUID) -> tuple[int, str]:
 
 def _canonical_provision_address(request: AgentProvisionRequest) -> str:
     address = request.address.strip()
-    valid = (
-        _EVM_ADDRESS_RE.fullmatch(address)
-        if request.chain_type == "evm"
-        else _SOLANA_ADDRESS_RE.fullmatch(address)
-    )
-    if not valid:
+    if not _is_valid_managed_address(address, request.chain_type):
         raise HTTPException(status_code=422, detail="Invalid managed wallet address")
     return address
 
@@ -477,17 +478,11 @@ class AgentSwapRequest(BaseModel):
     quote_data: Dict[str, Any]
 
 
-@contextmanager
 def _require_agent_execution_wallet(request: AgentSwapRequest):
-    """Lock and validate one managed wallet through the caller's execution."""
+    """Validate one managed wallet in a short, isolated DB transaction."""
     expected_telegram_id, expected_username = _managed_agent_user_identity(request.agent_uuid)
     request_address = request.wallet_address.strip()
-    valid_address = (
-        _EVM_ADDRESS_RE.fullmatch(request_address)
-        if request.chain_type == "evm"
-        else _SOLANA_ADDRESS_RE.fullmatch(request_address)
-    )
-    if not valid_address:
+    if not _is_valid_managed_address(request_address, request.chain_type):
         raise HTTPException(status_code=422, detail="Invalid managed wallet address")
 
     try:
@@ -533,7 +528,6 @@ def _require_agent_execution_wallet(request: AgentSwapRequest):
                     request.internal_wallet_id,
                 )
                 raise HTTPException(status_code=403, detail="Managed wallet identity mismatch")
-            yield
     except OperationalError as error:
         if _is_execution_lock_contention(error):
             raise HTTPException(
@@ -589,18 +583,18 @@ async def execute_agent_swap(
             f"Executing swap for agent {str(request.agent_uuid)[:8]}: {quote.from_amount} {quote.from_token} → {quote.to_token}"
         )
 
-        # Lock order is async wallet lock -> NOWAIT DB identity rows. Acquiring
-        # the database rows first can deadlock the event loop when a second
-        # request blocks synchronously while the first awaits provider I/O.
+        # Serialize signing first, then validate the DB identity off the event
+        # loop in a short NOWAIT transaction. The process-wide wallet lock spans
+        # provider I/O; DB rows and a pool connection do not.
         async with swap_engine.wallet_execution_context(request.internal_wallet_id):
-            with _require_agent_execution_wallet(request):
-                swap_tx = await swap_engine.execute_swap(
-                    quote=quote,
-                    wallet_id=request.internal_wallet_id,
-                    user_id=request.internal_user_id,
-                    idempotency_key=request.idempotency_key,
-                    _wallet_lock_held=True,
-                )
+            await run_in_db(_require_agent_execution_wallet, request)
+            swap_tx = await swap_engine.execute_swap(
+                quote=quote,
+                wallet_id=request.internal_wallet_id,
+                user_id=request.internal_user_id,
+                idempotency_key=request.idempotency_key,
+                _wallet_lock_held=True,
+            )
 
         logger.info(
             f"Swap executed: id={swap_tx.id}, status={swap_tx.status}, tx_hash={swap_tx.tx_hash}"
