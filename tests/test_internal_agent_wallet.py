@@ -144,6 +144,30 @@ def test_concurrent_provision_is_idempotent(client):
         assert session.query(Wallet).count() == 1
 
 
+def test_concurrent_agents_cannot_bind_the_same_provider_wallet(client):
+    payloads = [
+        _provision_payload(),
+        _provision_payload(agent_uuid=OTHER_AGENT_UUID),
+    ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                lambda payload: _post(
+                    client,
+                    "/internal/agent/provision-wallet",
+                    payload,
+                ),
+                payloads,
+            )
+        )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    with get_session() as session:
+        assert session.query(User).count() == 1
+        assert session.query(Wallet).count() == 1
+
+
 def test_provision_uses_nonblocking_database_locks(client, monkeypatch):
     lock_options = []
     original_with_for_update = Query.with_for_update
@@ -176,6 +200,62 @@ def test_provision_reports_busy_when_advisory_lock_is_unavailable():
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "Managed wallet provisioning is busy"
+
+
+def test_provision_reports_busy_when_provider_identity_lock_is_unavailable():
+    class Result:
+        @staticmethod
+        def scalar():
+            return False
+
+    calls = []
+
+    def execute(_statement, parameters):
+        calls.append(parameters["identity_key"])
+        return Result()
+
+    session = SimpleNamespace(
+        bind=SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+        execute=execute,
+    )
+    request = internal.AgentProvisionRequest(**_provision_payload())
+
+    with pytest.raises(HTTPException) as exc_info:
+        internal._lock_managed_wallet_identity(session, request, ADDRESS)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Managed wallet provider identity is busy"
+    assert calls == ["turnkey:account:turnkey-account-a"]
+
+
+def test_provision_locks_every_provider_identity_in_stable_order():
+    class Result:
+        @staticmethod
+        def scalar():
+            return True
+
+    calls = []
+
+    def execute(_statement, parameters):
+        calls.append(parameters["identity_key"])
+        return Result()
+
+    session = SimpleNamespace(
+        bind=SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+        execute=execute,
+    )
+    request = internal.AgentProvisionRequest(**_provision_payload())
+
+    internal._lock_managed_wallet_identity(session, request, ADDRESS)
+
+    assert calls == sorted(
+        [
+            "turnkey:account:turnkey-account-a",
+            f"turnkey:evm:address:{ADDRESS.lower()}",
+            "turnkey:sub-org:turnkey-sub-org-a",
+            "turnkey:wallet:turnkey-wallet-a",
+        ]
+    )
 
 
 def test_provision_database_work_does_not_block_the_event_loop(monkeypatch):

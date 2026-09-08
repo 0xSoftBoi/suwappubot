@@ -23,6 +23,7 @@ const TEST_AGENT = {
 } as any
 
 let createWalletCalls = 0
+let createWalletFailure = false
 let createdWalletAddress = ADDRESS
 let updateCalls: Record<string, unknown>[] = []
 let provisionBodies: Record<string, unknown>[] = []
@@ -31,11 +32,14 @@ let provisionGate: Promise<void> | null = null
 let onProvisionStarted: (() => void) | null = null
 let verifyWalletCalls = 0
 let verifyWalletFailure = false
+let replaceLeaseOnVerifyFailure = false
 let verifiedWalletInputs: Array<{ agentId: number; subOrgId: string; address: string }> = []
 let createPolicySubOrgs: string[] = []
 let listPolicySubOrgs: string[] = []
 let deletePolicySubOrgs: string[] = []
 let mutateAfterLeaseClaim = false
+let rejectWalletPublication = false
+let rejectWalletFinalization = false
 
 const envLayer = Layer.succeed(EnvService, {
 	INTERNAL_API_KEY: 'internal-test-key',
@@ -51,6 +55,20 @@ const agentLayer = Layer.succeed(AgentService, {
 		replacement: Record<string, unknown>,
 	) => {
 		if (JSON.stringify(TEST_AGENT.metadata) !== JSON.stringify(expected)) {
+			return Effect.succeed(Option.none())
+		}
+		if (
+			rejectWalletPublication &&
+			typeof replacement.wallet_address === 'string' &&
+			typeof replacement.managed_wallet_provision_token === 'string'
+		) {
+			return Effect.succeed(Option.none())
+		}
+		if (
+			rejectWalletFinalization &&
+			replacement.managed_wallet_identity_version === 2 &&
+			replacement.managed_wallet_provision_token === undefined
+		) {
 			return Effect.succeed(Option.none())
 		}
 		TEST_AGENT.metadata = replacement
@@ -74,6 +92,7 @@ const agentLayer = Layer.succeed(AgentService, {
 const turnkeyLayer = Layer.succeed(TurnkeyService, {
 	createAgentWallet: () => {
 		createWalletCalls++
+		if (createWalletFailure) return Effect.fail(new Error('provider unavailable'))
 		return Effect.succeed({
 			address: createdWalletAddress,
 			subOrgId: 'turnkey-sub-org-a',
@@ -84,7 +103,16 @@ const turnkeyLayer = Layer.succeed(TurnkeyService, {
 	verifyAgentWallet: (agentId: number, subOrgId: string, address: string) => {
 		verifyWalletCalls++
 		verifiedWalletInputs.push({ agentId, subOrgId, address })
-		if (verifyWalletFailure) return Effect.fail(new Error('provider ownership mismatch'))
+		if (verifyWalletFailure) {
+			if (replaceLeaseOnVerifyFailure) {
+				TEST_AGENT.metadata = {
+					...(TEST_AGENT.metadata || {}),
+					managed_wallet_provision_token: 'replacement-token',
+					managed_wallet_provision_started_at: new Date().toISOString(),
+				}
+			}
+			return Effect.fail(new Error('provider ownership mismatch'))
+		}
 		return Effect.succeed({
 			address,
 			subOrgId,
@@ -150,6 +178,7 @@ beforeAll(async () => {
 beforeEach(() => {
 	TEST_AGENT.metadata = null
 	createWalletCalls = 0
+	createWalletFailure = false
 	createdWalletAddress = ADDRESS
 	updateCalls = []
 	provisionBodies = []
@@ -158,11 +187,14 @@ beforeEach(() => {
 	onProvisionStarted = null
 	verifyWalletCalls = 0
 	verifyWalletFailure = false
+	replaceLeaseOnVerifyFailure = false
 	verifiedWalletInputs = []
 	createPolicySubOrgs = []
 	listPolicySubOrgs = []
 	deletePolicySubOrgs = []
 	mutateAfterLeaseClaim = false
+	rejectWalletPublication = false
+	rejectWalletFinalization = false
 })
 
 afterAll(() => {
@@ -289,6 +321,87 @@ describe('POST /v1/agent/wallets — one authoritative managed identity', () => 
 		expect(createWalletCalls).toBe(1)
 		expect(provisionBodies).toHaveLength(0)
 		expect(TEST_AGENT.metadata).not.toHaveProperty('wallet_address')
+		expect(typeof (TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBe('string')
+	})
+
+	it('retains its lease when the provider creation outcome is ambiguous', async () => {
+		createWalletFailure = true
+
+		const failed = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+		expect(failed.status).toBe(502)
+		expect(createWalletCalls).toBe(1)
+		expect(provisionBodies).toHaveLength(0)
+		expect(typeof (TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBe('string')
+
+		createWalletFailure = false
+		const realNow = Date.now()
+		let simulatedNow = realNow
+		const nowSpy = spyOn(Date, 'now').mockImplementation(() => {
+			simulatedNow += 1_001
+			return simulatedNow
+		})
+		try {
+			const retried = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+			expect(retried.status).toBe(409)
+			expect(createWalletCalls).toBe(1)
+		} finally {
+			nowSpy.mockRestore()
+		}
+	})
+
+	it('retains its lease when a created provider identity cannot be published', async () => {
+		rejectWalletPublication = true
+
+		const failed = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+		expect(failed.status).toBe(500)
+		expect(createWalletCalls).toBe(1)
+		expect(provisionBodies).toHaveLength(0)
+		expect(TEST_AGENT.metadata).not.toHaveProperty('wallet_address')
+		expect(typeof (TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBe('string')
+	})
+
+	it('releases its lease when verification fails before any create attempt', async () => {
+		TEST_AGENT.metadata = {
+			wallet_address: ADDRESS,
+			wallet_sub_org_id: 'turnkey-sub-org-a',
+		}
+		verifyWalletFailure = true
+
+		const failed = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+		expect(failed.status).toBe(502)
+		expect(createWalletCalls).toBe(0)
+		expect(verifyWalletCalls).toBe(1)
+		expect((TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBeUndefined()
+	})
+
+	it('never removes a replacement lease owned by another request', async () => {
+		TEST_AGENT.metadata = {
+			wallet_address: ADDRESS,
+			wallet_sub_org_id: 'turnkey-sub-org-a',
+		}
+		verifyWalletFailure = true
+		replaceLeaseOnVerifyFailure = true
+
+		const failed = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+		expect(failed.status).toBe(502)
+		expect((TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBe('replacement-token')
+	})
+
+	it('releases its lease when final metadata publication fails', async () => {
+		rejectWalletFinalization = true
+
+		const failed = await agentRoutes.request('/wallets', { method: 'POST', headers: AUTH_HEADERS })
+
+		expect(failed.status).toBe(500)
+		expect(createWalletCalls).toBe(1)
+		expect(provisionBodies).toHaveLength(1)
+		expect(TEST_AGENT.metadata).toMatchObject({ wallet_address: ADDRESS })
+		expect((TEST_AGENT.metadata as Record<string, unknown>).managed_wallet_provision_token).toBeUndefined()
 	})
 
 	it('publishes a newly minted wallet across a concurrent caller metadata update', async () => {

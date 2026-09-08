@@ -66,7 +66,7 @@ export function managedAgentWalletIdentityFromMetadata(
 	}
 }
 
-function positiveSafeInteger(value: unknown): value is number {
+export function positiveSafeInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 

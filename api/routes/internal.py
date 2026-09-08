@@ -303,6 +303,40 @@ def _lock_managed_agent_identity(session, agent_int_id: int) -> None:
             raise HTTPException(status_code=409, detail="Managed wallet provisioning is busy")
 
 
+def _lock_managed_wallet_identity(
+    session,
+    request: AgentProvisionRequest,
+    address: str,
+) -> None:
+    """Serialize every provider identity before looking up or inserting its wallet."""
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+
+    normalized_address = address.lower() if request.chain_type == "evm" else address
+    identity_keys = {
+        f"turnkey:sub-org:{request.turnkey_sub_org_id}",
+        f"turnkey:{request.chain_type}:address:{normalized_address}",
+    }
+    if request.turnkey_wallet_id:
+        identity_keys.add(f"turnkey:wallet:{request.turnkey_wallet_id}")
+    if request.turnkey_account_id:
+        identity_keys.add(f"turnkey:account:{request.turnkey_account_id}")
+
+    # Every transaction acquires the same provider keys in lexical order. The
+    # nonblocking form converts a concurrent cross-agent claim into a retryable
+    # 409 instead of letting both transactions observe an empty candidate set.
+    for identity_key in sorted(identity_keys):
+        acquired = session.execute(
+            text("SELECT pg_try_advisory_xact_lock(" "hashtextextended(:identity_key, 0))"),
+            {"identity_key": identity_key},
+        ).scalar()
+        if acquired is not True:
+            raise HTTPException(
+                status_code=409,
+                detail="Managed wallet provider identity is busy",
+            )
+
+
 def _provision_agent_wallet_in_db(request: AgentProvisionRequest) -> dict:
     """Run one managed-wallet registration transaction on the DB executor."""
     from bot.models.user import User
@@ -313,8 +347,11 @@ def _provision_agent_wallet_in_db(request: AgentProvisionRequest) -> dict:
     wallet_name = f"agent_{str(agent_uuid)[:8]}"
 
     with get_session() as session:
-        # Serialize even the first insert, when there is no User row to lock.
+        # Serialize both sides of the binding before either row exists: the
+        # agent key prevents duplicate wallets for one agent, while provider
+        # keys prevent one Turnkey wallet from being bound to two agents.
         _lock_managed_agent_identity(session, agent_int_id)
+        _lock_managed_wallet_identity(session, request, address)
         user = (
             session.query(User)
             .filter(User.telegram_id == agent_int_id)
@@ -353,7 +390,10 @@ def _provision_agent_wallet_in_db(request: AgentProvisionRequest) -> dict:
             if request.chain_type == "evm"
             else Wallet.address == address
         )
-        identity_filters = [address_match]
+        identity_filters = [
+            address_match,
+            Wallet.turnkey_sub_org_id == request.turnkey_sub_org_id,
+        ]
         if request.turnkey_wallet_id:
             identity_filters.append(Wallet.turnkey_wallet_id == request.turnkey_wallet_id)
         if request.turnkey_account_id:
