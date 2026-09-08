@@ -26,17 +26,20 @@ const callbackUrlSchema = z
 	.url('Invalid callback URL')
 	.refine(isPublicUrl, 'callback_url must not point to a private or metadata endpoint')
 
-const callerMetadataSchema = z.record(z.string(), z.unknown()).superRefine((metadata, ctx) => {
-	for (const key of Object.keys(metadata)) {
-		if (isManagedWalletMetadataKey(key)) {
-			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
-				path: [key],
-				message: 'Managed wallet metadata is server-owned',
-			})
+const callerMetadataSchema = z
+	.record(z.string(), z.unknown())
+	.superRefine((metadata, ctx) => {
+		for (const key of Object.keys(metadata)) {
+			if (isManagedWalletMetadataKey(key)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [key],
+					message: 'Managed wallet metadata is server-owned',
+				})
+			}
 		}
-	}
-})
+	})
+	.describe('Caller-owned metadata. Managed-wallet identity and provisioning keys are reserved.')
 
 /** EVM address: 0x + 40 hex chars, rejecting the zero address. */
 const evmAddressSchema = z

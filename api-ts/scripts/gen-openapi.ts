@@ -37,11 +37,22 @@ import {
 	TopupSchema,
 	UpdateAgentSchema,
 } from '../src/routes/validators'
+import { MANAGED_WALLET_METADATA_KEYS } from '../src/lib/managedWalletMetadata'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const SPEC_PATH = join(__dirname, '..', 'openapi-agent.json')
 
 const SPEC_VERSION = '0.5.0'
+
+const CALLER_METADATA_OVERRIDE: Json = {
+	additionalProperties: true,
+	description:
+		'Caller-owned metadata. Managed-wallet identity and provisioning keys are server-owned and rejected.',
+	propertyNames: {
+		type: 'string',
+		not: { enum: [...MANAGED_WALLET_METADATA_KEYS] },
+	},
+}
 
 import { deepMerge, toJsonSchema as toSchema, type Json } from '../src/lib/zodJsonSchema'
 
@@ -104,7 +115,7 @@ const SCHEMA_MAP: Record<
 		schema: RegisterAgentSchema,
 		manualOverrides: {
 			properties: {
-				metadata: { additionalProperties: true },
+				metadata: CALLER_METADATA_OVERRIDE,
 				// callbackUrlSchema .refine() dropped — re-state the SSRF constraint.
 				callback_url: {
 					format: 'uri',
@@ -120,7 +131,7 @@ const SCHEMA_MAP: Record<
 			// .refine() (at-least-one-field) dropped — re-state it.
 			description: 'At least one field must be provided.',
 			properties: {
-				metadata: { additionalProperties: true },
+				metadata: CALLER_METADATA_OVERRIDE,
 				// .nullish() generates an `anyOf` of [string, null]; collapse it back to the
 				// hand-authored nullable-string + uri format (drop the generated `anyOf`).
 				callback_url: {
