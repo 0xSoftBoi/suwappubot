@@ -206,6 +206,36 @@ def test_provision_adopts_legacy_turnkey_identity_without_wallet_or_account_ids(
         assert wallet.turnkey_account_id is None
 
 
+def test_provision_enriches_missing_turnkey_account_after_provider_recovery(client):
+    partial_payload = _provision_payload()
+    partial_payload.pop("turnkey_account_id")
+
+    partial = _post(client, "/internal/agent/provision-wallet", partial_payload)
+    recovered = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+
+    assert partial.status_code == 200
+    assert recovered.status_code == 200
+    assert recovered.json() == partial.json()
+    with get_session() as session:
+        wallet = session.query(Wallet).one()
+        assert wallet.turnkey_wallet_id == "turnkey-wallet-a"
+        assert wallet.turnkey_account_id == "turnkey-account-a"
+
+
+def test_provision_never_overwrites_an_existing_turnkey_account(client):
+    first = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+    conflicting = _post(
+        client,
+        "/internal/agent/provision-wallet",
+        _provision_payload(turnkey_account_id="turnkey-account-b"),
+    )
+
+    assert first.status_code == 200
+    assert conflicting.status_code == 409
+    with get_session() as session:
+        assert session.query(Wallet).one().turnkey_account_id == "turnkey-account-a"
+
+
 def test_provision_never_reactivates_or_blesses_an_inactive_wallet(client):
     first = _post(client, "/internal/agent/provision-wallet", _provision_payload())
     assert first.status_code == 200

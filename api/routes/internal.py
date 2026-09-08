@@ -378,10 +378,12 @@ def _provision_agent_wallet_in_db(request: AgentProvisionRequest) -> dict:
                 and wallet.turnkey_sub_org_id == request.turnkey_sub_org_id
                 and (
                     not request.turnkey_wallet_id
+                    or wallet.turnkey_wallet_id is None
                     or wallet.turnkey_wallet_id == request.turnkey_wallet_id
                 )
                 and (
                     not request.turnkey_account_id
+                    or wallet.turnkey_account_id is None
                     or wallet.turnkey_account_id == request.turnkey_account_id
                 )
                 and wallet.chain_type == request.chain_type
@@ -389,6 +391,14 @@ def _provision_agent_wallet_in_db(request: AgentProvisionRequest) -> dict:
             )
             if not identity_matches:
                 raise HTTPException(status_code=409, detail="Managed wallet identity conflict")
+            # A create response always gives us org/wallet/address, but Turnkey's
+            # account listing is eventually consistent. Accept only one-way
+            # enrichment of previously missing provider IDs after the TS service
+            # re-attests the same org/address; never overwrite an existing ID.
+            if wallet.turnkey_wallet_id is None and request.turnkey_wallet_id:
+                wallet.turnkey_wallet_id = request.turnkey_wallet_id
+            if wallet.turnkey_account_id is None and request.turnkey_account_id:
+                wallet.turnkey_account_id = request.turnkey_account_id
         else:
             wallet = Wallet(
                 user_id=user_id,
