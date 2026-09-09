@@ -51,10 +51,10 @@ allows only one active Turnkey wallet per deterministic user and chain. Before
 execution it locks both internal rows and requires one consistent, active
 Turnkey identity: agent UUID, user ID, wallet ID, owner, provider, chain, and
 address must agree. Lock acquisition is ordered process-wide async wallet lock
-first, then fail-fast `FOR UPDATE NOWAIT` row locks. The row locks remain held
-through the swap engine return, so the validated signing identity cannot change
-between check and use without synchronously blocking the event loop on a second
-same-wallet request.
+first, then an off-thread identity-validation transaction with fail-fast
+`FOR NO KEY UPDATE NOWAIT` row locks. The transaction closes before provider I/O;
+the process-wide wallet lock remains held through swap execution and serializes
+swap engine instances within that process.
 
 ## Consequences
 
@@ -72,7 +72,7 @@ same-wallet request.
 - A stale pre-mint lease is never reclaimed automatically, because the server
   cannot prove whether the prior winner already created a provider wallet. It
   fails closed for operator reconciliation instead of risking a second wallet.
-- Execution holds a database transaction and row locks during external swap
-  execution. This prioritizes identity safety but consumes a connection longer.
+- External swap execution retains no database row lock or connection. Execution
+  serialization is process-local and does not extend across processes or replicas.
 - Changes to this ownership or execution-binding contract remain MONEY-PATH and
   require adversarial review.
