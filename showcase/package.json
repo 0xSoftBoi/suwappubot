@@ -31,7 +31,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "dompurify": "^3.4.11",
     "framer-motion": "^12.42.2",
-    "next": "^15.5.21",
+    "next": "^15.5.24",
     "next-intl": "^4.13.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.8",
@@ -54,10 +54,11 @@
     "unified": "^11.0.5"
   },
   "overrides": {
+    "browserslist": "^4.28.7",
     "dompurify": "^3.4.11",
-    "js-yaml": "^3.15.1",
+    "js-yaml": "^3.15.2",
     "nanoid": "^3.3.17",
     "postcss": "^8.5.18",
-    "sharp": "0.35.3"
+    "sharp": "0.35.4"
   }
 }
