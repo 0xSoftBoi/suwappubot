@@ -119,7 +119,7 @@ Protocol/economics work can exist without being production execution authority.
   [`../contracts/MAINNET_READINESS.md`](../contracts/MAINNET_READINESS.md)
 - Economics/rewards: [`economics/`](economics/) · [`rewards/`](rewards/)
 - Forward-looking work: [`plans/`](plans/) · [NEXT.md](NEXT.md)
-- Point-in-time evidence: [`research/`](research/)
+- Point-in-time evidence: [`research/`](research/) — latest: [TRM Labs competitive research](research/trm-competitive-research.md) (2026-09)
 - Design studies/system: [`design/`](design/)
 
 `bot/services/execution_sync*.py` remains **shadow** evidence infrastructure unless
