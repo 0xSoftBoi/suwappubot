@@ -3544,9 +3544,25 @@
           "metadata": {
             "type": "object",
             "propertyNames": {
-              "type": "string"
+              "type": "string",
+              "not": {
+                "enum": [
+                  "wallet_address",
+                  "wallet_sub_org_id",
+                  "turnkey_wallet_id",
+                  "turnkey_account_id",
+                  "internal_user_id",
+                  "internal_wallet_id",
+                  "managed_wallet_identity_version",
+                  "managed_wallet_provision_token",
+                  "managed_wallet_provision_started_at",
+                  "walletAddress",
+                  "subOrgId"
+                ]
+              }
             },
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Caller-owned metadata. Managed-wallet identity and provisioning keys are server-owned and rejected."
           }
         },
         "required": [
@@ -3610,9 +3626,25 @@
           "metadata": {
             "type": "object",
             "propertyNames": {
-              "type": "string"
+              "type": "string",
+              "not": {
+                "enum": [
+                  "wallet_address",
+                  "wallet_sub_org_id",
+                  "turnkey_wallet_id",
+                  "turnkey_account_id",
+                  "internal_user_id",
+                  "internal_wallet_id",
+                  "managed_wallet_identity_version",
+                  "managed_wallet_provision_token",
+                  "managed_wallet_provision_started_at",
+                  "walletAddress",
+                  "subOrgId"
+                ]
+              }
             },
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Caller-owned metadata. Managed-wallet identity and provisioning keys are server-owned and rejected."
           }
         },
         "description": "At least one field must be provided."

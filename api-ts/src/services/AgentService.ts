@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import {
 	type Agent,
@@ -14,6 +14,7 @@ import {
 } from '../db'
 import { DatabaseError } from '../errors'
 import { logger } from '../lib/logger'
+import { preserveManagedWalletMetadata } from '../lib/managedWalletMetadata'
 import { auditLog } from './audit'
 
 /**
@@ -75,6 +76,13 @@ export interface AgentServiceInterface {
 		agentId: number,
 		params: UpdateAgentParams,
 	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
+
+	/** Server-only exact-value CAS used to publish managed wallet state. */
+	readonly compareAndSetMetadata: (
+		agentId: number,
+		expected: Record<string, unknown> | null,
+		replacement: Record<string, unknown>,
+	) => Effect.Effect<Option.Option<Agent>, DatabaseError, DrizzleService>
 
 	readonly updateAgentActivity: (
 		agentId: number,
@@ -145,7 +153,9 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 							apiKey: apiKeyDisplay,
 							apiKeyHash,
 							callbackUrl: params.callbackUrl || null,
-							metadata: params.metadata || null,
+							metadata: params.metadata
+								? preserveManagedWalletMetadata(null, params.metadata)
+								: null,
 						})
 						.returning(),
 				catch: (e) => {
@@ -321,14 +331,50 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
 			if (params.description !== undefined) updates.description = params.description
 			if (params.callbackUrl !== undefined) updates.callbackUrl = params.callbackUrl
-			if (params.metadata !== undefined) updates.metadata = params.metadata
-
 			const result = yield* Effect.tryPromise({
-				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)).returning(),
+				try: () =>
+					db.transaction(async (tx) => {
+						if (params.metadata !== undefined) {
+							const current = await tx
+								.select({ metadata: agents.metadata })
+								.from(agents)
+								.where(eq(agents.id, agentId))
+								.for('update')
+							updates.metadata = preserveManagedWalletMetadata(
+								current[0]?.metadata,
+								params.metadata,
+							)
+						}
+						return tx.update(agents).set(updates).where(eq(agents.id, agentId)).returning()
+					}),
 				catch: (e) => new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
 			})
 
 			return yield* requireRow(result, 'Agent not found')
+		}),
+
+	compareAndSetMetadata: (
+		agentId: number,
+		expected: Record<string, unknown> | null,
+		replacement: Record<string, unknown>,
+	) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
+			const expectedCondition = expected === null
+				? isNull(agents.metadata)
+				: eq(agents.metadata, expected)
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(agents)
+						.set({ metadata: replacement, updatedAt: new Date() })
+						.where(and(eq(agents.id, agentId), expectedCondition))
+						.returning(),
+				catch: (e) => new DatabaseError({ message: `Failed to update managed wallet state: ${e}`, cause: e }),
+			})
+			return Option.fromNullable(result[0])
 		}),
 
 	updateAgentActivity: (agentId: number) =>

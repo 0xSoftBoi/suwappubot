@@ -9,6 +9,54 @@ export interface TurnkeyWallet {
 	address: string
 }
 
+export type AgentTurnkeyWallet = Omit<TurnkeyWallet, 'accountId'> & {
+	accountId?: string
+}
+
+type CreatedWalletAccount = {
+	walletAccountId: string
+	address: string
+}
+
+type CreatedWalletAccountsApi = {
+	getWalletAccounts: (input: {
+		organizationId: string
+		walletId: string
+	}) => Promise<{ accounts: CreatedWalletAccount[] }>
+}
+
+/** Resolve an eventually-consistent account without losing the durable wallet identity. */
+export async function resolveCreatedAgentWalletAccount(
+	api: CreatedWalletAccountsApi,
+	subOrgId: string,
+	walletId: string,
+	address: string,
+	chainType: 'evm' | 'solana',
+	options: { attempts?: number; delayMs?: number } = {},
+): Promise<CreatedWalletAccount | undefined> {
+	const attempts = Math.max(1, options.attempts ?? 5)
+	const delayMs = Math.max(0, options.delayMs ?? 100)
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		try {
+			const accounts = await api.getWalletAccounts({ organizationId: subOrgId, walletId })
+			const account = accounts.accounts.find((candidate) =>
+				chainType === 'evm'
+					? candidate.address.toLowerCase() === address.toLowerCase()
+					: candidate.address === address,
+			)
+			if (account) return account
+		} catch {
+			// The create response already contains the durable org/wallet/address.
+			// Retry account discovery, then let the caller persist that partial
+			// identity so a later provider attestation can complete it.
+		}
+		if (attempt + 1 < attempts && delayMs > 0) {
+			await new Promise((resolve) => setTimeout(resolve, delayMs))
+		}
+	}
+	return undefined
+}
+
 export interface RawSignatureResult {
 	r: string
 	s: string
@@ -57,6 +105,12 @@ export interface TurnkeyServiceInterface {
 	readonly createAgentWallet: (
 		agentId: number,
 		chainType: 'evm' | 'solana'
+	) => Effect.Effect<AgentTurnkeyWallet, Error>
+	readonly verifyAgentWallet: (
+		agentId: number,
+		subOrgId: string,
+		address: string,
+		chainType: 'evm' | 'solana',
 	) => Effect.Effect<TurnkeyWallet, Error>
 	readonly createPolicy: (
 		subOrgId: string,
@@ -77,6 +131,78 @@ export class TurnkeyService extends Context.Tag('TurnkeyService')<
 	TurnkeyService,
 	TurnkeyServiceInterface
 >() {}
+
+type AgentWalletAttestationApi = {
+	getSubOrgIds: (input: {
+		organizationId: string
+		filterType: string
+		filterValue: string
+		paginationOptions: { limit: string }
+	}) => Promise<{ organizationIds: string[] }>
+	getWhoami: (input: { organizationId: string }) => Promise<{
+		organizationId: string
+		organizationName: string
+		username: string
+	}>
+	getWalletAccounts: (input: { organizationId: string }) => Promise<{
+		accounts: Array<{
+			walletAccountId: string
+			organizationId: string
+			walletId: string
+			address: string
+		}>
+	}>
+}
+
+/** Attest parent membership, deterministic child identity, and account ownership. */
+export async function attestAgentWallet(
+	api: AgentWalletAttestationApi,
+	parentOrgId: string,
+	agentId: number,
+	subOrgId: string,
+	address: string,
+	chainType: 'evm' | 'solana',
+): Promise<TurnkeyWallet> {
+	const expectedOrgName = `agent-${agentId}-${chainType}`
+	const expectedUserName = `agent-${agentId}`
+	// Limit two is deliberate: zero is missing and two is ambiguous. Because
+	// both fail, a truncated multi-match response can never be accepted.
+	const membership = await api.getSubOrgIds({
+		organizationId: parentOrgId,
+		filterType: 'NAME',
+		filterValue: expectedOrgName,
+		paginationOptions: { limit: '2' },
+	})
+	if (membership.organizationIds.length !== 1 || membership.organizationIds[0] !== subOrgId) {
+		throw new Error('Turnkey sub-organization is not uniquely owned by the configured parent')
+	}
+
+	const [whoami, accounts] = await Promise.all([
+		api.getWhoami({ organizationId: subOrgId }),
+		api.getWalletAccounts({ organizationId: subOrgId }),
+	])
+	if (
+		whoami.organizationId !== subOrgId ||
+		whoami.organizationName !== expectedOrgName ||
+		whoami.username !== expectedUserName
+	) {
+		throw new Error('Turnkey sub-organization does not belong to this agent')
+	}
+	const account = accounts.accounts.find((candidate) =>
+		chainType === 'evm'
+			? candidate.address.toLowerCase() === address.toLowerCase()
+			: candidate.address === address,
+	)
+	if (!account || account.organizationId !== subOrgId) {
+		throw new Error('Turnkey address does not belong to the claimed sub-organization')
+	}
+	return {
+		subOrgId,
+		walletId: account.walletId,
+		accountId: account.walletAccountId,
+		address: account.address,
+	}
+}
 
 export const TurnkeyServiceLive = Layer.effect(
 	TurnkeyService,
@@ -451,13 +577,46 @@ export const TurnkeyServiceLive = Layer.effect(
 				if (!address) {
 					return yield* Effect.fail(new Error('Agent wallet creation failed - no address returned'))
 				}
+				const account = yield* Effect.promise(() =>
+					resolveCreatedAgentWalletAccount(
+						turnkeyClient.apiClient(),
+						subOrgId,
+						wallet.walletId,
+						address,
+						chainType,
+					),
+				)
 
 				return {
 					subOrgId,
 					walletId: wallet.walletId,
-					accountId: wallet.walletId,
+					...(account && { accountId: account.walletAccountId }),
 					address,
 				}
+			})
+
+		const verifyAgentWallet = (
+			agentId: number,
+			subOrgId: string,
+			address: string,
+			chainType: 'evm' | 'solana',
+		) =>
+			Effect.gen(function* () {
+				if (!env.TURNKEY_API_PUBLIC_KEY || !env.TURNKEY_API_PRIVATE_KEY || !env.TURNKEY_ORGANIZATION_ID) {
+					return yield* Effect.fail(new Error('Turnkey credentials not configured'))
+				}
+				const verified = yield* Effect.tryPromise({
+					try: () => attestAgentWallet(
+						turnkeyClient.apiClient(),
+						env.TURNKEY_ORGANIZATION_ID!,
+						agentId,
+						subOrgId,
+						address,
+						chainType,
+					),
+					catch: (err) => new Error(`Failed to verify managed wallet ownership: ${err}`),
+				})
+				return verified
 			})
 
 		const createPolicy = (
@@ -563,6 +722,7 @@ export const TurnkeyServiceLive = Layer.effect(
 			signTransactionForAgent,
 			signRawPayload,
 			createAgentWallet,
+			verifyAgentWallet,
 			createPolicy,
 			listPolicies,
 			deletePolicy,

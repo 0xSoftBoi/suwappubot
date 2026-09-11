@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import {
 	BASE_USDC,
 	ROBINHOOD_USDG,
-	X402_NETWORKS,
 	resolveX402Networks,
+	X402_NETWORKS,
 } from '../config/x402Networks'
 import { buildX402Challenge } from '../middleware/x402Payment'
 import { selectRequirementsForPayment } from '../services/FacilitatorService'
@@ -106,61 +106,87 @@ describe('selectRequirementsForPayment', () => {
 	}
 	const hood = { ...base, network: 'robinhood', asset: ROBINHOOD_USDG.asset }
 
-	const header = (accepted: Record<string, unknown>) =>
-		Buffer.from(JSON.stringify({ x402Version: 1, accepted })).toString('base64')
+	const header = (
+		envelope: Record<string, unknown> = {},
+		authorization: Record<string, unknown> = {},
+	) =>
+		Buffer.from(
+			JSON.stringify({
+				x402Version: 1,
+				scheme: base.scheme,
+				network: base.network,
+				payload: {
+					authorization: {
+						from: '0x000000000000000000000000000000000000bEEF',
+						to: base.payTo,
+						value: base.maxAmountRequired,
+						validAfter: '0',
+						validBefore: '9999999999',
+						nonce: `0x${'00'.repeat(32)}`,
+						...authorization,
+					},
+					signature: '0xsigned',
+				},
+				...envelope,
+			}),
+		).toString('base64')
 
-	it('returns the only entry without decoding when single-network', () => {
-		expect(selectRequirementsForPayment('not-even-base64', [base])).toBe(base)
+	it('decodes and validates the only advertised entry', () => {
+		expect(selectRequirementsForPayment(header(), [base])).toBe(base)
+	})
+
+	it('rejects a network mismatch even when only one entry was advertised', () => {
+		expect(selectRequirementsForPayment(header({ network: 'robinhood' }), [base])).toBeUndefined()
+	})
+
+	it('rejects the wrong protocol version', () => {
+		expect(selectRequirementsForPayment(header({ x402Version: 2 }), [base])).toBeUndefined()
+	})
+
+	it('rejects the wrong top-level scheme', () => {
+		expect(selectRequirementsForPayment(header({ scheme: 'upto' }), [base])).toBeUndefined()
 	})
 
 	it('picks the entry matching the network the payer signed for', () => {
-		const got = selectRequirementsForPayment(
-			header({ network: 'robinhood', asset: ROBINHOOD_USDG.asset, payTo: '0xdead', amount: '10000' }),
-			[base, hood],
-		)
-		// Before the fix this returned accepts[0] (base) and the cross-check then
-		// rejected every Robinhood payment with asset_mismatch.
-		expect(got.network).toBe('robinhood')
-		expect(got.asset).toBe(ROBINHOOD_USDG.asset)
+		const got = selectRequirementsForPayment(header({ network: 'robinhood' }), [base, hood])
+		expect(got?.network).toBe('robinhood')
+		expect(got?.asset).toBe(ROBINHOOD_USDG.asset)
 	})
 
 	it('still resolves the primary network correctly', () => {
-		const got = selectRequirementsForPayment(
-			header({ network: 'base', asset: BASE_USDC.asset, payTo: '0xdead', amount: '10000' }),
-			[base, hood],
-		)
-		expect(got.network).toBe('base')
+		const got = selectRequirementsForPayment(header(), [base, hood])
+		expect(got?.network).toBe('base')
 	})
 
-	it('falls back to asset when the payload omits network', () => {
-		const got = selectRequirementsForPayment(
-			header({ asset: ROBINHOOD_USDG.asset, payTo: '0xdead', amount: '10000' }),
-			[base, hood],
-		)
-		expect(got.network).toBe('robinhood')
+	it('rejects a missing top-level network', () => {
+		expect(
+			selectRequirementsForPayment(header({ network: undefined }), [base, hood]),
+		).toBeUndefined()
 	})
 
-	it('falls back to the first entry on an undecodable header', () => {
-		// Safe outcome: the caller's cross-check then rejects the payment.
-		expect(selectRequirementsForPayment('%%%not-base64%%%', [base, hood]).network).toBe('base')
+	it('rejects an undecodable header instead of falling back to the first entry', () => {
+		expect(selectRequirementsForPayment('%%%not-base64%%%', [base, hood])).toBeUndefined()
 	})
 
-	it('falls back to the first entry when nothing matches', () => {
-		const got = selectRequirementsForPayment(
-			header({ network: 'solana', asset: '0xother', payTo: '0xdead', amount: '10000' }),
-			[base, hood],
-		)
-		expect(got.network).toBe('base')
+	it('rejects a foreign network instead of falling back by position', () => {
+		const got = selectRequirementsForPayment(header({ network: 'solana' }), [base, hood])
+		expect(got).toBeUndefined()
 	})
 
-	it('disambiguates by asset when two networks share a name', () => {
-		// Plasma reuses mainnet's USDC address, so asset alone is not unique.
-		const dupA = { ...base, network: 'dup', asset: '0xAAA' }
-		const dupB = { ...base, network: 'dup', asset: '0xBBB' }
-		const got = selectRequirementsForPayment(
-			header({ network: 'dup', asset: '0xbbb', payTo: '0xdead', amount: '10000' }),
-			[dupA, dupB],
-		)
-		expect(got.asset).toBe('0xBBB')
+	it('rejects ambiguous server requirements sharing scheme and network', () => {
+		const duplicate = { ...base, asset: '0xAnotherAsset' }
+		expect(selectRequirementsForPayment(header(), [base, duplicate])).toBeUndefined()
+	})
+
+	it('rejects a redirected signed authorization recipient', () => {
+		expect(selectRequirementsForPayment(header({}, { to: '0xattacker' }), [base])).toBeUndefined()
+	})
+
+	it('rejects an underpaying signed authorization', () => {
+		expect(selectRequirementsForPayment(header({}, { value: '9999' }), [base])).toBeUndefined()
+	})
+
+	it('preserves overpayment while selecting the exact tuple', () => {
+		expect(selectRequirementsForPayment(header({}, { value: '10001' }), [base, hood])).toBe(base)
 	})
 })
