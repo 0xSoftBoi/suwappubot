@@ -46,7 +46,7 @@ from SHA-256 of the canonical agent UUID. The negative namespace cannot overlap
 real Telegram users. The full UUID is stored alongside it, and any digest
 collision fails closed rather than aliasing two agents.
 
-Python serializes first registration with a transaction-scoped advisory lock and
+On PostgreSQL, Python serializes first registration with a transaction-scoped advisory lock and
 allows only one active Turnkey wallet per deterministic user and chain. Before
 execution it locks both internal rows and requires one consistent, active
 Turnkey identity: agent UUID, user ID, wallet ID, owner, provider, chain, and
@@ -55,6 +55,14 @@ first, then an off-thread identity-validation transaction with fail-fast
 `FOR NO KEY UPDATE NOWAIT` row locks. The transaction closes before provider I/O;
 the process-wide wallet lock remains held through swap execution and serializes
 swap engine instances within that process.
+
+SQLite reserves its single writer with `BEGIN IMMEDIATE` before any registration
+identity lookup. The reservation covers both user creation and provider-wallet
+binding until the session commits or rolls back. This prevents two requests from
+both observing a missing user or an unclaimed wallet. Existing bounded busy
+retries restart the complete transaction after rollback. The reservation stays
+inside the off-thread, database-only registration operation; provider calls and
+swap execution do not run within it.
 
 ## Consequences
 

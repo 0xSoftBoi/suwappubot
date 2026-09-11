@@ -1,9 +1,10 @@
 """Regression coverage for the cross-stack managed-agent wallet identity."""
 
 import asyncio
+import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, closing, contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -12,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Query
 
@@ -128,7 +130,13 @@ def test_provision_and_execution_reject_the_evm_zero_address(client):
         assert session.query(Wallet).count() == 0
 
 
-def test_concurrent_provision_is_idempotent(client):
+@pytest.mark.parametrize("existing_user", [False, True])
+def test_concurrent_provision_is_idempotent(client, existing_user):
+    if existing_user:
+        agent_int_id, agent_username = internal._managed_agent_user_identity(UUID(AGENT_UUID))
+        with get_session() as session:
+            session.add(User(telegram_id=agent_int_id, username=agent_username))
+
     with ThreadPoolExecutor(max_workers=2) as executor:
         responses = list(
             executor.map(
@@ -142,6 +150,113 @@ def test_concurrent_provision_is_idempotent(client):
     with get_session() as session:
         assert session.query(User).count() == 1
         assert session.query(Wallet).count() == 1
+
+
+def test_sqlite_provision_reserves_writer_before_identity_reads(client, monkeypatch):
+    with get_session() as session:
+        engine = session.bind
+
+    reads = []
+    reservation_checked = []
+    original_wallet_lock = internal._lock_managed_wallet_identity
+
+    def record_reads(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            reads.append(statement)
+
+    def check_writer_reservation(session, request, address):
+        assert not reads, "Identity reads must follow the SQLite writer reservation"
+        with closing(sqlite3.connect(engine.url.database, timeout=0)) as contender:
+            with pytest.raises(sqlite3.OperationalError, match="database is locked") as exc_info:
+                contender.execute("BEGIN IMMEDIATE")
+            assert exc_info.value.sqlite_errorcode == sqlite3.SQLITE_BUSY
+        reservation_checked.append(True)
+        return original_wallet_lock(session, request, address)
+
+    monkeypatch.setattr(internal, "_lock_managed_wallet_identity", check_writer_reservation)
+    event.listen(engine, "before_cursor_execute", record_reads)
+    try:
+        response = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+    finally:
+        event.remove(engine, "before_cursor_execute", record_reads)
+
+    assert response.status_code == 200
+    assert reservation_checked == [True]
+    assert reads
+
+
+def test_sqlite_provision_contention_is_bounded_and_recovers(client, tmp_db, monkeypatch):
+    attempts = []
+    retry_delays = []
+    original_agent_lock = internal._lock_managed_agent_identity
+
+    def fail_fast_on_contention(session, agent_int_id):
+        session.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+        attempts.append(agent_int_id)
+        return original_agent_lock(session, agent_int_id)
+
+    async def record_retry(delay):
+        retry_delays.append(delay)
+
+    monkeypatch.setattr(internal, "_lock_managed_agent_identity", fail_fast_on_contention)
+    monkeypatch.setattr(internal, "asyncio", SimpleNamespace(sleep=record_retry))
+
+    with closing(sqlite3.connect(tmp_db.removeprefix("sqlite:///"), timeout=0)) as blocker:
+        blocker.execute("BEGIN IMMEDIATE")
+        response = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+        blocker.rollback()
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Agent wallet provisioning busy"
+    assert len(attempts) == 4
+    assert retry_delays == pytest.approx([0.05, 0.10, 0.15])
+    with get_session() as session:
+        assert session.query(User).count() == 0
+        assert session.query(Wallet).count() == 0
+
+    retried = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+
+    assert retried.status_code == 200
+    assert len(attempts) == 5
+    with get_session() as session:
+        assert session.query(User).count() == 1
+        assert session.query(Wallet).count() == 1
+
+
+def test_sqlite_provision_rolls_back_partial_write_before_retry(client, tmp_db, monkeypatch):
+    attempts = []
+    retry_delays = []
+    original_wallet_lock = internal._lock_managed_wallet_identity
+
+    def contend_after_partial_write(session, request, address):
+        attempts.append(session)
+        if len(attempts) == 1:
+            session.add(User(telegram_id=12345, username="rolled-back-probe"))
+            session.flush()
+            raise OperationalError("write", {}, sqlite3.OperationalError("database is locked"))
+        return original_wallet_lock(session, request, address)
+
+    async def check_rollback_before_retry(delay):
+        retry_delays.append(delay)
+        with closing(sqlite3.connect(tmp_db.removeprefix("sqlite:///"), timeout=0)) as contender:
+            contender.execute("BEGIN IMMEDIATE")
+            contender.rollback()
+        with get_session() as session:
+            assert session.query(User).count() == 0
+
+    monkeypatch.setattr(internal, "_lock_managed_wallet_identity", contend_after_partial_write)
+    monkeypatch.setattr(internal, "asyncio", SimpleNamespace(sleep=check_rollback_before_retry))
+
+    response = _post(client, "/internal/agent/provision-wallet", _provision_payload())
+
+    assert response.status_code == 200
+    assert len(attempts) == 2
+    assert attempts[0] is not attempts[1]
+    assert retry_delays == [0.05]
+    with get_session() as session:
+        assert session.query(User).count() == 1
+        assert session.query(Wallet).count() == 1
+        assert session.query(User).filter(User.username == "rolled-back-probe").first() is None
 
 
 def test_concurrent_agents_cannot_bind_the_same_provider_wallet(client):

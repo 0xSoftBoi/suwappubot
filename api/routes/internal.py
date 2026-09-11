@@ -294,6 +294,13 @@ def _is_execution_lock_contention(error: OperationalError) -> bool:
 
 def _lock_managed_agent_identity(session, agent_int_id: int) -> None:
     """Serialize first registration without blocking the async event-loop thread."""
+    if session.bind is not None and session.bind.dialect.name == "sqlite":
+        # SQLite has no advisory/row locks, and its driver defers BEGIN until
+        # the first write. Reserve the writer before any identity reads so two
+        # transactions cannot both observe a missing user or unclaimed wallet.
+        # get_session commits/rolls back this short, DB-only transaction.
+        session.execute(text("BEGIN IMMEDIATE"))
+        return
     if session.bind is not None and session.bind.dialect.name == "postgresql":
         acquired = session.execute(
             text("SELECT pg_try_advisory_xact_lock(:identity_key)"),
