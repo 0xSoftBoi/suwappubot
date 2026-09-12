@@ -6,7 +6,7 @@
   atomically flips a still-pending row so a double-tap (or a race with the
   expiry sweep) can only ever decide it once, and only the owning human can
   decide it.
-- ``/approvals`` lists the caller's own pending approval requests.
+- ``/approvals`` lists pending requests the caller may decide as owner/direct user or explicit org approver.
 
 The ``approval_requests`` table is owned by api-ts (schema at
 ``api-ts/src/db/schema/approvals.ts``); Python never creates it and only
@@ -353,7 +353,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("This approval request no longer exists.")
         return
 
-    status, existing_decided_by, agent_name, agent_id, owner_user_id, expires_at = row
+    status, existing_decided_by, agent_name, agent_id, _owner_user_id, expires_at = row
     label = agent_name or agent_id
 
     if decided_now:
