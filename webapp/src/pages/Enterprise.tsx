@@ -796,7 +796,9 @@ export function Enterprise() {
               <div>
                 <label className="text-xs text-suwappu-text-secondary mb-2 block">Scopes</label>
                 <div className="space-y-2">
-                  {SCOPE_OPTIONS.map((scope) => (
+                  {SCOPE_OPTIONS
+                    .filter((scope) => capabilities?.allowedKeyScopes.includes(scope.id))
+                    .map((scope) => (
                     <label key={scope.id} className="flex items-start gap-2 cursor-pointer">
                       <input
                         type="checkbox"
