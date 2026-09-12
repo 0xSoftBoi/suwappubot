@@ -413,10 +413,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                         token = _issue_step_up_challenge(
                             session, user_id=caller_user_id, approval_id=approval_id
                         )
-                    except ValueError as e:
-            await query.edit_message_text(str(e))
-            return
-        except SQLAlchemyError as e:
+                    except SQLAlchemyError as e:
                         if _table_missing(e):
                             await query.edit_message_text(
                                 "Step-up confirmation isn't set up yet — ask an admin to enable "
