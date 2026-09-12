@@ -640,8 +640,13 @@ enterpriseRoutes.delete('/orgs/:orgId/members/:targetUserId', async (c) => {
 // ─── GET /enterprise/orgs/:orgId/api-keys ───────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/api-keys', async (c) => {
-	const membership = await resolveMembership(c, c.req.param('orgId'), ORG_READ_ROLES)
-	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+	const membership = await resolveMembership(c, c.req.param('orgId'), [
+		'owner',
+		'admin',
+		'trader',
+		'auditor',
+	])
+	if (!membership) return c.json({ error: 'API-key metadata is not available to this role' }, 403)
 	const orgId = membership.orgId
 
 	const result = await runEffectEither(
@@ -662,7 +667,14 @@ enterpriseRoutes.get('/orgs/:orgId/api-keys', async (c) => {
 							createdAt: apiKeys.createdAt,
 						})
 						.from(apiKeys)
-						.where(eq(apiKeys.organizationId, orgId)),
+						.where(
+							membership.role === 'trader'
+								? and(
+										eq(apiKeys.organizationId, orgId),
+										eq(apiKeys.createdBy, membership.userId),
+									)
+								: eq(apiKeys.organizationId, orgId),
+						),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			})
 			return keys
@@ -798,8 +810,8 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 
 enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
 	const { keyId } = c.req.param()
-	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
-	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'trader'])
+	if (!membership) return c.json({ error: 'Owner, admin, or trader role required' }, 403)
 	const orgId = membership.orgId
 
 	const result = await runEffectEither(
@@ -815,6 +827,9 @@ enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
 								eq(apiKeys.id, keyId),
 								eq(apiKeys.organizationId, orgId),
 								isNull(apiKeys.revokedAt),
+								...(membership.role === 'trader'
+									? [eq(apiKeys.createdBy, membership.userId)]
+									: []),
 							),
 						)
 						.returning({ id: apiKeys.id }),
