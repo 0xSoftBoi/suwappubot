@@ -109,7 +109,7 @@ class ApiClient {
 
       try {
         const body = await response.json()
-        error.detail = body.detail || body.message || 'Request failed'
+        error.detail = body.detail || body.error || body.message || 'Request failed'
       } catch {
         // Ignore JSON parse errors
       }
@@ -883,7 +883,8 @@ class ApiClient {
   // === Enterprise Org Management ===
 
   async getOrg(orgId: string): Promise<EnterpriseOrg> {
-    return this.fetch<EnterpriseOrg>(`/enterprise/orgs/${orgId}`)
+    const res = await this.fetch<{ org: EnterpriseOrg }>(`/enterprise/orgs/${orgId}`)
+    return res.org
   }
 
   async getMySupportTickets(): Promise<SupportTicket[]> {
@@ -904,9 +905,10 @@ class ApiClient {
     if (res.status === 404) return null
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      throw { detail: body.detail || 'Failed to load organization', status: res.status }
+      throw { detail: body.detail || body.error || 'Failed to load organization', status: res.status }
     }
-    return res.json()
+    const body = await res.json() as { org: EnterpriseOrg; role: OrgRole }
+    return { ...body.org, currentRole: body.role }
   }
 
   async createOrg(name: string, slug: string): Promise<EnterpriseOrg> {
@@ -917,8 +919,14 @@ class ApiClient {
   }
 
   async getOrgMembers(orgId: string): Promise<OrgMember[]> {
-    const res = await this.fetch<{ members: OrgMember[] }>(`/enterprise/orgs/${orgId}/members`)
-    return res.members
+    const res = await this.fetch<{ members: Array<Omit<OrgMember, 'userId'> & { userId: number | string }> }>(
+      `/enterprise/orgs/${orgId}/members`,
+    )
+    return res.members.map((member) => ({ ...member, userId: String(member.userId) }))
+  }
+
+  async getOrgCapabilities(orgId: string): Promise<OrgCapabilities> {
+    return this.fetch<OrgCapabilities>(`/enterprise/orgs/${orgId}/capabilities`)
   }
 
   async inviteMember(orgId: string, userId: number, role: OrgRole): Promise<OrgMember> {
@@ -929,20 +937,44 @@ class ApiClient {
     return res.member
   }
 
+  async updateMemberRole(orgId: string, userId: string, role: Exclude<OrgRole, 'owner'>): Promise<OrgMember> {
+    const res = await this.fetch<{ member: Omit<OrgMember, 'userId'> & { userId: number | string } }>(
+      `/enterprise/orgs/${orgId}/members/${userId}`,
+      { method: 'PATCH', body: JSON.stringify({ role }) },
+    )
+    return { ...res.member, userId: String(res.member.userId) }
+  }
+
   async removeMember(orgId: string, userId: string): Promise<void> {
     await this.fetch(`/enterprise/orgs/${orgId}/members/${userId}`, { method: 'DELETE' })
   }
 
   async getApiKeys(orgId: string): Promise<OrgApiKey[]> {
-    const res = await this.fetch<{ keys: OrgApiKey[] }>(`/enterprise/orgs/${orgId}/api-keys`)
-    return res.keys
+    const res = await this.fetch<{ keys: Array<OrgApiKey & { keyPrefix?: string }> }>(
+      `/enterprise/orgs/${orgId}/api-keys`,
+    )
+    return res.keys.map((key) => ({ ...key, prefix: key.prefix || key.keyPrefix || '' }))
   }
 
-  async createApiKey(orgId: string, name: string, scopes: string[], expiresAt?: string): Promise<OrgApiKeyCreated> {
-    return this.fetch<OrgApiKeyCreated>(`/enterprise/orgs/${orgId}/api-keys`, {
-      method: 'POST',
-      body: JSON.stringify({ name, scopes, expiresAt }),
-    })
+  async createApiKey(
+    orgId: string,
+    name: string,
+    scopes: string[],
+    expiresAt?: string,
+    rateLimitPerMin?: number,
+  ): Promise<OrgApiKeyCreated> {
+    const res = await this.fetch<{ key: OrgApiKey & { keyPrefix?: string }; rawKey: string }>(
+      `/enterprise/orgs/${orgId}/api-keys`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ name, scopes, expiresAt, rateLimitPerMin }),
+      },
+    )
+    return {
+      ...res.key,
+      prefix: res.key.prefix || res.key.keyPrefix || '',
+      rawKey: res.rawKey,
+    }
   }
 
   async revokeApiKey(orgId: string, keyId: string): Promise<void> {
@@ -1435,7 +1467,17 @@ export interface WebappLimitOrder extends LimitOrder {
 
 // === Enterprise types ===
 
-export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer'
+export type OrgRole = 'owner' | 'admin' | 'trader' | 'approver' | 'auditor' | 'member' | 'viewer'
+
+export interface OrgCapabilities {
+  role: OrgRole
+  capabilities: string[]
+  separationOfDuties: {
+    canInitiate: boolean
+    canApprove: boolean
+    canManageKeys: boolean
+  }
+}
 
 export interface EnterpriseOrg {
   id: string
@@ -1443,6 +1485,7 @@ export interface EnterpriseOrg {
   slug: string
   seatLimit: number
   memberCount: number
+  currentRole?: OrgRole
   createdAt: string
 }
 
@@ -1459,6 +1502,7 @@ export interface OrgApiKey {
   name: string
   prefix: string
   scopes: string[]
+  rateLimitPerMin?: number
   lastUsedAt?: string
   expiresAt?: string
   createdAt: string
