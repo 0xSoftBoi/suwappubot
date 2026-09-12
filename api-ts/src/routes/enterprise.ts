@@ -524,6 +524,12 @@ enterpriseRoutes.patch('/orgs/:orgId/members/:targetUserId', async (c) => {
 
 	const targetId = parseInt(targetUserId, 10)
 	if (isNaN(targetId)) return c.json({ error: 'Invalid userId' }, 400)
+	if (targetId === membership.userId) {
+		return c.json(
+			{ error: 'The organization owner role cannot be changed in place' },
+			403,
+		)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
