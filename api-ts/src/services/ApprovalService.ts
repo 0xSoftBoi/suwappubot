@@ -3,9 +3,10 @@ import { and, desc, eq, gt, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, requireDb } from '../db'
 import { agents } from '../db/schema/agents'
-import { approvalRequests, type ApprovalRequest } from '../db/schema/approvals'
+import { approvalRequests, approvalVotes, type ApprovalRequest } from '../db/schema/approvals'
 import { approvalStepUpChallenges } from '../db/schema/approvalStepUpChallenges'
 import { organizationMembers, organizations } from '../db/schema/organizations'
+import { policies, policyDecisions } from '../db/schema/policies'
 import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../errors'
 import { coreTermsOf, type EconomicTerms } from '../lib/approvalTerms'
 import { validateStepUpChallenge } from '../lib/stepUpChallenge'
@@ -41,6 +42,12 @@ export function hashCoreTerms(terms: EconomicTerms): string {
 	return createHash('sha256').update(canonicalize(coreTermsOf(terms))).digest('hex')
 }
 
+export interface ApprovalProgress {
+	approvalCount: number
+	requiredApprovals: number
+	remainingApprovals: number
+}
+
 export interface CreateApprovalInput {
 	agentId: string
 	organizationId?: string | null
@@ -69,6 +76,10 @@ export interface ApprovalServiceInterface {
 		userId: number,
 		status?: string,
 	) => Effect.Effect<ApprovalRequest[], DatabaseError, DrizzleService>
+
+	readonly progress: (
+		id: string,
+	) => Effect.Effect<ApprovalProgress, DatabaseError | NotFoundError, DrizzleService>
 
 	/**
 	 * Human approver-scoped race-safe decision. Uses a conditional UPDATE ... WHERE
@@ -184,6 +195,28 @@ export function approvalActorCondition(userId: number) {
 	)
 }
 
+async function approvalProgressTx(
+	tx: any,
+	id: string,
+	requiredApprovals: number,
+): Promise<ApprovalProgress> {
+	const [countRow] = await tx
+		.select({ count: sql<number>`count(*)` })
+		.from(approvalVotes)
+		.where(
+			and(
+				eq(approvalVotes.approvalRequestId, id),
+				eq(approvalVotes.decision, 'approved'),
+			),
+		)
+	const approvalCount = Number(countRow?.count ?? 0)
+	return {
+		approvalCount,
+		requiredApprovals,
+		remainingApprovals: Math.max(requiredApprovals - approvalCount, 0),
+	}
+}
+
 export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 	create: (input) =>
 		Effect.gen(function* () {
@@ -205,6 +238,28 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 			// failure here must never fail approval creation, so it degrades to
 			// the pre-existing null (unapprovable) behavior rather than
 			// throwing.
+			let requiredApprovals = 1
+			if (input.policyDecisionId != null) {
+				const quorumRows = yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ requiredApprovals: policies.requiredApprovals })
+							.from(policyDecisions)
+							.leftJoin(policies, eq(policyDecisions.matchedPolicyId, policies.id))
+							.where(eq(policyDecisions.id, input.policyDecisionId!))
+							.limit(1),
+					catch: () => null,
+				}).pipe(
+					Effect.catchAll(() =>
+						Effect.succeed([] as Array<{ requiredApprovals: number | null }>),
+					),
+				)
+				requiredApprovals = Math.min(
+					10,
+					Math.max(1, Number(quorumRows[0]?.requiredApprovals ?? 1)),
+				)
+			}
+
 			let resolvedUserId = input.userId ?? null
 			// Only fall back to the agent's own linked owner for ORG-LESS
 			// requests. An org-scoped request (organizationId set) with no
@@ -241,6 +296,7 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 							payloadHash,
 							policyDecisionId: input.policyDecisionId ?? null,
 							reason: input.reason ?? null,
+							requiredApprovals,
 							status: 'pending',
 							expiresAt,
 						})
@@ -319,128 +375,224 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 			return rows.map((r) => r.approval)
 		}),
 
+	progress: (id) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ requiredApprovals: approvalRequests.requiredApprovals })
+						.from(approvalRequests)
+						.where(eq(approvalRequests.id, id))
+						.limit(1),
+				catch: (e) =>
+					new DatabaseError({ message: 'Failed to load approval progress', cause: e }),
+			})
+			if (!rows[0]) {
+				return yield* Effect.fail(new NotFoundError({ resource: 'approval_request' }))
+			}
+			const requiredApprovals = Math.max(1, Number(rows[0].requiredApprovals ?? 1))
+			return yield* Effect.tryPromise({
+				try: () => approvalProgressTx(db, id, requiredApprovals),
+				catch: (e) =>
+					new DatabaseError({ message: 'Failed to load approval progress', cause: e }),
+			})
+		}),
+
 	decide: (id, userId, outcome) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb
-
-			// Ownership check first (cheap, and gives a clean 403 vs a silent no-op).
-			const owned = yield* Effect.tryPromise({
+			return yield* Effect.tryPromise({
 				try: () =>
-					db
-						.select({ approval: approvalRequests })
-						.from(approvalRequests)
-						// LEFT JOIN — see listForOwner() for why org-less approvals must
-						// still resolve via the direct user_id match below.
-						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), approvalActorCondition(userId)))
-						.limit(1),
-				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
-			})
-			const existing = owned[0]?.approval
-			if (!existing) {
-				return yield* Effect.fail(
-					new ForbiddenError({ message: 'Approval request not found for your organizations' }),
-				)
-			}
-			if (existing.status !== 'pending' || isExpired(existing)) {
-				return yield* Effect.fail(
-					new ValidationError({
-						message:
-							existing.status !== 'pending'
-								? `Approval request already ${existing.status}`
-								: 'Approval request has expired',
-					}),
-				)
-			}
-
-			// Race-safe: conditional UPDATE only succeeds if the row is still
-			// 'pending' AND not expired at the moment of the write. Two concurrent
-			// approve/deny calls can only ever have one succeed.
-			const updated = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.update(approvalRequests)
-						.set({
-							status: outcome,
-							decidedBy: userId,
-							decidedAt: new Date(),
-						})
-						.where(
-							and(
-								eq(approvalRequests.id, id),
-								eq(approvalRequests.status, 'pending'),
-								// See listForOwner for why this is `now() at time zone 'utc'`
-								// rather than bare `now()` against a naive timestamp column.
-								sql`${approvalRequests.expiresAt} > (now() at time zone 'utc')`,
-							),
+					db.transaction(async (tx) => {
+						await tx.execute(
+							sql`select pg_advisory_xact_lock(hashtext(${id})::bigint)`,
 						)
-						.returning(),
-				catch: (e) => new DatabaseError({ message: 'Failed to record approval decision', cause: e }),
-			})
 
-			const row = updated[0]
-			if (!row) {
-				return yield* Effect.fail(
-					new ValidationError({
-						message: 'Approval request was already decided or expired (concurrent update)',
+						const rows = await tx
+							.select({ approval: approvalRequests })
+							.from(approvalRequests)
+							.leftJoin(
+								organizations,
+								eq(approvalRequests.organizationId, organizations.id),
+							)
+							.where(
+								and(
+									eq(approvalRequests.id, id),
+									approvalActorCondition(userId),
+								),
+							)
+							.limit(1)
+						const existing = rows[0]?.approval
+						if (!existing) {
+							throw new ForbiddenError({
+								message: 'Approval request not found for your organizations',
+							})
+						}
+						if (existing.status !== 'pending' || isExpired(existing)) {
+							throw new ValidationError({
+								message:
+									existing.status !== 'pending'
+										? `Approval request already ${existing.status}`
+										: 'Approval request has expired',
+							})
+						}
+
+						const existingVotes = await tx
+							.select({ decision: approvalVotes.decision })
+							.from(approvalVotes)
+							.where(
+								and(
+									eq(approvalVotes.approvalRequestId, id),
+									eq(approvalVotes.userId, userId),
+								),
+							)
+							.limit(1)
+						const priorVote = existingVotes[0]?.decision
+						if (priorVote && priorVote !== outcome) {
+							throw new ValidationError({
+								message: `You already voted '${priorVote}' on this approval request`,
+							})
+						}
+						if (!priorVote) {
+							await tx.insert(approvalVotes).values({
+								approvalRequestId: id,
+								userId,
+								decision: outcome,
+							})
+						}
+
+						if (outcome === 'denied') {
+							const denied = await tx
+								.update(approvalRequests)
+								.set({
+									status: 'denied',
+									decidedBy: userId,
+									decidedAt: new Date(),
+								})
+								.where(
+									and(
+										eq(approvalRequests.id, id),
+										eq(approvalRequests.status, 'pending'),
+										sql`${approvalRequests.expiresAt} > (now() at time zone 'utc')`,
+									),
+								)
+								.returning()
+							if (!denied[0]) {
+								throw new ValidationError({
+									message: 'Approval request was already decided or expired',
+								})
+							}
+							return denied[0]
+						}
+
+						const requiredApprovals = Math.max(
+							1,
+							Number(existing.requiredApprovals ?? 1),
+						)
+						const progress = await approvalProgressTx(tx, id, requiredApprovals)
+						if (progress.approvalCount < requiredApprovals) {
+							return existing
+						}
+
+						const approved = await tx
+							.update(approvalRequests)
+							.set({
+								status: 'approved',
+								decidedBy: userId,
+								decidedAt: new Date(),
+							})
+							.where(
+								and(
+									eq(approvalRequests.id, id),
+									eq(approvalRequests.status, 'pending'),
+									sql`${approvalRequests.expiresAt} > (now() at time zone 'utc')`,
+								),
+							)
+							.returning()
+						if (!approved[0]) {
+							throw new ValidationError({
+								message: 'Approval request was already decided or expired',
+							})
+						}
+						return approved[0]
 					}),
-				)
-			}
-			return row
+				catch: (e) => {
+					if (
+						e instanceof ForbiddenError ||
+						e instanceof ValidationError
+					) {
+						return e
+					}
+					return new DatabaseError({
+						message: 'Failed to record approval vote',
+						cause: e,
+					})
+				},
+			})
 		}),
 
 	decideApproveWithStepUp: (id, userId, stepUpChallenge) =>
 		Effect.gen(function* () {
 			const db = yield* requireDb
-
-			// Ownership check first (cheap, and gives a clean 403 vs a silent no-op) —
-			// mirrors decide()'s pre-check so a caller with no access to this
-			// approval never even learns whether a step-up row exists for it.
-			const owned = yield* Effect.tryPromise({
-				try: () =>
-					db
-						.select({ approval: approvalRequests })
-						.from(approvalRequests)
-						// LEFT JOIN — see listForOwner() for why org-less approvals must
-						// still resolve via the direct user_id match below.
-						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), approvalActorCondition(userId)))
-						.limit(1),
-				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
-			})
-			const existing = owned[0]?.approval
-			if (!existing) {
-				return yield* Effect.fail(
-					new ForbiddenError({ message: 'Approval request not found for your organizations' }),
-				)
-			}
-			if (existing.status !== 'pending' || isExpired(existing)) {
-				return yield* Effect.fail(
-					new ValidationError({
-						message:
-							existing.status !== 'pending'
-								? `Approval request already ${existing.status}`
-								: 'Approval request has expired',
-					}),
-				)
-			}
-
-			// Everything below (challenge lookup, validation, marking it used, AND
-			// the conditional approval status UPDATE) runs in ONE db.transaction so
-			// a failure after consuming the nonce (e.g. the approval got decided by
-			// a concurrent request between our pre-check above and here) rolls the
-			// consumption back too — a transient failure never burns a one-use nonce
-			// for nothing.
-			const row = yield* Effect.tryPromise({
+			return yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						await tx.execute(
+							sql`select pg_advisory_xact_lock(hashtext(${id})::bigint)`,
+						)
+
+						const owned = await tx
+							.select({ approval: approvalRequests })
+							.from(approvalRequests)
+							.leftJoin(
+								organizations,
+								eq(approvalRequests.organizationId, organizations.id),
+							)
+							.where(
+								and(
+									eq(approvalRequests.id, id),
+									approvalActorCondition(userId),
+								),
+							)
+							.limit(1)
+						const existing = owned[0]?.approval
+						if (!existing) {
+							throw new ForbiddenError({
+								message: 'Approval request not found for your organizations',
+							})
+						}
+						if (existing.status !== 'pending' || isExpired(existing)) {
+							throw new ValidationError({
+								message:
+									existing.status !== 'pending'
+										? `Approval request already ${existing.status}`
+										: 'Approval request has expired',
+							})
+						}
+
+						const priorVotes = await tx
+							.select({ decision: approvalVotes.decision })
+							.from(approvalVotes)
+							.where(
+								and(
+									eq(approvalVotes.approvalRequestId, id),
+									eq(approvalVotes.userId, userId),
+								),
+							)
+							.limit(1)
+						if (priorVotes[0]) {
+							throw new ValidationError({
+								message: `You already voted '${priorVotes[0].decision}' on this approval request`,
+							})
+						}
+
 						const challengeRows = await tx
 							.select()
 							.from(approvalStepUpChallenges)
 							.where(eq(approvalStepUpChallenges.challenge, stepUpChallenge))
 							.limit(1)
 						const challengeRow = challengeRows[0]
-
 						const validation = validateStepUpChallenge(
 							challengeRow
 								? {
@@ -460,6 +612,20 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 							.update(approvalStepUpChallenges)
 							.set({ usedAt: new Date() })
 							.where(eq(approvalStepUpChallenges.id, challengeRow!.id))
+						await tx.insert(approvalVotes).values({
+							approvalRequestId: id,
+							userId,
+							decision: 'approved',
+						})
+
+						const requiredApprovals = Math.max(
+							1,
+							Number(existing.requiredApprovals ?? 1),
+						)
+						const progress = await approvalProgressTx(tx, id, requiredApprovals)
+						if (progress.approvalCount < requiredApprovals) {
+							return existing
+						}
 
 						const updated = await tx
 							.update(approvalRequests)
@@ -476,30 +642,31 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 								),
 							)
 							.returning()
-
-						const updatedRow = updated[0]
-						if (!updatedRow) {
-							throw new Error(
-								'Approval request was already decided or expired (concurrent update)',
-							)
+						if (!updated[0]) {
+							throw new ValidationError({
+								message: 'Approval request was already decided or expired',
+							})
 						}
-						return updatedRow
+						return updated[0]
 					}),
 				catch: (e) => {
 					if (e instanceof StepUpRejectedInternal) {
-						return new ValidationError({ message: `${STEP_UP_REJECTED_PREFIX}${e.message}` })
+						return new ValidationError({
+							message: `${STEP_UP_REJECTED_PREFIX}${e.message}`,
+						})
 					}
-					if (e instanceof Error && e.message.includes('concurrent update')) {
-						return new ValidationError({ message: e.message })
+					if (
+						e instanceof ForbiddenError ||
+						e instanceof ValidationError
+					) {
+						return e
 					}
 					return new DatabaseError({
-						message: 'Failed to record step-up approval decision',
+						message: 'Failed to record step-up approval vote',
 						cause: e,
 					})
 				},
 			})
-
-			return row
 		}),
 
 	issueStepUpChallenge: (id, userId) =>
