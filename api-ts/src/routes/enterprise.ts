@@ -8,8 +8,25 @@ import { mapErrorToResponse } from '../errors'
 import { flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { UserService } from '../services'
+import { writeAuditLog } from '../services/audit'
 
 export const enterpriseRoutes = new Hono()
+
+const ORG_ROLES = ['owner', 'admin', 'trader', 'approver', 'auditor', 'member', 'viewer'] as const
+type OrgRole = (typeof ORG_ROLES)[number]
+
+const ORG_READ_ROLES: OrgRole[] = [...ORG_ROLES]
+const ORG_MEMBER_ASSIGNABLE_ROLES = ['admin', 'trader', 'approver', 'auditor', 'member', 'viewer'] as const
+
+export const ENTERPRISE_ROLE_CAPABILITIES: Record<OrgRole, readonly string[]> = {
+	owner: ['org:manage', 'members:manage', 'keys:manage', 'trade:initiate', 'trade:approve', 'audit:read'],
+	admin: ['org:manage', 'members:manage', 'keys:manage', 'audit:read'],
+	trader: ['trade:initiate', 'org:read'],
+	approver: ['trade:approve', 'org:read', 'audit:read'],
+	auditor: ['org:read', 'audit:read'],
+	member: ['org:read'],
+	viewer: ['org:read'],
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -244,7 +261,7 @@ enterpriseRoutes.get('/orgs/me', async (c) => {
 // ─── GET /enterprise/orgs/:orgId ────────────────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId', async (c) => {
-	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ORG_READ_ROLES)
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
 	const orgId = membership.orgId
 
@@ -351,10 +368,31 @@ enterpriseRoutes.patch('/orgs/:orgId', async (c) => {
 	return c.json({ org: result.right })
 })
 
+// ─── GET /enterprise/orgs/:orgId/capabilities ───────────────────────────────
+//
+// Returns the current human's explicit workspace authority. This is intentionally
+// separate from API-key scopes: human governance and machine credentials are
+// different authority planes.
+enterpriseRoutes.get('/orgs/:orgId/capabilities', async (c) => {
+	const membership = await resolveMembership(c, c.req.param('orgId'), ORG_READ_ROLES)
+	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
+
+	const role = membership.role as OrgRole
+	return c.json({
+		role,
+		capabilities: ENTERPRISE_ROLE_CAPABILITIES[role] ?? [],
+		separationOfDuties: {
+			canInitiate: (ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('trade:initiate'),
+			canApprove: (ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('trade:approve'),
+			canManageKeys: (ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('keys:manage'),
+		},
+	})
+})
+
 // ─── GET /enterprise/orgs/:orgId/members ────────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/members', async (c) => {
-	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ORG_READ_ROLES)
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
 	const orgId = membership.orgId
 
@@ -390,7 +428,7 @@ enterpriseRoutes.get('/orgs/:orgId/members', async (c) => {
 
 const InviteMemberSchema = z.object({
 	userId: z.number().int(),
-	role: z.enum(['admin', 'member', 'viewer']).default('member'),
+	role: z.enum(ORG_MEMBER_ASSIGNABLE_ROLES).default('member'),
 })
 
 enterpriseRoutes.post('/orgs/:orgId/members', async (c) => {
@@ -459,13 +497,19 @@ enterpriseRoutes.post('/orgs/:orgId/members', async (c) => {
 		return c.json(body, status as 200)
 	}
 
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.member_added',
+		details: { targetUserId: parsed.data.userId, role: parsed.data.role },
+	})
 	return c.json({ member: result.right }, 201)
 })
 
 // ─── PATCH /enterprise/orgs/:orgId/members/:userId ──────────────────────────
 
 const UpdateMemberSchema = z.object({
-	role: z.enum(['admin', 'member', 'viewer']),
+	role: z.enum(ORG_MEMBER_ASSIGNABLE_ROLES),
 })
 
 enterpriseRoutes.patch('/orgs/:orgId/members/:targetUserId', async (c) => {
@@ -510,6 +554,12 @@ enterpriseRoutes.patch('/orgs/:orgId/members/:targetUserId', async (c) => {
 		return c.json(body, status as 200)
 	}
 
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.member_role_changed',
+		details: { targetUserId: targetId, role: parsed.data.role },
+	})
 	return c.json({ member: result.right })
 })
 
@@ -572,13 +622,19 @@ enterpriseRoutes.delete('/orgs/:orgId/members/:targetUserId', async (c) => {
 		return c.json(body, status as 200)
 	}
 
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.member_removed',
+		details: { targetUserId: targetId },
+	})
 	return c.json({ success: true })
 })
 
 // ─── GET /enterprise/orgs/:orgId/api-keys ───────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/api-keys', async (c) => {
-	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ORG_READ_ROLES)
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
 	const orgId = membership.orgId
 
@@ -634,6 +690,7 @@ const GRANTABLE_SCOPES = [
 const CreateKeySchema = z.object({
 	name: z.string().min(1).max(100),
 	scopes: z.array(z.enum(GRANTABLE_SCOPES)).default([]),
+	rateLimitPerMin: z.number().int().min(1).max(100_000).optional(),
 	expiresAt: z.string().datetime().optional(),
 })
 
@@ -654,6 +711,22 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const db = yield* requireDb
+			const [org] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({ apiRateLimitPerMin: organizations.apiRateLimitPerMin })
+						.from(organizations)
+						.where(eq(organizations.id, orgId))
+						.limit(1),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			if (!org) throw new Error('Organization not found')
+
+			const keyRateLimit = parsed.data.rateLimitPerMin ?? Math.min(100, org.apiRateLimitPerMin)
+			if (keyRateLimit > org.apiRateLimitPerMin) {
+				throw new Error('Key rate limit exceeds organization ceiling')
+			}
+
 			const [key] = yield* Effect.tryPromise({
 				try: () =>
 					db
@@ -665,6 +738,7 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 							keyHash,
 							keyPrefix,
 							scopes: parsed.data.scopes,
+							rateLimitPerMin: keyRateLimit,
 							expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined,
 						})
 						.returning({
@@ -672,6 +746,7 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 							name: apiKeys.name,
 							keyPrefix: apiKeys.keyPrefix,
 							scopes: apiKeys.scopes,
+							rateLimitPerMin: apiKeys.rateLimitPerMin,
 							expiresAt: apiKeys.expiresAt,
 							createdAt: apiKeys.createdAt,
 						}),
@@ -682,9 +757,27 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 	)
 
 	if (Either.isLeft(result)) {
+		const err = result.left as Error
+		if (err.message === 'Key rate limit exceeds organization ceiling') {
+			return c.json({ error: err.message }, 400)
+		}
+		if (err.message === 'Organization not found') return c.json({ error: err.message }, 404)
 		const { status, body } = mapErrorToResponse(result.left)
 		return c.json(body, status as 200)
 	}
+
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.api_key_created',
+		details: {
+			keyId: result.right?.id,
+			name: result.right?.name,
+			scopes: result.right?.scopes,
+			rateLimitPerMin: result.right?.rateLimitPerMin,
+			expiresAt: result.right?.expiresAt?.toISOString() ?? null,
+		},
+	})
 
 	// Return the raw key ONCE — it cannot be retrieved again
 	return c.json({ key: result.right, rawKey }, 201)
@@ -730,13 +823,19 @@ enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
 		return c.json(body, status as 200)
 	}
 
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.api_key_revoked',
+		details: { keyId },
+	})
 	return c.json({ success: true, revokedAt: new Date().toISOString() })
 })
 
 // ─── GET /enterprise/orgs/:orgId/usage ──────────────────────────────────────
 
 enterpriseRoutes.get('/orgs/:orgId/usage', async (c) => {
-	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'member', 'viewer'])
+	const membership = await resolveMembership(c, c.req.param('orgId'), ORG_READ_ROLES)
 	if (!membership) return c.json({ error: 'Not a member of this organization' }, 403)
 	const orgId = membership.orgId
 
