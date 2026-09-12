@@ -33,22 +33,61 @@ The control plane reads existing production ledgers and execution records:
 
 ## 13-week scenarios
 
-The API derives a weekly inflow run-rate from the trailing 30-day tracked cash inflow and
-projects three cases:
+The endpoint still returns the original trailing-run-rate survival/base/growth forecast
+for compatibility, but the founder UI now centers a **driver-based** downside/base/upside
+model.
 
-- **Survival:** 0.5× trailing inflow
-- **Base:** 1.0× trailing inflow
-- **Growth:** 2.0× trailing inflow
+Observed drivers:
 
-Starting cash and weekly operating burn are optional planning inputs. The admin UI stores
-them in browser `localStorage` and sends them as query parameters:
+- trailing swap volume,
+- accrued fee capture,
+- recorded fee collection ratio,
+- non-fee cash receipts.
+
+Optional founder planning drivers:
+
+- starting cash,
+- weekly fixed operating burn,
+- variable cost in basis points of volume,
+- weekly volume growth,
+- weekly non-fee cash growth.
+
+Example:
 
 ```text
-GET /admin/finance?cash_usd=50000&weekly_burn_usd=3000
+GET /admin/finance?cash_usd=50000&weekly_burn_usd=3000&variable_cost_bps=5&volume_growth_pct=2&non_fee_growth_pct=1
 ```
 
-They are deliberately not persisted in Suwappu's production database. Without both
-inputs, ending-cash and runway fields remain unknown rather than inventing a number.
+The scenarios explicitly alter demand/cash conditions, fee capture, and cost pressure.
+They are scenario projections, **not an ML forecast**. The admin UI stores founder inputs
+in browser `localStorage`; the API does not persist them. If cash or burn is absent,
+cash-out and ending-cash fields remain unknown rather than inventing a balance.
+
+## Payment cycles and process mining
+
+The control plane also turns existing operational data into exception-oriented finance
+signals:
+
+- recurring crypto subscriptions active, due, and overdue,
+- paid human subscriptions expiring within 30 days,
+- Stripe failed-payment events already written to the tamper-evident audit log,
+- quote-to-execution conversion and quote drop-off,
+- average route candidates per quote,
+- p50/p95 swap creation-to-completion latency,
+- repeated failed-swap signatures by provider,
+- provider volume share and concentration risk.
+
+This is a baseline process-mining layer over facts Suwappu already records. It does not
+yet claim stage-by-stage conformance timing for the canonical execution lifecycle. That
+requires a timestamped event for every lifecycle transition.
+
+The founder UI adds a bounded **exception queue** for runway breach, provider
+concentration, payment recovery, fee-collection divergence, and funnel breakage. These
+are review triggers only: they cannot move funds, contact customers, change billing, or
+change routing.
+
+See [CFO Agenda 2026 → Suwappu](cfo-agenda-2026.md) for the full twelve-point operating
+system mapping.
 
 ## Data-quality boundary
 
