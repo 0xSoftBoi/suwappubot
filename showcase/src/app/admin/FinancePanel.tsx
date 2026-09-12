@@ -104,6 +104,13 @@ interface FinanceResponse {
       risk: 'unknown' | 'low' | 'moderate' | 'high';
     };
   };
+  operatingExceptions: Array<{
+    code: string;
+    severity: 'info' | 'warning' | 'critical';
+    title: string;
+    evidence: string;
+    recommendedAction: string;
+  }>;
   providers: FinanceProvider[];
   planning: {
     startingCashUsd: number | null;
