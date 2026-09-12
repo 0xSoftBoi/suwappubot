@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildCfoScenarios, providerConcentration } from '../lib/cfoOperatingSystem'
+import { buildCfoExceptions, buildCfoScenarios, providerConcentration } from '../lib/cfoOperatingSystem'
 
 describe('buildCfoScenarios', () => {
 	it('models volume, fee capture, non-fee inflow, burn, and variable costs explicitly', () => {
@@ -50,5 +50,47 @@ describe('providerConcentration', () => {
 
 	it('returns unknown for an empty window', () => {
 		expect(providerConcentration([]).risk).toBe('unknown')
+	})
+})
+
+
+describe('buildCfoExceptions', () => {
+	it('surfaces bounded review triggers without inventing actions', () => {
+		const rows = buildCfoExceptions({
+			baseFirstCashOutWeek: 8,
+			topProvider: 'lifi',
+			topProviderShare: 0.6,
+			stripePaymentFailures30d: 2,
+			recurringOverdue: 1,
+			feeCollectionRate: 0.7,
+			feesAccruedUsd: 100,
+			quoteToExecutionRate: 0.4,
+			quotesObserved: 20,
+		})
+
+		expect(rows.map((row) => row.code)).toEqual([
+			'RUNWAY_BREACH',
+			'PROVIDER_CONCENTRATION',
+			'PAYMENT_RECOVERY',
+			'FEE_COLLECTION',
+			'FUNNEL_BREAKAGE',
+		])
+		expect(rows[0]?.severity).toBe('critical')
+	})
+
+	it('does not flag funnel conversion on tiny samples', () => {
+		const rows = buildCfoExceptions({
+			baseFirstCashOutWeek: null,
+			topProvider: null,
+			topProviderShare: null,
+			stripePaymentFailures30d: 0,
+			recurringOverdue: 0,
+			feeCollectionRate: null,
+			feesAccruedUsd: 0,
+			quoteToExecutionRate: 0.1,
+			quotesObserved: 3,
+		})
+
+		expect(rows).toHaveLength(0)
 	})
 })
