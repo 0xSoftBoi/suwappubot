@@ -1272,7 +1272,12 @@ export async function enforcePolicyGateForFreshQuote(
 			orgId,
 			agentId: agentIdentifier,
 			eventType: 'approval.created',
-			details: { approvalId: created.right.id, reason, policyDecisionId },
+			details: {
+			approvalId: created.right.id,
+			reason,
+			policyDecisionId,
+			requiredApprovals: created.right.requiredApprovals,
+		},
 		})
 
 		return c.json(
@@ -1282,6 +1287,8 @@ export async function enforcePolicyGateForFreshQuote(
 				error: 'Transaction requires approval under org policy',
 				reason: reason ?? null,
 				approval_id: created.right.id,
+				required_approvals: created.right.requiredApprovals,
+				approval_count: 0,
 				expires_at: created.right.expiresAt.toISOString(),
 				hint: 'Poll GET /v1/agent/approvals/:id until status is "approved", then re-submit with approval_id set (quote_id not required — the trade is re-quoted server-side).',
 			},
@@ -4248,7 +4255,9 @@ agentRoutes.get('/approvals/:id', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const approvals = yield* ApprovalService
-			return yield* approvals.getForAgent(id, agentIdentifierOf(agent))
+			const row = yield* approvals.getForAgent(id, agentIdentifierOf(agent))
+			const progress = yield* approvals.progress(id)
+			return { row, progress }
 		}),
 	)
 
@@ -4257,21 +4266,24 @@ agentRoutes.get('/approvals/:id', async (c) => {
 		return c.json({ success: false, ...body }, status)
 	}
 
-	const row = result.right
+	const { row, progress } = result.right
 	return c.json({
 		success: true,
 		approval_id: row.id,
 		status: row.status,
 		action_type: row.actionType,
 		reason: row.reason,
+		required_approvals: progress.requiredApprovals,
+		approval_count: progress.approvalCount,
+		remaining_approvals: progress.remainingApprovals,
 		expires_at: row.expiresAt.toISOString(),
 		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
 		created_at: row.createdAt.toISOString(),
 	})
 })
 
-// GET /v1/agent/approvals?status=pending - owner (JWT) lists approval requests
-// across the organizations they own. Never accepts an agent key.
+// GET /v1/agent/approvals?status=pending - authorized human approver (JWT) lists approval requests
+// across the organizations they may approve for. Never accepts an agent key.
 const APPROVAL_STATUSES = ['pending', 'approved', 'denied', 'expired', 'consumed'] as const
 
 agentRoutes.get('/approvals', async (c) => {
@@ -4291,7 +4303,15 @@ agentRoutes.get('/approvals', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const approvals = yield* ApprovalService
-			return yield* approvals.listForOwner(authUser.userId, status)
+			const rows = yield* approvals.listForOwner(authUser.userId, status)
+			const withProgress = yield* Effect.all(
+				rows.map((row) =>
+					approvals.progress(row.id).pipe(
+						Effect.map((progress) => ({ row, progress })),
+					),
+				),
+			)
+			return withProgress
 		}),
 	)
 
@@ -4302,7 +4322,7 @@ agentRoutes.get('/approvals', async (c) => {
 
 	return c.json({
 		success: true,
-		approvals: result.right.map((row) => ({
+		approvals: result.right.map(({ row, progress }) => ({
 			approval_id: row.id,
 			agent_id: row.agentId,
 			organization_id: row.organizationId,
@@ -4310,6 +4330,9 @@ agentRoutes.get('/approvals', async (c) => {
 			payload: row.payload,
 			reason: row.reason,
 			status: row.status,
+			required_approvals: progress.requiredApprovals,
+			approval_count: progress.approvalCount,
+			remaining_approvals: progress.remainingApprovals,
 			expires_at: row.expiresAt.toISOString(),
 			decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
 			created_at: row.createdAt.toISOString(),
@@ -4317,7 +4340,7 @@ agentRoutes.get('/approvals', async (c) => {
 	})
 })
 
-// POST /v1/agent/approvals/:id/step-up/challenge - owner (JWT) issues a
+// POST /v1/agent/approvals/:id/step-up/challenge - authorized human approver (JWT) issues a
 // fresh single-use step-up nonce for a pending approval they own. Required
 // before approve when APPROVAL_STEP_UP_REQUIRED='true'.
 agentRoutes.post('/approvals/:id/step-up/challenge', async (c) => {
@@ -4351,7 +4374,7 @@ agentRoutes.post('/approvals/:id/step-up/challenge', async (c) => {
 	})
 })
 
-// POST /v1/agent/approvals/:id/approve - owner (JWT) approves a pending request.
+// POST /v1/agent/approvals/:id/approve - authorized human approver (JWT) approves a pending request.
 // Race-safe: ApprovalService.decide() uses a conditional UPDATE ... WHERE
 // status='pending' so a duplicate click can only ever succeed once. When
 // APPROVAL_STEP_UP_REQUIRED='true' a valid, unexpired, unused step-up
@@ -4379,10 +4402,18 @@ agentRoutes.post('/approvals/:id/approve', async (c) => {
 						new ValidationError({ message: 'step_up_challenge is required' }),
 					)
 				}
-				return yield* approvals.decideApproveWithStepUp(id, authUser.userId, stepUpChallenge)
+				const row = yield* approvals.decideApproveWithStepUp(
+					id,
+					authUser.userId,
+					stepUpChallenge,
+				)
+				const progress = yield* approvals.progress(id)
+				return { row, progress }
 			}
 
-			return yield* approvals.decide(id, authUser.userId, 'approved')
+			const row = yield* approvals.decide(id, authUser.userId, 'approved')
+			const progress = yield* approvals.progress(id)
+			return { row, progress }
 		}),
 	)
 
@@ -4405,25 +4436,35 @@ agentRoutes.post('/approvals/:id/approve', async (c) => {
 		return c.json({ success: false, ...body }, status)
 	}
 
-	const row = result.right
+	const { row, progress } = result.right
+	const finalized = row.status === 'approved'
 	writeAuditLog({
 		userId: authUser.userId,
 		orgId: row.organizationId,
 		agentId: row.agentId,
-		eventType: 'approval.approved',
-		details: { approvalId: row.id },
+		eventType: finalized ? 'approval.approved' : 'approval.vote_recorded',
+		details: {
+			approvalId: row.id,
+			approvalCount: progress.approvalCount,
+			requiredApprovals: progress.requiredApprovals,
+		},
 	})
 
 	return c.json({
 		success: true,
 		approval_id: row.id,
 		status: row.status,
+		required_approvals: progress.requiredApprovals,
+		approval_count: progress.approvalCount,
+		remaining_approvals: progress.remainingApprovals,
 		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
-		hint: 'The agent must re-submit the original request with approval_id set to execute it.',
+		hint: finalized
+			? 'Quorum reached. The agent must re-submit the original request with approval_id set to execute it.'
+			: 'Approval vote recorded. The request remains pending until quorum is reached.',
 	})
 })
 
-// POST /v1/agent/approvals/:id/deny - owner (JWT) denies a pending request.
+// POST /v1/agent/approvals/:id/deny - authorized human approver (JWT) denies a pending request.
 agentRoutes.post('/approvals/:id/deny', async (c) => {
 	const authUser = c.get('authUser')
 	const id = c.req.param('id')
@@ -4431,7 +4472,9 @@ agentRoutes.post('/approvals/:id/deny', async (c) => {
 	const result = await runEffectEither(
 		Effect.gen(function* () {
 			const approvals = yield* ApprovalService
-			return yield* approvals.decide(id, authUser.userId, 'denied')
+			const row = yield* approvals.decide(id, authUser.userId, 'denied')
+			const progress = yield* approvals.progress(id)
+			return { row, progress }
 		}),
 	)
 
@@ -4440,19 +4483,26 @@ agentRoutes.post('/approvals/:id/deny', async (c) => {
 		return c.json({ success: false, ...body }, status)
 	}
 
-	const row = result.right
+	const { row, progress } = result.right
 	writeAuditLog({
 		userId: authUser.userId,
 		orgId: row.organizationId,
 		agentId: row.agentId,
 		eventType: 'approval.denied',
-		details: { approvalId: row.id },
+		details: {
+			approvalId: row.id,
+			approvalCount: progress.approvalCount,
+			requiredApprovals: progress.requiredApprovals,
+		},
 	})
 
 	return c.json({
 		success: true,
 		approval_id: row.id,
 		status: row.status,
+		required_approvals: progress.requiredApprovals,
+		approval_count: progress.approvalCount,
+		remaining_approvals: progress.remainingApprovals,
 		decided_at: row.decidedAt ? row.decidedAt.toISOString() : null,
 	})
 })
