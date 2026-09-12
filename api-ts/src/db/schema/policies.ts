@@ -82,6 +82,9 @@ export const policies = pgTable(
 
 		// Any tx above this USD value escalates to REQUIRE_APPROVAL (maker-checker).
 		requireApprovalAboveUsd: real('require_approval_above_usd'),
+		// Number of DISTINCT authorized humans required once this policy escalates.
+		// Snapshotted onto approval_requests at creation time.
+		requiredApprovals: integer('required_approvals').default(1).notNull(),
 
 		createdBy: integer('created_by').references(() => users.id),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
