@@ -5,7 +5,7 @@ import { type DrizzleService, requireDb } from '../db'
 import { agents } from '../db/schema/agents'
 import { approvalRequests, type ApprovalRequest } from '../db/schema/approvals'
 import { approvalStepUpChallenges } from '../db/schema/approvalStepUpChallenges'
-import { organizations } from '../db/schema/organizations'
+import { organizationMembers, organizations } from '../db/schema/organizations'
 import { DatabaseError, ForbiddenError, NotFoundError, ValidationError } from '../errors'
 import { coreTermsOf, type EconomicTerms } from '../lib/approvalTerms'
 import { validateStepUpChallenge } from '../lib/stepUpChallenge'
@@ -62,7 +62,7 @@ export interface ApprovalServiceInterface {
 		agentId: string,
 	) => Effect.Effect<ApprovalRequest, DatabaseError | NotFoundError | ForbiddenError, DrizzleService>
 
-	/** Owner-scoped list — pending (or filtered) requests for orgs the user owns.
+	/** Human approver-scoped list — pending (or filtered) requests for orgs the user owns.
 	 * When status is 'pending', an expiry filter (expires_at > now()) is applied
 	 * so stale-but-not-yet-swept rows don't show as actionable. */
 	readonly listForOwner: (
@@ -71,7 +71,7 @@ export interface ApprovalServiceInterface {
 	) => Effect.Effect<ApprovalRequest[], DatabaseError, DrizzleService>
 
 	/**
-	 * Owner-scoped race-safe decision. Uses a conditional UPDATE ... WHERE
+	 * Human approver-scoped race-safe decision. Uses a conditional UPDATE ... WHERE
 	 * status='pending' so a concurrent double-click / retry can only ever win once.
 	 */
 	readonly decide: (
@@ -81,7 +81,7 @@ export interface ApprovalServiceInterface {
 	) => Effect.Effect<ApprovalRequest, DatabaseError | NotFoundError | ForbiddenError | ValidationError, DrizzleService>
 
 	/**
-	 * Owner-scoped approve decision that ALSO validates + consumes a
+	 * Human approver-scoped approve decision that ALSO validates + consumes a
 	 * server-issued step-up challenge (see approvalStepUpChallenges.ts),
 	 * atomically in one db.transaction: challenge-row lookup + validation +
 	 * marking it used, AND the conditional approvalRequests status UPDATE,
@@ -98,7 +98,7 @@ export interface ApprovalServiceInterface {
 	) => Effect.Effect<ApprovalRequest, DatabaseError | ForbiddenError | ValidationError, DrizzleService>
 
 	/**
-	 * Owner-scoped: issues a fresh single-use step-up nonce for a pending
+	 * Human approver-scoped: issues a fresh single-use step-up nonce for a pending
 	 * approval the caller owns. Mirrors decide()'s ownership+pending+not-expired
 	 * pre-check so a caller with no access to this approval never learns
 	 * anything about its state. The raw challenge value is returned to the
@@ -154,11 +154,34 @@ const isExpired = (row: ApprovalRequest) => row.expiresAt.getTime() < Date.now()
  * org-less rows still evaluate), OR the request's own user_id (set from the
  * org owner at creation time, or — for org-less agents — from
  * agents.owner_user_id, see create() below) equals the caller directly. This
- * is additive only: an org member who is neither the org owner nor the
- * recorded user_id is never granted access by this predicate.
+ * This narrow predicate remains exported for backwards compatibility; the
+ * enterprise decision path wraps it with explicit org approver membership.
  */
 export function approvalOwnershipCondition(userId: number) {
 	return or(eq(organizations.ownerId, userId), eq(approvalRequests.userId, userId))
+}
+
+/**
+ * Enterprise maker/checker authorization.
+ *
+ * Keep approvalOwnershipCondition() as the narrow backwards-compatible owner /
+ * direct-user predicate. Institutional approvals additionally allow an explicit
+ * org member with the 'approver' role to review and decide org-scoped requests.
+ *
+ * This is intentionally NOT admin/member based: managing the workspace must not
+ * implicitly grant authority to approve fund-moving actions.
+ */
+export function approvalActorCondition(userId: number) {
+	return or(
+		approvalOwnershipCondition(userId),
+		sql<boolean>`exists (
+			select 1
+			from ${organizationMembers}
+			where ${organizationMembers.organizationId} = ${approvalRequests.organizationId}
+				and ${organizationMembers.userId} = ${userId}
+				and ${organizationMembers.role} in ('owner', 'approver')
+		)`,
+	)
 }
 
 export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
@@ -267,7 +290,7 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 			// ApprovalService.create()) equals the caller directly. This is
 			// additive only: it never grants access to an org member who is
 			// neither the org owner nor the recorded user_id.
-			const conditions = [approvalOwnershipCondition(userId)]
+			const conditions = [approvalActorCondition(userId)]
 			if (status) {
 				conditions.push(eq(approvalRequests.status, status))
 				if (status === 'pending') {
@@ -309,7 +332,7 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 						// LEFT JOIN — see listForOwner() for why org-less approvals must
 						// still resolve via the direct user_id match below.
 						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), approvalOwnershipCondition(userId)))
+						.where(and(eq(approvalRequests.id, id), approvalActorCondition(userId)))
 						.limit(1),
 				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
 			})
@@ -381,7 +404,7 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 						// LEFT JOIN — see listForOwner() for why org-less approvals must
 						// still resolve via the direct user_id match below.
 						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), approvalOwnershipCondition(userId)))
+						.where(and(eq(approvalRequests.id, id), approvalActorCondition(userId)))
 						.limit(1),
 				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
 			})
@@ -494,7 +517,7 @@ export const ApprovalServiceLive = Layer.succeed(ApprovalService, {
 						// LEFT JOIN — see listForOwner() for why org-less approvals must
 						// still resolve via the direct user_id match below.
 						.leftJoin(organizations, eq(approvalRequests.organizationId, organizations.id))
-						.where(and(eq(approvalRequests.id, id), approvalOwnershipCondition(userId)))
+						.where(and(eq(approvalRequests.id, id), approvalActorCondition(userId)))
 						.limit(1),
 				catch: (e) => new DatabaseError({ message: 'Failed to load approval request', cause: e }),
 			})
