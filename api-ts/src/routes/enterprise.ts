@@ -439,6 +439,12 @@ enterpriseRoutes.post('/orgs/:orgId/members', async (c) => {
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = InviteMemberSchema.safeParse(body)
 	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+	if (membership.role === 'admin' && ['admin', 'approver'].includes(parsed.data.role)) {
+		return c.json(
+			{ error: 'Only the organization owner may grant admin or approver authority' },
+			403,
+		)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -702,6 +708,12 @@ enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = CreateKeySchema.safeParse(body)
 	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+	if (parsed.data.scopes.includes('admin') && parsed.data.scopes.includes('swap:execute')) {
+		return c.json(
+			{ error: 'Administrative and execution authority must use separate API keys' },
+			400,
+		)
+	}
 
 	// Generate a crypto-random key: sk_live_ + 32 hex chars (16 random bytes)
 	const rawKey = `sk_live_${randomBytes(16).toString('hex')}`
