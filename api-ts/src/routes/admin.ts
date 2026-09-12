@@ -730,7 +730,6 @@ adminRoutes.get('/finance', async (c) => {
 			const trackedCashInflow30dUsd =
 				x402Usd + prepaidCreditInflowsUsd + agentSubscriptionInflowsUsd + swapFeesCollectedUsd
 			const observedWeeklyCashInflowUsd = trackedCashInflow30dUsd * (7 / 30)
-			const observedWeeklyVolumeUsd = volumeUsd * (7 / 30)
 
 			const swaps = swapRows[0]
 			const totalSwaps = Number(swaps?.total ?? 0)
@@ -738,6 +737,7 @@ adminRoutes.get('/finance', async (c) => {
 			const failedSwaps = Number(swaps?.failed ?? 0)
 			const terminalSwaps = completedSwaps + failedSwaps
 			const volumeUsd = Number(swaps?.volumeUsd ?? 0)
+			const observedWeeklyVolumeUsd = volumeUsd * (7 / 30)
 			const quotes = Number(funnelRows[0]?.quotes ?? 0)
 			const quotesWithExecution = Number(funnelRows[0]?.quotesWithExecution ?? 0)
 
