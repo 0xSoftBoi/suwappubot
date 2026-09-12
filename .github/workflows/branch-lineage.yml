@@ -1,0 +1,58 @@
+name: Branch Lineage
+
+on:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  dev-lineage:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Assert dev contains main
+        run: |
+          set -euo pipefail
+          git fetch origin main dev --force
+          if ! git merge-base --is-ancestor origin/main origin/dev; then
+            echo "::error::dev diverged from main. Refusing a second independent history."
+            echo "main=$(git rev-parse origin/main)"
+            echo "dev=$(git rev-parse origin/dev)"
+            echo "merge-base=$(git merge-base origin/main origin/dev)"
+            exit 1
+          fi
+
+  sync-dev-after-main:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Fast-forward dev to main when safe
+        run: |
+          set -euo pipefail
+          git fetch origin main dev --force
+          MAIN_SHA="$(git rev-parse origin/main)"
+          DEV_SHA="$(git rev-parse origin/dev)"
+
+          if [ "$MAIN_SHA" = "$DEV_SHA" ]; then
+            echo "dev already matches main"
+            exit 0
+          fi
+
+          if ! git merge-base --is-ancestor origin/dev origin/main; then
+            echo "::error::dev contains commits that are not in main. Refusing to overwrite them."
+            echo "Promote dev into main first, then re-run this workflow."
+            exit 1
+          fi
+
+          git push origin "$MAIN_SHA:refs/heads/dev"
+          echo "dev fast-forwarded to $MAIN_SHA"
