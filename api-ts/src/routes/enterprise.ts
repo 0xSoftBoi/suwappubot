@@ -3,7 +3,15 @@ import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { requireDb, organizations, organizationMembers, apiKeys, apiUsageEvents, subscriptions } from '../db'
+import {
+	apiKeys,
+	apiUsageEvents,
+	organizationMembers,
+	organizations,
+	policies,
+	requireDb,
+	subscriptions,
+} from '../db'
 import { mapErrorToResponse } from '../errors'
 import {
 	ENTERPRISE_ROLE_CAPABILITIES,
@@ -868,6 +876,265 @@ enterpriseRoutes.delete('/orgs/:orgId/api-keys/:keyId', async (c) => {
 		details: { keyId },
 	})
 	return c.json({ success: true, revokedAt: new Date().toISOString() })
+})
+
+// ─── Enterprise transaction policies ───────────────────────────────────────
+
+const EnterprisePolicyFields = {
+	name: z.string().min(1).max(120),
+	enabled: z.boolean().default(true),
+	priority: z.number().int().min(1).max(10_000).default(100),
+	agentId: z.string().min(1).max(64).nullable().optional(),
+	approvalMode: z.enum(['above_limit', 'always_ask', 'autonomous']).default('above_limit'),
+	requiredApprovals: z.number().int().min(1).max(10).default(1),
+	expiresAt: z.string().datetime().nullable().optional(),
+	maxTxUsd: z.number().nonnegative().nullable().optional(),
+	maxSlippageBps: z.number().int().min(0).max(10_000).nullable().optional(),
+	maxGasUsd: z.number().nonnegative().nullable().optional(),
+	dailyCapUsd: z.number().nonnegative().nullable().optional(),
+	sessionCapUsd: z.number().nonnegative().nullable().optional(),
+	maxTxPerHour: z.number().int().min(1).max(100_000).nullable().optional(),
+	allowedChains: z.array(z.string().min(1).max(64)).nullable().optional(),
+	blockedChains: z.array(z.string().min(1).max(64)).nullable().optional(),
+	allowedTokens: z.array(z.string().min(1).max(128)).nullable().optional(),
+	blockedTokens: z.array(z.string().min(1).max(128)).nullable().optional(),
+	destinationAllowlist: z.array(z.string().min(1).max(128)).nullable().optional(),
+	allowedContracts: z.array(z.string().min(1).max(128)).nullable().optional(),
+	requireApprovalAboveUsd: z.number().nonnegative().nullable().optional(),
+} as const
+
+const CreateEnterprisePolicySchema = z.object(EnterprisePolicyFields)
+const UpdateEnterprisePolicySchema = z.object({
+	...EnterprisePolicyFields,
+	name: EnterprisePolicyFields.name.optional(),
+	enabled: EnterprisePolicyFields.enabled.optional(),
+	priority: EnterprisePolicyFields.priority.optional(),
+	approvalMode: EnterprisePolicyFields.approvalMode.optional(),
+	requiredApprovals: EnterprisePolicyFields.requiredApprovals.optional(),
+}).partial()
+
+function normalizePolicyArray(value: string[] | null | undefined): string[] | null | undefined {
+	return value == null ? value : value.map((item) => item.trim().toLowerCase()).filter(Boolean)
+}
+
+async function eligibleApproverCount(orgId: string): Promise<number | null> {
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const [row] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select({
+							count: sql<number>`count(distinct ${organizationMembers.userId})`,
+						})
+						.from(organizationMembers)
+						.where(
+							and(
+								eq(organizationMembers.organizationId, orgId),
+								sql`${organizationMembers.role} in ('owner', 'approver')`,
+							),
+						),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			return Number(row?.count ?? 0)
+		}),
+	)
+	return Either.isLeft(result) ? null : result.right
+}
+
+enterpriseRoutes.get('/orgs/:orgId/policies', async (c) => {
+	const membership = await resolveMembership(c, c.req.param('orgId'), [
+		'owner',
+		'admin',
+		'trader',
+		'approver',
+		'auditor',
+	])
+	if (!membership) return c.json({ error: 'Policy access is not available to this role' }, 403)
+	const orgId = membership.orgId
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			return yield* Effect.tryPromise({
+				try: () =>
+					db
+						.select()
+						.from(policies)
+						.where(eq(policies.organizationId, orgId))
+						.orderBy(policies.priority, policies.createdAt),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+		}),
+	)
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status as 200)
+	}
+	return c.json({ policies: result.right })
+})
+
+enterpriseRoutes.post('/orgs/:orgId/policies', async (c) => {
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner'])
+	if (!membership) return c.json({ error: 'Owner role required to create transaction policies' }, 403)
+	const orgId = membership.orgId
+	const body = await c.req.json().catch(() => ({}))
+	const parsed = CreateEnterprisePolicySchema.safeParse(body)
+	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+
+	const approverCount = await eligibleApproverCount(orgId)
+	if (approverCount == null) return c.json({ error: 'Unable to verify approval quorum capacity' }, 500)
+	if (parsed.data.requiredApprovals > approverCount) {
+		return c.json(
+			{
+				error: `requiredApprovals=${parsed.data.requiredApprovals} exceeds the ${approverCount} eligible owner/approver users in this workspace`,
+			},
+			400,
+		)
+	}
+
+	const data = parsed.data
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const [row] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.insert(policies)
+						.values({
+							organizationId: orgId,
+							agentId: data.agentId ?? null,
+							name: data.name,
+							enabled: data.enabled,
+							priority: data.priority,
+							approvalMode: data.approvalMode,
+							requiredApprovals: data.requiredApprovals,
+							expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+							maxTxUsd: data.maxTxUsd ?? null,
+							maxSlippageBps: data.maxSlippageBps ?? null,
+							maxGasUsd: data.maxGasUsd ?? null,
+							dailyCapUsd: data.dailyCapUsd ?? null,
+							sessionCapUsd: data.sessionCapUsd ?? null,
+							maxTxPerHour: data.maxTxPerHour ?? null,
+							allowedChains: normalizePolicyArray(data.allowedChains) ?? null,
+							blockedChains: normalizePolicyArray(data.blockedChains) ?? null,
+							allowedTokens: normalizePolicyArray(data.allowedTokens) ?? null,
+							blockedTokens: normalizePolicyArray(data.blockedTokens) ?? null,
+							destinationAllowlist:
+								normalizePolicyArray(data.destinationAllowlist) ?? null,
+							allowedContracts: normalizePolicyArray(data.allowedContracts) ?? null,
+							requireApprovalAboveUsd: data.requireApprovalAboveUsd ?? null,
+							createdBy: membership.userId,
+						})
+						.returning(),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			return row
+		}),
+	)
+	if (Either.isLeft(result) || !result.right) {
+		if (Either.isLeft(result)) {
+			const { status, body: errBody } = mapErrorToResponse(result.left)
+			return c.json(errBody, status as 200)
+		}
+		return c.json({ error: 'Policy insert returned no row' }, 500)
+	}
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.policy_created',
+		details: {
+			policyId: result.right.id,
+			name: result.right.name,
+			approvalMode: result.right.approvalMode,
+			requiredApprovals: result.right.requiredApprovals,
+		},
+	})
+	return c.json({ policy: result.right }, 201)
+})
+
+enterpriseRoutes.patch('/orgs/:orgId/policies/:policyId', async (c) => {
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner'])
+	if (!membership) return c.json({ error: 'Owner role required to change transaction policies' }, 403)
+	const orgId = membership.orgId
+	const policyId = c.req.param('policyId')
+	const body = await c.req.json().catch(() => ({}))
+	const parsed = UpdateEnterprisePolicySchema.safeParse(body)
+	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+	if (Object.keys(parsed.data).length === 0) return c.json({ error: 'No policy fields supplied' }, 400)
+
+	if (parsed.data.requiredApprovals != null) {
+		const approverCount = await eligibleApproverCount(orgId)
+		if (approverCount == null) return c.json({ error: 'Unable to verify approval quorum capacity' }, 500)
+		if (parsed.data.requiredApprovals > approverCount) {
+			return c.json(
+				{
+					error: `requiredApprovals=${parsed.data.requiredApprovals} exceeds the ${approverCount} eligible owner/approver users in this workspace`,
+				},
+				400,
+			)
+		}
+	}
+
+	const data = parsed.data
+	const values: Record<string, unknown> = { updatedAt: new Date() }
+	for (const [key, value] of Object.entries(data)) {
+		if (
+			[
+				'allowedChains',
+				'blockedChains',
+				'allowedTokens',
+				'blockedTokens',
+				'destinationAllowlist',
+				'allowedContracts',
+			].includes(key)
+		) {
+			values[key] = normalizePolicyArray(value as string[] | null | undefined)
+		} else if (key === 'expiresAt') {
+			values.expiresAt = value ? new Date(String(value)) : null
+		} else {
+			values[key] = value
+		}
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const [row] = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(policies)
+						.set(values)
+						.where(
+							and(
+								eq(policies.id, policyId),
+								eq(policies.organizationId, orgId),
+							),
+						)
+						.returning(),
+				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+			})
+			return row
+		}),
+	)
+	if (Either.isLeft(result)) {
+		const { status, body: errBody } = mapErrorToResponse(result.left)
+		return c.json(errBody, status as 200)
+	}
+	if (!result.right) return c.json({ error: 'Policy not found' }, 404)
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.policy_updated',
+		details: {
+			policyId: result.right.id,
+			changedFields: Object.keys(parsed.data),
+			enabled: result.right.enabled,
+			approvalMode: result.right.approvalMode,
+			requiredApprovals: result.right.requiredApprovals,
+		},
+	})
+	return c.json({ policy: result.right })
 })
 
 // ─── GET /enterprise/orgs/:orgId/usage ──────────────────────────────────────
