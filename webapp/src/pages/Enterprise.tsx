@@ -315,7 +315,10 @@ export function Enterprise() {
             <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Team Members</span>
             {['owner', 'admin'].includes(capabilities?.role ?? '') && (
               <button
-                onClick={() => setShowInviteModal(true)}
+                onClick={() => {
+                  setInviteRole(capabilities?.role === 'owner' ? 'trader' : 'auditor')
+                  setShowInviteModal(true)
+                }}
                 className="text-xs font-semibold text-suwappu-magenta-mid"
               >
                 + Invite
@@ -752,9 +755,14 @@ export function Enterprise() {
                   onChange={(e) => setInviteRole(e.target.value as OrgRole)}
                   className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
                 >
-                  {ASSIGNABLE_ROLES.map((role) => (
-                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                  ))}
+                  {ASSIGNABLE_ROLES
+                    .filter((role) =>
+                      capabilities?.role === 'owner' ||
+                      !['admin', 'trader', 'approver'].includes(role),
+                    )
+                    .map((role) => (
+                      <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                    ))}
                 </select>
                 <p className="text-[11px] text-suwappu-text-secondary mt-1">
                   {ROLE_DESCRIPTIONS[inviteRole]}
