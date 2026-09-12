@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { API_BASE_URL } from '@/lib/links';
+import FinancePanel from './FinancePanel';
 import './admin.css';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -959,7 +960,7 @@ function AuthGate({ onAuth }: { onAuth: (key: string) => void }) {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-type Section = 'overview' | 'activity' | 'agents' | 'swaps' | 'webhooks';
+type Section = 'overview' | 'finance' | 'activity' | 'agents' | 'swaps' | 'webhooks';
 
 function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => void }) {
   const [stats, setStats]           = useState<AdminStats | null>(null);
@@ -982,6 +983,7 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
 
   const navItems: { id: Section; label: string; icon: string }[] = [
     { id: 'overview',  label: 'Overview',  icon: '◈' },
+    { id: 'finance',   label: 'Finance',   icon: '◇' },
     { id: 'activity',  label: 'Activity',  icon: '⟁' },
     { id: 'agents',    label: 'Agents',    icon: '⬡' },
     { id: 'swaps',     label: 'Swaps',     icon: '⇄' },
@@ -1051,6 +1053,8 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
             <div className="adm-loading">Loading overview…</div>
           )}
         </div>
+
+        <FinancePanel apiKey={apiKey} />
 
         {/* Activity: timeseries charts */}
         <ActivityCharts timeseries={timeseries} />
