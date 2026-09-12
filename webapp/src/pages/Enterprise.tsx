@@ -313,12 +313,14 @@ export function Enterprise() {
         <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
           <div className="px-4 py-3 border-b border-suwappu-sakura-mid/10 flex items-center justify-between">
             <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">Team Members</span>
-            <button
-              onClick={() => setShowInviteModal(true)}
-              className="text-xs font-semibold text-suwappu-magenta-mid"
-            >
-              + Invite
-            </button>
+            {['owner', 'admin'].includes(capabilities?.role ?? '') && (
+              <button
+                onClick={() => setShowInviteModal(true)}
+                className="text-xs font-semibold text-suwappu-magenta-mid"
+              >
+                + Invite
+              </button>
+            )}
           </div>
 
           {members.length === 0 ? (
@@ -383,12 +385,14 @@ export function Enterprise() {
         <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
           <div className="px-4 py-3 border-b border-suwappu-sakura-mid/10 flex items-center justify-between">
             <span className="font-heading font-semibold text-sm text-suwappu-purple-deep">API Keys</span>
-            <button
-              onClick={() => setShowCreateKeyModal(true)}
-              className="text-xs font-semibold text-suwappu-magenta-mid"
-            >
-              + New Key
-            </button>
+            {capabilities?.separationOfDuties.canManageKeys && (
+              <button
+                onClick={() => setShowCreateKeyModal(true)}
+                className="text-xs font-semibold text-suwappu-magenta-mid"
+              >
+                + New Key
+              </button>
+            )}
           </div>
 
           {apiKeys.length === 0 ? (
@@ -420,12 +424,14 @@ export function Enterprise() {
                         {key.expiresAt && ` · Expires ${new Date(key.expiresAt).toLocaleDateString()}`}
                       </p>
                     </div>
-                    <button
-                      onClick={() => setConfirmRevokeKey(key.id)}
-                      className="text-xs text-suwappu-error/70 hover:text-suwappu-error shrink-0 mt-0.5"
-                    >
-                      Revoke
-                    </button>
+                    {capabilities?.separationOfDuties.canManageKeys && (
+                      <button
+                        onClick={() => setConfirmRevokeKey(key.id)}
+                        className="text-xs text-suwappu-error/70 hover:text-suwappu-error shrink-0 mt-0.5"
+                      >
+                        Revoke
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
