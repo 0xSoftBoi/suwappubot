@@ -139,6 +139,12 @@ export function apiKeyAuth() {
 			)
 		}
 		const effectiveScopes = effectiveApiKeyScopes(creatorRole, row.scopes ?? [])
+		if (effectiveScopes.includes('admin') && effectiveScopes.includes('swap:execute')) {
+			return c.json(
+				{ error: 'Legacy key combines administrative and execution authority; rotate it into separate keys' },
+				403,
+			)
+		}
 		if ((row.scopes ?? []).length > 0 && effectiveScopes.length === 0) {
 			return c.json(
 				{ error: 'API key no longer has authority under the creator current role' },
