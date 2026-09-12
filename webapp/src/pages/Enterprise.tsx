@@ -48,7 +48,7 @@ const ROLE_DESCRIPTIONS: Record<OrgRole, string> = {
   viewer: 'Minimal read-only workspace access.',
 }
 
-const ASSIGNABLE_ROLES: Exclude<OrgRole, 'owner'>[] = ['admin', 'trader', 'approver', 'auditor', 'viewer']
+const ASSIGNABLE_ROLES: Exclude<OrgRole, 'owner'>[] = ['admin', 'trader', 'approver', 'auditor', 'member', 'viewer']
 
 const SCOPE_OPTIONS = [
   { id: 'trade:read', label: 'Market + portfolio read', description: 'Quotes, simulations, portfolios and wallets.' },
@@ -84,7 +84,7 @@ export function Enterprise() {
   // Modal state
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteUserId, setInviteUserId] = useState('')
-  const [inviteRole, setInviteRole] = useState<OrgRole>('member')
+  const [inviteRole, setInviteRole] = useState<OrgRole>('trader')
 
   const [showCreateKeyModal, setShowCreateKeyModal] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
@@ -189,7 +189,7 @@ export function Enterprise() {
       setMembers((prev) => [...prev, member])
       setShowInviteModal(false)
       setInviteUserId('')
-      setInviteRole('member')
+      setInviteRole('trader')
       a11yToast.success('Member invited successfully')
     } catch (err: any) {
       console.error(err)
