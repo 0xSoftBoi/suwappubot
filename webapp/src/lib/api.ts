@@ -1478,6 +1478,7 @@ export interface OrgCapabilities {
     canApprove: boolean
     canManageKeys: boolean
   }
+  allowedKeyScopes: string[]
 }
 
 export interface EnterpriseOrg {
