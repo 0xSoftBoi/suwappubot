@@ -982,6 +982,33 @@ class ApiClient {
     await this.fetch(`/enterprise/orgs/${orgId}/api-keys/${keyId}`, { method: 'DELETE' })
   }
 
+  async getOrgPolicies(orgId: string): Promise<EnterprisePolicy[]> {
+    const res = await this.fetch<{ policies: EnterprisePolicy[] }>(
+      `/enterprise/orgs/${orgId}/policies`,
+    )
+    return res.policies
+  }
+
+  async createOrgPolicy(orgId: string, policy: EnterprisePolicyInput): Promise<EnterprisePolicy> {
+    const res = await this.fetch<{ policy: EnterprisePolicy }>(
+      `/enterprise/orgs/${orgId}/policies`,
+      { method: 'POST', body: JSON.stringify(policy) },
+    )
+    return res.policy
+  }
+
+  async updateOrgPolicy(
+    orgId: string,
+    policyId: string,
+    patch: Partial<EnterprisePolicyInput>,
+  ): Promise<EnterprisePolicy> {
+    const res = await this.fetch<{ policy: EnterprisePolicy }>(
+      `/enterprise/orgs/${orgId}/policies/${policyId}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    )
+    return res.policy
+  }
+
   async getOrgUsage(orgId: string): Promise<OrgUsage> {
     return this.fetch<OrgUsage>(`/enterprise/orgs/${orgId}/usage`)
   }
@@ -1512,6 +1539,59 @@ export interface OrgApiKey {
 
 export interface OrgApiKeyCreated extends OrgApiKey {
   rawKey: string
+}
+
+export type EnterpriseApprovalMode = 'above_limit' | 'always_ask' | 'autonomous'
+
+export interface EnterprisePolicy {
+  id: string
+  organizationId: string | null
+  agentId?: string | null
+  name: string
+  enabled: boolean
+  priority: number
+  approvalMode: EnterpriseApprovalMode
+  requiredApprovals: number
+  expiresAt?: string | null
+  maxTxUsd?: number | null
+  maxSlippageBps?: number | null
+  maxGasUsd?: number | null
+  dailyCapUsd?: number | null
+  sessionCapUsd?: number | null
+  maxTxPerHour?: number | null
+  allowedChains?: string[] | null
+  blockedChains?: string[] | null
+  allowedTokens?: string[] | null
+  blockedTokens?: string[] | null
+  destinationAllowlist?: string[] | null
+  allowedContracts?: string[] | null
+  requireApprovalAboveUsd?: number | null
+  createdBy?: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EnterprisePolicyInput {
+  name: string
+  enabled?: boolean
+  priority?: number
+  agentId?: string | null
+  approvalMode?: EnterpriseApprovalMode
+  requiredApprovals?: number
+  expiresAt?: string | null
+  maxTxUsd?: number | null
+  maxSlippageBps?: number | null
+  maxGasUsd?: number | null
+  dailyCapUsd?: number | null
+  sessionCapUsd?: number | null
+  maxTxPerHour?: number | null
+  allowedChains?: string[] | null
+  blockedChains?: string[] | null
+  allowedTokens?: string[] | null
+  blockedTokens?: string[] | null
+  destinationAllowlist?: string[] | null
+  allowedContracts?: string[] | null
+  requireApprovalAboveUsd?: number | null
 }
 
 export interface OrgUsage {
