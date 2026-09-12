@@ -445,9 +445,9 @@ enterpriseRoutes.post('/orgs/:orgId/members', async (c) => {
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = InviteMemberSchema.safeParse(body)
 	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
-	if (membership.role === 'admin' && ['admin', 'approver'].includes(parsed.data.role)) {
+	if (membership.role === 'admin' && ['admin', 'trader', 'approver'].includes(parsed.data.role)) {
 		return c.json(
-			{ error: 'Only the organization owner may grant admin or approver authority' },
+			{ error: 'Only the organization owner may grant admin, trader, or approver authority' },
 			403,
 		)
 	}
