@@ -794,6 +794,7 @@ def _ensure_schema(db_engine) -> None:
 
     # --- Agent control-plane approval notification bookkeeping ---
     _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite)
+    _ensure_approval_quorum_schema(db_engine, inspector, is_sqlite)
     _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite)
 
     # --- Agent ownership linking (/claim, /unlink): agents.owner_user_id + agent_link_codes ---
@@ -4201,6 +4202,85 @@ def _add_approval_requests_notify_columns(db_engine, inspector, is_sqlite: bool)
     except Exception as e:
         logger.warning(f"Failed to add approval_requests notify columns: {e}")
 
+
+def _ensure_approval_quorum_schema(db_engine, inspector, is_sqlite: bool) -> None:
+    """Mirror the api-ts approval quorum schema for the Python approval surface.
+
+    approval_requests is still api-ts-owned. Python only adds the quorum
+    column if the table already exists, and creates approval_votes with
+    idempotent DDL because Telegram writes votes too.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+    if "approval_requests" not in tables:
+        return
+
+    try:
+        cols = {col["name"] for col in inspector.get_columns("approval_requests")}
+        with db_engine.begin() as conn:
+            if "required_approvals" not in cols:
+                if is_sqlite:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE approval_requests "
+                            "ADD COLUMN required_approvals INTEGER NOT NULL DEFAULT 1"
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE approval_requests "
+                            "ADD COLUMN IF NOT EXISTS required_approvals INTEGER NOT NULL DEFAULT 1"
+                        )
+                    )
+
+            if is_sqlite:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS approval_votes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            approval_request_id VARCHAR(36) NOT NULL,
+                            user_id INTEGER NOT NULL,
+                            decision VARCHAR(10) NOT NULL,
+                            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE (approval_request_id, user_id)
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS approval_votes (
+                            id BIGSERIAL PRIMARY KEY,
+                            approval_request_id UUID NOT NULL,
+                            user_id INTEGER NOT NULL,
+                            decision VARCHAR(10) NOT NULL,
+                            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS "
+                        "approval_votes_approval_request_id_user_id_unique "
+                        "ON approval_votes (approval_request_id, user_id)"
+                    )
+                )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS approval_votes_approval_idx "
+                    "ON approval_votes (approval_request_id, created_at)"
+                )
+            )
+        logger.info("Ensured approval quorum schema")
+    except Exception as e:
+        logger.warning(f"Failed to ensure approval quorum schema: {e}")
 
 def _create_agent_webhook_deliveries_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create agent_webhook_deliveries idempotently (durable approval-decision webhooks).
