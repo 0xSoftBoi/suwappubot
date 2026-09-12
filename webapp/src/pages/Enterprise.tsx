@@ -3,7 +3,17 @@ import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
 import { api } from '../lib/api'
 import { a11yToast } from '../lib/a11yToast'
-import type { EnterpriseOrg, OrgMember, OrgApiKey, OrgApiKeyCreated, OrgUsage, OrgRole, OrgCapabilities } from '../lib/api'
+import type {
+  EnterpriseOrg,
+  EnterprisePolicy,
+  EnterpriseApprovalMode,
+  OrgMember,
+  OrgApiKey,
+  OrgApiKeyCreated,
+  OrgUsage,
+  OrgRole,
+  OrgCapabilities,
+} from '../lib/api'
 import { useSubscriptionTier } from '../hooks/useSubscriptionTier'
 import { getAuthToken } from '../lib/auth'
 
@@ -56,6 +66,20 @@ const SCOPE_OPTIONS = [
   { id: 'admin', label: 'Control-plane admin', description: 'Kill-switch and administrative API authority.' },
 ] as const
 
+function optionalNumber(value: string): number | null {
+  if (!value.trim()) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function csvList(value: string): string[] | null {
+  const items = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return items.length > 0 ? items : null
+}
+
 export function Enterprise() {
   const navigate = useNavigate()
   const subscriptionTier = useSubscriptionTier()
@@ -72,6 +96,7 @@ export function Enterprise() {
   const [apiKeys, setApiKeys] = useState<OrgApiKey[]>([])
   const [usage, setUsage] = useState<OrgUsage | null>(null)
   const [capabilities, setCapabilities] = useState<OrgCapabilities | null>(null)
+  const [policies, setPolicies] = useState<EnterprisePolicy[]>([])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isBusy, setIsBusy] = useState(false)
@@ -87,6 +112,15 @@ export function Enterprise() {
   const [inviteRole, setInviteRole] = useState<OrgRole>('trader')
 
   const [showCreateKeyModal, setShowCreateKeyModal] = useState(false)
+  const [showPolicyModal, setShowPolicyModal] = useState(false)
+  const [policyName, setPolicyName] = useState('')
+  const [policyApprovalMode, setPolicyApprovalMode] = useState<EnterpriseApprovalMode>('above_limit')
+  const [policyRequiredApprovals, setPolicyRequiredApprovals] = useState('2')
+  const [policyApprovalThreshold, setPolicyApprovalThreshold] = useState('10000')
+  const [policyMaxTxUsd, setPolicyMaxTxUsd] = useState('50000')
+  const [policyDailyCapUsd, setPolicyDailyCapUsd] = useState('250000')
+  const [policyMaxSlippageBps, setPolicyMaxSlippageBps] = useState('100')
+  const [policyAllowedChains, setPolicyAllowedChains] = useState('ethereum, base, arbitrum')
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyScopes, setNewKeyScopes] = useState<string[]>(['trade:read'])
   const [newKeyRateLimit, setNewKeyRateLimit] = useState('100')
@@ -121,12 +155,13 @@ export function Enterprise() {
   const loadAll = useCallback(async (resolvedOrgId: string) => {
     try {
       setIsLoading(true)
-      const [orgData, membersData, keysData, usageData, capabilityData] = await Promise.allSettled([
+      const [orgData, membersData, keysData, usageData, capabilityData, policiesData] = await Promise.allSettled([
         api.getOrg(resolvedOrgId),
         api.getOrgMembers(resolvedOrgId),
         api.getApiKeys(resolvedOrgId),
         api.getOrgUsage(resolvedOrgId),
         api.getOrgCapabilities(resolvedOrgId),
+        api.getOrgPolicies(resolvedOrgId),
       ])
 
       if (orgData.status === 'fulfilled') setOrg(orgData.value)
@@ -134,6 +169,7 @@ export function Enterprise() {
       if (keysData.status === 'fulfilled') setApiKeys(keysData.value)
       if (usageData.status === 'fulfilled') setUsage(usageData.value)
       if (capabilityData.status === 'fulfilled') setCapabilities(capabilityData.value)
+      if (policiesData.status === 'fulfilled') setPolicies(policiesData.value)
 
       if (
         orgData.status === 'rejected' &&
@@ -275,6 +311,56 @@ export function Enterprise() {
     } catch (err: any) {
       console.error(err)
       a11yToast.error(err?.detail || 'Failed to revoke API key')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleCreatePolicy = async () => {
+    if (!orgId || !policyName.trim()) return
+    const requiredApprovals = Number(policyRequiredApprovals)
+    if (!Number.isInteger(requiredApprovals) || requiredApprovals < 1 || requiredApprovals > 10) {
+      a11yToast.error('Required approvers must be a whole number from 1 to 10')
+      return
+    }
+    setIsBusy(true)
+    try {
+      const policy = await api.createOrgPolicy(orgId, {
+        name: policyName.trim(),
+        enabled: true,
+        approvalMode: policyApprovalMode,
+        requiredApprovals,
+        requireApprovalAboveUsd:
+          policyApprovalMode === 'above_limit' ? optionalNumber(policyApprovalThreshold) : null,
+        maxTxUsd: optionalNumber(policyMaxTxUsd),
+        dailyCapUsd: optionalNumber(policyDailyCapUsd),
+        maxSlippageBps: optionalNumber(policyMaxSlippageBps),
+        allowedChains: csvList(policyAllowedChains),
+      })
+      setPolicies((prev) => [...prev, policy].sort((a, b) => a.priority - b.priority))
+      setShowPolicyModal(false)
+      setPolicyName('')
+      a11yToast.success('Transaction policy created')
+    } catch (err: any) {
+      console.error(err)
+      a11yToast.error(err?.detail || 'Failed to create transaction policy')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  const handleTogglePolicy = async (policy: EnterprisePolicy) => {
+    if (!orgId || capabilities?.role !== 'owner') return
+    setIsBusy(true)
+    try {
+      const updated = await api.updateOrgPolicy(orgId, policy.id, {
+        enabled: !policy.enabled,
+      })
+      setPolicies((prev) => prev.map((item) => item.id === updated.id ? updated : item))
+      a11yToast.success(updated.enabled ? 'Policy enabled' : 'Policy disabled')
+    } catch (err: any) {
+      console.error(err)
+      a11yToast.error(err?.detail || 'Failed to update policy')
     } finally {
       setIsBusy(false)
     }
@@ -504,6 +590,78 @@ export function Enterprise() {
               </div>
             ))}
           </div>
+        </div>
+        <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+          <div className="px-4 py-3 border-b border-suwappu-sakura-mid/10 flex items-center justify-between">
+            <div>
+              <p className="font-heading font-semibold text-sm text-suwappu-purple-deep">Transaction policies</p>
+              <p className="text-xs text-suwappu-text-secondary mt-1">
+                Server-enforced limits, allowlists, escalation mode, and distinct-human approval quorum.
+              </p>
+            </div>
+            {capabilities?.role === 'owner' && (
+              <button
+                onClick={() => setShowPolicyModal(true)}
+                className="text-xs font-semibold text-suwappu-magenta-mid"
+              >
+                + Policy
+              </button>
+            )}
+          </div>
+          {policies.length === 0 ? (
+            <div className="p-5 text-sm text-suwappu-text-secondary">
+              No organization transaction policy is configured.
+            </div>
+          ) : (
+            <div className="divide-y divide-suwappu-sakura-mid/10">
+              {policies.map((policy) => (
+                <div key={policy.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-suwappu-text truncate">{policy.name}</p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                          policy.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {policy.enabled ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-suwappu-text-secondary mt-1">
+                        {policy.approvalMode === 'always_ask'
+                          ? 'Every matching trade requires approval'
+                          : policy.approvalMode === 'autonomous'
+                            ? 'No approval escalation; hard limits still apply'
+                            : policy.requireApprovalAboveUsd != null
+                              ? `Approval above $${policy.requireApprovalAboveUsd.toLocaleString()}`
+                              : 'Approval threshold not set'}
+                        {' · '}
+                        {policy.requiredApprovals} distinct approver{policy.requiredApprovals === 1 ? '' : 's'}
+                      </p>
+                      <p className="text-[11px] text-suwappu-text-secondary mt-1">
+                        {policy.maxTxUsd != null ? `Max trade $${policy.maxTxUsd.toLocaleString()} · ` : ''}
+                        {policy.dailyCapUsd != null ? `24h cap $${policy.dailyCapUsd.toLocaleString()} · ` : ''}
+                        {policy.maxSlippageBps != null ? `slippage ≤ ${policy.maxSlippageBps}bps` : ''}
+                      </p>
+                      {policy.allowedChains && policy.allowedChains.length > 0 && (
+                        <p className="text-[11px] text-suwappu-text-secondary mt-1">
+                          Chains: {policy.allowedChains.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    {capabilities?.role === 'owner' && (
+                      <button
+                        disabled={isBusy}
+                        onClick={() => void handleTogglePolicy(policy)}
+                        className="text-xs font-semibold text-suwappu-magenta-mid shrink-0"
+                      >
+                        {policy.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -783,6 +941,120 @@ export function Enterprise() {
                 className="flex-1 py-2.5 bg-suwappu-gradient text-white rounded-suwappu-lg text-sm font-semibold disabled:opacity-50"
               >
                 {isBusy ? 'Inviting...' : 'Invite'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create transaction policy modal */}
+      {showPolicyModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-end z-50" onClick={() => setShowPolicyModal(false)}>
+          <div className="w-full bg-white rounded-t-suwappu-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-heading font-bold text-suwappu-purple-deep">New Transaction Policy</h3>
+              <p className="text-xs text-suwappu-text-secondary mt-1">
+                Limits are server-enforced. Approval count is snapshotted on each pending request.
+              </p>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-suwappu-text-secondary mb-1 block">Policy name</label>
+                <input
+                  value={policyName}
+                  onChange={(e) => setPolicyName(e.target.value)}
+                  placeholder="e.g. Treasury production"
+                  className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-suwappu-text-secondary mb-1 block">Approval mode</label>
+                  <select
+                    value={policyApprovalMode}
+                    onChange={(e) => setPolicyApprovalMode(e.target.value as EnterpriseApprovalMode)}
+                    className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                  >
+                    <option value="above_limit">Above threshold</option>
+                    <option value="always_ask">Always require approval</option>
+                    <option value="autonomous">Autonomous within limits</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-suwappu-text-secondary mb-1 block">Required approvers</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={policyRequiredApprovals}
+                    onChange={(e) => setPolicyRequiredApprovals(e.target.value)}
+                    className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                  />
+                </div>
+              </div>
+              {policyApprovalMode === 'above_limit' && (
+                <div>
+                  <label className="text-xs text-suwappu-text-secondary mb-1 block">Approval threshold (USD)</label>
+                  <input
+                    inputMode="decimal"
+                    value={policyApprovalThreshold}
+                    onChange={(e) => setPolicyApprovalThreshold(e.target.value)}
+                    className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                  />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-suwappu-text-secondary mb-1 block">Max transaction (USD)</label>
+                  <input
+                    inputMode="decimal"
+                    value={policyMaxTxUsd}
+                    onChange={(e) => setPolicyMaxTxUsd(e.target.value)}
+                    className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-suwappu-text-secondary mb-1 block">24h cap (USD)</label>
+                  <input
+                    inputMode="decimal"
+                    value={policyDailyCapUsd}
+                    onChange={(e) => setPolicyDailyCapUsd(e.target.value)}
+                    className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-suwappu-text-secondary mb-1 block">Max slippage (bps)</label>
+                <input
+                  inputMode="numeric"
+                  value={policyMaxSlippageBps}
+                  onChange={(e) => setPolicyMaxSlippageBps(e.target.value)}
+                  className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-suwappu-text-secondary mb-1 block">Allowed chains</label>
+                <input
+                  value={policyAllowedChains}
+                  onChange={(e) => setPolicyAllowedChains(e.target.value)}
+                  placeholder="ethereum, base, arbitrum"
+                  className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPolicyModal(false)}
+                className="flex-1 py-2.5 rounded-suwappu-lg border border-suwappu-sakura-mid text-sm text-suwappu-text-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleCreatePolicy()}
+                disabled={isBusy || !policyName.trim()}
+                className="flex-1 py-2.5 bg-suwappu-gradient text-white rounded-suwappu-lg text-sm font-semibold disabled:opacity-50"
+              >
+                {isBusy ? 'Creating...' : 'Create Policy'}
               </button>
             </div>
           </div>
