@@ -3,14 +3,13 @@
 - Inline ``✅ Approve`` / ``❌ Deny`` buttons DM'd by
   ``bot/services/approval_notifier.py`` carry callback data
   ``apprv:<id>:yes`` / ``apprv:<id>:no``. ``approval_decision_callback``
-  atomically flips a still-pending row so a double-tap (or a race with the
-  expiry sweep) can only ever decide it once, and only the owning human can
-  decide it.
+  records one distinct human vote; approval only becomes terminal after the
+  snapshotted quorum is reached, while deny remains immediately terminal.
 - ``/approvals`` lists pending requests the caller may decide as owner/direct user or explicit org approver.
 
 The ``approval_requests`` table is owned by api-ts (schema at
-``api-ts/src/db/schema/approvals.ts``); Python never creates it and only
-reads it or updates the decision columns (status/decided_at/decided_by) here.
+``api-ts/src/db/schema/approvals.ts``); Python mirrors the additive quorum schema and records approval_votes plus
+terminal decision columns here.
 Every query tolerates the table (or the Python-owned notification columns)
 not existing yet.
 """
@@ -160,50 +159,148 @@ def _consume_step_up_challenge(session, *, user_id: int, approval_id: str, token
         ),
         {"approval_id": approval_id, "user_id": user_id, "challenge": token},
     )
-    session.commit()
     return (result.rowcount or 0) > 0
 
 
-def _decide_approval(session, *, approval_id: str, caller_user_id: int, new_status: str):
-    """Atomic guarded UPDATE + re-read, shared by the one-tap and step-up-confirm paths.
-
-    Only flips a row that is STILL pending, not yet past its own expiry, AND
-    actionable by the tapping human: the direct/owner user or an explicit
-    organization approver. This mirrors api-ts's maker/checker predicate.
-    """
-    result = session.execute(
-        text(
-            "UPDATE approval_requests "
-            "SET status = :new_status, decided_by = :decided_by, "
-            "decided_at = CURRENT_TIMESTAMP "
-            "WHERE id = :id AND status = 'pending' "
-            "AND (user_id = :caller_user_id OR EXISTS ("
-            "SELECT 1 FROM organization_members om "
-            "WHERE om.organization_id = approval_requests.organization_id "
-            "AND om.user_id = :caller_user_id "
-            "AND om.role IN ('owner', 'approver'))) "
-            f"AND expires_at > {_now_utc_sql()}"
-        ),
-        {
-            "new_status": new_status,
-            "decided_by": caller_user_id,
-            "id": approval_id,
-            "caller_user_id": caller_user_id,
-        },
-    )
-    decided_now = (result.rowcount or 0) > 0
-    session.commit()
-
+def _approval_vote_for_user(session, *, approval_id: str, user_id: int):
     row = session.execute(
         text(
-            "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id, ar.expires_at "
+            "SELECT decision FROM approval_votes "
+            "WHERE approval_request_id = :approval_id AND user_id = :user_id"
+        ),
+        {"approval_id": approval_id, "user_id": user_id},
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _decide_approval(session, *, approval_id: str, caller_user_id: int, new_status: str):
+    """Record one distinct human vote and finalize only when policy quorum is met.
+
+    A denial is terminal immediately. Approval votes stay pending until the
+    request's snapshotted required_approvals threshold is reached.
+    """
+    lock_suffix = " FOR UPDATE" if _is_postgres() else ""
+    row = session.execute(
+        text(
+            "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id, "
+            "ar.expires_at, COALESCE(ar.required_approvals, 1) "
+            "FROM approval_requests ar "
+            "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
+            "WHERE ar.id = :id AND ("
+            "ar.user_id = :caller_user_id OR EXISTS ("
+            "SELECT 1 FROM organization_members om "
+            "WHERE om.organization_id = ar.organization_id "
+            "AND om.user_id = :caller_user_id "
+            "AND om.role IN ('owner', 'approver')))"
+            + lock_suffix
+        ),
+        {"id": approval_id, "caller_user_id": caller_user_id},
+    ).fetchone()
+    if not row:
+        session.rollback()
+        return False, None, 0, 1, False
+
+    status, _, _, _, _, expires_at, required_approvals = row
+    required_approvals = max(int(required_approvals or 1), 1)
+    expires = _parse_utc(expires_at)
+    if status != "pending" or (expires is not None and expires <= datetime.now(timezone.utc)):
+        count = session.execute(
+            text(
+                "SELECT COUNT(*) FROM approval_votes "
+                "WHERE approval_request_id = :id AND decision = 'approved'"
+            ),
+            {"id": approval_id},
+        ).scalar() or 0
+        session.rollback()
+        return False, row, int(count), required_approvals, False
+
+    prior_vote = _approval_vote_for_user(
+        session, approval_id=approval_id, user_id=caller_user_id
+    )
+    if prior_vote and prior_vote != new_status:
+        session.rollback()
+        raise ValueError(f"You already voted {prior_vote} on this request.")
+
+    vote_recorded = False
+    if not prior_vote:
+        if _is_postgres():
+            vote_result = session.execute(
+                text(
+                    "INSERT INTO approval_votes "
+                    "(approval_request_id, user_id, decision) "
+                    "VALUES (:approval_id, :user_id, :decision) "
+                    "ON CONFLICT (approval_request_id, user_id) DO NOTHING"
+                ),
+                {
+                    "approval_id": approval_id,
+                    "user_id": caller_user_id,
+                    "decision": new_status,
+                },
+            )
+        else:
+            vote_result = session.execute(
+                text(
+                    "INSERT OR IGNORE INTO approval_votes "
+                    "(approval_request_id, user_id, decision) "
+                    "VALUES (:approval_id, :user_id, :decision)"
+                ),
+                {
+                    "approval_id": approval_id,
+                    "user_id": caller_user_id,
+                    "decision": new_status,
+                },
+            )
+        vote_recorded = (vote_result.rowcount or 0) > 0
+
+    approval_count = int(
+        session.execute(
+            text(
+                "SELECT COUNT(*) FROM approval_votes "
+                "WHERE approval_request_id = :id AND decision = 'approved'"
+            ),
+            {"id": approval_id},
+        ).scalar()
+        or 0
+    )
+
+    terminal_now = False
+    if new_status == "denied":
+        result = session.execute(
+            text(
+                "UPDATE approval_requests "
+                "SET status = 'denied', decided_by = :decided_by, "
+                "decided_at = CURRENT_TIMESTAMP "
+                "WHERE id = :id AND status = 'pending' "
+                f"AND expires_at > {_now_utc_sql()}"
+            ),
+            {"decided_by": caller_user_id, "id": approval_id},
+        )
+        terminal_now = (result.rowcount or 0) > 0
+    elif approval_count >= required_approvals:
+        result = session.execute(
+            text(
+                "UPDATE approval_requests "
+                "SET status = 'approved', decided_by = :decided_by, "
+                "decided_at = CURRENT_TIMESTAMP "
+                "WHERE id = :id AND status = 'pending' "
+                f"AND expires_at > {_now_utc_sql()}"
+            ),
+            {"decided_by": caller_user_id, "id": approval_id},
+        )
+        terminal_now = (result.rowcount or 0) > 0
+
+    session.commit()
+    current = session.execute(
+        text(
+            "SELECT ar.status, ar.decided_by, a.name, ar.agent_id, ar.user_id, "
+            "ar.expires_at, COALESCE(ar.required_approvals, 1) "
             "FROM approval_requests ar "
             "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
             "WHERE ar.id = :id"
         ),
         {"id": approval_id},
     ).fetchone()
-    return decided_now, row
+    return terminal_now, current, approval_count, required_approvals, vote_recorded
 
 
 async def approval_decision_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -266,12 +363,15 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                         "This confirmation expired or was already used. Tap Approve again to retry."
                     )
                     return
-                decided_now, row = _decide_approval(
+                decided_now, row, approval_count, required_approvals, vote_recorded = _decide_approval(
                     session,
                     approval_id=approval_id,
                     caller_user_id=caller_user_id,
                     new_status="approved",
                 )
+        except ValueError as e:
+            await query.edit_message_text(str(e))
+            return
         except SQLAlchemyError as e:
             if _table_missing(e):
                 await query.edit_message_text("This approval system isn't set up yet.")
@@ -299,13 +399,24 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                     return
 
                 if new_status == "approved" and settings.approval_step_up_required:
+                    prior_vote = _approval_vote_for_user(
+                        session, approval_id=approval_id, user_id=caller_user_id
+                    )
+                    if prior_vote:
+                        await query.edit_message_text(
+                            f"You already voted {prior_vote} on this request."
+                        )
+                        return
                     # First tap of the step-up flow: issue a fresh challenge
                     # and re-prompt instead of deciding anything yet.
                     try:
                         token = _issue_step_up_challenge(
                             session, user_id=caller_user_id, approval_id=approval_id
                         )
-                    except SQLAlchemyError as e:
+                    except ValueError as e:
+            await query.edit_message_text(str(e))
+            return
+        except SQLAlchemyError as e:
                         if _table_missing(e):
                             await query.edit_message_text(
                                 "Step-up confirmation isn't set up yet — ask an admin to enable "
@@ -333,12 +444,15 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                     )
                     return
 
-                decided_now, row = _decide_approval(
+                decided_now, row, approval_count, required_approvals, vote_recorded = _decide_approval(
                     session,
                     approval_id=approval_id,
                     caller_user_id=caller_user_id,
                     new_status=new_status,
                 )
+        except ValueError as e:
+            await query.edit_message_text(str(e))
+            return
         except SQLAlchemyError as e:
             if _table_missing(e):
                 await query.edit_message_text("This approval system isn't set up yet.")
@@ -353,19 +467,41 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("This approval request no longer exists.")
         return
 
-    status, existing_decided_by, agent_name, agent_id, _owner_user_id, expires_at = row
+    (
+        status,
+        existing_decided_by,
+        agent_name,
+        agent_id,
+        _owner_user_id,
+        expires_at,
+        _row_required_approvals,
+    ) = row
     label = agent_name or agent_id
 
     if decided_now:
         outcome = "✅ Approved" if new_status == "approved" else "❌ Denied"
-        await query.edit_message_text(f"{outcome} — agent `{label}`.", parse_mode="Markdown")
-        # Fire the agent's decision webhook (durable — enqueued first inside
-        # notify_approval_decided so the decision is never lost even if the
-        # inline POST attempt fails). Never blocks/crashes this handler.
+        suffix = (
+            f" ({approval_count}/{required_approvals} approvals)"
+            if new_status == "approved"
+            else ""
+        )
+        await query.edit_message_text(
+            f"{outcome}{suffix} — agent `{label}`.", parse_mode="Markdown"
+        )
         try:
             await notify_approval_decided(approval_id, new_status, None)
         except Exception as e:  # noqa: BLE001 — webhook delivery must never break the decide flow
             logger.warning("approval webhook dispatch failed for %s: %s", approval_id, e)
+    elif (
+        new_status == "approved"
+        and status == "pending"
+        and (vote_recorded or approval_count < required_approvals)
+    ):
+        await query.edit_message_text(
+            f"✅ Approval recorded — {approval_count}/{required_approvals}. "
+            f"Agent `{label}` remains pending until quorum is reached.",
+            parse_mode="Markdown",
+        )
     elif status in ("approved", "denied"):
         await query.edit_message_text(
             f"Already {status} (by user #{existing_decided_by or 'someone'}) — agent `{label}`.",
@@ -407,7 +543,9 @@ async def approvals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             rows = session.execute(
                 text(
                     "SELECT ar.id, a.name, ar.agent_id, ar.action_type, ar.payload, "
-                    "ar.expires_at "
+                    "ar.expires_at, COALESCE(ar.required_approvals, 1), "
+                    "(SELECT COUNT(*) FROM approval_votes av "
+                    " WHERE av.approval_request_id = ar.id AND av.decision = 'approved') "
                     "FROM approval_requests ar "
                     "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
                     "WHERE ar.status = 'pending' AND ("
@@ -433,7 +571,16 @@ async def approvals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     lines = [f"🤖 *Pending agent approvals* — {len(rows)}\n"]
     now = datetime.now(timezone.utc)
-    for approval_id, agent_name, agent_id, action_type, payload, expires_at in rows:
+    for (
+        approval_id,
+        agent_name,
+        agent_id,
+        action_type,
+        payload,
+        expires_at,
+        required_approvals,
+        approval_count,
+    ) in rows:
         label = agent_name or agent_id
         value_usd = payload.get("valueUsd") if isinstance(payload, dict) else None
         value_str = f"${float(value_usd):,.2f}" if value_usd is not None else "?"
@@ -443,8 +590,10 @@ async def approvals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             expiry_str = f"{mins_left}m left"
         else:
             expiry_str = "no expiry"
+        progress = f"{int(approval_count or 0)}/{max(int(required_approvals or 1), 1)} approvals"
         lines.append(
-            f"• `{label}` — {action_type} — {value_str} ({expiry_str})\n" f"  id: `{approval_id}`"
+            f"• `{label}` — {action_type} — {value_str} ({expiry_str}; {progress})\n"
+            f"  id: `{approval_id}`"
         )
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
