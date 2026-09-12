@@ -912,10 +912,11 @@ class ApiClient {
   }
 
   async createOrg(name: string, slug: string): Promise<EnterpriseOrg> {
-    return this.fetch<EnterpriseOrg>('/enterprise/orgs', {
+    const res = await this.fetch<{ org: EnterpriseOrg }>('/enterprise/orgs', {
       method: 'POST',
       body: JSON.stringify({ name, slug }),
     })
+    return res.org
   }
 
   async getOrgMembers(orgId: string): Promise<OrgMember[]> {
