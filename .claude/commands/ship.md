@@ -40,9 +40,14 @@ ls .git/*.lock 2>/dev/null || echo "no locks"
 git stash list | head
 git status --short
 git status --short | grep -iE "node_modules|\.next/|dist/" && echo "ARTIFACTS — gitignore first, stop" || true
-git fetch origin main -q && git rev-list --left-right --count origin/main...HEAD
+git fetch origin main dev -q
+git rev-list --left-right --count origin/main...HEAD
+git merge-base --is-ancestor origin/main origin/dev || {
+  echo "STOP: dev diverged from main — repair branch lineage before shipping"
+  exit 1
+}
 ```
-If on `main`, branch first — never commit straight to main.
+If on `main` or `dev`, branch first — never commit directly to either long-lived branch.
 
 ## Step 1 — Format, parse, and LOCKFILE check (CI gates on all three)
 ```bash
@@ -75,10 +80,12 @@ HUSKY=0 git commit -q -m "<conventional title>
 HUSKY=0 git push -u origin HEAD 2>&1 | tail -2
 ```
 
-## Step 3 — Open the PR
+## Step 3 — Open the staging PR to dev
 ```bash
-gh pr create --title "<title>" --body "<what / why / verification>" 2>&1 | tail -1
+gh pr create --base dev --title "<title>" --body "<what / why / verification>" 2>&1 | tail -1
 ```
+Feature branches stage through `dev` before production. Do not open routine feature
+PRs directly to `main`.
 
 ## Step 4 — Wait for CI GREEN
 ```bash
@@ -92,14 +99,33 @@ Some failures in this repo are known and pre-existing (aegis / nl_intent /
 llm_budget). Prove it rather than assuming it: check whether the SAME job is
 red on an unrelated recent branch. If it is only red on yours, it is yours.
 
-## Step 5 — Merge, sync, and RE-CHECK CI ON MAIN
+## Step 5 — Merge to dev, verify staging, then promote dev to main
 ```bash
-gh pr merge <PR#> --merge 2>&1 | tail -1
+gh pr merge <FEATURE_PR#> --merge 2>&1 | tail -1
+git checkout dev && HUSKY=0 git pull --no-rebase origin dev 2>&1 | tail -1
+```
+
+Wait for the `dev` push CI and verify every affected Railway **dev** service is running
+the dev merge commit. A feature is not eligible for production until the dev deployment
+has actually booted and the relevant functional check has passed.
+
+Then promote the exact staged lineage:
+
+```bash
+gh pr create --base main --head dev \
+  --title "promote: dev to production" \
+  --body "Promote the validated dev lineage to production."
+# Wait for this PR's CI to be green.
+gh pr merge <PROMOTION_PR#> --merge 2>&1 | tail -1
 git checkout main && HUSKY=0 git pull --no-rebase origin main 2>&1 | tail -1
 ```
-Branch-green does not imply main-green — the merge commit is a state CI has
-never run against. Watch the run on `main` too, and treat red there exactly like
-Step 4: report and fix. Do not walk away at the merge.
+
+Branch-green does not imply main-green. Watch the push run on `main` too. The
+`Branch Lineage` workflow will fast-forward `dev` to the resulting `main` merge
+commit only when that update is safe. It never force-overwrites staged work.
+
+After the sync, `git rev-list --left-right --count origin/main...origin/dev` must be
+`0 0`. A diverged result is a shipping failure, not housekeeping.
 
 ## Step 6 — Verify each service DEPLOYED THE COMMIT YOU MERGED
 Use the Railway MCP (`list-deployments` / `get-status`) or the CLI. For **every**
