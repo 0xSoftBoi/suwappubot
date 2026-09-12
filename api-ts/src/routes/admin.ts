@@ -18,7 +18,7 @@ import {
 	x402Payments,
 } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { buildCfoScenarios, providerConcentration } from '../lib/cfoOperatingSystem'
+import { buildCfoExceptions, buildCfoScenarios, providerConcentration } from '../lib/cfoOperatingSystem'
 import { buildFinanceForecast } from '../lib/financeForecast'
 import { runEffectEither } from '../runtime'
 
@@ -769,6 +769,18 @@ adminRoutes.get('/finance', async (c) => {
 					volumeUsd: Number(row.volumeUsd ?? 0),
 				})),
 			)
+			const baseDriverScenario = driverForecast.find((row) => row.name === 'base')
+			const operatingExceptions = buildCfoExceptions({
+				baseFirstCashOutWeek: baseDriverScenario?.firstCashOutWeek ?? null,
+				topProvider: providerRisk.topProvider,
+				topProviderShare: providerRisk.topProviderShare,
+				stripePaymentFailures30d: Number(paymentFailureRows[0]?.count ?? 0),
+				recurringOverdue: Number(recurringRows[0]?.overdue ?? 0),
+				feeCollectionRate: swapFeesAccruedUsd > 0 ? feeCollectionRate : null,
+				feesAccruedUsd: swapFeesAccruedUsd,
+				quoteToExecutionRate: quotes > 0 ? quotesWithExecution / quotes : null,
+				quotesObserved: quotes,
+			})
 
 			return {
 				asOf: now.toISOString(),
@@ -830,6 +842,7 @@ adminRoutes.get('/finance', async (c) => {
 				resilience: {
 					providerConcentration: providerRisk,
 				},
+				operatingExceptions,
 				providers: providerRows.map((row) => {
 					const total = Number(row.total ?? 0)
 					const completed = Number(row.completed ?? 0)
