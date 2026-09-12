@@ -1,10 +1,12 @@
 import {
 	bigint,
+	bigserial,
 	index,
 	integer,
 	jsonb,
 	pgTable,
 	timestamp,
+	unique,
 	uuid,
 	varchar,
 } from 'drizzle-orm/pg-core'
@@ -48,6 +50,9 @@ export const approvalRequests = pgTable(
 		// Link back to the append-only policy decision that triggered this request.
 		policyDecisionId: bigint('policy_decision_id', { mode: 'number' }),
 		reason: varchar('reason', { length: 300 }),
+		// Approval threshold is snapshotted when this request is created so a
+		// later policy edit cannot lower the threshold of an in-flight action.
+		requiredApprovals: integer('required_approvals').default(1).notNull(),
 		// 'pending' | 'approved' | 'denied' | 'expired' | 'consumed'
 		status: varchar('status', { length: 20 }).default('pending').notNull(),
 		expiresAt: timestamp('expires_at').notNull(),
@@ -69,3 +74,34 @@ export const approvalRequests = pgTable(
 
 export type ApprovalRequest = typeof approvalRequests.$inferSelect
 export type NewApprovalRequest = typeof approvalRequests.$inferInsert
+
+
+/**
+ * Append-only quorum votes for approval requests.
+ *
+ * A unique (approval_request_id, user_id) pair means one human can count at
+ * most once toward a quorum even under retries/concurrency. Deny is terminal;
+ * approve becomes terminal only after the snapshotted requiredApprovals count
+ * is reached.
+ */
+export const approvalVotes = pgTable(
+	'approval_votes',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		approvalRequestId: uuid('approval_request_id')
+			.references(() => approvalRequests.id, { onDelete: 'cascade' })
+			.notNull(),
+		userId: integer('user_id')
+			.references(() => users.id)
+			.notNull(),
+		decision: varchar('decision', { length: 10 }).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => ({
+		approvalIdx: index('approval_votes_approval_idx').on(t.approvalRequestId, t.createdAt),
+		uniqueVoter: unique().on(t.approvalRequestId, t.userId),
+	}),
+)
+
+export type ApprovalVote = typeof approvalVotes.$inferSelect
+export type NewApprovalVote = typeof approvalVotes.$inferInsert
