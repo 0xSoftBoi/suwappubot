@@ -5,38 +5,19 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { requireDb, organizations, organizationMembers, apiKeys, apiUsageEvents, subscriptions } from '../db'
 import { mapErrorToResponse } from '../errors'
+import {
+	ENTERPRISE_ROLE_CAPABILITIES,
+	KEY_SCOPES_BY_ROLE,
+	ORG_MEMBER_ASSIGNABLE_ROLES,
+	ORG_READ_ROLES,
+	type OrgRole,
+} from '../lib/enterpriseAuthority'
 import { flexAuth } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { UserService } from '../services'
 import { writeAuditLog } from '../services/audit'
 
 export const enterpriseRoutes = new Hono()
-
-const ORG_ROLES = ['owner', 'admin', 'trader', 'approver', 'auditor', 'member', 'viewer'] as const
-type OrgRole = (typeof ORG_ROLES)[number]
-
-const ORG_READ_ROLES: OrgRole[] = [...ORG_ROLES]
-const ORG_MEMBER_ASSIGNABLE_ROLES = ['admin', 'trader', 'approver', 'auditor', 'member', 'viewer'] as const
-
-export const ENTERPRISE_ROLE_CAPABILITIES: Record<OrgRole, readonly string[]> = {
-	owner: ['org:manage', 'members:manage', 'keys:manage', 'trade:initiate', 'trade:approve', 'audit:read'],
-	admin: ['org:manage', 'members:manage', 'keys:manage', 'audit:read'],
-	trader: ['trade:initiate', 'keys:execution', 'org:read'],
-	approver: ['trade:approve', 'org:read', 'audit:read'],
-	auditor: ['org:read', 'audit:read'],
-	member: ['org:read'],
-	viewer: ['org:read'],
-}
-
-const KEY_SCOPES_BY_ROLE: Record<OrgRole, readonly string[]> = {
-	owner: ['trade:read', 'swap:execute', 'admin'],
-	admin: ['trade:read', 'admin'],
-	trader: ['trade:read', 'swap:execute'],
-	approver: [],
-	auditor: [],
-	member: [],
-	viewer: [],
-}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
