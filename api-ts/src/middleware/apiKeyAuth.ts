@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 import { eq, and, or, isNull, gt, sql } from 'drizzle-orm'
 import { Effect } from 'effect'
 import type { Context, Next } from 'hono'
-import { requireDb, apiKeys, organizations, subscriptions } from '../db'
+import { requireDb, apiKeys, organizationMembers, organizations, subscriptions } from '../db'
+import { effectiveApiKeyScopes, isOrgRole } from '../lib/enterpriseAuthority'
 import { runEffectEither } from '../runtime'
 import { Either } from 'effect'
 
@@ -56,9 +57,18 @@ export function apiKeyAuth() {
 								orgRateLimit: organizations.apiRateLimitPerMin,
 								orgTier: organizations.tier,
 								orgOwnerId: organizations.ownerId,
+								createdBy: apiKeys.createdBy,
+								creatorRole: organizationMembers.role,
 							})
 							.from(apiKeys)
 							.innerJoin(organizations, eq(apiKeys.organizationId, organizations.id))
+							.leftJoin(
+								organizationMembers,
+								and(
+									eq(organizationMembers.organizationId, apiKeys.organizationId),
+									eq(organizationMembers.userId, apiKeys.createdBy),
+								),
+							)
 							.where(eq(apiKeys.keyHash, keyHash))
 							.limit(1),
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -117,6 +127,25 @@ export function apiKeyAuth() {
 			return c.json({ error: 'API key has expired' }, 403)
 		}
 
+		// Enterprise keys are human-principal-bound. The owner remains owner even
+		// if a legacy row is missing its explicit membership record; every other
+		// creator must still be a current organization member.
+		const creatorRole =
+			row.createdBy === row.orgOwnerId ? 'owner' : row.creatorRole
+		if (!isOrgRole(creatorRole)) {
+			return c.json(
+				{ error: 'API key principal is no longer an active organization member' },
+				403,
+			)
+		}
+		const effectiveScopes = effectiveApiKeyScopes(creatorRole, row.scopes ?? [])
+		if ((row.scopes ?? []).length > 0 && effectiveScopes.length === 0) {
+			return c.json(
+				{ error: 'API key no longer has authority under the creator current role' },
+				403,
+			)
+		}
+
 		// Per-key (or per-org fallback) rate limit
 		const limit = row.rateLimitPerMin ?? row.orgRateLimit ?? 1000
 		const windowKey = `apikey:${row.id}`
@@ -143,9 +172,11 @@ export function apiKeyAuth() {
 		// Attach to context for downstream handlers
 		c.set('apiKeyAuth', {
 			orgId: row.organizationId,
-			scopes: row.scopes ?? [],
+			scopes: effectiveScopes,
 			keyId: row.id,
 			rateLimitPerMin: limit,
+			principalUserId: row.createdBy,
+			principalRole: creatorRole,
 		})
 
 		// Fire-and-forget lastUsedAt update
