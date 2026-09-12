@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
 import { api } from '../lib/api'
 import { a11yToast } from '../lib/a11yToast'
-import type { EnterpriseOrg, OrgMember, OrgApiKey, OrgApiKeyCreated, OrgUsage, OrgRole } from '../lib/api'
+import type { EnterpriseOrg, OrgMember, OrgApiKey, OrgApiKeyCreated, OrgUsage, OrgRole, OrgCapabilities } from '../lib/api'
 import { useSubscriptionTier } from '../hooks/useSubscriptionTier'
 import { getAuthToken } from '../lib/auth'
 
@@ -16,23 +16,45 @@ function buildDashboardUrl(): string {
   return token ? `${url}?token=${encodeURIComponent(token)}` : url
 }
 
-type Tab = 'team' | 'apikeys' | 'usage'
+type Tab = 'team' | 'controls' | 'apikeys' | 'usage'
 
 const ROLE_LABELS: Record<OrgRole, string> = {
   owner: 'Owner',
   admin: 'Admin',
-  member: 'Member',
+  trader: 'Trader',
+  approver: 'Approver',
+  auditor: 'Auditor',
+  member: 'Member (legacy)',
   viewer: 'Viewer',
 }
 
 const ROLE_COLORS: Record<OrgRole, string> = {
   owner: 'bg-suwappu-magenta-mid/10 text-suwappu-magenta-mid',
   admin: 'bg-blue-100 text-blue-700',
+  trader: 'bg-emerald-100 text-emerald-700',
+  approver: 'bg-amber-100 text-amber-700',
+  auditor: 'bg-violet-100 text-violet-700',
   member: 'bg-green-100 text-green-700',
   viewer: 'bg-gray-100 text-gray-600',
 }
 
-const ALL_SCOPES = ['swap:execute', 'trade:read', 'portfolio:read']
+const ROLE_DESCRIPTIONS: Record<OrgRole, string> = {
+  owner: 'Full workspace authority, including governance and approvals.',
+  admin: 'Manage workspace members and machine credentials. Does not approve trades.',
+  trader: 'Initiate trading workflows without approval authority.',
+  approver: 'Review and approve policy-gated trades without admin authority.',
+  auditor: 'Read organization and audit evidence without operational authority.',
+  member: 'Legacy read-only organization membership.',
+  viewer: 'Minimal read-only workspace access.',
+}
+
+const ASSIGNABLE_ROLES: Exclude<OrgRole, 'owner'>[] = ['admin', 'trader', 'approver', 'auditor', 'viewer']
+
+const SCOPE_OPTIONS = [
+  { id: 'trade:read', label: 'Market + portfolio read', description: 'Quotes, simulations, portfolios and wallets.' },
+  { id: 'swap:execute', label: 'Managed execution', description: 'Build and execute swaps through the controlled money path.' },
+  { id: 'admin', label: 'Control-plane admin', description: 'Kill-switch and administrative API authority.' },
+] as const
 
 export function Enterprise() {
   const navigate = useNavigate()
@@ -49,6 +71,7 @@ export function Enterprise() {
   const [members, setMembers] = useState<OrgMember[]>([])
   const [apiKeys, setApiKeys] = useState<OrgApiKey[]>([])
   const [usage, setUsage] = useState<OrgUsage | null>(null)
+  const [capabilities, setCapabilities] = useState<OrgCapabilities | null>(null)
 
   const [isLoading, setIsLoading] = useState(true)
   const [isBusy, setIsBusy] = useState(false)
@@ -65,7 +88,8 @@ export function Enterprise() {
 
   const [showCreateKeyModal, setShowCreateKeyModal] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
-  const [newKeyScopes, setNewKeyScopes] = useState<string[]>(['trade:read', 'portfolio:read'])
+  const [newKeyScopes, setNewKeyScopes] = useState<string[]>(['trade:read'])
+  const [newKeyRateLimit, setNewKeyRateLimit] = useState('100')
   const [newKeyExpiry, setNewKeyExpiry] = useState('')
 
   const [createdKey, setCreatedKey] = useState<OrgApiKeyCreated | null>(null)
@@ -97,17 +121,19 @@ export function Enterprise() {
   const loadAll = useCallback(async (resolvedOrgId: string) => {
     try {
       setIsLoading(true)
-      const [orgData, membersData, keysData, usageData] = await Promise.allSettled([
+      const [orgData, membersData, keysData, usageData, capabilityData] = await Promise.allSettled([
         api.getOrg(resolvedOrgId),
         api.getOrgMembers(resolvedOrgId),
         api.getApiKeys(resolvedOrgId),
         api.getOrgUsage(resolvedOrgId),
+        api.getOrgCapabilities(resolvedOrgId),
       ])
 
       if (orgData.status === 'fulfilled') setOrg(orgData.value)
       if (membersData.status === 'fulfilled') setMembers(membersData.value)
       if (keysData.status === 'fulfilled') setApiKeys(keysData.value)
       if (usageData.status === 'fulfilled') setUsage(usageData.value)
+      if (capabilityData.status === 'fulfilled') setCapabilities(capabilityData.value)
 
       if (
         orgData.status === 'rejected' &&
@@ -173,6 +199,21 @@ export function Enterprise() {
     }
   }
 
+  const handleRoleChange = async (userId: string, role: Exclude<OrgRole, 'owner'>) => {
+    if (!orgId) return
+    setIsBusy(true)
+    try {
+      const updated = await api.updateMemberRole(orgId, userId, role)
+      setMembers((prev) => prev.map((member) => member.userId === userId ? updated : member))
+      a11yToast.success(`Role changed to ${ROLE_LABELS[role]}`)
+    } catch (err: any) {
+      console.error(err)
+      a11yToast.error(err?.detail || 'Failed to change role')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   const handleRemoveMember = async (userId: string) => {
     if (!orgId) return
     setIsBusy(true)
@@ -193,12 +234,27 @@ export function Enterprise() {
     if (!newKeyName.trim() || !orgId) return
     setIsBusy(true)
     try {
-      const result = await api.createApiKey(orgId, newKeyName.trim(), newKeyScopes, newKeyExpiry || undefined)
+      const parsedRateLimit = Number(newKeyRateLimit)
+      if (!Number.isInteger(parsedRateLimit) || parsedRateLimit < 1) {
+        a11yToast.error('Rate limit must be a positive whole number')
+        return
+      }
+      const expiresAt = newKeyExpiry
+        ? new Date(`${newKeyExpiry}T23:59:59.999Z`).toISOString()
+        : undefined
+      const result = await api.createApiKey(
+        orgId,
+        newKeyName.trim(),
+        newKeyScopes,
+        expiresAt,
+        parsedRateLimit,
+      )
       setApiKeys((prev) => [...prev, result])
       setCreatedKey(result)
       setShowCreateKeyModal(false)
       setNewKeyName('')
-      setNewKeyScopes(['trade:read', 'portfolio:read'])
+      setNewKeyScopes(['trade:read'])
+      setNewKeyRateLimit('100')
       setNewKeyExpiry('')
     } catch (err: any) {
       console.error(err)
@@ -286,10 +342,24 @@ export function Enterprise() {
                       Joined {new Date(m.joinedAt).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ROLE_COLORS[m.role]}`}>
-                    {ROLE_LABELS[m.role]}
-                  </span>
-                  {m.role !== 'owner' && (
+                  {m.role !== 'owner' && capabilities?.role === 'owner' ? (
+                    <select
+                      value={m.role}
+                      disabled={isBusy}
+                      onChange={(e) => void handleRoleChange(m.userId, e.target.value as Exclude<OrgRole, 'owner'>)}
+                      className="text-xs bg-suwappu-sakura-light/60 rounded px-2 py-1 text-suwappu-purple-deep"
+                      aria-label={`Role for user ${m.userId}`}
+                    >
+                      {ASSIGNABLE_ROLES.map((role) => (
+                        <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ROLE_COLORS[m.role]}`}>
+                      {ROLE_LABELS[m.role]}
+                    </span>
+                  )}
+                  {m.role !== 'owner' && ['owner', 'admin'].includes(capabilities?.role ?? '') && (
                     <button
                       onClick={() => setConfirmRemoveMember(m.userId)}
                       className="text-suwappu-error/70 hover:text-suwappu-error text-xs ml-1"
@@ -343,6 +413,7 @@ export function Enterprise() {
                         ))}
                       </div>
                       <p className="text-xs text-suwappu-text-secondary mt-1">
+                        {key.rateLimitPerMin ? `${key.rateLimitPerMin.toLocaleString()} req/min · ` : ''}
                         {key.lastUsedAt
                           ? `Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`
                           : 'Never used'}
@@ -360,6 +431,70 @@ export function Enterprise() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+    )
+  }
+
+  function renderControlsTab() {
+    const role = capabilities?.role ?? org?.currentRole
+    return (
+      <div className="space-y-4">
+        <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-4">
+          <p className="text-xs uppercase tracking-wide text-suwappu-text-secondary">Your authority</p>
+          <div className="flex items-center justify-between mt-2">
+            <div>
+              <p className="font-heading font-bold text-suwappu-purple-deep">
+                {role ? ROLE_LABELS[role] : 'Unknown role'}
+              </p>
+              <p className="text-xs text-suwappu-text-secondary mt-1">
+                {role ? ROLE_DESCRIPTIONS[role] : 'Workspace permissions are unavailable.'}
+              </p>
+            </div>
+            {role && (
+              <span className={`text-xs font-semibold px-2 py-1 rounded-full ${ROLE_COLORS[role]}`}>
+                {ROLE_LABELS[role]}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ['Initiate', capabilities?.separationOfDuties.canInitiate],
+            ['Approve', capabilities?.separationOfDuties.canApprove],
+            ['Manage keys', capabilities?.separationOfDuties.canManageKeys],
+          ].map(([label, enabled]) => (
+            <div key={String(label)} className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3 text-center">
+              <p className={`font-heading font-bold ${enabled ? 'text-emerald-600' : 'text-suwappu-text-secondary'}`}>
+                {enabled ? 'Yes' : 'No'}
+              </p>
+              <p className="text-[11px] text-suwappu-text-secondary mt-1">{String(label)}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
+          <div className="px-4 py-3 border-b border-suwappu-sakura-mid/10">
+            <p className="font-heading font-semibold text-sm text-suwappu-purple-deep">Separation of duties</p>
+            <p className="text-xs text-suwappu-text-secondary mt-1">
+              Workspace administration, trade initiation, approval, and audit are separate authorities.
+            </p>
+          </div>
+          <div className="divide-y divide-suwappu-sakura-mid/10">
+            {(['admin', 'trader', 'approver', 'auditor'] as OrgRole[]).map((item) => (
+              <div key={item} className="px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ROLE_COLORS[item]}`}>
+                    {ROLE_LABELS[item]}
+                  </span>
+                  <span className="text-[11px] text-suwappu-text-secondary text-right">
+                    {ROLE_DESCRIPTIONS[item]}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )
@@ -564,7 +699,7 @@ export function Enterprise() {
 
         {/* Tab bar */}
         <div className="flex gap-1 bg-suwappu-sakura-light rounded-suwappu-lg p-1">
-          {(['team', 'apikeys', 'usage'] as Tab[]).map((t) => (
+          {(['team', 'controls', 'apikeys', 'usage'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -574,13 +709,14 @@ export function Enterprise() {
                   : 'text-suwappu-text-secondary'
               }`}
             >
-              {t === 'team' ? 'Team' : t === 'apikeys' ? 'API Keys' : 'Usage'}
+              {t === 'team' ? 'Team' : t === 'controls' ? 'Controls' : t === 'apikeys' ? 'API Keys' : 'Usage'}
             </button>
           ))}
         </div>
 
         {/* Tab content */}
         {tab === 'team' && renderTeamTab()}
+        {tab === 'controls' && renderControlsTab()}
         {tab === 'apikeys' && renderApiKeysTab()}
         {tab === 'usage' && renderUsageTab()}
       </div>
@@ -610,10 +746,13 @@ export function Enterprise() {
                   onChange={(e) => setInviteRole(e.target.value as OrgRole)}
                   className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
                 >
-                  <option value="admin">Admin</option>
-                  <option value="member">Member</option>
-                  <option value="viewer">Viewer</option>
+                  {ASSIGNABLE_ROLES.map((role) => (
+                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                  ))}
                 </select>
+                <p className="text-[11px] text-suwappu-text-secondary mt-1">
+                  {ROLE_DESCRIPTIONS[inviteRole]}
+                </p>
               </div>
             </div>
 
@@ -657,24 +796,42 @@ export function Enterprise() {
               <div>
                 <label className="text-xs text-suwappu-text-secondary mb-2 block">Scopes</label>
                 <div className="space-y-2">
-                  {ALL_SCOPES.map((scope) => (
-                    <label key={scope} className="flex items-center gap-2 cursor-pointer">
+                  {SCOPE_OPTIONS.map((scope) => (
+                    <label key={scope.id} className="flex items-start gap-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={newKeyScopes.includes(scope)}
+                        checked={newKeyScopes.includes(scope.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setNewKeyScopes((prev) => [...prev, scope])
+                            setNewKeyScopes((prev) => [...prev, scope.id])
                           } else {
-                            setNewKeyScopes((prev) => prev.filter((s) => s !== scope))
+                            setNewKeyScopes((prev) => prev.filter((s) => s !== scope.id))
                           }
                         }}
-                        className="w-4 h-4 accent-suwappu-magenta-mid"
+                        className="w-4 h-4 mt-0.5 accent-suwappu-magenta-mid"
                       />
-                      <span className="text-sm text-suwappu-text">{scope}</span>
+                      <span>
+                        <span className="text-sm text-suwappu-text block">{scope.label}</span>
+                        <span className="text-[11px] text-suwappu-text-secondary">{scope.description}</span>
+                      </span>
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-suwappu-text-secondary mb-1 block">Per-key rate limit (requests/min)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  value={newKeyRateLimit}
+                  onChange={(e) => setNewKeyRateLimit(e.target.value)}
+                  className="w-full px-3 py-2 bg-suwappu-sakura-light/50 rounded-suwappu-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-suwappu-magenta-mid/30"
+                />
+                <p className="text-[11px] text-suwappu-text-secondary mt-1">
+                  Must stay below the organization ceiling. Use separate keys per service or automation.
+                </p>
               </div>
 
               <div>
