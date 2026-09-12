@@ -102,6 +102,7 @@ compliance certification** unless a separate artifact explicitly says otherwise.
 - [Railway build reliability](deployment/build-reliability.md) — CI gate, watch paths, service lifecycle, and IaC transition.
 - [Monitoring](deployment/monitoring.md) — observability layers and blind spots.
 - [Founder CFO control plane](operations/cfo-control-plane.md) — tracked cash inflow, execution economics, provider outcomes, and 13-week planning semantics.
+- [CFO Agenda 2026 → Suwappu](operations/cfo-agenda-2026.md) — twelve-point operating-system adaptation covering AI, payment cycles, scenarios, process mining, resilience, talent, and governance.
 - [Self-healing loop](deployment/self-healing-loop.md) — bounded recovery design.
 - [Bridge rails](deployment/bridge-rails-runbook.md) — enable/verify cross-chain rails.
 - [Incidents](incidents/README.md) — postmortems and incident process.
