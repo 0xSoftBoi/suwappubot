@@ -20,9 +20,9 @@ user or API key.
 `member` remains for compatibility with older organizations. New operational
 assignments should prefer the explicit Trader / Approver / Auditor roles.
 
-Only the organization owner may grant Admin or Approver authority. An Admin can
-invite lower-authority operational/read roles but cannot manufacture a peer
-admin or an approver.
+Only the organization owner may grant Admin, Trader, or Approver authority. An
+Admin can invite Auditor, Member, or Viewer roles but cannot manufacture a peer
+admin or any role that can initiate or approve movement of funds.
 
 The owner membership row cannot be demoted in place because
 `organizations.owner_id` is the canonical ownership record. Ownership transfer
@@ -70,9 +70,9 @@ Consequences:
 
 - demoting a human immediately reduces existing key authority;
 - removing the creator from the organization invalidates their key authority;
-- an Admin cannot create an execution credential;
+- an Admin cannot create an execution credential or grant Trader/Approver authority;
 - a Trader cannot create an administrative credential;
-- one key may not combine `admin` and `swap:execute`;
+- one key may not combine `admin` and `swap:execute`; legacy mixed-authority keys fail closed until rotated;
 - Trader users list and revoke only keys they created;
 - Owner/Admin may manage the broader key inventory;
 - Auditor may inspect key metadata but cannot create/revoke keys.
