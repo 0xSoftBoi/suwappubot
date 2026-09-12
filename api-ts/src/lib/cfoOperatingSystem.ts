@@ -189,3 +189,91 @@ export function providerConcentration(rows: ProviderExposureInput[]): ProviderCo
 		risk: hhi >= 2500 ? 'high' : hhi >= 1500 ? 'moderate' : 'low',
 	}
 }
+
+
+export interface CfoOperatingException {
+	code: 'RUNWAY_BREACH' | 'PROVIDER_CONCENTRATION' | 'PAYMENT_RECOVERY' | 'FEE_COLLECTION' | 'FUNNEL_BREAKAGE'
+	severity: 'info' | 'warning' | 'critical'
+	title: string
+	evidence: string
+	recommendedAction: string
+}
+
+export interface BuildCfoExceptionsInput {
+	baseFirstCashOutWeek: number | null
+	topProvider: string | null
+	topProviderShare: number | null
+	stripePaymentFailures30d: number
+	recurringOverdue: number
+	feeCollectionRate: number | null
+	feesAccruedUsd: number
+	quoteToExecutionRate: number | null
+	quotesObserved: number
+}
+
+/**
+ * Bounded exception policy for the founder control plane.
+ *
+ * These are REVIEW triggers only. No exception grants authority to move funds,
+ * message customers, change routing, or mutate billing.
+ */
+export function buildCfoExceptions(input: BuildCfoExceptionsInput): CfoOperatingException[] {
+	const out: CfoOperatingException[] = []
+
+	if (input.baseFirstCashOutWeek !== null && input.baseFirstCashOutWeek <= 13) {
+		out.push({
+			code: 'RUNWAY_BREACH',
+			severity: 'critical',
+			title: 'Base scenario breaches cash inside 13 weeks',
+			evidence: `First projected cash-out: week ${input.baseFirstCashOutWeek}`,
+			recommendedAction: 'Review burn, financing, collections, and discretionary spend before committing new capital.',
+		})
+	}
+
+	if (input.topProviderShare !== null && input.topProviderShare >= 0.5) {
+		out.push({
+			code: 'PROVIDER_CONCENTRATION',
+			severity: input.topProviderShare >= 0.75 ? 'critical' : 'warning',
+			title: 'Routing volume is concentrated in one provider',
+			evidence: `${input.topProvider ?? 'Top provider'} carries ${(input.topProviderShare * 100).toFixed(1)}% of observed volume`,
+			recommendedAction: 'Verify fallback coverage, compare economics, and test failover before the dependency becomes an outage or pricing risk.',
+		})
+	}
+
+	const paymentExceptions = Math.max(0, input.stripePaymentFailures30d) + Math.max(0, input.recurringOverdue)
+	if (paymentExceptions > 0) {
+		out.push({
+			code: 'PAYMENT_RECOVERY',
+			severity: paymentExceptions >= 5 ? 'warning' : 'info',
+			title: 'Payment-cycle exceptions need review',
+			evidence: `${input.stripePaymentFailures30d} Stripe failure events; ${input.recurringOverdue} recurring crypto charges overdue`,
+			recommendedAction: 'Review retry state and customer context before any dunning or account downgrade action.',
+		})
+	}
+
+	if (input.feesAccruedUsd > 0 && input.feeCollectionRate !== null && input.feeCollectionRate < 0.8) {
+		out.push({
+			code: 'FEE_COLLECTION',
+			severity: input.feeCollectionRate < 0.5 ? 'critical' : 'warning',
+			title: 'Recorded fee collection trails fee accrual',
+			evidence: `Collection ratio is ${(input.feeCollectionRate * 100).toFixed(1)}%`,
+			recommendedAction: 'Reconcile fee sweep/collector state and determine whether the gap is timing, user-borne fees, or an actual collection failure.',
+		})
+	}
+
+	if (
+		input.quotesObserved >= 10 &&
+		input.quoteToExecutionRate !== null &&
+		input.quoteToExecutionRate < 0.5
+	) {
+		out.push({
+			code: 'FUNNEL_BREAKAGE',
+			severity: input.quoteToExecutionRate < 0.25 ? 'critical' : 'warning',
+			title: 'Quote-to-execution conversion is weak',
+			evidence: `${(input.quoteToExecutionRate * 100).toFixed(1)}% of ${input.quotesObserved} observed quotes linked to execution`,
+			recommendedAction: 'Segment drop-off by surface, route, chain, and error signature before changing pricing or UX.',
+		})
+	}
+
+	return out
+}
