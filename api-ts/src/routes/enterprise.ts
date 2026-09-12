@@ -196,6 +196,12 @@ enterpriseRoutes.post('/orgs', async (c) => {
 		return c.json(errBody, status as 200)
 	}
 
+	writeAuditLog({
+		userId,
+		orgId: result.right?.id,
+		eventType: 'enterprise.organization_created',
+		details: { name: result.right?.name, slug: result.right?.slug },
+	})
 	return c.json({ org: result.right }, 201)
 })
 
@@ -356,6 +362,12 @@ enterpriseRoutes.patch('/orgs/:orgId', async (c) => {
 		return c.json(body, status as 200)
 	}
 
+	writeAuditLog({
+		userId: membership.userId,
+		orgId,
+		eventType: 'enterprise.organization_updated',
+		details: parsed.data,
+	})
 	return c.json({ org: result.right })
 })
 
