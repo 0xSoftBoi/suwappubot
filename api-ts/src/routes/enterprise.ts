@@ -21,11 +21,21 @@ const ORG_MEMBER_ASSIGNABLE_ROLES = ['admin', 'trader', 'approver', 'auditor', '
 export const ENTERPRISE_ROLE_CAPABILITIES: Record<OrgRole, readonly string[]> = {
 	owner: ['org:manage', 'members:manage', 'keys:manage', 'trade:initiate', 'trade:approve', 'audit:read'],
 	admin: ['org:manage', 'members:manage', 'keys:manage', 'audit:read'],
-	trader: ['trade:initiate', 'org:read'],
+	trader: ['trade:initiate', 'keys:execution', 'org:read'],
 	approver: ['trade:approve', 'org:read', 'audit:read'],
 	auditor: ['org:read', 'audit:read'],
 	member: ['org:read'],
 	viewer: ['org:read'],
+}
+
+const KEY_SCOPES_BY_ROLE: Record<OrgRole, readonly string[]> = {
+	owner: ['trade:read', 'swap:execute', 'admin'],
+	admin: ['trade:read', 'admin'],
+	trader: ['trade:read', 'swap:execute'],
+	approver: [],
+	auditor: [],
+	member: [],
+	viewer: [],
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -384,8 +394,11 @@ enterpriseRoutes.get('/orgs/:orgId/capabilities', async (c) => {
 		separationOfDuties: {
 			canInitiate: (ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('trade:initiate'),
 			canApprove: (ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('trade:approve'),
-			canManageKeys: (ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('keys:manage'),
+			canManageKeys:
+				(ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('keys:manage') ||
+				(ENTERPRISE_ROLE_CAPABILITIES[role] ?? []).includes('keys:execution'),
 		},
+		allowedKeyScopes: KEY_SCOPES_BY_ROLE[role] ?? [],
 	})
 })
 
@@ -682,16 +695,7 @@ enterpriseRoutes.get('/orgs/:orgId/api-keys', async (c) => {
 /** Scopes a dashboard admin may grant a key. The wildcard '*' is deliberately
  *  NOT mintable here: requireScope() treats it as grant-all, so a free-form
  *  string array let any org admin bypass every per-endpoint scope gate. */
-const GRANTABLE_SCOPES = [
-	'read',
-	'swap',
-	'orders',
-	'portfolio',
-	'alerts',
-	'admin',
-	'swap:execute',
-	'trade:read',
-] as const
+const GRANTABLE_SCOPES = ['admin', 'swap:execute', 'trade:read'] as const
 
 const CreateKeySchema = z.object({
 	name: z.string().min(1).max(100),
@@ -701,13 +705,21 @@ const CreateKeySchema = z.object({
 })
 
 enterpriseRoutes.post('/orgs/:orgId/api-keys', async (c) => {
-	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin'])
-	if (!membership) return c.json({ error: 'Owner or admin role required' }, 403)
+	const membership = await resolveMembership(c, c.req.param('orgId'), ['owner', 'admin', 'trader'])
+	if (!membership) return c.json({ error: 'Owner, admin, or trader role required' }, 403)
 	const orgId = membership.orgId
 
 	const body = await c.req.json().catch(() => ({}))
 	const parsed = CreateKeySchema.safeParse(body)
 	if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400)
+	const allowedScopes = KEY_SCOPES_BY_ROLE[membership.role as OrgRole] ?? []
+	const forbiddenScope = parsed.data.scopes.find((scope) => !allowedScopes.includes(scope))
+	if (forbiddenScope) {
+		return c.json(
+			{ error: `Role '${membership.role}' cannot grant API scope '${forbiddenScope}'` },
+			403,
+		)
+	}
 	if (parsed.data.scopes.includes('admin') && parsed.data.scopes.includes('swap:execute')) {
 		return c.json(
 			{ error: 'Administrative and execution authority must use separate API keys' },
