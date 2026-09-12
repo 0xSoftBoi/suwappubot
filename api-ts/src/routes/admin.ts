@@ -2,19 +2,31 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
 import {
+	agentCreditTopups,
+	agentSubscriptions,
 	agents,
 	apiUsageEvents,
+	feeTransactions,
 	organizations,
 	requireDb,
 	subscriptions,
+	swapRouteCandidates,
 	swapTransactions,
 	webhookEvents,
 	x402Payments,
 } from '../db'
 import { mapErrorToResponse } from '../errors'
+import { buildFinanceForecast } from '../lib/financeForecast'
 import { runEffectEither } from '../runtime'
 
 const adminRoutes = new Hono()
+
+function parseOptionalUsd(raw: string | undefined): number | null | 'invalid' {
+	if (raw === undefined || raw === '') return null
+	const value = Number(raw)
+	if (!Number.isFinite(value) || value < 0 || value > 1_000_000_000_000) return 'invalid'
+	return value
+}
 
 // GET /admin/stats - Aggregate statistics
 adminRoutes.get('/stats', async (c) => {
@@ -468,6 +480,239 @@ adminRoutes.get('/stats/timeseries', async (c) => {
 				})),
 				newAgents: agentRows.map((r) => ({ date: r.date, count: Number(r.count) })),
 				apiCalls: apiRows.map((r) => ({ date: r.date, count: Number(r.count) })),
+			}
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		const { status, body } = mapErrorToResponse(result.left)
+		return c.json(body, status)
+	}
+
+	return c.json({ success: true, ...result.right })
+})
+
+// GET /admin/finance - Founder CFO control plane (read-only)
+//
+// Cash and burn are optional planning inputs supplied by the admin browser. They are
+// never persisted here; production ledgers remain the source for observed activity.
+adminRoutes.get('/finance', async (c) => {
+	const startingCashUsd = parseOptionalUsd(c.req.query('cash_usd'))
+	const weeklyOperatingBurnUsd = parseOptionalUsd(c.req.query('weekly_burn_usd'))
+
+	if (startingCashUsd === 'invalid' || weeklyOperatingBurnUsd === 'invalid') {
+		return c.json(
+			{ error: 'cash_usd and weekly_burn_usd must be non-negative finite USD values' },
+			400,
+		)
+	}
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const now = new Date()
+			const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+			const [
+				x402Rows,
+				topupRows,
+				agentSubscriptionRows,
+				feeRows,
+				swapRows,
+				providerRows,
+				funnelRows,
+				apiRows,
+			] = yield* Effect.all([
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({ total: sql<number>`coalesce(sum(${x402Payments.amount}), 0)` })
+							.from(x402Payments)
+							.where(
+								and(
+									eq(x402Payments.status, 'completed'),
+									gte(x402Payments.createdAt, thirtyDaysAgo),
+								),
+							),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({ total: sql<number>`coalesce(sum(${agentCreditTopups.amountUsd}), 0)` })
+							.from(agentCreditTopups)
+							.where(gte(agentCreditTopups.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({ total: sql<number>`coalesce(sum(${agentSubscriptions.amountUsd}), 0)` })
+							.from(agentSubscriptions)
+							.where(gte(agentSubscriptions.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								accrued: sql<number>`coalesce(sum(${feeTransactions.feeAmountUsd}), 0)`,
+								collected: sql<number>`coalesce(sum(${feeTransactions.feeAmountUsd}) filter (where ${feeTransactions.collected} = true), 0)`,
+							})
+							.from(feeTransactions)
+							.where(gte(feeTransactions.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								total: sql<number>`count(*)`,
+								completed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) in ('completed', 'success'))`,
+								failed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) = 'failed')`,
+								volumeUsd: sql<number>`coalesce(sum(${swapTransactions.fromAmountUsd}), 0)`,
+								gasCostUsd: sql<number>`coalesce(sum(cast(${swapTransactions.gasCostUsd} as numeric)), 0)`,
+								feeCostUsd: sql<number>`coalesce(sum(cast(${swapTransactions.feeCostUsd} as numeric)), 0)`,
+								priceImprovementUsd: sql<number>`coalesce(sum(${swapTransactions.priceImprovementUsd}), 0)`,
+								avgPriceImprovementUsd: sql<number>`coalesce(avg(${swapTransactions.priceImprovementUsd}), 0)`,
+							})
+							.from(swapTransactions)
+							.where(gte(swapTransactions.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								provider: swapTransactions.routeProvider,
+								total: sql<number>`count(*)`,
+								completed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) in ('completed', 'success'))`,
+								failed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) = 'failed')`,
+								volumeUsd: sql<number>`coalesce(sum(${swapTransactions.fromAmountUsd}), 0)`,
+								priceImprovementUsd: sql<number>`coalesce(sum(${swapTransactions.priceImprovementUsd}), 0)`,
+							})
+							.from(swapTransactions)
+							.where(gte(swapTransactions.createdAt, thirtyDaysAgo))
+							.groupBy(swapTransactions.routeProvider)
+							.orderBy(sql`coalesce(sum(${swapTransactions.fromAmountUsd}), 0) desc`),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({
+								quotes: sql<number>`count(distinct ${swapRouteCandidates.quoteId})`,
+								quotesWithExecution: sql<number>`count(distinct ${swapRouteCandidates.quoteId}) filter (where ${swapRouteCandidates.swapId} is not null)`,
+								candidates: sql<number>`count(*)`,
+							})
+							.from(swapRouteCandidates)
+							.where(gte(swapRouteCandidates.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+				Effect.tryPromise({
+					try: () =>
+						db
+							.select({ count: sql<number>`count(*)` })
+							.from(apiUsageEvents)
+							.where(gte(apiUsageEvents.createdAt, thirtyDaysAgo)),
+					catch: (e) => new Error(`Database error: ${e}`),
+				}),
+			])
+
+			const x402Usd = Number(x402Rows[0]?.total ?? 0)
+			const prepaidCreditInflowsUsd = Number(topupRows[0]?.total ?? 0)
+			const agentSubscriptionInflowsUsd = Number(agentSubscriptionRows[0]?.total ?? 0)
+			const swapFeesAccruedUsd = Number(feeRows[0]?.accrued ?? 0)
+			const swapFeesCollectedUsd = Number(feeRows[0]?.collected ?? 0)
+			const trackedCashInflow30dUsd =
+				x402Usd + prepaidCreditInflowsUsd + agentSubscriptionInflowsUsd + swapFeesCollectedUsd
+			const observedWeeklyCashInflowUsd = trackedCashInflow30dUsd * (7 / 30)
+
+			const swaps = swapRows[0]
+			const totalSwaps = Number(swaps?.total ?? 0)
+			const completedSwaps = Number(swaps?.completed ?? 0)
+			const failedSwaps = Number(swaps?.failed ?? 0)
+			const terminalSwaps = completedSwaps + failedSwaps
+			const volumeUsd = Number(swaps?.volumeUsd ?? 0)
+			const quotes = Number(funnelRows[0]?.quotes ?? 0)
+			const quotesWithExecution = Number(funnelRows[0]?.quotesWithExecution ?? 0)
+
+			const forecast = buildFinanceForecast({
+				observedWeeklyCashInflowUsd,
+				startingCashUsd,
+				weeklyOperatingBurnUsd,
+				weeks: 13,
+			})
+
+			return {
+				asOf: now.toISOString(),
+				windowDays: 30,
+				cashInflow: {
+					tracked30dUsd: trackedCashInflow30dUsd,
+					weeklyRunRateUsd: observedWeeklyCashInflowUsd,
+					sources: {
+						directPaymentsUsd: x402Usd,
+						prepaidCreditInflowsUsd,
+						agentSubscriptionInflowsUsd,
+						swapFeesCollectedUsd,
+						swapFeesAccruedUsd,
+					},
+				},
+				execution: {
+					totalSwaps,
+					completedSwaps,
+					failedSwaps,
+					successRate: terminalSwaps > 0 ? completedSwaps / terminalSwaps : null,
+					volumeUsd,
+					quotes,
+					quotesWithExecution,
+					quoteToExecutionRate: quotes > 0 ? quotesWithExecution / quotes : null,
+					routeCandidates: Number(funnelRows[0]?.candidates ?? 0),
+				},
+				unitEconomics: {
+					trackedCashInflowPerCompletedSwapUsd:
+						completedSwaps > 0 ? trackedCashInflow30dUsd / completedSwaps : null,
+					feeCaptureBps: volumeUsd > 0 ? (swapFeesAccruedUsd / volumeUsd) * 10_000 : null,
+					trackedGasCostUsd: Number(swaps?.gasCostUsd ?? 0),
+					trackedFeeCostUsd: Number(swaps?.feeCostUsd ?? 0),
+					priceImprovementUsd: Number(swaps?.priceImprovementUsd ?? 0),
+					avgPriceImprovementUsd: Number(swaps?.avgPriceImprovementUsd ?? 0),
+					apiCalls: Number(apiRows[0]?.count ?? 0),
+				},
+				providers: providerRows.map((row) => {
+					const total = Number(row.total ?? 0)
+					const completed = Number(row.completed ?? 0)
+					const failed = Number(row.failed ?? 0)
+					const terminal = completed + failed
+					return {
+						provider: row.provider ?? 'unknown',
+						total,
+						completed,
+						failed,
+						successRate: terminal > 0 ? completed / terminal : null,
+						volumeUsd: Number(row.volumeUsd ?? 0),
+						priceImprovementUsd: Number(row.priceImprovementUsd ?? 0),
+					}
+				}),
+				planning: {
+					startingCashUsd,
+					weeklyOperatingBurnUsd,
+					forecast,
+				},
+				dataQuality: {
+					complete: false,
+					missing: [
+						'Stripe settlement inflows, refunds, and chargebacks',
+						'Railway, Vercel, RPC, provider, and observability costs',
+						'Payroll, contractor, legal, compliance, and tax cash outflows',
+						'Bank and treasury balances unless supplied as the planning cash input',
+					],
+					notes: [
+						'Prepaid credit topups are cash inflow, not recognized revenue.',
+						'Subscription inflows are not revenue-recognition schedules.',
+						'Tracked gas/fee cost fields describe execution economics and may not be company-paid infrastructure cost.',
+					],
+				},
 			}
 		}),
 	)
