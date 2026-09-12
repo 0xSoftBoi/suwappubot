@@ -104,6 +104,24 @@ def _resolve_user_id(session, telegram_id: int):
     return row[0] if row else None
 
 
+def _can_act_on_approval(session, *, approval_id: str, caller_user_id: int) -> bool:
+    """Same maker/checker authority as api-ts: owner/direct user or org approver."""
+    row = session.execute(
+        text(
+            "SELECT 1 FROM approval_requests ar "
+            "WHERE ar.id = :approval_id AND ("
+            "ar.user_id = :caller_user_id OR EXISTS ("
+            "SELECT 1 FROM organization_members om "
+            "WHERE om.organization_id = ar.organization_id "
+            "AND om.user_id = :caller_user_id "
+            "AND om.role IN ('owner', 'approver')"
+            "))"
+        ),
+        {"approval_id": approval_id, "caller_user_id": caller_user_id},
+    ).fetchone()
+    return row is not None
+
+
 def _issue_step_up_challenge(session, *, user_id: int, approval_id: str) -> str:
     """Insert a fresh single-use step-up row and return its challenge token.
 
@@ -150,17 +168,20 @@ def _decide_approval(session, *, approval_id: str, caller_user_id: int, new_stat
     """Atomic guarded UPDATE + re-read, shared by the one-tap and step-up-confirm paths.
 
     Only flips a row that is STILL pending, not yet past its own expiry, AND
-    owned by the tapping user (resolved to users.id), so a double-tap, a
-    race with the expiry sweep, a lapsed-but-unswept row, or a forwarded
-    callback payload can never decide it more than once, past expiry, or for
-    someone else.
+    actionable by the tapping human: the direct/owner user or an explicit
+    organization approver. This mirrors api-ts's maker/checker predicate.
     """
     result = session.execute(
         text(
             "UPDATE approval_requests "
             "SET status = :new_status, decided_by = :decided_by, "
             "decided_at = CURRENT_TIMESTAMP "
-            "WHERE id = :id AND status = 'pending' AND user_id = :caller_user_id "
+            "WHERE id = :id AND status = 'pending' "
+            "AND (user_id = :caller_user_id OR EXISTS ("
+            "SELECT 1 FROM organization_members om "
+            "WHERE om.organization_id = approval_requests.organization_id "
+            "AND om.user_id = :caller_user_id "
+            "AND om.role IN ('owner', 'approver'))) "
             f"AND expires_at > {_now_utc_sql()}"
         ),
         {
@@ -229,6 +250,11 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                 if caller_user_id is None:
                     await query.edit_message_text("This approval belongs to another user.")
                     return
+                if not _can_act_on_approval(
+                    session, approval_id=approval_id, caller_user_id=caller_user_id
+                ):
+                    await query.edit_message_text("This approval belongs to another user.")
+                    return
                 challenge_ok = _consume_step_up_challenge(
                     session,
                     user_id=caller_user_id,
@@ -264,9 +290,11 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
             with get_session() as session:
                 caller_user_id = _resolve_user_id(session, user.id)
                 if caller_user_id is None:
-                    # No linked Suwappu account for this Telegram user — can never
-                    # own an approval_requests row (user_id is a real FK), so no
-                    # guarded UPDATE can possibly match. Don't leak row existence.
+                    await query.edit_message_text("This approval belongs to another user.")
+                    return
+                if not _can_act_on_approval(
+                    session, approval_id=approval_id, caller_user_id=caller_user_id
+                ):
                     await query.edit_message_text("This approval belongs to another user.")
                     return
 
@@ -328,14 +356,6 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
     status, existing_decided_by, agent_name, agent_id, owner_user_id, expires_at = row
     label = agent_name or agent_id
 
-    # Ownership check FIRST, regardless of the row's status — a non-owner
-    # must learn nothing (not even that the row exists, who decided it, or
-    # what agent it belongs to) whether the row is pending, decided, or
-    # expired.
-    if owner_user_id != caller_user_id:
-        await query.edit_message_text("This approval belongs to another user.")
-        return
-
     if decided_now:
         outcome = "✅ Approved" if new_status == "approved" else "❌ Denied"
         await query.edit_message_text(f"{outcome} — agent `{label}`.", parse_mode="Markdown")
@@ -390,7 +410,11 @@ async def approvals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     "ar.expires_at "
                     "FROM approval_requests ar "
                     "LEFT JOIN agents a ON CAST(a.uuid AS TEXT) = ar.agent_id "
-                    "WHERE ar.user_id = :uid AND ar.status = 'pending' "
+                    "WHERE ar.status = 'pending' AND ("
+                    "ar.user_id = :uid OR EXISTS ("
+                    "SELECT 1 FROM organization_members om "
+                    "WHERE om.organization_id = ar.organization_id "
+                    "AND om.user_id = :uid AND om.role IN ('owner', 'approver'))) "
                     "ORDER BY ar.created_at DESC LIMIT 20"
                 ),
                 {"uid": caller_user_id},
