@@ -152,6 +152,37 @@ of the unbounded-container patterns above; it looks more like one pathological i
 (an enormous RPC response buffered in full, a runaway batch) than a steady accumulation.
 Pinning it would need a heap profile or the logs from that window, not static analysis.
 
+> **Update 2026-09-07 — it recurred, and it is a crash, not a recovery.**
+> 7-day metrics now show max **30.2 GB** (120h window) and **27.5 GB** inside the
+> last 24h. Bisecting the 24h window puts the excursion in the 6–12h-ago band,
+> and the deploy log for that band shows the last normal line at 09:39:04Z
+> (`bot.services.wallet – RPC call timed out` ×5), then **nothing until a cold
+> process start at 09:48:46Z** (handler-import warnings, "Starting consolidated
+> Suwappu Monolith", memory min 0.44 GB). No Python traceback, no `MemoryError`:
+> the platform SIGKILLed the container. Both incidents were preceded by a burst
+> of wallet-service RPC timeouts (08:39Z: ×8 then `All RPCs circuit-open for
+> citrea`; 09:39Z: ×5) — suggestive, not proof.
+>
+> Shipped in response (this section's "Action" below, now done):
+> `bot/services/memory_guard.py` (soft 3 GB → tracemalloc + task/type report;
+> hard 6 GB → exit 137), `deploy.limitOverride.containers.memoryBytes = 8 GiB`
+> in `railway.python-worker.json`, `MALLOC_ARENA_MAX=2` in the Dockerfile, and
+> the Telegram handler tree is no longer imported in worker mode. The next
+> excursion will log its allocation sites at 3 GB; **that report is the
+> root-cause lead this audit could not produce.**
+>
+> Executed live the same day, outside the deploy: the 8 GiB / 2 vCPU limit was
+> applied to the production worker via Railway's agent (an in-place restart did
+> **not** pick it up — `MEMORY_LIMIT_GB` still read 32 — so it enforces on the
+> next fresh deployment); the worker was restarted, dropping RSS 2.04 → 0.26 GB;
+> app sleeping was enabled on the seven dev HTTP services (two were already
+> sleeping, four redeployed, `showcase`/marketdata frontends apply on their next
+> deploy). The live deployment's log also shows cold starts on 09-02 17:23Z,
+> 09-03 01:24Z and 09-07 09:48Z — three crashes in six days, not one a week.
+> Separately, every Starknet call had been failing with HTTP 410 for weeks
+> (Lava discontinued the keyless endpoint that was the hard-coded fallback);
+> fixed in the same branch.
+
 **Action — cap the outcome rather than hunt the cause.** This is precisely the case for
 F3's memory limit: a 4 GB ceiling on `python-worker` bounds the blast radius whether or
 not the cause is ever found, and the service already restarts `ON_FAILURE`. Add an alert
@@ -431,10 +462,13 @@ So these two approved items need the dashboard or the `railway` CLI:
    Settings → Resources. Suggested: `python-worker` 4 GB / 2 vCPU (peak was 31.7 GB),
    `python-api` 2 GB / 1 vCPU, `api-ts` 1 GB / 1 vCPU, static surfaces 512 MB / 0.5 vCPU.
 
-   Confirmed unreachable programmatically: `update-service` has no resource field
-   ("Scaling (replicas/regions) and source changes are not handled by this tool"), and
-   the `railway-agent` fallback returns "Agent usage limit reached". Dashboard or
-   `railway` CLI only.
+   ~~Confirmed unreachable programmatically~~ — **stale as of 2026-09-07.**
+   `update-service` still has no resource field, but the `railway-agent` tool (which
+   returned "Agent usage limit reached" on 2026-08-27) succeeded on 2026-09-07 and set
+   `python-worker` to 8 GiB / 2 vCPU via `deploy.limitOverride.containers`. Two caveats:
+   the override only enforces on a *fresh deployment* (an in-place restart kept
+   `MEMORY_LIMIT_GB = 32`), and the same key is now in `railway.python-worker.json`, so
+   config-as-code applies it on every deploy regardless of the dashboard value.
 
 ## 5. Coverage / QA
 

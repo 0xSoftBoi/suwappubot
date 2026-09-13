@@ -100,9 +100,13 @@ compliance certification** unless a separate artifact explicitly says otherwise.
   snapshot and source-branch caveats.
 - [Railway](deployment/railway.md) — deployment configuration and migration history.
 - [Railway build reliability](deployment/build-reliability.md) — CI gate, watch paths, service lifecycle, and IaC transition.
+- [Main / dev promotion discipline](deployment/branch-promotion.md) — branch-lineage invariant, staged promotion, automatic safe sync, and divergence recovery.
 - [Railway best practices](deployment/railway-best-practices.md) — **2026-08 audit**: Config-as-Code deprecation (cutoff 2026-12-01) + Infrastructure-as-Code migration runbook, verified config drift, cross-region DB latency, zero-downtime settings.
-- [Railway cost audit](deployment/railway-cost-audit.md) — **2026-08-27 snapshot**: modelled per-service spend across both environments (~$122/mo), the `python-worker` RPC retry storm and 31.7 GB memory spike, six idle dev services, and a ranked reduction plan.
+- [Railway cost audit](deployment/railway-cost-audit.md) — **2026-08-27 snapshot**: modelled per-service spend across both environments (~$122/mo), the `python-worker` RPC retry storm and 31.7 GB memory spike, six idle dev services, and a ranked reduction plan. Updated 2026-09-07: the spike recurred and was a SIGKILL, not a recovery.
+- [Railway cost playbook](deployment/railway-cost-playbook.md) — **2026-09-07**: how Railway bills (per-minute, average not peak), which levers are verified vs. lore, what shipped for `python-worker` (in-process memory guard, `limitOverride`, `MALLOC_ARENA_MAX`), and how to read the guard's report when the next balloon happens.
 - [Monitoring](deployment/monitoring.md) — observability layers and blind spots.
+- [Founder CFO control plane](operations/cfo-control-plane.md) — tracked cash inflow, execution economics, provider outcomes, and 13-week planning semantics.
+- [CFO Agenda 2026 → Suwappu](operations/cfo-agenda-2026.md) — twelve-point operating-system adaptation covering AI, payment cycles, scenarios, process mining, resilience, talent, and governance.
 - [Self-healing loop](deployment/self-healing-loop.md) — bounded recovery design.
 - [Bridge rails](deployment/bridge-rails-runbook.md) — enable/verify cross-chain rails.
 - [Incidents](incidents/README.md) — postmortems and incident process.
