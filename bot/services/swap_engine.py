@@ -18,6 +18,8 @@ Providers:
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 from typing import Optional, List
@@ -93,6 +95,11 @@ logger = logging.getLogger(__name__)
 # usdt0 IS executable (_execute_usdt0_swap), but note it stays unreachable in
 # practice until USDT0_BRIDGE_ENABLED is flipped: _is_usdt0_route gates on the
 # provider's own `enabled` flag, so no usdt0 quote is produced while it is off.
+# How long an approved Relay quote may be executed as-is (its own steps, no
+# re-pricing). Relay orders stay fillable far longer (the order deadline is
+# ~2h), but past this window we re-quote so a very stale price is never sent.
+RELAY_QUOTE_EXECUTE_WINDOW_SEC = 90
+
 EXECUTABLE_PROVIDERS = frozenset(
     {
         "usdt0",
@@ -3811,6 +3818,11 @@ class SwapEngine:
             raw_quote={
                 "request_id": quote.request_id,
                 "steps": quote.steps,
+                # Proves at execution time that these steps came from OUR quote
+                # path, not from a caller-supplied raw_quote (agent/webapp
+                # rehydration passes raw_quote through verbatim). Without a
+                # valid signature the executor re-quotes instead of signing.
+                "steps_sig": self._relay_steps_sig(quote.steps, quote.request_id),
                 "recipient": to_address or from_address,
                 # Carried into execution so the fresh re-quote uses the SAME
                 # slippage the user accepted, not Relay's default.
@@ -4516,7 +4528,7 @@ class SwapEngine:
                 elif quote.provider == "across":
                     tx_hash = await self._execute_across_swap(quote, wallet)
                 elif quote.provider == "relay":
-                    tx_hash = await self._execute_relay_swap(quote, wallet)
+                    tx_hash = await self._execute_relay_swap(quote, wallet, swap_id=swap_id)
                 elif quote.provider == "wormhole":
                     tx_hash = await self._execute_wormhole_swap(quote, wallet)
                 elif quote.provider == "sunswap":
@@ -4600,6 +4612,18 @@ class SwapEngine:
                                 except (TypeError, ValueError, json.JSONDecodeError):
                                     existing = {}
                                 existing["quote_id"] = quote.raw_quote.get("quote_id")
+                                db_tx.route_data = json.dumps(existing)
+                            elif quote.provider == "relay":
+                                # _execute_relay_swap re-quotes at execution and
+                                # writes the executed intent's request_id onto
+                                # raw_quote; the tx poller needs it to ask
+                                # Relay whether the destination fill (or a
+                                # refund) actually happened.
+                                try:
+                                    existing = json.loads(db_tx.route_data or "{}")
+                                except (TypeError, ValueError, json.JSONDecodeError):
+                                    existing = {}
+                                existing["request_id"] = (quote.raw_quote or {}).get("request_id")
                                 db_tx.route_data = json.dumps(existing)
 
                 await run_in_db(_update_tx_hash)
@@ -6410,7 +6434,44 @@ class SwapEngine:
         logger.info(f"Across deposit tx: {deposit_hash.hex()}")
         return deposit_hash.hex()
 
-    async def _execute_relay_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
+    @staticmethod
+    def _relay_steps_sig(steps: list, request_id: str) -> str:
+        """HMAC over the exact step list we quoted, keyed with the server's
+        encryption key. Only steps carrying a valid signature may be signed
+        without a re-quote; anything else (including a client-supplied
+        raw_quote on the agent/webapp path) goes through the re-quote branch.
+        """
+        payload = json.dumps(
+            {"request_id": request_id, "steps": steps}, sort_keys=True, separators=(",", ":")
+        ).encode()
+        key = str(settings.encryption_key).encode()
+        return hmac.new(key, payload, hashlib.sha256).hexdigest()
+
+    async def _persist_relay_request_id(self, swap_id: Optional[int], request_id: str) -> None:
+        """Write the Relay request_id to the swap row BEFORE the deposit is
+        broadcast, so a crash between broadcast and the post-send bookkeeping
+        can never leave a tracked deposit with no way to poll its fill (same
+        reasoning as _persist_0x_crosschain_route_data)."""
+        if not swap_id or not request_id:
+            return
+
+        def _work():
+            with get_session() as session:
+                db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+                if not db_tx:
+                    return
+                try:
+                    existing = json.loads(db_tx.route_data or "{}")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    existing = {}
+                existing["request_id"] = request_id
+                db_tx.route_data = json.dumps(existing)
+
+        await run_in_db(_work)
+
+    async def _execute_relay_swap(
+        self, quote: SwapQuote, wallet_data: dict, swap_id: Optional[int] = None
+    ) -> str:
         """Execute a cross-chain swap/bridge via Relay (solver-network intents).
 
         Relay's quote returns ready-to-sign steps (approve, then deposit). We
@@ -6458,32 +6519,69 @@ class SwapEngine:
         if slippage_bps is None:
             slippage_bps = int(round(float(getattr(settings, "default_slippage", 0.5)) * 100))
 
-        # Quotes expire fast (solver-priced): re-quote right before executing.
-        relay_quote = await self.relay.get_quote(
-            from_chain=quote.from_chain,
-            to_chain=quote.to_chain,
-            from_token_address=from_token_address,
-            to_token_address=to_token_address,
-            amount_raw=quote.from_amount,
-            from_address=sender,
-            to_address=recipient,
-            slippage_bps=int(slippage_bps),
-        )
-        steps = relay_quote.steps
-        if not steps:
-            raise SwapError("Relay returned no executable steps")
-
-        # MONEY-PATH guard 1: the fresh guaranteed minimum may not be below the
-        # minimum the user approved. Shared helper fails closed on unparseable
-        # input; additionally refuse an approved minimum of zero (a rehydrated
-        # quote missing to_amount_min would otherwise carry no protection).
+        # MONEY-PATH guard 1: the approved quote must carry a real minimum
+        # output (a rehydrated quote missing to_amount_min would otherwise
+        # carry no protection at all).
         try:
             approved_min = int(quote.to_amount_min)
         except (TypeError, ValueError):
             raise SwapError("Relay: approved quote has no valid minimum output; please re-quote")
         if approved_min <= 0:
             raise SwapError("Relay: approved quote carries no minimum output; please re-quote")
-        self._assert_fresh_min_out_acceptable(quote, relay_quote.to_amount_min, "Relay")
+
+        # Which steps to sign. A Relay quote IS an order: its deposit calldata
+        # carries the requestId and the solver is bound to the quoted
+        # `minimumAmount` (it refunds rather than under-fill). So while the
+        # approved quote is still fresh we execute exactly the steps the user
+        # saw, the way Relay's own SDK does, and never re-price. Relay's solver
+        # price ticks every second, so re-quoting and then requiring the fresh
+        # minimum to be >= the approved one would reject most real executions
+        # (observed live on a Base fork: rejected on a 5-parts-per-billion
+        # downtick). Re-quoting is only the fallback for a quote that has
+        # expired or lost its steps (agent/webapp rehydration), and there the
+        # shared fail-closed guard still applies.
+        approved_steps = raw.get("steps") or []
+        approved_request_id = raw.get("request_id")
+        # Rehydrated quotes (agent/webapp) carry naive timestamps; treat them as UTC.
+        ts = quote.timestamp
+        if ts is not None and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        quote_age = (datetime.now(timezone.utc) - ts).total_seconds() if ts else float("inf")
+        fresh_enough = 0 <= quote_age <= RELAY_QUOTE_EXECUTE_WINDOW_SEC
+        # MONEY-PATH: only steps that carry OUR signature may be signed as-is.
+        # raw_quote is caller-supplied on the agent/webapp execute path, so a
+        # missing or wrong signature means "not ours": fall through to the
+        # re-quote branch, where Relay is the source of truth for calldata.
+        steps_trusted = False
+        if approved_steps and approved_request_id and raw.get("steps_sig"):
+            expected = self._relay_steps_sig(approved_steps, approved_request_id)
+            steps_trusted = hmac.compare_digest(str(raw.get("steps_sig")), expected)
+        if approved_steps and approved_request_id and fresh_enough and steps_trusted:
+            steps = [dict(s) for s in approved_steps if isinstance(s, dict)]
+            executed_request_id = approved_request_id
+            logger.info(
+                f"Relay: executing approved quote {approved_request_id} directly "
+                f"(age {quote_age:.1f}s, min out {approved_min})"
+            )
+        else:
+            # Quotes expire fast (solver-priced): re-quote right before executing.
+            relay_quote = await self.relay.get_quote(
+                from_chain=quote.from_chain,
+                to_chain=quote.to_chain,
+                from_token_address=from_token_address,
+                to_token_address=to_token_address,
+                amount_raw=quote.from_amount,
+                from_address=sender,
+                to_address=recipient,
+                slippage_bps=int(slippage_bps),
+            )
+            steps = relay_quote.steps
+            executed_request_id = relay_quote.request_id
+            # The fresh guaranteed minimum may not be below the minimum the
+            # user approved. Shared helper fails closed on unparseable input.
+            self._assert_fresh_min_out_acceptable(quote, relay_quote.to_amount_min, "Relay")
+        if not steps:
+            raise SwapError("Relay returned no executable steps")
 
         # MONEY-PATH guard 2: validate every step against what was approved
         # before signing anything.
@@ -6587,6 +6685,9 @@ class SwapEngine:
 
         deposit_tx_hash: Optional[str] = None
         for idx, step in enumerate(steps):
+            if step["step_id"] == "deposit":
+                # Persist BEFORE the deposit is broadcast (see helper docstring).
+                await self._persist_relay_request_id(swap_id, executed_request_id)
             nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
             tx = {
                 "to": Web3.to_checksum_address(step["to"]),
@@ -6628,7 +6729,7 @@ class SwapEngine:
         # Record the request id for status polling (GET /intents/status/v3).
         # TODO(tx_poller): persist request_id and poll relay_api.get_status so a
         # FAILED/REFUNDED intent is not recorded as a completed swap.
-        raw["request_id"] = relay_quote.request_id
+        raw["request_id"] = executed_request_id
         quote.raw_quote = raw
 
         return deposit_tx_hash

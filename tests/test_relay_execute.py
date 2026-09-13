@@ -257,3 +257,118 @@ async def test_missing_slippage_falls_back_to_our_default_not_relays():
     await _run(engine, web3, _quote(raw={}))
     kwargs = engine.relay.get_quote.call_args.kwargs
     assert kwargs["slippage_bps"] == 50  # settings.default_slippage 0.5% -> 50 bps
+
+
+@pytest.mark.asyncio
+async def test_fresh_approved_quote_executes_its_own_steps_without_requote():
+    """A fresh quote is an order: sign exactly what the user approved, never re-price."""
+    engine, web3 = _engine(_relay_quote(to_amount_min="1"))  # would fail the guard if re-quoted
+    steps = _steps()
+    raw = {
+        "recipient": SENDER,
+        "slippage_bps": 50,
+        "request_id": "0xapproved",
+        "steps": steps,
+        "steps_sig": engine._relay_steps_sig(steps, "0xapproved"),
+    }
+    q = _quote(raw=raw)
+    tx_hash = await _run(engine, web3, q)
+    assert tx_hash
+    engine.relay.get_quote.assert_not_awaited()
+    assert q.raw_quote["request_id"] == "0xapproved"
+
+
+@pytest.mark.asyncio
+async def test_stale_approved_quote_requotes_and_applies_guard():
+    from datetime import datetime, timedelta, timezone
+
+    engine, web3 = _engine(_relay_quote(to_amount_min="24000000"))
+    steps = _steps()
+    raw = {
+        "recipient": SENDER,
+        "slippage_bps": 50,
+        "request_id": "0xold",
+        "steps": steps,
+        "steps_sig": engine._relay_steps_sig(steps, "0xold"),
+    }
+    q = _quote(raw=raw)
+    q.timestamp = datetime.now(timezone.utc) - timedelta(minutes=10)
+    with pytest.raises(SwapError):
+        await _run(engine, web3, q)
+    engine.relay.get_quote.assert_awaited_once()
+    web3.eth.send_raw_transaction.assert_not_called()
+
+
+def _sig(engine, steps, request_id):
+    return engine._relay_steps_sig(steps, request_id)
+
+
+@pytest.mark.asyncio
+async def test_forged_steps_without_our_signature_are_never_signed_directly():
+    """raw_quote is caller-supplied on the agent path: unsigned steps must re-quote."""
+    engine, web3 = _engine(_relay_quote())
+    forged = _steps(approve_to=BASE_USDC)
+    forged[1]["to"] = "0x" + "9" * 40  # attacker deposit target
+    raw = {"recipient": SENDER, "slippage_bps": 50, "request_id": "0xforged", "steps": forged}
+    q = _quote(raw=raw)
+    # Re-quote path runs (mocked relay returns legitimate steps) and the
+    # tautological "deposit target changed" check must not block on forged data.
+    with pytest.raises(SwapError):
+        await _run(engine, web3, q)
+    engine.relay.get_quote.assert_awaited_once()
+    # Nothing was signed toward the attacker address.
+    for c in engine.wallet_service.sign_evm_transaction.call_args_list:
+        assert c.args[1]["to"].lower() != ("0x" + "9" * 40)
+
+
+@pytest.mark.asyncio
+async def test_wrong_signature_falls_back_to_requote():
+    engine, web3 = _engine(_relay_quote())
+    steps = _steps()
+    raw = {
+        "recipient": SENDER,
+        "slippage_bps": 50,
+        "request_id": "0xr",
+        "steps": steps,
+        "steps_sig": "00" * 32,
+    }
+    await _run(engine, web3, _quote(raw=raw))
+    engine.relay.get_quote.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_signed_fresh_steps_execute_directly_even_with_naive_timestamp():
+    from datetime import datetime
+
+    engine, web3 = _engine(_relay_quote(to_amount_min="1"))
+    steps = _steps()
+    raw = {
+        "recipient": SENDER,
+        "slippage_bps": 50,
+        "request_id": "0xok",
+        "steps": steps,
+        "steps_sig": _sig(engine, steps, "0xok"),
+    }
+    q = _quote(raw=raw)
+    q.timestamp = datetime.utcnow()  # naive, as api/routes/internal.py builds it
+    assert await _run(engine, web3, q)
+    engine.relay.get_quote.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_request_id_is_persisted_before_deposit_broadcast():
+    engine, web3 = _engine(_relay_quote())
+    order = []
+    engine._persist_relay_request_id = AsyncMock(
+        side_effect=lambda *a, **k: order.append("persist")
+    )
+    web3.eth.send_raw_transaction.side_effect = lambda raw: (
+        order.append("send"),
+        Web3.keccak(raw),
+    )[1]
+    with patch("bot.services.swap_engine.rpc_manager") as rpc:
+        rpc.get_web3.return_value = web3
+        await engine._execute_relay_swap(_quote(), {"user_id": 1, "address": SENDER}, swap_id=77)
+    # approve send, then persist, then deposit send
+    assert order == ["send", "persist", "send"]
+    engine._persist_relay_request_id.assert_awaited_once_with(77, "0xreq")

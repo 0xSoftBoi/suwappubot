@@ -64,8 +64,9 @@ class RelayStatus:
 
     request_id: str
     status: str  # PENDING, FILLED, FAILED, REFUNDED
-    tx_hashes: List[str]
+    tx_hashes: List[str]  # destination-side (fill) hashes only
     raw: Dict[str, Any]
+    in_tx_hashes: List[str] = field(default_factory=list)  # origin-side (deposit) hashes
 
 
 @dataclass
@@ -403,8 +404,16 @@ class RelayAPI:
             # Covers waiting/depositing/pending/submitted/delayed/unknown/anything new.
             status = "PENDING"
 
-        tx_hashes = data.get("txHashes") or data.get("inTxHashes") or []
-        return RelayStatus(request_id=request_id, status=status, tx_hashes=tx_hashes, raw=data)
+        # Never let an origin (deposit) hash stand in for the destination fill.
+        tx_hashes = list(data.get("txHashes") or [])
+        in_tx_hashes = list(data.get("inTxHashes") or [])
+        return RelayStatus(
+            request_id=request_id,
+            status=status,
+            tx_hashes=tx_hashes,
+            raw=data,
+            in_tx_hashes=in_tx_hashes,
+        )
 
 
 # Global instance

@@ -130,7 +130,7 @@ class TransactionPoller:
                         # mines, before the bridge has actually settled.
                         and_(
                             SwapTransaction.status == SwapStatus.CONFIRMING.value,
-                            SwapTransaction.route_provider == "0x_crosschain",
+                            SwapTransaction.route_provider.in_(["0x_crosschain", "relay"]),
                         ),
                     ),
                     SwapTransaction.created_at >= cutoff,
@@ -256,14 +256,12 @@ class TransactionPoller:
                         tx.realized_to_amount_usd = tx_dict.get("_realized_to_amount_usd")
                 if dest_tx_hash:
                     tx.destination_tx_hash = dest_tx_hash
-                if (
-                    new_status == SwapStatus.FAILED.value
-                    and tx_dict.get("error_message") == self.BRIDGE_UNSETTLED_TIMEOUT_REASON
-                ):
-                    # Set by _handle_zerox_status_unresolved / the
-                    # bridge_pending wall-clock bound: a mined origin
-                    # receipt with no bridge settlement, NOT a revert.
-                    tx.error_message = self.BRIDGE_UNSETTLED_TIMEOUT_REASON
+                if new_status == SwapStatus.FAILED.value and tx_dict.get("error_message"):
+                    # Set by a provider status check (the bridge_pending
+                    # wall-clock bound, a Relay refund/failure reason): a
+                    # mined origin receipt with no settlement, NOT a revert.
+                    # Persist it so history and support can tell them apart.
+                    tx.error_message = str(tx_dict["error_message"])[:500]
 
                 # MONEY-PATH invariant: authoritative legacy status, realized
                 # receive amount, canonical lifecycle event/fill, and outbox
@@ -357,6 +355,9 @@ class TransactionPoller:
         if tx_dict.get("route_provider") == "0x_crosschain":
             return await self._check_zerox_crosschain_status_dict(tx_dict)
 
+        if tx_dict.get("route_provider") == "relay":
+            return await self._check_relay_status_dict(tx_dict)
+
         if chain.chain_type == ChainType.EVM:
             rpc_url = rpc_manager.get_rpc_url(chain.name)
             # The "stay CONFIRMING on a mined origin receipt" refusal below
@@ -419,6 +420,75 @@ class TransactionPoller:
         except Exception as e:
             logger.error(f"Li.Fi status check error: {e}")
             return None, None
+
+    async def _check_relay_status_dict(self, tx_dict: dict) -> tuple[Optional[str], Optional[str]]:
+        """Check a Relay (relay.link) intent; return (new_status, dest_tx_hash).
+
+        The executor stores Relay's ``request_id`` in ``route_data`` after the
+        deposit is broadcast. Relay's ``GET /intents/status/v3`` is the only
+        source of truth for the destination fill: a mined origin deposit is
+        NOT completion, and Relay may refund on the origin chain instead of
+        filling. Without a request id we fall back to the origin-receipt
+        check, which keeps the row in CONFIRMING rather than falsely
+        completing it.
+        """
+        request_id = None
+        try:
+            request_id = (json.loads(tx_dict.get("route_data") or "{}") or {}).get("request_id")
+        except (TypeError, ValueError):
+            request_id = None
+
+        chain = get_chain_by_name(tx_dict["from_chain"])
+        origin_status = None
+        if chain and chain.chain_type == ChainType.EVM:
+            origin_status = await self._check_evm_tx(
+                tx_dict["tx_hash"], rpc_manager.get_rpc_url(chain.name), provider="relay"
+            )
+            if origin_status == SwapStatus.FAILED.value:
+                # Deposit reverted on origin: nothing was ever escrowed.
+                return SwapStatus.FAILED.value, None
+
+        if not request_id:
+            return origin_status, None
+
+        try:
+            from bot.services.relay_api import relay_api
+
+            status = await asyncio.wait_for(relay_api.get_status(request_id), timeout=10)
+        except Exception as e:
+            logger.error(f"Relay status check error for {request_id}: {e}")
+            return origin_status, None
+
+        if status.status == "FILLED":
+            dest_hash = status.tx_hashes[0] if status.tx_hashes else None
+            return SwapStatus.COMPLETED.value, dest_hash
+        if status.status in ("FAILED", "REFUNDED"):
+            # Relay refunds on the origin chain in the original currency, minus
+            # gas. The swap did not happen; surface why so the user message is
+            # accurate ("refunded", not "reverted").
+            reason = (status.raw or {}).get("failReason") or status.status
+            tx_dict["error_message"] = f"Relay {status.status.lower()}: {reason}"
+            return SwapStatus.FAILED.value, None
+
+        # PENDING (waiting/depositing/pending/submitted/delayed): stay in flight.
+        if origin_status == SwapStatus.SUBMITTED.value:
+            return SwapStatus.SUBMITTED.value, None
+
+        # Wall-clock ceiling: a deposit that mined but never filled or refunded
+        # must not sit in CONFIRMING forever (it would drop out of the poll
+        # window at _max_age_hours with no terminal state and no user message).
+        created = tx_dict.get("created_at")
+        if created is not None:
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - created >= self.BRIDGE_PENDING_MAX_AGE:
+                logger.warning(
+                    f"Relay intent {request_id} unresolved for over "
+                    f"{self.BRIDGE_PENDING_MAX_AGE}; marking FAILED for reconciliation"
+                )
+                tx_dict["error_message"] = self.BRIDGE_UNSETTLED_TIMEOUT_REASON
+                return SwapStatus.FAILED.value, None
+        return SwapStatus.CONFIRMING.value, None
 
     # A consecutive-poll counter is too aggressive and irreversible -- a
     # short 0x API blip could burn through it in minutes at the poller's
@@ -682,7 +752,7 @@ class TransactionPoller:
     # provider (including ones with no dedicated cross-chain status check,
     # e.g. "across") keeps the legacy behavior of completing on a mined
     # receipt, since there is no other path that will ever resolve them.
-    _PROVIDERS_WITH_DEST_FILL_CHECK = frozenset({"0x_crosschain"})
+    _PROVIDERS_WITH_DEST_FILL_CHECK = frozenset({"0x_crosschain", "relay"})
 
     async def _check_evm_tx(
         self, tx_hash: str, rpc_url: str, provider: Optional[str] = None

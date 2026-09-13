@@ -2610,7 +2610,7 @@ async def internal_execute_swap(request: Request):
         price_impact=float(qd.get("price_impact", 0)),
         exchange_rate=float(qd.get("exchange_rate", 0)),
         raw_quote=qd.get("raw_quote", {}),
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         platform_fee_bps=qd.get("platform_fee_bps") or fee_service.get_fee_bps(),
     )
 
