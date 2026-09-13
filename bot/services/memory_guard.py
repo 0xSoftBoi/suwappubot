@@ -248,6 +248,10 @@ class MemoryGuard:
         self._trim_fn = trim_fn
 
         self._task: Optional[asyncio.Task] = None
+        # Operator intent, distinct from "is the loop alive right now". A guard
+        # that was deliberately switched off must report "disabled" rather than
+        # a dead loop, or the uptime probe pages on a supported configuration.
+        self.enabled: bool = True
         self._tracing_started_by_us = False
         self._last_heartbeat = 0.0
         self._last_trim = 0.0
@@ -391,7 +395,9 @@ class MemoryGuard:
             "hard_gb": round(cfg.hard_bytes / GB, 2),
             "hard_action": cfg.hard_action,
             "tracing": tracemalloc.is_tracing(),
-            "running": self._task is not None and not self._task.done(),
+            "running": (
+                (self._task is not None and not self._task.done()) if self.enabled else "disabled"
+            ),
         }
 
 
