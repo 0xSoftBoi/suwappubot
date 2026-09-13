@@ -5,6 +5,10 @@ from functools import lru_cache
 import os
 import random
 
+# Keyless Starknet MAINNET fallback (ZAN public; verified live 2026-09-07). Module-level
+# so starknet_rpc_endpoints() can recognise the default and drop it on sepolia.
+_STARKNET_MAINNET_FALLBACK_URL = "https://api.zan.top/public/starknet-mainnet"
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -575,8 +579,11 @@ class Settings(BaseSettings):
         ),
     )
     starknet_rpc_fallback_url: str = Field(
-        default="https://api.zan.top/public/starknet-mainnet",
-        description="Starknet keyless fallback RPC (ZAN public; verified live 2026-09-07)",
+        default=_STARKNET_MAINNET_FALLBACK_URL,
+        description=(
+            "Starknet keyless fallback RPC (ZAN public mainnet; verified live 2026-09-07). "
+            "Mainnet-only default: ignored when STARKNET_CHAIN_ID=sepolia unless overridden."
+        ),
     )
     starknet_chain_id: str = Field(
         default="mainnet",
@@ -1688,7 +1695,13 @@ class Settings(BaseSettings):
                     f"{self.alchemy_api_key}",
                 )
             )
+        sepolia = str(self.starknet_chain_id).lower() == "sepolia"
         fallback = self.starknet_rpc_fallback_url
+        # The default fallback is a mainnet endpoint. On sepolia only an
+        # operator-set STARKNET_RPC_FALLBACK_URL counts; the default is dropped
+        # rather than silently pointing a testnet deployment at mainnet.
+        if sepolia and fallback == _STARKNET_MAINNET_FALLBACK_URL:
+            fallback = None
         if fallback and fallback not in (u for _, u in endpoints):
             endpoints.append(("fallback", fallback))
         # Keyless endpoint of last resort (verified live 2026-09-07). Observed in
@@ -1697,7 +1710,7 @@ class Settings(BaseSettings):
         # fallback is not enough.
         # publicnode serves mainnet only; on sepolia the operator-configured
         # fallback is the last resort, never a silent mainnet endpoint.
-        if str(self.starknet_chain_id).lower() != "sepolia":
+        if not sepolia:
             publicnode = "https://starknet.publicnode.com"
             if publicnode not in (u for _, u in endpoints):
                 endpoints.append(("publicnode", publicnode))

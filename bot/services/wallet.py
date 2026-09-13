@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 _STARKNET_COOLDOWN: dict[str, float] = {}
 _STARKNET_QUOTA_COOLDOWN_SECONDS = 120.0  # HTTP 429: the provider told us to back off
 _STARKNET_FAILURE_COOLDOWN_SECONDS = 30.0
+# A cancellation counts as "this endpoint is slow" only if the request had been
+# in flight at least this long (the balance path's per-call budget is 4 s).
+_STARKNET_SLOW_CANCEL_SECONDS = 2.0
 
 # Solana token program ids — one getTokenAccountsByOwner per program returns
 # every token account the owner has, so a portfolio fetch is 3 RPC calls
@@ -1098,6 +1101,7 @@ class WalletService:
             # while we were waiting on the previous one.
             if _STARKNET_COOLDOWN.get(label, 0.0) > time.monotonic():
                 continue
+            started = time.monotonic()
             try:
                 async with self._http_session() as session:
                     async with session.post(
@@ -1114,8 +1118,16 @@ class WalletService:
             except asyncio.CancelledError:
                 # The caller's wait_for timeout arrives here as cancellation, not
                 # as an exception: a slow endpoint must still cool down or the
-                # next token task retries it. Never swallow the cancellation.
-                _STARKNET_COOLDOWN[label] = time.monotonic() + _STARKNET_FAILURE_COOLDOWN_SECONDS
+                # next token task retries it. Only count it when the request had
+                # actually been in flight for a while — a group-wide cancel
+                # (shutdown, batch retirement) must not cool healthy endpoints —
+                # and never shorten a longer cooldown a sibling already set
+                # (e.g. the 120 s quota cooldown). Never swallow the cancellation.
+                if time.monotonic() - started >= _STARKNET_SLOW_CANCEL_SECONDS:
+                    _STARKNET_COOLDOWN[label] = max(
+                        _STARKNET_COOLDOWN.get(label, 0.0),
+                        time.monotonic() + _STARKNET_FAILURE_COOLDOWN_SECONDS,
+                    )
                 raise
             except Exception as e:
                 last_error = e
@@ -1125,7 +1137,9 @@ class WalletService:
                     if "http_429" in reason
                     else _STARKNET_FAILURE_COOLDOWN_SECONDS
                 )
-                _STARKNET_COOLDOWN[label] = time.monotonic() + cooldown
+                _STARKNET_COOLDOWN[label] = max(
+                    _STARKNET_COOLDOWN.get(label, 0.0), time.monotonic() + cooldown
+                )
                 # Log the endpoint label, never the URL: the Alchemy URL carries
                 # the API key in its path (CodeQL clear-text-logging).
                 logger.warning(
