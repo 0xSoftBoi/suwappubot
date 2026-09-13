@@ -558,10 +558,11 @@ class Settings(BaseSettings):
         default="https://api.trongrid.io", description="TRON mainnet RPC URL(s)"
     )
 
-    # Starknet RPC. Order tried by Settings.starknet_rpc_urls() (consumed by
+    # Starknet RPC. Order tried by Settings.starknet_rpc_endpoints() (consumed by
     # wallet.py, starknet/client.py, tx_poller.py): explicit starknet_rpc_url →
     # Alchemy (derived from alchemy_api_key, host follows starknet_chain_id) →
-    # starknet_rpc_fallback_url. Lava's keyless endpoint was discontinued
+    # starknet_rpc_fallback_url → starknet.publicnode.com (mainnet only, keyless
+    # last resort). Lava's keyless endpoint was discontinued
     # (HTTP 410 on every call from 2026-09; the worker logged two warnings per
     # balance call for weeks) and Blast's public endpoint is gone too — verify
     # any keyless URL with a starknet_blockNumber POST before trusting it.
@@ -1694,9 +1695,12 @@ class Settings(BaseSettings):
         # production the same day: Alchemy answered 429 on every worker call and
         # ZAN dropped the connection under the same burst, so one keyless
         # fallback is not enough.
-        publicnode = "https://starknet.publicnode.com"
-        if publicnode not in (u for _, u in endpoints):
-            endpoints.append(("publicnode", publicnode))
+        # publicnode serves mainnet only; on sepolia the operator-configured
+        # fallback is the last resort, never a silent mainnet endpoint.
+        if str(self.starknet_chain_id).lower() != "sepolia":
+            publicnode = "https://starknet.publicnode.com"
+            if publicnode not in (u for _, u in endpoints):
+                endpoints.append(("publicnode", publicnode))
         return endpoints
 
     def starknet_rpc_urls(self) -> list[str]:
