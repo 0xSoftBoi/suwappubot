@@ -110,6 +110,9 @@ class ApiClient {
       try {
         const body = await response.json()
         error.detail = body.detail || body.message || 'Request failed'
+        if (typeof body.error === 'string') {
+          error.code = body.error
+        }
       } catch {
         // Ignore JSON parse errors
       }
@@ -1521,6 +1524,13 @@ export interface StocksResponse {
   stocks: StockEntry[]
   market_open: boolean
   off_hours_warning: string | null
+}
+
+/** True when a caught query error is the US compliance geo-block (451 / REGION_RESTRICTED). */
+export function isRegionRestrictedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const err = error as Partial<ApiError>
+  return err.status === 451 || err.code === 'REGION_RESTRICTED'
 }
 
 // Export singleton instance
