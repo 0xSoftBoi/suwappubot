@@ -1,0 +1,30 @@
+[
+ {
+  "case": "native ETH 0.01 Base->Arbitrum",
+  "deposit_tx": "8fdde15f9b50c5f43e31e96e5e0a71e09e3b4f5883273e716c2b3eb8be6e36ad",
+  "status": 1,
+  "gas_used": 24812,
+  "to": "0x4cD00E387622C35bDDB9b4c962C136462338BC31",
+  "deposit_event": true,
+  "request_id": "0x1789311245e4bcb4e67742d55d3189c48c5c4ccd9efa639f15a06d77ecf8265f",
+  "event_id_matches_request": false,
+  "usdc_moved_to_depository": 0.0,
+  "elapsed_s": 0.8
+ },
+ {
+  "case": "USDC 25 Base->Arbitrum",
+  "deposit_tx": "d3afdeb8d6961d4d08d029acd004f30dee6a72ad9db1e6b2648c124aa541fb7f",
+  "status": 1,
+  "gas_used": 53774,
+  "to": "0x4cD00E387622C35bDDB9b4c962C136462338BC31",
+  "deposit_event": true,
+  "request_id": "0x17893112468fb23bedf9f95292418f88e0132dada24d1932026193b46891dd46",
+  "event_id_matches_request": false,
+  "usdc_moved_to_depository": 25.0,
+  "elapsed_s": 0.3
+ },
+ {
+  "residual_allowance": 0,
+  "wallet": "0xad5c715dbeA84d0455114A6Dc8A647fb6a6a83f3"
+ }
+]

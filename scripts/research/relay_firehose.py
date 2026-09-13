@@ -3,6 +3,8 @@ import json, sys, time, urllib.request, collections, statistics, os, gzip
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 2000
 OUT = "/home/user/suwappubot/docs/research/relay/"
+REPORT = sys.argv[2] if len(sys.argv) > 2 else "06-firehose-intel.md"
+SAMPLE = sys.argv[3] if len(sys.argv) > 3 else "probe/firehose-sample.jsonl.gz"
 API = "https://api.relay.link/requests/v2?limit=50"
 CHAINS = {c["id"]: c["name"] for c in json.load(open(os.path.join(OUT, "probe/chains-slim.json")))}
 
@@ -28,7 +30,7 @@ while len(rows) < N:
             "referrer": q.get("referrer") or "", "origin": dep.get("chainId") or (intx[0] or {}).get("chainId"),
             "dest": (outtx[0] or {}).get("chainId") or (cout.get("currency") or {}).get("chainId"),
             "in_sym": (cin.get("currency") or {}).get("symbol"), "out_sym": (cout.get("currency") or {}).get("symbol"),
-            "usd": float(cin.get("amountUsd") or 0), "time_est": (q.get("data") or {}).get("timeEstimate"),
+            "usd": (lambda v: v if v < 5e7 else 0.0)(float(cin.get("amountUsd") or 0)),  # drop mispriced rows (seen: $79T on one row) "time_est": (q.get("data") or {}).get("timeEstimate"),
             "app_bps": sum(float(a.get("bps") or 0) for a in ((q.get("data") or {}).get("appFees") or [])),
             "app_fee_usd": sum(float(a.get("amountUsd") or 0) for a in ((q.get("data") or {}).get("appFees") or [])),
             "solver": ((q.get("protocol") or {}).get("solver") or {}).get("address"),
@@ -40,7 +42,7 @@ while len(rows) < N:
     time.sleep(0.4)
 
 rows = rows[:N]
-with gzip.open(os.path.join(OUT, "probe/firehose-sample.jsonl.gz"), "wt") as f:
+with gzip.open(os.path.join(OUT, SAMPLE), "wt") as f:
     for r in rows: f.write(json.dumps(r) + "\n")
 
 def name(cid): return CHAINS.get(cid, str(cid))
@@ -138,5 +140,5 @@ By USD notional:
 |---|---|---|
 {top(solver, 10)}
 """
-open(os.path.join(OUT, "06-firehose-intel.md"), "w").write(md)
+open(os.path.join(OUT, REPORT), "w").write(md)
 print(md[:3000])

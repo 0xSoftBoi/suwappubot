@@ -1,6 +1,6 @@
 # Relay (relay.link) competitive study — executive summary
 
-Dates: 2026-09-07 to 2026-09-08. Method: live probes of `api.relay.link`, a full crawl of the 139 docs pages, a 40,000-request sample of their public request feed, on-chain reads of their Base contracts, their npm SDK and widget inspected and rendered locally, the status-page incident feed, and primary-source press. Marketing numbers are labelled as Relay's own. Every number below has a file behind it in this folder.
+Dates: 2026-09-07 to 2026-09-13. Method: live probes of `api.relay.link`, a full crawl of the 139 docs pages, a 40,000-request sample of their public request feed, on-chain reads of their Base contracts, their npm SDK and widget inspected and rendered locally, the status-page incident feed, and primary-source press. Marketing numbers are labelled as Relay's own. Every number below has a file behind it in this folder.
 
 ## What Relay is
 A solver-filled, intent-based cross-chain execution layer built by Reservoir Tools, Inc. (Peter Watts CEO, Jason Maier COO, Julien Genestoux VP Eng; ~$43M raised, Series B $17M in Feb 2026 from Archetype and USV). An app posts a quote; the user deposits into a `RelayDepository` contract on the origin chain; one solver wallet pays out on the destination chain within a second or two; Relay's own settlement chain (Sovereign SDK on Celestia DA) credits the solver after an oracle attests the fill and an MPC allocator signs the withdrawal. They sell to wallets, marketplaces and trading bots, not to end users. Public claims: $20B+ volume, 100M+ transactions, 85+ chains, "#1 transaction source on Base".
@@ -9,14 +9,15 @@ A solver-filled, intent-based cross-chain execution layer built by Reservoir Too
 | Fact | Value | File |
 |---|---|---|
 | Live chains | 61 (52 EVM + Solana, Bitcoin, TON, Tron, XRP, HyperLiquid, Lighter, Eclipse) | 04 |
-| Fee, stable-to-stable at $50K–$1M | 0.0095% (~1 bp); published schedule: bridge 0%, stable 0.01%, major 0.06%, minor 0.15%, plus $0.02 flat | 04, 15 |
+| Fee, stable-to-stable at $50K–$1M | 0.0095% (~1 bp); published schedule: bridge 0%, stable 0.01%, major 0.06%, minor 0.15%, plus $0.02 flat; long-tail L2/L3 exits 1–5% per their support center | 04, 15, 19 |
+| Head-to-head vs Across, same second | within 0.2 bps on liquid stable corridors; Across cheaper at $25 (3.8 vs 10.2 bps), Relay cheaper at size and on ETH (1.0 vs 2.6 bps on 1 ETH); Li.Fi keyless 25 bps | 17 |
 | Fill time | quoted 1–6 s; observed median 1 s, p90 2 s | 04, 06 |
-| API-level throughput | ~1,400 requests/min, ~$760K/min → ~2M requests and ~$1.1B/day extrapolated | 06 |
+| API-level throughput | 09-08: ~1,400 req/min, ~$760K/min (~$1.1B/day); 09-13: ~850 req/min, ~$220K/min (~$320M/day) | 06, 06b |
 | Externally indexed bridge volume | $79M/day (DefiLlama) | 14 |
 | Median ticket | $36 (p90 $800, p99 $9K) | 06 |
-| Success / refund | 93.1% / 6.8% in the 40K sample; Solana same-chain 99% refunded in that window | 06 |
+| Success / refund | 09-08: 93.1% / 6.8%, Solana same-chain 99% refunded; 09-13: 97.8% / 2.0%, Solana same-chain still 86% refunded | 06, 06b |
 | Solvers | 2 addresses; one EOA fills 97.7%, holding ~$3.7M USDC + ~300 ETH on Base | 06, 10 |
-| Integrator concentration | fomo 77% of requests, 65% of notional; Solana↔BSC and Solana↔Robinhood are 81% of routes | 06 |
+| Integrator concentration | fomo 77% of requests on 09-08, 64% on 09-13; the hot corridor rotated from Solana↔BSC (`4Stock`) to Solana↔Robinhood (`YOINK`, `CHINAPAD`) in five days | 06, 06b |
 | Dominant token | `4Stock`, an unverified BSC token: 22.6% of all requests | 06 |
 | Integrator app fees | 78% of requests carry one, modal 45–50 bps; ~$3.3M/day across integrators at run rate | 06 |
 | Incidents | 25 in 20 days, mostly upstream RPC/chain degradation; "API 100% uptime" banner regardless | 13 |
@@ -26,7 +27,7 @@ A solver-filled, intent-based cross-chain execution layer built by Reservoir Too
 | Revenue share | needs KYB and $10M+/month through Relay; 0–34% then 0–67% of their fee | 15 |
 
 ## Where they beat us
-1. Price: ~1 bp at size against Across's ~4 bp.
+1. Price at size and on ETH, by a hair. On liquid stable corridors Relay and Across are within 0.2 bps of each other (measured same-second, file 17); Across wins small tickets. Racing both is the right answer, and the engine now does that.
 2. Reach: every chain we support plus Solana, Bitcoin, TON, Tron, XRP, HyperLiquid, with Solana as a first-class origin.
 3. Integrator levers we lack: gasless execution (EIP-7702 via Uniswap Calibur), fee sponsorship with partial `subsidizationBps`, gas top-up, deposit addresses, cross-chain contract calls, HMAC-signed webhooks, self-serve key dashboard.
 4. Distribution: Phantom, MetaMask, OKX, Rainbow, OpenSea, Coinbase, Li.Fi, Rango, Bungee, plus the depository's verified-domain list (Oku, Superbridge, KyberSwap, ShapeShift, Highlight, RocketX).
@@ -42,7 +43,7 @@ A solver-filled, intent-based cross-chain execution layer built by Reservoir Too
 7. The depository contract carries a Blockscout "scam" reputation flag (automated, likely from drainer flows) that users may see in explorers; `execute` can move any balance the allocator signs for.
 
 ## What we built (this branch)
-- **Relay as provider `relay` in the swap engine** (`bot/services/relay_api.py`, wired in `swap_engine.py` and `router.py`; settings `RELAY_ENABLED`, `RELAY_API_KEY`, `RELAY_APP_FEE_RECIPIENT`, `RELAY_APP_FEE_BPS`). Races Across, Li.Fi, Socket and the rest on every EVM-origin cross-chain quote, executes approve → deposit, attaches our app fee in USDC. Hardened after an adversarial money-path review: fail-closed min-out, step validation against the approved quote (chain, token, approve amount, native value, deposit target), approve-receipt check, no receipt wait on the deposit, gas buffer and balance check, keyless rate limit. 46 tests pass; live quotes verified; execution not yet run with a funded wallet.
+- **Relay as provider `relay` in the swap engine** (`bot/services/relay_api.py`, wired in `swap_engine.py`, `router.py`, and `tx_poller.py`; settings `RELAY_ENABLED`, `RELAY_API_KEY`, `RELAY_APP_FEE_RECIPIENT`, `RELAY_APP_FEE_BPS`). Races Across, Li.Fi, Socket and the rest on every EVM-origin cross-chain quote, executes the approved quote's own approve → deposit steps while fresh (re-quote with a strict guard only on expiry), attaches our app fee in USDC, and completes only when Relay reports the destination fill (refunds surface as failures with the reason). Hardened after two adversarial money-path reviews. **Executed end to end on an anvil fork of Base** with a wallet from our own wallet service: native ETH and USDC approve+deposit both accepted by the real RelayDepository, 25 USDC escrowed, zero residual allowance (file 18). That run also caught a defect the unit tests could not (a strict re-quote guard that would have rejected most real executions) and it is fixed. 57 tests pass.
 - **Market intel tooling**: `scripts/research/relay_firehose.py` (works until November), on-chain depository event monitoring plan (10), and a local render harness for their widget (16).
 
 ## Recommended moves, in order
@@ -74,6 +75,10 @@ A solver-filled, intent-based cross-chain execution layer built by Reservoir Too
 | `14-primary-sources.md` | Verbatim quotes with URLs; corrections to earlier claims |
 | `15-product-ux.md` | End-user flow, fee display, widget props, onramp, support, sentiment |
 | `16-widget-render.md` | Their SwapWidget rendered locally; design language; what to copy |
+| `17-price-benchmark.md` | Same-second quotes: Relay vs Across vs Li.Fi vs deBridge on 8 route/size pairs |
+| `18-fork-execution.md` | Our executor run end to end on a Base fork against the real depository; the defect it caught |
+| `19-support-center-digest.md` | All 35 help-center articles digested: hidden fees, stuck-funds flow, onramp, copy to borrow |
+| `06b-firehose-day2.md` | Second 20K sample five days later; what rotated and what did not |
 | `docs-crawl/` | Text of all 139 docs pages |
-| `probe/` | Raw JSON: chains, quotes, incidents, 40K-request sample (gzip) |
+| `probe/` | Raw JSON: chains, quotes, incidents, both firehose samples (gzip), fork execution receipts |
 | `screenshots/` | Docs, status page, and widget captures with extracted text |
