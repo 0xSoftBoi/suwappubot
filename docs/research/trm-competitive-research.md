@@ -186,6 +186,27 @@ TRM says the world needs prevention-to-disruption feedback. We can be a feed.
 
 Owners: founder, `growth-marketing` for the partner deck.
 
+### 4.2b Cost versus impact: cheapest moves first
+
+Everything below was verified against the code or tested live on 2026-09-12. Costs are engineering days for one person; cash cost is zero unless stated.
+
+| # | Move | Cost | Impact | Evidence |
+|---|---|---|---|---|
+| 1 | Set `COMPLIANCE_MODE=monitor` on prod python-api on Railway | 0 days, one env var | Turns on shadow screening for swaps, withdrawals, P2P escrow, paste/snipe/intel address gate across EVM, TRON, Solana, Starknet, BTC | Variable is absent from the prod service today (Railway `python-api` production variables). Gate code: `compliance_service.py:399`, callers in `swap_engine.py:4266`, `hot_wallet.py:104`, `address_gate.py:69` |
+| 2 | Flip to `enforce` after one clean week of logs | 0 days | First Telegram bot with a real pre-sign sanctions block. This is the marketing claim | Same as above |
+| 3 | Nightly OFAC SDN refresh into `COMPLIANCE_OFAC_LIST_PATH` from Treasury's free SDN feed | 0.5 day | Replaces a 15-address static seed with the full list | `ofac_list.py:46` seed has 15 addresses, docstring admits no refresh job |
+| 4 | Second-source the list through TRM's **free** Sanctions Screening API | 0.5 day | TRM-grade sanctions data at $0. Live-tested: no API key needed, one address per request, 100 req/day. 14 of our 15 seed addresses confirmed; TRM returns `isSanctioned: false` for `0x8281aa67…` so our seed needs review | `POST https://api.trmlabs.com/public/v1/sanctions/screening` with `[{"address": "…"}]`, HTTP 201 |
+| 5 | Screen `bulk_pay` and CCTP bridge legs | 1 day | Closes the two admitted unscreened money surfaces | `compliance_service.py:35-42` TODO |
+| 6 | Write blocks and USER_REPORT blacklist entries as structured events | 1 day | Raw material for Chainabuse submissions and the partner pitch | `blacklist_service.py:40` |
+| 7 | Auto-submit confirmed hits to Chainabuse | 1 to 2 days | Free distribution to TRM's 600 customers | Pending API research |
+| 8 | Read `trustScore` and `quarantinedUntil` at the MCP and REST execute points, not on auth | 2 days | Turns the record-only trust table into KYA gating without the DB round-trip the auth path deliberately avoids | `auth.ts:182-188`, `AgentTrustService.ts:39-44` |
+| 9 | Expose `/v1/agent/screen` behind the existing x402 meter | 3 to 5 days | The self-serve tier TRM does not sell. Revenue, not just cost | `api-ts/src/routes/agent.ts`, `docs/plans/agent-leading-edge-roadmap.md` |
+| 10 | Merge the pump.fun ingest pipeline off its feature branch and score at swap time | 5+ days | Rug prediction at execution, unique among bots | `origin/feat/pump-onchain-ingest:ingest/pump_research_pipeline_v2.py` writes `pump_live_signals_v2`, `pump_research_outcomes_v2` |
+
+Moves 1 through 4 cost about one engineering day in total and no cash. They deliver the whole "every swap screened before signing" claim. Do them before anything else in this document.
+
+What costs money and should wait: TRM paid Wallet Screening (~$200k/yr enterprise floor), Blockaid or Hypernative contracts, any ML tier on the hot path. Free tools already in use stay free: GoPlus, Honeypot.is, RugCheck (`api/routes/terminal.py:979`).
+
 ### 4.3 What not to do
 
 - **Don't build forensics, graph tools or attribution.** Ten years of data and a government sales team stand behind TRM and Chainalysis. Sub-scale entrants (Crystal, Scorechain, Coinfirm) show the outcome.
