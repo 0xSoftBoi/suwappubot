@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, List, Optional, Set
@@ -305,6 +306,12 @@ class AddressComplianceService:
         self._allowlist: Set[str] = set()
         self._ofac: Set[str] = set()
         self._list_degraded: bool = False
+        # Guards mutation of the live blocklist/ofac sets so a concurrent
+        # SdnFeed.refresh() (extend_blocklist) can never interleave with a
+        # reload() and hand screen_address() a half-updated set. Reads (e.g.
+        # `addr in self._blocklist`) don't need the lock — under the GIL, a
+        # reference to a complete set is always swapped in atomically here.
+        self._lock = threading.Lock()
         self.reload()
 
     # --- configuration -------------------------------------------------
@@ -318,7 +325,8 @@ class AddressComplianceService:
         self._list_degraded = ofac_list.degraded
 
         operator_block = _parse_csv_addresses(getattr(settings, "compliance_blocklist", ""))
-        self._blocklist = self._ofac | operator_block
+        with self._lock:
+            self._blocklist = self._ofac | operator_block
         self._allowlist = _parse_csv_addresses(getattr(settings, "compliance_allowlist", ""))
 
         logger.info(
@@ -330,6 +338,32 @@ class AddressComplianceService:
             len(self._allowlist),
             self._list_degraded,
         )
+
+    def extend_blocklist(self, addresses: Iterable[str], source: str = "ofac") -> int:
+        """Merge additional pre-normalized addresses into the live blocklist.
+
+        Used by ``SdnFeed`` to layer the live OFAC SDN feed on top of the
+        seed/file/operator lists without a full ``reload()`` (which would
+        otherwise stomp the feed's addresses on the next settings reload).
+        Thread-safe: builds a new set and atomically swaps it in, so a
+        concurrent ``screen_address()`` call never observes a
+        partially-updated blocklist.
+
+        ``source="ofac"`` (the default, matching the feed's provenance) also
+        merges into ``self._ofac`` so verdicts on these addresses report
+        ``source="ofac"`` / "OFAC-sanctioned address" rather than the
+        generic operator-blocklist reason.
+
+        Returns the number of addresses newly added to the blocklist.
+        """
+        new_addrs = {a for a in addresses if a}
+        with self._lock:
+            merged = self._blocklist | new_addrs
+            added = len(merged) - len(self._blocklist)
+            self._blocklist = merged
+            if source == "ofac":
+                self._ofac = self._ofac | new_addrs
+        return added
 
     @property
     def mode(self) -> ComplianceMode:
@@ -537,6 +571,80 @@ class AddressComplianceService:
         result = self.screen(**kwargs)
         if not result.allowed:
             raise ComplianceError(result.reason, result)
+        return result
+
+    async def screen_recipient_remote(
+        self, address: Optional[str], chain: Optional[str] = None
+    ) -> ComplianceResult:
+        """Consult the live TRM Labs sanctions API for a *recipient* address,
+        on top of whatever the local-list :meth:`screen` already decided.
+
+        Deliberately **async** and separate from :meth:`screen` (which stays
+        fully synchronous): the TRM lookup is a real network call, and
+        ``screen``/``screen_address`` must never become blocking I/O for
+        their many existing sync callers. Callers that run inside async code
+        (``SwapEngine.execute_swap``, the withdrawal path in
+        ``hot_wallet.py``) call this *in addition to* ``screen()``, guarded
+        by ``compliance_trm_enabled``.
+
+        Recipient-only by design — per-swap router/token addresses never
+        consume the TRM daily request budget (see
+        ``TrmSanctionsClient``). No-op (``allowed=True``, no verdicts) when
+        disabled, when the mode is ``DISABLED``, or when ``address`` isn't a
+        recognized family. A ``True`` result from TRM is a violation with
+        ``source="trm_sanctions"``; ``None``/``False`` leaves the result
+        clean (fail-open — the local blocklist screen already ran).
+        """
+        mode = self.mode
+        policy = self.policy
+        result = ComplianceResult(allowed=True, mode=mode, policy=policy)
+
+        if mode is ComplianceMode.DISABLED:
+            return result
+        if not getattr(settings, "compliance_trm_enabled", False):
+            return result
+        if not _is_recognized_address_family(address):
+            return result
+
+        addr = _normalize_address(address)
+
+        try:
+            from bot.services.compliance.trm_sanctions import trm_sanctions_client
+
+            sanctioned = await trm_sanctions_client.is_sanctioned(addr)
+        except Exception as exc:  # fail-open: a TRM outage must never block a swap
+            logger.warning(
+                "TRM sanctions screening errored for recipient (chain=%s): %s", chain, exc
+            )
+            return result
+
+        if not sanctioned:
+            return result
+
+        verdict = AddressVerdict(
+            addr,
+            allowed=False,
+            source="trm_sanctions",
+            reason="trm_sanctions",
+            role="recipient",
+        )
+        result.verdicts.append(verdict)
+        result.blocked.append(verdict)
+        if mode is ComplianceMode.ENFORCE:
+            result.allowed = False
+            logger.warning(
+                "Compliance BLOCK (chain=%s): TRM flagged recipient %s as sanctioned",
+                chain,
+                _short(addr),
+            )
+        else:  # MONITOR
+            result.allowed = True
+            logger.warning(
+                "Compliance MONITOR (would block, chain=%s): TRM flagged recipient %s as "
+                "sanctioned",
+                chain,
+                _short(addr),
+            )
         return result
 
     # --- introspection -------------------------------------------------

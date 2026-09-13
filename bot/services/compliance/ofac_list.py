@@ -55,6 +55,9 @@ _SEED_OFAC_ADDRESSES: tuple[str, ...] = (
     "0xfd8610d20aa15b7b2e3be39b396a1bc3516c7144",  # Tornado.Cash
     "0x07687e702b410fa43f4cb4af7fa097918ffd2730",  # Tornado.Cash
     "0x23773e65ed146a459791799d01336db287f25334",  # Tornado.Cash
+    # TRM's public sanctions API returned isSanctioned=false for this address on
+    # 2026-09-12 while confirming all 14 others in this seed list — re-verify
+    # against the live SDN feed (sdn_feed.py) before relying on it in ENFORCE.
     "0x8281aa6795ade17c8973e1aedca380b7c8e7c1a6",  # Tornado.Cash
     "0x178169b423a011fff22b9e3f3abea13414ddd0f1",  # Tornado.Cash
     "0x610b717796ad172b316836ac95a2ffad065ceab4",  # Tornado.Cash

@@ -18,6 +18,8 @@ from bot.services.compliance.flashbots_relay import (
     RelayResult,
     flashbots_relay,
 )
+from bot.services.compliance.sdn_feed import SdnFeed, run_sdn_feed_loop, sdn_feed
+from bot.services.compliance.trm_sanctions import TrmSanctionsClient, trm_sanctions_client
 
 __all__ = [
     "AddressComplianceService",
@@ -30,4 +32,9 @@ __all__ = [
     "FlashbotsRelay",
     "RelayResult",
     "flashbots_relay",
+    "SdnFeed",
+    "run_sdn_feed_loop",
+    "sdn_feed",
+    "TrmSanctionsClient",
+    "trm_sanctions_client",
 ]

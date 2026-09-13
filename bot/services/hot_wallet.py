@@ -126,6 +126,33 @@ def _assert_recipient_compliant(
         raise ComplianceBlockedError(result.reason or "Recipient failed compliance screening.")
 
 
+async def _assert_recipient_compliant_remote(to_address: str, chain_name: str) -> None:
+    """Live TRM Labs sanctions lookup, layered on top of the local-list check
+    ``_assert_recipient_compliant`` already ran.
+
+    Kept as a separate ``async`` step rather than folded into
+    ``_assert_recipient_compliant``: the TRM call is a real network request
+    (``httpx.AsyncClient``), and that function's existing sync callers/tests
+    must not turn into blocking I/O. ``send_native_token``/``send_token`` are
+    already ``async``, so they call this right after the sync check.
+
+    No-op unless ``COMPLIANCE_TRM_ENABLED``. Mode semantics match the local
+    check: MONITOR logs and allows, ENFORCE raises ``ComplianceBlockedError``
+    on a sanctioned hit. Fails open on any screener error — that is handled
+    inside ``AddressComplianceService.screen_recipient_remote`` itself, so
+    nothing here needs its own try/except for the network call.
+    """
+    if not getattr(settings, "compliance_trm_enabled", False):
+        return
+    from bot.services.compliance import compliance_service
+
+    if not compliance_service.enabled:
+        return
+    result = await compliance_service.screen_recipient_remote(to_address, chain=chain_name)
+    if not result.allowed:
+        raise ComplianceBlockedError(result.reason or "Recipient failed TRM sanctions screening.")
+
+
 class PostBroadcastAmbiguous(RuntimeError):
     """Raised when the actual node broadcast call (send_raw_transaction /
     send_transaction) itself failed or threw AFTER the transaction may
@@ -1500,6 +1527,7 @@ class HotWalletService:
         """
         _assert_withdrawals_enabled()
         _assert_recipient_compliant(to_address, chain_name)
+        await _assert_recipient_compliant_remote(to_address, chain_name)
         if wallet.chain_type == "solana":
             return await self._send_sol_native(
                 wallet, to_address, amount, claimed_tx_id=claimed_tx_id
@@ -1760,6 +1788,7 @@ class HotWalletService:
         """
         _assert_withdrawals_enabled()
         _assert_recipient_compliant(to_address, chain_name, token_address)
+        await _assert_recipient_compliant_remote(to_address, chain_name)
         if wallet.chain_type == "solana":
             return await self._send_spl_token(
                 wallet, token_address, to_address, amount, decimals, claimed_tx_id=claimed_tx_id

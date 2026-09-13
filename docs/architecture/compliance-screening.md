@@ -72,6 +72,17 @@ behaviour is unchanged until explicitly enabled.
 | `COMPLIANCE_ALLOWLIST` | CSV of `0x…` addresses | `""` | Pre-approved addresses (allowlist policies only) |
 | `COMPLIANCE_OFAC_LIST_PATH` | file path | `""` | Newline-delimited sanctions file merged with the seed |
 
+Live sanctions feeds (both off by default; layer on top of the static seed/file/CSV lists above):
+
+| Setting | Values | Default | Meaning |
+|---|---|---|---|
+| `COMPLIANCE_SDN_FEED_ENABLED` | bool | `false` | Background loop refreshes the OFAC SDN digital-currency address feed and merges it into the blocklist |
+| `COMPLIANCE_SDN_FEED_INTERVAL_HOURS` | int | `24` | Hours between SDN feed refreshes |
+| `COMPLIANCE_SDN_FEED_BASE_URL` | URL template (`{ticker}`) | 0xB10C's `ofac-sanctioned-digital-currency-addresses` repo | Swap in a mirror if needed |
+| `COMPLIANCE_TRM_ENABLED` | bool | `false` | Consult TRM Labs' free public Sanctions Screening API for RECIPIENT addresses only, after the local list check |
+| `COMPLIANCE_TRM_DAILY_BUDGET` | int | `90` | Max TRM requests per UTC day (published limit is 100/day) |
+| `COMPLIANCE_TRM_BASE_URL` | URL | `https://api.trmlabs.com/public/v1/sanctions/screening` | TRM public screening endpoint |
+
 Compliant-routing flags (stage 2):
 
 | Setting | Values | Default | Meaning |
@@ -102,6 +113,19 @@ Compliant-routing flags (stage 2):
 - `bot/services/compliance/flashbots_relay.py` — `FlashbotsRelay` (global
   `flashbots_relay`), `eth_sendPrivateTransaction` submission + signed
   `X-Flashbots-Signature` auth, with `RelayResult`.
+- `bot/services/compliance/sdn_feed.py` — `SdnFeed` (global `sdn_feed`):
+  fetches the OFAC SDN digital-currency address lists (ETH/TRX/XBT/SOL) and
+  merges them into `AddressComplianceService`'s live blocklist via
+  `extend_blocklist`. `run_sdn_feed_loop()` refreshes on a timer; started in
+  `api/main.py`'s lifespan when `COMPLIANCE_SDN_FEED_ENABLED`. Off by
+  default; fail-open per list.
+- `bot/services/compliance/trm_sanctions.py` — `TrmSanctionsClient` (global
+  `trm_sanctions_client`): async, budget- and cache-limited lookups against
+  TRM Labs' free public Sanctions Screening API. Wired in via
+  `AddressComplianceService.screen_recipient_remote`, called from
+  `SwapEngine.execute_swap` and `hot_wallet.py`'s withdrawal recipient check
+  right after the existing local-list `screen()` call, recipient-role only.
+  Off by default (`COMPLIANCE_TRM_ENABLED`); fail-open on any error.
 - `bot/services/swap_engine.py` —
   - the **gate**, in `execute_swap`, after the spending-limit check and before
     balance validation. Screens the swap's `recipient`, `router`, and token
@@ -136,5 +160,10 @@ execute_swap()
   relays beyond Ethereum mainnet.
 - **Node-level enforcement:** run/configure a Nethermind node with custom
   tx-pool rules for true EL-level compliance over all orderflow.
-- **Live sanctions feed:** scheduled refresh of the OFAC SDN crypto list, or a
-  Chainalysis/TRM screening adapter behind `AddressComplianceService`.
+- **Live sanctions feed:** implemented — see `sdn_feed.py` (OFAC SDN
+  digital-currency feed) and `trm_sanctions.py` (TRM Labs free screening
+  API), both off by default. Still open: neither covers `bulk_pay` or CCTP
+  bridge legs (see `compliance_service.py` module docstring), and the TRM
+  free tier's 100 req/day budget means it only ever covers a slice of
+  recipients in practice — a paid tier or Chainalysis adapter would be
+  needed for full coverage.

@@ -339,6 +339,7 @@ async def lifespan(app: FastAPI):
     # 5. Start Background Services (only if database is available AND enabled)
     admin_ids = getattr(settings, "admin_ids", [])
     enable_background_services = getattr(settings, "enable_background_services", True)
+    sdn_feed_task: Optional[asyncio.Task] = None
 
     if not enable_background_services:
         logger.info("⏭️ Background services DISABLED via ENABLE_BACKGROUND_SERVICES=false")
@@ -486,6 +487,14 @@ async def lifespan(app: FastAPI):
 
             await morpho_monitor.start(bot=bot_app.bot if bot_initialized else None)
 
+        # Live OFAC SDN digital-currency feed refresh loop (no-op unless
+        # compliance_sdn_feed_enabled). Merges into compliance_service's
+        # blocklist on a timer; see docs/architecture/compliance-screening.md.
+        if getattr(settings, "compliance_sdn_feed_enabled", False):
+            from bot.services.compliance import run_sdn_feed_loop
+
+            sdn_feed_task = asyncio.create_task(run_sdn_feed_loop())
+
         # Start Discord alert service if Discord bot is available
         if discord_bot:
             with _track_degraded("discord_alerts", "⚠️ Discord alerts failed to start"):
@@ -595,6 +604,10 @@ async def lifespan(app: FastAPI):
 
     # Stop auth challenge cleanup
     auth_cleanup_task.cancel()
+
+    # Stop SDN feed refresh loop (no-op if compliance_sdn_feed_enabled was off)
+    if sdn_feed_task is not None:
+        sdn_feed_task.cancel()
 
     # Stop RPC manager
     await rpc_manager.stop()

@@ -727,6 +727,57 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Live OFAC SDN digital-currency feed (compliance_service's static seed/
+    # file list otherwise never refreshes). OFF by default. See
+    # bot/services/compliance/sdn_feed.py and
+    # docs/architecture/compliance-screening.md.
+    compliance_sdn_feed_enabled: bool = Field(
+        default=False,
+        description=(
+            "Periodically refresh the live OFAC SDN digital-currency address "
+            "feed (community extraction) and merge it into the compliance "
+            "blocklist. OFF by default."
+        ),
+    )
+    compliance_sdn_feed_interval_hours: int = Field(
+        default=24,
+        description="Hours between OFAC SDN feed refreshes (only used when the feed is enabled).",
+    )
+    compliance_sdn_feed_base_url: str = Field(
+        default=(
+            "https://raw.githubusercontent.com/0xB10C/"
+            "ofac-sanctioned-digital-currency-addresses/lists/"
+            "sanctioned_addresses_{ticker}.txt"
+        ),
+        description=(
+            "Base URL template (must contain '{ticker}') for the OFAC SDN "
+            "digital-currency address feed; swap in a mirror if needed."
+        ),
+    )
+
+    # TRM Labs free public Sanctions Screening API — recipient-only live
+    # lookup layered on top of the local blocklist. OFF by default. See
+    # bot/services/compliance/trm_sanctions.py.
+    compliance_trm_enabled: bool = Field(
+        default=False,
+        description=(
+            "Consult TRM Labs' free public Sanctions Screening API for "
+            "withdrawal/swap RECIPIENT addresses, in addition to the local "
+            "blocklist. Budget-limited. OFF by default."
+        ),
+    )
+    compliance_trm_daily_budget: int = Field(
+        default=90,
+        description=(
+            "Max TRM sanctions-screening requests per UTC day (published "
+            "limit is 100/day; default leaves headroom)."
+        ),
+    )
+    compliance_trm_base_url: str = Field(
+        default="https://api.trmlabs.com/public/v1/sanctions/screening",
+        description="TRM Labs public Sanctions Screening API endpoint.",
+    )
+
     # Morpho Blue on Base (cbBTC-collateralized USDC borrowing + USDC earn vaults)
     morpho_enabled: bool = Field(
         default=True,
