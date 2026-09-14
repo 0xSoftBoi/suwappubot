@@ -34,6 +34,10 @@ export function fmtDuration(seconds: number | null | undefined): string {
   return seconds < 90 ? `${Math.round(seconds)}s` : `~${Math.round(seconds / 60)} min`;
 }
 
+/** What a route leg does, in one word: a Li.Fi 'cross' step is a relay. */
+export const hopVerb = (type: string): string =>
+  type === 'cross' ? 'relay' : type === 'swap' ? 'swap' : type;
+
 /** 'base → arbitrum' when a hop crosses chains, else the chain itself. */
 export const hopChainLabel = (
   fromChain: string | null | undefined,

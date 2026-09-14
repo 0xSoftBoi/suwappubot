@@ -555,7 +555,7 @@ export async function registerDeskTools(
     {
       name: 'propose_plan',
       description:
-        'Propose a SEQUENCE of steps as one reviewable unit: for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is "@prev" sells the full estimated output of the previous swap step, with fromToken and fromChain defaulting to where that leg lands; the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.',
+        'Propose a SEQUENCE of steps as one reviewable unit: for example a cross-chain swap, then an alert on what it bought. The human approves the plan once instead of clicking through every step. Each step is priced and checked against the mandate individually, and the card shows the combined notional. A cross-chain trade is ONE swap step, not a bridge step plus a buy step: the route is already a single multi-hop quote, priced together and signed as one handoff. Prefer this over several propose_swap calls whenever the steps only make sense together.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -571,23 +571,11 @@ export async function registerDeskTools(
               type: 'object',
               properties: {
                 kind: { type: 'string', enum: ['swap', 'alert'] },
-                fromChain: {
-                  type: 'string',
-                  description:
-                    'swap: source chain key. For a chained step ("@prev") it defaults to the chain the previous swap step lands on.',
-                },
+                fromChain: { type: 'string', description: 'swap: source chain key.' },
                 toChain: { type: 'string', description: 'swap: destination chain key.' },
-                fromToken: {
-                  type: 'string',
-                  description:
-                    'swap: token sold. For a chained step ("@prev") it defaults to the previous swap step\'s output token, and must match it if given.',
-                },
+                fromToken: { type: 'string', description: 'swap: token sold.' },
                 toToken: { type: 'string', description: 'swap: token bought.' },
-                amount: {
-                  type: 'string',
-                  description:
-                    'swap: amount of fromToken, or "@prev" to sell the full estimated output of the previous swap step (a chained multi-hop leg).',
-                },
+                amount: { type: 'string', description: 'swap: amount of fromToken.' },
                 slippagePercent: { type: 'number', description: 'swap: max slippage percent.' },
                 symbol: { type: 'string', description: 'alert: token symbol to watch.' },
                 direction: { type: 'string', enum: ['above', 'below'], description: 'alert: side.' },

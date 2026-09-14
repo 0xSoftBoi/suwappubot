@@ -9,7 +9,7 @@ export const PROOF_STATS = {
   // scripts/webmcp-smoke.mjs (`bun run webmcp:smoke`) — installs a
   // spec-shaped document.modelContext polyfill and drives the real page
   // through it end to end.
-  smokeAssertions: 98,
+  smokeAssertions: 92,
   // scripts/webmcp-spec-check.mjs (`bun run webmcp:spec`) — checked against
   // Google's own reference WebMCP polyfill, not this page's idea of the spec.
   specChecks: 11,
