@@ -160,13 +160,16 @@ async def lifespan(app: FastAPI):
     # Memory guard first, before anything that can allocate: it is the only
     # thing standing between a runaway loop and a 30 GB bill (see
     # bot/services/memory_guard.py). Independent of DB/Redis availability.
-    if settings.memory_guard_enabled:
+    memory_guard.enabled = bool(settings.memory_guard_enabled)
+    if memory_guard.enabled:
         try:
             memory_guard.config = GuardConfig.from_settings()
             await memory_guard.start()
         except Exception as e:
             logger.warning(f"Memory guard failed to start (non-fatal): {e}")
             _mark_degraded("memory_guard", e)
+    else:
+        logger.warning("Memory guard disabled by MEMORY_GUARD_ENABLED — RSS is unbounded")
 
     # 0. Error tracking (no-op unless SENTRY_DSN is set; never raises)
     from bot.services.sentry_service import init_sentry
