@@ -1,8 +1,8 @@
 # HyperLiquid on Suwappu
 
-Suwappu brings the full HyperLiquid ecosystem into Telegram — perpetuals,
-spot, staking, vaults, TWAP orders, and one-click cross-chain funding — without
-ever leaving the chat or pasting an address.
+Suwappu brings the full HyperLiquid ecosystem into Telegram. Perpetuals, spot,
+staking, vaults, TWAP orders, and one-click cross-chain funding all run without
+leaving the chat or pasting an address.
 
 Everything below reuses a single HyperLiquid account. Set it up once with
 **/perps → Setup**; every other command (`/fund`, `/stake`, `/vault`, `/spot`,
@@ -29,17 +29,17 @@ Trade perpetual futures with up to **20x** leverage.
 
 1. Run `/perps` and tap **Setup** the first time to connect your HyperLiquid
    account.
-2. Pick a market (BTC, ETH, SOL, and the rest of HyperLiquid's listings).
+2. Pick a market: BTC, ETH, SOL, or any other HyperLiquid listing.
 3. Choose **Long** or **Short**.
-4. Pick leverage — 1x, 2x, 3x, 5x, 10x, 15x, or 20x.
+4. Pick leverage: 1x, 2x, 3x, 5x, 10x, 15x, or 20x.
 5. Enter your USD margin. The bot shows your resulting position size and an
    estimated liquidation price, then you confirm.
 6. Add a **take-profit** and/or **stop-loss** price to any open position.
 7. Watch live P&L and **close** the position in one tap.
 
-A small HyperLiquid **builder-code fee** is attached to orders (approved once,
-automatically). If the approval can't be set, orders still go out — just
-without the builder fee.
+A small HyperLiquid **builder-code fee** is attached to orders. The approval is
+set once, automatically. If it can't be set, orders still go out without the
+builder fee.
 
 > **Risk note:** Leveraged perps can be liquidated. At higher leverage a small
 > adverse price move wipes out your margin. Start small, use stop-losses, and
@@ -56,8 +56,8 @@ There are two deposit paths:
 ### USDC (any chain) — via Across / CCTP
 
 USDC is bridged from **Arbitrum, Base, Optimism, Polygon, or Ethereum** and
-credited as USDC spot. Pick a chain, pick an amount, review the quote (bridge
-fee + ETA), and confirm — the deposit is signed with your custodial EVM wallet.
+credited as USDC spot. Pick a chain, pick an amount, review the quote with its
+bridge fee and ETA, and confirm. The deposit is signed with your custodial EVM wallet.
 If native CCTP is enabled, you'll also see a **USDC via CCTP** option that
 bridges native USDC and completes the credit through Suwappu's relayer.
 
@@ -97,15 +97,15 @@ window of minutes, with randomization, to reduce market impact.
 ```
 
 That buys 0.05 BTC of long exposure spread over 30 minutes. TWAPs are
-persisted and monitored — run `/twap` any time for a live progress dashboard
-(fill %, size filled, ETA) with a one-tap **Cancel**, and you're notified when
+persisted and monitored. Run `/twap` any time for a live progress dashboard
+showing fill %, size filled, and ETA, with a one-tap **Cancel**. You're notified when
 one completes.
 
 ## Staking — `/stake` and `/unstake`
 
 `/stake` opens your HYPE staking dashboard: amounts delegated, your staking
 balance, pending withdrawals, your current delegations, and a list of the
-**top validators ranked by APR** (APR and commission shown on each button).
+**top validators ranked by APR**. Each button shows APR and commission.
 
 - Tap a validator, then reply with the amount of HYPE to delegate. If your
   staking balance is short, it's topped up from spot automatically.
@@ -140,7 +140,7 @@ orders:
 ```
 
 `/hlmove <amount> <perp|spot>` instantly moves USDC between your spot and perp
-wallets — `perp` to fund perps trading, `spot` to pull margin back out:
+wallets. Use `perp` to fund perps trading and `spot` to pull margin back out:
 
 ```
 /hlmove 100 perp

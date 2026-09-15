@@ -8,7 +8,8 @@
 
 <p align="center">
   <b>The execution layer for onchain apps and agents.</b><br>
-  Route across chains, simulate before money moves, and choose self-custody or managed execution from the same platform.
+  Send an intent and inspect the route it selects before anything moves. Approve execution, or take the unsigned transaction and sign it yourself.<br>
+  Self-custody stops at that unsigned transaction. Managed execution moves funds through a separate, explicit path. See <a href="docs/product-status.md">Product Status</a>.
 </p>
 
 <div align="center">

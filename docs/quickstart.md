@@ -64,7 +64,7 @@ runtime rather than embedding a count in your application.
 ```
 
 Discover tools/resources/prompts at runtime. For an AI system, begin with an
-application-owned allowlist of Levels 0–2.
+application-owned allowlist of Levels 0 to 2.
 
 **Authority note:** MCP `execute_swap` is Level 3: it prepares an unsigned self-custody
 transaction. Managed execution is a separate Level 4 REST/managed-SDK capability. A2A

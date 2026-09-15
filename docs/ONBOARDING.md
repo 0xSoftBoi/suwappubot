@@ -4,9 +4,9 @@ Get from clone to a running component and a green verification pass. For what
 the system *is*, read `docs/architecture/OVERVIEW.md`; for why things are the
 way they are, read `docs/DECISIONS.md`.
 
-**This doc is tested by every new contributor** (the Etsy day-one loop): follow
-it verbatim, and when a step is wrong or missing, your first PR is the fix to
-this file. If you finished setup without correcting anything, say so — that's
+**This doc is tested by every new contributor.** Follow it verbatim. When a step
+is wrong or missing, your first PR is the fix to this file. If you finished setup
+without correcting anything, say so. That's
 the doc passing its test.
 
 ## First 30 minutes
@@ -39,7 +39,7 @@ Tooling rule: **use `bun`, never bare `tsc`/`npm`/`npx` in TS components**
 
 ## What CI will hold you to
 
-`.github/workflows/test.yml` runs on every PR — the blocking jobs:
+`.github/workflows/test.yml` runs on every PR. The blocking jobs:
 
 - **Python**: `black --check --line-length=100 bot/ api/ tests/`, flake8,
   pytest with a 20% coverage floor, env-schema drift check. Run black locally
@@ -51,7 +51,7 @@ Tooling rule: **use `bun`, never bare `tsc`/`npm`/`npx` in TS components**
   findings fail the build (exceptions: `docs/security/dependency-exceptions.md`).
 
 Caveat every contributor learns eventually: **CI green does not prove the bot
-boots** — the test job never imports `bot/main.py`'s startup chain. After a
+boots.** The test job never imports `bot/main.py`'s startup chain. After a
 deploy, run `python3 scripts/status.py`.
 
 ## The scripts/ toolbox

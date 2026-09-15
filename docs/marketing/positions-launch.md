@@ -22,79 +22,115 @@ minus the flat Positions perk, floored at 0.1% (`bot/services/fee_service.py:44-
 Two contracts deliberately: a transferable collectible and a non-transferable
 account attribute are different trust models and should not share one.
 
-## 2. Mint page copy — Positions
+## 2. Mint page copy
 
-> **Pick a ticker. Your entry price is stamped on-chain forever.**
-> 10,000 position cards across the 35 tokenized equities with a live Chainlink
-> feed on Robinhood Chain. The card renders your live return against the price the
-> oracle read the moment you minted.
+**Pick a ticker. Your entry price is stamped on-chain forever.**
 
-**Three reasons to mint**
+> Your entry price is stamped once, at mint, and never moves again.
 
-1. **Your entry is yours, permanently.** No reveal, no random ticker, no rarity
-   roll — you choose the name, and the price stamps once, immutably, at mint.
-2. **A discount you can check yourself, not a decorative trait.** Every holder
-   gets 40% off their Suwappu swap fee.
-3. **First-come by name, not by luck.** Each ticker has its own cap — popular
-   names run out first. Scarcity is who got there, not what you rolled.
+Suwappu Positions renders a return against the price an oracle read the moment
+you minted. It is a display, never a claim on the underlying equity.
 
-**The perk, with the arithmetic**
+| Fact | Value | Source |
+|---|---|---|
+| Supply | 10,000 position cards | `MAX_SUPPLY`, `contracts/SuwappuPositions.sol` |
+| Priced tickers | 35 tokenized equities with a live Chainlink feed | `TICKER_COUNT` |
+| Chain | Robinhood Chain | n/a |
 
-> Holding a Position takes **40% off your swap fee**, per wallet — stacking cards
-> does not stack the discount.
-> The FREE-tier fee is 100 bps, so a holder pays 60 bps. On a $1,000 swap that is
-> 1,000 × 0.0040 = **$4.00 saved**. On $10,000: **$40.00**.
-> It is proportional rather than flat so it never collapses the paid tiers into each
-> other: PRO 50 → 30 bps, PREMIUM 30 → 18 bps, ENTERPRISE 10 → 6 bps. It never
-> zeroes your fee.
-> Your breakeven: (mint price in dollars) ÷ 4 × 1,000 = the swap volume that pays
-> the mint back.
+### Three reasons to mint
 
-**Why mint now — structural, not a clock**
+1. **Your entry is permanent.** There is no reveal and no random ticker. You
+   choose the name, and the price stamps once, at mint.
+2. **The discount is checkable.** Every holder gets a fixed cut off the Suwappu
+   swap fee, not a decorative trait. The arithmetic is below.
+3. **Scarcity is by name, not by luck.** Each ticker has its own cap. Popular
+   names sell out first, so scarcity reflects who got there, not a random roll.
 
-> Your entry price is read once, at the transaction that mints your card, and
-> never moves again. There is no "wait for a better time": in a rising market,
-> waiting is a worse entry, permanently, by construction.
+### The perk, with the arithmetic
+
+Holding a Position lowers a wallet's swap fee by a fixed proportion, per wallet.
+Stacking cards does not stack the discount. It scales the existing rate instead
+of subtracting a flat amount, so it never collapses one paid tier into another
+and it never reaches zero.
+
+| Tier | Base fee | Holder fee | Reduction |
+|---|---|---|---|
+| Free | 100 bps | 60 bps | 40% |
+| Pro | 50 bps | 30 bps | 40% |
+| Premium | 30 bps | 18 bps | 40% |
+| Enterprise | 10 bps | 6 bps | 40% |
+
+| Swap volume | Free-tier savings |
+|---|---|
+| $1,000 | $4.00 |
+| $10,000 | $40.00 |
+
+Breakeven volume is the mint price in dollars, divided by 4, times 1,000. That
+volume in swaps repays the mint cost.
+
+### Why mint now
+
+The reason to mint now is structural, not a countdown.
+
+Your entry price is read once, at the transaction that mints your card, and
+never moves again. In a rising market, waiting produces a worse entry,
+permanently, by construction.
+
+### What this does not do
+
+A Position confers no shareholder or voting right and pays nothing to the
+holder. It carries no economic exposure to the referenced equity or its issuer.
+Grade tracks a displayed return. It never implies the card or its ticker will
+appreciate.
 
 ## 3. Allowlist copy
 
-> **Founder and Allowlist spots are earned from what you already did on Suwappu,
-> not from what you tweet.**
->
-> **Founder** — free mint, 3 per wallet: gold/platinum/diamond XP level, or
-> $50,000+ lifetime swap volume, or 5+ **verified** referrals.
-> **Allowlist** — 2 per wallet: 5+ swaps, or $1,000+ lifetime volume, or 1+
-> verified referral.
-> **Public** — open to anyone once the earlier phases close.
->
-> If a phase is locked for you, that is a snapshot, not a lockout. The bot reads
-> the same thresholds the mint enforces — `/cards` tells you which number you are
-> short and by how much.
+**Founder and Allowlist access is earned from product use, not from a tweet.**
 
-Safe to ship because `allowlist_status()` (`bot/services/position_cards_service.py`)
-and `classify()` (`nft/position-cards/build_allowlist.py`) use identical
-thresholds and both count **verified** referrals only. Never write "invite N
-friends" — an unverified invite does not count.
+Founder is a free mint. Allowlist and Public are not.
+
+| Phase | Wallet cap | Earned by (any one) |
+|---|---:|---|
+| Founder | 3 | Gold, platinum, or diamond XP level |
+| | | $50,000+ lifetime swap volume |
+| | | 5+ verified referrals |
+| Allowlist | 2 | 5+ swaps |
+| | | $1,000+ lifetime volume |
+| | | 1+ verified referral |
+| Public | n/a | Open once earlier phases close |
+
+A locked phase is a snapshot, not a lockout. The bot reads the same thresholds
+the mint enforces. `/cards` reports the number a wallet is short and by how much.
+
+`allowlist_status()` (`bot/services/position_cards_service.py`) and `classify()`
+(`nft/position-cards/build_allowlist.py`) use identical thresholds. Both count
+verified referrals only. Copy must never say "invite N friends" because an
+unverified invite does not count.
 
 ## 4. Membership copy
 
-> **Suwappu Membership is your tier, on-chain.**
->
-> Claim it free — one soulbound token per wallet, no expiry, no gas. Not a
-> subscription *token*; your subscription made legible, read directly by the bot
-> to know what you pay.
->
-> **Pro** ($9.99), **Premium** ($29.99) and **Enterprise** ($99.99) hold for 30
-> days per period, paid in USDG, bought with one signature — no approval
-> transaction, no gas, because the payment carries the authorization.
->
-> **Why gasless matters here:** a membership that costs gas to claim contradicts
-> what it is for. Making the free tier cost ETH would mean the free tier is not free.
->
-> **What a holder gets:** the swap rate that tier already pays — Free 1.0%, Pro
-> 0.5%, Premium 0.3%, Enterprise 0.1% — resolved the same way whether you
-> subscribed in Telegram or paid on-chain. It transfers to nobody and cannot be
-> resold: an account attribute, not an asset.
+**Suwappu Membership is your tier, on-chain.**
+
+Claiming it is free. One soulbound token per wallet, with no expiry and no gas
+cost. It is not a subscription token. It is the subscription itself, read
+directly by the bot to resolve what a wallet pays.
+
+Paid tiers hold for 30 days per period, paid in USDG with one signature. There
+is no approval transaction and no gas, because the payment carries the
+authorization.
+
+| Tier | Price per 30 days | Swap rate |
+|---|---|---|
+| Free | Free | 1.0% |
+| Pro | $9.99 | 0.5% |
+| Premium | $29.99 | 0.3% |
+| Enterprise | $99.99 | 0.1% |
+
+A membership that cost gas to claim would contradict the free tier. The rate
+resolves the same way whether a wallet subscribed in Telegram or paid on-chain.
+
+A Membership token transfers to nobody and cannot be resold. It is an account
+attribute, not an asset.
 
 ## 5. Launch sequence
 

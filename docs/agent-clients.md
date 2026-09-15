@@ -41,7 +41,7 @@ Authenticated clients send:
 Authorization: Bearer $SUWAPPU_API_KEY
 ```
 
-Source `0.6.0` supports modern MCP `2026-07-28` plus the existing `2024-11-05`, `2025-03-26`, and `2025-06-18` legacy path. Prefer the modern stateless revision: each request carries `params._meta.io.modelcontextprotocol/protocolVersion` and `clientCapabilities`, with matching `MCP-Protocol-Version` / `Mcp-Method` HTTP headers (`Mcp-Name` is also required for tool, resource, and prompt calls that name a target). Modern clients probe with `server/discover`; they do **not** initialize a session.
+Source `0.6.0` supports modern MCP `2026-07-28` plus the existing `2024-11-05`, `2025-03-26`, and `2025-06-18` legacy path. Prefer the modern stateless revision: each request carries `params._meta.io.modelcontextprotocol/protocolVersion` and `clientCapabilities`, with matching `MCP-Protocol-Version` / `Mcp-Method` HTTP headers. Tool, resource, and prompt calls that name a target also require `Mcp-Name`. Modern clients probe with `server/discover`; they do **not** initialize a session.
 
 Legacy clients can continue to negotiate with `initialize` and `notifications/initialized`; the legacy handshake's newest supported revision remains `2025-06-18`. If you are writing a production client instead of configuring an MCP host, prefer the official MCP SDK's dual-era negotiation rather than maintaining the wire protocol yourself.
 
@@ -55,7 +55,7 @@ openclaw mcp add suwappu --url https://api.suwappu.bot/mcp \
   --header "Authorization=Bearer $SUWAPPU_API_KEY" --exclude execute_swap
 ```
 
-Cursor — `~/.cursor/mcp.json`:
+Cursor, in `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -70,7 +70,7 @@ Cursor — `~/.cursor/mcp.json`:
 }
 ```
 
-VS Code — `.vscode/mcp.json`:
+VS Code, in `.vscode/mcp.json`:
 
 ```json
 {
@@ -86,7 +86,7 @@ VS Code — `.vscode/mcp.json`:
 }
 ```
 
-Cline — `cline_mcp_settings.json`:
+Cline, in `cline_mcp_settings.json`:
 
 ```json
 {
@@ -142,7 +142,7 @@ Everything else should be treated as authenticated unless discovery says otherwi
 
 ### MCP result handling
 
-A robust client should:
+A production client should:
 
 1. Check the JSON-RPC envelope for `error`.
 2. On `2026-07-28`, require/handle `resultType`; `complete` is final and `input_required` would require a multi-round-trip retry. Suwappu's current handlers complete in one round trip.
