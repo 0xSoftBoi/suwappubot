@@ -61,6 +61,10 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "  Update the doc alongside the rename/removal that stranded it."
     exit 1
   fi
+  echo "=== Writing standard (advisory, docs/WRITING.md) ==="
+  python3 scripts/copy_lint.py --summary \
+    docs/WRITING.md docs/README.md docs/quickstart.md docs/research docs/marketing \
+    README.md showcase/src/content/research.ts showcase/messages/en.json || true
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then

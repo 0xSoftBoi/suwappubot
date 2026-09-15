@@ -28,6 +28,9 @@ fork the convention.
   canonical docs (`docs/README.md` tree, ADRs, per-directory instruction files) in the
   same PR — the `docs` lane of `scripts/verify.sh` catches stranded path references,
   but only you can catch stranded *meaning*.
+- **Prose follows `docs/WRITING.md`.** Docs, research posts, marketing strings, README
+  and bot copy all use the same sentence-level standard; `python3 scripts/copy_lint.py
+  <path>` checks the mechanical rules before you push.
 - Imperative, conventional-style summaries (`feat(bot): …`, `fix(api-ts): …`).
 - Before any push/merge, run the pre-flight checklist in `CLAUDE.md` (build artifacts,
   locks, worktree, divergence, uncommitted work).

@@ -97,7 +97,10 @@ Powered by Li\.Fi, Jupiter & LayerZero
 HELP_MESSAGE = r"""
 🌸 *suwappu help*
 
-💡 *Fastest way to trade:* just *paste a token contract address* \(no command\) — I'll show a safety check \+ Buy buttons\. Or use /start for your live home screen\.
+💡 *Fastest way to trade:*
+Paste a token contract address, no command needed\.
+I'll show a safety check and Buy buttons\.
+Use /start for your live home screen\.
 
 ━━ 💱 *TRADE* ━━
 • /s \- Swap any token \(7\+ chains\)
@@ -135,7 +138,7 @@ HELP_MESSAGE = r"""
 • /xp \- Points   • /checkin \- Daily   • /lb \- Leaderboard
 • /rewards \- Redeem points
 
-_Tip: tap_ *📂 More\.\.\.* _on /start to see everything as buttons\._
+_Tap_ *📂 More\.\.\.* _on /start to see everything as buttons\._
 
 *Fees:* 0\.8% per swap • gas sponsored in custodial mode
 """

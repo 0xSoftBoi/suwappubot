@@ -199,3 +199,13 @@ ADRs 0001–0005.
   cairosvg/librsvg (marketplace indexers) drop the filter — the whole
   collection rasterized as black rectangles until the art-director pass
   caught it. Always rasterize through cairosvg before shipping card art.
+
+### Prose surfaces follow one writing standard, linted
+- **What**: Every prose surface (docs, research posts, showcase copy, README,
+  bot strings) follows `docs/WRITING.md`: short declarative sentences, claim
+  then limit in two sentences, no em-dashes or parentheticals as glue, numbers
+  out of prose, one pull quote per long piece, a limits section in body text.
+  `scripts/copy_lint.py` enforces the mechanical rules, advisory, in the docs
+  verify lane. Evidence: `docs/design/reference-breakdown-kamino-letter.md`.
+- **Why**: our research openings ran 35 to 50 word sentences with stacked
+  hedges, and a skimmer could not find the one sentence to remember.
