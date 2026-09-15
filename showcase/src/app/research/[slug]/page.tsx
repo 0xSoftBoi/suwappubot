@@ -191,6 +191,13 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
           )}
         </header>
 
+        {post.pullQuote && (
+          <blockquote className="research-post__pull">
+            <p>{post.pullQuote}</p>
+            <cite>Suwappu Research</cite>
+          </blockquote>
+        )}
+
         <DocsReader html={html} title={post.title} />
 
         <a className="research-post__back" href="/research">← All research</a>

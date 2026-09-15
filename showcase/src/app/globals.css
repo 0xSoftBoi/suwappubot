@@ -5669,6 +5669,40 @@ button:focus:not(:focus-visible) {
 }
 .research-post__evidence dd { margin: 0; color: #345069; font-size: 0.78rem; line-height: 1.45; }
 .research-post__evidence .research-post__evidence-status { color: var(--summer-ink); font-weight: 800; }
+/* Pull quote: the post's thesis, restated so it survives being read alone
+   (docs/WRITING.md §6). One per post, full width, between header and body. */
+.research-post__pull {
+  margin: 28px 0 8px;
+  padding: 26px 28px;
+  border: 1px solid var(--summer-line);
+  border-left: 3px solid var(--sw-accent);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.research-post__pull p {
+  margin: 0;
+  color: var(--summer-ink);
+  font-family: var(--font-serif);
+  font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.research-post__pull cite {
+  display: block;
+  margin-top: 12px;
+  color: var(--summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+@media (max-width: 640px) {
+  .research-post__pull { padding: 20px 16px; }
+}
 .research-post__back { display: inline-block; margin-top: 2rem; color: var(--sw-accent); font-weight: 700; text-decoration: none; }
 
 /* Changelog (marketing) */

@@ -64,6 +64,11 @@ export type ResearchPost = {
     basis: string;
     boundary: string;
   };
+  /**
+   * One sentence, under 30 words, no numbers. The thesis restated so it
+   * survives being read alone. See docs/WRITING.md §6.
+   */
+  pullQuote?: string;
   body?: string;
 };
 
@@ -71,9 +76,9 @@ const TEMPO_BODY = `# The fee payer as a treasury control surface: sponsored exe
 
 *Engineering control note. Revised and source-verified on 8 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
 
-Viewed from a wallet, fee sponsorship looks like UX. Viewed from a bank, it is **delegated expense authority**: the account that authorizes movement of the asset can be different from the account that accepts the network-fee liability. That is the more interesting primitive.
+Fee sponsorship looks like a UX feature from a wallet. From a bank, it is **delegated expense authority**. The account that authorizes an asset transfer can differ from the account that accepts the network-fee liability. That separation is the more interesting primitive.
 
-The separation creates the possibility of a centrally governed network-fee account for customers, applications, or autonomous agents without giving that sponsor authority over the underlying payment instruction. It can turn a fragmented requirement to keep every transacting account funded for fees into a service-level treasury function. But it only becomes institutionally useful if the sponsor budget is reserved, reconciled to realized receipts, and governed as carefully as any other operating cash account.
+The separation lets a bank centralize the network-fee account for customers, applications, or autonomous agents without giving the sponsor authority over the underlying payment instruction. Today, every transacting account must stay funded for fees on its own. Sponsorship can turn that fragmented requirement into one service-level treasury function. It only becomes useful if the budget is reserved, reconciled to realized receipts, and governed like any other operating cash account.
 
 "Gasless" is therefore the wrong frame. The fee still exists. Sponsorship changes **who is charged, who is authorized to incur the charge, and where the operating cost is controlled**.
 
@@ -160,16 +165,16 @@ The implementation claims are source observations from current Suwappu main: the
 
 The code supports the mechanism and the protocol supports the primitive. The source snapshot does **not** prove that the feature is enabled for users today: \`tempo_fee_sponsor_enabled\` defaults to false, and this review inspected no production flag, sponsor balance, or receipt sample. For that reason the correct status is **implementation verified; production enablement unverified**.
 
-That is also the reason we no longer use "gasless" as the headline claim. For an institutional audience, the economically relevant statement is narrower and more useful: **Tempo can separate transaction authority from network-fee liability; Suwappu has implemented that path with persisted policy limits, but the current spend control still needs atomic reservation and actual-fee reconciliation before it should be treated as a hard treasury budget.**
+That is also the reason we no longer use "gasless" as the headline claim. For an institutional audience, the economically relevant statement is narrower and more useful. **Tempo can separate transaction authority from network-fee liability. Suwappu has implemented that path with persisted policy limits. The current spend control still needs atomic reservation and actual-fee reconciliation before it should be treated as a hard treasury budget.**
 `;
 
 const ROUTING_BODY = `# A router is an execution policy: price, evidence quality, and the TCA gap
 
-*Engineering control note. Revised and verified against current main on 8 August 2026. This describes Suwappu's decision function; it does not claim regulatory "best execution" or prove superior realized execution.*
+*Engineering control note. Revised and verified against current main on 8 August 2026. This describes Suwappu's decision function. It does not claim regulatory "best execution" or prove superior realized execution.*
 
 An aggregator is a list of connectivity. A router is a **policy for making a financial decision under time pressure and imperfect evidence**. That distinction is the institutional story.
 
-The important questions are not how many logos appear on a page. They are: **what population is eligible for this order, what objective chooses the winner, which inputs are trusted enough to enter that objective, which risks are constraints rather than prices, and what evidence exists after execution?** Current source gives a materially different answer from the previous version of this note.
+The important questions are not how many logos appear on a page. They are which population is eligible for this order, which objective chooses the winner, and which inputs are trusted enough to enter that objective. They are also which risks are constraints rather than prices, and what evidence exists after execution. Current source gives a materially different answer from the previous version of this note.
 
 ## "Best" changes with the seat making the decision
 
@@ -266,20 +271,22 @@ The boundary is equally important: this review did not replay production orders,
 
 ## Control conclusion
 
-The current ranking logic is stronger than the version this article previously described: it conditionally internalizes trusted gas and can trade up to 10bp of value for a greater-than-2x improvement in trusted cross-chain time. Its principal limitation is no longer "gas is ignored." It is **evidence heterogeneity** — the decision falls back when cost or price inputs cannot be trusted, and the system has not yet published a realized-execution benchmark proving the economic effect of those choices.
+The current ranking logic is stronger than the version this article previously described. It conditionally internalizes trusted gas and can trade up to 10bp of value for a greater-than-2x improvement in trusted cross-chain time. Its principal limitation is no longer "gas is ignored." It is **evidence heterogeneity**.
+
+The decision falls back when cost or price inputs cannot be trusted. The system has not yet published a realized-execution benchmark proving the economic effect of those choices.
 
 For a banking audience, that is the appropriate claim boundary: **source-verified execution policy, not certified best execution; evidence-conditioned decision logic, not a universal objective; quote-level counterfactuals, not yet realized TCA; venue-specific protections, not universal coverage.**
 `;
 
 const LATENCY_BODY = `# What is a minute of cross-chain execution worth? Pricing latency without confusing ETA for finality
 
-*Quantitative policy-calibration paper. Dated 8 August 2026. The repository routing rule is source-verified at a pinned commit, the financing scenario is reproducible and independently checked with Wolfram, and production runtime behavior plus the realized value of speed remain unmeasured.*
+*Quantitative policy-calibration paper. Dated 8 August 2026. The repository routing rule is source-verified at a pinned commit, and the financing scenario is reproducible and independently checked with Wolfram. Production runtime behavior and the realized value of speed remain unmeasured.*
 
-At the repository snapshot used for this paper, Suwappu's cross-chain router implementation can spend **up to 10 basis points of winner score** to take a sufficiently faster route. That is an intelligible control: the value winner can lose only when both timing inputs carry the implementation's trusted-time flag, the alternative's ETA is less than half the winner's, and the score concession remains inside a hard ceiling. Source state establishes the decision rule; it does not establish how often that branch fires in production.
+At the repository snapshot used for this paper, Suwappu's cross-chain router implementation can spend **up to 10 basis points of winner score** to take a sufficiently faster route. The value winner loses only when both timing inputs carry the trusted-time flag, the alternative's ETA is under half the winner's, and the score concession stays inside a hard ceiling. Source state establishes the decision rule. It does not establish how often that branch fires in production.
 
 But what is 10bp actually paying for?
 
-One tempting answer is the time value of money. The arithmetic rejects that explanation at minute horizons. Using the latest SOFR observation available when this paper was written — **3.65% for 6 August 2026** — and the New York Fed's ACT/360 money-market convention, **10bp equals 9.863 days of simple financing carry**.
+One tempting answer is the time value of money. The arithmetic rejects that explanation at minute horizons. The latest SOFR observation when this paper was written was **3.65% for 6 August 2026**. Under the New York Fed's ACT/360 money-market convention, **10bp equals 9.863 days of simple financing carry**.
 
 Five minutes of that carry is only **0.003520bp**. The pinned 10bp ceiling is **2,840.55×** larger.
 
@@ -407,7 +414,7 @@ const USDT0_BODY = `# USDT0 backing reconciliation: separating protocol coverage
 
 ## Executive conclusion
 
-- **Measured result.** At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held **3,453,608,822.61 USDT** against **3,452,579,539.64 USDT0** across the complete documented direct-supply perimeter: **1.000298x** token-unit coverage and an arithmetic difference of **1,029,282.97 units, about three basis points**.
+- **Measured result.** At 01:53 UTC on 1 August 2026, the verified Ethereum lockbox held **3,453,608,822.61 USDT** against **3,452,579,539.64 USDT0** across the complete documented direct-supply perimeter. That is **1.000298x** token-unit coverage, an arithmetic difference of **1,029,282.97 units, about three basis points**.
 - **Interpretation.** The documented protocol perimeter reconciles to par within measurement tolerance. Three basis points is not treated as an economic reserve cushion.
 - **Assurance boundary.** The study tests **USDT0 → USDT** backing. It does not test Tether's underlying reserve assets, a holder's legal claim, USDT redemption capacity, stressed convertibility, market liquidity, or prudential treatment.
 - **Bank-control conclusion.** Public state is useful as a repeatable first-line reconciliation. It is not sufficient evidence, on its own, for a treasury, credit, liquidity, settlement-finality, or counterparty-risk decision.
@@ -546,11 +553,11 @@ const POINTS_BODY = `# Incentive budgets as market design: what survives after t
 
 *Institutional research note. Revised 8 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
 
-The bank-relevant way to read a points program is not as token marketing. It is a **budget-allocation mechanism**: a sponsor defines a reward pool, a rule turns customer or participant behavior into claims on that pool, and the rule determines who receives the subsidy, what behavior is encouraged, and how much of the economic cost returns to the sponsor versus leaves the system.
+The bank-relevant way to read a points program is not as token marketing. It is a **budget-allocation mechanism**. A sponsor defines a reward pool, and a rule turns participant behavior into claims on it. That rule decides who receives the subsidy, what behavior it rewards, and how much of the economic cost returns to the sponsor rather than leaving the system.
 
-The first version of this paper made a strong descriptive claim: model a pro-rata points pool as a linear-cost Tullock contest and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. Against the matched-program model envelope's roughly 14.3% lower edge, the predicted top share is **19.6× the HYPE observation and 6.0× the EIGEN observation**; participation misses by far more.
+The first version of this paper made a strong descriptive claim. Model a pro-rata points pool as a linear-cost Tullock contest, and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. Against the matched-program model envelope's roughly 14.3% lower edge, the predicted top share is **19.6× the HYPE observation and 6.0× the EIGEN observation**, and participation misses by far more.
 
-That failure changes the paper's decision use. The model remains useful as a **conditional benchmark**; it is not an empirical forecast of program-wide wallet allocation.
+That failure changes the paper's decision use. The model remains useful as a **conditional benchmark**. It is not an empirical forecast of program-wide wallet allocation.
 
 ## Four ways a financial institution would read the same reward rule
 
@@ -676,9 +683,9 @@ const AIRDROP_BODY = `# When a mathematically correct model is wrong: an allocat
 
 *Institutional empirical note. Revised 8 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
 
-The most useful result in this paper is not an airdrop statistic. It is a model-governance failure caught in public: **the solver passed its internal checks, the theory generated a sharp prediction, and the prediction failed when it met outcome data.** The implementation was right; the descriptive use was wrong.
+The most useful result in this paper is not an airdrop statistic. It is a model-governance failure caught in public. **The solver passed its internal checks. The theory generated a sharp prediction. The prediction failed when it met outcome data.** The implementation was right, but the descriptive use was wrong.
 
-That distinction is familiar to bank model-risk teams. The US banking agencies' [revised 2026 model-risk guidance](https://www.federalreserve.gov/frrs/guidance/supervisory-guidance-on-model-risk-management.htm) separates development and use from validation and monitoring, including outcomes analysis, and from governance and controls; it also notes that a fundamentally sound model can still create high model risk when misapplied or misused. We use that structure as a reading frame rather than asserting regulatory applicability to this paper.
+That distinction is familiar to bank model-risk teams. The US banking agencies' [revised 2026 model-risk guidance](https://www.federalreserve.gov/frrs/guidance/supervisory-guidance-on-model-risk-management.htm) separates development and use from validation and monitoring, including outcomes analysis, and from governance and controls. It also notes that a fundamentally sound model can still create high model risk when misapplied or misused. We use that structure as a reading frame rather than asserting regulatory applicability to this paper.
 
 The prior theory paper predicted that a heterogeneous linear-cost Tullock contest would produce a very small active set and a top recipient holding 17.1–40.8% of the pool in the original 5,000-entrant simulations. Recomputing at the observed HYPE and EIGEN wallet counts moves the primary-program top-share envelope to roughly 14.3–37.0%. We tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector, with ENA Season 1 as a lower-resolution cross-check.
 
@@ -879,7 +886,8 @@ export const researchPosts: ResearchPost[] = [
     date: '2026-08-07',
     category: 'Tokenized assets',
     kind: 'research',
-    excerpt: 'Robinhood Stock Tokens expose a strange RWA edge: raw ERC-20 balance can stay fixed while share-equivalent units jump 10x. We audited nine open-source crypto codebases for canonical ERC-8056 markers and found none — an integration signal, not proof of broken wallets.',
+    pullQuote: 'A balance that never changes can still be worth ten times as many shares. The interface decides what a wallet sees.',
+    excerpt: 'Robinhood Stock Tokens can change how many shares a token represents without changing the raw ERC-20 balance. A search of the open-source crypto codebases we audited found no canonical ERC-8056 markers. That is an integration signal, not proof that any wallet is broken.',
     readMins: 9,
     status: 'published',
     paperPath: '/research/replication/papers/erc8056-stock-token-interface-risk.md',
@@ -902,7 +910,8 @@ export const researchPosts: ResearchPost[] = [
     updated: '2026-08-06',
     category: 'Reserve risk',
     kind: 'research',
-    excerpt: 'The documented USDT0 perimeter reconciles to 1.000298x against observed USDT backing at head. That is a protocol-accounting result — not evidence about Tether\'s underlying reserves, redemption capacity, or legal availability.',
+    pullQuote: 'Protocol coverage and issuer risk are different questions. A clean reconciliation answers only the first.',
+    excerpt: 'The documented USDT0 perimeter reconciles to slightly above par against observed USDT backing at head. That is a protocol-accounting result. It says nothing about Tether\'s underlying reserves, redemption capacity, or legal availability.',
     readMins: 13,
     status: 'published',
     evidence: {
@@ -942,7 +951,8 @@ export const researchPosts: ResearchPost[] = [
     date: '2026-08-08',
     category: 'Execution governance',
     kind: 'research',
-    excerpt: 'At 3.65% SOFR, a 10bp speed concession equals 9.86 days of simple ACT/360 carry—not minutes. The paper turns that gap into a falsifiable calibration framework for cross-chain execution, while keeping provider ETA separate from settlement finality.',
+    pullQuote: 'A provider\'s ETA says when the tokens might arrive. Finality says when they are yours. Price the second one.',
+    excerpt: 'A cross-chain routing policy pays a speed concession measured in days of financing carry, not minutes. The paper turns that mismatch into a falsifiable calibration framework, and keeps provider ETA separate from settlement finality.',
     readMins: 12,
     status: 'published',
     evidence: {
@@ -976,7 +986,8 @@ export const researchPosts: ResearchPost[] = [
     updated: '2026-08-08',
     category: 'Model risk',
     kind: 'research',
-    excerpt: 'Treat the reward pool as a budget-allocation mechanism. The active-set forecast failed; what remains is narrower but useful: a conditional view of cost capture, identity-splitting incentives, and why solver verification is not model validation.',
+    pullQuote: 'A reward pool is a budget. The question is what behavior it buys, and from whom.',
+    excerpt: 'Treat the reward pool as a budget-allocation mechanism. The active-set forecast failed. What remains is narrower but useful: a conditional view of cost capture, identity-splitting incentives, and the gap between solver verification and model validation.',
     readMins: 14,
     status: 'published',
     evidence: {
@@ -1006,7 +1017,8 @@ export const researchPosts: ResearchPost[] = [
     updated: '2026-08-08',
     category: 'Model validation',
     kind: 'research',
-    excerpt: 'The solver passed; the forecast failed. HYPE and EIGEN reject the model’s wallet-level active-set prediction, turning this into a case study in outcomes analysis, use limitation, data lineage, and the gap between wallets and beneficial owners.',
+    pullQuote: 'A model can be mathematically correct and still wrong about the world. Validation tests the second claim.',
+    excerpt: 'The solver passed. The forecast failed. HYPE and EIGEN reject the model’s wallet-level active-set prediction, turning this into a case study in outcomes analysis, use limitation, data lineage, and the gap between wallets and beneficial owners.',
     readMins: 13,
     evidence: {
       status: 'MEASURED',
@@ -1035,7 +1047,8 @@ export const researchPosts: ResearchPost[] = [
     updated: '2026-08-08',
     category: 'Payments control',
     kind: 'engineering',
-    excerpt: 'Fee sponsorship is more than “gasless” UX: it separates asset authority from network-fee liability and can turn fee funding into a central treasury function. The current implementation proves the primitive but not yet ledger-grade budget control.',
+    pullQuote: 'Sponsorship does not remove the fee. It changes who is authorized to incur it and where that cost is controlled.',
+    excerpt: 'Fee sponsorship is more than gasless UX. It separates asset authority from network-fee liability and can turn fee funding into a central treasury function. The current implementation proves the primitive, but ledger-grade budget control is not built yet.',
     readMins: 11,
     status: 'published',
     evidence: {
@@ -1063,7 +1076,8 @@ export const researchPosts: ResearchPost[] = [
     updated: '2026-08-08',
     category: 'Execution governance',
     kind: 'engineering',
-    excerpt: 'The integration count is inventory; the real product is the decision policy. Current routing changes objective with evidence quality and prices time only narrowly, while realized TCA, failure cost, finality, and route-risk calibration remain open.',
+    pullQuote: 'An integration count is inventory. The product is the decision the router makes when the evidence is thin.',
+    excerpt: 'The integration count is inventory. The real product is the decision policy. Current routing changes objective with evidence quality and prices time only narrowly. Realized TCA, failure cost, finality, and route-risk calibration remain open.',
     readMins: 12,
     status: 'published',
     evidence: {
@@ -1108,7 +1122,7 @@ export const researchPosts: ResearchPost[] = [
     title: 'An MCP server for cross-chain swaps: a safe DeFi tool for agents',
     date: '',
     category: 'Agents',
-    excerpt: 'The design of an agent-facing swap surface — tool shape, quote/settlement contract, and the policy guardrails that keep autonomous execution in bounds.',
+    excerpt: 'The design of an agent-facing swap surface: tool shape, quote and settlement contract, and the policy guardrails that keep autonomous execution in bounds.',
     status: 'planned',
   },
   {
