@@ -80,7 +80,7 @@
   "hero": {
     "kicker": "现已开放测试 · 支持 45 条链",
     "h1": "连接交易意图与市场的执行层。",
-    "lead": "Suwappu 将交易意图转化为可检查的路由，并在支持的市场中受控执行。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
+    "lead": "发送交易意图。Suwappu 对每个市场排序，展示路由，只有在你确认后才执行。可通过 Terminal、Telegram 或 API 交易。",
     "cta_bot": "免费开始交易",
     "cta_terminal": "打开终端",
     "cta_api": "使用 API 构建",
@@ -95,14 +95,14 @@
     "hero": {
       "eyebrow": "全栈交易平台",
       "h1": "面向跨链市场的全栈交易平台。",
-      "lead": "执行、路由、研究和投资组合管理，覆盖 45 条链，全部在一个平台完成。可通过 Terminal 或 Telegram 交易，也可通过 REST、MCP 和类型化 SDK 集成。",
+      "lead": "发送交易意图。Suwappu 对每个市场排序，展示路由，只有在你确认后才执行。执行、研究和投资组合追踪都集中在一个平台。",
       "ctaTerminal": "打开终端",
       "ctaApi": "查看文档",
       "ctaTelegram": "在 Telegram 交易",
       "telegramNav": "Telegram",
       "ticketLabel": "执行票据 · 生产报价",
       "ticketStatus": "生产数据 · 明示时效状态",
-      "ticketNote": "此票据只展示报价。模拟与授权是独立步骤；实时数据不可用时，不会用演示价格替代。"
+      "ticketNote": "此票据只展示报价。模拟与授权是独立步骤。实时数据不可用时，不会用演示价格替代。"
     },
     "quote": {
       "stateChecking": "正在获取报价",
@@ -196,7 +196,7 @@
       "curveBody": "终端的 Curve 交易区直接从 Curve Prices API 列出 Curve 部署的每条链上的所有资金池，可按 TVL、24 小时交易量或基础 APR 排序，支持搜索，一键进入兑换面板。基于我们的 flet-curve 分叉构建。",
       "screenshotAlt": "Suwappu 永续合约交易台展示 HyperLiquid 市场、行情数据和订单票据。",
       "screenshotCaption": "Suwappu 中的 HyperLiquid 永续合约 · 产品截图 · 2026 年 7 月 31 日",
-      "lead": "智能路由优先级会对各市场排序，包括 Tempo 的内置零手续费稳定币兑换 DEX 和 CoW 的抗 MEV 批量拍卖，然后再由 CCTP 和 Across 完成跨链桥环节。故障切换 RPC 管理器确保 45 条链在任一服务商出现问题时仍可路由。"
+      "lead": "智能路由按价格和可靠性对市场排序，再在报价前选定一个。Tempo 的内置 DEX、CoW 的抗 MEV 批量拍卖和跨链桥结算共同构成这一排序依据。故障切换系统确保某个服务商出问题时路由仍然可用。"
     },
     "security": {
       "eyebrow": "安全模型",
@@ -279,8 +279,8 @@
     },
     "government": {
       "eyebrow": "能力 07",
-      "title": "政府业务线：从设计之初即抗量子。",
-      "lead": "Lattice Transfer Protocol 负责带链上锚定的后量子数据传输，目标是达到 FedRAMP High 就绪水平。",
+      "title": "政府业务线，专为后量子安全打造。",
+      "lead": "Lattice Transfer Protocol 负责带链上锚定的后量子数据传输。它正朝 FedRAMP High 就绪迈进，尚未通过认证。",
       "cta": "查看协议",
       "pqTitle": "默认后量子",
       "pqBody": "标准模式采用 ML-KEM-768（FIPS 203）密钥封装、ML-DSA-65（FIPS 204）签名与 BLAKE3 内容寻址。",

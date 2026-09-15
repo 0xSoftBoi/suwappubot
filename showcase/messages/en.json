@@ -80,7 +80,7 @@
   "hero": {
     "kicker": "Now in open beta · 45 chains",
     "h1": "The execution layer between intent and markets.",
-    "lead": "Suwappu turns a trade intent into an inspectable route and controlled execution across supported markets. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+    "lead": "Send a trade intent. Suwappu ranks every venue, shows the route, and executes only when you approve. Trade through Terminal, Telegram, or the API.",
     "cta_bot": "Start trading free",
     "cta_terminal": "Open Terminal",
     "cta_api": "Build with the API",
@@ -95,14 +95,14 @@
     "hero": {
       "eyebrow": "Full-stack trading platform",
       "h1": "The full-stack trading platform for cross-chain markets.",
-      "lead": "Execution, routing, research, and portfolio management across 45 chains, from one venue. Trade through Terminal or Telegram, or integrate through REST, MCP, and typed SDKs.",
+      "lead": "Send a trade intent. Suwappu ranks every venue, shows the route, and executes only when you approve. Execution, research, and portfolio tracking live in one venue.",
       "ctaTerminal": "Launch Terminal",
       "ctaApi": "Read the docs",
       "ctaTelegram": "Trade in Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Execution ticket · production quote",
       "ticketStatus": "Production data · freshness labeled",
-      "ticketNote": "This ticket only displays a quote. Simulation and authorization are separate steps; unavailable live data is never replaced with demo pricing."
+      "ticketNote": "This ticket only displays a quote. Simulation and authorization are separate steps. Unavailable live data is never replaced with demo pricing."
     },
     "quote": {
       "stateChecking": "Checking quote",
@@ -196,7 +196,7 @@
       "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API, sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
-      "lead": "Smart route priority orders venues, including Tempo's enshrined DEX for zero-fee stable swaps and CoW's MEV-protected batch auctions, before CCTP and Across settle a bridge leg. A failover RPC manager keeps every one of the 45 chains routable if a provider degrades."
+      "lead": "Smart routing ranks venues by price and reliability, then selects one before you see a quote. Tempo's enshrined DEX, CoW's protected batch auctions, and bridge settlement all feed into that ranking. A failover system keeps routes available if a provider degrades."
     },
     "security": {
       "eyebrow": "Security model",
@@ -279,8 +279,8 @@
     },
     "government": {
       "eyebrow": "Capability 07",
-      "title": "The government arm: post-quantum by design.",
-      "lead": "The Lattice Transfer Protocol handles post-quantum data transfer with on-chain anchors, built toward FedRAMP High readiness.",
+      "title": "The government arm, built for post-quantum security.",
+      "lead": "The Lattice Transfer Protocol handles post-quantum data transfer with on-chain anchors. It is built toward FedRAMP High readiness, not yet certified.",
       "pqTitle": "Post-quantum by default",
       "pqBody": "Standard mode uses ML-KEM-768 (FIPS 203) key encapsulation, ML-DSA-65 (FIPS 204) signatures, and BLAKE3 content addressing.",
       "provenTitle": "52 machine-checked theorems",

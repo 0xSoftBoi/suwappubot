@@ -80,7 +80,7 @@
   "hero": {
     "kicker": "Désormais en bêta ouverte · 45 chaînes",
     "h1": "La couche d’exécution entre l’intention et les marchés.",
-    "lead": "Suwappu transforme une intention de trading en une route vérifiable et une exécution contrôlée sur les marchés pris en charge. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
+    "lead": "Envoyez une intention de trading. Suwappu classe chaque marché, affiche la route et n’exécute qu’après votre validation. Tradez depuis le Terminal, Telegram ou l’API.",
     "cta_bot": "Commencer gratuitement",
     "cta_terminal": "Ouvrir le Terminal",
     "cta_api": "Construire avec l’API",
@@ -95,14 +95,14 @@
     "hero": {
       "eyebrow": "Plateforme de trading full-stack",
       "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
-      "lead": "Exécution, routage, recherche et gestion de portefeuille sur 45 chaînes, depuis un seul endroit. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
+      "lead": "Envoyez une intention de trading. Suwappu classe chaque marché, affiche la route et n’exécute qu’après votre validation. Exécution, recherche et suivi de portefeuille cohabitent en un seul endroit.",
       "ctaTerminal": "Lancer le Terminal",
       "ctaApi": "Lire la documentation",
       "ctaTelegram": "Trader dans Telegram",
       "telegramNav": "Telegram",
       "ticketLabel": "Ticket d’exécution · cotation de production",
       "ticketStatus": "Données de production · fraîcheur indiquée",
-      "ticketNote": "Ce ticket affiche uniquement une cotation. La simulation et l’autorisation sont des étapes distinctes ; des données indisponibles ne sont jamais remplacées par des prix de démonstration."
+      "ticketNote": "Ce ticket affiche uniquement une cotation. La simulation et l’autorisation sont des étapes distinctes. Les données indisponibles ne sont jamais remplacées par des prix de démonstration."
     },
     "quote": {
       "stateChecking": "Vérification de la cotation",
@@ -196,7 +196,7 @@
       "curveBody": "Le venue Curve du terminal liste chaque pool sur chaque chaîne où Curve est déployé, directement depuis la Curve Prices API, triable par TVL, volume 24h ou APR de base, avec recherche, à un clic du panneau de swap. Construit sur notre fork de flet-curve.",
       "screenshotAlt": "Desk de perpétuels Suwappu avec marchés HyperLiquid, données de marché et ticket d’ordre.",
       "screenshotCaption": "Perpétuels HyperLiquid dans Suwappu · capture produit · 31 juil. 2026",
-      "lead": "La priorité de routage intelligente classe les marchés, dont le DEX natif de Tempo pour des swaps stables sans frais et les enchères groupées protégées contre le MEV de CoW, avant que CCTP et Across ne règlent une étape de bridge. Un gestionnaire RPC de secours garde chacune des 45 chaînes routable en cas de dégradation d’un fournisseur."
+      "lead": "Le routage intelligent classe les marchés par prix et fiabilité, puis en sélectionne un avant d’afficher votre cotation. Le DEX natif de Tempo, les enchères groupées protégées de CoW et le règlement des bridges alimentent ce classement. Un système de secours garde les routes disponibles en cas de dégradation d’un fournisseur."
     },
     "security": {
       "eyebrow": "Modèle de sécurité",
@@ -279,8 +279,8 @@
     },
     "government": {
       "eyebrow": "Capacité 07",
-      "title": "Le bras gouvernemental : post-quantique par conception.",
-      "lead": "Le Lattice Transfer Protocol gère le transfert de données post-quantique avec ancrage on-chain, conçu pour viser la conformité FedRAMP High.",
+      "title": "Le bras gouvernemental, conçu pour la sécurité post-quantique.",
+      "lead": "Le Lattice Transfer Protocol gère le transfert de données post-quantique avec ancrage on-chain. Il vise la conformité FedRAMP High, non encore certifiée.",
       "cta": "Voir le protocole",
       "pqTitle": "Post-quantique par défaut",
       "pqBody": "Le mode standard utilise l'encapsulation ML-KEM-768 (FIPS 203), les signatures ML-DSA-65 (FIPS 204) et l'adressage par contenu BLAKE3.",
