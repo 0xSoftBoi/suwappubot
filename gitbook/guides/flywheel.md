@@ -87,7 +87,7 @@ For a managed swap, Flywheel does this:
 
 If a managed submission times out, loses its network response, returns HTTP 408/5xx, or returns a malformed success response after submission may have started, its outcome is **unknown**. Keep the same economic intent and idempotency key. If a `swap_id` is known, poll it rather than submitting another trade. Never turn transport uncertainty into a second economic action.
 
-Flywheel bounds managed simulate/execute/status calls with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default; accepted range 100–30000 ms). `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr. Those events intentionally omit API keys, wallets, quote/swap IDs, response bodies, and error messages.
+Flywheel bounds managed simulate/execute/status calls with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the accepted range is 100–30000 ms. `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr. Those events intentionally omit API keys, wallets, quote/swap IDs, response bodies, and error messages.
 
 Inspect the local journal at any time:
 

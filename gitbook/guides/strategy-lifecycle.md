@@ -93,7 +93,7 @@ Persist enough state that a restart cannot duplicate an interval or forget an in
 
 Use a positive opt-in such as `SUWAPPU_LIVE=1`; absence must mean no funds move. Add a second control at the wallet/policy layer so one environment-variable mistake cannot remove every limit.
 
-A robust managed-wallet flow is:
+A dependable managed-wallet flow is:
 
 ```text
 fresh quote

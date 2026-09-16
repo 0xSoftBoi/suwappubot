@@ -285,7 +285,9 @@ Measure the funnel before adding strategy complexity:
 - time to terminal outcome;
 - weekly retained users or intentionally enabled policies.
 
-At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model. Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs. Do not price it from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
+At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model.
+
+Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs. Do not price it from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
 
 Keep the two scoreboards separate:
 

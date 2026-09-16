@@ -215,7 +215,7 @@ The agent card lives at the well-known path `/.well-known/agent.json`, following
 
 1. **Fetch the agent card** from `https://api.suwappu.bot/.well-known/agent.json`.
 2. **Read the description and skills** to determine if Suwappu can handle the task at hand.
-3. **Check securitySchemes** to learn how to authenticate (register at `POST /v1/agent/register` to get a Bearer token).
+3. **Check securitySchemes** to learn how to authenticate. Register at `POST /v1/agent/register` to get a Bearer token.
 4. **Read interfaces** to find the A2A endpoint URL.
 5. **Send messages** to the A2A endpoint using the `message/send` method.
 

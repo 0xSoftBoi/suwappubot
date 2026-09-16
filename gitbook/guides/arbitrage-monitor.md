@@ -159,7 +159,9 @@ There is no automatic in-scan retry that can silently exceed `--max-quote-calls`
 
 State defaults to `~/.suwappu-arb-scanner` and can be moved with `SUWAPPU_ARB_STATE_DIR`. The monitor file is schema-validated fail-closed and replaced atomically after fsync; scan history is bounded by `SUWAPPU_ARB_HISTORY_LIMIT` (5,000 by default).
 
-`monitor.lock` covers the complete local cycle: quote work, state transition, and webhook delivery bookkeeping. A second process sharing that state directory fails before it can create another quote burst. A crash can leave a stale lock. Prove the owning process or container is gone before removing that exact lock. Age alone is not proof.
+`monitor.lock` covers the complete local cycle: quote work, state transition, and webhook delivery bookkeeping. A second process sharing that state directory fails before it can create another quote burst.
+
+A crash can leave a stale lock. Prove the owning process or container is gone before removing that exact lock. Age alone is not proof.
 
 The repository's container runs non-root and persists state under `/data`. Its default is one `scan --json --fail-on-degraded` with Compose restart disabled. Continuous `watch` is an explicit operator choice because indefinite polling is also an indefinite API-cost decision.
 

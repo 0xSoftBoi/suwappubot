@@ -41,7 +41,7 @@ Each delivery carries these headers:
 
 ## Step 3: Verify the Signature
 
-The signing key is the **SHA-256 hash of your API key** (the raw `suwappu_sk_...` string, hashed to 32 bytes). The signature is the hex HMAC-SHA256 of the exact raw request body using that key.
+The signing key is the **SHA-256 hash of your API key**: hash the raw `suwappu_sk_...` string to get 32 bytes. The signature is the hex HMAC-SHA256 of the exact raw request body using that key.
 
 ```javascript
 import crypto from 'crypto'
@@ -113,7 +113,7 @@ curl "https://api.suwappu.bot/v1/agent/webhooks?status=delivered" \
 
 ## Best Practices
 
-- **Respond fast.** Acknowledge with `2xx` immediately and do heavy work asynchronously — deliveries time out at 10 seconds.
+- **Respond fast.** Acknowledge with `2xx` immediately and do heavy work asynchronously. Deliveries time out at 10 seconds.
 - **Verify every delivery.** Reject any request whose signature does not match.
 - **Treat deliveries as at-least-once.** Use the `X-Suwappu-Delivery` ID to deduplicate.
 - **Keep your endpoint public and HTTPS.** Suwappu only POSTs to the URL you configured.

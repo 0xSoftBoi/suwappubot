@@ -21,6 +21,7 @@ FENCE = re.compile(r"```.*?```", re.S)
 NUM = re.compile(r"(?<![\w.])\$?\d[\d,_]*(?:\.\d+)?%?")
 PATH = re.compile(r"/(?:v\d+/)?[a-z][\w/:{}-]*")
 LINK = re.compile(r"\]\(([^)]+)\)")
+LIST_MARKER = re.compile(r"^\s*\d+\.(?=\s)", re.M)
 
 
 def blocks(src: str) -> list[str]:
@@ -29,6 +30,9 @@ def blocks(src: str) -> list[str]:
 
 def facts(src: str) -> tuple[list[str], list[str]]:
     prose = FENCE.sub(" ", src)
+    # Ordered-list markers are structure, not facts. Turning a run-on sentence
+    # into "1. / 2. / 3." is exactly the rewrite this gate should permit.
+    prose = LIST_MARKER.sub("", prose)
     return sorted(NUM.findall(prose)), sorted(LINK.findall(prose))
 
 

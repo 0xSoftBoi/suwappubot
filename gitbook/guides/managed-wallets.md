@@ -40,7 +40,7 @@ If you have not created a wallet yet, the response hints you to create one with 
 
 ## Step 3: Fund the Wallet
 
-Send the native gas token (and any tokens you want to swap) to the managed address. The wallet needs gas on whichever chain you intend to swap on (ETH on Base/Arbitrum/Optimism, BNB on BSC, MATIC on Polygon, etc.).
+Send the native gas token to the managed address, plus any tokens you want to swap. The wallet needs gas on whichever chain you intend to swap on, for example ETH on Base, Arbitrum, or Optimism, BNB on BSC, or MATIC on Polygon.
 
 ## Step 4: Quote, Simulate, and Execute
 
@@ -72,7 +72,7 @@ Persist the idempotency key. If an execution response is lost, reconcile status/
 ## Ownership & Security
 
 - A managed wallet belongs to the agent that created it. Quotes are cached per agent and can only be executed by that agent.
-- Natural-language commands (`/v1/agent/execute`) that include a `wallet_address` are rejected unless the address is your own managed wallet — you cannot swap from a wallet you don't own.
+- Natural-language commands (`/v1/agent/execute`) that include a `wallet_address` are rejected unless the address is your own managed wallet. You cannot swap from a wallet you do not own.
 - Rotate your API key any time with `POST /v1/agent/keys/rotate`; this does not change your wallet address.
 
 ## Client-Signed Wallets (Opt-Out)

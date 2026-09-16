@@ -1,8 +1,8 @@
 # Agentic Payments (x402)
 
-Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol: a paid endpoint or MCP tool call that would run you out of credits returns an HTTP `402 Payment Required` challenge instead of failing outright. x402-aware clients (`x402-axios`, `x402-fetch`, or your own retry logic) parse the challenge, settle the payment, and retry the original request automatically.
+Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol. A paid endpoint or MCP tool call that would exceed your credit balance returns an HTTP `402 Payment Required` challenge instead of failing outright. x402-aware clients, such as `x402-axios` and `x402-fetch`, parse the challenge, settle the payment, and retry the original request automatically.
 
-This only applies to the `free` rate-limit tier. Agents on `agent`, `pro`, `premium`, or `enterprise` bypass metering entirely — see [Pricing](pricing.md) for the tier table.
+This only applies to the `free` rate-limit tier. Agents on `agent`, `pro`, `premium`, or `enterprise` bypass metering entirely. See [Pricing](pricing.md) for the tier table.
 
 ## The flow
 
@@ -58,7 +58,7 @@ You have two options once you see a 402:
 
 ### Option A — top up credits, then retry
 
-Pay USDC to the `payTo` collector address (any amount — it doesn't have to match the single-call cost), then submit the transaction hash:
+Pay USDC to the `payTo` collector address. The amount does not have to match the single-call cost. Then submit the transaction hash:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/billing/topup \
@@ -67,9 +67,9 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/topup \
   -d '{"txHash": "0xabc...", "chain": "base", "amount": 5}'
 ```
 
-**Body:** `{ txHash: string, chain: string (default "base"), amount: number }` — `amount` is the USDC amount you actually paid.
+**Body:** `{ txHash: string, chain: string (default "base"), amount: number }`. `amount` is the USDC amount you actually paid.
 
-Suwappu verifies the payment on-chain via the internal x402 verifier before crediting your balance. The endpoint is idempotent on `txHash` — retrying with the same hash never double-credits.
+Suwappu verifies the payment on-chain via the internal x402 verifier before crediting your balance. The endpoint is idempotent on `txHash`. Retrying with the same hash never double-credits.
 
 **Response:**
 
@@ -88,7 +88,7 @@ Suwappu verifies the payment on-chain via the internal x402 verifier before cred
 
 ### Option B — settle the single call on-chain (facilitator path)
 
-If your client supports x402 natively (e.g. `x402-fetch`), it can sign and attach an `X-PAYMENT` header to the retried request instead of pre-funding a credit balance. Suwappu verifies and settles this via its configured facilitator and, on success, lets the single call through with a `X-Payment-Response` header containing the settlement tx hash. This requires the facilitator to be enabled on the deploy — if it isn't, fall back to Option A.
+If your client supports x402 natively, such as `x402-fetch`, it can sign and attach an `X-PAYMENT` header to the retried request instead of pre-funding a credit balance. Suwappu verifies and settles this via its configured facilitator and, on success, lets the single call through with a `X-Payment-Response` header containing the settlement tx hash. This requires the facilitator to be enabled on the deploy. If it isn't, fall back to Option A.
 
 ## Subscriptions (bypass metering entirely)
 
@@ -101,7 +101,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/subscribe \
   -d '{"txHash": "0xabc...", "chain": "base", "amount": 9.99, "tier": "pro"}'
 ```
 
-**Body:** `{ txHash: string, chain: string (default "base"), amount: number, tier: "pro" | "premium" | "enterprise" }` — `amount` must be ≥ the tier's USD price (see [Pricing](pricing.md)).
+**Body:** `{ txHash: string, chain: string (default "base"), amount: number, tier: "pro" | "premium" | "enterprise" }`. `amount` must be ≥ the tier's USD price (see [Pricing](pricing.md)).
 
 **Response:**
 
@@ -118,7 +118,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/subscribe \
 }
 ```
 
-This is a **prepaid window, not a recurring subscription** — there's no auto-renew. Re-POST before expiry to extend; if you renew early, the new 30 days stacks on top of the remaining time rather than resetting it. Idempotent on `txHash`.
+This is a **prepaid window, not a recurring subscription**. There is no auto-renew, so re-POST before expiry to extend. If you renew early, the new 30 days stacks on top of the remaining time rather than resetting it. Idempotent on `txHash`.
 
 ## True auto-renew (Base Spend Permissions)
 
@@ -145,14 +145,16 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/recurring \
   }'
 ```
 
-The `permission` object is an EIP-712 `SpendPermission` you sign client-side with the paying account's wallet (`account`). Suwappu validates that `spender` is its own operator address, `token` is the configured USDC contract, and `allowance` covers at least the tier price before registering it — a bad signature or mismatched fields is rejected server-side. A scheduler then calls `spend()` each `period` to pull the tier price automatically. Cancel by revoking the permission on-chain.
+The `permission` object is an EIP-712 `SpendPermission` you sign client-side with the paying account's wallet (`account`). Suwappu validates that `spender` is its own operator address, `token` is the configured USDC contract, and `allowance` covers at least the tier price before registering it. A bad signature or mismatched fields is rejected server-side.
+
+A scheduler then calls `spend()` each `period` to pull the tier price automatically. Cancel by revoking the permission on-chain.
 
 ## Human users (non-agent)
 
 Telegram/webapp users subscribe via Stripe checkout or crypto, not the agent bearer-token flow above:
 
-- `GET /billing/stripe/checkout?tier=pro` — creates a Stripe checkout session (redirects by default; add `&format=json` for the URL as JSON)
-- `POST /billing/crypto` — crypto-native subscription for human users (same USDC/tier mechanics as `/v1/agent/billing/subscribe`, authenticated via Telegram session instead of a bearer key)
+- `GET /billing/stripe/checkout?tier=pro` creates a Stripe checkout session. It redirects by default. Add `&format=json` to get the URL as JSON instead.
+- `POST /billing/crypto` is a crypto-native subscription for human users. It uses the same USDC/tier mechanics as `/v1/agent/billing/subscribe`, authenticated via a Telegram session instead of a bearer key.
 
 ## Checking your status
 

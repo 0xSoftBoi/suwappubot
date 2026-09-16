@@ -123,7 +123,9 @@ Returns the live tool definitions and input schemas. Source `0.6.0` currently ad
 
 ## Pay-Per-Call Pricing
 
-Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agents on the `agent`, `pro`, `premium`, or `enterprise` tier (active subscription) bypass metering entirely — calls are free while the subscription window is active. Free-tier agents are charged per call; if the balance is insufficient, the server returns HTTP 402 with an x402 payment challenge instead of the JSON-RPC result. See [Agentic Payments](../billing/agentic-payments.md) for the full 402 → pay → retry flow, and [Pricing](../billing/pricing.md) for tier prices.
+Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agents on the `agent`, `pro`, `premium`, or `enterprise` tier (active subscription) bypass metering entirely. Calls are free while the subscription window is active.
+
+Free-tier agents are charged per call. If the balance is insufficient, the server returns HTTP 402 with an x402 payment challenge instead of the JSON-RPC result. See [Agentic Payments](../billing/agentic-payments.md) for the full 402 → pay → retry flow, and [Pricing](../billing/pricing.md) for tier prices.
 
 | Tool | Description | Key Params | Credits |
 |------|-------------|------------|---------|
@@ -150,9 +152,9 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `predict_trades` | Recent CLOB trades across a prediction market's outcomes | `market_id`, `limit` | 1 |
 | `list_wallet_policies` | Read managed-wallet spending/whitelist policies for the authenticated agent | `wallet_address` | 1 |
 
-`predict_market_detail` is a legacy alias for `predict_market` kept for older clients — both route to the same handler and cost.
+`predict_market_detail` is a legacy alias for `predict_market` kept for older clients. Both route to the same handler and cost.
 
-The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods (`server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts) are public as well. Other tools require agent authentication even when their purpose is read-only.
+The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods are public as well: `server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts. Other tools require agent authentication even when their purpose is read-only.
 
 ## Selected Tool Examples
 
@@ -336,7 +338,7 @@ Get the TIP-20 token list on Tempo mainnet (chain ID 4217). Includes USD-denomin
 
 ### 8. browse_mpp_directory
 
-Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory. Discover available services and their payment requirements. (This is a different protocol from Suwappu's own pathUSD micropayment auth used elsewhere in the API — see [Agentic Payments](../billing/agentic-payments.md).)
+Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory. Discover available services and their payment requirements. This is a different protocol from Suwappu's own pathUSD micropayment auth used elsewhere in the API. See [Agentic Payments](../billing/agentic-payments.md) for that flow.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -532,7 +534,9 @@ Get details for one Morpho lending market. Market identity is chain-scoped, so p
 }
 ```
 
-`supplyApy`, `borrowApy`, and `utilization` are percentage values (`4.2` means 4.2%). `totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicitly USD-valued and can be `null`; the older `totalSupply` and `totalBorrow` names are deprecated aliases. `listed: true` and an empty `warnings` array are useful interface signals, not guarantees that a market is safe. See [Lending Markets](../api-reference/lend.md) for the exact wire contract and [Build a Lending Monitor](../guides/lending-monitor.md) for a production pattern.
+`supplyApy`, `borrowApy`, and `utilization` are percentage values (`4.2` means 4.2%). `totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicitly USD-valued and can be `null`. The older `totalSupply` and `totalBorrow` names are deprecated aliases.
+
+`listed: true` and an empty `warnings` array are useful interface signals, not guarantees that a market is safe. See [Lending Markets](../api-reference/lend.md) for the exact wire contract and [Build a Lending Monitor](../guides/lending-monitor.md) for a production pattern.
 
 ## Response Format
 

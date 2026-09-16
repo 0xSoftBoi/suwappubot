@@ -56,7 +56,7 @@ Then send `Authorization: Bearer suwappu_sk_YOUR_KEY` on authenticated calls. Ne
 
 Suwappu is built to be found by agents automatically. See [OpenAPI Spec](openapi.md) for the discovery files (`llms.txt`, `llms-full.txt`, `agent.json`, OpenAPI) and how agents bootstrap from them.
 
-For crawlers that don't want to guess well-known paths one at a time, `GET https://api.suwappu.bot/.well-known/ai-catalog.json` returns a single [Agentic Resource Discovery (ARD)](https://agenticresourcediscovery.org/spec) v0.9 manifest listing every resource above (A2A agent card, MCP server, OpenAPI spec, `llms.txt`) with its media type and URL. Suwappu's MCP server is also listed in the official [MCP registry](https://registry.modelcontextprotocol.io) under the domain-verified `bot.suwappu/mcp` namespace — see [MCP](mcp.md#mcp-registry-listing) for the manifest and publishing steps.
+For crawlers that don't want to guess well-known paths one at a time, `GET https://api.suwappu.bot/.well-known/ai-catalog.json` returns a single [Agentic Resource Discovery (ARD)](https://agenticresourcediscovery.org/spec) v0.9 manifest. It lists every resource above: A2A agent card, MCP server, OpenAPI spec, and `llms.txt`, each with its media type and URL. Suwappu's MCP server is also listed in the official [MCP registry](https://registry.modelcontextprotocol.io) under the domain-verified `bot.suwappu/mcp` namespace. See [MCP](mcp.md#mcp-registry-listing) for the manifest and publishing steps.
 
 ## Pricing
 

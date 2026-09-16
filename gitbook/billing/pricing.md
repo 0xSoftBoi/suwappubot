@@ -1,6 +1,10 @@
 # Pricing
 
-Suwappu combines three independent pricing dimensions: a **rate-limit tier** (requests/minute), **per-call metering** (credits, if you're on the free tier and metering is enabled), and a **swap execution fee** (bps on the traded amount). This page is the reference table for all three; see [Agentic Payments](agentic-payments.md) for how to pay.
+Suwappu combines three independent pricing dimensions: a **rate-limit tier**, **per-call metering**, and a **swap execution fee**.
+
+The rate-limit tier counts requests per minute. Per-call metering charges credits on the free tier when metering is enabled. The swap execution fee applies in bps on the traded amount.
+
+This page is the reference table for all three. See [Agentic Payments](agentic-payments.md) for how to pay.
 
 ## Rate-limit tiers
 
@@ -24,7 +28,9 @@ These are the current source limits. Check your live tier via [`GET /v1/agent/me
 | `premium` | $29.99 |
 | `enterprise` | $99.99 |
 
-For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`; that writes the agent's `subscriptionTier`/expiry. These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
+For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`. That writes the agent's `subscriptionTier` and expiry. These are **prepaid windows, not auto-renewing subscriptions** by default. Re-pay before expiry to extend, and the new time stacks on top of what remains.
+
+For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
 
 Stripe checkout (`GET /billing/stripe/checkout?tier=`) belongs to the human/webapp account subscription flow. It does **not** currently promote a separate `suwappu_sk_...` Agent API key's subscription tier. Treat the account plan and Agent API billing ledgers as separate unless the API explicitly reports otherwise.
 
@@ -74,7 +80,7 @@ Only applies to the `free` tier when server-side metering is enabled (`AGENT_MET
 | `predict_trades` | 1 |
 | `list_wallet_policies` | 1 |
 
-A 402 response tells you exactly which tool/endpoint triggered the charge and its cost — see [Agentic Payments](agentic-payments.md#the-402-challenge).
+A 402 response tells you exactly which tool/endpoint triggered the charge and its cost. See [Agentic Payments](agentic-payments.md#the-402-challenge).
 
 ## Swap execution fees
 
@@ -84,7 +90,7 @@ Agent-surface swap fees are route/configuration-specific, not derived from the A
 
 ## Checking your own numbers live
 
-Cost weights and tier prices can change between deploys — always read them from the API rather than hardcoding this table in production code:
+Cost weights and tier prices can change between deploys. Always read them from the API rather than hardcoding this table in production code:
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/billing \

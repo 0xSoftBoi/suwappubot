@@ -1,6 +1,6 @@
 # A2A Protocol
 
-The A2A (Agent-to-Agent) protocol lets other agents talk to Suwappu in natural language over JSON-RPC 2.0. You send a message like `"swap 0.5 ETH to USDC on base"` and Suwappu returns a task containing structured artifacts — a human-readable summary plus a machine-readable data part. Together with the [agent card](agent-card.md) at `/.well-known/agent.json`, A2A makes Suwappu discoverable and callable inside multi-agent systems.
+The A2A (Agent-to-Agent) protocol lets other agents talk to Suwappu in natural language over JSON-RPC 2.0. You send a message like `"swap 0.5 ETH to USDC on base"` and Suwappu returns a task containing structured artifacts. Each task carries a human-readable summary plus a machine-readable data part. Together with the [agent card](agent-card.md) at `/.well-known/agent.json`, A2A makes Suwappu discoverable and callable inside multi-agent systems.
 
 ## Endpoint
 
@@ -18,7 +18,7 @@ Authorization: Bearer suwappu_sk_YOUR_KEY
 
 ## Protocol
 
-All requests and responses use JSON-RPC 2.0. Every response is returned with HTTP `200` — errors are carried in the JSON-RPC `error` object, not the HTTP status.
+All requests and responses use JSON-RPC 2.0. Every response is returned with HTTP `200`. Errors are carried in the JSON-RPC `error` object, not the HTTP status.
 
 ## Methods
 

@@ -222,7 +222,7 @@ watchlist contribution margin
   - payment + allocated support/refund cost
 ```
 
-Sell retained capabilities—history, more rules, alerts, collaboration, webhooks/API, reliability/support—not “higher win rate.” See [Build a Business on Suwappu](build-a-business.md) for the broader commercial boundary.
+Sell retained capabilities: history, more rules, alerts, collaboration, webhooks/API, reliability/support. Do not sell “higher win rate.” See [Build a Business on Suwappu](build-a-business.md) for the broader commercial boundary.
 
 ## If you publish forecasts, keep a separate immutable ledger
 
@@ -271,7 +271,7 @@ The public v2 repo has meaningful enterprise-shaped controls, but a filesystem w
 - per-tenant quotas/request budgets, abuse controls, caching, and cost attribution;
 - defined data-freshness/delivery SLOs plus operational alerts;
 - backup/restore tests, incident/runbook ownership, capacity and HA/regional design matching what you sell;
-- secret management only in workers that truly require account/trading access;
+- secret management only in workers that require account/trading access;
 - privacy/retention controls for customer watchlists and alert evidence.
 
 The reference's CI provides a useful source/release floor: frozen dependency install, TypeScript tests/typecheck, standalone compile/help, Python compatibility tests, high-severity dependency audit, non-root container build + zero-network startup, and TypeScript/Python CodeQL.
