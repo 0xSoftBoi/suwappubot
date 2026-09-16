@@ -953,7 +953,9 @@ ERC-8056's design is interesting precisely because it tries to preserve the raw 
 
 ---
 
-*Disclosures and limits: ERC-8056 is Draft. The nine-repository audit is purposive, identifier-based public-code search and is not runtime conformance testing. We did not establish a live non-1x multiplier incident or a user-visible failure in any named product. Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions; this research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
+*Disclosures and limits: ERC-8056 is Draft. The nine-repository audit is purposive, identifier-based public-code search and is not runtime conformance testing. We did not establish a live non-1x multiplier incident or a user-visible failure in any named product.*
+
+*Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions; this research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
 
 export const researchPosts: ResearchPost[] = [
   {

@@ -71,14 +71,26 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "✗ The prose linter's own tests fail; its findings cannot be trusted."
     exit 1
   fi
-  # gitbook/ is the DEPLOYED docs tree (showcase/scripts/regen-docs.mjs reads it
-  # into showcase/src/data/docs.json). It is listed first because it is the
+  # Two tiers, deliberately. PUBLISHED surfaces are what customers read, so they
+  # are a hard gate at zero. The docs/ tree is contributor and agent material:
+  # real, but 90+ files of ADRs, incident reports and working notes whose count
+  # would otherwise drown the signal that matters.
+  #
+  # gitbook/ is the DEPLOYED docs tree: showcase/scripts/regen-docs.mjs reads it
+  # into showcase/src/data/docs.json. It is listed first because it is the
   # largest published prose surface and the easiest one to forget.
-  echo "=== Writing standard (advisory, docs/WRITING.md) ==="
-  python3 scripts/copy_lint.py --summary \
-    gitbook \
-    docs/WRITING.md docs/README.md docs/quickstart.md docs/research docs/marketing \
-    README.md showcase/src/content/research.ts showcase/messages/en.json || true
+  echo "=== Writing standard: published surfaces (docs/WRITING.md) ==="
+  if ! python3 scripts/copy_lint.py --strict \
+    gitbook README.md showcase/messages/en.json showcase/src/content/research.ts \
+    docs/WRITING.md docs/README.md docs/content-model.md docs/marketing; then
+    echo "✗ Customer-facing prose breaks the writing standard."
+    echo "  Fix it, or mark a deliberate exception with <!-- copy-lint: off -->."
+    exit 1
+  fi
+  echo "✓ Published prose meets the writing standard"
+
+  echo "=== Writing standard: repository docs (advisory) ==="
+  python3 scripts/copy_lint.py --summary docs | tail -6 || true
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then
