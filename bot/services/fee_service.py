@@ -39,13 +39,13 @@ TIER_FEE_RATES = {
 }
 DEFAULT_FEE_RATE = 0.01  # fallback if tier lookup fails
 
-# Floor for the EFFECTIVE fee after a points-based fee_discount is applied, BEFORE
-# the position-card discount. Stacking rule (see get_fee_decimal for the full
-# derivation):
-#   tier_after_points = max(MIN_EFFECTIVE_FEE_RATE, tier_fee − points_discount)
-#   effective_fee      = tier_after_points * (1 − positions_fraction)
-# We floor the points step at the ENTERPRISE rate (0.1%) so a points discount can
-# match — but never beat — our best paid tier.
+# Floor for the EFFECTIVE fee, applied AFTER both proportional perks. Stacking
+# rule (see get_fee_decimal for the full derivation):
+#   effective_fee = tier_fee * (1 − points_fraction) * (1 − positions_fraction)
+#   effective_fee = max(MIN_EFFECTIVE_FEE_RATE, effective_fee)  # non-ENTERPRISE
+# We floor at the ENTERPRISE rate (0.1%) so a consumer perk can match, but never
+# beat, our best paid tier. The floor is applied after the card, not before it:
+# the card is multiplicative, so a floor checked only before it would not bind.
 MIN_EFFECTIVE_FEE_RATE = TIER_FEE_RATES[SubscriptionTier.ENTERPRISE]  # 0.001 = 0.1%
 
 # Absolute floor on the FINAL effective fee, after the proportional position-card
@@ -221,15 +221,22 @@ class FeeService:
 
         Stacking rule (single source of truth for the charged rate):
 
-            tier_after_points = max(MIN_EFFECTIVE_FEE_RATE, tier_fee − points_discount)
-            effective_fee     = tier_after_points * (1.0 − positions_fraction)
+            effective_fee = tier_fee * (1.0 − points_fraction) * (1.0 − positions_fraction)
+            if tier is not ENTERPRISE:
+                effective_fee = max(MIN_EFFECTIVE_FEE_RATE, effective_fee)
             if referee_rebate_applies: effective_fee *= 0.90
-            effective_fee     = max(ABSOLUTE_FLOOR, effective_fee)
+            effective_fee = max(ABSOLUTE_FLOOR, effective_fee)
+
+        Both perks are PROPORTIONAL and they multiply, so two roughly-50%
+        discounts take about 70% off rather than 100%, and no combination can
+        reach zero. The MIN_EFFECTIVE_FEE_RATE floor is applied AFTER the card
+        because the card is multiplicative and would otherwise land below a
+        floor that had only been checked before it.
 
         - ``tier_fee`` comes from TIER_FEE_RATES (subscription tier).
-        - ``points_discount`` is the best ACTIVE points-redeemed fee_discount for
+        - ``points_fraction`` is the best ACTIVE points-redeemed fee_discount for
           this user (read-only, time-bound) — only applied when ``user_id`` is
-          given. It is ABSOLUTE (percentage points) and floored at
+          given. It is PROPORTIONAL, like the card, and the result is floored at
           MIN_EFFECTIVE_FEE_RATE (the ENTERPRISE rate) so a points redemption can
           match — but never beat — our best paid tier.
         - ``positions_fraction`` is the PROPORTIONAL discount granted by holding a

@@ -5626,7 +5626,83 @@ button:focus:not(:focus-visible) {
 .research-upcoming li { display: flex; align-items: center; gap: 12px; color: var(--summer-muted); font-size: 0.95rem; }
 .research-post { max-width: 820px; }
 .research-post__head { margin: 1rem 0 1.5rem; }
+/* Eyebrow: "what kind of document this is", read before the headline
+   (docs/design/reference-breakdown-kamino-letter.md, page-one anatomy). */
+.research-post__eyebrow {
+  margin: 14px 0 0;
+  color: var(--sw-accent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
 .research-post__head h1 { margin: 12px 0 0; color: var(--summer-ink); font-family: var(--font-display); font-size: 2.4rem; line-height: 1.12; }
+/* Deck: the one sentence a reader gets after the headline, before the
+   argument (docs/WRITING.md §3). Shared between the post page and the
+   research index hero so both carry the same anatomy. */
+.research-post__deck {
+  box-sizing: border-box;
+  max-width: 62ch;
+  margin: 14px 0 0;
+  color: var(--summer-muted);
+  font-size: 1.15rem;
+  font-weight: 400;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+/* Reading-progress line: sticky just under SummerNav (its rendered
+   min-height at >=900px), scroll-linked via native CSS scroll-driven
+   animation where supported, otherwise a static hairline. No JS, no
+   layout dependency beyond that one shared offset. */
+.research-post__progress {
+  box-sizing: border-box;
+  position: sticky;
+  top: 62px;
+  z-index: 15;
+  height: 3px;
+  background: var(--summer-line);
+  overflow: hidden;
+}
+.research-post__progress-fill {
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: linear-gradient(90deg, var(--sw-accent), var(--sw-accent-bright));
+}
+@supports (animation-timeline: scroll()) {
+  .research-post__progress-fill {
+    animation: research-progress-fill linear;
+    animation-timeline: scroll(root block);
+  }
+}
+@keyframes research-progress-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .research-post__progress-fill { animation: none; }
+}
+@media (max-width: 900px) {
+  .research-post__progress { display: none; }
+}
+/* Row pull quote: the post's thesis surfaced on the index list, one serif
+   line, clamped so a long quote never pushes row height around. */
+.research-row__pull {
+  box-sizing: border-box;
+  margin: 6px 0 0;
+  color: var(--summer-ink);
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
 .research-post__artifacts { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 20px; }
 .research-post__artifacts a { color: var(--summer-muted); font-size: 0.85rem; font-weight: 700; text-decoration: none; }
 .research-post__artifacts a:hover { color: var(--summer-ink); }

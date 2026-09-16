@@ -108,7 +108,13 @@ export default function ResearchPage() {
           </div>
 
           <div className={styles.heroGrid}>
-            <h1>Research for financial infrastructure.</h1>
+            <div>
+              <h1>Research for financial infrastructure.</h1>
+              <p className="research-post__deck">
+                Each study separates what the evidence measures from what it does not,
+                written from the seat that has to act on it.
+              </p>
+            </div>
             <div className={styles.heroIntro}>
               <p>
                 Written from the decision seat: what a treasurer, payments operator, execution
@@ -266,6 +272,7 @@ export default function ResearchPage() {
                           <a href={`/research/${p.slug}`}>{p.title}</a>
                         </h3>
                         <p className={styles.dek}>{p.excerpt}</p>
+                        {p.pullQuote && <p className="research-row__pull">{p.pullQuote}</p>}
                         <div className={styles.rowLinks}>
                           <a href={`/research/${p.slug}`}>Read study →</a>
                           {p.paperPath && <a href={p.paperPath}>Working paper →</a>}
@@ -362,6 +369,7 @@ export default function ResearchPage() {
                         <a href={`/research/${p.slug}`}>{p.title}</a>
                       </h3>
                       <p className={styles.dek}>{p.excerpt}</p>
+                      {p.pullQuote && <p className="research-row__pull">{p.pullQuote}</p>}
                       <div className={`research-links ${styles.rowLinks}`}>
                         <a href={`/research/${p.slug}`}>Read control note <span aria-hidden="true">→</span></a>
                       </div>

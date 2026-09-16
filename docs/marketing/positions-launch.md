@@ -7,19 +7,27 @@
 
 ## 1. Positioning
 
-**Suwappu Positions** — a collectible that stamps a real, checkable entry price
-on-chain at mint, then displays a live, honest return against it. Never a claim on
+**Suwappu Positions** is a collectible that stamps a real, checkable entry price
+on-chain at mint, then displays a live return against it. It is never a claim on
 the underlying equity.
 
-**Suwappu Membership** — the account's paid tier, made on-chain: one soulbound
-token per wallet that the bot reads to resolve Free/Pro/Premium/Enterprise,
-claimable and payable without the holder ever needing gas.
+**Suwappu Membership** is the account's paid tier, made on-chain. One soulbound
+token per wallet resolves Free, Pro, Premium or Enterprise when the bot reads
+it. It is claimable and payable without the holder ever needing gas.
 
-**How they relate.** Membership is infrastructure — it answers *what does this
-wallet pay*. Positions is a status object — it answers *what did this wallet do,
-and when*. Both feed the same fee calculation: tier rate minus points discount
-minus the flat Positions perk, floored at 0.1% (`bot/services/fee_service.py:44-49`).
-Two contracts deliberately: a transferable collectible and a non-transferable
+**How they relate.** Membership is infrastructure. It answers what this wallet
+pays.
+
+Positions is a status object. It answers what this wallet did, and when.
+
+Both feed the same fee calculation. The tier rate is reduced by an active points
+discount, then by the Positions discount. Both are proportional fractions and
+they multiply, so no combination can reach a zero fee.
+
+Neither perk applies on Enterprise, which is contracted pricing. The final rate
+is floored at 2 bps. See `bot/services/fee_service.py:266-283`.
+
+Two contracts, deliberately. A transferable collectible and a non-transferable
 account attribute are different trust models and should not share one.
 
 ## 2. Mint page copy
@@ -33,8 +41,11 @@ you minted. It is a display, never a claim on the underlying equity.
 
 | Fact | Value | Source |
 |---|---|---|
-| Supply | 10,000 position cards | `MAX_SUPPLY`, `contracts/SuwappuPositions.sol` |
+| Supply | 4,444 position cards | `MAX_SUPPLY`, `contracts/SuwappuPositions.sol` |
 | Priced tickers | 35 tokenized equities with a live Chainlink feed | `TICKER_COUNT` |
+| Standard edition | 3,400 cards at $19 | `nft/position-cards/config.json` |
+| Founders' Gold edition | 555 cards at $119, stamped on-chain per token | `nft/position-cards/config.json` |
+| Secondary royalty | 2% (ERC-2981) | `contracts/SuwappuPositions.sol` |
 | Chain | Robinhood Chain | n/a |
 
 ### Three reasons to mint
@@ -48,25 +59,36 @@ you minted. It is a display, never a claim on the underlying equity.
 
 ### The perk, with the arithmetic
 
-Holding a Position lowers a wallet's swap fee by a fixed proportion, per wallet.
-Stacking cards does not stack the discount. It scales the existing rate instead
-of subtracting a flat amount, so it never collapses one paid tier into another
-and it never reaches zero.
+Holding a Position lowers a wallet's swap fee by a fixed proportion. The
+discount is per holder, not per card, so stacking cards does not stack it.
 
-| Tier | Base fee | Holder fee | Reduction |
+A standard card takes 40% off. A Founders' Gold card takes 55% off. When a
+wallet holds both, the better card decides.
+
+It scales the existing rate rather than subtracting a flat amount. That is why
+it never collapses one paid tier into another, and why it never reaches zero.
+
+| Tier | Base fee | Standard card | Founders' Gold |
 |---|---|---|---|
-| Free | 100 bps | 60 bps | 40% |
-| Pro | 50 bps | 30 bps | 40% |
-| Premium | 30 bps | 18 bps | 40% |
-| Enterprise | 10 bps | 6 bps | 40% |
+| Free | 100 bps | 60 bps | 45 bps |
+| Pro | 50 bps | 30 bps | 22.5 bps |
+| Premium | 30 bps | 18 bps | 13.5 bps |
+| Enterprise | 10 bps | 10 bps | 10 bps |
 
-| Swap volume | Free-tier savings |
-|---|---|
-| $1,000 | $4.00 |
-| $10,000 | $40.00 |
+Enterprise is contracted pricing. A card bought on the secondary market does not
+move a rate that was agreed in a contract, so the discount is not offered there
+(`bot/services/fee_service.py:266`).
 
-Breakeven volume is the mint price in dollars, divided by 4, times 1,000. That
-volume in swaps repays the mint cost.
+What a free-tier holder keeps, per $1,000 swapped:
+
+| Edition | Saved per $1,000 | Mint price | Breakeven volume |
+|---|---|---|---|
+| Standard | $4.00 | $19 | $4,750 |
+| Founders' Gold | $5.50 | $119 | $21,636 |
+
+Breakeven is the mint price divided by the saving per $1,000, times 1,000. It
+assumes the free tier. A paid tier saves fewer basis points per swap, so it
+repays the mint over more volume.
 
 ### Why mint now
 
@@ -83,21 +105,31 @@ holder. It carries no economic exposure to the referenced equity or its issuer.
 Grade tracks a displayed return. It never implies the card or its ticker will
 appreciate.
 
+The fee discount is a product perk, not a contractual entitlement. It is not
+offered on Enterprise. If a Chainlink feed is stale, paused, or the sequencer is
+down at mint, the card stamps no entry price and renders as `UNPRICED` rather
+than inventing a basis.
+
 ## 3. Allowlist copy
 
 **Founder and Allowlist access is earned from product use, not from a tweet.**
 
 Founder is a free mint. Allowlist and Public are not.
 
-| Phase | Wallet cap | Earned by (any one) |
-|---|---:|---|
-| Founder | 3 | Gold, platinum, or diamond XP level |
-| | | $50,000+ lifetime swap volume |
-| | | 5+ verified referrals |
-| Allowlist | 2 | 5+ swaps |
-| | | $1,000+ lifetime volume |
-| | | 1+ verified referral |
-| Public | n/a | Open once earlier phases close |
+| Phase | Cards | Wallet cap | Price | Earned by (any one) |
+|---|---:|---:|---:|---|
+| Founder | 444 | 1 | free | Gold, platinum, or diamond XP level |
+| | | | | $50,000+ lifetime swap volume |
+| | | | | 5+ verified referrals |
+| Allowlist | 1,555 | 2 | $19 | 5+ swaps |
+| | | | | $1,000+ lifetime volume |
+| | | | | 1+ verified referral |
+| Public | 1,845 | 5 | $19 | Open once earlier phases close |
+| Founders' Gold | 555 | 2 | $119 | Open to anyone |
+
+A team reserve of 45 cards is bounded on-chain by `RESERVE_MAX`. Allocations sum
+to the 4,444 supply. A phase cannot oversell: a late mint reverts cleanly rather
+than starting a gas war.
 
 A locked phase is a snapshot, not a lockout. The bot reads the same thresholds
 the mint enforces. `/cards` reports the number a wallet is short and by how much.
@@ -138,7 +170,7 @@ attribute, not an asset.
    USDG rail x402 already settles on this chain, and is useful to every existing
    user on day one. The bot takes `max(db tier, on-chain tier)`, fail-open to the DB.
 2. **Ship the `tokenURI` route.** Neither collection has one. No mint page can go
-   live before this — a minted card with no metadata endpoint is a blank NFT.
+   live before this. A minted card with no metadata endpoint is a blank NFT.
 3. **Re-verify the 35 Chainlink feeds; deploy the oracle and Positions together.**
    Deploying Positions without a live oracle stamps `entryPrice = 0` on every
    early mint.
@@ -153,8 +185,9 @@ attribute, not an asset.
 
 - **Never** "own a piece of", "shares of", "invest in", or "dividends". A Position
   is a collectible that displays a notional return against a price observed at
-  mint — not equity, not a security, not a derivative, no shareholder or voting
-  rights, pays nothing, no economic exposure to the referenced ERC-20 or its issuer.
+  mint. It is not equity, not a security, and not a derivative. It carries no
+  shareholder or voting rights, pays nothing, and gives no economic exposure to
+  the referenced ERC-20 or its issuer.
 - **Never** imply the card or its ticker will appreciate. Grade tracks a *display*
   return; performance drives status, never a payout.
 - **No fixed USD mint price on the page yet.** Phases are priced in USD cents and
@@ -171,29 +204,42 @@ attribute, not an asset.
 
 ## Every number, and where it comes from
 
+Re-verified against source on 16 September 2026. The supply, phase, badge,
+reserve and wallet-cap rows below were all stale from the pre-2026-08-26
+numbering and have been corrected.
+
 | Number | Meaning | Source |
 |---|---|---|
-| 10,000 | Positions supply | `contracts/SuwappuPositions.sol` `MAX_SUPPLY` |
+| 4,444 | Positions supply | `contracts/SuwappuPositions.sol` `MAX_SUPPLY` |
 | 35 | Priced tickers of ~96 tokenized equities | `TICKER_COUNT`; `nft/position-cards/README.md` |
-| 40% | Proportional holder discount | `config.json` `hold_discount_fraction` |
+| 40% | Proportional holder discount, standard card | `config.json` `hold_discount_fraction` |
+| 55% | Proportional holder discount, Founders' Gold | `config.json` `gold_discount_fraction` |
+| 60% | Hard ceiling any card discount can be tuned to | `MAX_HOLD_DISCOUNT_FRACTION_BPS`; `config.json` `max_discount_fraction` |
 | 100 bps | FREE-tier swap fee | `bot/services/fee_service.py` |
-| 0.1% | Floor after all discounts | `bot/services/fee_service.py` |
-| 1,500 / 3 / free | Founder allocation / cap / price | `config.json` `mint.phases` |
-| 4,000 / 2 / 2000c | Allowlist | `config.json` `mint.phases` |
-| 4,300 / 5 / 4000c | Public | `config.json` `mint.phases` |
-| 50 | `MAX_PER_WALLET` hard backstop | `contracts/SuwappuPositions.sol` |
-| 200 | Team reserve | `RESERVE_MAX` |
+| 0.1% | Floor on the points step only | `MIN_EFFECTIVE_FEE_RATE` |
+| 2 bps | Absolute floor on the final charged rate | `ABSOLUTE_FLOOR` |
+| none | Card and points discount on Enterprise | `bot/services/fee_service.py:266` |
+| 444 / 1 / free | Founder allocation / wallet cap / price | `config.json` `mint.phases` |
+| 1,555 / 2 / 1900c | Allowlist allocation / wallet cap / price | `config.json` `mint.phases` |
+| 1,845 / 5 / 1900c | Public allocation / wallet cap / price | `config.json` `mint.phases` |
+| 555 / 2 / 11900c | Founders' Gold allocation / wallet cap / price | `config.json` `mint.phases` |
+| 20 | `MAX_PER_WALLET` hard backstop | `contracts/SuwappuPositions.sol` |
+| 45 | Team reserve | `RESERVE_MAX` |
+| 200 bps | Secondary royalty (ERC-2981) | `contracts/SuwappuPositions.sol` |
 | gold/platinum/diamond, $50k, 5 verified referrals | Founder eligibility | `build_allowlist.py` `classify()` |
 | 5 swaps, $1k, 1 verified referral | Allowlist eligibility | `build_allowlist.py` `classify()` |
-| 500 / 2,000 | Founder / Early rank badges | `config.json` |
+| 222 / 888 | Founder / Early rank badges | `config.json` `early_mint_badge_ranks` |
 | $9.99 / $29.99 / $99.99 | Pro / Premium / Enterprise per 30 days, USDG | `contracts/SuwappuMembership.sol` |
 | 1.0 / 0.5 / 0.3 / 0.1% | Tier swap rates | `bot/services/fee_service.py` |
 
 ## Voice reference
 
-- "The execution layer between intent and markets." — `showcase/src/app/page.tsx`
-- "Suwappu turns a trade intent into an inspectable route and controlled
-  execution across supported markets." — `showcase/messages/en.json`
+The live hero copy, quoted from `showcase/messages/en.json`:
+
+- "The full-stack trading platform for cross-chain markets."
+- "Send a trade intent. Suwappu ranks every venue, shows the route, and executes only when you approve. Execution, research, and portfolio tracking live in one venue."
+
+Sentence-level rules for this document are in [`docs/WRITING.md`](../WRITING.md).
 
 ## Market grounding
 
@@ -203,9 +249,9 @@ attribute, not an asset.
 - Retweet/Discord allowlist farming produced mercenary, low-conviction holders;
   stronger projects moved to sustained-engagement requirements. Supports gating on
   real product usage. ([Fortune](https://fortune.com/2022/02/28/what-are-nft-whitelists-and-how-to-get-on-one/))
-- Current practice distinguishes transferable membership NFTs from soulbound ones,
-  recommending non-transferable where access is personal or compliance-sensitive —
-  which is why Membership is soulbound.
+- Current practice distinguishes transferable membership NFTs from soulbound ones.
+  It recommends non-transferable where access is personal or compliance-sensitive.
+  That is why Membership is soulbound.
   ([CoinGecko](https://www.coingecko.com/learn/soulbound-tokens-sbt))
 - **Unverified:** no rigorous study quantifying earned vs social allowlists was
   found. Directionally supported, not proven.

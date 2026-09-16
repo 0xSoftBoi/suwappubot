@@ -61,6 +61,11 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "  Update the doc alongside the rename/removal that stranded it."
     exit 1
   fi
+  echo "=== Launch-copy numbers vs source ==="
+  if ! python3 scripts/check_positions_numbers.py; then
+    echo "✗ Customer-facing copy cites numbers its own source contradicts."
+    exit 1
+  fi
   echo "=== Writing standard (advisory, docs/WRITING.md) ==="
   python3 scripts/copy_lint.py --summary \
     docs/WRITING.md docs/README.md docs/quickstart.md docs/research docs/marketing \
