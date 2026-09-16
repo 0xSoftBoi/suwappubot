@@ -15,6 +15,15 @@ if [[ "$MODE" == "all" || "$MODE" == "python" ]]; then
   echo "=== Python syntax ==="
   find api bot database -name "*.py" -not -path "*/\.*" | xargs python3 -m py_compile
   echo "✓ Python OK"
+
+  # A MarkdownV2 message with unescaped punctuation is rejected by Telegram at
+  # send time. Nothing else in CI performs a real send, so the user just never
+  # receives the message.
+  echo "=== Telegram MarkdownV2 escaping ==="
+  if ! python3 scripts/check_markdown_escapes.py; then
+    echo "✗ A bot message would be rejected by Telegram at send time."
+    exit 1
+  fi
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "api" ]]; then

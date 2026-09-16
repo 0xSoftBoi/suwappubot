@@ -257,3 +257,18 @@ ADRs 0001–0005.
 - **Guard**: `scripts/check_generated_docs.sh`, in the `docs` verify lane,
   regenerates and fails if the committed artifacts differ. Verified to fire on
   an un-regenerated gitbook edit.
+
+### A MarkdownV2 message with unescaped punctuation fails only at send time
+- **What**: Telegram rejects a `parse_mode="MarkdownV2"` message whose reserved
+  punctuation is not backslash-escaped, with a 400 at send time. CI performs no
+  real send, so the user simply never receives the message.
+- **Why it matters for copy**: legacy `Markdown` (576 call sites here) does not
+  require `.` to be escaped; MarkdownV2 (9 sites) does. Rewriting an em-dash to
+  a period is safe in one and breaks the other, so any prose edit to bot strings
+  has to be parse-mode aware.
+- **Guard**: `scripts/check_markdown_escapes.py` in the `python` verify lane. It
+  checks only punctuation that is always reserved, and skips `*`, `_` and any
+  literal containing a backtick, because those are formatting delimiters and
+  concatenated code spans cannot be resolved from a single literal. Precision
+  over recall: an earlier version flagged bold markers and `callback_data` and
+  would have been ignored within a day.
