@@ -1,6 +1,6 @@
 # Authentication
 
-Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other credentials to manage — signing and settlement happen server-side with managed wallets.
+Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other credentials to manage. Signing and settlement happen server-side with managed wallets.
 
 ## Getting a key
 
@@ -43,7 +43,7 @@ fetch('https://api.suwappu.bot/v1/agent/me', {
 })
 ```
 
-Public endpoints — `POST /v1/agent/register` and `GET /v1/agent/chains` — do not require a key.
+Two endpoints do not require a key: `POST /v1/agent/register` and `GET /v1/agent/chains`.
 
 ## Key rotation
 
@@ -68,7 +68,7 @@ See [`POST /v1/agent/keys/rotate`](../api-reference/keys.md) for details.
 
 ## Managed wallets and signing
 
-Suwappu agents use **managed (Turnkey) wallets**. Private keys live in Turnkey's secure enclaves and never touch your code or Suwappu's application servers. When you call [`POST /v1/agent/swap/execute`](../api-reference/swap-execute.md), Suwappu signs and broadcasts on your behalf using your agent's managed wallet — you only ever send a `quote_id`.
+Suwappu agents use **managed (Turnkey) wallets**. Private keys live in Turnkey's secure enclaves and never touch your code or Suwappu's application servers. When you call [`POST /v1/agent/swap/execute`](../api-reference/swap-execute.md), Suwappu signs and broadcasts on your behalf using your agent's managed wallet. You only ever send a `quote_id`.
 
 A managed wallet's address is bound to your agent. Swap, portfolio, and execute endpoints reject any `wallet_address` that is not your own managed wallet, which prevents constructing fund-moving transactions from arbitrary addresses or enumerating other agents' balances.
 
@@ -79,5 +79,5 @@ If you prefer self-custody, use [`POST /v1/agent/swap`](../api-reference/swap.md
 - **Treat your key like a password.** Anyone with it can swap from your managed wallet. Store it in a secret manager, never in source control.
 - **Use HTTPS only.** All requests must go to `https://api.suwappu.bot`.
 - **Scope wallet permissions.** Attach Turnkey spending-limit and address-whitelist policies to your managed wallet via `POST /v1/agent/wallet/policy` to cap what a compromised key can do.
-- **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC (keyed with the SHA-256 of your API key) on every webhook before trusting it. See [Webhooks](../api-reference/webhooks.md).
+- **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC on every webhook before trusting it. It is keyed with the SHA-256 of your API key. See [Webhooks](../api-reference/webhooks.md).
 - See [Rate Limits](rate-limits.md) for per-tier request quotas.

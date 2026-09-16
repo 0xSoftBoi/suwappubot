@@ -10,8 +10,8 @@ Notable changes to the Suwappu agent API, SDK, and docs. Dates are in UTC. Break
 
 ## 2026-06-10
 
-- **Tempo gasless swaps.** New users get their first swaps sponsored via Tempo fee-payer (type `0x76`) transactions — effectively gasless onboarding on TIP-20 stablecoins. Falls back to a normal user-paid swap when sponsorship is unavailable.
-- **Suwappu Micropayments (pathUSD)** endpoints for browsing and paying micropayment services on Tempo (internally referred to as "MPP" — not Google's AP2 or Stripe/Tempo's Machine Payments Protocol).
+- **Tempo gasless swaps.** New users get their first swaps sponsored via Tempo fee-payer (type `0x76`) transactions, for gasless onboarding on TIP-20 stablecoins. Falls back to a normal user-paid swap when sponsorship is unavailable.
+- **Suwappu Micropayments (pathUSD)** endpoints for browsing and paying micropayment services on Tempo. Internally this is referred to as "MPP," distinct from Google's AP2 and Stripe/Tempo's Machine Payments Protocol.
 
 ## 2026-05-22
 

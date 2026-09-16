@@ -1,6 +1,6 @@
 # Rate Limits
 
-Suwappu rate-limits requests with a sliding 60-second window. Authenticated agent endpoints are limited per agent by tier; public endpoints are limited per client IP. Limits are subject to change — always read the response headers rather than hard-coding values.
+Suwappu rate-limits requests with a sliding 60-second window. Authenticated agent endpoints are limited per agent by tier. Public endpoints are limited per client IP. Limits are subject to change, so always read the response headers rather than hard-coding values.
 
 ## Per-agent limits (authenticated)
 
@@ -44,7 +44,7 @@ You receive a `429 Too Many Requests`. Back off until `Retry-After` seconds have
 }
 ```
 
-A robust client reads `Retry-After` and retries with exponential backoff rather than hammering the endpoint.
+A well-behaved client reads `Retry-After` and retries with exponential backoff rather than hammering the endpoint.
 
 ## Tips
 

@@ -81,6 +81,10 @@ LABEL_DASH_RE = re.compile(r"^[^.!?]{1,80}?\s[—–]\s")
 NUMERIC_RANGE_RE = re.compile(
     r"(?<=\d)[—–](?=[\d$])" r"|(?<=[kKmMbB%])[—–](?=[\d$])" r"|(?<=\d)[—–](?=[kKmMbB])"
 )
+# The same range, but with inline-code endpoints (`0.5`–`2`). strip_inline
+# blanks code spans, which would turn this into a bare dash between two spaces
+# and look exactly like glue, so it is neutralised on the raw text first.
+CODE_RANGE_RE = re.compile(r"`[^`]*\d[^`]*`\s?[—–]\s?`[^`]*\d[^`]*`")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(\[])")
 
 SKIP_DIRS = {"node_modules", ".next", "dist", "build", ".git", "vendor", "lib"}
@@ -206,7 +210,12 @@ def lint_paragraph(path: Path, line: int, para: str, is_list: bool = False) -> l
             findings.append(f"{loc}: W01 sentence of {words} words: {s[:80]}…")
     # A dash right after a short label at the start of a list item ("**Term** — what
     # it is", "[Link](x) — summary") is a separator, not sentence glue. Strip one.
-    dash_text = LABEL_DASH_RE.sub("", clean, count=1) if is_list else clean
+    # A range whose endpoints are inline code (`5`–`25`) loses its digits to
+    # strip_inline, so neutralise it on the raw text before that happens.
+    dash_text = CODE_RANGE_RE.sub("0-0", para)
+    dash_text = strip_inline(dash_text)
+    if is_list:
+        dash_text = LABEL_DASH_RE.sub("", dash_text, count=1)
     dash_text = NUMERIC_RANGE_RE.sub("-", dash_text)
     if EMDASH_RE.search(dash_text):
         findings.append(f"{loc}: W02 em-dash as glue: {clean[:80]}…")

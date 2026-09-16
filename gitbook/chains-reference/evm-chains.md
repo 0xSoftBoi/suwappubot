@@ -62,7 +62,7 @@ These chains settle to or are secured by Bitcoin. Note that GOAT and Citrea use 
 
 EVM swaps race up to nine aggregators and bridges for the best execution price:
 
-- **Li.Fi** — same-chain and cross-chain routing across most EVM chains
+- **Li.Fi**: same-chain and cross-chain routing across most EVM chains
 - **CoW Protocol** — batch-auction, MEV-protected settlement
 - **OKX** — DEX aggregation
 - **1inch** — DEX aggregation
@@ -71,11 +71,11 @@ EVM swaps race up to nine aggregators and bridges for the best execution price:
 - **CCTP** — native USDC bridging
 - **GOATSwap / JuiceSwap** — chain-specific venues for GOAT and Citrea, which aggregators do not cover
 
-The API returns the best available route automatically — you do not choose the aggregator.
+The API returns the best available route automatically. You do not choose the aggregator.
 
 ## Native vs. Wrapped Tokens
 
-For native-token swaps (ETH, BNB, MATIC, AVAX, etc.), pass the token symbol (e.g. `ETH`) as `from_token` or `to_token`. Chains with non-ETH native tokens (BNB, MATIC, AVAX, FTM, MNT, xDAI, SEI, BERA, S, FLR, KAIA, APE, RBTC, cBTC, BTC, HYPE, XPL, FRAX, FLOW) use that symbol as the native unit.
+For native-token swaps (ETH, BNB, MATIC, AVAX, etc.), pass the token symbol (e.g. `ETH`) as `from_token` or `to_token`. Chains with non-ETH native tokens use that symbol as the native unit: BNB, MATIC, AVAX, FTM, MNT, xDAI, SEI, BERA, S, FLR, KAIA, APE, RBTC, cBTC, BTC, HYPE, XPL, FRAX, and FLOW.
 
 ## Discovering Tokens
 

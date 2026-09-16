@@ -1,6 +1,6 @@
 # Agentic Payments (x402)
 
-Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol. A paid endpoint or MCP tool call that would exceed your credit balance returns an HTTP `402 Payment Required` challenge instead of failing outright. x402-aware clients, such as `x402-axios` and `x402-fetch`, parse the challenge, settle the payment, and retry the original request automatically.
+Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol. A paid endpoint or MCP tool call that would exceed your credit balance returns an HTTP `402 Payment Required` challenge. It does not fail outright. x402-aware clients, such as `x402-axios` and `x402-fetch`, parse the challenge, settle the payment, and retry the original request automatically.
 
 This only applies to the `free` rate-limit tier. Agents on `agent`, `pro`, `premium`, or `enterprise` bypass metering entirely. See [Pricing](pricing.md) for the tier table.
 

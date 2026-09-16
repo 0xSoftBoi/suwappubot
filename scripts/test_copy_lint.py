@@ -37,6 +37,11 @@ CASES: list[tuple[str, bool, set[str]]] = [
     ("Stake sits between 500k–1M HYPE on that validator.", False, set()),
     # A second dash past the label is still glue.
     ("**HIP-4** — outcome markets. Verify the cap — the spec moved.", True, {"W02"}),
+    # Regression: a range whose endpoints are inline code is still a range.
+    ("Slippage runs `0.5`–`2` percent on that pair.", False, set()),
+    ("Set it between `100`–`500` basis points.", False, set()),
+    # But a code span on one side of real glue is still glue.
+    ("The `quote_id` expires — refresh it before you simulate.", False, {"W02"}),
     # --- W01: sentence length ----------------------------------------------
     (" ".join(["word"] * 40) + ".", False, {"W01"}),
     (" ".join(["word"] * 20) + ".", False, set()),
