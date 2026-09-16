@@ -198,7 +198,7 @@ async def _render_token_card(
     # canonical equity contracts until we have a dedicated eligibility flow.
     if info["chain"] == "robinhood" and is_robinhood_equity_address(address):
         await update.message.reply_text(
-            f"*{safe_md(info['symbol'])}* — Robinhood Stock Token\n\n"
+            f"*{safe_md(info['symbol'])}*: Robinhood Stock Token\n\n"
             "Trading canonical Robinhood Stock Tokens is *not enabled* in Suwappu yet. "
             "These assets have jurisdiction and eligibility requirements that need a "
             "dedicated verification flow before we can expose a Buy action.",
@@ -234,9 +234,9 @@ async def _render_token_card(
     # forwarded-tweet/pasted honeypot before it ever reaches the swap confirm.
     if is_honeypot:
         await update.message.reply_text(
-            f"*{safe_md(info['symbol'])}* — {safe_md(info.get('name', ''))}\n"
+            f"*{safe_md(info['symbol'])}*: {safe_md(info.get('name', ''))}\n"
             f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
-            f"🛑 *HONEYPOT DETECTED* — simulation shows this token *cannot be sold* "
+            f"🛑 *HONEYPOT DETECTED*. Simulation shows this token *cannot be sold* "
             f"after buying. Buying is blocked to protect your funds.",
             parse_mode="Markdown",
         )
@@ -248,9 +248,9 @@ async def _render_token_card(
     gate = await check_address_gate(address, chain=info["chain"])
     if gate.blocked:
         await update.message.reply_text(
-            f"*{safe_md(info['symbol'])}* — {safe_md(info.get('name', ''))}\n"
+            f"*{safe_md(info['symbol'])}*: {safe_md(info.get('name', ''))}\n"
             f"{chain_emoji} {chain_label}  `{_short(address)}`\n\n"
-            f"🛑 *BLOCKED* — {safe_md(gate.reason)}. Buying is blocked to protect your funds.",
+            f"🛑 *BLOCKED*: {safe_md(gate.reason)}. Buying is blocked to protect your funds.",
             parse_mode="Markdown",
         )
         return
@@ -358,7 +358,7 @@ async def paste_check_hint_callback(update: Update, context: ContextTypes.DEFAUL
     await query.answer()
     await query.edit_message_text(
         "🛡️ *Check a token*\n\nSend `/check <address>` or just paste the token "
-        "contract address — I'll run a safety check and show Buy options.",
+        "contract address. I'll run a safety check and show Buy options.",
         parse_mode="Markdown",
     )
 

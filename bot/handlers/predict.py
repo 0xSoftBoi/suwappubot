@@ -1317,7 +1317,7 @@ async def confirm_redeem_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(
         "*Redeeming...*\n\n"
         "Sending the on-chain redeem transaction on Polygon.\n"
-        "Please wait — this can take up to a couple of minutes.",
+        "Please wait. This can take up to a couple of minutes.",
         parse_mode="Markdown",
     )
 
@@ -1373,7 +1373,7 @@ async def confirm_redeem_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(
             "*Redeem Failed*\n\n"
             "An unexpected error occurred. Your winning position is unchanged "
-            "and still claimable — try again from /predict.",
+            "and still claimable. Try again from /predict.",
             parse_mode="Markdown",
         )
 

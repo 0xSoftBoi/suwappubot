@@ -438,7 +438,7 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # than silently deduct points for something we cannot fulfill.
     if reward_type in ("partner_transfer", "miles", "cashout", "stablecoin"):
         await query.answer(
-            "That reward is coming soon — partner redemptions aren't live yet.",
+            "That reward is coming soon. Partner redemptions aren't live yet.",
             show_alert=True,
         )
         return

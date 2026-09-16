@@ -293,9 +293,9 @@ async def airdrop_enter_total(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(
         "*Step 4/5: How to split?*\n\n"
         "Reply with one of:\n"
-        "• `fixed 0.5`: each claimer gets exactly 0.5 tokens\n"
-        "• `split 100`: split evenly among the first 100 claimants\n"
-        "• `unlimited 0.5`: fixed amount, no cap on claimants",
+        "• `fixed 0.5`: each claimer gets exactly 0.5 tokens.\n"
+        "• `split 100`: split evenly among the first 100 claimants.\n"
+        "• `unlimited 0.5`: fixed amount, no cap on claimants.",
         parse_mode="Markdown",
         reply_markup=_CANCEL_KB,
     )

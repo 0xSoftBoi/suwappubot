@@ -641,7 +641,7 @@ async def select_from_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"{to_chain_config.logo_emoji} To: *Robinhood* "
             f"({safe_md(locked_destination.get('symbol', 'token'))})\n\n"
             "Enter the amount to spend. Suwappu will bridge and swap into the "
-            "destination token together — no manual bridge required.",
+            "destination token together. No manual bridge required.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("❌ Cancel", callback_data="swap_cancel")]]
@@ -1476,7 +1476,7 @@ async def twofa_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("🚫 Too many invalid 2FA codes. Swap cancelled.")
             return ConversationHandler.END
         await update.message.reply_text(
-            f"❌ Invalid code. {3 - attempts} attempt(s) left — try again:"
+            f"❌ Invalid code. {3 - attempts} attempt(s) left. Try again:"
         )
         return ENTER_2FA_CODE
 
@@ -1488,8 +1488,7 @@ async def twofa_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE)
         quote_validator.validate_quote_freshness(swap_data["quote"])
     except SwapError:
         await update.message.reply_text(
-            "✅ Code verified — but the quote expired in the meantime. "
-            "Get a fresh one to continue:",
+            "✅ Code verified. The quote expired in the meantime. " "Get a fresh one to continue:",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [InlineKeyboardButton("🔄 New Quote", callback_data="swap_requote")],
@@ -2203,7 +2202,7 @@ async def paste_buy_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(
             f"🌉 *Fund {safe_md(token.get('symbol', 'this token'))} from another chain*\n\n"
             "Choose where your funds are now. Suwappu will quote the bridge and "
-            "Robinhood destination swap together — no manual bridge or pre-funded "
+            "Robinhood destination swap together. No manual bridge or pre-funded "
             "Robinhood ETH required for the purchase route.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard),

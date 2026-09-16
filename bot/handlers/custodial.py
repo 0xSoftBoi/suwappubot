@@ -629,7 +629,7 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # below is the durable backstop (covers process restarts / multi-worker),
     # this flag just avoids two concurrent in-process sends for the common case.
     if context.user_data.get("withdraw_in_flight"):
-        await query.answer("Withdrawal already in progress — please wait.", show_alert=True)
+        await query.answer("Withdrawal already in progress. Please wait.", show_alert=True)
         return CONFIRM_WITHDRAWAL
     context.user_data["withdraw_in_flight"] = True
 
@@ -804,8 +804,8 @@ async def withdraw_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await query.edit_message_text(
                 "⏳ *Withdrawal Submitted*\n\n"
                 "We couldn't confirm your withdrawal reached the network right away. "
-                "We're checking — it will either complete or be automatically refunded. "
-                "No action needed; check /orders shortly for status.",
+                "We're checking. It will either complete or be automatically refunded. "
+                "No action needed. Check /orders shortly for status.",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("🏦 Custodial", callback_data="custodial_menu")]]

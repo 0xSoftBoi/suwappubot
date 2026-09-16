@@ -60,8 +60,8 @@ async def position_cards_command(update: Update, context: ContextTypes.DEFAULT_T
             "📈 *Suwappu Positions*\n\n"
             f"Pick any of the {len(PRICED_TICKERS)} tokenized equities with a live "
             "Chainlink feed on Robinhood Chain and open a position on it. Your entry "
-            "price is stamped on-chain at mint and never "
-            "changes — the card re-renders against the live price forever.\n\n"
+            "price is stamped on-chain at mint and never changes. "
+            "The card re-renders against the live price forever.\n\n"
             "_Not live yet._",
             parse_mode="Markdown",
         )

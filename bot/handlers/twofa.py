@@ -100,7 +100,7 @@ async def twofa_enable_callback(update: Update, context: ContextTypes.DEFAULT_TY
         "or open this link on a device with the app installed:\n"
         f"`{uri}`\n\n"
         "2. Then send me the 6-digit code it shows.\n\n"
-        "⚠️ _This message self-destructs once 2FA is activated — save the "
+        "⚠️ _This message self-destructs once 2FA is activated. Save the "
         "secret in your authenticator first._",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
@@ -125,11 +125,11 @@ async def twofa_enroll_code(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         context.user_data["twofa_attempts"] = attempts
         if attempts >= MAX_CODE_ATTEMPTS:
             await update.message.reply_text(
-                "🚫 Too many invalid codes. 2FA was NOT enabled — run /2fa to retry."
+                "🚫 Too many invalid codes. 2FA was NOT enabled. Run /2fa to retry."
             )
             return ConversationHandler.END
         await update.message.reply_text(
-            f"❌ Invalid code. {MAX_CODE_ATTEMPTS - attempts} attempt(s) left — try again:"
+            f"❌ Invalid code. {MAX_CODE_ATTEMPTS - attempts} attempt(s) left. Try again:"
         )
         return TWOFA_ENROLL_CODE
 
@@ -183,7 +183,7 @@ async def twofa_disable_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("🚫 Too many invalid codes. 2FA stays enabled.")
             return ConversationHandler.END
         await update.message.reply_text(
-            f"❌ Invalid code. {MAX_CODE_ATTEMPTS - attempts} attempt(s) left — try again:"
+            f"❌ Invalid code. {MAX_CODE_ATTEMPTS - attempts} attempt(s) left. Try again:"
         )
         return TWOFA_DISABLE_CODE
 

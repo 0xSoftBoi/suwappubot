@@ -253,7 +253,7 @@ async def gift_value_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         value = float(raw_value)
     except ValueError:
-        await query.answer("Invalid value — please try again.")
+        await query.answer("Invalid value. Please try again.")
         return GIFT_VALUE
 
     context.user_data["gift_value"] = value

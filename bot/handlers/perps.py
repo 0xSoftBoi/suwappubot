@@ -135,14 +135,14 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif data == "perps_info":
         await query.edit_message_text(
             "\u2139\ufe0f **What is Perps Trading?**\n\n"
-            "Perpetual futures let you trade with leverage \u2014 "
-            "amplifying gains (and losses) without expiration dates.\n\n"
+            "Perpetual futures let you trade with leverage. "
+            "It amplifies gains and losses, without expiration dates.\n\n"
             "**Key Terms:**\n"
-            "\u2022 **Long** \u2014 Profit when price goes up\n"
-            "\u2022 **Short** \u2014 Profit when price goes down\n"
-            "\u2022 **Leverage** \u2014 Multiplier (1x up to per-market max on HyperLiquid)\n"
-            "\u2022 **Liquidation** \u2014 Position auto-closed if losses exceed margin\n"
-            "\u2022 **TP/SL** \u2014 Auto-close at profit target or loss limit\n\n"
+            "\u2022 **Long**: profit when price goes up.\n"
+            "\u2022 **Short**: profit when price goes down.\n"
+            "\u2022 **Leverage**: multiplier (1x up to per-market max on HyperLiquid).\n"
+            "\u2022 **Liquidation**: position auto-closed if losses exceed margin.\n"
+            "\u2022 **TP/SL**: auto-close at profit target or loss limit.\n\n"
             "\u26a0\ufe0f Higher leverage = higher risk. Start small!",
             parse_mode="Markdown",
         )

@@ -381,8 +381,8 @@ async def handle_nl_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 # rather than guessing at a conversion (no execution logic
                 # duplicated here).
                 await update.message.reply_text(
-                    "I can't size that automatically yet — "
-                    f"try `/s <amount> {intent.token_in} {intent.token_out}` "
+                    "I can't size that automatically yet. "
+                    f"Try `/s <amount> {intent.token_in} {intent.token_out}` "
                     "with a specific amount.",
                     parse_mode="Markdown",
                 )
