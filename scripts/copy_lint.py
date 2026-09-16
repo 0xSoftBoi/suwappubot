@@ -68,7 +68,19 @@ HEDGE_RE = re.compile(
 # Em-dash with or without surrounding spaces, or the "--" habit.
 EMDASH_RE = re.compile(r"\s?[—–]\s?|\s--\s")
 PAREN_RE = re.compile(r"\(([^()]{1,400})\)")
-LABEL_DASH_RE = re.compile(r"^[^.!?—–]{1,80}?\s?[—–]\s?")
+# A dash that separates a leading label from its definition ("**Term** — what it
+# is") is punctuation, not sentence glue, so one is stripped from a list item
+# before the glue check. It must be flanked by spaces on BOTH sides: an en-dash
+# closed up inside the label ("**June–July 2025** — backlash") is part of a
+# range, and a non-greedy match would otherwise stop there and strip the wrong
+# dash, leaving the real separator to misfire.
+LABEL_DASH_RE = re.compile(r"^[^.!?]{1,80}?\s[—–]\s")
+# A closed-up dash between numbers, or between a magnitude suffix and a number,
+# is a range ("$5–25", "2019–2024", "500k–1M", "Levels 0–2"). Ranges are not
+# glue, so they are neutralised before the glue check runs.
+NUMERIC_RANGE_RE = re.compile(
+    r"(?<=\d)[—–](?=[\d$])" r"|(?<=[kKmMbB%])[—–](?=[\d$])" r"|(?<=\d)[—–](?=[kKmMbB])"
+)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'“(\[])")
 
 SKIP_DIRS = {"node_modules", ".next", "dist", "build", ".git", "vendor", "lib"}
@@ -195,6 +207,7 @@ def lint_paragraph(path: Path, line: int, para: str, is_list: bool = False) -> l
     # A dash right after a short label at the start of a list item ("**Term** — what
     # it is", "[Link](x) — summary") is a separator, not sentence glue. Strip one.
     dash_text = LABEL_DASH_RE.sub("", clean, count=1) if is_list else clean
+    dash_text = NUMERIC_RANGE_RE.sub("-", dash_text)
     if EMDASH_RE.search(dash_text):
         findings.append(f"{loc}: W02 em-dash as glue: {clean[:80]}…")
     for m in BANNED_RE.finditer(clean):
