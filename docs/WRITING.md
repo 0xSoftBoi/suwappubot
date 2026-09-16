@@ -79,6 +79,33 @@ Follow this order. Skip a step only if the piece is under 400 words.
   (`showcase/src/data/stats.generated.json`).
 - **Never substitute demo data for missing live data.** Say it is unavailable.
 
+### A cited number is a promise. Check it.
+
+A number that names its source is the most dangerous sentence in a document.
+The citation makes the reader stop checking, so the number outlives the thing it
+was copied from.
+
+The Positions launch copy advertised 10,000 cards while citing the contract
+constant that reads 4,444. It quoted a Founder wallet cap of 3 against a
+configured cap of 1. It promised a 40% Enterprise fee discount that
+`fee_service.py` explicitly refuses to grant. Every one of those had a source
+reference sitting beside it.
+
+Four rules follow from that:
+
+1. **Re-derive, do not re-read.** Open the file the copy cites and read the
+   constant. A second document quoting the same number is not a source.
+2. **A promise about money gets a test.** Any customer-facing number that comes
+   from a constant belongs in an automated check.
+   `scripts/check_positions_numbers.py` is the pattern. It re-derives each
+   number from the contract and the mint config, and fails the docs lane when
+   copy and source disagree. A check that has never failed is not yet a check,
+   so break the copy on purpose once and watch it go red.
+3. **Never state a benefit the code declines to give.** A tier excluded in code
+   is excluded in copy, in the same table, with the reason beside it.
+4. **Date the reconciliation.** Say when the numbers were last checked against
+   source, so the next reader knows how much to trust them.
+
 ## 6. The pull quote
 
 Every research post, launch page, and letter carries one pull quote.
@@ -154,4 +181,22 @@ Before publishing any prose surface:
 - [ ] One pull quote, under 30 words, no numbers.
 - [ ] Headline four to nine words, sentence case, no colon-subtitle.
 - [ ] Nothing from the banned list.
+- [ ] Every cited number re-derived from the file it cites, not from another doc.
+- [ ] No claimed benefit that the code excludes.
 - [ ] `python3 scripts/copy_lint.py <path>` is clean or every warning is deliberate.
+- [ ] `bash scripts/verify.sh docs` passes.
+
+## 12. Rendering
+
+Prose only counts once it renders. Two defects shipped here because nobody
+looked at the page.
+
+- **Check the markdown a surface actually supports.** The renderer in
+  `showcase/src/app/docs/[section]/[slug]/markdown.ts` is hand-written, not a
+  library. It had no italics rule for months, so every `*deck line*` on every
+  research post published literal asterisks. Before relying on a markdown
+  feature, render a page and look.
+- **Say a thing once.** An on-page deck, an evidence card, and an italic
+  provenance line saying the same thing are two too many. Pick the slot that
+  owns the fact and delete the rest.
+- **Look at it at 390px.** Every prose surface gets read on a phone.

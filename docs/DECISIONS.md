@@ -209,3 +209,26 @@ ADRs 0001–0005.
   verify lane. Evidence: `docs/design/reference-breakdown-kamino-letter.md`.
 - **Why**: our research openings ran 35 to 50 word sentences with stacked
   hedges, and a skimmer could not find the one sentence to remember.
+
+### Customer-facing numbers are re-derived from source and gated by a check
+- **What**: Positions launch copy advertised 10,000 cards while citing the
+  contract constant that reads 4,444. It quoted a Founder wallet cap of 3
+  against a configured cap of 1. It promised a 40% Enterprise fee discount that
+  `fee_service.py:266` refuses to grant. All three carried a source citation.
+  `scripts/check_positions_numbers.py` now re-derives every one of those numbers
+  from `contracts/SuwappuPositions.sol` and `nft/position-cards/config.json` and
+  fails `scripts/verify.sh docs` on disagreement. Verified to go red on both the
+  supply revert and the Enterprise claim before being trusted.
+- **Why**: a citation makes a reader stop checking, so a cited number that drifts
+  outlives the thing it was copied from. Rule in `docs/WRITING.md` §5.
+
+### The docs markdown renderer is hand-written, so features must be verified
+- **What**: `showcase/src/app/docs/[section]/[slug]/markdown.ts` had no italics
+  rule, so every `*deck line*` on every research post and doc page rendered
+  literal asterisks in production. Added one that runs after bold and after both
+  code paths, with code regions masked so no asterisk inside a fence or a code
+  span is consumed.
+- **Also**: the first attempt used raw NUL bytes as mask sentinels, which made
+  the source a binary file to grep and silently broke the restore pass. Use a
+  printable sentinel. Before relying on any markdown feature here, render the
+  page and look at it.
