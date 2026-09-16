@@ -112,7 +112,7 @@ def looks_like_prose(text: str) -> bool:
     not copy. Requiring sentence shape and rejecting code punctuation keeps the
     checker precise; a checker that cries wolf gets ignored.
     """
-    if any(tok in text for tok in (";", "=>", "){", "};", "()", "&&", "||", "://")):
+    if any(tok in text for tok in ("=>", "){", "};", "()", "&&", "||", "://")):
         return False
     if "\n" in text.strip():
         return False
@@ -120,6 +120,8 @@ def looks_like_prose(text: str) -> bool:
     if SVG_PATH.match(text.strip()):
         return False
     words = re.findall(r"[A-Za-z']{2,}", text)
+    if len(words) > 15 and not any(c in text for c in ".,!?"):
+        return False
     return len(words) >= 4
 
 
@@ -144,8 +146,8 @@ def scan_ts(root: pathlib.Path):
                 continue
             if not looks_like_prose(text):
                 continue
-            line_start = src.rfind("\n", 0, m.start()) + 1
-            if TS_DEV.search(src[line_start : m.start()]):
+            # The console.warn may open several lines above its string.
+            if TS_DEV.search(src[max(0, m.start() - 200) : m.start()]):
                 continue
             yield f, src[: m.start()].count("\n") + 1, text
 

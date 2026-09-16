@@ -466,7 +466,7 @@ export function SwapPanel() {
           >
             {([
               ['normal', 'Normal', '~0.001 SOL priority fee'],
-              ['fast', 'Fast', '~0.005 SOL priority fee — lands faster under congestion'],
+              ['fast', 'Fast', '~0.005 SOL priority fee. Lands faster under congestion.'],
               ['turbo', 'Turbo', 'MEV-protected Jito bundle (~0.005 SOL tip)'],
             ] as const).map(([val, label, hint]) => (
               <button

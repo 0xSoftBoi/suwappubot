@@ -265,7 +265,7 @@ export async function registerDeskTools(
     {
       name: 'preview_swap',
       description:
-        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the mandate verdict for this exact trade, and the route leg by leg: most cross-chain routes are more than one transaction (a swap, a bridge relay, another swap), and hops/hopCount report each leg with its tool, chains, tokens and amounts. Use this directly when the human asks what something is worth; it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
+        'Price a same-chain or cross-chain swap and show it on the page. Returns the amount out, minimum received, price impact, bridge fee, gas estimate, expected duration, the mandate verdict for this exact trade, and the route leg by leg. Most cross-chain routes are more than one transaction: a swap, a bridge relay, another swap. hops and hopCount report each leg with its tool, chains, tokens and amounts. Use this directly when the human asks what something is worth; it already tells you whether the trade fits their rules, so there is no need to read the mandate first. Indicative only: this never creates a transaction.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -555,7 +555,7 @@ export async function registerDeskTools(
     {
       name: 'propose_plan',
       description:
-        'Propose a SEQUENCE of steps as one reviewable unit: for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is "@prev" sells the full estimated output of the previous swap step, with fromToken and fromChain defaulting to where that leg lands; the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.',
+        'Propose a SEQUENCE of steps as one reviewable unit: for example bridge, then buy, then set an alert. The human approves the plan once instead of clicking through every leg. Steps can CHAIN: a swap step whose amount is "@prev" sells the full estimated output of the previous swap step. fromToken and fromChain default to where that leg lands. This is the shape of a real multi-hop relay, where later legs trade what earlier legs deliver rather than new money. Each step is priced and checked against the mandate individually; the combined notional counts new money once, not each re-trade of it. Prefer this over several propose_swap calls whenever the steps only make sense together.',
       inputSchema: {
         type: 'object',
         properties: {
