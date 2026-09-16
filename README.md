@@ -77,7 +77,7 @@
 
 ### One control plane, not one venue
 
-Suwappu normalizes an execution intent, discovers only the routes that can actually serve it, and compares eligible providers instead of hard-coding one exchange or bridge. The generated topology currently reports **45 platform chains, 18 Agent API chains, and 21 chain-gated routing integrations**. Those are platform totals—not a claim that every route races every provider.
+Suwappu normalizes an execution intent, discovers only the routes that can actually serve it, and compares eligible providers instead of hard-coding one exchange or bridge. The generated topology currently reports **45 platform chains, 18 Agent API chains, and 21 chain-gated routing integrations**. Those are platform totals. They are not a claim that every route races every provider.
 
 ### Human and agent surfaces share the same execution layer
 
@@ -89,7 +89,7 @@ Suwappu does not collapse “get a quote,” “prepare a transaction,” and �
 
 ### Execution is observable
 
-The system records route candidates, selected routes, execution/status data, and settlement evidence. New execution-synchronization work adds normalized receipts, provider calibration, and historical/walk-forward replay—but remains **shadow-only** until evidence supports a controlled promotion.
+The system records route candidates, selected routes, execution/status data, and settlement evidence. New execution-synchronization work adds normalized receipts, provider calibration, and historical/walk-forward replay. It remains **shadow-only** until evidence supports a controlled promotion.
 
 ### The platform extends beyond swaps
 
@@ -113,7 +113,7 @@ Start with the least-privileged capability your product needs and move downward 
 
 **Important naming boundary:** MCP `execute_swap` currently belongs to **Level 3**: it prepares an unsigned self-custody transaction. It does not invoke managed execution. A2A currently stops at discovery/quote semantics and has no fund-moving method.
 
-For an AI system, begin at Levels 0–2 with an application-owned allowlist. Add Level 3 or 4 only with explicit policy, limits, and approval appropriate to the value at risk.
+For an AI system, begin at Levels 0 to 2 with an application-owned allowlist. Add Level 3 or 4 only with explicit policy, limits, and approval appropriate to the value at risk.
 
 ---
 
@@ -272,7 +272,7 @@ The canonical definitions and version caveats are in [Product Status](docs/produ
 
 ## Security model for builders
 
-Suwappu moves money, so the security boundary belongs next to the integration flow—not at the bottom of the docs.
+Suwappu moves money, so the security boundary belongs next to the integration flow rather than at the bottom of the docs.
 
 - Keep credentials out of source and logs.
 - Prefer runtime discovery plus an **application-owned allowlist** of tools/capabilities.
@@ -282,7 +282,7 @@ Suwappu moves money, so the security boundary belongs next to the integration fl
 - Add explicit spend/value/destination policies before granting an agent Level 3 or 4 capability.
 - Treat signing, custody, routing, withdrawals, fee collection, and authorization changes as MONEY-PATH code requiring adversarial review.
 
-Read [SECURITY.md](SECURITY.md) and the [agent security baseline](docs/agent-clients.md#security-baseline-for-builders). The checked-in [CycloneDX SBOM](sbom/suwappubot.cdx.json), CodeQL, and OpenSSF tooling are security evidence—not an audit or compliance certification.
+Read [SECURITY.md](SECURITY.md) and the [agent security baseline](docs/agent-clients.md#security-baseline-for-builders). The checked-in [CycloneDX SBOM](sbom/suwappubot.cdx.json), CodeQL, and OpenSSF tooling are security evidence. They are not an audit or a compliance certification.
 
 ---
 
