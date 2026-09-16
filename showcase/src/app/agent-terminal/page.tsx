@@ -57,7 +57,7 @@ const TOOLS = [
   {
     name: 'preview_swap',
     kind: 'read',
-    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, plus the mandate verdict, and the route leg by leg, because most cross-chain routes are more than one transaction.',
+    body: 'Price a same-chain or cross-chain swap and render it on the desk: amount out, minimum received, price impact, bridge fee, gas, settlement time, and the mandate verdict. The route is shown leg by leg, because most cross-chain routes are more than one transaction.',
   },
   {
     name: 'compare_routes',
@@ -154,7 +154,7 @@ const PROOF_ITEMS = [
     n: PROOF_STATS.smokeAssertions,
     label: 'Behavioural assertions',
     suite: 'webmcp:smoke',
-    body: 'A spec-shaped document.modelContext polyfill drives the real page: a blocked proposal’s Approve button is disabled in the DOM, request_override does not exist until something is blocked, an approved amendment actually rewrites the mandate, the receipt keeps every rationale and override argument.',
+    body: 'A spec-shaped document.modelContext polyfill drives the real page. A blocked proposal’s Approve button is disabled in the DOM. request_override does not exist until something is blocked. An approved amendment rewrites the mandate, and the receipt keeps every rationale and override argument.',
   },
   {
     n: PROOF_STATS.specChecks,

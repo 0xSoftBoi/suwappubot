@@ -137,14 +137,14 @@ export async function routeRpc(
         // Known Solana method — explicitly unsupported (coming soon).
         throw new RpcError(
           RPC_ERROR_CODES.UNSUPPORTED_METHOD,
-          `Solana support coming soon — "${method}" is not yet available.`
+          `Solana support is coming soon. "${method}" is not yet available.`
         );
       }
 
       // Any other / default Solana method: also gated, never silently passed.
       throw new RpcError(
         RPC_ERROR_CODES.UNSUPPORTED_METHOD,
-        `Solana support coming soon — "${method}" is not yet available.`
+        `Solana support is coming soon. "${method}" is not yet available.`
       );
     } else {
       // Unknown chain

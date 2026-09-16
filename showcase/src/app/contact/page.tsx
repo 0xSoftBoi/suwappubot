@@ -55,8 +55,8 @@ export default function ContactPage() {
               {stats.platformChains} chains, self-custody or managed keys, one agent API.
             </h2>
             <p>
-              Prefer to send us a note first? Fill out the form and our team will follow up fast -
-              or book the call above and skip straight to a conversation.
+              Prefer to send us a note first? Fill out the form and our team will follow up fast.
+              Or book the call above and skip straight to a conversation.
             </p>
             <p className={styles.trustLabel}>Security &amp; trust</p>
             <ul className={styles.trustList}>

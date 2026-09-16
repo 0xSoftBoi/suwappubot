@@ -113,10 +113,11 @@ export default function SolutionsPage() {
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Solutions</p>
-          <h1>Quote, swap, and settle on {stats.agentApiChains} chains from one API key.</h1>
+          <h1>Quote, swap, and settle from one API key.</h1>
           <p className="mkt-hero__lead">
             Trading, portfolio management, pay-per-call commerce, or a wallet your app never has
-            to secure itself: the same REST API, MCP server, and A2A protocol cover all four.
+            to secure itself. The same REST API, MCP server, and A2A protocol cover all four,
+            across {stats.agentApiChains} chains.
           </p>
         </header>
 

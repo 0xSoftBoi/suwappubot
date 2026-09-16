@@ -90,8 +90,8 @@ export function Support() {
       await api.createSupportTicket({ kind, message: trimmed })
       toast.success(
         kind === 'bug'
-          ? 'Thanks — your bug report was sent. We will take a look.'
-          : 'Thanks — your support request was sent. We will get back to you.'
+          ? 'Thanks. We received your bug report and will take a look.'
+          : 'Thanks. We received your support request and will get back to you.'
       )
       setMessage('')
       await loadTickets()

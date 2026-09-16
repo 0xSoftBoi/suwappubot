@@ -20,7 +20,7 @@ const pipeline = [
   {
     label: 'Route',
     title: 'Query eligible venues',
-    body: `${stats.routerCount} providers are integrated platform-wide. The eligible set changes by chain and asset; a route only compares venues that can actually serve it.`,
+    body: `${stats.routerCount} providers are integrated platform-wide. The eligible set changes by chain and asset. A route only compares venues that can actually serve it.`,
   },
   {
     label: 'Simulate',
@@ -53,7 +53,7 @@ const surfaces = [
   {
     label: 'MCP / A2A',
     title: 'Capability follows the protocol boundary',
-    body: 'MCP exposes discoverable tools; the historical swap tool prepares unsigned self-custody transactions. A2A is an intent/quote task layer and does not silently inherit REST execution authority.',
+    body: 'MCP exposes discoverable tools. The historical swap tool prepares unsigned self-custody transactions. A2A is an intent/quote task layer and does not silently inherit REST execution authority.',
   },
 ] as const;
 
@@ -123,7 +123,7 @@ export default function ArchitecturePage() {
             <h2 id="pipeline-title">Make every boundary inspectable.</h2>
             <p>
               The architecture is deliberately staged. A quote can be useful without granting
-              signing power; an authorized transaction can be tracked without conflating broadcast
+              signing power. An authorized transaction can be tracked without conflating broadcast
               with final settlement.
             </p>
           </div>

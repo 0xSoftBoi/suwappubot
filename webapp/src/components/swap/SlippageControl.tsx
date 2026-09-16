@@ -76,7 +76,7 @@ function SlippageWarning({ slippage }: { slippage: number }) {
   if (slippage > 3) {
     return (
       <div className="mt-2 px-3 py-2 rounded-suwappu-lg bg-orange-50 border border-orange-200 text-xs text-impact-high">
-        High slippage — you may receive significantly less
+        High slippage. You may receive significantly less than expected.
       </div>
     )
   }
@@ -268,7 +268,7 @@ export const SlippageControl = React.memo(function SlippageControl({
 
             {settings.slippageMode === 'auto' && (
               <div className="mt-2 text-xs text-suwappu-magenta font-medium">
-                Auto — slippage adjusted dynamically
+                Auto. Slippage adjusts dynamically.
               </div>
             )}
 

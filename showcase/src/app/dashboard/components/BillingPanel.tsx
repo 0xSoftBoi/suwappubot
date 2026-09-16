@@ -168,14 +168,14 @@ export default function BillingPanel({
     const topup = params.get('topup');
     if (topup === 'success') {
       setNotice(
-        'Top-up received. Your balance updates once Stripe confirms the payment — usually within a few seconds.',
+        'Top-up received. Your balance updates once Stripe confirms the payment. That usually takes a few seconds.',
       );
       // Balance is granted by the webhook, which may land just after the
       // redirect; re-read shortly after so the number is not stale.
       const t = setTimeout(() => void load(), 3000);
       return () => clearTimeout(t);
     }
-    if (topup === 'cancel') setNotice('Top-up cancelled — no charge was made.');
+    if (topup === 'cancel') setNotice('Top-up cancelled. No charge was made.');
   }, [load]);
 
   /** POST an endpoint that returns { url } and send the browser there. */

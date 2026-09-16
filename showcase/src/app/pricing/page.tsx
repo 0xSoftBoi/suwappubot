@@ -202,7 +202,7 @@ const comparison: { category: string; rows: { label: string; values: string[] }[
 const faqs = [
   {
     q: 'How does the swap fee work?',
-    a: 'For account trading in the consumer product, the plan fee runs from 1.0% on Free down to 0.1% on Enterprise. The Agent API uses a separate route/configuration fee model; its current EVM/Solana defaults are not derived from the account plan. Developer integrations should read the live quote instead of applying this account fee ladder.',
+    a: 'For account trading in the consumer product, the plan fee runs from 1.0% on Free down to 0.1% on Enterprise. The Agent API uses a separate route/configuration fee model. Its current EVM/Solana defaults are not derived from the account plan, so developer integrations should read the live quote instead of applying this account fee ladder.',
   },
   {
     q: 'Can I cancel anytime?',
@@ -217,8 +217,8 @@ const faqs = [
     a: 'Effectively, yes. Every swap, perp, prediction-market and P2P trade earns loyalty points, and higher tiers earn faster: 1.1× on Pro, 1.25× on Premium, 1.5× on Enterprise. Redeem points for fee credits, gas rebates, or to cover your next month of subscription. Your activity also accrues season points that convert to SUWP.',
   },
   {
-    q: 'Can I earn a lower fee just by trading?',
-    a: 'Yes: your VIP status is the better of your plan and your trading. Rack up cross-product volume in a season (swaps, perps, prediction markets, P2P all count toward one status) and you auto-unlock a lower swap fee and a faster points multiplier, even on Free. Check /vip in the bot to see your status and the next threshold.',
+    q: 'Can I earn a lower fee by trading?',
+    a: 'Yes. Your VIP status takes the better of your plan and your trading volume. Swaps, perps, prediction markets, and P2P trades all count toward one season status, and enough volume earns a lower swap fee and a faster points multiplier, even on Free. Check /vip in the bot to see your status and the next threshold.',
   },
   {
     q: 'What does the Enterprise tier include that competitors do not?',
@@ -230,7 +230,7 @@ const faqs = [
   },
   {
     q: "What's a credit, for the Agent API?",
-    a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Metered reads such as quotes, simulation, prices, and portfolio cost 1 credit; chain/token discovery is free; transaction preparation and managed execution cost 5. Top up with USDC on Base when needed.',
+    a: 'Credits are the Agent API’s prepaid unit: 1 credit ≈ $0.001. Metered reads such as quotes, simulation, prices, and portfolio cost 1 credit, and chain/token discovery is free. Transaction preparation and managed execution cost 5 credits. Top up with USDC on Base when needed.',
   },
   {
     q: 'x402 pay-per-call vs a subscription, which should my agent use?',
@@ -404,8 +404,8 @@ export default function PricingPage() {
                   Talk to sales
                 </DemoCallCta>
                 <p className={styles.enterpriseNote}>
-                  30 minutes, no deck. Or <a href={ENTERPRISE_CONTACT_PATH}>send us a note</a> -
-                  we reply within one business day.
+                  30 minutes, no deck. Or <a href={ENTERPRISE_CONTACT_PATH}>send us a note</a>.
+                  We reply within one business day.
                 </p>
               </div>
             </div>
@@ -560,13 +560,13 @@ export default function PricingPage() {
             </table>
           </div>
           <p className="compare__note">
-            * This table is specifically for the Agent API, not the account-trading fee ladder
-            above. Agent-surface swap fees are not derived from the subscription tier. Current
-            source defaults are 0.8% on EVM routes and 0.3% on Solana routes; deployment
-            configuration can change them, so use the live quote as the economic source of truth.
-            Agent API subscription windows are 30-day prepaid, stackable crypto purchases through
-            the agent billing endpoint. Stripe checkout applies to human account plans and does not
-            currently set an Agent API key&apos;s subscription tier. Full endpoint list at{' '}
+            * This table covers the Agent API only, not the account-trading ladder above, and its
+            swap fees are not derived from the subscription tier. Current source defaults are 0.8%
+            on EVM routes and 0.3% on Solana routes, and deployment configuration can change them,
+            so treat the live quote as the source of truth. Agent API subscription windows are
+            30-day prepaid, stackable crypto purchases through the agent billing endpoint, while
+            Stripe checkout covers human account plans only and does not set an Agent API
+            key&apos;s subscription tier. Full endpoint list at{' '}
             <a href="https://api.suwappu.bot/v1/agent/openapi" target="_blank" rel="noopener noreferrer">
               the OpenAPI spec
             </a>{' '}

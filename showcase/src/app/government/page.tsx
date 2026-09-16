@@ -80,7 +80,7 @@ const sections = [
     code: 'ADDRESSING',
     title: 'EntityID Construction',
     body: [
-      'Identity is content-addressed: EntityID = H(content ‖ shape ‖ timestamp ‖ sender_pubkey), with BLAKE3-256 as the default hash (BLAKE2b-256 is an equally valid alternative; ZK mode substitutes Poseidon for circuit-friendliness).',
+      'Identity is content-addressed: EntityID = H(content ‖ shape ‖ timestamp ‖ sender_pubkey), with BLAKE3-256 as the default hash. BLAKE2b-256 is an equally valid alternative, and ZK mode substitutes Poseidon for circuit-friendliness.',
       'Any modification to the content produces a different EntityID. Theorem 3 (Entity Immutability) proves this holds under H’s collision resistance.',
     ],
     whatsNew:
@@ -93,7 +93,7 @@ const sections = [
     code: 'PRIMITIVE',
     title: 'Receiver-Bound Transfer Token',
     body: [
-      'Unlike bearer-style access grants or static read-caps, the sealed lattice key is cryptographically bound to a specific receiver’s ML-KEM-768 encapsulation key, carries inline access policy (one-time, time-bounded, delegatable), and uses a fresh per-transfer encapsulation for forward secrecy.',
+      'Unlike bearer-style access grants or static read-caps, the sealed lattice key is cryptographically bound to a specific receiver’s ML-KEM-768 encapsulation key. It carries inline access policy (one-time, time-bounded, delegatable), and uses a fresh per-transfer encapsulation for forward secrecy.',
     ],
     whatsNew:
       'Capability + receiver binding + per-message forward secrecy + inline policy, packed into a constant-size token. The whitepaper’s claim is that this specific bundle, applied to asynchronous capability-based retrieval, is not present in prior systems.',
@@ -108,7 +108,7 @@ const sections = [
       'Shard placement is derived from the EntityID via consistent hashing: no lookup service, no external metadata. Receivers materialize from geographically nearby commitment nodes, reconstructing from any k of n shards under Reed-Solomon erasure coding.',
     ],
     whatsNew:
-      'Fewer than k shards leak only a proportional fraction of joint entropy. AEAD remains the primary confidentiality guarantee; the erasure threshold is defense in depth, not the sole barrier.',
+      'Fewer than k shards leak only a proportional fraction of joint entropy. AEAD remains the primary confidentiality guarantee. The erasure threshold is defense in depth, not the sole barrier.',
     figLabel: 'placement.txt',
     fig: 'placement(shard_i) = ConsistentHash(EntityID ‖ shard_index) → node_set',
   },
@@ -120,7 +120,7 @@ const sections = [
       'LTP’s security proofs are stated against a standard PPT (probabilistic polynomial-time) adversary across Theorems 3-8. The corridor attestation flow and the COMMIT/LATTICE/MATERIALIZE message flow additionally have a symbolic Dolev-Yao model in Verifpal, run against an active attacker with full message-modification capability.',
     ],
     whatsNew:
-      'The Verifpal run verified both confidentiality queries; both authentication queries currently fail on cross-session replay of the sealed key: a disclosed, tracked finding, not a hidden gap.',
+      'The Verifpal run verified both confidentiality queries. Both authentication queries currently fail on cross-session replay of the sealed key: a disclosed, tracked finding, not a hidden gap.',
     figLabel: 'adversary.txt',
     fig: 'Theorems 3-8:        PPT adversary\nVerifpal (symbolic):  Dolev-Yao active attacker\n                      (unbounded sessions, full message modification)',
   },
@@ -130,7 +130,7 @@ const sections = [
     title: 'Transfer Immutability (Theorem 8)',
     body: [
       'Theorem 8 bounds the adversary’s advantage in the Transfer Immutability (TIMM) composite game by the sum of four independent barrier advantages: hash collision resistance (CR), ML-DSA-65 unforgeability (EUF-CMA), AEAD authentication (AUTH), and ML-KEM-768 indistinguishability (IND-CCA2).',
-      'The bound is a conservative union bound: winning via any single path still requires breaking two barriers in combination, never just one, so the true security margin is tighter than the sum suggests.',
+      'The bound is a conservative union bound: winning via any single path still requires breaking two barriers in combination, never one alone, so the true security margin is tighter than the sum suggests.',
     ],
     whatsNew:
       'A composite, chained security game across the full commit-to-materialize pipeline, rather than a proof about any one phase in isolation.',
@@ -165,12 +165,12 @@ const assurance = [
   {
     label: '03 · Verification',
     title: '52 machine-checked theorems, gated in CI',
-    body: 'Lean 4 covers corridor 7-of-9 quorum safety and liveness, O(1) sealed-key size, and erasure thresholds; a Verifpal symbolic model covers the message flow. ~3,900 Python tests and ~340 Solidity test / invariant functions run alongside Slither and Echidna security audits.',
+    body: 'Lean 4 covers corridor 7-of-9 quorum safety and liveness, O(1) sealed-key size, and erasure thresholds. A Verifpal symbolic model covers the message flow. ~3,900 Python tests and ~340 Solidity test / invariant functions run alongside Slither and Echidna security audits.',
   },
   {
     label: '04 · Anchors',
     title: 'On-chain anchors with no standing admin key',
-    body: 'LTPAnchorRegistry sits behind an ERC1967 proxy, governed by a 2-of-2 multisig plus a TimelockController; the deployer holds no privileged access post-deployment. (Live on SUWAPPU Testnet and Base Sepolia today.)',
+    body: 'LTPAnchorRegistry sits behind an ERC1967 proxy, governed by a 2-of-2 multisig plus a TimelockController. The deployer holds no privileged access post-deployment. It is live on SUWAPPU Testnet and Base Sepolia today.',
     links: [
       {
         label: 'Anchor registry: verified source ↗',

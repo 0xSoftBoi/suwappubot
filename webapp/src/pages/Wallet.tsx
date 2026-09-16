@@ -530,7 +530,7 @@ function SendView({
       return 'Token contract unavailable for this token.'
     }
     if (!isStrictDecimal(amount)) {
-      return 'Enter a plain decimal amount (e.g. 1.5) — no scientific notation.'
+      return 'Enter a plain decimal amount, like 1.5. Do not use scientific notation.'
     }
     const compareAddress = signerAddress || fromAddress
     if (toAddress.toLowerCase() === compareAddress.toLowerCase()) {

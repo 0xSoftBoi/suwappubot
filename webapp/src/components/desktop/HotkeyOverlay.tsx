@@ -196,7 +196,7 @@ export function HotkeyOverlay() {
 function getDefaultGlobalBindings(): HotkeyEntry[] {
   return [
     { keys: formatAccelerator('CmdOrCtrl+Shift+S'), description: 'Open quick swap panel' },
-    { keys: formatAccelerator('CmdOrCtrl+Shift+P'), description: 'Panic sell — emergency sell all positions' },
+    { keys: formatAccelerator('CmdOrCtrl+Shift+P'), description: 'Panic sell. Sell all positions immediately.' },
     { keys: formatAccelerator('CmdOrCtrl+Shift+K'), description: 'Quick token search' },
     { keys: formatAccelerator('CmdOrCtrl+Shift+L'), description: 'Toggle launch scanner feed' },
     { keys: formatAccelerator('CmdOrCtrl+Shift+T'), description: 'Toggle always-on-top price ticker' },

@@ -27,7 +27,7 @@ export function PerpsTab() {
         <EmptyDataset
           icon="\u{1F4C8}"
           title="No perps data yet"
-          message="The capture service hasn't populated perp funding/OI yet — expected before deploy."
+          message="Perp funding and OI are not populated yet. This is expected before deploy."
         />
       )}
 

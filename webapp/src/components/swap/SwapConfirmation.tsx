@@ -484,12 +484,12 @@ export const SwapConfirmation = React.memo(function SwapConfirmation({
               <div className="space-y-2">
                 {showHighImpactWarning && (
                   <WarningBanner variant="yellow">
-                    High price impact — you may receive less than expected
+                    High price impact. You may receive less than expected.
                   </WarningBanner>
                 )}
                 {showLargeTradeWarning && (
                   <WarningBanner variant="blue">
-                    Large trade — hold button to confirm
+                    Large trade. Hold the button to confirm.
                   </WarningBanner>
                 )}
                 {showCrossChainWarning && (

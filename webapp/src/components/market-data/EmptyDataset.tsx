@@ -8,7 +8,7 @@ interface EmptyDatasetProps {
 export function EmptyDataset({
   icon = '\u{1F4E1}',
   title = 'No data yet',
-  message = "The capture service hasn't populated this dataset yet — this is expected before it's fully deployed. Check back soon.",
+  message = "This dataset is not populated yet. This is expected before full deploy, check back soon.",
 }: EmptyDatasetProps) {
   return (
     <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">

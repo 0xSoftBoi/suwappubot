@@ -92,7 +92,7 @@ export function Referrals() {
 
   const handleShare = async () => {
     if (!referralLink) return
-    const text = `Join me on Suwappu — swap cross-chain in seconds and earn rewards!\n\n${referralLink}`
+    const text = `Join me on Suwappu. Swap cross-chain in seconds and earn rewards!\n\n${referralLink}`
     if (navigator.share) {
       try {
         await navigator.share({ text })
@@ -308,7 +308,7 @@ export function Referrals() {
                   </div>
                 ) : (
                   <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-6 text-center">
-                    <p className="text-xs text-suwappu-text-secondary">Leaderboard is empty — be the first!</p>
+                    <p className="text-xs text-suwappu-text-secondary">Leaderboard is empty. Be the first!</p>
                   </div>
                 )}
               </>
