@@ -61,6 +61,11 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "  Update the doc alongside the rename/removal that stranded it."
     exit 1
   fi
+  echo "=== Generated docs data vs gitbook/ ==="
+  if ! bash scripts/check_generated_docs.sh; then
+    echo "✗ The live docs site would serve prose that no longer matches gitbook/."
+    exit 1
+  fi
   echo "=== Launch-copy numbers vs source ==="
   if ! python3 scripts/check_positions_numbers.py; then
     echo "✗ Customer-facing copy cites numbers its own source contradicts."
