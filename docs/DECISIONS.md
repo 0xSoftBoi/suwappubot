@@ -289,3 +289,22 @@ ADRs 0001–0005.
 - **Companion guards**: `check_markdown_escapes.py` for the Telegram parse-mode
   hazard, and `check_ts_copy_only.py` to prove a TypeScript rewrite touched no
   code when the workspace cannot be built.
+
+### The Discord integration is dead code: `bot/platforms/` has never existed
+- **What**: `api/main.py:333` imports `bot.platforms.discord_bot` and
+  `bot/services/discord_alerts.py:18` imports `bot.platforms.discord_embeds`.
+  Neither module exists, and `bot/platforms/` is absent from the working tree,
+  the index, and `origin/main`.
+- **Not a boot risk, and traced to be sure**: the api import sits inside a
+  `try/except` that only runs when `settings.discord_bot_token` is set, so
+  `discord_bot` is always `None`. The alerts service is then imported only
+  `if discord_bot:` and wrapped in `_track_degraded`, which never lets an
+  optional service block startup. Setting the token gets a warning and no
+  Discord, never a crash.
+- **Consequence**: the feature is advertised by a setting nobody can use. Either
+  land `bot/platforms/` or remove the setting and the two call sites.
+- **Found by**: `scripts/check_import_graph.py`, now in the `python` verify
+  lane. It resolves every intra-repo import without needing third-party packages
+  installed, which is the gap behind the standing "CI green does not mean the
+  bot boots" rule. Both gaps are listed in the script with a date and a reason,
+  so it fails on anything new.

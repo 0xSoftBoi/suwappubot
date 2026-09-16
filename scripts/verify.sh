@@ -16,6 +16,16 @@ if [[ "$MODE" == "all" || "$MODE" == "python" ]]; then
   find api bot database -name "*.py" -not -path "*/\.*" | xargs python3 -m py_compile
   echo "✓ Python OK"
 
+  # CI green does not prove the bot boots: the test job never exercises
+  # bot/main.py's startup import chain, so a bad intra-repo import passes CI and
+  # then crashes on deploy. A real import needs packages this container lacks,
+  # so check that every bot/api/database import resolves to a module that exists.
+  echo "=== Intra-repo import graph ==="
+  if ! python3 scripts/check_import_graph.py; then
+    echo "✗ An import that CI would not catch will crash the bot on deploy."
+    exit 1
+  fi
+
   # A MarkdownV2 message with unescaped punctuation is rejected by Telegram at
   # send time. Nothing else in CI performs a real send, so the user just never
   # receives the message.
