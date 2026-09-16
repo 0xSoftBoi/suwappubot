@@ -103,6 +103,14 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
   fi
   echo "✓ Published prose meets the writing standard"
 
+  # copy_lint reads Markdown and JSON. It cannot see a string inside a Python
+  # handler or a JSX text node, which is where most of what a user reads lives.
+  echo "=== Writing standard: app strings (bot, webapp, terminal, extension, showcase) ==="
+  if ! python3 scripts/check_app_copy.py --strict; then
+    echo "✗ App copy breaks the writing standard. See docs/WRITING.md §8."
+    exit 1
+  fi
+
   echo "=== Writing standard: repository docs (advisory) ==="
   python3 scripts/copy_lint.py --summary docs | tail -6 || true
 fi

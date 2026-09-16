@@ -272,3 +272,20 @@ ADRs 0001–0005.
   concatenated code spans cannot be resolved from a single literal. Precision
   over recall: an earlier version flagged bold markers and `callback_data` and
   would have been ignored within a day.
+
+### Most user-facing copy is in code, where the Markdown linter cannot see it
+- **What**: `copy_lint.py` reads Markdown and JSON. Errors, empty states,
+  warnings and button captions live in Python handler strings and JSX text
+  nodes. A clean `copy_lint` run proves nothing about them.
+  `scripts/check_app_copy.py` covers bot, webapp, terminal, extension and
+  showcase, and runs `--strict` in the docs verify lane. All five are at zero.
+- **Why it matters**: a Telegram user reads the bot's strings thousands of times
+  more often than anyone reads the README.
+- **Precision is the whole game.** The scanner skips comments, log calls, dev
+  warnings, tests, stories, SVG path data, TypeScript generics and minified
+  snippets. It blanks comments while keeping their newlines, so reported line
+  numbers are correct. It does NOT treat a semicolon as a code marker: that
+  false negative hid a real empty state reading "lands; your swaps".
+- **Companion guards**: `check_markdown_escapes.py` for the Telegram parse-mode
+  hazard, and `check_ts_copy_only.py` to prove a TypeScript rewrite touched no
+  code when the workspace cannot be built.

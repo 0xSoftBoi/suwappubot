@@ -134,11 +134,36 @@ Every research post, launch page, and letter carries one pull quote.
 
 ## 8. Bot and app strings
 
+This covers the Telegram bot, the webapp, the terminal, the browser extension,
+and every JSX text node on the showcase. Most of what a user actually reads is
+here, not in a document: errors, empty states, warnings, button captions.
+
 - One sentence per line. Lead with the verb. "Send tokens to this address to fund your
   wallet."
 - Errors say what happened and what to do next, in that order, in two sentences.
 - No exclamation marks except in a first-run welcome, and at most one there.
 - Emoji only as a leading glyph on a labeled section, never inside a sentence.
+- A maturity statement stays exactly as strong as it was. If a string says a
+  feature is not yet shipped, it still says that after the rewrite.
+- A risk, security or custody claim may be split into shorter sentences. It may
+  never be softened.
+
+`python3 scripts/check_app_copy.py` checks these surfaces and runs in the docs
+verify lane. `copy_lint.py` cannot: it reads Markdown and JSON, so it never sees
+a string inside a Python handler or a JSX text node.
+
+**Two hazards specific to app strings.**
+
+Telegram parse modes differ per call site. Legacy `Markdown` does not require a
+period to be escaped. `MarkdownV2` does, along with the rest of its reserved
+punctuation, and rejects the message at send time with a 400 that CI cannot see.
+Swapping an em-dash for a period is safe in one and breaks the other.
+`scripts/check_markdown_escapes.py` guards this.
+
+A rewrite in TypeScript should touch no code. `scripts/check_ts_copy_only.py`
+blanks every string literal and JSX text node, then compares the remaining
+skeleton against HEAD. A delegated rewrite can be accepted on that proof even
+where the workspace cannot be built.
 
 ## 9. Docs
 
