@@ -92,7 +92,9 @@ The separation lets a bank centralize the network-fee account for customers, app
 | Technology / operational risk | Are the stated limits hard budget controls? | **Not yet.** Check and record are non-atomic, actual fees are not settled to the ledger, and the configuration namespace is ambiguous. |
 | Settlement / risk | Does fee sponsorship establish asset finality, liquidity, or issuer quality? | **No.** It changes fee liability and authorization; those are separate assurance questions. |
 
-The central-bank lens is deliberately narrower still. [CPMI-IOSCO's guidance on applying the PFMI to systemically important stablecoin arrangements](https://www.bis.org/cpmi/publ/d206.htm) treats the transfer function within a broader governance, risk-management, and settlement-finality perimeter. This note does **not** classify Tempo or Suwappu as a systemically important stablecoin arrangement. The useful discipline is the separation of questions: a fee-payer signature can change who owes the network fee without answering when a payment is legally final, whether the settlement asset is liquid, or what credit claim sits underneath it.
+The central-bank lens is deliberately narrower still. [CPMI-IOSCO's guidance on applying the PFMI to systemically important stablecoin arrangements](https://www.bis.org/cpmi/publ/d206.htm) treats the transfer function within a broader governance, risk-management, and settlement-finality perimeter. This note does **not** classify Tempo or Suwappu as a systemically important stablecoin arrangement.
+
+The useful discipline is the separation of questions. A fee-payer signature can change who owes the network fee. It does not answer when a payment is legally final, whether the settlement asset is liquid, or what credit claim sits underneath it.
 
 ## Executive control view
 
@@ -110,15 +112,21 @@ The central-bank lens is deliberately narrower still. [CPMI-IOSCO's guidance on 
 
 That final distinction is the most important correction to the original version of this note. A built path, a passing test, and a production-enabled control are three different evidence states.
 
-## The strategic value is cost-account separation, not a free transaction
+## The strategic value of cost-account separation
 
 For a treasury team, the operational problem is not the absolute size of a single network fee. It is the need to provision, authorize, monitor, and reconcile fee balances across every account that may need to move money. A fee-payer primitive changes the topology of that problem: asset authority stays with the sender while the network-cost account can be centralized.
 
-That creates three possible institutional benefits **if** the control layer is completed: less fee-token inventory stranded across user accounts; one place to apply client or service-level sponsorship policy; and receipt-level unit economics that can support internal chargeback or product pricing. None of those benefits is measured in this note, and the current implementation does not yet produce the realized-fee ledger needed to prove them.
+The control layer, if completed, would create three possible institutional benefits:
+
+- Less fee-token inventory stranded across user accounts.
+- One place to apply client or service-level sponsorship policy.
+- Receipt-level unit economics that can support internal chargeback or product pricing.
+
+None of those benefits is measured in this note, and the current implementation does not yet produce the realized-fee ledger needed to prove them.
 
 The distinction matters because a bank should not confuse a protocol primitive with an operating model. The primitive supplies separated signatures. The operating model still needs entitlement, budget reservation, key governance, reconciliation, exception handling, and evidence that the production configuration matches the approved policy.
 
-## Protocol mechanism: two authorization domains, one transaction
+## Two authorization domains, one transaction
 
 [Tempo's transaction specification](https://docs.tempo.xyz/docs/protocol/transactions/spec-tempo-transaction) defines type **0x76** with native fee sponsorship: a third-party fee payer can pay fees for a sender. [Tempo's fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee) makes the fee token part of the fee-payer commitment. The protocol therefore separates payment authorization from fee authorization without requiring an ERC-4337 paymaster contract.
 
@@ -126,24 +134,30 @@ Suwappu constructs the transaction through the official \`pytempo\` SDK. The sen
 
 This does **not** mean a sponsored swap is free. The user's network-fee debit is zero because the sponsor pays it; swap fees, spread, and slippage remain economic costs of the trade.
 
-## The limits are persistent, but they are not a ledger-grade budget control yet
+## Persistent limits, not yet a budget control
 
 The implementation persists sponsorship state in \`tempo_sponsorships\`: one row per user carries the lifetime transaction count and the UTC-day spend accumulator. That fixes an earlier design in which process restarts could reset counters.
 
 Two control limits remain important for a bank-grade reading:
 
-- **Budget accounting uses a fixed estimate, not realized fee receipts.** After broadcast the engine records **$0.001** against the sponsorship budget. Tempo's protocol documentation says the base fee is calibrated so a TIP-20 transfer costs less than $0.001, but an approve-plus-swap transaction is not a TIP-20 transfer and the code does not reconcile the booked estimate to the actual fee paid. The current $100 figure is therefore an **estimated-spend policy limit**, not a realized-cost cap.
+- **Budget accounting uses a fixed estimate, not realized fee receipts.** After broadcast the engine records **$0.001** against the sponsorship budget. Tempo's protocol documentation says the base fee is calibrated so a TIP-20 transfer costs less than $0.001. An approve-plus-swap transaction is not a TIP-20 transfer, and the code does not reconcile the booked estimate to the actual fee paid. The current $100 figure is therefore an **estimated-spend policy limit**, not a realized-cost cap.
 - **Check and record are separate operations.** Eligibility is read before the on-chain transaction and the counter is incremented after broadcast. Concurrent requests can observe the same remaining allowance before either records its spend. Without an atomic reservation, the three-transaction and daily-budget thresholds should not be described as mathematically hard under race conditions.
 
-The scale check makes the first problem easier to see. At the code's fixed **$0.001 booking amount**, a $100 daily counter is arithmetically equivalent to **100,000 booked units** before the global counter reaches its threshold. That is not a throughput claim: the per-user limit, traffic, balances, chain capacity, failures, and actual fees all bind independently. It is simply why the word *budget* should not be read as a reconciled $100 cash ceiling. The counter is only as accurate as the estimate posted into it.
+The scale check makes the first problem easier to see. At the code's fixed **$0.001 booking amount**, a $100 daily counter is arithmetically equivalent to **100,000 booked units** before the global counter reaches its threshold. That is not a throughput claim. The per-user limit, traffic, balances, chain capacity, failures, and actual fees all bind independently.
 
-There is also a **configuration-governance issue** to remove before operational reliance. Current source declares both \`tempo_fee_sponsor_enabled\` and \`tempo_fee_sponsorship_enabled\`. The executable swap sponsorship service reads the former; a repository-wide runtime search finds the latter and \`tempo_sponsor_address\` only in settings, tests, and the capability manifest, not in the swap execution path. An operator can therefore set a plausible-looking sponsorship flag that does not activate this control. The appropriate remediation is one canonical enablement variable, one documented sponsor-key source, and a boot-time assertion that the configured control plane matches the executable one.
+That is simply why the word *budget* should not be read as a reconciled $100 cash ceiling. The counter is only as accurate as the estimate posted into it.
+
+There is also a **configuration-governance issue** to remove before operational reliance. Current source declares both \`tempo_fee_sponsor_enabled\` and \`tempo_fee_sponsorship_enabled\`. The executable swap sponsorship service reads the former, while a repository-wide runtime search finds the latter and \`tempo_sponsor_address\` only in settings, tests, and the capability manifest, not in the swap execution path.
+
+An operator can therefore set a plausible-looking sponsorship flag that does not activate this control. The appropriate remediation is one canonical enablement variable, one documented sponsor-key source, and a boot-time assertion that the configured control plane matches the executable one.
 
 Those gaps do not invalidate sponsorship. They define the next control step: reserve budget atomically before signing, settle the reservation to the receipt's actual fee, and monitor reservation/settlement exceptions.
 
-## Stablecoin fees reduce one treasury dependency; they do not remove treasury controls
+## One dependency removed, treasury controls remain
 
-[Tempo's current fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee) documents stablecoin-denominated network fees, avoiding the need for a separate volatile native gas asset. Its [performance documentation](https://tempo.xyz/developers/performance) scopes the sub-$0.001 statement to a standard TIP-20 transfer; that is why this note does not apply the figure to Suwappu's approve-plus-swap call bundle. Suwappu currently configures \`pathUSD\` as the sponsorship fee token. For an agent or treasury workflow, that removes one funding dependency but introduces another: the sponsor wallet must remain funded in an eligible fee token and its authorization must be governed separately from users' spending authority.
+[Tempo's current fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee) documents stablecoin-denominated network fees, avoiding the need for a separate volatile native gas asset. Its [performance documentation](https://tempo.xyz/developers/performance) scopes the sub-$0.001 statement to a standard TIP-20 transfer, which is why this note does not apply the figure to Suwappu's approve-plus-swap call bundle. Suwappu currently configures \`pathUSD\` as the sponsorship fee token.
+
+For an agent or treasury workflow, that removes one funding dependency but introduces another. The sponsor wallet must remain funded in an eligible fee token, and its authorization must be governed separately from users' spending authority.
 
 A useful operating model is therefore:
 
@@ -176,7 +190,7 @@ An aggregator is a list of connectivity. A router is a **policy for making a fin
 
 The important questions are not how many logos appear on a page. They are which population is eligible for this order, which objective chooses the winner, and which inputs are trusted enough to enter that objective. They are also which risks are constraints rather than prices, and what evidence exists after execution. Current source gives a materially different answer from the previous version of this note.
 
-## "Best" changes with the seat making the decision
+## What "best" means by seat
 
 | Seat | What good execution means | What current source proves |
 |---|---|---|
@@ -186,7 +200,9 @@ The important questions are not how many logos appear on a page. They are which 
 | Operations | Prefer routes that actually complete, not merely quote well | Realized failure, revert, and finality outcomes are not yet joined into published selection analytics |
 | Model governance | Know which data, fallback branch, and policy version produced the decision | The engine has explicit trust gates and route-comparison telemetry; full outcome validation remains the gap |
 
-The wholesale-FX analogy is useful as governance vocabulary, not as regulatory mapping. The [FX Global Code](https://www.globalfxc.org/fx-global-code/) describes global good-practice processes for a robust, transparent wholesale market supported by resilient infrastructure and explicitly says it does not itself impose legal or regulatory obligations. The transferable idea is that competitive price is one part of execution quality; policy, disclosure, resilience, and post-trade evidence sit around it. This article does not claim the Code applies to these routes.
+The wholesale-FX analogy is useful as governance vocabulary, not as regulatory mapping. The [FX Global Code](https://www.globalfxc.org/fx-global-code/) describes global good-practice processes for a sound, transparent wholesale market supported by resilient infrastructure. It explicitly says it does not itself impose legal or regulatory obligations.
+
+The transferable idea is that competitive price is one part of execution quality: policy, disclosure, resilience, and post-trade evidence sit around it. This article does not claim the Code applies to these routes.
 
 ## Executive finding
 
@@ -199,19 +215,21 @@ Once valid quotes return, the Python execution engine uses a **hierarchical deci
 3. If any required trust condition fails, fall back to **gross quoted output** rather than pretend an unreliable gas estimate is precise.
 4. For cross-chain routes only, a faster route may replace the value winner if both time estimates are provider-reported, its score is within **10bp**, and its estimated time is **less than half** the winner's.
 
-Ten basis points is **0.10%**. As a scale reference—not a claim about any observed Suwappu order—that is $100 on $100,000 of route value, $1,000 on $1 million, and $10,000 on $10 million. A fixed 10bp speed concession therefore becomes economically material as notional rises; without a calibrated value-of-time function, the present tiebreak is a policy heuristic rather than an estimated optimum.
+Ten basis points is **0.10%**. As a scale reference, not a claim about any observed Suwappu order, that is $100 on $100,000 of route value, $1,000 on $1 million, and $10,000 on $10 million. A fixed 10bp speed concession therefore becomes economically material as notional rises. Without a calibrated value-of-time function, the present tiebreak is a policy heuristic rather than an estimated optimum.
 
 ![Decision waterfall showing the returned quote set, evidence-quality gate, net-of-gas ranking or gross-output fallback, trusted-time cross-chain tiebreaker, and the remaining ex-post transaction-cost-analysis gap.](/research/routing-decision-waterfall.svg "Selection objective depends on evidence quality: trusted inputs permit net-of-gas ranking; otherwise the engine falls back to gross quoted output. Realized execution still requires ex-post measurement.")
 
 That is materially different from both previous versions of this article. Gas is now conditionally netted, and time can now affect the cross-chain winner. The control is deliberately conservative about when those inputs are trusted.
 
-## The router count is a capability perimeter, not competition depth
+## Router count as a capability perimeter
 
 The generated roster is useful for inventory control, not for measuring competition on an individual order. Same-chain EVM, cross-chain stablecoin, Solana, Tron, Starknet, Tempo, GOAT, and Citrea paths enter different branches. Credentials and feature flags remove additional providers; CoW and Socket are excluded from fee-charging races because their current adapters cannot carry Suwappu's platform-fee parameter.
 
 The relevant statistic for execution quality is therefore **eligible quotes returned per order**, not the number ${stats.routerCount}. The engine uses a 3-second fast window, extends to 8 seconds when no valid quote arrives, and grants up to 0.75 seconds of grace when exactly one quote has arrived. Once at least two valid quotes are in hand, remaining tasks are cancelled. That latency policy is part of the routing outcome even though it is not expressed as a price term: a slower venue can be absent from the comparison set.
 
-For a bank, that also turns provider inventory into a third-party criticality question rather than a marketing count. The [US banking agencies' interagency guidance on third-party relationships](https://www.occ.treas.gov/news-issuances/bulletins/2023/bulletin-2023-17.html) is lifecycle- and risk-based: relationships should be managed in proportion to their risk and criticality. This note does not assert that guidance applies to Suwappu. It is the useful diligence lens: a provider that can determine whether or how funds move should be governed by its order-level role, substitutability, failure mode, and monitoring evidence—not by whether its logo is present in the integration roster.
+For a bank, that also turns provider inventory into a third-party criticality question rather than a marketing count. The [US banking agencies' interagency guidance on third-party relationships](https://www.occ.treas.gov/news-issuances/bulletins/2023/bulletin-2023-17.html) is lifecycle- and risk-based: relationships should be managed in proportion to their risk and criticality. This note does not assert that guidance applies to Suwappu.
+
+It is the useful diligence lens. A provider that can determine whether or how funds move should be governed by its order-level role, substitutability, failure mode, and monitoring evidence. Its logo being present in the integration roster is not the relevant fact.
 
 ## Ranking hierarchy and fallback conditions
 
@@ -228,25 +246,35 @@ For a bank, that also turns provider inventory into a third-party criticality qu
 
 The fallback is a feature and a limitation. It prevents a heuristic gas number from steering funds as if it were audited cost data. It also means two economically identical races can use different objectives depending on data quality. Institutional monitoring should therefore record **which ranking branch fired**, not just which provider won.
 
-## The next institutional step is risk-adjusted routing, not a larger router count
+## Risk-adjusted routing as the next step
 
 A bank-grade execution objective would normally distinguish **economic score** from **risk eligibility**. One useful design target is to think about a route's decision value as quoted economics less network cost, expected failure cost, the opportunity cost of value in flight, and any explicit risk charge. Some risks may belong outside the score entirely as hard eligibility constraints.
 
 That is a design frame, **not the algorithm Suwappu runs today**. Current code conditionally prices trusted gas and uses a narrow time tiebreak; it does not estimate expected loss from route failure, attach a shadow price to settlement time, or risk-weight bridges and venues. Pretending those terms were quantified would create more false precision, not better execution.
 
-The practical roadmap is therefore measurable: version the approved venue/bridge set; join quote decisions to realized receipts; estimate failure and time distributions by path; decide which risks are hard exclusions versus priced trade-offs; then validate the policy out of sample. Only after that can a routing benchmark say something about realized execution quality rather than quote-stage selection.
+The practical roadmap is therefore measurable:
 
-## MEV protection is an eligibility property, not a universal routing claim
+- Version the approved venue/bridge set.
+- Join quote decisions to realized receipts.
+- Estimate failure and time distributions by path.
+- Decide which risks are hard exclusions versus priced trade-offs.
+- Validate the policy out of sample.
+
+Only after that can a routing benchmark say something about realized execution quality rather than quote-stage selection.
+
+## MEV protection as an eligibility property
 
 [CoW Protocol documents](https://docs.cow.fi/cow-protocol/concepts/benefits/mev-protection) its intent/batch-auction design and solver competition as MEV protection. Suwappu can race CoW on eligible same-chain EVM swaps, but the current adapter cannot carry Suwappu's platform fee. When a platform fee is charged, CoW is removed from the selectable set and fetched only as a comparison-only counterfactual when it returns in time. A fee-charged order should therefore **not** inherit a blanket "MEV-protected by CoW" description.
 
 The same discipline applies to every venue-specific protection: capability is not coverage. The order-level record needs to identify which route actually won and which protections were actually present.
 
-## Quote competition is not the same as best execution
+## Quote competition versus best execution
 
 The engine emits structured \`route_comparison\` telemetry for multi-quote Python races, including winner, quoted output, gas, fees, estimated time, basis-point delta, and any speed tiebreak. The TypeScript agent/web path separately samples and persists LI.FI route candidates; on same-chain EVM it also fetches KyberSwap for comparison, while execution remains LI.FI. Solana uses Jupiter. That means the agent surface does **not** inherit the Python engine's multi-provider winner selection.
 
-These datasets are useful for transaction-cost analysis, but they do not yet justify a "best execution" claim. Quote-stage counterfactuals answer **selection** questions. [The BIS Markets Committee's study of FX execution algorithms](https://www.bis.org/publ/mktc13.pdf) is useful implementation guidance here: its TCA discussion emphasizes accurate timestamps through the trade lifecycle, a relevant benchmark, price slippage and market impact, rejected trades, and measurements before, during, and after execution. We borrow that measurement discipline, not the FX regulatory perimeter.
+These datasets are useful for transaction-cost analysis, but they do not yet justify a "best execution" claim. Quote-stage counterfactuals answer **selection** questions.
+
+[The BIS Markets Committee's study of FX execution algorithms](https://www.bis.org/publ/mktc13.pdf) is useful implementation guidance here. Its TCA discussion emphasizes accurate timestamps through the trade lifecycle, a relevant benchmark, price slippage and market impact, rejected trades, and measurements before, during, and after execution. We borrow that measurement discipline, not the FX regulatory perimeter.
 
 A defensible cross-chain TCA record would preserve four layers rather than collapse them into one "best route" field:
 
@@ -257,7 +285,7 @@ A defensible cross-chain TCA record would preserve four layers rather than colla
 | Outcome | Final status, realized destination amount, realized gas, finality time, retries/re-quotes, exceptions | What did execution actually cost and deliver? |
 | Benchmark | Timestamped reference price and a declared comparison rule | How far did realized economics deviate from a reproducible benchmark? |
 
-The benchmark has to be declared before looking at results. The best returned quote is a valid **ex-ante selection benchmark** but not an observed counterfactual fill: the routes that lost were never executed, so their realized price, gas, failure state, and finality are unknowable. That distinction prevents a common TCA error—calling quoted alternatives realized savings.
+The benchmark has to be declared before looking at results. The best returned quote is a valid **ex-ante selection benchmark** but not an observed counterfactual fill: the routes that lost were never executed, so their realized price, gas, failure state, and finality are unknowable. That distinction prevents a common TCA error: calling quoted alternatives realized savings.
 
 With those records, the first publishable study should report the distribution, not a single average: eligible-quote depth; chosen-versus-best-quoted basis points; realized-versus-authorized output; realized gas; failure/retry rate; and time to finality by route class. Outliers and fallback-branch frequency belong beside the headline median because the current engine deliberately changes objective when evidence quality changes.
 
@@ -267,7 +295,7 @@ The [December 2024 FX Global Code](https://www.globalfxc.org/fx-global-code/) an
 
 The external sources are primary or standards-body materials: the current FX Global Code; the BIS Markets Committee execution-algorithm study; the US banking agencies' [third-party risk guidance](https://www.occ.treas.gov/news-issuances/bulletins/2023/bulletin-2023-17.html); and venue documentation where a venue-specific protection is described. The executable findings come from current Suwappu main, including the quote race, evidence gates, comparison-only routes, timeout/grace policy, cross-chain speed tiebreak, and route-comparison telemetry.
 
-The boundary is equally important: this review did not replay production orders, observe a counterfactual fill, establish a consolidated reference price, or measure realized failure/finality distributions. Until those records are joined, the strongest supported claim is **source-verified selection policy**—not realized best execution.
+The boundary is equally important: this review did not replay production orders, observe a counterfactual fill, establish a consolidated reference price, or measure realized failure/finality distributions. Until those records are joined, the strongest supported claim is **source-verified selection policy**, not realized best execution.
 
 ## Control conclusion
 
@@ -290,7 +318,7 @@ One tempting answer is the time value of money. The arithmetic rejects that expl
 
 Five minutes of that carry is only **0.003520bp**. The pinned 10bp ceiling is **2,840.55×** larger.
 
-That is not evidence that speed is worthless. It is evidence that, if an execution policy pays basis points for minutes, **cash carry is not the economic story doing the work**. Market exposure, failure and retry cost, liquidity exceptions, operational deadlines, or explicit service-level preference must supply the rest — and they should be measured rather than hidden inside a universal constant.
+That is not evidence that speed is worthless. It is evidence that, if an execution policy pays basis points for minutes, **cash carry is not the economic story doing the work**. Market exposure, failure and retry cost, liquidity exceptions, operational deadlines, or explicit service-level preference must supply the rest. Those terms should be measured rather than hidden inside a universal constant.
 
 ## The result in one table
 
@@ -340,13 +368,15 @@ The [New York Fed](https://www.newyorkfed.org/markets/reference-rates/sofr) defi
 
 SOFR is used here as a reproducible benchmark. It is **not** Suwappu's disclosed funding cost, a user's opportunity cost, a bridge risk premium, or a universal institutional hurdle rate.
 
-## Speed is not finality
+## Distinguishing speed from finality
 
 An ETA field should not quietly become a settlement-risk field.
 
 The [CPMI glossary](https://www.bis.org/cpmi/glossary.pdf) defines final settlement around irrevocable and unconditional transfer or discharge at a legally defined moment. [PFMI Principle 8](https://www.bis.org/pfmi/help/principleid.htm) separately emphasizes clear and certain final settlement, with intraday or real-time settlement where needed or preferable. A bridge provider's expected duration can be operationally useful without proving either concept.
 
-The distinction also matters in conventional markets. The BIS's June 2026 analysis of the 2025 Triennial Survey reports that **90% of average daily FX settlement used methods that eliminate or mitigate settlement risk while 10%, about $1.4tn, remained exposed through gross bilateral settlement**. It also distinguishes principal settlement risk from replacement-cost and liquidity risk even under payment-versus-payment ([BIS Quarterly Review](https://www.bis.org/publ/qtrpdf/r_qt2606c.htm)). That is wholesale-FX evidence, not a claim that its rules apply to crypto bridges. The transferable lesson is that **settlement method and elapsed time are separate risk dimensions**.
+The distinction also matters in conventional markets. The BIS's June 2026 analysis of the 2025 Triennial Survey reports that **90% of average daily FX settlement used methods that eliminate or mitigate settlement risk**. The remaining **10%, about $1.4tn, remained exposed through gross bilateral settlement**.
+
+It also distinguishes principal settlement risk from replacement-cost and liquidity risk even under payment-versus-payment ([BIS Quarterly Review](https://www.bis.org/publ/qtrpdf/r_qt2606c.htm)). That is wholesale-FX evidence, not a claim that its rules apply to crypto bridges. The transferable lesson is that **settlement method and elapsed time are separate risk dimensions**.
 
 The [FSB's G20 cross-border-payment targets](https://www.fsb.org/work-of-the-fsb/financial-innovation-and-structural-change/cross-border-payments/g20-targets-for-enhancing-cross-border-payments-2/) make the endpoint explicit in another way: wholesale speed is measured to crediting, with reconciliation tracked separately. Again, this is measurement discipline, not a regulatory mapping to Suwappu.
 
@@ -374,15 +404,19 @@ That is why the right implementation is not "replace 10bp with SOFR carry." It i
 
 **2. Preserve the exact economic decision.** Give every quote race a durable decision ID and policy version. Store every returned quote, raw and net score, gas/price trust flags, timing provenance, the initial winner and the candidate's score concession. Convert that concession to USD only when the output price is credible.
 
-**3. Join the outcome without collapsing finality layers.** Persist decision, submission and usable-funds timestamps; separately defined technical-finality telemetry with its rule/version; realized output and fees; failure/retry state; and a predeclared market benchmark. If a legal-finality conclusion is required, store its governed basis and policy version separately — a network timestamp alone cannot establish it. The [BIS Markets Committee's execution-algorithm study](https://www.bis.org/publ/mktc13.pdf) is useful methodology by analogy: its TCA discussion centers accurate lifecycle timestamps and outcome measures such as slippage, market impact and rejected trades.
+**3. Join the outcome without collapsing finality layers.** Persist decision, submission and usable-funds timestamps; separately defined technical-finality telemetry with its rule/version; realized output and fees; failure/retry state; and a predeclared market benchmark. If a legal-finality conclusion is required, store its governed basis and policy version separately, since a network timestamp alone cannot establish it.
+
+The [BIS Markets Committee's execution-algorithm study](https://www.bis.org/publ/mktc13.pdf) is useful methodology by analogy: its TCA discussion centers accurate lifecycle timestamps and outcome measures such as slippage, market impact and rejected trades.
 
 **4. Validate the ETA itself.** Report median and tail ETA error, percentile coverage, failure and retry distributions, and time-to-usable-funds by route class and relevant size band. "Provider-reported" should be the beginning of the trust test, not the end.
 
-**5. Shadow first; identify counterfactuals before steering.** A candidate calibrated policy can run on the same quote races without changing winners, which tests decision disagreement, data coverage and implementation. But only the executed route has a realized outcome; shadow choices cannot reveal how a losing route would have filled. Any causal "loss avoided" premium that can change a winner therefore needs bounded controlled exploration among already-eligible routes where policy and risk permit, or a predeclared causal/off-policy estimator with adequate overlap/support diagnostics and sensitivity analysis. If support is inadequate, leave that premium unestimated. Steering requires both operational evidence and identification evidence.
+**5. Shadow first; identify counterfactuals before steering.** A candidate calibrated policy can run on the same quote races without changing winners, which tests decision disagreement, data coverage and implementation. But only the executed route has a realized outcome, since shadow choices cannot reveal how a losing route would have filled.
+
+Any causal "loss avoided" premium that can change a winner therefore needs bounded controlled exploration among already-eligible routes where policy and risk permit, or a predeclared causal/off-policy estimator with adequate overlap/support diagnostics and sensitivity analysis. If support is inadequate, leave that premium unestimated. Steering requires both operational evidence and identification evidence.
 
 A conservative control template is:
 
-**allowed speed premium = min(10bp, carry + measured approved risk premium + explicit SLA value)**.
+**allowed speed premium =** \`min(10bp, carry + measured approved risk premium + explicit SLA value)\`.
 
 That is a governance equation, not an estimated result from this paper. An unmeasured risk term should not be filled with a guessed number merely to defend the pinned ceiling.
 
@@ -390,7 +424,9 @@ That is a governance equation, not an estimated result from this paper. An unmea
 
 The financing result can be rerun by changing one pinned rate input. The more important conclusion is designed to be challenged by production evidence.
 
-If a predeclared identification design — controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support — shows that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. Joined chosen-route telemetry alone is insufficient. If identified avoided cost is materially lower, the threshold should fall; if support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
+If a predeclared identification design shows that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. That design could use controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support. Joined chosen-route telemetry alone is insufficient.
+
+If identified avoided cost is materially lower, the threshold should fall; if support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
 
 The question becomes reviewable: **what identified cost or explicit preference pays for each basis point of speed premium?**
 
@@ -404,7 +440,9 @@ The boundary is equally explicit. This paper uses **no production replay**. It d
 
 ---
 
-*Disclosures: Suwappu builds the cross-chain execution infrastructure whose routing policy this paper critiques. That commercial and authorship interest is why the adverse calibration result, code snapshot, formulas, data and limitations are published rather than reduced to a performance claim. No named route provider reviewed the paper before publication. Wolfram was used as an independent arithmetic check, not as peer review or production evidence. This is research, not investment advice, a legal-finality opinion, a regulatory best-execution determination, or a claim that conventional FX rules apply to crypto routing.*
+*Disclosures: Suwappu builds the cross-chain execution infrastructure whose routing policy this paper critiques. That commercial and authorship interest is why the adverse calibration result, code snapshot, formulas, data and limitations are published rather than reduced to a performance claim. No named route provider reviewed the paper before publication.*
+
+*Wolfram was used as an independent arithmetic check, not as peer review or production evidence. This is research, not investment advice, a legal-finality opinion, a regulatory best-execution determination, or a claim that conventional FX rules apply to crypto routing.*
 `;
 
 
@@ -429,7 +467,7 @@ const USDT0_BODY = `# USDT0 backing reconciliation: separating protocol coverage
 
 HyperCore is not an additional row: its 12.27m Core-side float was verified as contained within HyperEVM \`totalSupply()\`, so adding it would double-count. MegaETH is included in the head snapshot. Tron and TON sit in the separate Legacy Mesh perimeter and are addressed below.
 
-## First define the instrument and the accounting identity
+## The instrument and the accounting identity
 
 There are two backing relationships in this structure, and they should not be collapsed into one. [USDT0 describes USDT0 as backed 1:1 by USDT on Ethereum](https://usdt0.to/). Separately, [Tether's terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) describe USDT as backed by Tether's reserves and place issuance and redemption with Tether. Our measurement addresses the first relationship only.
 
@@ -439,7 +477,9 @@ The protocol-level ratio in this study is:
 
 This is a **token-unit** identity, not a mark-to-market collateral test. One USDT unit is compared with one USDT0 unit because that is the protocol's backing convention. We do not mark USDT to dollars, apply a liquidity haircut, value Tether's reserve assets, or estimate a recovery rate. A bank applying credit or liquidity policy to USDT would need to do those things separately.
 
-Two terms also need discipline. In this note, **“backing”** means USDT held in the protocol account that supports USDT0 supply; it does not mean Tether's underlying reserve assets. **“Liability”**, where used in the working paper, means token supply that the protocol accounting identity requires to be backed; it is not a legal opinion on balance-sheet recognition or creditor status.
+Two terms also need discipline. In this note, **“backing”** means USDT held in the protocol account that supports USDT0 supply. It does not mean Tether's underlying reserve assets.
+
+**“Liability”**, where used in the working paper, means token supply that the protocol accounting identity requires to be backed. It is not a legal opinion on balance-sheet recognition or creditor status.
 
 Before the 27 August 2025 Polygon migration, the measured backing perimeter included the Ethereum lockbox plus the canonical Polygon PoS predicate. After the migration, Polygon moved into the direct USDT0 perimeter and the measured backing sits in the Ethereum lockbox. That change in perimeter is economically important: a ratio is only as reliable as the account map underneath it.
 
@@ -456,15 +496,17 @@ For bank diligence, the structure is best read as an assurance stack rather than
 
 This distinction changes how the result should be used. A perfect 1.0000x USDT0-to-USDT reconciliation would still inherit the economic, legal, liquidity, and issuer risk of USDT. Conversely, weakness in USDT0's token-unit reconciliation would be a separate protocol-level problem even if USDT's own reserve position were strong.
 
-### Supervisory lens: reconciliation is not prudential assurance
+### Supervisory lens on reconciliation
 
-The boundary is consistent with the questions supervisors ask, but this paper is **not** a supervisory assessment. [CPMI-IOSCO's guidance on applying the PFMI to stablecoin arrangements](https://www.bis.org/cpmi/publ/d198.pdf) treats settlement finality, legal claims, convertibility at par in normal and stressed conditions, and the credit and liquidity risk of the settlement asset as distinct questions. A token-balance ratio does not answer them. In particular, technical settlement on a ledger is not the same thing as legal finality.
+The boundary is consistent with the questions supervisors ask, but this paper is **not** a supervisory assessment. Guidance from [CPMI-IOSCO on applying the PFMI to stablecoin arrangements](https://www.bis.org/cpmi/publ/d198.pdf) treats settlement finality, legal claims, convertibility at par in normal and stressed conditions, and the credit and liquidity risk of the settlement asset as distinct questions. A token-balance ratio does not answer them. In particular, technical settlement on a ledger is not the same thing as legal finality.
 
-The control also should not be called a regulatory “model” by reflex. The Federal Reserve, OCC and FDIC's [2026 revised model-risk guidance, SR 26-2](https://www.federalreserve.gov/supervisionreg/srletters/SR2602.pdf), expressly excludes simple arithmetic and deterministic rule-based processes from its model definition. The ratio here is deterministic arithmetic. Its main governance risks are **reference-data quality, population completeness, change control and use of the output**. A bank may bring statistical overlays, valuation haircuts, forecasts or other models around that control; those should be classified under the bank's own model-risk framework.
+The control also should not be called a regulatory “model” by reflex. The Federal Reserve, OCC and FDIC's [2026 revised model-risk guidance, SR 26-2](https://www.federalreserve.gov/supervisionreg/srletters/SR2602.pdf), expressly excludes simple arithmetic and deterministic rule-based processes from its model definition. The ratio here is deterministic arithmetic.
+
+Its main governance risks are **reference-data quality, population completeness, change control and use of the output**. A bank may bring statistical overlays, valuation haircuts, forecasts or other models around that control. Those overlays should be classified under the bank's own model-risk framework.
 
 We also make no determination under the Basel Committee's [SCO60 cryptoasset framework](https://www.bis.org/basel_framework/chapter/SCO/60.htm?inforce=20260101&published=20240717). Prudential classification, the redemption-risk test and capital treatment are separate from this measurement.
 
-## The ratio is straightforward; the perimeter is the risk
+## Ratio simplicity versus perimeter risk
 
 We have published this measurement three times. The first two versions were materially wrong in opposite directions. Neither failure was an RPC failure or a difficult statistical problem. Both came from getting the accounting perimeter wrong.
 
@@ -474,17 +516,19 @@ We have published this measurement three times. The first two versions were mate
 | V2 | 0.513–0.588x across 16 pre-migration observations; apparent shortfall | Wrong Polygon backing address | Govern account-to-leg mappings as reference data |
 | Current | 1.000298x at complete head; ~3bp difference | Complete documented head perimeter with canonical Polygon mapping | Report token-unit reconciliation separately from issuer-level assurance |
 
-The symmetry matters. V1 understated supply and manufactured apparent surplus. V2 omitted the effective backing account and manufactured apparent shortfall. The contracts answered exactly what they were asked. The control was configured against the wrong population.
+The symmetry matters. V1 understated supply and manufactured apparent surplus. V2 omitted the effective backing account and manufactured apparent shortfall.
+
+The contracts answered exactly what they were asked. The control was configured against the wrong population.
 
 For a bank, the address map therefore belongs in controlled reference data. Every row needs an owner, source, effective date, contract identity, backing relationship, containment rule, and change history. The ratio should be downstream of that control, not a substitute for it.
 
-## Polygon shows what a reference-data break looks like
+## The Polygon reference-data break
 
-Version 2 reported 16 pre-migration observations at 0.513–0.588x because the address recorded as Polygon's ERC20 predicate held 0.02 USDT. The balance read was correct; the mapping was not. Polygon's canonical PoS predicate is \`0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf\`. Archive reads at the same aligned blocks show **1.22–1.39bn USDT** in that account, covering the Polygon supply leg at 1.006–1.015 in all 16 observations.
+Version 2 reported 16 pre-migration observations at 0.513x to 0.588x because the address recorded as Polygon's ERC20 predicate held 0.02 USDT. The balance read was correct; the mapping was not. Polygon's canonical PoS predicate is \`0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf\`. Archive reads at the same aligned blocks show **1.22bn to 1.39bn USDT** in that account, covering the Polygon supply leg at 1.006 to 1.015 in all 16 observations.
 
 ![Two series: version 2's published token-unit backing ratio, dashed, falling to 0.51-0.59 before late August 2025, and the corrected measured series including the canonical Polygon predicate, solid, holding above par across the panel.](/research/usdt0-corrected-series.svg "The V2 shortfall was an address-map artifact. Including the canonical Polygon predicate restores the measured pre-migration backing account; the historical panel remains subject to its stated deployment-coverage limits.")
 
-With the canonical account restored, corrected observed pre-migration coverage is **1.017–1.028x, median 1.021x**. Flow analysis independently points to the same attribution: lockbox changes versus non-Polygon supply and predicate changes versus Polygon supply each correlate at 0.99; the correctly specified aggregate flow regression has β = 1.002 (SE 0.015). Full regression output is in the working paper.
+With the canonical account restored, corrected observed pre-migration coverage is **1.017x to 1.028x, median 1.021x**. Flow analysis independently points to the same attribution: lockbox changes versus non-Polygon supply and predicate changes versus Polygon supply each correlate at 0.99. The correctly specified aggregate flow regression has β = 1.002 (SE 0.015). Full regression output is in the working paper.
 
 The 27 August 2025 migration supplies a cleaner event-level cross-check. Across a six-hour bracket:
 
@@ -496,15 +540,17 @@ The 27 August 2025 migration supplies a cleaner event-level cross-check. Across 
 
 [USDT0's migration notice](https://blog.usdt0.to/polygon-usdt-now-upgraded-to-usdt0-1-3b-in-usdt-liquidity-available-natively-omnichain) says the Polygon backing supply moved to the Ethereum USDT0 lockbox and that Polygon's existing token became a direct USDT0 deployment. Documentary evidence and chain state therefore identify the same accounting-boundary event. That is the standard a production control should require for a perimeter change.
 
-## The historical difference was large; it was not structural
+## A large but non-structural historical difference
 
 Post-migration, the nominal token-unit difference between observed backing and measured supply ranged from **5.1m to 760.3m units**, or roughly **15bp to 18.7% of measured supply**. Eleven 48-hour moves exceeded 100m units and did not correspond one-for-one with supply changes. The series does not support treating the historical excess as a stable economic buffer.
 
 ![Two panels: the measured backing-minus-supply difference on a nominal 1:1 token-unit basis, peaking near 760m units in December 2025 and declining through 2026, and the difference as a share of measured supply.](/research/usdt0-buffer.svg "Historical measured excess coverage varied materially and compressed toward par by the end of the panel. The chart uses the protocol's nominal 1:1 token-unit convention; it is not a mark-to-market valuation of USDT.")
 
-The final eight days are more decision-relevant than the peak. From 17 to 25 July, USDT backing fell **192.9m units** while measured USDT0 supply fell **75.7m units** — about **117m more units of backing left than supply declined**. The measured difference compressed to 5.1m units.
+The final eight days are more decision-relevant than the peak. From 17 to 25 July, USDT backing fell **192.9m units** while measured USDT0 supply fell **75.7m units**, about **117m more units of backing left than supply declined**. The measured difference compressed to 5.1m units.
 
-That terminal panel point needs one more qualification. The final historical row carried 17 supply legs; three additional documented legs held a combined 4.9m units at the complete head read six days later. If their 25 July balances were similar, the complete-universe difference would have been on the order of 0.2m units, with sign indeterminable. That is an inference, not a measured historical point. At this margin, population completeness matters more than another decimal place of RPC precision.
+That terminal panel point needs one more qualification. The final historical row carried 17 supply legs; three additional documented legs held a combined 4.9m units at the complete head read six days later. If their 25 July balances were similar, the complete-universe difference would have been on the order of 0.2m units, with sign indeterminable.
+
+That is an inference, not a measured historical point. At this margin, population completeness matters more than another decimal place of RPC precision.
 
 None of the 183 corrected historical observations is measured below par. Within the 165 post-migration observations, serial persistence reduces the effective sample to roughly 39 independent looks, and the historical panel is unbalanced as deployments were added. The complete head snapshot is a separate result. At ~3bp, the appropriate classification is **par within measurement tolerance**, not “overcollateralized.”
 
@@ -519,9 +565,9 @@ The useful output is not a dashboard tile showing “100.03%.” It is a control
 | **Cross-chain operations** | Message state, pending mint/burn or lock/unlock instructions, contract and security configuration, exception queues | Distinguish a timing item from a genuine stock mismatch |
 | **Issuer / asset-risk overlay** | Tether reserve and assurance reporting, legal terms, redemption eligibility, normal/stressed liquidity and concentration analysis, internal haircuts | Convert protocol backing into a bank credit/liquidity view |
 
-The [USDT0 developer guide](https://docs.usdt0.to/technical-documentation/developer/) describes the core mechanism as USDT locked/unlocked on Ethereum and USDT0 minted/burned on remote chains through LayerZero messaging. [LayerZero's OFT documentation](https://docs.layerzero.network/v2/concepts/applications/oft-standard) describes the same debit/credit conservation model. That architecture explains why a balance/supply reconciliation is useful — and why it is incomplete while messages may be between debit and credit states.
+The [USDT0 developer guide](https://docs.usdt0.to/technical-documentation/developer/) describes the core mechanism as USDT locked/unlocked on Ethereum and USDT0 minted/burned on remote chains through LayerZero messaging. Its counterpart, [LayerZero's OFT documentation](https://docs.layerzero.network/v2/concepts/applications/oft-standard), describes the same debit/credit conservation model. That architecture explains why a balance/supply reconciliation is useful. It also explains why the reconciliation is incomplete while messages may sit between debit and credit states.
 
-A production monitor should retain the prior perimeter so any registry change can be replayed, and it should align observation times across chains as tightly as the infrastructure permits. The current head reads span roughly 60 seconds. Historical read-skew tests were usually 16k–165k units and remained below 1m even in a deliberately stressed interval, but that does not eliminate in-flight message risk.
+A production monitor should retain the prior perimeter so any registry change can be replayed, and it should align observation times across chains as tightly as the infrastructure permits. The current head reads span roughly 60 seconds. Historical read-skew tests were usually 16k to 165k units and remained below 1m even in a deliberately stressed interval, but that does not eliminate in-flight message risk.
 
 At the current ~3bp difference, any unseen net item above approximately 1.03m token units can change the sign of the arithmetic result. That is the right scale for exception policy. The 760m historical maximum is not.
 
@@ -531,13 +577,20 @@ Two different assessments can change, for different reasons.
 
 **The protocol-backing assessment would change** with a documented supply-leg omission, backing-account reclassification, net messages in flight large enough to explain the difference, a transfer-fee setting that changes the conservation identity, or new authoritative deployment data. Given two prior corrections, any such event should trigger remeasurement from the raw state.
 
-**The bank-risk assessment could change even if the 1.000298x ratio did not.** A change in Tether reserve quality, USDT market liquidity or redemption terms, legal availability of the locked USDT, sanctions/freeze exposure, smart-contract authority, cross-chain messaging security, or the relationship between technical settlement and legal finality would affect the economic risk without necessarily moving either side of this ratio.
+**The bank-risk assessment could change even if the 1.000298x ratio did not.** Several factors could move independently of the ratio:
+
+- A change in Tether reserve quality, USDT market liquidity, or redemption terms.
+- Legal availability of the locked USDT, or sanctions/freeze exposure.
+- Smart-contract authority or cross-chain messaging security.
+- The relationship between technical settlement and legal finality.
+
+None of those changes necessarily moves either side of this ratio.
 
 Tron and TON are intentionally outside this direct-supply reconciliation. [USDT0 documents them within the Legacy Mesh](https://docs.usdt0.to/overview/the-legacy-mesh), which connects native USDT deployments through liquidity pools and a hub rather than treating their full native supply as direct USDT0 supply against this lockbox. That system creates a different liquidity and counterparty perimeter; this article does not measure it.
 
 ## Method and reproducibility
 
-The historical panel contains **183 block-height-aligned observations at 48-hour intervals from 26 July 2025 through 25 July 2026**, plus a six-hour migration rescan, a 16-observation archive backfill of the canonical Polygon predicate, and the complete documented-universe head snapshot at 01:53 UTC on 1 August 2026.
+The historical panel contains **183 block-height-aligned observations at 48-hour intervals from 26 July 2025 through 25 July 2026**. It also includes a six-hour migration rescan, a 16-observation archive backfill of the canonical Polygon predicate, and the complete documented-universe head snapshot at 01:53 UTC on 1 August 2026.
 
 All collection uses public chain state. No explorer API, indexer, or credential is required. The ratio is computed in native token units and assumes the protocol's 1:1 USDT/USDT0 accounting convention; it is not USD mark-to-market. Superseded inputs are retained: the original 12-chain panel, wrong-address Polygon control, corrected predicate backfill, buffer analysis, and complete head snapshot can all be inspected alongside the scripts that generated them.
 
@@ -559,7 +612,7 @@ The first version of this paper made a strong descriptive claim. Model a pro-rat
 
 That failure changes the paper's decision use. The model remains useful as a **conditional benchmark**. It is not an empirical forecast of program-wide wallet allocation.
 
-## Four ways a financial institution would read the same reward rule
+## Four institutional readings of the reward rule
 
 | Seat | Decision question | What this research can actually say |
 |---|---|---|
@@ -577,11 +630,11 @@ This distinction is close to the US banking agencies' [revised 2026 model-risk g
 | Moving modeled marginal cost from external friction to protocol fees changes who receives modeled spend | **Model identity** | Mechanism-design direction; not a realized revenue forecast |
 | Strictly proportional fee points are invariant to splitting a fixed budget across wallets | **Algebraic under fixed budget and no per-wallet nonlinearities** | Diagnose wallet-splitting incentives in the pro-rata core; not proof of person-level sybil resistance |
 
-The mathematics is standard contest theory. Existence and uniqueness for the asymmetric case are Szidarovszky and Okuguchi (1997); the active-set rule is related to Stein (2002); Cornes and Hartley (2005), Franke et al. (2013), Konrad (2009), and Tullock (1980) provide the theoretical lineage. Our contribution is the application, simulation, and—importantly now—the public record of where the application failed its first field test.
+The mathematics is standard contest theory. Existence and uniqueness for the asymmetric case are Szidarovszky and Okuguchi (1997); the active-set rule is related to Stein (2002); Cornes and Hartley (2005), Franke et al. (2013), Konrad (2009), and Tullock (1980) provide the theoretical lineage. Our contribution is the application, simulation, and, importantly now, the public record of where the application failed its first field test.
 
 ## The setup
 
-Let a fixed prize be split in proportion to points earned, and let points cost something real to acquire — gas, capital lockup, slippage, or protocol fees. Then each participant faces the payoff of a lottery contest: their share of the prize is their share of total effort, minus what that effort cost them.
+Let a fixed prize be split in proportion to points earned, and let points cost something real to acquire: gas, capital lockup, slippage, or protocol fees. Then each participant faces the payoff of a lottery contest: their share of the prize is their share of total effort, minus what that effort cost them.
 
 The symmetric benchmark has one clean comparative-static result. With identical linear costs and no quantity constraint, the dissipated fraction is exactly (*n*−1)/*n*. Holding *n* = 100 and scaling the common unit cost from $0.10 to $100 leaves modeled dissipation at 0.990: points minted fall from 9.9 million to 9,900 while modeled dollar spend remains $990k.
 
@@ -599,7 +652,7 @@ Solving the equilibrium exactly, for 5,000 potential entrants with no fixed cost
 | σ = 0.4 (moderate) | 10 of 5,000 | 15.8% | 25.9% |
 | σ = 1.0 (wide) | 5 of 5,000 | 29.8% | 40.8% |
 
-Note that these are *lower* dissipation figures than the symmetric 99% above — 70% to 90%. Inside the model, greater cost heterogeneity shifts part of the prize from modeled contest spend to participant surplus. The two scenarios are therefore not comparable line by line.
+Note that these are *lower* dissipation figures than the symmetric 99% above: 70% to 90%. Inside the model, greater cost heterogeneity shifts part of the prize from modeled contest spend to participant surplus. The two scenarios are therefore not comparable line by line.
 
 Within this model, two readings matter. The number of participants who are *active at equilibrium* is single-digit to low-double-digit across the sampled cases, and the share of the pool that is not competed away is modeled as participant surplus. Neither statement is now presented as an empirical description of a named program.
 
