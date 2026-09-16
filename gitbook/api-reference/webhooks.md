@@ -4,7 +4,7 @@ Receive signed HTTP callbacks when your swaps and other events change state, ins
 
 ## Setting your callback URL
 
-Configure where Suwappu posts events via [`PATCH /v1/agent/me`](agent-profile.md) (or at registration). The URL must be a public HTTPS host — private and cloud-metadata addresses are rejected.
+Configure where Suwappu posts events via [`PATCH /v1/agent/me`](agent-profile.md) (or at registration). The URL must be a public HTTPS host. Private and cloud-metadata addresses are rejected.
 
 ```bash
 curl -X PATCH https://api.suwappu.bot/v1/agent/me \

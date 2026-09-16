@@ -4,7 +4,7 @@ A complete walkthrough that takes you from zero to a settled cross-chain swap us
 
 ## 1. Register your agent
 
-Registration is public — no auth required. Pick a unique `name` (3–50 characters, alphanumeric plus `_` and `-`).
+Registration is public. No auth required. Pick a unique `name` (3–50 characters, alphanumeric plus `_` and `-`).
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
@@ -45,7 +45,7 @@ agent = res.json()
 }
 ```
 
-Save `api_key` somewhere safe — it is shown only once and cannot be recovered. If you lose it, [rotate the key](../api-reference/keys.md).
+Save `api_key` somewhere safe. It is shown only once and cannot be recovered. If you lose it, [rotate the key](../api-reference/keys.md).
 
 ## 2. Create a managed wallet (optional)
 
@@ -283,4 +283,4 @@ status = res.json()
 }
 ```
 
-That's it — your agent just executed a cross-chain swap. To set up push notifications instead of polling, see [Webhooks](../api-reference/webhooks.md).
+That's it. Your agent just executed a cross-chain swap. To set up push notifications instead of polling, see [Webhooks](../api-reference/webhooks.md).

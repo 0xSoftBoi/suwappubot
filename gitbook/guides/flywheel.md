@@ -27,7 +27,7 @@ Flywheel deliberately does less than a mature trading framework.
 | Local operations | Fail-closed state, execution lock, persistent container volume, reconciliation | You need database-backed ledgers, queues, leases, and fleet operations |
 | Release safety | Tests, builds, dependency audit, container contract, CodeQL | You need your own deployment, SLO, and compliance controls |
 
-[Freqtrade](https://www.freqtrade.io/en/stable/strategy-customization/) is a useful benchmark because the same strategy concept spans backtesting, dry/forward testing, and live operation; it also ships dedicated [lookahead-bias analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/). [Hummingbot](https://hummingbot.org/docs/) is a useful benchmark for a broader connector/multi-bot platform whose V2 controllers can be [backtested](https://hummingbot.org/dashboard/backtest/).
+[Freqtrade](https://www.freqtrade.io/en/stable/strategy-customization/) is a useful benchmark because the same strategy concept spans backtesting, dry/forward testing, and live operation. It also ships dedicated [lookahead-bias analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/). [Hummingbot](https://hummingbot.org/docs/) is a useful benchmark for a broader connector/multi-bot platform whose V2 controllers can be [backtested](https://hummingbot.org/dashboard/backtest/).
 
 Do not rebuild either inside Flywheel. Combine the evaluation or infrastructure you actually need with Suwappu's action surface.
 

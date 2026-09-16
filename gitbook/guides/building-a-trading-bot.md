@@ -4,7 +4,7 @@ Build and monetize a standalone price-triggered product without confusing a mark
 
 The public [`suwappu-trading-bot`](https://github.com/0xSoftBoi/suwappu-trading-bot) v2 is the concrete implementation. It is **preview-only by default** and intentionally narrow: USDC in, one target-price trigger, one managed-swap action. It demonstrates a production-shaped Suwappu authority/recovery boundary; it does not claim that the toy strategy is profitable.
 
-For strategy research—backtests, paper/live parity, exits, drawdown, and net P&L—start with [Strategy Lifecycle](strategy-lifecycle.md). This guide focuses on the action boundary you can reuse in a real product.
+For strategy research on backtests, paper/live parity, exits, drawdown, and net P&L, start with [Strategy Lifecycle](strategy-lifecycle.md). This guide focuses on the action boundary you can reuse in a real product.
 
 ## What “standalone” means here
 
@@ -72,7 +72,14 @@ const quote = await request('/quote', {
 })
 ```
 
-Fail closed if the quote is malformed, `success !== true`, the returned token pair or input amount does not match what you requested, `amount_out_min > amount_out`, estimated gas is missing, or the quote has too little time left to use safely.
+Fail closed on any of the following:
+
+- the quote is malformed;
+- `success !== true`;
+- the returned token pair or input amount does not match what you requested;
+- `amount_out_min > amount_out`;
+- estimated gas is missing; or
+- the quote has too little time left to use safely.
 
 For this fixed-USDC example, the conservative acquisition price is:
 
@@ -121,7 +128,7 @@ Absence of either means preview-only. Credentials being present must not silentl
 
 ## 4. Persist intent before submission risk
 
-The managed execute endpoint accepts a caller-owned `Idempotency-Key` (1–64 characters using `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, or `-`). The key belongs to the **economic action**, not to one HTTP attempt.
+The managed execute endpoint accepts a caller-owned `Idempotency-Key`. The key allows 1–64 characters from `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, or `-`. The key belongs to the **economic action**, not to one HTTP attempt.
 
 Before the first `POST /swap/execute`:
 
@@ -240,7 +247,7 @@ Set `SUWAPPU_API_EVENTS=1` for metadata-only stderr events such as:
 suwappu_api_event {"operation":"quote","outcome":"response_ok","duration_ms":184.2,"status":200}
 ```
 
-These events omit credentials, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received a parseable response at that layer—not that a managed trade reached terminal success. Reconciled state remains authoritative.
+These events omit credentials, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received a parseable response at that layer. It does not mean a managed trade reached terminal success. Reconciled state remains authoritative.
 
 ## Choose REST, SDK, or MCP deliberately
 
@@ -278,7 +285,7 @@ Measure the funnel before adding strategy complexity:
 - time to terminal outcome;
 - weekly retained users or intentionally enabled policies.
 
-At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model. Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs—not from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
+At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model. Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs. Do not price it from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
 
 Keep the two scoreboards separate:
 

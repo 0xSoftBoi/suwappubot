@@ -1,6 +1,6 @@
 # Swap Execute (Managed Wallet)
 
-Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction — you only send a `quote_id`. This is the simplest path and requires no key handling on your side.
+Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction. You only send a `quote_id`. This is the simplest path and requires no key handling on your side.
 
 ## POST /v1/agent/swap/execute
 

@@ -1,6 +1,6 @@
 # Protocols
 
-Suwappu speaks three protocols over the same base URL (`https://api.suwappu.bot`) so your agent can integrate however it works best: a plain REST API, the Model Context Protocol (MCP) for LLM tool use, and the Agent-to-Agent (A2A) protocol for natural-language, agent-discoverable messaging. They share the same routing engine, but they intentionally expose different authority levels.
+Suwappu speaks three protocols over the same base URL, `https://api.suwappu.bot`. Your agent can integrate however it works best: a plain REST API, the Model Context Protocol (MCP) for LLM tool use, and the Agent-to-Agent (A2A) protocol for natural-language, agent-discoverable messaging. They share the same routing engine, but they intentionally expose different authority levels.
 
 ## The Three Protocols
 
@@ -14,7 +14,7 @@ Suwappu speaks three protocols over the same base URL (`https://api.suwappu.bot`
 
 ### REST API
 
-Use the REST API when you control the client and need the most complete surface: quotes, swap simulation, self-custody preparation, managed swap execution, managed wallets, prediction-market orders, HyperLiquid market/quote/position reads, Morpho market reads, webhooks, and swap history.
+Use the REST API when you control the client and need the most complete surface. It covers quotes, swap simulation, self-custody preparation, managed swap execution, managed wallets, prediction-market orders, HyperLiquid market/quote/position reads, Morpho market reads, webhooks, and swap history.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
@@ -27,7 +27,9 @@ See the [API Reference](../api-reference/README.md) for the full endpoint list.
 
 ### MCP (Model Context Protocol)
 
-Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. Source `0.6.0` exposes **22 tools** over JSON-RPC 2.0; call `tools/list` at runtime instead of hard-coding the inventory. MCP `execute_swap` is a historical name for unsigned transaction preparation — it does not submit a managed swap. Claude Desktop, Claude Code, Cursor, Codex, OpenCode, and other MCP clients can discover the surface automatically.
+Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. Source `0.6.0` exposes **22 tools** over JSON-RPC 2.0. Call `tools/list` at runtime instead of hard-coding the inventory.
+
+MCP `execute_swap` is a historical name for unsigned transaction preparation. It does not submit a managed swap. Claude Desktop, Claude Code, Cursor, Codex, OpenCode, and other MCP clients can discover the surface automatically.
 
 See [MCP](mcp.md) for the handshake, tool reference, and pay-per-call costs, or [MCP Client Setup](../quickstart/mcp-clients.md) for exact config snippets per client.
 

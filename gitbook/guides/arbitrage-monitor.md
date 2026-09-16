@@ -149,7 +149,7 @@ It also rejects a qualified candidate if the older of its two quotes has 5 secon
 
 ### Bound upstream work and keep errors safe
 
-The maintained adapter bounds each direct quote operation with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default, allowed range 100–30,000 ms). HTTP failures expose the status code without copying an upstream response body into operator logs; timeout/network failures are sanitized too.
+The maintained adapter bounds each direct quote operation with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the allowed range is 100–30,000 ms. HTTP failures expose the status code without copying an upstream response body into operator logs. Timeout and network failures are sanitized the same way.
 
 Set `SUWAPPU_API_EVENTS=1` when you need machine-readable stderr telemetry. Those events contain only operation, outcome, duration, and HTTP status when present. They intentionally omit API keys, token/chain/notional configuration, quote IDs, response bodies, and error text.
 
@@ -159,7 +159,7 @@ There is no automatic in-scan retry that can silently exceed `--max-quote-calls`
 
 State defaults to `~/.suwappu-arb-scanner` and can be moved with `SUWAPPU_ARB_STATE_DIR`. The monitor file is schema-validated fail-closed and replaced atomically after fsync; scan history is bounded by `SUWAPPU_ARB_HISTORY_LIMIT` (5,000 by default).
 
-`monitor.lock` covers the complete local cycle—quote work, state transition, webhook delivery bookkeeping—so a second process sharing that state directory fails before creating another quote burst. A crash can leave a stale lock. Prove the owning process/container is gone before removing that exact lock; age alone is not proof.
+`monitor.lock` covers the complete local cycle: quote work, state transition, and webhook delivery bookkeeping. A second process sharing that state directory fails before it can create another quote burst. A crash can leave a stale lock. Prove the owning process or container is gone before removing that exact lock. Age alone is not proof.
 
 The repository's container runs non-root and persists state under `/data`. Its default is one `scan --json --fail-on-degraded` with Compose restart disabled. Continuous `watch` is an explicit operator choice because indefinite polling is also an indefinite API-cost decision.
 
@@ -253,7 +253,7 @@ The maintained reference now implements the base alert-state contract:
 - mark a candidate inactive only when an error-free scan can actually establish absence; and
 - keep degraded coverage visible instead of manufacturing a decay/re-entry notification loop.
 
-Set `--alert-cooldown 0` for transition-only delivery; the default 900 seconds permits a reminder for a continuously qualified candidate. A webhook is marked delivered only after HTTP 2xx. Timeout/transport failure is **delivery-outcome unknown**—the receiver may have processed it—so downstream `alertId` idempotency still matters.
+Set `--alert-cooldown 0` for transition-only delivery. The default of 900 seconds permits a reminder for a continuously qualified candidate. A webhook is marked delivered only after HTTP 2xx. Timeout and transport failure count as **delivery-outcome unknown**: the receiver may have processed it, so downstream `alertId` idempotency still matters.
 
 For production webhook delivery, set an exact `SUWAPPU_WEBHOOK_ALLOWED_HOSTS` allowlist and a random `SUWAPPU_WEBHOOK_SECRET`. Signed requests use `X-Suwappu-Timestamp` plus `X-Suwappu-Signature: sha256=<HMAC>` over `timestamp + "." + rawBody`. Require HTTPS, reject stale timestamps, use constant-time signature comparison, and deduplicate `alertId`. The CLI's hostname checks are not a complete DNS-rebinding/SSRF boundary; a multi-tenant service accepting untrusted URLs needs connection-time egress controls.
 

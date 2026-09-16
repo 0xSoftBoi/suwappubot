@@ -1,6 +1,6 @@
 # Prediction Markets
 
-Read Polymarket market/event data through Suwappu, and—only when you intentionally grant trading authority—place or cancel CLOB limit orders with an authenticated Suwappu agent.
+Read Polymarket market and event data through Suwappu by default. Place or cancel CLOB limit orders only after you intentionally grant trading authority to an authenticated Suwappu agent.
 
 The market-data routes and trading/account routes have different authority. A read-only product does not need to initialize Polymarket trading credentials.
 

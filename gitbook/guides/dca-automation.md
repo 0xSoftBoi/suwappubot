@@ -97,7 +97,7 @@ A plan looks like this:
 
 The ID is durable business state. Do not derive it from an array index or regenerate it on deploy.
 
-The reference accepts five-field cron with one literal minute (`0`–`59`), so each plan runs no faster than hourly. Timezone defaults to UTC and otherwise must be a valid IANA timezone. That cap is intentional for a recurring-purchase reference; a high-frequency strategy belongs in a different scheduler/execution design.
+The reference accepts five-field cron with one literal minute, from `0` to `59`, so each plan runs no faster than hourly. Timezone defaults to UTC and otherwise must be a valid IANA timezone. That cap is intentional for a recurring-purchase reference; a high-frequency strategy belongs in a different scheduler/execution design.
 
 V2 pins node-cron 4.6, enables its per-task `noOverlap` guard, and computes the durable action key from the scheduler context's intended `date`. That matters when the event loop is delayed across a minute boundary: callback start time must not silently turn one scheduled installment into another slot. The application-level journal lock/idempotency state remains necessary; scheduler overlap prevention is not a substitute for financial exactly-once semantics.
 
@@ -221,7 +221,7 @@ suwappu_api_event {"operation":"quote","outcome":"response_ok","duration_ms":184
 
 Events contain only operation, transport/protocol outcome, duration, and optional HTTP status. They exclude keys, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received parseable JSON at that layer; it is not proof of valid strategy economics or terminal execution.
 
-The supplied image runs non-root with durable `/data`. Its default command validates the included plan **without an API key or network call and exits**. `docker-compose.yml` uses `restart: "no"`; scheduling—and especially managed scheduling—must be an explicit operator choice rather than a hidden restart-loop side effect.
+The supplied image runs non-root with durable `/data`. Its default command validates the included plan **without an API key or network call and exits**. `docker-compose.yml` uses `restart: "no"`. Scheduling, and especially managed scheduling, must be an explicit operator choice rather than a hidden restart-loop side effect.
 
 ## Intentionally enable bounded managed execution
 
@@ -262,7 +262,7 @@ A cron expression is a commodity. Reliable recurring intent, approvals, explanat
 | Bounded automation | Recurring execution within customer limits | intentionally enabled automations, reconciliation/support tier | Yes |
 | Team / treasury | Shared recurring purchasing with accountability | SSO/RBAC, shared budgets, exports, control/reporting tier | Yes |
 
-Validate retention before taking on more execution risk. For the preview-first product, a useful activation event is **saved plan -> first route-qualified scheduled preview**. Track a separate managed milestone—**explicitly opted-in plan -> first terminal reconciled action**—instead of mixing money movement with signup/traffic metrics.
+Validate retention before taking on more execution risk. For the preview-first product, a useful activation event is **saved plan -> first route-qualified scheduled preview**. Track a separate managed milestone: **explicitly opted-in plan -> first terminal reconciled action**. Do not mix money movement with signup/traffic metrics.
 
 Useful funnel metrics include:
 
@@ -276,7 +276,7 @@ Useful funnel metrics include:
 
 Those metrics describe whether the workflow is valuable and reliable. They do not require the purchased token to rise in price.
 
-Sell capability—more plans, alerts, approvals, durable history, automation, roles, exports, and support—not a “higher return” tier. The customer can value a workflow that behaves correctly even during a month when the acquired asset loses value.
+Sell capability: more plans, alerts, approvals, durable history, automation, roles, exports, and support. Do not sell a “higher return” tier. The customer can value a workflow that behaves correctly even during a month when the acquired asset loses value.
 
 ## Model request economics before setting a price
 
@@ -347,6 +347,13 @@ V2 gives one local process strong operating invariants; it is **not** a distribu
 - Gate money-path releases on frozen dependencies, tests/build, dependency audit, container validation, code scanning, and explicit retry/idempotency review. The source v2 CI/CodeQL setup is a starting contract, not a substitute for your own production change controls.
 - Keep builder margin and customer investment performance in separate ledgers.
 
-The best first paid experiment is simple: offer preview-only fixed-USDC plans with route/cost notifications, measure retained use, add approvals for users who want a faster action loop, and offer bounded automation only to users who explicitly ask for it. The defensible value is not cron—it is trusted recurring intent with a provable outcome loop.
+The best first paid experiment is simple:
+
+- offer preview-only fixed-USDC plans with route/cost notifications;
+- measure retained use;
+- add approvals for users who want a faster action loop; and
+- offer bounded automation only to users who explicitly ask for it.
+
+The defensible value is not cron. It is trusted recurring intent with a provable outcome loop.
 
 > Educational integration reference, not financial advice or a guarantee of investment returns. Automated execution can lose funds.

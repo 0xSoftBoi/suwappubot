@@ -6,15 +6,15 @@ The interfaces have different authority levels on purpose: REST/SDK is the compl
 
 ## Why Suwappu?
 
-- **40+ Chains** -- discover the current list at `GET /v1/agent/chains` instead of hard-coding it.
-- **Best-route quotes** -- supported providers are chain/route gated and evaluated by the routing engine.
-- **Preview before capital** -- `POST /swap/simulate` runs safety checks without signing, broadcasting, or persisting a swap.
-- **Two custody paths** -- `POST /swap` returns an unsigned self-custody transaction; `POST /swap/execute` signs/broadcasts with the authenticated agent's managed wallet.
-- **Three protocols** -- REST API, MCP (Model Context Protocol), and A2A (Agent-to-Agent), with explicit authority boundaries.
-- **Perpetual Futures Research** -- browse HyperLiquid markets, quote hypothetical positions, and inspect positions; Agent API execution is not exposed today.
-- **Prediction Markets** -- browse market data and place explicit Polymarket orders through the documented prediction REST/SDK endpoints.
-- **Lending Research** -- browse current Morpho rates, USD liquidity, listing status, and warnings; deposits/borrows are not exposed on the Agent API today.
-- **Managed-wallet controls** -- policies, approvals, audit history, idempotency, and kill switches for automation.
+- **40+ Chains** — discover the current list at `GET /v1/agent/chains` instead of hard-coding it.
+- **Best-route quotes** — supported providers are chain/route gated and evaluated by the routing engine.
+- **Preview before capital** — `POST /swap/simulate` runs safety checks without signing, broadcasting, or persisting a swap.
+- **Two custody paths** — `POST /swap` returns an unsigned self-custody transaction. `POST /swap/execute` signs and broadcasts with the authenticated agent's managed wallet.
+- **Three protocols** — REST API, MCP (Model Context Protocol), and A2A (Agent-to-Agent), with explicit authority boundaries.
+- **Perpetual Futures Research** — browse HyperLiquid markets, quote hypothetical positions, and inspect positions. Agent API execution is not exposed today.
+- **Prediction Markets** — browse market data and place explicit Polymarket orders through the documented prediction REST/SDK endpoints.
+- **Lending Research** — browse current Morpho rates, USD liquidity, listing status, and warnings. Deposits and borrows are not exposed on the Agent API today.
+- **Managed-wallet controls** — policies, approvals, audit history, idempotency, and kill switches for automation.
 
 ## 60-second no-funds quickstart
 
@@ -57,10 +57,10 @@ Start with [Build a Business on Suwappu](guides/build-a-business.md) for custome
 
 ## Agent discovery
 
-- **[llms.txt](https://suwappu.bot/llms.txt)** -- curated machine-readable docs index.
-- **[llms-full.txt](https://suwappu.bot/llms-full.txt)** -- full generated docs corpus.
-- **[Agent Card](https://api.suwappu.bot/.well-known/agent.json)** -- A2A-compatible descriptor.
-- **[OpenAPI Spec](https://api.suwappu.bot/v1/agent/openapi)** -- OpenAPI 3.1 contract.
-- **MCP** -- `POST https://api.suwappu.bot/mcp`; call `tools/list` for the live tool inventory.
+- **[llms.txt](https://suwappu.bot/llms.txt)** — curated machine-readable docs index.
+- **[llms-full.txt](https://suwappu.bot/llms-full.txt)** — full generated docs corpus.
+- **[Agent Card](https://api.suwappu.bot/.well-known/agent.json)** — A2A-compatible descriptor.
+- **[OpenAPI Spec](https://api.suwappu.bot/v1/agent/openapi)** — OpenAPI 3.1 contract.
+- **MCP** — `POST https://api.suwappu.bot/mcp`. Call `tools/list` for the live tool inventory.
 
 Treat those generated/runtime contracts as authoritative when a package registry or copied example lags the repository.

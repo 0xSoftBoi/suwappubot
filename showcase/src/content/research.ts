@@ -72,7 +72,7 @@ export type ResearchPost = {
   body?: string;
 };
 
-const TEMPO_BODY = `# The fee payer as a treasury control surface: sponsored execution on Tempo
+const TEMPO_BODY = `# Fee sponsorship as a treasury control
 
 *Engineering control note. Revised and source-verified on 8 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
 
@@ -182,7 +182,7 @@ The code supports the mechanism and the protocol supports the primitive. The sou
 That is also the reason we no longer use "gasless" as the headline claim. For an institutional audience, the economically relevant statement is narrower and more useful. **Tempo can separate transaction authority from network-fee liability. Suwappu has implemented that path with persisted policy limits. The current spend control still needs atomic reservation and actual-fee reconciliation before it should be treated as a hard treasury budget.**
 `;
 
-const ROUTING_BODY = `# A router is an execution policy: price, evidence quality, and the TCA gap
+const ROUTING_BODY = `# A router is an execution policy
 
 *Engineering control note. Revised and verified against current main on 8 August 2026. This describes Suwappu's decision function. It does not claim regulatory "best execution" or prove superior realized execution.*
 
@@ -306,7 +306,7 @@ The decision falls back when cost or price inputs cannot be trusted. The system 
 For a banking audience, that is the appropriate claim boundary: **source-verified execution policy, not certified best execution; evidence-conditioned decision logic, not a universal objective; quote-level counterfactuals, not yet realized TCA; venue-specific protections, not universal coverage.**
 `;
 
-const LATENCY_BODY = `# What is a minute of cross-chain execution worth? Pricing latency without confusing ETA for finality
+const LATENCY_BODY = `# What is a minute of settlement worth?
 
 *Quantitative policy-calibration paper. Dated 8 August 2026. The repository routing rule is source-verified at a pinned commit, and the financing scenario is reproducible and independently checked with Wolfram. Production runtime behavior and the realized value of speed remain unmeasured.*
 
@@ -446,7 +446,7 @@ The boundary is equally explicit. This paper uses **no production replay**. It d
 `;
 
 
-const USDT0_BODY = `# USDT0 backing reconciliation: separating protocol coverage from issuer risk
+const USDT0_BODY = `# USDT0 backing, reconciled at the perimeter
 
 *Institutional research note. This study tests token-unit backing inside USDT0's cross-chain accounting perimeter. It does not test Tether's reserve portfolio, USDT redemption capacity, or the legal status of the backing asset. The [working paper](/research/replication/papers/usdt0-collateral-reconciliation.md) is canonical; a [nine-page report edition](/research/reports/accounting-for-an-omnichain-dollar.pdf) is available for circulation.*
 
@@ -600,9 +600,11 @@ Primary architecture sources used to define the perimeter are USDT0's [developer
 
 ---
 
-*Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, regulatory classification, prudential-capital opinion, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication. The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. The current working-paper revision was also adversarially refereed and incorporates the surviving corrections from that pass. All measurement inputs are public chain state or cited public documents.*`;
+*Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, regulatory classification, prudential-capital opinion, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication.*
 
-const POINTS_BODY = `# Incentive budgets as market design: what survives after the model fails
+*The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. The current working-paper revision was also adversarially refereed and incorporates the surviving corrections from that pass. All measurement inputs are public chain state or cited public documents.*`;
+
+const POINTS_BODY = `# Incentive budgets as market design
 
 *Institutional research note. Revised 8 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
 
@@ -660,7 +662,7 @@ Within this model, two readings matter. The number of participants who are *acti
 
 For diligence, Table 1 should now be read as **model output, not a counterparty forecast**. The empirical test found tens to hundreds of thousands of positive-allocation wallets where the model predicted a small active set. Beneficial-owner concentration may be higher than wallet concentration, but that is an entity-resolution question the model does not answer.
 
-## Fee denomination: a conditional revenue-capture result
+## Fee denomination and conditional revenue capture
 
 Within the symmetric linear benchmark, denomination changes where modeled spend lands. That is narrower than saying denomination is the only lever available to a real program.
 
@@ -668,17 +670,17 @@ Split the cost of acquiring a point into the part paid to the protocol as a fee,
 
 ![Stacked model-scenario chart comparing four assumed cost decompositions, with modeled protocol revenue rising as the protocol share of marginal cost increases while total modeled dissipation is held fixed.](/research/points-denomination.svg "Conditional model arithmetic: the scenario holds total dissipation fixed and changes its assumed destination. These are not measured or forecast revenues.")
 
-Take the symmetric *n* = 100 example on a million-dollar pool: all four simulated designs hold modeled spend at $990k while changing the assumed share of marginal cost captured by the protocol from 5% to 97%. The resulting protocol-revenue arithmetic runs from $49.5k to $960.3k. Those are scenario outputs driven by the assumed cost split—not measurements of a live program or forecasts of realized fee revenue.
+Take the symmetric *n* = 100 example on a million-dollar pool. All four simulated designs hold modeled spend at $990k while changing the assumed share of marginal cost captured by the protocol from 5% to 97%. The resulting protocol-revenue arithmetic runs from $49.5k to $960.3k. Those are scenario outputs driven by the assumed cost split, not measurements of a live program or forecasts of realized fee revenue.
 
 A limit worth stating: as the protocol's share of marginal cost approaches 1, modeled revenue approaches the dissipated amount, not the whole pool. A live program still faces external execution costs and endogenous participation, so the identity does not establish full economic cost recovery.
 
 Stated honestly, the result is a conditional allocation identity: for a fixed modeled amount of contest spend, a larger protocol share of marginal cost routes more of that spend to the protocol. The empirical study invalidates the jump from that identity to a claim that a fee-denominated program must concentrate on the model's active-set terms.
 
-## Wallet splitting: what the algebra does and does not establish
+## What the wallet-splitting algebra shows
 
 If points are strictly proportional to fees paid, a participant splitting a **fixed aggregate budget** across many wallets earns the same total points in the model. The pro-rata core is invariant to wallet count under that narrow condition. This is not a general claim of sybil resistance: identity-level eligibility, fixed costs, referral graphs, per-wallet limits, bonuses, detection rules, and behavior outside the fixed-budget comparison can all change the incentive.
 
-Now add a per-wallet nonlinearity: a 25% bonus on the first 5,000 points of *each wallet*. That single addition makes splitting profitable in the fixed-budget comparison because a participant can re-trigger the capped bonus once per wallet. A $100k budget split across 1,000 wallets puts $100 in each — well under the threshold — so every wallet earns the full bonus, where a single wallet earns it only on the first 5,000 of 100,000 points.
+Now add a per-wallet nonlinearity: a 25% bonus on the first 5,000 points of *each wallet*. That single addition makes splitting profitable in the fixed-budget comparison because a participant can re-trigger the capped bonus once per wallet. A $100k budget split across 1,000 wallets puts $100 in each, well under the threshold, so every wallet earns the full bonus. A single wallet earns the bonus only on the first 5,000 of 100,000 points.
 
 How much that pays depends on the competing effort the participant faces, so it is a range rather than a single point estimate:
 
@@ -688,11 +690,13 @@ How much that pays depends on the competing effort the participant faces, so it 
 | 1,000,000 | 1.209× | 0.0 |
 | 20,000,000 | 1.233× | 0.0 |
 
-The gain rises as the participant's own share of the pool falls, approaching the bonus rate itself. It is a best response against fixed competing effort, not an equilibrium quantity. The supported conclusion is therefore specific: **this per-wallet bonus creates a wallet-splitting incentive that the strictly proportional core does not have in the fixed-budget comparison.** It does not establish the net amount of identity splitting in a live program.
+The gain rises as the participant's own share of the pool falls, approaching the bonus rate itself. It is a best response against fixed competing effort, not an equilibrium quantity. The supported conclusion is therefore specific.
 
-## Empirical status: the sharp prediction failed
+**This per-wallet bonus creates a wallet-splitting incentive that the strictly proportional core does not have in the fixed-budget comparison.** It does not establish the net amount of identity splitting in a live program.
 
-This post originally said the model's falsification test—recipient-level concentration at completed programs—had not been run. It now has. The primary HYPE and EIGEN vectors contain 329,947 positive-allocation wallets in aggregate; measured top-1 shares are 0.73% and 2.40% against a program-matched model envelope whose lower edge is about 14.3%. Across the grid test, no sampled parameter value reconciles both observed participation and top-share concentration. [The companion paper reports the collection, correction history, and simulation test.](/research/airdrop-concentration)
+## Empirical status of the sharp prediction
+
+This post originally said the model's falsification test, recipient-level concentration at completed programs, had not been run. It now has. The primary HYPE and EIGEN vectors contain 329,947 positive-allocation wallets in aggregate; measured top-1 shares are 0.73% and 2.40% against a program-matched model envelope whose lower edge is about 14.3%. Across the grid test, no sampled parameter value reconciles both observed participation and top-share concentration. [The companion paper reports the collection, correction history, and simulation test.](/research/airdrop-concentration)
 
 What fails is the **descriptive active-set channel at wallet level**. What survives are conditional identities that do not depend on that descriptive fit: the symmetric cost-scaling result, the modeled revenue-capture identity, and the fixed-budget wallet-splitting arithmetic. Even those results inherit their stated assumptions and should not be promoted into claims about hard caps, realized revenue, or beneficial owners.
 
@@ -710,29 +714,36 @@ The main omitted mechanisms are now more than a limitations list; they are candi
 
 The empirical rejection also gives the model a clean governance status: **challenged for descriptive use, retained for conditional mechanism analysis**. Any future claim that the active-set result predicts a live program should require new evidence rather than cite Table 1 by itself.
 
-## Applied design: Suwappu's own incentives
+## Applying this to Suwappu's own incentives
 
 The current source configuration denominates the pro-rata core in fees and also contains per-user engagement and referral caps. Those are two different mechanisms. The fixed-budget wallet-splitting corollary applies to the strictly fee-proportional core; it does **not** certify the nonlinear grants or the entire program as sybil-neutral.
 
 We also do not use repository code as evidence of a realized distribution outcome. No completed Suwappu token allocation is measured in this study. Until outcome data exists, concentration for our own program is **unverified**.
 
-For a program designer or diligence team, the defensible takeaways are correspondingly bounded: make the economic denominator explicit; test per-wallet nonlinearities for splitting incentives; model hard caps as constraints rather than cost scalars; and treat recipient concentration as an empirical variable to be measured, not inferred from this contest benchmark.
+For a program designer or diligence team, the defensible takeaways are correspondingly bounded:
 
-For a product or finance owner, there is one additional implication the contest model cannot answer: **reward efficiency has to be measured downstream of the reward.** A program can generate enormous measured activity and still destroy value if the subsidized behavior disappears when the subsidy stops. The relevant operating dataset therefore joins incentive cost to the business outcome the program was supposed to create—retained balance, payment activity, execution, revenue, or another explicitly chosen objective. This paper supplies no such causal ROI estimate, so it should not be used as one.
+- Make the economic denominator explicit.
+- Test per-wallet nonlinearities for splitting incentives.
+- Model hard caps as constraints rather than cost scalars.
+- Treat recipient concentration as an empirical variable to be measured, not inferred from this contest benchmark.
+
+For a product or finance owner, there is one additional implication the contest model cannot answer. Reward efficiency has to be measured downstream of the reward. A program can generate enormous measured activity and still destroy value if the subsidized behavior disappears when the subsidy stops.
+
+The relevant operating dataset therefore joins incentive cost to the business outcome the program was supposed to create: retained balance, payment activity, execution, revenue, or another explicitly chosen objective. This paper supplies no such causal ROI estimate, so it should not be used as one.
 
 ## Data and code
 
 **[The full working paper, the exact equilibrium solver, the Monte Carlo and the verification suite are published here](/research/replication)**, seeded with a fixed RNG so every number above is reproducible bit-for-bit. No network access is required to re-run any of it.
 
-This post is an abridgement. [The paper](/research/replication/papers/points-tullock-contests.md) carries the propositions and their proofs, the full robustness section and the references — and where the two disagree, the paper governs.
+This post is an abridgement. [The paper](/research/replication/papers/points-tullock-contests.md) carries the propositions and their proofs, the full robustness section and the references, and where the two disagree, the paper governs.
 
-As a reproducibility cross-check, the symmetric benchmark reconciles directly: *D* = 99/100 = 0.99, so a $1m prize implies $990k of modeled spend; at unit costs of $0.10 and $100 that corresponds to 9.9m and 9,900 points, and 5% and 97% capture imply $49.5k and $960.3k. This checks the article's arithmetic; it is **not** model validation or evidence of realized program economics.
+As a reproducibility cross-check, the symmetric benchmark reconciles directly. *D* = 99/100 = 0.99, so a $1m prize implies $990k of modeled spend. At unit costs of $0.10 and $100 that corresponds to 9.9m and 9,900 points, and 5% and 97% capture imply $49.5k and $960.3k. This checks the article's arithmetic; it is **not** model validation or evidence of realized program economics.
 
 ---
 
 *Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a direct commercial interest in fee-denominated incentive design. No completed Suwappu token distribution is used as evidence here. The active-set prediction in the first version of this article failed its first published wallet-level empirical test; that correction is part of the research record, not a footnote.*`;
 
-const AIRDROP_BODY = `# When a mathematically correct model is wrong: an allocation-model validation case study
+const AIRDROP_BODY = `# When a correct model is wrong
 
 *Institutional empirical note. Revised 8 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
 
@@ -740,7 +751,7 @@ The most useful result in this paper is not an airdrop statistic. It is a model-
 
 That distinction is familiar to bank model-risk teams. The US banking agencies' [revised 2026 model-risk guidance](https://www.federalreserve.gov/frrs/guidance/supervisory-guidance-on-model-risk-management.htm) separates development and use from validation and monitoring, including outcomes analysis, and from governance and controls. It also notes that a fundamentally sound model can still create high model risk when misapplied or misused. We use that structure as a reading frame rather than asserting regulatory applicability to this paper.
 
-The prior theory paper predicted that a heterogeneous linear-cost Tullock contest would produce a very small active set and a top recipient holding 17.1–40.8% of the pool in the original 5,000-entrant simulations. Recomputing at the observed HYPE and EIGEN wallet counts moves the primary-program top-share envelope to roughly 14.3–37.0%. We tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector, with ENA Season 1 as a lower-resolution cross-check.
+The prior theory paper predicted that a heterogeneous linear-cost Tullock contest would produce a very small active set and a top recipient holding 17.1% to 40.8% of the pool in the original 5,000-entrant simulations. Recomputing at the observed HYPE and EIGEN wallet counts moves the primary-program top-share envelope to roughly 14.3% to 37.0%. We tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector, with ENA Season 1 as a lower-resolution cross-check.
 
 The prediction is rejected at wallet level. That conclusion is stronger than the causal story we initially attached to it, so this revision separates the two.
 
@@ -781,13 +792,17 @@ This is why publishing a failed prediction is more valuable than quietly replaci
 | Top-10 recipients | 79.1–100% | 4.7% | 12.7% |
 | Active participants | 6–22 | 90,912 | 239,035 |
 
-The model band was recomputed at each program's own entrant count. The grid-based rejection then evaluates 15 cost-dispersion values from 10⁻⁴ to 1.2 with 200 Monte Carlo economies at each value: **zero of 3,000 draws per program jointly produced a top-1 share within a factor of two of the observed one and an active set of at least half the observed wallet count.** Within that prespecified grid, lowering dispersion raises modeled participation while collapsing the top share; increasing dispersion raises the top share while shrinking the active set. No sampled parameter reconciles both moments. The paper reports this as a grid-based simulation test, not proof over every possible alternative model or parameterization.
+The model band was recomputed at each program's own entrant count. The grid-based rejection then evaluates 15 cost-dispersion values from 10⁻⁴ to 1.2 with 200 Monte Carlo economies at each value. Zero of 3,000 draws per program jointly produced a top-1 share within a factor of two of the observed one and an active set of at least half the observed wallet count.
+
+Within that prespecified grid, lowering dispersion raises modeled participation while collapsing the top share; increasing dispersion raises the top share while shrinking the active set. No sampled parameter reconciles both moments. The paper reports this as a grid-based simulation test, not proof over every possible alternative model or parameterization.
 
 ## What the allocations actually look like
 
-The empirical distributions are still highly unequal. The top 1% of wallets holds 58.6% of HYPE's measured user pool, 61.3% of raw EIGEN claims, and 62.7% of the measured ENA recipient vector. HYPE's wallet-level Gini is **0.947**; EIGEN's bonus-adjusted vector is **0.943**. The important observation is not that these numbers look similar; it is that a distribution with hundreds of thousands of positive-allocation wallets can still be highly concentrated while remaining fundamentally different from the model's handful-of-active-players shape.
+The empirical distributions are still highly unequal. The top 1% of wallets holds 58.6% of HYPE's measured user pool, 61.3% of raw EIGEN claims, and 62.7% of the measured ENA recipient vector. HYPE's wallet-level Gini is **0.947**; EIGEN's bonus-adjusted vector is **0.943**.
 
-From a distribution-risk seat, that produces a second caution: **wide participation is not the same as diversified economic ownership.** A top percentile holding roughly 59–63% is compatible with a very large positive-recipient population. Conversely, wallet concentration is not beneficial-owner concentration. Neither statistic, by itself, estimates secondary-market liquidity, sell pressure, governance control, or loss severity.
+The important observation is not that these numbers look similar. It is that a distribution with hundreds of thousands of positive-allocation wallets can still be highly concentrated while remaining fundamentally different from the model's handful-of-active-players shape.
+
+From a distribution-risk seat, that produces a second caution: **wide participation is not the same as diversified economic ownership.** A top percentile holding roughly 59% to 63% is compatible with a very large positive-recipient population. Conversely, wallet concentration is not beneficial-owner concentration. Neither statistic, by itself, estimates secondary-market liquidity, sell pressure, governance control, or loss severity.
 
 ![Lorenz curves for the measured HYPE and bonus-adjusted EIGEN wallet vectors compared with the selected Tullock-model benchmark, showing broad positive recipient populations in the observed vectors versus a much smaller modeled active set.](/research/airdrop-lorenz.svg "Wallet-level comparison only. The observed vectors remain highly concentrated, but their distributional shape is materially broader than the selected active-set model benchmark; wallets are not beneficial owners.")
 
@@ -799,9 +814,11 @@ The data in this paper do **not** measure participant capital at the relevant sn
 
 ## What survives from the theory, and what we retract
 
-The theory paper's **conditional** mechanism results do not depend on the rejected active-set fit: within its symmetric benchmark, shifting marginal cost toward protocol fees changes the modeled destination of spend; under a fixed aggregate budget, strictly proportional fee points are invariant to wallet splitting. EIGEN's additional 100-token per-address allocation is directly documented by Eigen Foundation and creates a mechanical reason that splitting can matter. This dataset does not estimate how many wallets, if any, were created because of that incentive.
+The theory paper's **conditional** mechanism results do not depend on the rejected active-set fit. Within its symmetric benchmark, shifting marginal cost toward protocol fees changes the modeled destination of spend. Under a fixed aggregate budget, strictly proportional fee points are invariant to wallet splitting.
 
-What we retract is the prior instruction to "underwrite a points program as an allocation to roughly ten counterparties." These data support a different measurement statement: the top percentile of **wallets** holds roughly 59–63% in the three measured vectors. They do not establish how many beneficial owners sit behind those wallets, whether those owners are coordinated, or what their future selling behavior will be.
+EIGEN's additional 100-token per-address allocation is directly documented by Eigen Foundation and creates a mechanical reason that splitting can matter. This dataset does not estimate how many wallets, if any, were created because of that incentive.
+
+What we retract is the prior instruction to "underwrite a points program as an allocation to roughly ten counterparties". These data support a different measurement statement: the top percentile of **wallets** holds roughly 59% to 63% in the three measured vectors. They do not establish how many beneficial owners sit behind those wallets, whether those owners are coordinated, or what their future selling behavior will be.
 
 The capital-mirror hypothesis makes a useful prospective test: **if** pre-distribution depositor/activity concentration forecasts final allocation concentration out of sample, it should be measurable mid-season. We have not run that test. It is a research agenda, not a current forecasting result.
 
@@ -809,7 +826,9 @@ The capital-mirror hypothesis makes a useful prospective test: **if** pre-distri
 
 All headline statistics are wallet-level. Wallet splitting can make beneficial-owner concentration **higher** than measured wallet concentration; omnibus or custodial collection can make a single wallet represent many beneficiaries, pushing in the opposite direction. The sign is therefore not known without entity resolution.
 
-We quantify how much clustering would be required to rescue the model rather than assume it away. Using each program's stored σ = 0.2 matched-*n* median as the lower benchmark, the wealthiest **63 HYPE wallets** would have to be treated as one entity to reach 16.1%; the participation moment would require roughly 90,000 wallets to collapse to about 21 entities. EIGEN's top-share result is more sensitive: merging its top **13 wallets** reaches its 14.35% matched median. That asymmetry is why HYPE carries the cleaner top-wallet rejection and EIGEN contributes more through its participation moment.
+We quantify how much clustering would be required to rescue the model rather than assume it away. Using each program's stored σ = 0.2 matched-*n* median as the lower benchmark, the wealthiest **63 HYPE wallets** would have to be treated as one entity to reach 16.1%. The participation moment would require roughly 90,000 wallets to collapse to about 21 entities.
+
+EIGEN's top-share result is more sensitive: merging its top **13 wallets** reaches its 14.35% matched median. That asymmetry is why HYPE carries the cleaner top-wallet rejection and EIGEN contributes more through its participation moment.
 
 ## Decision use
 
@@ -821,17 +840,21 @@ For mechanism design, per-wallet nonlinearities should be tested explicitly for 
 
 ## Data and code
 
-**[Both primary wallet vectors, the collectors, the analysis, and the simulation test are published here](/research/replication)** — 329,947 recipient rows across the HYPE genesis and EIGEN claim-recipient vectors used for the primary test, the model solver reused verbatim from the theory paper, fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, matched-*n* bands, prespecified grid-based simulation test, and ENA post-mortem, and where the two disagree, the paper governs.
+**[Both primary wallet vectors, the collectors, the analysis, and the simulation test are published here](/research/replication)**. The release covers 329,947 recipient rows across the HYPE genesis and EIGEN claim-recipient vectors used for the primary test, the model solver reused verbatim from the theory paper, and fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, matched-*n* bands, prespecified grid-based simulation test, and ENA post-mortem, and where the two disagree, the paper governs.
 
 For program-design provenance, the primary external source for EIGEN is the [Eigen Foundation Season 1 documentation](https://docs.eigenfoundation.org/faq/season-1), which documents the two phases and the additional per-address allocation. The outcome quantities above come from the released recipient vectors and collectors rather than from that program document; the distinction between source-defined mechanics and measured outcomes is deliberate.
 
 ---
 
-*Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a commercial interest in fee-denominated incentive design; this paper rejects a more dramatic concentration claim from our own prior work. We hold no position in HYPE, EIGEN, or ENA taken on the basis of this analysis. No issuer named here reviewed the study. The primary evidence is public chain state or public APIs collected 31 July–1 August 2026, and all headline concentration statistics are wallet-level.*`;
+*Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a commercial interest in fee-denominated incentive design; this paper rejects a more dramatic concentration claim from our own prior work. We hold no position in HYPE, EIGEN, or ENA taken on the basis of this analysis.*
 
-const ERC8056_BODY = `# A 10-for-1 stock split can leave your ERC-20 balance unchanged
+*No issuer named here reviewed the study. The primary evidence is public chain state or public APIs collected 31 July to 1 August 2026, and all headline concentration statistics are wallet-level.*`;
 
-*Research note. Published 7 August 2026. Evidence state: RESEARCH. ERC-8056 is a Draft standards-track ERC, not a finalized standard. This study tests integration semantics and public code-search visibility; it does not claim a live user incident or that any named product lacks runtime support.*
+const ERC8056_BODY = `# The stock split your ERC-20 balance never shows
+
+*Research note. Published 7 August 2026. Evidence state: RESEARCH. ERC-8056 is a Draft standards-track ERC, not a finalized standard.*
+
+*This study tests integration semantics and public code-search visibility; it does not claim a live user incident or that any named product lacks runtime support.*
 
 Here is a crypto failure mode that can produce a **10x wrong number without a failed RPC call, a reverted transaction, or a broken ERC-20 contract**.
 
@@ -893,7 +916,7 @@ On 7 August 2026 we ran a purposive public-code audit across nine open-source co
 | ethers-io/ethers.js | EVM library |
 | Uniswap/interface | DEX interface |
 
-We searched the GitHub-indexed default-branch code for **uiMultiplier**, **balanceOfUI**, **UIMultiplierUpdated**, **ERC-8056**, and the four interface identifiers published by the draft. **All eight searches returned zero matches across the nine-repository scope.** A positive-control search for **balanceOf** returned indexed code in the same scope.
+We searched the GitHub-indexed default-branch code for **uiMultiplier**, **balanceOfUI**, **UIMultiplierUpdated**, **ERC-8056**, and the four interface identifiers published by the draft. All eight searches returned zero matches across the nine-repository scope. A positive-control search for **balanceOf** returned indexed code in the same scope.
 
 ![Public-code audit card listing nine repositories and zero matches for the eight canonical ERC-8056 search markers, plus the same zero-marker result for Suwappu main.](/research/social/erc8056-v3-audit.svg "This is an identifier-based public-code search, not runtime conformance testing. Zero canonical markers do not prove that a product lacks support.")
 
@@ -935,7 +958,7 @@ ERC-8056's design is interesting precisely because it tries to preserve the raw 
 export const researchPosts: ResearchPost[] = [
   {
     slug: 'erc8056-stock-split-interface-risk',
-    title: 'A 10-for-1 stock split can leave your ERC-20 balance unchanged',
+    title: 'The stock split your ERC-20 balance never shows',
     date: '2026-08-07',
     category: 'Tokenized assets',
     kind: 'research',
@@ -958,7 +981,7 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'omnichain-dollar-collateral',
-    title: 'USDT0 backing reconciliation: separating protocol coverage from issuer risk',
+    title: 'USDT0 backing, reconciled at the perimeter',
     date: '2026-07-31',
     updated: '2026-08-06',
     category: 'Reserve risk',
@@ -1000,7 +1023,7 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'pricing-cross-chain-latency',
-    title: 'What is a minute of cross-chain execution worth? Pricing latency without confusing ETA for finality',
+    title: 'What is a minute of settlement worth?',
     date: '2026-08-08',
     category: 'Execution governance',
     kind: 'research',
@@ -1034,7 +1057,7 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'points-programs-tullock-contests',
-    title: 'Incentive budgets as market design: what survives after the model fails',
+    title: 'Incentive budgets as market design',
     date: '2026-07-26',
     updated: '2026-08-08',
     category: 'Model risk',
@@ -1065,7 +1088,7 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'airdrop-concentration',
-    title: 'When a mathematically correct model is wrong: an allocation-model validation case study',
+    title: 'When a correct model is wrong',
     date: '2026-07-31',
     updated: '2026-08-08',
     category: 'Model validation',
@@ -1095,13 +1118,13 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'tempo-fee-payer-0x76',
-    title: 'The fee payer as a treasury control surface: sponsored execution on Tempo',
+    title: 'Fee sponsorship as a treasury control',
     date: '2026-07-31',
     updated: '2026-08-08',
     category: 'Payments control',
     kind: 'engineering',
     pullQuote: 'Sponsorship does not remove the fee. It changes who is authorized to incur it and where that cost is controlled.',
-    excerpt: 'Fee sponsorship is more than gasless UX. It separates asset authority from network-fee liability and can turn fee funding into a central treasury function. The current implementation proves the primitive, but ledger-grade budget control is not built yet.',
+    excerpt: 'Fee sponsorship on Tempo is more than gasless UX. It separates asset authority from network-fee liability and can turn fee funding into a central treasury function. The current implementation proves the primitive, but ledger-grade budget control is not built yet.',
     readMins: 11,
     status: 'published',
     evidence: {
@@ -1124,7 +1147,7 @@ export const researchPosts: ResearchPost[] = [
   },
   {
     slug: 'best-price-routing',
-    title: 'A router is an execution policy: price, evidence quality, and the TCA gap',
+    title: 'A router is an execution policy',
     date: '2026-07-31',
     updated: '2026-08-08',
     category: 'Execution governance',

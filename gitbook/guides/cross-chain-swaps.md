@@ -1,10 +1,10 @@
 # Cross-Chain Swaps
 
-Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine aggregators and bridges (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, CCTP) to find the best route, so you never pick a bridge yourself.
+Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine aggregators and bridges to find the best route, so you never pick a bridge yourself. Those include Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, and CCTP.
 
 ## How Cross-Chain Works
 
-A same-chain swap passes a single `chain`. A cross-chain swap passes `from_chain` and `to_chain` instead — the routing engine handles bridging and settlement under the hood and returns a single quote with the expected output on the destination chain.
+A same-chain swap passes a single `chain`. A cross-chain swap passes `from_chain` and `to_chain` instead. The routing engine handles bridging and settlement under the hood, and returns a single quote with the expected output on the destination chain.
 
 ## Step 1: Get a Cross-Chain Quote
 
@@ -86,7 +86,7 @@ curl https://api.suwappu.bot/v1/agent/swap/status/sw_xyz789 \
 }
 ```
 
-Instead of polling, you can set a `callback_url` on your agent and receive a signed webhook when the swap completes — see [Webhook Setup](webhook-setup.md).
+Instead of polling, you can set a `callback_url` on your agent and receive a signed webhook when the swap completes. See [Webhook Setup](webhook-setup.md) for details.
 
 ## Client-Signed Alternative
 

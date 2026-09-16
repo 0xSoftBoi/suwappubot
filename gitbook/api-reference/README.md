@@ -60,4 +60,4 @@ https://api.suwappu.bot/v1/agent
 
 ## Other surfaces
 
-Perpetual futures, prediction markets, and lending live under `/v1/agent/perps`, `/v1/agent/predict`, and `/v1/agent/lend` — see [Perpetual Futures](perps.md), [Prediction Markets](predict.md), and [Lending](lend.md). The same engine is also exposed over [MCP and A2A](../protocols/README.md).
+Perpetual futures, prediction markets, and lending live under `/v1/agent/perps`, `/v1/agent/predict`, and `/v1/agent/lend`. See [Perpetual Futures](perps.md), [Prediction Markets](predict.md), and [Lending](lend.md). The same engine is also exposed over [MCP and A2A](../protocols/README.md).

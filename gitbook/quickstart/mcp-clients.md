@@ -1,6 +1,6 @@
 # MCP Client Setup
 
-Suwappu's MCP server is hosted remotely at `https://api.suwappu.bot/mcp` (JSON-RPC 2.0 over the MCP Streamable HTTP transport). There is no local process to install — point your MCP client at the URL and authenticate with your agent API key in the `Authorization` header. Get a key from [`POST /v1/agent/register`](../api-reference/registration.md) (public, no auth required).
+Suwappu's MCP server is hosted remotely at `https://api.suwappu.bot/mcp`, using JSON-RPC 2.0 over the MCP Streamable HTTP transport. There is no local process to install. Point your MCP client at the URL and authenticate with your agent API key in the `Authorization` header. Get a key from [`POST /v1/agent/register`](../api-reference/registration.md) (public, no auth required).
 
 All clients below use the same two things:
 
@@ -34,7 +34,7 @@ Or configure it directly in a project's `.mcp.json`:
 }
 ```
 
-Verify it's connected with `/mcp` inside a Claude Code session — you should see `suwappu` listed with its tools.
+Verify it's connected with `/mcp` inside a Claude Code session. You should see `suwappu` listed with its tools.
 
 ## Claude Desktop
 
@@ -100,7 +100,9 @@ tool_timeout_sec = 120
 Authorization = "Bearer suwappu_sk_YOUR_KEY"
 ```
 
-If `execute_swap` times out, get a fresh quote and prepare again. Despite its historical name, MCP `execute_swap` only prepares an **unsigned self-custody transaction**; it never signs, broadcasts, or creates a managed swap record. Do not use [`GET /v1/agent/swaps`](../api-reference/swap-history.md) to infer whether an MCP-prepared transaction was submitted — submission is owned by the wallet that signs it.
+If `execute_swap` times out, get a fresh quote and prepare again. Despite its historical name, MCP `execute_swap` only prepares an **unsigned self-custody transaction**. It never signs, broadcasts, or creates a managed swap record.
+
+Do not use [`GET /v1/agent/swaps`](../api-reference/swap-history.md) to infer whether an MCP-prepared transaction was submitted. Submission is owned by the wallet that signs it.
 
 ## OpenCode
 
@@ -121,11 +123,11 @@ Add the server under `mcp` in your OpenCode config (`opencode.json` or `~/.confi
 }
 ```
 
-OpenCode discovers tools on startup — restart the session after editing the config, then ask it to list Suwappu's available tools to confirm the connection.
+OpenCode discovers tools on startup. Restart the session after editing the config, then ask it to list Suwappu's available tools to confirm the connection.
 
 ## Troubleshooting
 
 - **401 / Unauthorized:** Your API key is missing, malformed, or was rotated. Re-check the `Authorization` header and confirm the key with [`GET /v1/agent/me`](../api-reference/agent-profile.md).
 - **402 Payment Required:** You're on the free tier and out of prepaid credits. See [Agentic Payments](../billing/agentic-payments.md) for the topup/subscribe flow, or check your balance with `GET /v1/agent/billing`.
 - **429 Too Many Requests:** You've hit your tier's rate limit. See [Rate Limits](../authentication/rate-limits.md).
-- **Tool call times out:** Raise your client's MCP tool timeout (see the Codex gotcha above — most clients default to 30–60s, which is occasionally too tight for cross-chain quotes).
+- **Tool call times out:** Raise your client's MCP tool timeout. See the Codex gotcha above. Most clients default to 30–60s, which is occasionally too tight for cross-chain quotes.

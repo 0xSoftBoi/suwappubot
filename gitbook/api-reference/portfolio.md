@@ -1,6 +1,6 @@
 # Portfolio
 
-Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet — requests for any other address are rejected.
+Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet. Requests for any other address are rejected.
 
 ## GET /v1/agent/portfolio
 
