@@ -232,3 +232,14 @@ ADRs 0001–0005.
   the source a binary file to grep and silently broke the restore pass. Use a
   printable sentinel. Before relying on any markdown feature here, render the
   page and look at it.
+
+### `gitbook/` is the deployed docs tree; `docs/` is not
+- **What**: A first pass at applying the writing standard rewrote
+  `docs/quickstart.md`, `docs/features/*` and `docs/agent-clients.md`, none of
+  which reach a customer. `showcase/scripts/regen-docs.mjs` builds the live docs
+  site from `gitbook/` (61 files, ~51k words) into
+  `showcase/src/data/docs.json`. That tree was never linted or touched.
+  `scripts/verify.sh docs` now lints `gitbook/` first, and `docs/WRITING.md` §9
+  names which tree ships.
+- **Why**: "docs" in this repo means two different things. The one that is
+  published is the one without the obvious name.

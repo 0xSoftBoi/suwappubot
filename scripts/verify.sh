@@ -66,8 +66,17 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "✗ Customer-facing copy cites numbers its own source contradicts."
     exit 1
   fi
+  echo "=== Copy-lint self-test ==="
+  if ! python3 scripts/test_copy_lint.py; then
+    echo "✗ The prose linter's own tests fail; its findings cannot be trusted."
+    exit 1
+  fi
+  # gitbook/ is the DEPLOYED docs tree (showcase/scripts/regen-docs.mjs reads it
+  # into showcase/src/data/docs.json). It is listed first because it is the
+  # largest published prose surface and the easiest one to forget.
   echo "=== Writing standard (advisory, docs/WRITING.md) ==="
   python3 scripts/copy_lint.py --summary \
+    gitbook \
     docs/WRITING.md docs/README.md docs/quickstart.md docs/research docs/marketing \
     README.md showcase/src/content/research.ts showcase/messages/en.json || true
 fi

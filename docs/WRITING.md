@@ -142,6 +142,13 @@ Every research post, launch page, and letter carries one pull quote.
 
 ## 9. Docs
 
+**Know which tree ships.** `gitbook/` is the deployed developer documentation.
+`showcase/scripts/regen-docs.mjs` reads it into `showcase/src/data/docs.json`,
+which renders the live docs site. The `docs/` tree is repository documentation
+for contributors and agents, browsable on GitHub but not deployed. Both follow
+this standard. Only one of them is read by customers, and it is the one that is
+easy to forget.
+
 - Everything in sections 1 and 2 applies. The content model decides the page shape.
 - Reference pages prefer tables. Concept pages open with the conclusion. Runbooks are
   numbered steps with the risk note beside the step.
