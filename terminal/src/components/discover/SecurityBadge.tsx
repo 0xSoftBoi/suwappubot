@@ -107,7 +107,7 @@ export function SecurityBadge({
         className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] border transition-all cursor-pointer ${config.borderClass} ${config.bgClass} ${config.textClass} hover:brightness-125 ${
           isDanger ? "animate-pulse-slow" : ""
         }`}
-        aria-label={`Trust score ${score} of 100 — ${config.label}`}
+        aria-label={`Trust score ${score} of 100. ${config.label}.`}
         aria-expanded={expanded}
       >
         {/* Trust score number */}

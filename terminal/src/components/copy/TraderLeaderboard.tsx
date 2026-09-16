@@ -179,7 +179,7 @@ export function TraderLeaderboard({ onSelectTrader, onFollow }: TraderLeaderboar
                 <td colSpan={8} className="text-center text-terminal-text-muted text-sm py-12">
                   {isError ? (
                     <button type="button" onClick={() => void refetch()} className="text-sakura-400 hover:text-sakura-300">
-                      Trader feed unavailable — retry
+                      Trader feed is unavailable. Try again.
                     </button>
                   ) : 'No traders found'}
                 </td>

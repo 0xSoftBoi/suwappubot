@@ -12,7 +12,7 @@ export function AlertsPanel() {
       <TerminalEmptyState
         kicker="In development"
         title="Price and volume alerts are coming soon"
-        description="Get notified the moment a token crosses a target price or spikes in volume — above, below, or on a sudden move. Ships once the alerts backend lands."
+        description="Get notified when a token crosses a target price, above or below, or spikes in volume on a sudden move. Ships once the alerts backend lands."
       />
     </div>
   )

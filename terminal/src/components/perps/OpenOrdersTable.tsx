@@ -50,7 +50,7 @@ export function PerpsOpenOrders() {
         className="h-full"
         kicker="Perps"
         title="No resting orders"
-        description="Place a limit entry from the ticket and it waits here until price reaches it — cancel any time."
+        description="Place a limit entry from the ticket and it waits here until price reaches it. Cancel any time."
       />
     )
   }

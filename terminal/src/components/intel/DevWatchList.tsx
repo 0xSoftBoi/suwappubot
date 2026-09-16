@@ -26,7 +26,7 @@ export function DevWatchList({ onSelectToken }: DevWatchListProps) {
 
   const handleRemove = (id: number) => {
     removeWatch.mutate(id, {
-      onError: () => toast.error("Couldn't remove that deployer — try again."),
+      onError: () => toast.error("Couldn't remove that deployer. Try again."),
     })
   }
 

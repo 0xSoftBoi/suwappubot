@@ -87,7 +87,7 @@ export function PerpsTab() {
         <TerminalEmptyState
           kicker="No data yet"
           title="No perp funding/OI captured yet"
-          description="The capture service hasn't populated this dataset yet — expected before deploy."
+          description="The capture service hasn't populated this dataset yet. This is expected before deploy."
         />
       </div>
     )

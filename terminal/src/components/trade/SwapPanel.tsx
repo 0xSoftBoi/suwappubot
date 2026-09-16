@@ -195,13 +195,13 @@ export function SwapPanel() {
     if (lower.includes('insufficient') && lower.includes('gas')) {
       return raw.includes('You need at least')
         ? raw
-        : 'Not enough of the native gas token to cover this transaction — top it up and retry.'
+        : 'Not enough of the native gas token to cover this transaction. Top it up and retry.'
     }
     if (lower.includes('insufficient') && (lower.includes('balance') || lower.includes('funds'))) {
-      return 'Insufficient balance for this swap — lower the amount or add funds to your wallet.'
+      return 'Insufficient balance for this swap. Lower the amount or add funds to your wallet.'
     }
     if (lower.includes('slippage') || lower.includes('min received') || lower.includes('minimum received')) {
-      return 'Slippage exceeded — the price moved past your tolerance. Retry with slippage raised a notch.'
+      return 'Slippage exceeded. The price moved past your tolerance. Retry with slippage raised a notch.'
     }
     // Only wallet-rejection phrasing — never claim on-chain state from a
     // string match ("cancelled" from a router can mean a broadcast tx).
@@ -209,7 +209,7 @@ export function SwapPanel() {
       return "Request declined in your wallet. Retry when you're ready."
     }
     if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('rpc') || lower.includes('network error')) {
-      return 'Network timed out reaching the chain — check your connection and retry.'
+      return 'Network timed out reaching the chain. Check your connection and retry.'
     }
     return raw
   }
@@ -252,12 +252,12 @@ export function SwapPanel() {
         // unless the authoritative record explicitly says completed.
         if (result.success && result.status === 'completed') {
           telegramSuccessHaptic()
-          toast.success(`Swap completed — ${result.txHash.slice(0, 10)}…`)
+          toast.success(`Swap completed: ${result.txHash.slice(0, 10)}…`)
         } else if (!result.success || result.status === 'failed') {
           telegramErrorHaptic()
-          toast.error(`Swap ${result.status} — ${result.txHash.slice(0, 10)}…`)
+          toast.error(`Swap ${result.status}: ${result.txHash.slice(0, 10)}…`)
         } else {
-          toast(`Swap submitted — ${result.txHash.slice(0, 10)}…`, { icon: '↗' })
+          toast(`Swap submitted: ${result.txHash.slice(0, 10)}…`, { icon: '↗' })
         }
         setAmount('')
       }
@@ -514,7 +514,7 @@ export function SwapPanel() {
       {/* Quote error */}
       {quoteError && (
         <div role="alert" aria-live="assertive" className="rounded bg-bear-dim px-3 py-2 text-sm text-bear">
-          {swapErrorCopy(quoteError, 'Failed to get quote — check the amount and try again.')}
+          {swapErrorCopy(quoteError, 'Failed to get quote. Check the amount and try again.')}
         </div>
       )}
 

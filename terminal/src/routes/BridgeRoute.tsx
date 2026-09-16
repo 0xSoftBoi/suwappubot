@@ -39,7 +39,7 @@ export function BridgeRoute() {
         failureDetail={
           failure
             ? (failure.detail ??
-              "The transfer could not be started. Nothing was sent — try again.")
+              "The transfer could not be started. Nothing was sent. Try again.")
             : null
         }
         onConfirm={(route) => {

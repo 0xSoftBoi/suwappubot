@@ -42,7 +42,7 @@ export function ConnectHyperliquid({ onConnected }: { onConnected?: () => void }
       <TerminalEmptyState
         kicker="Perps · HyperLiquid"
         title="Connect HyperLiquid to trade perps"
-        description="Suwappu routes perps through your own HyperLiquid API wallet. Nothing is custodial — you keep the account, we hold the API key encrypted at rest."
+        description="Suwappu routes perps through your own HyperLiquid API wallet. Nothing is custodial. You keep the account, and we hold the API key encrypted at rest."
         action={
           <div className="flex flex-col items-stretch gap-3">
             <ul className="grid gap-1.5 text-left text-[11px] leading-[1.5] text-terminal-text-secondary">

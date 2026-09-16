@@ -266,7 +266,7 @@ export function PerpsPositions() {
                   ) : (
                     <span
                       className="block text-right text-[10px] text-terminal-text-muted"
-                      title="Opened outside Suwappu — manage on HyperLiquid"
+                      title="Opened outside Suwappu. Manage on HyperLiquid."
                     >
                       external
                     </span>
@@ -290,7 +290,7 @@ export function PerpsPositions() {
                           title={TPSL_DISABLED_TOOLTIP}
                           className="hairline rounded-terminal-pill px-2 py-0.5 text-[10px] font-medium text-terminal-text-muted"
                         >
-                          Unavailable — perps routes are offline
+                          Unavailable. Perps routes are offline.
                         </span>
                       )}
                     </div>

@@ -40,12 +40,12 @@ export const FLAG_META: Record<IntelFlag, FlagMeta> = {
   HIGH_TOP10: {
     severity: 'danger',
     label: 'High Top10',
-    description: 'The top 10 wallets hold an outsized share of supply — a few holders can move the price.',
+    description: 'The top 10 wallets hold an outsized share of supply. A few holders can move the price.',
   },
   BUNDLED: {
     severity: 'warn',
     label: 'Bundled',
-    description: 'Multiple wallets bought in the launch block — likely coordinated, not organic demand.',
+    description: 'Multiple wallets bought in the launch block. This looks coordinated, not organic demand.',
   },
   SNIPED: {
     severity: 'warn',
@@ -55,7 +55,7 @@ export const FLAG_META: Record<IntelFlag, FlagMeta> = {
   SERIAL_DEPLOYER: {
     severity: 'danger',
     label: 'Serial Deployer',
-    description: "This wallet has deployed many tokens before — check its rug rate before trusting it.",
+    description: "This wallet has deployed many tokens before. Check its rug rate before trusting it.",
   },
   CLUSTERED: {
     severity: 'warn',

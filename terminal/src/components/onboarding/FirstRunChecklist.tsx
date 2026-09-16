@@ -59,7 +59,7 @@ export function FirstRunChecklist() {
       label: needsTradingProof ? 'Verify wallet' : 'Connect wallet',
       hint: needsTradingProof
         ? 'Prove wallet control before trading'
-        : 'Non-custodial — sign in with a SIWE signature',
+        : 'Non-custodial. Sign in with a SIWE signature.',
       run: () => {
         markDone('connect')
         void signInWithWallet()

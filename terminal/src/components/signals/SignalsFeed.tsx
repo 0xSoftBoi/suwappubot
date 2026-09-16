@@ -69,7 +69,7 @@ export function SignalsFeed() {
           </div>
         ) : !data || data.length === 0 ? (
           <div className="py-8 text-center text-sm text-terminal-text-muted">
-            Quiet right now — no standout signals across the board.
+            Quiet right now. No standout signals across the board.
           </div>
         ) : (
           data.map((s) => <SignalCard key={s.id} s={s} />)

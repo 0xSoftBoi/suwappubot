@@ -217,7 +217,7 @@ export function Header() {
       onClick={() => void signIn()}
       disabled
       className="terminal-theme-control h-8 rounded-[7px] px-3 text-xs font-semibold text-terminal-text transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-      title="Passkey sign-in is temporarily unavailable — use a wallet or Google"
+      title="Passkey sign-in is temporarily unavailable. Use a wallet or Google instead."
     >
       {isLoading ? 'Connecting' : 'Passkey'}
     </button>

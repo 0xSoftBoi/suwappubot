@@ -15,7 +15,7 @@ export function setAuthToken(token: string, expiresAt: string): void {
     localStorage.setItem(TOKEN_EXPIRY_KEY, expiresAt)
   } catch (e) {
     console.error('Failed to store auth token:', e)
-    toast.error('Session could not be saved — you may need to sign in again')
+    toast.error('Session could not be saved. You may need to sign in again.')
   }
 }
 
@@ -41,7 +41,7 @@ export function clearAuthToken(): void {
     localStorage.removeItem(AUTH_METHOD_KEY)
   } catch (e) {
     console.error('Failed to clear auth token:', e)
-    toast.error('Sign-out may not have completed — refresh the page to be sure')
+    toast.error('Sign-out may not have completed. Refresh the page to be sure.')
   }
 }
 
