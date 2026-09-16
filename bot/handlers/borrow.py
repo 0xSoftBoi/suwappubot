@@ -426,7 +426,7 @@ async def borrow_open_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.edit_message_text(
         "👛 *Select the wallet holding your cbBTC*\n\n"
-        "_EVM wallets use the same address on every chain — balances shown are on Base._",
+        "_EVM wallets use the same address on every chain. Balances shown are on Base._",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -464,7 +464,7 @@ async def borrow_select_wallet_callback(update: Update, context: ContextTypes.DE
     except Exception:
         # Never present a false 0 balance on an RPC failure — stop here.
         await query.edit_message_text(
-            "⚠️ cbBTC balance unavailable (RPC error) — try again.", reply_markup=_RETRY_KEYBOARD
+            "⚠️ cbBTC balance unavailable (RPC error). Try again.", reply_markup=_RETRY_KEYBOARD
         )
         return BORROW_MENU
     borrow["cbbtc_balance_raw"] = balance_raw
@@ -631,7 +631,7 @@ async def borrow_execute_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(
         "⏳ Submitting borrow...\n\n"
         "1/3 Approving cbBTC → 2/3 Supplying collateral → 3/3 Borrowing USDC.\n"
-        "Each transaction is confirmed on Base before the next — this can take a minute."
+        "Each transaction is confirmed on Base before the next. This can take a minute."
     )
 
     try:
@@ -695,7 +695,7 @@ async def borrow_manage_callback(update: Update, context: ContextTypes.DEFAULT_T
             balance_raw = await asyncio.to_thread(_cbbtc_balance_raw, borrow["wallet_address"])
         except Exception:
             await query.edit_message_text(
-                "⚠️ cbBTC balance unavailable (RPC error) — try again.",
+                "⚠️ cbBTC balance unavailable (RPC error). Try again.",
                 reply_markup=_RETRY_KEYBOARD,
             )
             return BORROW_MENU

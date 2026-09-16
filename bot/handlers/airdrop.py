@@ -228,7 +228,7 @@ async def airdrop_create_start(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["airdrop"] = {"creator_db_id": db_id}
 
     await update.effective_message.reply_text(
-        "*Create Airdrop — Step 1/5*\n\nWhich token do you want to airdrop?\n"
+        "*Create Airdrop: Step 1/5*\n\nWhich token do you want to airdrop?\n"
         "Enter the token symbol (e.g. USDC, ETH):",
         parse_mode="Markdown",
         reply_markup=_CANCEL_KB,
@@ -250,7 +250,7 @@ async def airdrop_enter_token(update: Update, context: ContextTypes.DEFAULT_TYPE
     chain_buttons.append([InlineKeyboardButton("Cancel", callback_data="airdrop_cancel")])
 
     await update.message.reply_text(
-        "*Step 2/5* — Select the chain:",
+        "*Step 2/5:* Select the chain:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(chain_buttons),
     )
@@ -268,7 +268,7 @@ async def airdrop_select_chain(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data["airdrop"]["chain"] = chain
     await query.edit_message_text(
-        f"*Step 3/5* — Total pool size\n\nHow many {context.user_data['airdrop']['token']} "
+        f"*Step 3/5: Total pool size*\n\nHow many {context.user_data['airdrop']['token']} "
         f"do you want to put into the airdrop pool?",
         parse_mode="Markdown",
         reply_markup=_CANCEL_KB,
@@ -291,11 +291,11 @@ async def airdrop_enter_total(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["airdrop"]["total_amount"] = str(total)
 
     await update.message.reply_text(
-        "*Step 4/5* — How to split?\n\n"
+        "*Step 4/5: How to split?*\n\n"
         "Reply with one of:\n"
-        "• `fixed 0.5` — each claimer gets exactly 0.5 tokens\n"
-        "• `split 100` — split evenly among the first 100 claimants\n"
-        "• `unlimited 0.5` — fixed amount, no cap on claimants",
+        "• `fixed 0.5`: each claimer gets exactly 0.5 tokens\n"
+        "• `split 100`: split evenly among the first 100 claimants\n"
+        "• `unlimited 0.5`: fixed amount, no cap on claimants",
         parse_mode="Markdown",
         reply_markup=_CANCEL_KB,
     )
@@ -341,11 +341,11 @@ async def airdrop_enter_split(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["airdrop"] = ad
 
     await update.message.reply_text(
-        "*Step 5/5* — Expiry\n\n"
+        "*Step 5/5: Expiry*\n\n"
         "When should this airdrop expire? Examples:\n"
-        "• `24h` — 24 hours from now\n"
-        "• `7d` — 7 days\n"
-        "• `none` — no expiry",
+        "• `24h`: 24 hours from now\n"
+        "• `7d`: 7 days\n"
+        "• `none`: no expiry",
         parse_mode="Markdown",
         reply_markup=_CANCEL_KB,
     )
@@ -512,7 +512,7 @@ async def airdrop_claim_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("You have already claimed from this airdrop.", show_alert=True)
         return
     except CampaignExhaustedError:
-        await query.answer("This airdrop is fully claimed — no tokens remain.", show_alert=True)
+        await query.answer("This airdrop is fully claimed. No tokens remain.", show_alert=True)
         return
     except CampaignNotActiveError as exc:
         await query.answer(f"Airdrop not available: {exc}", show_alert=True)

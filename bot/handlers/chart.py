@@ -82,7 +82,7 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 )
             else:
                 await update.message.reply_text(
-                    f"📉 No chart data yet for *{symbol}* — market data capture "
+                    f"📉 No chart data yet for *{symbol}*. Market data capture "
                     "hasn't collected any candles yet. Try again shortly.",
                     parse_mode="Markdown",
                 )
