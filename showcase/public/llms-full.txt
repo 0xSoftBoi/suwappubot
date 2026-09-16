@@ -74,7 +74,7 @@ A complete walkthrough that takes you from zero to a settled cross-chain swap us
 
 ## 1. Register your agent
 
-Registration is public — no auth required. Pick a unique `name` (3–50 characters, alphanumeric plus `_` and `-`).
+Registration is public. No auth required. Pick a unique `name` (3–50 characters, alphanumeric plus `_` and `-`).
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/register \
@@ -115,7 +115,7 @@ agent = res.json()
 }
 ```
 
-Save `api_key` somewhere safe — it is shown only once and cannot be recovered. If you lose it, [rotate the key](../api-reference/keys.md).
+Save `api_key` somewhere safe. It is shown only once and cannot be recovered. If you lose it, [rotate the key](../api-reference/keys.md).
 
 ## 2. Create a managed wallet (optional)
 
@@ -353,7 +353,7 @@ status = res.json()
 }
 ```
 
-That's it — your agent just executed a cross-chain swap. To set up push notifications instead of polling, see [Webhooks](../api-reference/webhooks.md).
+That's it. Your agent just executed a cross-chain swap. To set up push notifications instead of polling, see [Webhooks](../api-reference/webhooks.md).
 
 
 ---
@@ -511,7 +511,7 @@ See the [API Reference](../api-reference/README.md) for exact REST request and r
 
 # MCP Client Setup
 
-Suwappu's MCP server is hosted remotely at `https://api.suwappu.bot/mcp` (JSON-RPC 2.0 over the MCP Streamable HTTP transport). There is no local process to install — point your MCP client at the URL and authenticate with your agent API key in the `Authorization` header. Get a key from [`POST /v1/agent/register`](../api-reference/registration.md) (public, no auth required).
+Suwappu's MCP server is hosted remotely at `https://api.suwappu.bot/mcp`, using JSON-RPC 2.0 over the MCP Streamable HTTP transport. There is no local process to install. Point your MCP client at the URL and authenticate with your agent API key in the `Authorization` header. Get a key from [`POST /v1/agent/register`](../api-reference/registration.md) (public, no auth required).
 
 All clients below use the same two things:
 
@@ -545,7 +545,7 @@ Or configure it directly in a project's `.mcp.json`:
 }
 ```
 
-Verify it's connected with `/mcp` inside a Claude Code session — you should see `suwappu` listed with its tools.
+Verify it's connected with `/mcp` inside a Claude Code session. You should see `suwappu` listed with its tools.
 
 ## Claude Desktop
 
@@ -611,7 +611,9 @@ tool_timeout_sec = 120
 Authorization = "Bearer suwappu_sk_YOUR_KEY"
 ```
 
-If `execute_swap` times out, get a fresh quote and prepare again. Despite its historical name, MCP `execute_swap` only prepares an **unsigned self-custody transaction**; it never signs, broadcasts, or creates a managed swap record. Do not use [`GET /v1/agent/swaps`](../api-reference/swap-history.md) to infer whether an MCP-prepared transaction was submitted — submission is owned by the wallet that signs it.
+If `execute_swap` times out, get a fresh quote and prepare again. Despite its historical name, MCP `execute_swap` only prepares an **unsigned self-custody transaction**. It never signs, broadcasts, or creates a managed swap record.
+
+Do not use [`GET /v1/agent/swaps`](../api-reference/swap-history.md) to infer whether an MCP-prepared transaction was submitted. Submission is owned by the wallet that signs it.
 
 ## OpenCode
 
@@ -632,14 +634,14 @@ Add the server under `mcp` in your OpenCode config (`opencode.json` or `~/.confi
 }
 ```
 
-OpenCode discovers tools on startup — restart the session after editing the config, then ask it to list Suwappu's available tools to confirm the connection.
+OpenCode discovers tools on startup. Restart the session after editing the config, then ask it to list Suwappu's available tools to confirm the connection.
 
 ## Troubleshooting
 
 - **401 / Unauthorized:** Your API key is missing, malformed, or was rotated. Re-check the `Authorization` header and confirm the key with [`GET /v1/agent/me`](../api-reference/agent-profile.md).
 - **402 Payment Required:** You're on the free tier and out of prepaid credits. See [Agentic Payments](../billing/agentic-payments.md) for the topup/subscribe flow, or check your balance with `GET /v1/agent/billing`.
 - **429 Too Many Requests:** You've hit your tier's rate limit. See [Rate Limits](../authentication/rate-limits.md).
-- **Tool call times out:** Raise your client's MCP tool timeout (see the Codex gotcha above — most clients default to 30–60s, which is occasionally too tight for cross-chain quotes).
+- **Tool call times out:** Raise your client's MCP tool timeout. See the Codex gotcha above. Most clients default to 30–60s, which is occasionally too tight for cross-chain quotes.
 
 
 
@@ -650,7 +652,7 @@ OpenCode discovers tools on startup — restart the session after editing the co
 
 # Authentication
 
-Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other credentials to manage — signing and settlement happen server-side with managed wallets.
+Suwappu uses API keys as bearer tokens. You receive a key when you register an agent, and you send it on every authenticated request as an `Authorization: Bearer ...` header. There are no other credentials to manage. Signing and settlement happen server-side with managed wallets.
 
 ## Getting a key
 
@@ -693,7 +695,7 @@ fetch('https://api.suwappu.bot/v1/agent/me', {
 })
 ```
 
-Public endpoints — `POST /v1/agent/register` and `GET /v1/agent/chains` — do not require a key.
+Two endpoints do not require a key: `POST /v1/agent/register` and `GET /v1/agent/chains`.
 
 ## Key rotation
 
@@ -718,7 +720,7 @@ See [`POST /v1/agent/keys/rotate`](../api-reference/keys.md) for details.
 
 ## Managed wallets and signing
 
-Suwappu agents use **managed (Turnkey) wallets**. Private keys live in Turnkey's secure enclaves and never touch your code or Suwappu's application servers. When you call [`POST /v1/agent/swap/execute`](../api-reference/swap-execute.md), Suwappu signs and broadcasts on your behalf using your agent's managed wallet — you only ever send a `quote_id`.
+Suwappu agents use **managed (Turnkey) wallets**. Private keys live in Turnkey's secure enclaves and never touch your code or Suwappu's application servers. When you call [`POST /v1/agent/swap/execute`](../api-reference/swap-execute.md), Suwappu signs and broadcasts on your behalf using your agent's managed wallet. You only ever send a `quote_id`.
 
 A managed wallet's address is bound to your agent. Swap, portfolio, and execute endpoints reject any `wallet_address` that is not your own managed wallet, which prevents constructing fund-moving transactions from arbitrary addresses or enumerating other agents' balances.
 
@@ -729,7 +731,7 @@ If you prefer self-custody, use [`POST /v1/agent/swap`](../api-reference/swap.md
 - **Treat your key like a password.** Anyone with it can swap from your managed wallet. Store it in a secret manager, never in source control.
 - **Use HTTPS only.** All requests must go to `https://api.suwappu.bot`.
 - **Scope wallet permissions.** Attach Turnkey spending-limit and address-whitelist policies to your managed wallet via `POST /v1/agent/wallet/policy` to cap what a compromised key can do.
-- **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC (keyed with the SHA-256 of your API key) on every webhook before trusting it. See [Webhooks](../api-reference/webhooks.md).
+- **Webhook payloads are signed.** Verify the `X-Suwappu-Signature` HMAC on every webhook before trusting it. It is keyed with the SHA-256 of your API key. See [Webhooks](../api-reference/webhooks.md).
 - See [Rate Limits](rate-limits.md) for per-tier request quotas.
 
 
@@ -737,7 +739,7 @@ If you prefer self-custody, use [`POST /v1/agent/swap`](../api-reference/swap.md
 
 # Rate Limits
 
-Suwappu rate-limits requests with a sliding 60-second window. Authenticated agent endpoints are limited per agent by tier; public endpoints are limited per client IP. Limits are subject to change — always read the response headers rather than hard-coding values.
+Suwappu rate-limits requests with a sliding 60-second window. Authenticated agent endpoints are limited per agent by tier. Public endpoints are limited per client IP. Limits are subject to change, so always read the response headers rather than hard-coding values.
 
 ## Per-agent limits (authenticated)
 
@@ -781,7 +783,7 @@ You receive a `429 Too Many Requests`. Back off until `Retry-After` seconds have
 }
 ```
 
-A robust client reads `Retry-After` and retries with exponential backoff rather than hammering the endpoint.
+A well-behaved client reads `Retry-After` and retries with exponential backoff rather than hammering the endpoint.
 
 ## Tips
 
@@ -858,7 +860,7 @@ https://api.suwappu.bot/v1/agent
 
 ## Other surfaces
 
-Perpetual futures, prediction markets, and lending live under `/v1/agent/perps`, `/v1/agent/predict`, and `/v1/agent/lend` — see [Perpetual Futures](perps.md), [Prediction Markets](predict.md), and [Lending](lend.md). The same engine is also exposed over [MCP and A2A](../protocols/README.md).
+Perpetual futures, prediction markets, and lending live under `/v1/agent/perps`, `/v1/agent/predict`, and `/v1/agent/lend`. See [Perpetual Futures](perps.md), [Prediction Markets](predict.md), and [Lending](lend.md). The same engine is also exposed over [MCP and A2A](../protocols/README.md).
 
 
 ---
@@ -869,7 +871,7 @@ Register a new agent and receive an API key. This is the only endpoint you can c
 
 ## POST /v1/agent/register
 
-Public — no `Authorization` header. Rate-limited to 5 requests per minute per IP.
+Public. No `Authorization` header required. Rate-limited to 5 requests per minute per IP.
 
 ### Request body
 
@@ -937,7 +939,7 @@ agent = res.json()
 }
 ```
 
-Store `agent.api_key` immediately — Suwappu keeps only a hash and cannot return it again.
+Store `agent.api_key` immediately. Suwappu keeps only a hash and cannot return it again.
 
 ### Errors
 
@@ -1110,11 +1112,11 @@ Both return `{ "success": true, "message": "..." }`.
 
 # Chains
 
-List every chain Suwappu can route through. This endpoint is public — use it to discover the chain `key` values you pass to the quote, swap, and token endpoints.
+List every chain Suwappu can route through. This endpoint is public. Use it to discover the chain `key` values you pass to the quote, swap, and token endpoints.
 
 ## GET /v1/agent/chains
 
-Public — no `Authorization` header required.
+Public. No `Authorization` header required.
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/chains
@@ -1147,7 +1149,7 @@ chains = res.json()
 }
 ```
 
-Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is abridged — call the endpoint for the full, current set.
+Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is abridged. Call the endpoint for the full, current set.
 
 ### Fields
 
@@ -1161,7 +1163,7 @@ Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is 
 
 ### Routing
 
-Best-price routing races up to 9 aggregators — LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP — to find the best execution for each request. EVM routes are quoted via Li.Fi; Solana routes via Jupiter.
+Best-price routing races up to 9 aggregators to find the best execution for each request: LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP. EVM routes are quoted via Li.Fi. Solana routes are quoted via Jupiter.
 
 See [Tokens](tokens.md) to list the tradable tokens on a given chain.
 
@@ -1365,7 +1367,7 @@ Common majors are mapped, including `ETH`, `SOL`, `BNB`, `USDC`, `USDT`, `BTC`, 
 
 # Portfolio
 
-Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet — requests for any other address are rejected.
+Fetch live token balances and total USD value for a wallet. You can only read your own agent's managed wallet. Requests for any other address are rejected.
 
 ## GET /v1/agent/portfolio
 
@@ -1594,7 +1596,7 @@ Pass `from_chain` and `to_chain` instead of `chain`:
 
 # Simulate Swap (Dry Run)
 
-Preview a swap with **zero funds moved** — a Tenderly-style dry run that fetches (or reuses) a quote and runs a battery of pre-flight checks, without creating a swap record, signing, or broadcasting anything. Use it to let an agent validate a trade before committing real value.
+Preview a swap with **zero funds moved**. This is a Tenderly-style dry run that fetches or reuses a quote and runs a battery of pre-flight checks, without creating a swap record, signing, or broadcasting anything. Use it to let an agent validate a trade before committing real value.
 
 Also available as the `simulate_swap` MCP tool (same logic, same cost).
 
@@ -1642,7 +1644,7 @@ Same shape as [Quote](quote.md), plus an optional `quote_id`. Provide **either**
 }
 ```
 
-`would_execute` is `true` only when every check that could run passed (inapplicable or unavailable checks degrade to `warn` and do not block).
+`would_execute` is `true` only when every check that could run passed. Inapplicable or unavailable checks degrade to `warn` and do not block.
 
 ### Checks
 
@@ -1655,7 +1657,7 @@ Same shape as [Quote](quote.md), plus an optional `quote_id`. Provide **either**
 | `eth_call_revert_check` | EVM, needs executable tx data | Dry-runs the transaction via `eth_call` and reports the revert reason if it would fail |
 | `slippage_sane` | all | Warns when price impact exceeds 5% or min-output deviates far from the expected output |
 
-Checks are independent and degrade gracefully: a check that cannot run returns `warn` with an explanatory `detail` — the endpoint never fails because one check was unavailable.
+Checks are independent and degrade gracefully. A check that cannot run returns `warn` with an explanatory `detail`. The endpoint never fails because one check was unavailable.
 
 ### Guarantees
 
@@ -1776,7 +1778,7 @@ For a Solana quote, the response returns a base64-encoded transaction to deseria
 ### Notes
 
 - Amounts in this response are in smallest units (wei / lamports), not human-readable decimals.
-- The EVM transaction is built with `from: wallet_address`, so that address must be your agent's managed wallet — otherwise the request returns `403`.
+- The EVM transaction is built with `from: wallet_address`, so that address must be your agent's managed wallet. Otherwise the request returns `403`.
 - This endpoint does **not** broadcast. To have Suwappu sign and submit, use [`POST /v1/agent/swap/execute`](swap-execute.md).
 
 ### Errors
@@ -1792,7 +1794,7 @@ For a Solana quote, the response returns a base64-encoded transaction to deseria
 
 # Swap Execute (Managed Wallet)
 
-Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction — you only send a `quote_id`. This is the simplest path and requires no key handling on your side.
+Execute a quoted swap end-to-end using your agent's managed wallet. Suwappu signs and broadcasts the transaction. You only send a `quote_id`. This is the simplest path and requires no key handling on your side.
 
 ## POST /v1/agent/swap/execute
 
@@ -2048,7 +2050,7 @@ For a single swap, see [Swap Status](swap-status.md).
 
 # Wallets
 
-Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you — the private key lives in a Turnkey secure enclave and is never exposed.
+Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you. The private key lives in a Turnkey secure enclave and is never exposed.
 
 ## POST /v1/agent/wallets
 
@@ -2134,7 +2136,7 @@ If no wallet exists yet, `wallets` is an empty array with a hint to create one.
 
 ## Wallet policies
 
-Attach Turnkey policies to constrain what your managed wallet can do — spending limits and address whitelists — using these endpoints:
+Attach Turnkey policies to constrain what your managed wallet can do, including spending limits and address whitelists. Use these endpoints:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -2276,7 +2278,7 @@ Receive signed HTTP callbacks when your swaps and other events change state, ins
 
 ## Setting your callback URL
 
-Configure where Suwappu posts events via [`PATCH /v1/agent/me`](agent-profile.md) (or at registration). The URL must be a public HTTPS host — private and cloud-metadata addresses are rejected.
+Configure where Suwappu posts events via [`PATCH /v1/agent/me`](agent-profile.md) (or at registration). The URL must be a public HTTPS host. Private and cloud-metadata addresses are rejected.
 
 ```bash
 curl -X PATCH https://api.suwappu.bot/v1/agent/me \
@@ -2665,7 +2667,7 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
 }
 ```
 
-`fundingRate` is the current raw market rate for the position's asset; it is not the position's accrued funding P&L. `liquidationPrice` is returned as `0` when Hyperliquid reports no liquidation price; treat zero as unavailable rather than a real zero-price liquidation level.
+`fundingRate` is the current raw market rate for the position's asset. It is not the position's accrued funding P&L. `liquidationPrice` returns as `0` when Hyperliquid reports no liquidation price. Treat zero as unavailable, not a real zero-price liquidation level.
 
 The position state and market funding context come from separate Hyperliquid reads. Do not treat the combined position object as an atomic exchange snapshot.
 
@@ -2680,7 +2682,7 @@ See [Build a Standalone Perps Risk Monitor](../guides/perps-trading.md) for rest
 
 # Prediction Markets
 
-Read Polymarket market/event data through Suwappu, and—only when you intentionally grant trading authority—place or cancel CLOB limit orders with an authenticated Suwappu agent.
+Read Polymarket market and event data through Suwappu by default. Place or cancel CLOB limit orders only after you intentionally grant trading authority to an authenticated Suwappu agent.
 
 The market-data routes and trading/account routes have different authority. A read-only product does not need to initialize Polymarket trading credentials.
 
@@ -2952,7 +2954,7 @@ An empty `warnings` array does not mean a market is risk-free. Smart-contract, o
 
 ## `GET /v1/agent/lend/market/:id`
 
-Read one market by Morpho market ID. Market identity is chain-scoped, so pass the chain when it is not Base—or explicitly pass it in stored workflows so a market ID is never detached from its chain.
+Read one market by Morpho market ID. Market identity is chain-scoped, so pass the chain when it is not Base. Pass it explicitly in stored workflows too, so a market ID is never detached from its chain.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|
@@ -3070,7 +3072,7 @@ A swap or execute call with an expired, missing, or cross-agent `quote_id` retur
 }
 ```
 
-Quotes are valid for 60 seconds — request a fresh one and retry.
+Quotes are valid for 60 seconds. Request a fresh one and retry.
 
 ## Rate-limit errors
 
@@ -3099,7 +3101,7 @@ Honor the `Retry-After` header before retrying. See [Rate Limits](../authenticat
 
 # Protocols
 
-Suwappu speaks three protocols over the same base URL (`https://api.suwappu.bot`) so your agent can integrate however it works best: a plain REST API, the Model Context Protocol (MCP) for LLM tool use, and the Agent-to-Agent (A2A) protocol for natural-language, agent-discoverable messaging. They share the same routing engine, but they intentionally expose different authority levels.
+Suwappu speaks three protocols over the same base URL, `https://api.suwappu.bot`. Your agent can integrate however it works best: a plain REST API, the Model Context Protocol (MCP) for LLM tool use, and the Agent-to-Agent (A2A) protocol for natural-language, agent-discoverable messaging. They share the same routing engine, but they intentionally expose different authority levels.
 
 ## The Three Protocols
 
@@ -3113,7 +3115,7 @@ Suwappu speaks three protocols over the same base URL (`https://api.suwappu.bot`
 
 ### REST API
 
-Use the REST API when you control the client and need the most complete surface: quotes, swap simulation, self-custody preparation, managed swap execution, managed wallets, prediction-market orders, HyperLiquid market/quote/position reads, Morpho market reads, webhooks, and swap history.
+Use the REST API when you control the client and need the most complete surface. It covers quotes, swap simulation, self-custody preparation, managed swap execution, managed wallets, prediction-market orders, HyperLiquid market/quote/position reads, Morpho market reads, webhooks, and swap history.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/quote \
@@ -3126,7 +3128,9 @@ See the [API Reference](../api-reference/README.md) for the full endpoint list.
 
 ### MCP (Model Context Protocol)
 
-Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. Source `0.6.0` exposes **22 tools** over JSON-RPC 2.0; call `tools/list` at runtime instead of hard-coding the inventory. MCP `execute_swap` is a historical name for unsigned transaction preparation — it does not submit a managed swap. Claude Desktop, Claude Code, Cursor, Codex, OpenCode, and other MCP clients can discover the surface automatically.
+Use MCP when an LLM client should discover and call Suwappu's capabilities as tools. Source `0.6.0` exposes **22 tools** over JSON-RPC 2.0. Call `tools/list` at runtime instead of hard-coding the inventory.
+
+MCP `execute_swap` is a historical name for unsigned transaction preparation. It does not submit a managed swap. Claude Desktop, Claude Code, Cursor, Codex, OpenCode, and other MCP clients can discover the surface automatically.
 
 See [MCP](mcp.md) for the handshake, tool reference, and pay-per-call costs, or [MCP Client Setup](../quickstart/mcp-clients.md) for exact config snippets per client.
 
@@ -3153,7 +3157,7 @@ Then send `Authorization: Bearer suwappu_sk_YOUR_KEY` on authenticated calls. Ne
 
 Suwappu is built to be found by agents automatically. See [OpenAPI Spec](openapi.md) for the discovery files (`llms.txt`, `llms-full.txt`, `agent.json`, OpenAPI) and how agents bootstrap from them.
 
-For crawlers that don't want to guess well-known paths one at a time, `GET https://api.suwappu.bot/.well-known/ai-catalog.json` returns a single [Agentic Resource Discovery (ARD)](https://agenticresourcediscovery.org/spec) v0.9 manifest listing every resource above (A2A agent card, MCP server, OpenAPI spec, `llms.txt`) with its media type and URL. Suwappu's MCP server is also listed in the official [MCP registry](https://registry.modelcontextprotocol.io) under the domain-verified `bot.suwappu/mcp` namespace — see [MCP](mcp.md#mcp-registry-listing) for the manifest and publishing steps.
+For crawlers that don't want to guess well-known paths one at a time, `GET https://api.suwappu.bot/.well-known/ai-catalog.json` returns a single [Agentic Resource Discovery (ARD)](https://agenticresourcediscovery.org/spec) v0.9 manifest. It lists every resource above: A2A agent card, MCP server, OpenAPI spec, and `llms.txt`, each with its media type and URL. Suwappu's MCP server is also listed in the official [MCP registry](https://registry.modelcontextprotocol.io) under the domain-verified `bot.suwappu/mcp` namespace. See [MCP](mcp.md#mcp-registry-listing) for the manifest and publishing steps.
 
 ## Pricing
 
@@ -3164,7 +3168,7 @@ REST, MCP, and A2A calls are all subject to the same rate limits and pay-per-cal
 
 # A2A Protocol
 
-The A2A (Agent-to-Agent) protocol lets other agents talk to Suwappu in natural language over JSON-RPC 2.0. You send a message like `"swap 0.5 ETH to USDC on base"` and Suwappu returns a task containing structured artifacts — a human-readable summary plus a machine-readable data part. Together with the [agent card](agent-card.md) at `/.well-known/agent.json`, A2A makes Suwappu discoverable and callable inside multi-agent systems.
+The A2A (Agent-to-Agent) protocol lets other agents talk to Suwappu in natural language over JSON-RPC 2.0. You send a message like `"swap 0.5 ETH to USDC on base"` and Suwappu returns a task containing structured artifacts. Each task carries a human-readable summary plus a machine-readable data part. Together with the [agent card](agent-card.md) at `/.well-known/agent.json`, A2A makes Suwappu discoverable and callable inside multi-agent systems.
 
 ## Endpoint
 
@@ -3182,7 +3186,7 @@ Authorization: Bearer suwappu_sk_YOUR_KEY
 
 ## Protocol
 
-All requests and responses use JSON-RPC 2.0. Every response is returned with HTTP `200` — errors are carried in the JSON-RPC `error` object, not the HTTP status.
+All requests and responses use JSON-RPC 2.0. Every response is returned with HTTP `200`. Errors are carried in the JSON-RPC `error` object, not the HTTP status.
 
 ## Methods
 
@@ -3451,7 +3455,9 @@ Returns the live tool definitions and input schemas. Source `0.6.0` currently ad
 
 ## Pay-Per-Call Pricing
 
-Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agents on the `agent`, `pro`, `premium`, or `enterprise` tier (active subscription) bypass metering entirely — calls are free while the subscription window is active. Free-tier agents are charged per call; if the balance is insufficient, the server returns HTTP 402 with an x402 payment challenge instead of the JSON-RPC result. See [Agentic Payments](../billing/agentic-payments.md) for the full 402 → pay → retry flow, and [Pricing](../billing/pricing.md) for tier prices.
+Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agents on the `agent`, `pro`, `premium`, or `enterprise` tier (active subscription) bypass metering entirely. Calls are free while the subscription window is active.
+
+Free-tier agents are charged per call. If the balance is insufficient, the server returns HTTP 402 with an x402 payment challenge instead of the JSON-RPC result. See [Agentic Payments](../billing/agentic-payments.md) for the full 402 → pay → retry flow, and [Pricing](../billing/pricing.md) for tier prices.
 
 | Tool | Description | Key Params | Credits |
 |------|-------------|------------|---------|
@@ -3478,9 +3484,9 @@ Every `tools/call` is metered in prepaid credits (1 credit ≈ $0.001 USD). Agen
 | `predict_trades` | Recent CLOB trades across a prediction market's outcomes | `market_id`, `limit` | 1 |
 | `list_wallet_policies` | Read managed-wallet spending/whitelist policies for the authenticated agent | `wallet_address` | 1 |
 
-`predict_market_detail` is a legacy alias for `predict_market` kept for older clients — both route to the same handler and cost.
+`predict_market_detail` is a legacy alias for `predict_market` kept for older clients. Both route to the same handler and cost.
 
-The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods (`server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts) are public as well. Other tools require agent authentication even when their purpose is read-only.
+The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods are public as well: `server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts. Other tools require agent authentication even when their purpose is read-only.
 
 ## Selected Tool Examples
 
@@ -3664,7 +3670,7 @@ Get the TIP-20 token list on Tempo mainnet (chain ID 4217). Includes USD-denomin
 
 ### 8. browse_mpp_directory
 
-Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory. Discover available services and their payment requirements. (This is a different protocol from Suwappu's own pathUSD micropayment auth used elsewhere in the API — see [Agentic Payments](../billing/agentic-payments.md).)
+Browse the third-party MPP (Machine Payments Protocol, directory.mpp.dev) service directory. Discover available services and their payment requirements. This is a different protocol from Suwappu's own pathUSD micropayment auth used elsewhere in the API. See [Agentic Payments](../billing/agentic-payments.md) for that flow.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -3860,7 +3866,9 @@ Get details for one Morpho lending market. Market identity is chain-scoped, so p
 }
 ```
 
-`supplyApy`, `borrowApy`, and `utilization` are percentage values (`4.2` means 4.2%). `totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicitly USD-valued and can be `null`; the older `totalSupply` and `totalBorrow` names are deprecated aliases. `listed: true` and an empty `warnings` array are useful interface signals, not guarantees that a market is safe. See [Lending Markets](../api-reference/lend.md) for the exact wire contract and [Build a Lending Monitor](../guides/lending-monitor.md) for a production pattern.
+`supplyApy`, `borrowApy`, and `utilization` are percentage values (`4.2` means 4.2%). `totalSupplyUsd`, `totalBorrowUsd`, and `availableLiquidityUsd` are explicitly USD-valued and can be `null`. The older `totalSupply` and `totalBorrow` names are deprecated aliases.
+
+`listed: true` and an empty `warnings` array are useful interface signals, not guarantees that a market is safe. See [Lending Markets](../api-reference/lend.md) for the exact wire contract and [Build a Lending Monitor](../guides/lending-monitor.md) for a production pattern.
 
 ## Response Format
 
@@ -4210,7 +4218,7 @@ The agent card lives at the well-known path `/.well-known/agent.json`, following
 
 1. **Fetch the agent card** from `https://api.suwappu.bot/.well-known/agent.json`.
 2. **Read the description and skills** to determine if Suwappu can handle the task at hand.
-3. **Check securitySchemes** to learn how to authenticate (register at `POST /v1/agent/register` to get a Bearer token).
+3. **Check securitySchemes** to learn how to authenticate. Register at `POST /v1/agent/register` to get a Bearer token.
 4. **Read interfaces** to find the A2A endpoint URL.
 5. **Send messages** to the A2A endpoint using the `message/send` method.
 
@@ -4277,7 +4285,7 @@ Suwappu publishes several machine-readable discovery files so agents can learn t
 
 ## Discovery Endpoints
 
-All discovery files are public — no authentication required.
+All discovery files are public. No authentication required.
 
 | File | Endpoint | Purpose |
 |------|----------|---------|
@@ -4314,7 +4322,7 @@ npx openapi-typescript https://api.suwappu.bot/v1/agent/openapi -o suwappu.d.ts
 curl https://api.suwappu.bot/llms.txt
 ```
 
-It documents the public endpoints (`/register`, `/chains`, `/openapi`), the authenticated endpoints (`/quote`, `/swap`, `/swap/execute`, `/portfolio`, `/wallets`, `/execute`, `/webhooks`, ...), and the three protocols (REST, MCP, A2A) with their base URLs.
+It documents the public endpoints such as `/register`, `/chains`, and `/openapi`. It also lists the authenticated endpoints, including `/quote`, `/swap`, `/swap/execute`, `/portfolio`, `/wallets`, `/execute`, and `/webhooks`, plus the three protocols (REST, MCP, A2A) with their base URLs.
 
 ## Agent Card
 
@@ -4343,7 +4351,7 @@ A well-behaved agent bootstraps from these files in order:
 3. **Fetch the OpenAPI spec** (or `llms.txt`) from the card's `openApiUrl` to learn the REST surface.
 4. **Call the API** over REST, MCP, or A2A using the obtained token.
 
-No hardcoded knowledge of Suwappu is required — every integration point is self-describing.
+No hardcoded knowledge of Suwappu is required. Every integration point is self-describing.
 
 
 
@@ -4359,7 +4367,7 @@ Suwappu bills agent usage two ways, and you can mix both:
 - **Pay-per-call (x402 + prepaid credits)** — the default for the `free` tier. Every metered REST/MCP call costs a small number of credits (1 credit ≈ $0.001 USD); pay by topping up credits or settling a single call on-chain via the x402 protocol. See [Agentic Payments](agentic-payments.md).
 - **Subscriptions** — an Agent API bearer key gets a 30-day unmetered `pro`, `premium`, or `enterprise` window through the crypto-native `POST /v1/agent/billing/subscribe` flow. Stripe is a separate human/webapp account plan and does not currently promote an agent key. See [Pricing](pricing.md) for the full tier table.
 
-Metering only applies when `AGENT_METERING_ENABLED=true` on the deploy; when it's off, every request is free regardless of tier (rate limits still apply — see [Rate Limits](../authentication/rate-limits.md)).
+Metering only applies when `AGENT_METERING_ENABLED=true` on the deploy. When it's off, every request is free regardless of tier. Rate limits still apply. See [Rate Limits](../authentication/rate-limits.md).
 
 Check your current balance, tier, and subscription status at any time:
 
@@ -4378,9 +4386,9 @@ curl https://api.suwappu.bot/v1/agent/billing \
 
 # Agentic Payments (x402)
 
-Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol: a paid endpoint or MCP tool call that would run you out of credits returns an HTTP `402 Payment Required` challenge instead of failing outright. x402-aware clients (`x402-axios`, `x402-fetch`, or your own retry logic) parse the challenge, settle the payment, and retry the original request automatically.
+Suwappu meters pay-per-call usage using the [x402](https://x402.org) protocol. A paid endpoint or MCP tool call that would exceed your credit balance returns an HTTP `402 Payment Required` challenge. It does not fail outright. x402-aware clients, such as `x402-axios` and `x402-fetch`, parse the challenge, settle the payment, and retry the original request automatically.
 
-This only applies to the `free` rate-limit tier. Agents on `agent`, `pro`, `premium`, or `enterprise` bypass metering entirely — see [Pricing](pricing.md) for the tier table.
+This only applies to the `free` rate-limit tier. Agents on `agent`, `pro`, `premium`, or `enterprise` bypass metering entirely. See [Pricing](pricing.md) for the tier table.
 
 ## The flow
 
@@ -4436,7 +4444,7 @@ You have two options once you see a 402:
 
 ### Option A — top up credits, then retry
 
-Pay USDC to the `payTo` collector address (any amount — it doesn't have to match the single-call cost), then submit the transaction hash:
+Pay USDC to the `payTo` collector address. The amount does not have to match the single-call cost. Then submit the transaction hash:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/billing/topup \
@@ -4445,9 +4453,9 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/topup \
   -d '{"txHash": "0xabc...", "chain": "base", "amount": 5}'
 ```
 
-**Body:** `{ txHash: string, chain: string (default "base"), amount: number }` — `amount` is the USDC amount you actually paid.
+**Body:** `{ txHash: string, chain: string (default "base"), amount: number }`. `amount` is the USDC amount you actually paid.
 
-Suwappu verifies the payment on-chain via the internal x402 verifier before crediting your balance. The endpoint is idempotent on `txHash` — retrying with the same hash never double-credits.
+Suwappu verifies the payment on-chain via the internal x402 verifier before crediting your balance. The endpoint is idempotent on `txHash`. Retrying with the same hash never double-credits.
 
 **Response:**
 
@@ -4466,7 +4474,7 @@ Suwappu verifies the payment on-chain via the internal x402 verifier before cred
 
 ### Option B — settle the single call on-chain (facilitator path)
 
-If your client supports x402 natively (e.g. `x402-fetch`), it can sign and attach an `X-PAYMENT` header to the retried request instead of pre-funding a credit balance. Suwappu verifies and settles this via its configured facilitator and, on success, lets the single call through with a `X-Payment-Response` header containing the settlement tx hash. This requires the facilitator to be enabled on the deploy — if it isn't, fall back to Option A.
+If your client supports x402 natively, such as `x402-fetch`, it can sign and attach an `X-PAYMENT` header to the retried request instead of pre-funding a credit balance. Suwappu verifies and settles this via its configured facilitator and, on success, lets the single call through with a `X-Payment-Response` header containing the settlement tx hash. This requires the facilitator to be enabled on the deploy. If it isn't, fall back to Option A.
 
 ## Subscriptions (bypass metering entirely)
 
@@ -4479,7 +4487,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/subscribe \
   -d '{"txHash": "0xabc...", "chain": "base", "amount": 9.99, "tier": "pro"}'
 ```
 
-**Body:** `{ txHash: string, chain: string (default "base"), amount: number, tier: "pro" | "premium" | "enterprise" }` — `amount` must be ≥ the tier's USD price (see [Pricing](pricing.md)).
+**Body:** `{ txHash: string, chain: string (default "base"), amount: number, tier: "pro" | "premium" | "enterprise" }`. `amount` must be ≥ the tier's USD price (see [Pricing](pricing.md)).
 
 **Response:**
 
@@ -4496,7 +4504,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/subscribe \
 }
 ```
 
-This is a **prepaid window, not a recurring subscription** — there's no auto-renew. Re-POST before expiry to extend; if you renew early, the new 30 days stacks on top of the remaining time rather than resetting it. Idempotent on `txHash`.
+This is a **prepaid window, not a recurring subscription**. There is no auto-renew, so re-POST before expiry to extend. If you renew early, the new 30 days stacks on top of the remaining time rather than resetting it. Idempotent on `txHash`.
 
 ## True auto-renew (Base Spend Permissions)
 
@@ -4523,14 +4531,16 @@ curl -X POST https://api.suwappu.bot/v1/agent/billing/recurring \
   }'
 ```
 
-The `permission` object is an EIP-712 `SpendPermission` you sign client-side with the paying account's wallet (`account`). Suwappu validates that `spender` is its own operator address, `token` is the configured USDC contract, and `allowance` covers at least the tier price before registering it — a bad signature or mismatched fields is rejected server-side. A scheduler then calls `spend()` each `period` to pull the tier price automatically. Cancel by revoking the permission on-chain.
+The `permission` object is an EIP-712 `SpendPermission` you sign client-side with the paying account's wallet (`account`). Suwappu validates that `spender` is its own operator address, `token` is the configured USDC contract, and `allowance` covers at least the tier price before registering it. A bad signature or mismatched fields is rejected server-side.
+
+A scheduler then calls `spend()` each `period` to pull the tier price automatically. Cancel by revoking the permission on-chain.
 
 ## Human users (non-agent)
 
 Telegram/webapp users subscribe via Stripe checkout or crypto, not the agent bearer-token flow above:
 
-- `GET /billing/stripe/checkout?tier=pro` — creates a Stripe checkout session (redirects by default; add `&format=json` for the URL as JSON)
-- `POST /billing/crypto` — crypto-native subscription for human users (same USDC/tier mechanics as `/v1/agent/billing/subscribe`, authenticated via Telegram session instead of a bearer key)
+- `GET /billing/stripe/checkout?tier=pro` creates a Stripe checkout session. It redirects by default. Add `&format=json` to get the URL as JSON instead.
+- `POST /billing/crypto` is a crypto-native subscription for human users. It uses the same USDC/tier mechanics as `/v1/agent/billing/subscribe`, authenticated via a Telegram session instead of a bearer key.
 
 ## Checking your status
 
@@ -4546,7 +4556,11 @@ Returns your current tier, whether metering applies to you (`is_metered`), credi
 
 # Pricing
 
-Suwappu combines three independent pricing dimensions: a **rate-limit tier** (requests/minute), **per-call metering** (credits, if you're on the free tier and metering is enabled), and a **swap execution fee** (bps on the traded amount). This page is the reference table for all three; see [Agentic Payments](agentic-payments.md) for how to pay.
+Suwappu combines three independent pricing dimensions: a **rate-limit tier**, **per-call metering**, and a **swap execution fee**.
+
+The rate-limit tier counts requests per minute. Per-call metering charges credits on the free tier when metering is enabled. The swap execution fee applies in bps on the traded amount.
+
+This page is the reference table for all three. See [Agentic Payments](agentic-payments.md) for how to pay.
 
 ## Rate-limit tiers
 
@@ -4570,7 +4584,9 @@ These are the current source limits. Check your live tier via [`GET /v1/agent/me
 | `premium` | $29.99 |
 | `enterprise` | $99.99 |
 
-For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`; that writes the agent's `subscriptionTier`/expiry. These are **prepaid windows, not auto-renewing subscriptions** by default — re-pay before expiry to extend (time stacks). For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
+For an Agent API bearer key, pay with crypto through `POST /v1/agent/billing/subscribe`. That writes the agent's `subscriptionTier` and expiry. These are **prepaid windows, not auto-renewing subscriptions** by default. Re-pay before expiry to extend, and the new time stacks on top of what remains.
+
+For true recurring agent billing, register a Base Spend Permission via `POST /v1/agent/billing/recurring`. All three active agent tiers bypass per-call metering for the duration of the window.
 
 Stripe checkout (`GET /billing/stripe/checkout?tier=`) belongs to the human/webapp account subscription flow. It does **not** currently promote a separate `suwappu_sk_...` Agent API key's subscription tier. Treat the account plan and Agent API billing ledgers as separate unless the API explicitly reports otherwise.
 
@@ -4620,7 +4636,7 @@ Only applies to the `free` tier when server-side metering is enabled (`AGENT_MET
 | `predict_trades` | 1 |
 | `list_wallet_policies` | 1 |
 
-A 402 response tells you exactly which tool/endpoint triggered the charge and its cost — see [Agentic Payments](agentic-payments.md#the-402-challenge).
+A 402 response tells you exactly which tool/endpoint triggered the charge and its cost. See [Agentic Payments](agentic-payments.md#the-402-challenge).
 
 ## Swap execution fees
 
@@ -4630,7 +4646,7 @@ Agent-surface swap fees are route/configuration-specific, not derived from the A
 
 ## Checking your own numbers live
 
-Cost weights and tier prices can change between deploys — always read them from the API rather than hardcoding this table in production code:
+Cost weights and tier prices can change between deploys. Always read them from the API rather than hardcoding this table in production code:
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/billing \
@@ -4648,7 +4664,7 @@ Returns `cost_weights` (REST), `credit_usd_value`, `bypass_tiers`, your live `cr
 
 # All Chains
 
-Suwappu supports 40+ blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use. This includes major L1s and L2s, Bitcoin L2s (Rootstock, Citrea, BOB, Hemi, GOAT), and emerging chains like Tempo, Plasma, Berachain, and HyperEVM.
+Suwappu supports 40+ blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API. The `chain` parameter in your requests determines which network to use. This includes major L1s and L2s, Bitcoin L2s (Rootstock, Citrea, BOB, Hemi, GOAT), and emerging chains like Tempo, Plasma, Berachain, and HyperEVM.
 
 ## Chain Types at a Glance
 
@@ -4724,7 +4740,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/quote \
 
 ### EVM Chains
 
-All EVM chains share the same address format (`0x...`) and ERC-20 token standard. Most route through Li.Fi and the other aggregators for optimal pricing; a few Bitcoin L2s route through chain-specific venues only (e.g. GOAT via GOATSwap, Citrea via JuiceSwap). A single EVM managed wallet works across every EVM chain.
+All EVM chains share the same address format (`0x...`) and ERC-20 token standard. Most route through Li.Fi and the other aggregators for optimal pricing. A few Bitcoin L2s route through chain-specific venues only, for example GOAT via GOATSwap and Citrea via JuiceSwap. A single EVM managed wallet works across every EVM chain.
 
 See [EVM Chains](evm-chains.md) for the full table.
 
@@ -4740,7 +4756,7 @@ TRON uses Base58Check addresses (starting with `T`), the TRC-20 token standard, 
 
 ### Starknet
 
-Starknet uses a Cairo-based account-abstraction model with Felt252 addresses. Swaps route through AVNU with integrator fees, and gasless transactions are supported via the SNIP-29 paymaster. In the TypeScript API, Starknet is read-only — signing and broadcast are handled by the Python bot backend.
+Starknet uses a Cairo-based account-abstraction model with Felt252 addresses. Swaps route through AVNU with integrator fees, and gasless transactions are supported via the SNIP-29 paymaster. In the TypeScript API, Starknet is read-only. Signing and broadcast are handled by the Python bot backend.
 
 ## Discovering Chains Programmatically
 
@@ -4824,7 +4840,7 @@ These chains settle to or are secured by Bitcoin. Note that GOAT and Citrea use 
 
 EVM swaps race up to nine aggregators and bridges for the best execution price:
 
-- **Li.Fi** — same-chain and cross-chain routing across most EVM chains
+- **Li.Fi**: same-chain and cross-chain routing across most EVM chains
 - **CoW Protocol** — batch-auction, MEV-protected settlement
 - **OKX** — DEX aggregation
 - **1inch** — DEX aggregation
@@ -4833,11 +4849,11 @@ EVM swaps race up to nine aggregators and bridges for the best execution price:
 - **CCTP** — native USDC bridging
 - **GOATSwap / JuiceSwap** — chain-specific venues for GOAT and Citrea, which aggregators do not cover
 
-The API returns the best available route automatically — you do not choose the aggregator.
+The API returns the best available route automatically. You do not choose the aggregator.
 
 ## Native vs. Wrapped Tokens
 
-For native-token swaps (ETH, BNB, MATIC, AVAX, etc.), pass the token symbol (e.g. `ETH`) as `from_token` or `to_token`. Chains with non-ETH native tokens (BNB, MATIC, AVAX, FTM, MNT, xDAI, SEI, BERA, S, FLR, KAIA, APE, RBTC, cBTC, BTC, HYPE, XPL, FRAX, FLOW) use that symbol as the native unit.
+For native-token swaps (ETH, BNB, MATIC, AVAX, etc.), pass the token symbol (e.g. `ETH`) as `from_token` or `to_token`. Chains with non-ETH native tokens use that symbol as the native unit: BNB, MATIC, AVAX, FTM, MNT, xDAI, SEI, BERA, S, FLR, KAIA, APE, RBTC, cBTC, BTC, HYPE, XPL, FRAX, and FLOW.
 
 ## Discovering Tokens
 
@@ -4879,7 +4895,7 @@ See [Cross-Chain Swaps](../guides/cross-chain-swaps.md) for the full walkthrough
 
 # Solana
 
-Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets — a Solana swap signs with a Solana keypair, not an EVM `0x` address. Pass `chain: "solana"` (or `"sol"`) in your requests.
+Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets. A Solana swap signs with a Solana keypair, not an EVM `0x` address. Pass `chain: "solana"` (or `"sol"`) in your requests.
 
 ## Overview
 
@@ -5158,7 +5174,7 @@ The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action bou
 
 For an executable-route example, the [Arbitrage Monitor](arbitrage-monitor.md) shows why chain-neutral reference prices are not enough, how to budget quote calls, and how to turn a read-only signal into a paid monitor before adding a two-leg execution problem.
 
-For a venue-data example, the [Standalone Prediction Monitor](prediction-markets.md) turns detail + midpoint + book + trades into a reusable market-health snapshot and restart-safe watch state, then shows how to price alerts from measured request volume while keeping forecast calibration separate from customer trading P&L.
+For a venue-data example, the [Standalone Prediction Monitor](prediction-markets.md) turns detail + midpoint + book + trades into a reusable market-health snapshot and restart-safe watch state. It then shows how to price alerts from measured request volume, while keeping forecast calibration separate from customer trading P&L.
 
 For leveraged-position monitoring, the [Standalone Perps Risk Monitor](perps-trading.md) turns authenticated position reads plus shared market context into restart-safe liquidation-distance transitions, then separates alert-delivery economics from customer trading returns and shows where direct Hyperliquid streaming becomes the better architecture.
 
@@ -5279,7 +5295,7 @@ Persist enough state that a restart cannot duplicate an interval or forget an in
 
 Use a positive opt-in such as `SUWAPPU_LIVE=1`; absence must mean no funds move. Add a second control at the wallet/policy layer so one environment-variable mistake cannot remove every limit.
 
-A robust managed-wallet flow is:
+A dependable managed-wallet flow is:
 
 ```text
 fresh quote
@@ -5372,7 +5388,7 @@ Flywheel deliberately does less than a mature trading framework.
 | Local operations | Fail-closed state, execution lock, persistent container volume, reconciliation | You need database-backed ledgers, queues, leases, and fleet operations |
 | Release safety | Tests, builds, dependency audit, container contract, CodeQL | You need your own deployment, SLO, and compliance controls |
 
-[Freqtrade](https://www.freqtrade.io/en/stable/strategy-customization/) is a useful benchmark because the same strategy concept spans backtesting, dry/forward testing, and live operation; it also ships dedicated [lookahead-bias analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/). [Hummingbot](https://hummingbot.org/docs/) is a useful benchmark for a broader connector/multi-bot platform whose V2 controllers can be [backtested](https://hummingbot.org/dashboard/backtest/).
+[Freqtrade](https://www.freqtrade.io/en/stable/strategy-customization/) is a useful benchmark because the same strategy concept spans backtesting, dry/forward testing, and live operation. It also ships dedicated [lookahead-bias analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/). [Hummingbot](https://hummingbot.org/docs/) is a useful benchmark for a broader connector/multi-bot platform whose V2 controllers can be [backtested](https://hummingbot.org/dashboard/backtest/).
 
 Do not rebuild either inside Flywheel. Combine the evaluation or infrastructure you actually need with Suwappu's action surface.
 
@@ -5432,7 +5448,7 @@ For a managed swap, Flywheel does this:
 
 If a managed submission times out, loses its network response, returns HTTP 408/5xx, or returns a malformed success response after submission may have started, its outcome is **unknown**. Keep the same economic intent and idempotency key. If a `swap_id` is known, poll it rather than submitting another trade. Never turn transport uncertainty into a second economic action.
 
-Flywheel bounds managed simulate/execute/status calls with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default; accepted range 100–30000 ms). `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr. Those events intentionally omit API keys, wallets, quote/swap IDs, response bodies, and error messages.
+Flywheel bounds managed simulate/execute/status calls with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the accepted range is 100–30000 ms. `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr. Those events intentionally omit API keys, wallets, quote/swap IDs, response bodies, and error messages.
 
 Inspect the local journal at any time:
 
@@ -5755,7 +5771,7 @@ It also rejects a qualified candidate if the older of its two quotes has 5 secon
 
 ### Bound upstream work and keep errors safe
 
-The maintained adapter bounds each direct quote operation with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default, allowed range 100–30,000 ms). HTTP failures expose the status code without copying an upstream response body into operator logs; timeout/network failures are sanitized too.
+The maintained adapter bounds each direct quote operation with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the allowed range is 100–30,000 ms. HTTP failures expose the status code without copying an upstream response body into operator logs. Timeout and network failures are sanitized the same way.
 
 Set `SUWAPPU_API_EVENTS=1` when you need machine-readable stderr telemetry. Those events contain only operation, outcome, duration, and HTTP status when present. They intentionally omit API keys, token/chain/notional configuration, quote IDs, response bodies, and error text.
 
@@ -5765,7 +5781,9 @@ There is no automatic in-scan retry that can silently exceed `--max-quote-calls`
 
 State defaults to `~/.suwappu-arb-scanner` and can be moved with `SUWAPPU_ARB_STATE_DIR`. The monitor file is schema-validated fail-closed and replaced atomically after fsync; scan history is bounded by `SUWAPPU_ARB_HISTORY_LIMIT` (5,000 by default).
 
-`monitor.lock` covers the complete local cycle—quote work, state transition, webhook delivery bookkeeping—so a second process sharing that state directory fails before creating another quote burst. A crash can leave a stale lock. Prove the owning process/container is gone before removing that exact lock; age alone is not proof.
+`monitor.lock` covers the complete local cycle: quote work, state transition, and webhook delivery bookkeeping. A second process sharing that state directory fails before it can create another quote burst.
+
+A crash can leave a stale lock. Prove the owning process or container is gone before removing that exact lock. Age alone is not proof.
 
 The repository's container runs non-root and persists state under `/data`. Its default is one `scan --json --fail-on-degraded` with Compose restart disabled. Continuous `watch` is an explicit operator choice because indefinite polling is also an indefinite API-cost decision.
 
@@ -5859,7 +5877,7 @@ The maintained reference now implements the base alert-state contract:
 - mark a candidate inactive only when an error-free scan can actually establish absence; and
 - keep degraded coverage visible instead of manufacturing a decay/re-entry notification loop.
 
-Set `--alert-cooldown 0` for transition-only delivery; the default 900 seconds permits a reminder for a continuously qualified candidate. A webhook is marked delivered only after HTTP 2xx. Timeout/transport failure is **delivery-outcome unknown**—the receiver may have processed it—so downstream `alertId` idempotency still matters.
+Set `--alert-cooldown 0` for transition-only delivery. The default of 900 seconds permits a reminder for a continuously qualified candidate. A webhook is marked delivered only after HTTP 2xx. Timeout and transport failure count as **delivery-outcome unknown**: the receiver may have processed it, so downstream `alertId` idempotency still matters.
 
 For production webhook delivery, set an exact `SUWAPPU_WEBHOOK_ALLOWED_HOSTS` allowlist and a random `SUWAPPU_WEBHOOK_SECRET`. Signed requests use `X-Suwappu-Timestamp` plus `X-Suwappu-Signature: sha256=<HMAC>` over `timestamp + "." + rawBody`. Require HTTPS, reject stale timestamps, use constant-time signature comparison, and deduplicate `alertId`. The CLI's hostname checks are not a complete DNS-rebinding/SSRF boundary; a multi-tenant service accepting untrusted URLs needs connection-time egress controls.
 
@@ -6604,11 +6622,11 @@ The maintained CrewAI satellite is currently private. This guide is deliberately
 
 # Cross-Chain Swaps
 
-Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine aggregators and bridges (Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, CCTP) to find the best route, so you never pick a bridge yourself.
+Walk through a complete cross-chain swap with the Suwappu API: get a quote that bridges between two chains, execute it with a managed wallet, and poll for the final status. Suwappu races up to nine aggregators and bridges to find the best route, so you never pick a bridge yourself. Those include Li.Fi, CoW, OKX, 1inch, KyberSwap, Jupiter, Across, and CCTP.
 
 ## How Cross-Chain Works
 
-A same-chain swap passes a single `chain`. A cross-chain swap passes `from_chain` and `to_chain` instead — the routing engine handles bridging and settlement under the hood and returns a single quote with the expected output on the destination chain.
+A same-chain swap passes a single `chain`. A cross-chain swap passes `from_chain` and `to_chain` instead. The routing engine handles bridging and settlement under the hood, and returns a single quote with the expected output on the destination chain.
 
 ## Step 1: Get a Cross-Chain Quote
 
@@ -6690,7 +6708,7 @@ curl https://api.suwappu.bot/v1/agent/swap/status/sw_xyz789 \
 }
 ```
 
-Instead of polling, you can set a `callback_url` on your agent and receive a signed webhook when the swap completes — see [Webhook Setup](webhook-setup.md).
+Instead of polling, you can set a `callback_url` on your agent and receive a signed webhook when the swap completes. See [Webhook Setup](webhook-setup.md) for details.
 
 ## Client-Signed Alternative
 
@@ -6756,7 +6774,7 @@ If you have not created a wallet yet, the response hints you to create one with 
 
 ## Step 3: Fund the Wallet
 
-Send the native gas token (and any tokens you want to swap) to the managed address. The wallet needs gas on whichever chain you intend to swap on (ETH on Base/Arbitrum/Optimism, BNB on BSC, MATIC on Polygon, etc.).
+Send the native gas token to the managed address, plus any tokens you want to swap. The wallet needs gas on whichever chain you intend to swap on, for example ETH on Base, Arbitrum, or Optimism, BNB on BSC, or MATIC on Polygon.
 
 ## Step 4: Quote, Simulate, and Execute
 
@@ -6788,7 +6806,7 @@ Persist the idempotency key. If an execution response is lost, reconcile status/
 ## Ownership & Security
 
 - A managed wallet belongs to the agent that created it. Quotes are cached per agent and can only be executed by that agent.
-- Natural-language commands (`/v1/agent/execute`) that include a `wallet_address` are rejected unless the address is your own managed wallet — you cannot swap from a wallet you don't own.
+- Natural-language commands (`/v1/agent/execute`) that include a `wallet_address` are rejected unless the address is your own managed wallet. You cannot swap from a wallet you do not own.
 - Rotate your API key any time with `POST /v1/agent/keys/rotate`; this does not change your wallet address.
 
 ## Client-Signed Wallets (Opt-Out)
@@ -6841,7 +6859,7 @@ Each delivery carries these headers:
 
 ## Step 3: Verify the Signature
 
-The signing key is the **SHA-256 hash of your API key** (the raw `suwappu_sk_...` string, hashed to 32 bytes). The signature is the hex HMAC-SHA256 of the exact raw request body using that key.
+The signing key is the **SHA-256 hash of your API key**: hash the raw `suwappu_sk_...` string to get 32 bytes. The signature is the hex HMAC-SHA256 of the exact raw request body using that key.
 
 ```javascript
 import crypto from 'crypto'
@@ -6913,7 +6931,7 @@ curl "https://api.suwappu.bot/v1/agent/webhooks?status=delivered" \
 
 ## Best Practices
 
-- **Respond fast.** Acknowledge with `2xx` immediately and do heavy work asynchronously — deliveries time out at 10 seconds.
+- **Respond fast.** Acknowledge with `2xx` immediately and do heavy work asynchronously. Deliveries time out at 10 seconds.
 - **Verify every delivery.** Reject any request whose signature does not match.
 - **Treat deliveries as at-least-once.** Use the `X-Suwappu-Delivery` ID to deduplicate.
 - **Keep your endpoint public and HTTPS.** Suwappu only POSTs to the URL you configured.
@@ -6927,7 +6945,7 @@ Build and monetize a standalone price-triggered product without confusing a mark
 
 The public [`suwappu-trading-bot`](https://github.com/0xSoftBoi/suwappu-trading-bot) v2 is the concrete implementation. It is **preview-only by default** and intentionally narrow: USDC in, one target-price trigger, one managed-swap action. It demonstrates a production-shaped Suwappu authority/recovery boundary; it does not claim that the toy strategy is profitable.
 
-For strategy research—backtests, paper/live parity, exits, drawdown, and net P&L—start with [Strategy Lifecycle](strategy-lifecycle.md). This guide focuses on the action boundary you can reuse in a real product.
+For strategy research on backtests, paper/live parity, exits, drawdown, and net P&L, start with [Strategy Lifecycle](strategy-lifecycle.md). This guide focuses on the action boundary you can reuse in a real product.
 
 ## What “standalone” means here
 
@@ -6995,7 +7013,14 @@ const quote = await request('/quote', {
 })
 ```
 
-Fail closed if the quote is malformed, `success !== true`, the returned token pair or input amount does not match what you requested, `amount_out_min > amount_out`, estimated gas is missing, or the quote has too little time left to use safely.
+Fail closed on any of the following:
+
+- the quote is malformed;
+- `success !== true`;
+- the returned token pair or input amount does not match what you requested;
+- `amount_out_min > amount_out`;
+- estimated gas is missing; or
+- the quote has too little time left to use safely.
 
 For this fixed-USDC example, the conservative acquisition price is:
 
@@ -7044,7 +7069,7 @@ Absence of either means preview-only. Credentials being present must not silentl
 
 ## 4. Persist intent before submission risk
 
-The managed execute endpoint accepts a caller-owned `Idempotency-Key` (1–64 characters using `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, or `-`). The key belongs to the **economic action**, not to one HTTP attempt.
+The managed execute endpoint accepts a caller-owned `Idempotency-Key`. The key allows 1–64 characters from `A-Z`, `a-z`, `0-9`, `_`, `.`, `:`, or `-`. The key belongs to the **economic action**, not to one HTTP attempt.
 
 Before the first `POST /swap/execute`:
 
@@ -7163,7 +7188,7 @@ Set `SUWAPPU_API_EVENTS=1` for metadata-only stderr events such as:
 suwappu_api_event {"operation":"quote","outcome":"response_ok","duration_ms":184.2,"status":200}
 ```
 
-These events omit credentials, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received a parseable response at that layer—not that a managed trade reached terminal success. Reconciled state remains authoritative.
+These events omit credentials, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received a parseable response at that layer. It does not mean a managed trade reached terminal success. Reconciled state remains authoritative.
 
 ## Choose REST, SDK, or MCP deliberately
 
@@ -7201,7 +7226,9 @@ Measure the funnel before adding strategy complexity:
 - time to terminal outcome;
 - weekly retained users or intentionally enabled policies.
 
-At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model. Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs—not from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
+At the default 30-second poll interval, one always-on target can make up to **2,880 reference-price requests/day** before quote calls. That belongs in the product cost model.
+
+Price your service from measured Suwappu, infrastructure, model/notification, support, and payment costs. Do not price it from hoped-for strategy returns. Put call/cost ceilings around paid plans instead of maximizing request volume for its own sake.
 
 Keep the two scoreboards separate:
 
@@ -7347,7 +7374,7 @@ A plan looks like this:
 
 The ID is durable business state. Do not derive it from an array index or regenerate it on deploy.
 
-The reference accepts five-field cron with one literal minute (`0`–`59`), so each plan runs no faster than hourly. Timezone defaults to UTC and otherwise must be a valid IANA timezone. That cap is intentional for a recurring-purchase reference; a high-frequency strategy belongs in a different scheduler/execution design.
+The reference accepts five-field cron with one literal minute, from `0` to `59`, so each plan runs no faster than hourly. Timezone defaults to UTC and otherwise must be a valid IANA timezone. That cap is intentional for a recurring-purchase reference; a high-frequency strategy belongs in a different scheduler/execution design.
 
 V2 pins node-cron 4.6, enables its per-task `noOverlap` guard, and computes the durable action key from the scheduler context's intended `date`. That matters when the event loop is delayed across a minute boundary: callback start time must not silently turn one scheduled installment into another slot. The application-level journal lock/idempotency state remains necessary; scheduler overlap prevention is not a substitute for financial exactly-once semantics.
 
@@ -7471,7 +7498,7 @@ suwappu_api_event {"operation":"quote","outcome":"response_ok","duration_ms":184
 
 Events contain only operation, transport/protocol outcome, duration, and optional HTTP status. They exclude keys, wallet/market terms, quote/swap IDs, bodies, and error text. `response_ok` means the adapter received parseable JSON at that layer; it is not proof of valid strategy economics or terminal execution.
 
-The supplied image runs non-root with durable `/data`. Its default command validates the included plan **without an API key or network call and exits**. `docker-compose.yml` uses `restart: "no"`; scheduling—and especially managed scheduling—must be an explicit operator choice rather than a hidden restart-loop side effect.
+The supplied image runs non-root with durable `/data`. Its default command validates the included plan **without an API key or network call and exits**. `docker-compose.yml` uses `restart: "no"`. Scheduling, and especially managed scheduling, must be an explicit operator choice rather than a hidden restart-loop side effect.
 
 ## Intentionally enable bounded managed execution
 
@@ -7512,7 +7539,7 @@ A cron expression is a commodity. Reliable recurring intent, approvals, explanat
 | Bounded automation | Recurring execution within customer limits | intentionally enabled automations, reconciliation/support tier | Yes |
 | Team / treasury | Shared recurring purchasing with accountability | SSO/RBAC, shared budgets, exports, control/reporting tier | Yes |
 
-Validate retention before taking on more execution risk. For the preview-first product, a useful activation event is **saved plan -> first route-qualified scheduled preview**. Track a separate managed milestone—**explicitly opted-in plan -> first terminal reconciled action**—instead of mixing money movement with signup/traffic metrics.
+Validate retention before taking on more execution risk. For the preview-first product, a useful activation event is **saved plan -> first route-qualified scheduled preview**. Track a separate managed milestone: **explicitly opted-in plan -> first terminal reconciled action**. Do not mix money movement with signup/traffic metrics.
 
 Useful funnel metrics include:
 
@@ -7526,7 +7553,7 @@ Useful funnel metrics include:
 
 Those metrics describe whether the workflow is valuable and reliable. They do not require the purchased token to rise in price.
 
-Sell capability—more plans, alerts, approvals, durable history, automation, roles, exports, and support—not a “higher return” tier. The customer can value a workflow that behaves correctly even during a month when the acquired asset loses value.
+Sell capability: more plans, alerts, approvals, durable history, automation, roles, exports, and support. Do not sell a “higher return” tier. The customer can value a workflow that behaves correctly even during a month when the acquired asset loses value.
 
 ## Model request economics before setting a price
 
@@ -7597,7 +7624,14 @@ V2 gives one local process strong operating invariants; it is **not** a distribu
 - Gate money-path releases on frozen dependencies, tests/build, dependency audit, container validation, code scanning, and explicit retry/idempotency review. The source v2 CI/CodeQL setup is a starting contract, not a substitute for your own production change controls.
 - Keep builder margin and customer investment performance in separate ledgers.
 
-The best first paid experiment is simple: offer preview-only fixed-USDC plans with route/cost notifications, measure retained use, add approvals for users who want a faster action loop, and offer bounded automation only to users who explicitly ask for it. The defensible value is not cron—it is trusted recurring intent with a provable outcome loop.
+The best first paid experiment is simple:
+
+- offer preview-only fixed-USDC plans with route/cost notifications;
+- measure retained use;
+- add approvals for users who want a faster action loop; and
+- offer bounded automation only to users who explicitly ask for it.
+
+The defensible value is not cron. It is trusted recurring intent with a provable outcome loop.
 
 > Educational integration reference, not financial advice or a guarantee of investment returns. Automated execution can lose funds.
 
@@ -7663,7 +7697,7 @@ bun src/index.ts history --limit 20
 bun src/index.ts history --json --limit 100
 ```
 
-Each observation has a deterministic policy fingerprint and a one-way wallet reference rather than the API key/full wallet address. `SUWAPPU_REBALANCER_HISTORY_LIMIT` bounds local observations (default 5000). Treat a failed/stale scheduled run separately from exit code 2—a silent monitor is not evidence that a portfolio is in policy.
+Each observation has a deterministic policy fingerprint and a one-way wallet reference rather than the API key/full wallet address. `SUWAPPU_REBALANCER_HISTORY_LIMIT` bounds local observations (default 5000). Treat a failed or stale scheduled run separately from exit code 2. A silent monitor is not evidence that a portfolio is in policy.
 
 ## Define the policy explicitly
 
@@ -7787,7 +7821,7 @@ const response = await fetch('https://api.suwappu.bot/v1/agent/swap/execute', {
 
 If the request times out, loses its connection, returns HTTP 408/5xx, or returns a malformed success after submission may have started, do not create a new current-time ID. A fresh quote can still represent the **same economic intent**; reuse the persisted idempotency key.
 
-The reference bounds direct REST calls and its SDK quote wait with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default; accepted range 100–30000 ms). `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr without API keys, wallets, quote/swap IDs, policy terms, response bodies, or error messages.
+The reference bounds direct REST calls and its SDK quote wait with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the accepted range is 100–30000 ms. `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr without API keys, wallets, quote/swap IDs, policy terms, response bodies, or error messages.
 
 ## Reconcile before the next economic action
 
@@ -7811,7 +7845,7 @@ bun src/index.ts executions --reconcile
 
 For safety, the live reference executes at most **one reconciled economic action per invocation**. Run `rebalance --execute` again to read the new portfolio and calculate the next action from fresh state. This avoids blindly running the remainder of a plan computed before the first fill.
 
-The local deployment also holds `rebalance-live.lock` across the *whole* live cycle—resume/reconcile, fresh portfolio, plan, submit/reconcile, and final accounting. `executions --reconcile` takes the same lock, so status writes cannot race a live planner. After an abnormal death, stop schedulers, inspect the journal read-only, prove the recorded owner is gone, clear only the stale lock, then reconcile before re-enabling live work. The [operations runbook](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer/blob/main/docs/OPERATIONS.md) gives the full recovery sequence.
+The local deployment also holds `rebalance-live.lock` across the *whole* live cycle: resume/reconcile, fresh portfolio, plan, submit/reconcile, and final accounting. `executions --reconcile` takes the same lock, so status writes cannot race a live planner. After an abnormal death, stop schedulers, inspect the journal read-only, prove the recorded owner is gone, clear only the stale lock, then reconcile before re-enabling live work. The [operations runbook](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer/blob/main/docs/OPERATIONS.md) gives the full recovery sequence.
 
 ## Turn on live mode deliberately
 
@@ -7823,7 +7857,9 @@ export MIN_REBALANCE_USD=10  # example operational floor, not a recommendation
 bun src/index.ts rebalance --execute
 ```
 
-The repository defaults `MAX_REBALANCE_USD` to `1000` and `MIN_REBALANCE_USD` to `0`; choose limits for your policy rather than copying the example. Invalid values fail closed. The local limits are defense in depth—use Suwappu wallet policies, approvals, audit history, and a kill switch for server-side limits.
+The repository defaults `MAX_REBALANCE_USD` to `1000` and `MIN_REBALANCE_USD` to `0`. Choose limits for your policy rather than copying the example. Invalid values fail closed.
+
+The local limits are defense in depth. Use Suwappu wallet policies, approvals, audit history, and a kill switch for server-side limits.
 
 The reference JSON execution journal and drift history live under `~/.suwappu-rebalancer` by default. Existing corrupt state fails closed; writes use restrictive permissions, fsync, and atomic replace. A multi-worker service still needs transactional state, an economic-intent uniqueness constraint, locking/leases, and an append-only audit trail.
 
@@ -8051,7 +8087,7 @@ builder contribution margin
 - polling + storage + queue + delivery + hosting + support costs
 ```
 
-Customer APY, gas, slippage, defaults, liquidation, and position P&L belong to the customer's financial outcome ledger—not your SaaS revenue ledger.
+Customer APY, gas, slippage, defaults, liquidation, and position P&L belong to the customer's financial outcome ledger. They do not belong on your SaaS revenue ledger.
 
 ## 6. A product ladder that earns trust
 
@@ -8226,7 +8262,7 @@ Build a CLI that takes plain-English commands and routes them through the Suwapp
 
 ## The /execute Endpoint
 
-`POST /v1/agent/execute` accepts a natural-language `command` and an optional `wallet_address`. It parses swap and quote/price commands, fetches a quote, and returns a structured response. If you include `wallet_address` (which must be your own managed wallet), it also returns executable transaction data.
+`POST /v1/agent/execute` accepts a natural-language `command` and an optional `wallet_address`. It parses swap and quote/price commands, fetches a quote, and returns a structured response. Include `wallet_address` to also get executable transaction data. The address must be your own managed wallet.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/execute \
@@ -8326,7 +8362,11 @@ If the chain is omitted, it defaults to Ethereum. For Solana, include `on solana
 
 ## Executing the Quote
 
-`/execute` returns a quote (and optionally unsigned transaction data). It does not perform managed execution. Before acting on a read-only quote, re-run the intent with your managed wallet to get a fresh wallet-bound `quote_id`; simulate that exact quote against the same address, then, after explicit approval, hand it to the managed endpoint:
+`/execute` returns a quote and, optionally, unsigned transaction data. It does not perform managed execution. Before acting on a read-only quote:
+
+- re-run the intent with your managed wallet to get a fresh wallet-bound `quote_id`;
+- simulate that exact quote against the same address; and
+- after explicit approval, hand it to the managed endpoint:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/execute \
@@ -8569,7 +8609,7 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-`liquidationPrice: 0` means Hyperliquid did not report a liquidation price on this path. Treat that as unavailable—not a real zero-price liquidation boundary.
+`liquidationPrice: 0` means Hyperliquid did not report a liquidation price on this path. Treat that as unavailable. It is not a real zero-price liquidation boundary.
 
 `fundingRate` is current raw market context for the asset. It is **not** accrued position funding P&L and is not a forecast.
 
@@ -8617,7 +8657,16 @@ Emit transitions like this:
 
 If a missing position reappears but its liquidation evidence is unavailable, end the missing interval while preserving the prior alert state. A later disappearance can then produce a new reconciliation notification instead of being suppressed as a duplicate of the old missing interval.
 
-For a single-node process, persist the state with an exclusive writer lock and atomic durable writes. The reference v2 uses a `0700` directory, `0600` state/lock files, keeps the exclusive lock descriptor open for the watch lifetime, verifies both lock-file identity and ownership token before release, uses a unique temporary file + file `fsync` + atomic rename + best-effort directory `fsync`, rejects live or dangling symlinked state, and fails closed on corrupt JSON. It never guesses that a lock is stale and deletes it automatically.
+For a single-node process, persist the state with an exclusive writer lock and atomic durable writes. The reference v2:
+
+- uses a `0700` directory and `0600` state/lock files;
+- keeps the exclusive lock descriptor open for the watch lifetime;
+- verifies both lock-file identity and ownership token before release;
+- uses a unique temporary file, file `fsync`, atomic rename, and best-effort directory `fsync`;
+- rejects live or dangling symlinked state; and
+- fails closed on corrupt JSON.
+
+It never guesses that a lock is stale and deletes it automatically.
 
 That is a single-node guarantee. Multi-replica services should use transactional shared state plus a delivery outbox/queue.
 
@@ -8625,7 +8674,7 @@ That is a single-node guarantee. Multi-replica services should use transactional
 
 The v2 reference runtime makes its network policy explicit:
 
-- 20s request timeout by default, bounded to 250ms–30s;
+- 20s request timeout by default, bounded between 250ms and 30s;
 - 2 safe-read retries by default, bounded to 0–4;
 - GET retry on transport failure, 408, 429, and 5xx with bounded backoff/`Retry-After`;
 - no automatic quote POST retry;
@@ -8948,7 +8997,7 @@ watchlist contribution margin
   - payment + allocated support/refund cost
 ```
 
-Sell retained capabilities—history, more rules, alerts, collaboration, webhooks/API, reliability/support—not “higher win rate.” See [Build a Business on Suwappu](build-a-business.md) for the broader commercial boundary.
+Sell retained capabilities: history, more rules, alerts, collaboration, webhooks/API, reliability/support. Do not sell “higher win rate.” See [Build a Business on Suwappu](build-a-business.md) for the broader commercial boundary.
 
 ## If you publish forecasts, keep a separate immutable ledger
 
@@ -8997,7 +9046,7 @@ The public v2 repo has meaningful enterprise-shaped controls, but a filesystem w
 - per-tenant quotas/request budgets, abuse controls, caching, and cost attribution;
 - defined data-freshness/delivery SLOs plus operational alerts;
 - backup/restore tests, incident/runbook ownership, capacity and HA/regional design matching what you sell;
-- secret management only in workers that truly require account/trading access;
+- secret management only in workers that require account/trading access;
 - privacy/retention controls for customer watchlists and alert evidence.
 
 The reference's CI provides a useful source/release floor: frozen dependency install, TypeScript tests/typecheck, standalone compile/help, Python compatibility tests, high-severity dependency audit, non-root container build + zero-network startup, and TypeScript/Python CodeQL.
@@ -9105,8 +9154,8 @@ Notable changes to the Suwappu agent API, SDK, and docs. Dates are in UTC. Break
 
 ## 2026-06-10
 
-- **Tempo gasless swaps.** New users get their first swaps sponsored via Tempo fee-payer (type `0x76`) transactions — effectively gasless onboarding on TIP-20 stablecoins. Falls back to a normal user-paid swap when sponsorship is unavailable.
-- **Suwappu Micropayments (pathUSD)** endpoints for browsing and paying micropayment services on Tempo (internally referred to as "MPP" — not Google's AP2 or Stripe/Tempo's Machine Payments Protocol).
+- **Tempo gasless swaps.** New users get their first swaps sponsored via Tempo fee-payer (type `0x76`) transactions, for gasless onboarding on TIP-20 stablecoins. Falls back to a normal user-paid swap when sponsorship is unavailable.
+- **Suwappu Micropayments (pathUSD)** endpoints for browsing and paying micropayment services on Tempo. Internally this is referred to as "MPP," distinct from Google's AP2 and Stripe/Tempo's Machine Payments Protocol.
 
 ## 2026-05-22
 

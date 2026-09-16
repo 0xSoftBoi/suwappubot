@@ -74,8 +74,6 @@ export type ResearchPost = {
 
 const TEMPO_BODY = `# Fee sponsorship as a treasury control
 
-*Engineering control note. Revised and source-verified on 8 August 2026 against current main and Tempo's primary specifications. This is a capability review, not evidence that sponsorship is enabled in production.*
-
 Fee sponsorship looks like a UX feature from a wallet. From a bank, it is **delegated expense authority**. The account that authorizes an asset transfer can differ from the account that accepts the network-fee liability. That separation is the more interesting primitive.
 
 The separation lets a bank centralize the network-fee account for customers, applications, or autonomous agents without giving the sponsor authority over the underlying payment instruction. Today, every transacting account must stay funded for fees on its own. Sponsorship can turn that fragmented requirement into one service-level treasury function. It only becomes useful if the budget is reserved, reconciled to realized receipts, and governed like any other operating cash account.
@@ -183,8 +181,6 @@ That is also the reason we no longer use "gasless" as the headline claim. For an
 `;
 
 const ROUTING_BODY = `# A router is an execution policy
-
-*Engineering control note. Revised and verified against current main on 8 August 2026. This describes Suwappu's decision function. It does not claim regulatory "best execution" or prove superior realized execution.*
 
 An aggregator is a list of connectivity. A router is a **policy for making a financial decision under time pressure and imperfect evidence**. That distinction is the institutional story.
 
@@ -606,8 +602,6 @@ Primary architecture sources used to define the perimeter are USDT0's [developer
 
 const POINTS_BODY = `# Incentive budgets as market design
 
-*Institutional research note. Revised 8 August 2026. The companion empirical study rejects this model's active-set prediction at wallet level. This revision separates the failed descriptive claim from the conditional mechanism results that remain valid inside the stated model.*
-
 The bank-relevant way to read a points program is not as token marketing. It is a **budget-allocation mechanism**. A sponsor defines a reward pool, and a rule turns participant behavior into claims on it. That rule decides who receives the subsidy, what behavior it rewards, and how much of the economic cost returns to the sponsor rather than leaving the system.
 
 The first version of this paper made a strong descriptive claim. Model a pro-rata points pool as a linear-cost Tullock contest, and cost dispersion will leave roughly five to eighteen active operators out of 5,000. We subsequently tested that prediction against the HYPE genesis recipient vector and the both-phase EIGEN Season 1 claim-recipient vector. Against the matched-program model envelope's roughly 14.3% lower edge, the predicted top share is **19.6× the HYPE observation and 6.0× the EIGEN observation**, and participation misses by far more.
@@ -744,8 +738,6 @@ As a reproducibility cross-check, the symmetric benchmark reconciles directly. *
 *Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a direct commercial interest in fee-denominated incentive design. No completed Suwappu token distribution is used as evidence here. The active-set prediction in the first version of this article failed its first published wallet-level empirical test; that correction is part of the research record, not a footnote.*`;
 
 const AIRDROP_BODY = `# When a correct model is wrong
-
-*Institutional empirical note. Revised 8 August 2026. This study measures wallet-level allocation concentration; it does not identify beneficial owners, prove a causal mechanism, or make a legal or prudential classification.*
 
 The most useful result in this paper is not an airdrop statistic. It is a model-governance failure caught in public. **The solver passed its internal checks. The theory generated a sharp prediction. The prediction failed when it met outcome data.** The implementation was right, but the descriptive use was wrong.
 
@@ -1102,7 +1094,7 @@ export const researchPosts: ResearchPost[] = [
       status: 'MEASURED',
       asOf: '2026-08-01',
       basis: '329,947 primary recipient wallets · code and data released',
-      boundary: 'Wallet-level outcomes; beneficial owners and causal mechanism unresolved.',
+      boundary: 'Wallet-level outcomes; beneficial owners and causal mechanism unresolved. Not a legal or prudential classification.',
     },
     paperPath: '/research/replication/papers/airdrop-concentration.md',
     indexFigure: {
@@ -1179,7 +1171,7 @@ export const researchPosts: ResearchPost[] = [
   {
     kind: 'engineering' as const,
     slug: 'hyperliquid-egress',
-    title: 'Building HyperLiquid into a bot: HyperUnit, region gating, and egress',
+    title: 'Building HyperLiquid into a bot',
     date: '',
     category: 'Architecture',
     excerpt: 'An engineering story on integrating an on-chain order-book DEX and routing native deposits through HyperUnit without tripping region restrictions.',
@@ -1188,16 +1180,16 @@ export const researchPosts: ResearchPost[] = [
   {
     kind: 'engineering' as const,
     slug: 'kms-key-management',
-    title: 'Managing hot-wallet keys: KMS envelope encryption and migrating off Fernet',
+    title: 'Managing hot-wallet keys with KMS',
     date: '',
     category: 'Security',
-    excerpt: 'How managed-wallet keys are encrypted at rest with kms_aesgcm_v2, and what it took to migrate legacy records without downtime.',
+    excerpt: 'How managed-wallet keys are encrypted at rest with kms_aesgcm_v2, and what it took to migrate legacy Fernet records without downtime.',
     status: 'planned',
   },
   {
     kind: 'engineering' as const,
     slug: 'mcp-for-swaps',
-    title: 'An MCP server for cross-chain swaps: a safe DeFi tool for agents',
+    title: 'An MCP server for cross-chain swaps',
     date: '',
     category: 'Agents',
     excerpt: 'The design of an agent-facing swap surface: tool shape, quote and settlement contract, and the policy guardrails that keep autonomous execution in bounds.',
