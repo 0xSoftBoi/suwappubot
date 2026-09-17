@@ -20,6 +20,7 @@ Providers:
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -75,6 +76,14 @@ from bot.services.event_bus import event_bus
 from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
+
+# MONEY-PATH: execution serialization belongs to the process, not an engine
+# instance. Several legacy surfaces still construct SwapEngine directly; shared
+# registries keep those paths on the same per-wallet lock and make new instances
+# safe by construction.
+_PROCESS_WALLET_LOCKS: dict[int, asyncio.Lock] = {}
+_PROCESS_WALLET_LOCK_USERS: dict[int, int] = {}
+_PROCESS_WALLET_LOCK_OWNERS: dict[int, asyncio.Task] = {}
 
 # Providers that execute_swap can actually execute. This must stay in sync with
 # the dispatch chain in execute_swap -- one entry per `elif quote.provider ==`
@@ -788,7 +797,13 @@ class SwapEngine:
         self.kyberswap = KyberSwapAPI()
         self.propamm_titan = PropAMMAPI()
         self.wallet_service = WalletService()
-        self._wallet_locks: dict[int, asyncio.Lock] = {}  # Per-wallet locks
+        self._wallet_locks = _PROCESS_WALLET_LOCKS
+        # Count owners plus queued waiters separately from asyncio.Lock.locked().
+        # asyncio briefly reports an unlocked lock after release while a queued
+        # waiter is being resumed; evicting it in that window creates a second
+        # lock for the same wallet and permits concurrent signing.
+        self._wallet_lock_users = _PROCESS_WALLET_LOCK_USERS
+        self._wallet_lock_owners = _PROCESS_WALLET_LOCK_OWNERS
         self._wallet_locks_max = 1000  # Cap to prevent unbounded growth
         # MONEY-PATH: exact-request singleflight only.  This is deliberately
         # separate from quote_cache: it changes no TTL/freshness behavior and
@@ -832,6 +847,51 @@ class SwapEngine:
             )
         except Exception as e:
             logger.warning(f"Failed to log aggregator readiness state: {e}")
+
+    def wallet_execution_lock(self, wallet_id: int) -> asyncio.Lock:
+        """Return the process-wide execution lock for one wallet."""
+        if wallet_id not in self._wallet_locks:
+            if len(self._wallet_locks) >= self._wallet_locks_max:
+                # Evict only entries with neither an owner nor queued waiters.
+                # `lock.locked()` alone is insufficient: release() marks an
+                # asyncio.Lock unlocked before its first waiter resumes.
+                to_remove = [
+                    key
+                    for key, lock in self._wallet_locks.items()
+                    if not lock.locked() and self._wallet_lock_users.get(key, 0) == 0
+                ]
+                remove_count = max(1, len(to_remove) // 2) if to_remove else 0
+                for key in to_remove[:remove_count]:
+                    del self._wallet_locks[key]
+            self._wallet_locks[wallet_id] = asyncio.Lock()
+        return self._wallet_locks[wallet_id]
+
+    @asynccontextmanager
+    async def wallet_execution_context(self, wallet_id: int, *, already_locked: bool = False):
+        """Serialize wallet execution, or acknowledge a lock held by the caller."""
+        current_task = asyncio.current_task()
+        if already_locked:
+            if self._wallet_lock_owners.get(wallet_id) is not current_task:
+                raise RuntimeError("wallet execution lock was not acquired by the caller")
+            yield
+            return
+
+        lock = self.wallet_execution_lock(wallet_id)
+        self._wallet_lock_users[wallet_id] = self._wallet_lock_users.get(wallet_id, 0) + 1
+        try:
+            async with lock:
+                self._wallet_lock_owners[wallet_id] = current_task
+                try:
+                    yield
+                finally:
+                    if self._wallet_lock_owners.get(wallet_id) is current_task:
+                        del self._wallet_lock_owners[wallet_id]
+        finally:
+            remaining = self._wallet_lock_users[wallet_id] - 1
+            if remaining:
+                self._wallet_lock_users[wallet_id] = remaining
+            else:
+                del self._wallet_lock_users[wallet_id]
 
     async def _get_wallet_for_signing(self, wallet_data) -> Wallet:
         """Get Wallet model object for signing operations."""
@@ -4087,6 +4147,7 @@ class SwapEngine:
         user_id: int,
         idempotency_key: Optional[str] = None,
         automated: bool = False,
+        _wallet_lock_held: bool = False,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -4155,16 +4216,7 @@ class SwapEngine:
                     f"(got provider '{quote.provider}')"
                 )
 
-        # Prevent concurrent swaps from same wallet (with bounded growth)
-        if wallet_id not in self._wallet_locks:
-            if len(self._wallet_locks) >= self._wallet_locks_max:
-                # Evict unlocked entries to prevent unbounded memory growth
-                to_remove = [k for k, v in self._wallet_locks.items() if not v.locked()]
-                for k in to_remove[: len(to_remove) // 2]:
-                    del self._wallet_locks[k]
-            self._wallet_locks[wallet_id] = asyncio.Lock()
-
-        async with self._wallet_locks[wallet_id]:
+        async with self.wallet_execution_context(wallet_id, already_locked=_wallet_lock_held):
             # Idempotency: if we already created/submitted this attempt, return it
             if idempotency_key:
 
@@ -8287,3 +8339,8 @@ class SwapEngine:
                 logger.error(f"Multi-swap sub-task failed: {res}")
 
         return swap_transactions
+
+
+# Preferred shared engine. The execution registries are also module-shared so
+# legacy and dependency-injected SwapEngine instances cannot bypass its locks.
+swap_engine = SwapEngine()

@@ -46,7 +46,7 @@
     "autoprefixer": "^10.4.20",
     "mermaid": "^11.14.0",
     "postcss": "^8.4.47",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "storybook": "8.6.18",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.6.3",

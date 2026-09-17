@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'bun:test'
 import {
 	BYPASS_TIERS,
+	buildX402Challenge,
 	COST_WEIGHTS,
 	CREDIT_USD_VALUE,
-	MCP_TOOL_COSTS,
-	buildX402Challenge,
 	costForTool,
 	creditsToUsdcBaseUnits,
+	MCP_TOOL_COSTS,
 } from '../middleware/x402Payment'
-import { crossCheckSignedRequirements } from '../services/FacilitatorService'
+import {
+	crossCheckSignedRequirements,
+	facilitatorVerifyAndSettle,
+} from '../services/FacilitatorService'
 
 const ENV = {
 	FEE_WALLET_EVM: '0xColleCToR0000000000000000000000000000abcd',
@@ -96,52 +99,115 @@ describe('bypass tiers', () => {
 
 describe('facilitator security cross-check (settle-time)', () => {
 	const advertised = {
+		scheme: 'exact',
+		network: 'base',
 		payTo: '0xColleCToR0000000000000000000000000000abcd',
-		asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
 		maxAmountRequired: '5000',
 	}
-
-	it('accepts a matching, case-different, overpaying signed payment', () => {
-		const r = crossCheckSignedRequirements(
-			{
-				payTo: advertised.payTo.toUpperCase(),
-				asset: advertised.asset.toUpperCase(),
-				amount: '6000', // overpayment OK
+	const v1Payload = (
+		envelope: Record<string, unknown> = {},
+		authorization: Record<string, unknown> = {},
+	) => ({
+		x402Version: 1,
+		scheme: advertised.scheme,
+		network: advertised.network,
+		payload: {
+			authorization: {
+				from: '0x000000000000000000000000000000000000bEEF',
+				to: advertised.payTo,
+				value: advertised.maxAmountRequired,
+				validAfter: '0',
+				validBefore: '9999999999',
+				nonce: `0x${'00'.repeat(32)}`,
+				...authorization,
 			},
+			signature: '0xsigned',
+		},
+		...envelope,
+	})
+
+	it('accepts a valid v1 payload with case-different recipient and overpayment', () => {
+		const r = crossCheckSignedRequirements(
+			v1Payload({}, { to: advertised.payTo.toUpperCase(), value: '6000' }),
 			advertised,
 		)
 		expect(r.ok).toBe(true)
 	})
 
-	it('rejects a redirected payTo (fund theft attempt)', () => {
-		const r = crossCheckSignedRequirements(
-			{ payTo: '0xattacker', asset: advertised.asset, amount: '5000' },
-			advertised,
-		)
+	it('rejects the wrong x402 protocol version', () => {
+		const r = crossCheckSignedRequirements(v1Payload({ x402Version: 2 }), advertised)
+		expect(r).toEqual({ ok: false, error: 'version_mismatch' })
+	})
+
+	it('rejects a wrong top-level payment scheme', () => {
+		const r = crossCheckSignedRequirements(v1Payload({ scheme: 'upto' }), advertised)
+		expect(r).toEqual({ ok: false, error: 'scheme_mismatch' })
+	})
+
+	it('rejects a foreign top-level network', () => {
+		const r = crossCheckSignedRequirements(v1Payload({ network: 'robinhood' }), advertised)
+		expect(r).toEqual({ ok: false, error: 'network_mismatch' })
+	})
+
+	it('rejects a missing top-level network', () => {
+		const r = crossCheckSignedRequirements(v1Payload({ network: undefined }), advertised)
+		expect(r).toEqual({ ok: false, error: 'network_mismatch' })
+	})
+
+	it('rejects a redirected signed authorization recipient', () => {
+		const r = crossCheckSignedRequirements(v1Payload({}, { to: '0xattacker' }), advertised)
 		expect(r).toEqual({ ok: false, error: 'payTo_mismatch' })
 	})
 
-	it('rejects a wrong asset', () => {
-		const r = crossCheckSignedRequirements(
-			{ payTo: advertised.payTo, asset: '0xnotusdc', amount: '5000' },
-			advertised,
-		)
-		expect(r).toEqual({ ok: false, error: 'asset_mismatch' })
-	})
-
-	it('rejects underpayment', () => {
-		const r = crossCheckSignedRequirements(
-			{ payTo: advertised.payTo, asset: advertised.asset, amount: '4999' },
-			advertised,
-		)
+	it('rejects an underpaying signed authorization', () => {
+		const r = crossCheckSignedRequirements(v1Payload({}, { value: '4999' }), advertised)
 		expect(r).toEqual({ ok: false, error: 'amount_too_low' })
 	})
 
-	it('rejects an unparseable amount instead of throwing', () => {
-		const r = crossCheckSignedRequirements(
-			{ payTo: advertised.payTo, asset: advertised.asset, amount: 'not-a-number' },
-			advertised,
-		)
+	it('rejects an unparseable authorization value instead of throwing', () => {
+		const r = crossCheckSignedRequirements(v1Payload({}, { value: 'not-a-number' }), advertised)
 		expect(r).toEqual({ ok: false, error: 'amount_unparseable' })
+	})
+
+	it('passes the canonical advertised requirement to both verify and settle', async () => {
+		const requirements = buildX402Challenge(ENV, {
+			cost: 5,
+			resource: 'mcp://tools/execute_swap',
+			description: 'test',
+		}).accepts[0]
+		const paymentPayload = v1Payload()
+		const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString('base64')
+		const seenRequirements: unknown[] = []
+		const seenPayloads: unknown[] = []
+
+		const r = await facilitatorVerifyAndSettle(
+			{ X402_FACILITATOR_ENABLED: 'true', X402_FACILITATOR_URL: 'http://127.0.0.1:1' },
+			paymentHeader,
+			requirements,
+			() => ({
+				verify: async (payload, canonicalRequirements) => {
+					seenPayloads.push(payload)
+					seenRequirements.push(canonicalRequirements)
+					return { isValid: true }
+				},
+				settle: async (payload, canonicalRequirements) => {
+					seenPayloads.push(payload)
+					seenRequirements.push(canonicalRequirements)
+					return {
+						success: true,
+						transaction: '0xtx',
+						network: requirements.network,
+						payer: '0xpayer',
+					}
+				},
+			}),
+		)
+
+		expect(r).toEqual({ ok: true, txHash: '0xtx', network: 'base', payer: '0xpayer' })
+		expect(seenPayloads).toEqual([paymentPayload, paymentPayload])
+		expect(seenRequirements).toHaveLength(2)
+		expect(seenRequirements[0]).toBe(requirements)
+		expect(seenRequirements[1]).toBe(requirements)
+		expect(requirements.asset).toBe(ENV.AGENT_METERING_USDC_ADDRESS)
 	})
 })

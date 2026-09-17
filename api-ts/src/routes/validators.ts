@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isManagedWalletMetadataKey } from '../lib/managedWalletMetadata'
 import { isPublicUrl } from './ssrfGuard'
 
 // The SSRF transport guard now lives in ./ssrfGuard. Re-export the pieces other
@@ -24,6 +25,21 @@ const callbackUrlSchema = z
 	.string()
 	.url('Invalid callback URL')
 	.refine(isPublicUrl, 'callback_url must not point to a private or metadata endpoint')
+
+const callerMetadataSchema = z
+	.record(z.string(), z.unknown())
+	.superRefine((metadata, ctx) => {
+		for (const key of Object.keys(metadata)) {
+			if (isManagedWalletMetadataKey(key)) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: [key],
+					message: 'Managed wallet metadata is server-owned',
+				})
+			}
+		}
+	})
+	.describe('Caller-owned metadata. Managed-wallet identity and provisioning keys are reserved.')
 
 /** EVM address: 0x + 40 hex chars, rejecting the zero address. */
 const evmAddressSchema = z
@@ -67,7 +83,7 @@ export const RegisterAgentSchema = z.object({
 		.regex(/^[a-zA-Z0-9_-]+$/, 'Name must be alphanumeric with underscores and hyphens only'),
 	description: z.string().max(500).optional(),
 	callback_url: callbackUrlSchema.optional(),
-	metadata: z.record(z.string(), z.unknown()).optional(),
+	metadata: callerMetadataSchema.optional(),
 })
 
 export const QuoteRequestSchema = z.object({
@@ -125,7 +141,7 @@ export const UpdateAgentSchema = z
 	.object({
 		description: z.string().max(500).optional(),
 		callback_url: callbackUrlSchema.nullish(),
-		metadata: z.record(z.string(), z.unknown()).optional(),
+		metadata: callerMetadataSchema.optional(),
 	})
 	.refine(
 		(data) =>
