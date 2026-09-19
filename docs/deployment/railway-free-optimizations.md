@@ -50,7 +50,8 @@ bills the per-minute **average**, so the flat 1.96 GB plateau is the bill; the
 
 | # | Recommendation | Targets the 1.7 GB delta? | Verified? | Effort | Expected effect |
 |---|---|:-:|---|---|---|
-| 1 | **Scheduled process recycle** (8 h to start) reusing `memory_guard`'s `os._exit(137)` + `ON_FAILURE` restart | Yes — resets the whole curve regardless of cause | Measured/modeled from the real prod curve | S–M | ≈$5.8/mo (30 %) at 8 h, ≈$10/mo (51 %) at 4 h — **MONEY-PATH gated** |
+| 1 | **Lower `MEMORY_GUARD_SOFT_GB` to ~1.0** so the guard's allocation report fires across the climb | Yes — nothing else names what the working set is made of | Our code; the report had never fired because the limit sat above the plateau | **XS** | **Done** — set in production 2026-09-14, armed by the 09-19 deploy. Read it before shipping anything below. |
+| — | ~~Scheduled process recycle~~ | — | **Overturned by money-path review — do not ship.** See the recycle section. | — | Unsafe at 8 h and 4 h; ~$2.5/mo at the only defensible cadence |
 | 2 | Cache `w3.eth.contract()` objects instead of rebuilding them on every call | Yes — hot loop, every wallet × chain × 60 s | Our code | S | CPU cut on the hottest loop; RSS unknown, needs A/B |
 | 3 | Batch wallets into **one** Multicall3 `aggregate3` per chain per pass, not one call per wallet | Yes — cuts `eth_call` volume roughly N-wallets-fold | Our code + Multicall3 docs | M | Collapses RPC volume on the dominant loop; MONEY-PATH-adjacent |
 | 4 | jemalloc via `LD_PRELOAD` with explicit `MALLOC_CONF` | Yes — fragmentation tracks allocation churn, which is entirely in the loops | External case studies; **unverified for this workload** | S | Possibly $5–10/mo; A/B one replica first |
@@ -130,17 +131,77 @@ Boot cost does not cancel the saving: the ~30 s restart is billed at near-zero
 RSS while the process is gone, and the refresher's warmup burst is a few seconds
 of CPU a handful of times a day against a $3.4–$10/mo saving.
 
-### Status
+### Status after money-path review: DO NOT SHIP
 
-**Do not enable a recycle yet.** The `fee_sweeper` idempotency question above is
-open and is being audited independently. The recommended starting interval is
-**8 h**, not 4 h: it captures about two thirds of the attainable saving at half
-the restart frequency and half the exposure.
+An independent adversarial review overturned most of the risk audit above. The
+scheduled recycle is **not** safe to ship today at any cadence, and the risk
+audit's own blocking item turned out to be the wrong one.
 
-The worker has already been dying abruptly in production roughly every two days
-with no reported fund loss, which is evidence this class of interruption is
-survivable — but it is **not** proof any specific sweep is safe at an 8 h
-cadence, because none of those incidents is confirmed to have landed mid-sweep.
+**What the research pass got wrong:**
+
+- `fee_service.sweep_all_fees()` **moves no funds.** It is pure ledger
+  reconciliation — one `UPDATE ... SET collected=True WHERE ... collected=False`
+  per batch, each in its own transaction. Partial execution is harmless because
+  the next pass picks up exactly the remainder. It is naturally idempotent. The
+  alleged blocker does not exist.
+- The real fund movement is in the **caller**, which the research missed:
+  `fee_sweeper` derives the protocol's share from an **in-memory** list *after*
+  the ledger is already marked collected, then deposits to the treasury vault.
+  A kill in that gap loses the tranche permanently, because nothing can
+  re-derive it once the rows read `collected=True`.
+- "The nonce is persisted before broadcast" holds for **exactly one** of about
+  twenty executors. The rest persist nothing before broadcast.
+
+**The escalation that changes the verdict.** A swap that broadcast successfully
+but died before its transaction hash was written is not merely mislabelled. The
+row is terminal: both the transaction poller and the execution reconciler filter
+on a non-null transaction hash, so nothing ever revisits it. The reconciliation
+that flips it to `FAILED` runs only at startup, never on a timer — so the
+restart that *caused* the orphan leaves it alone (it is seconds old, under the
+10-minute cutoff) and the **next** restart flips it. A scheduled recycle
+therefore converts an intermittent bug into a reliable one.
+
+And `FAILED` is explicitly treated as **not** a duplicate by the swap
+idempotency guard, while the order service builds **hour-bucketed** retry keys.
+If a false `FAILED` flip and a retry land in the same hour bucket, the same swap
+**re-broadcasts with the user's funds.** That needs two restarts inside one hour
+— which is exactly what a recycle followed by a deploy produces.
+
+**The worst target, which nobody had looked at:** the CCTP relayer broadcasts,
+then waits on a receipt with a 180-second timeout, then writes status — twice
+per deposit. That is an exposed window of up to about six minutes per deposit
+with **no persisted intent**. A kill in the mint window replays a consumed Circle
+nonce; a kill in the credit window ends with the deposit marked `failed` even
+though the funds arrived, and the user is never notified. Its attempt counter is
+permanent, so repeated recycles erode it cumulatively toward failure.
+
+**Why "it already dies every two days" does not license this.** That is roughly
+15 kills a month; an 8-hour recycle is about 90 and a 4-hour one about 180. More
+decisively, every failure mode above is **silent by construction** — a false
+`FAILED` swap and a wrongly-failed deposit both look like a plausible "it
+failed" to the user. Absence of complaints is close to zero evidence of absence
+of harm.
+
+**Conditions that would make it safe,** in priority order: a drain flag with a
+bounded grace period so the *voluntary* exit defers while fund-moving work is in
+flight, while the OOM exit keeps firing immediately; a distinct non-retryable
+status for orphaned swaps so the double-spend path closes; persisted intent
+before every CCTP broadcast; reordering the fee sweeper so the vault tranche
+stays re-derivable; and confirming in the deployed environment that the CCTP
+relayers and the Aave vault path are actually disabled.
+
+**Cadence verdict:** no scheduled recycle today. With a drain flag, the
+orphan-status fix, and the env check confirmed, 24 hours would be defensible —
+which models to only about a 12 % RAM cut (~$2.5/mo). Most of the headline
+saving lives at the cadences that are unsafe. 4 hours is not worth 180 scheduled
+interruptions a month against fund-moving loops whose failures are invisible.
+
+**The better first move is the diagnostic.** The worker climbs from 0.20 GB to
+2.34 GB — that is a leak, and finding it captures the full saving with none of
+this risk. The guard already arms `tracemalloc` at its soft limit, but that limit
+is 3.0 GB and the worker never reaches it, so the report has **never once
+fired.** Lowering `MEMORY_GUARD_SOFT_GB` to about 1.0 arms the report across the
+whole climb.
 
 ## Area 1 — Allocator
 
@@ -175,9 +236,177 @@ if at all.
 | `__slots__` on hot DTOs | Saves roughly 40–50 bytes per instance versus a `__dict__`-backed one; only matters at tens of thousands of live instances | Mechanism verified. Whether this codebase has that instance count is **unverified** — check the guard's type histogram first. | S per class | Small unless a specific DTO shows up as a top type |
 | `PYTHONHASHSEED` | Security and determinism only | Confirmed irrelevant to memory and CPU | — | None |
 
-<!-- Areas 5-11, the cargo-cult section and Sources are appended as they are
-     verified. Sections are written incrementally so an interrupted research
-     run costs a section, not the document. -->
+## What five days of uptime actually showed (2026-09-19)
+
+The worker ran **five days without a restart**. Its own heartbeat over that
+window:
+
+```
+Memory guard: rss=1.75GB cgroup=2.00GB peak=1.93GB
+Memory guard: rss=1.87GB cgroup=2.11GB peak=1.93GB
+Memory guard: rss=1.76GB cgroup=2.01GB peak=1.93GB
+```
+
+RSS oscillated between 1.75 and 1.87 GB and **peaked at 1.93 GB across the
+entire five days.** No balloon, no crash, no unbounded growth.
+
+This reframes the problem, and it contradicts the working assumption that has
+driven this whole investigation:
+
+- **There is no runaway leak left to find.** The curve is a climb to a
+  steady-state working set that then holds. Calling it a leak was wrong.
+- **The 27.5 GB balloons have stopped.** The last one predates the guard. What
+  remains is an ordinary, stable ~1.9 GB resident footprint.
+- **The remaining cost is therefore a working-set problem, not a bug.** The
+  levers that can move it are the allocator, cache sizing and TTLs, and the
+  breadth of the RPC fan-out — not leak-hunting.
+
+The guard's soft limit was never reached because the worker never got near
+3.0 GB. `MEMORY_GUARD_SOFT_GB` is now set to 1.0 so the allocation report arms
+across the climb and names what makes up the working set. **That report is the
+next piece of evidence; nothing below it should be shipped before reading it.**
+
+Note also that the guard's INFO heartbeats are being recorded at `error`
+severity in Railway's log stream, which makes real errors harder to find.
+
+## Area 4 — aiohttp and httpx
+
+**Already correct in this repo.** Verified, and listed so nobody re-does it: a
+single shared `aiohttp.ClientSession` behind a lock, with a `TCPConnector` set
+to `limit=200`, `limit_per_host=50`, `ttl_dns_cache=600`,
+`keepalive_timeout=120`, `enable_cleanup_closed=True`, `force_close=False`.
+That is the textbook configuration for a long-running fan-out worker. web3.py's
+`HTTPProvider` is likewise instantiated once per chain and cached, not per call.
+
+| Open item | Mechanism | Verified? | Effort | Expected effect |
+|---|---|---|---|---|
+| Audit for call sites that bypass the shared `fetch_json` helper | A bare `await session.get(...)` without `async with` or an explicit release leaves the response body buffered — the classic aiohttp leak | The shared helper uses the context-manager form correctly. **Not verified that every direct call site elsewhere does.** | S | Unknown until audited; worth a grep given the working set is now the target |
+| `read_bufsize` tuning | Larger buffers cut syscalls on big responses, but cost RSS per in-flight connection | Documented aiohttp parameter, currently at its default | S | Likely negligible — these are small balance reads, not large log queries |
+| `max_field_size` / `max_line_size` | Caps header parsing buffers | Documented; defaults already generous | S | Negligible, no evidence of oversized headers here |
+
+Informational: web3.py issue #3789 keys sessions by thread identity even when an
+explicit session is passed, so a shared session is silently ignored outside the
+creating thread. **Not applicable** to this codebase's one-provider-per-chain
+pattern, but it would bite if that pattern ever changed.
+
+## Area 5 — web3.py
+
+| Item | Mechanism | Verified? | Effort | Expected effect |
+|---|---|---|---|---|
+| **Build the ABI encoders once instead of per call** | `w3.eth.contract()` parses the ABI and builds the function namespace and codec every time. It was being paid three times per multicall, plus a keccak checksum per token. | Our code | S | **Shipped** — see the multicall change; output verified byte-identical |
+| `Web3` instance reuse | web3.py recommends one provider per URL per process so TCP connections are recycled | Already done | Done | — |
+| ABI and codec caches | `eth_abi`'s registry caches by type string internally and is not something this codebase steers; the controllable cost was repeated `.contract()` calls | Mechanism only | — | Addressed by the row above |
+| Version-specific leaks | No report found for the pinned version | **Unverified** — needs a changelog check against the exact pin | S | Unknown; a follow-up, not a finding |
+
+## Area 6 — SQLAlchemy
+
+Current configuration: `pool_pre_ping=True`, `pool_size=15`, `max_overflow=25`,
+`pool_recycle=3600`, dispatched through a 24-thread executor.
+
+| Item | Mechanism | Verified? | Effort | Expected effect |
+|---|---|---|---|---|
+| Up to 40 connections provisioned, but only 24 executor threads can hold one concurrently | Each pooled connection carries a small resident cost, so up to 16 are headroom that is rarely exercised | **Not verified as wasteful.** Plausible over-provisioning, not a confirmed one. Under-provisioning causes worse problems, so measure pool status under real load first. | S to measure | Unknown, likely small — do not cut blind |
+| `expire_on_commit` | Defaults to `True`, which prevents identity-map objects accumulating stale state across a long-lived session | **Not verified** whether anything overrides it to `False` | S to check | No action if default; a real growth risk if overridden anywhere |
+| Session leaks from executor threads | A session opened in an executor-dispatched function and not closed in a `finally` leaks a pooled connection and its identity map per call | **Not audited.** The dispatcher wraps an arbitrary callable, so leak-safety rests entirely on each caller. | M | This is exactly the shape that produces a climbing-then-plateauing working set. Check the guard's type histogram for session and connection types when the report arms. |
+| `yield_per` streaming | Avoids materializing a large result set and its identity-map entries | Documented, but **no query here looks large enough to need it** — the loops query small filtered sets | S if a hot spot appears | Not a blind recommendation |
+
+## Area 7 — asyncio
+
+| Item | Mechanism | Verified? | Effort | Expected effect |
+|---|---|---|---|---|
+| Extend the balance refresher's supervisor pattern to the other loops | Its supervisor never awaits the pass directly — that is what caused three past incidents — and instead cancels with a grace period and tracks abandoned passes so they are never silent | Our code, pattern already proven here | M | Prevents the next incident class. Whether the other loops use `wait_for` internally was **not individually audited**; that audit is the real next step. |
+| Bare `create_task` with no retained reference | CPython does not guarantee a pending task survives if nothing holds a strong reference — it can be collected mid-execution | Documented CPython behavior | M to audit | **Not verified across the services here.** A grep for `create_task(` without an assignment would find candidates. |
+| Unbounded `asyncio.Queue` | A queue between a fast producer and slow consumer accumulates under load | Standard pattern; **no unbounded queue confirmed here** | S to audit | Unknown until audited |
+| `loop.slow_callback_duration = 0.1` | Logs any callback blocking the loop over 100 ms, naming the coroutine. Do **not** use the asyncio debug env var instead — it changes scheduling. | Verified stdlib feature | S | Diagnostic, not a direct cut, but cheap |
+| Timeout-cancelled tasks holding response buffers | A cancelled inner task does not always release an in-flight response promptly if it handles cancellation lazily | Documented interaction. The refresher fix was this exact bug class, found and fixed once here already — reasonable evidence it can recur. | M | Same audit as row 1 |
+
+## Area 8 — Docker and runtime
+
+**Already well built**, confirmed by reading the Dockerfile. Capped at the
+0.28 GB floor regardless, per the isolating datum.
+
+- Multi-stage: the compiler toolchain stays in the builder; the runtime stage
+  carries only the Postgres client library and curl.
+- `PIP_NO_CACHE_DIR` and `PYTHONDONTWRITEBYTECODE` both set.
+- Base is the slim Debian image, not the full one.
+- A single uvicorn process with no multi-worker flag, which is correct for a
+  process whose caches and task supervision are not safe to duplicate.
+- uvloop installed at import before any loop is created, so it is already the
+  fast path.
+
+| Open item | Verdict |
+|---|---|
+| `--no-access-log` | Negligible here — the worker takes healthchecks only, no user traffic |
+| Alpine base | **Do not.** musl's allocator handles fragmentation worse than glibc, and several pinned native dependencies ship no musl wheels, forcing slow source builds. |
+| Removing `--reload` | Already absent from the production command |
+
+## Area 9 — Railway levers
+
+Verified directly from the service configuration rather than from docs:
+
+- **Build watch patterns are already set** on the worker, scoped to the Python
+  and config paths. This is the lever that stops unrelated pushes triggering a
+  rebuild, and it is already doing its job.
+- **One replica, single region.** No replica sprawl to trim.
+- **IPv6 egress disabled.**
+
+| Lever | Status |
+|---|---|
+| Account usage limits (soft email, hard stop) | Documented Railway feature. **Still not set** — a dashboard action, and the cheapest possible insurance against a runaway invoice. |
+| Limits cap the worst case but do not lower the bill | Railway says so explicitly. Set them for safety, not savings. |
+| App sleeping | **Does not apply.** Sleep triggers on outbound inactivity; a polling worker never goes quiet, and with no inbound HTTP nothing would wake it. |
+| Private networking | Avoids egress charges between services. Worth confirming the worker reaches Postgres and Redis over the internal hostnames rather than public ones. |
+| Region choice | Not a price lever — no regional compute price differences are documented. |
+| Cron services | Minimum interval is 5 minutes, too coarse for a 60-second refresh, and a small always-on worker still bills. Not a win. |
+| A second smaller service | Not cheaper. Two services both bill their own baseline. |
+
+## Area 10 — Free profiling
+
+All free and open source. The point of this section is that the guard's
+soft-limit branch is the natural hook, and it now actually fires.
+
+| Tool | What it gives | Caveat |
+|---|---|---|
+| `tracemalloc` (stdlib) | Allocation sites with call frames | Already wired into the guard. Roughly doubles allocation cost while armed, so it belongs behind a threshold, not on always. |
+| `py-spy dump` | A stack sample of every thread from **outside** the process, at near-zero overhead — the fastest way to catch a synchronous call starving the loop | Needs `ptrace`. **Whether Railway's container permits it is unverified** — test before relying on it. |
+| `memray attach` | Real allocation sites with under 5 % overhead | Same ptrace question |
+| `objgraph` / `pympler` | Reference chains showing what keeps an object alive | Expensive; use only once a suspect type is known |
+| `/proc/self/smaps_rollup` | The cheapest possible RSS and PSS read | Already the mechanism behind the guard's sampling |
+| `gc` type histogram | Which container types dominate | Already in the guard's report, but it walks every object, so it must stay behind a threshold |
+
+## Area 11 — Free RPC and data levers
+
+| Lever | Mechanism | Status |
+|---|---|---|
+| **Multicall3 `aggregate3`** | One `eth_call` per chain instead of one per token | **Already implemented.** Deployed at the same address on 100+ chains, with per-call failure allowed so one bad token cannot fail the batch. |
+| **Batch multiple wallets into one aggregate3** | Currently one batched call *per wallet* per chain; the calls for many wallets could ride in a single aggregate3 | **Not done.** The largest remaining free RPC win, and it scales with wallet count. MONEY-PATH-adjacent — balances feed swap and withdrawal decisions. |
+| JSON-RPC batch requests | Several distinct methods in one HTTP round trip | Complementary to multicall, and useful for the non-EVM chains that have no multicall equivalent |
+| Blockscout | Free explorer API, no key, broad chain coverage | Already available in this environment as a tooling integration |
+| Free public endpoints | publicnode and similar | Already wired in as fallbacks, with per-endpoint cooldowns after the Starknet outage |
+| Cache with TTL plus refresh-on-read | Refresh only what someone is actually looking at | **Not done.** Now the highest-value structural change, since the target is a steady-state working set rather than a leak. |
+
+## Does not help — cargo cult
+
+Listed so nobody spends a cycle on them.
+
+- **`PYTHONMALLOC=malloc`** — likely *negative*. pymalloc's arena pooling exists
+  precisely for the many small dicts, tuples and lists a wide RPC fan-out
+  creates. Removing it would probably increase fragmentation.
+- **`-X no_debug_ranges`** — no evidence it affects RSS. It changes bytecode
+  debug metadata, not the runtime heap.
+- **`-OO` / `PYTHONOPTIMIZE=2`** — strips docstrings and asserts for probably
+  under 10 MB, while silently disabling every `assert`-based invariant check.
+  The risk outweighs the gain.
+- **Alpine base image** — worse allocator behavior and missing native wheels.
+- **`gc.freeze()` sold as a copy-on-write win** — that benefit is fork-specific.
+  This worker is a single process with no fork boundary. The smaller scan-cost
+  benefit is real; the headline one does not apply.
+- **`PYTHONHASHSEED`** — irrelevant to memory and CPU.
+- **Region shopping** — no documented regional compute price differences.
+- **Replica or resource limits as a saving** — Railway states plainly that they
+  cap the worst case and do not lower the bill.
+- **Treating the plateau as a leak** — five days of flat 1.9 GB says it is a
+  working set. Leak-hunting tools will keep coming back empty.
 
 ## Sources
 
