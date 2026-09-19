@@ -71,6 +71,21 @@ def _get_web3(web3_or_rpc_url) -> Web3:
     return web3_or_rpc_url
 
 
+# Building a contract object parses its ABI and constructs the function
+# namespace and codec — real CPU, and it was being paid three times per
+# multicall. This is the hottest loop on python-worker (every wallet × chain,
+# every refresh pass), so the encoders are built once at import instead.
+#
+# Calldata encoding is pure ABI work that never touches the network and never
+# varies by chain, so one provider-less Web3 serves every chain. Only the
+# aggregate3 *call* needs a chain-bound contract, and that one is built per
+# call because it must ride the caller's provider.
+_ENCODER_W3 = Web3()
+MULTICALL3_CHECKSUM = Web3.to_checksum_address(MULTICALL3_ADDRESS)
+_MULTICALL3_ENCODER = _ENCODER_W3.eth.contract(address=MULTICALL3_CHECKSUM, abi=MULTICALL3_ABI)
+_ERC20_ENCODER = _ENCODER_W3.eth.contract(abi=ERC20_BALANCEOF_ABI)
+
+
 def build_aggregate3_calls(
     w3: Web3, holder_address: str, token_addresses: list[str]
 ) -> tuple[list[tuple[str, bool, bytes]], list[str]]:
@@ -80,22 +95,16 @@ def build_aggregate3_calls(
     address corresponding to calls[i].
     """
     holder = Web3.to_checksum_address(holder_address)
-    multicall = w3.eth.contract(
-        address=Web3.to_checksum_address(MULTICALL3_ADDRESS), abi=MULTICALL3_ABI
-    )
-    erc20 = w3.eth.contract(abi=ERC20_BALANCEOF_ABI)
 
     calls: list[tuple[str, bool, bytes]] = []
     keys: list[str] = []
 
     # Native balance via Multicall3's getEthBalance helper
-    native_data = multicall.encode_abi("getEthBalance", args=[holder])
-    calls.append(
-        (Web3.to_checksum_address(MULTICALL3_ADDRESS), True, bytes.fromhex(native_data[2:]))
-    )
+    native_data = _MULTICALL3_ENCODER.encode_abi("getEthBalance", args=[holder])
+    calls.append((MULTICALL3_CHECKSUM, True, bytes.fromhex(native_data[2:])))
     keys.append(NATIVE_KEY)
 
-    balanceof_data = bytes.fromhex(erc20.encode_abi("balanceOf", args=[holder])[2:])
+    balanceof_data = bytes.fromhex(_ERC20_ENCODER.encode_abi("balanceOf", args=[holder])[2:])
     for token_addr in token_addresses:
         calls.append((Web3.to_checksum_address(token_addr), True, balanceof_data))
         keys.append(token_addr)
@@ -109,9 +118,8 @@ def _multicall_balances_sync(
     w3 = _get_web3(web3_or_rpc_url)
     calls, keys = build_aggregate3_calls(w3, holder_address, token_addresses)
 
-    multicall = w3.eth.contract(
-        address=Web3.to_checksum_address(MULTICALL3_ADDRESS), abi=MULTICALL3_ABI
-    )
+    # Bound to the caller's provider because this one actually makes the call.
+    multicall = w3.eth.contract(address=MULTICALL3_CHECKSUM, abi=MULTICALL3_ABI)
     results = multicall.functions.aggregate3(calls).call()
 
     balances: dict[str, int] = {}
