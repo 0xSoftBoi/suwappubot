@@ -93,9 +93,9 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plateforme de trading full-stack",
-      "h1": "La plateforme de trading full-stack pour les marchés cross-chain.",
-      "lead": "Envoyez une intention de trading. Suwappu classe chaque marché, affiche la route et n’exécute qu’après votre validation. Exécution, recherche et suivi de portefeuille cohabitent en un seul endroit.",
+      "eyebrow": "Infrastructure d'exécution",
+      "h1": "Chaque venue concourt avant votre approbation.",
+      "lead": "Envoyez une intention de transaction. Suwappu la price sur chaque venue capable de servir la route, vous montre celle qu'il a retenue et pourquoi, et ne déplace les fonds qu'après votre autorisation.",
       "ctaTerminal": "Lancer le Terminal",
       "ctaApi": "Lire la documentation",
       "ctaTelegram": "Trader dans Telegram",
@@ -212,6 +212,19 @@
       "boundaryTitle": "Périmètre d’assurance actuel",
       "boundaryBody": "Cette page ne revendique ni certification SOC 2 ni audit public complet du protocole par un tiers. La page Sécurité documente les contrôles et limites actuels."
     },
+    "limits": {
+      "eyebrow": "Ce que cela ne fait pas",
+      "title": "Les limites, énoncées ici plutôt qu'en note de bas de page.",
+      "lead": "Chaque affirmation ci-dessus a une limite. Voici celles qui comptent avant de router de l'argent réel.",
+      "venuesTitle": "Tous les venues ne concourent pas pour chaque cotation.",
+      "venuesBody": "La couverture varie selon la chaîne et la route. Suwappu évalue le sous-ensemble compatible et montre la route retenue.",
+      "bestExTitle": "Une cotation n'est pas une meilleure exécution.",
+      "bestExBody": "La route est choisie sur les données disponibles au moment de la cotation. Le coût réel se mesure après coup, et nous publions la méthode plutôt que de promettre le résultat.",
+      "agentsTitle": "Les outils d'agent préparent, ils ne dépensent pas.",
+      "agentsBody": "L'outil de swap MCP renvoie une transaction non signée. L'exécution gérée est un chemin distinct et explicite, avec sa propre autorisation.",
+      "postQuantumTitle": "Le travail post-quantique est construit, pas certifié.",
+      "postQuantumBody": "Le Lattice Transfer Protocol est construit en vue de la conformité FedRAMP High. Il ne détient pas cette autorisation aujourd'hui."
+    },
     "faq": {
       "eyebrow": "Avant de vous connecter",
       "title": "Les questions pratiques, avec des réponses claires.",
@@ -297,6 +310,10 @@
     "announce": {
       "tag": "Nouveau · WebMCP",
       "copy": "L'Agent Desk : donnez un mandat à l'agent de votre navigateur, pas vos clés. Sans connexion."
+    },
+    "thesis": {
+      "quote": "Une exécution que vous ne pouvez pas inspecter est une promesse, pas un prix.",
+      "attribution": "Suwappu"
     }
   },
   "cta": {

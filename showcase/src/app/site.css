@@ -1451,3 +1451,92 @@ main > section.home-section:nth-of-type(even)::before {
 .home-announce__arrow {
   color: #f4b266;
 }
+
+/* ── Thesis + limits ──────────────────────────────────────────────
+   The thesis is the one line a skimmer should leave with, rendered once
+   under the hero. The limits section exists because a claim a reader
+   cannot check is worth less than a smaller claim they can: it states
+   the constraints in the body, at the same size as the claims above it,
+   instead of leaving them in the FAQ where they read as disclaimers. */
+.sw .home-thesis {
+  /* Every sibling inside the hero stage lifts itself above .home-ocean__grain;
+     a static element here renders underneath the grain and reads washed out. */
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  max-width: var(--shell, 1200px);
+  margin: clamp(2.5rem, 6vw, 4.5rem) auto;
+  padding: 0 clamp(1rem, 4vw, 2.5rem);
+}
+
+.sw .home-thesis p {
+  margin: 0;
+  max-width: 24ch;
+  font-family: var(--font-serif);
+  font-size: clamp(1.6rem, 4.2vw, 2.9rem);
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  /* The thesis lands over the ocean poster, and the poster is brightest right
+     where it sits. Near-white on a lit sky is unreadable, so the glyphs carry
+     their own scrim rather than the section darkening the photo behind them. */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.55),
+    0 2px 28px rgba(0, 0, 0, 0.45);
+  text-wrap: balance;
+}
+
+.sw .home-thesis cite {
+  display: block;
+  margin-top: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sw-accent, #F6A93C);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+
+.sw .home-limits {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 2.25rem;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.sw .home-limits article {
+  box-sizing: border-box;
+  padding: 1.5rem clamp(1.25rem, 3vw, 2.25rem);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.sw .home-limits h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+
+.sw .home-limits p {
+  margin: 0.6rem 0 0;
+  max-width: 62ch;
+  font-size: 0.83rem;
+  line-height: 1.62;
+  color: var(--fg-dim);
+}
+
+@media (max-width: 760px) {
+  .sw .home-limits {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sw .home-thesis p {
+    max-width: 100%;
+  }
+}

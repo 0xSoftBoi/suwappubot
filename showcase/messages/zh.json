@@ -93,9 +93,9 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "全栈交易平台",
-      "h1": "面向跨链市场的全栈交易平台。",
-      "lead": "发送交易意图。Suwappu 对每个市场排序，展示路由，只有在你确认后才执行。执行、研究和投资组合追踪都集中在一个平台。",
+      "eyebrow": "执行基础设施",
+      "h1": "在你批准之前，每个场所都在竞价。",
+      "lead": "发送一个交易意图。Suwappu 会在每个能够承载该路径的场所询价，展示它选中的那一条以及原因，并且只有在你授权之后才会动用资金。",
       "ctaTerminal": "打开终端",
       "ctaApi": "查看文档",
       "ctaTelegram": "在 Telegram 交易",
@@ -212,6 +212,19 @@
       "boundaryTitle": "当前保障边界",
       "boundaryBody": "本页面不声称已获得 SOC 2 认证或已完成公开的第三方协议审计。安全页面记录当前控制措施与限制。"
     },
+    "limits": {
+      "eyebrow": "本产品不做什么",
+      "title": "这些限制写在正文里，而不是脚注里。",
+      "lead": "以上每一项主张都有边界。在你路由真实资金之前，这些边界最重要。",
+      "venuesTitle": "并非每次询价都有全部场所参与。",
+      "venuesBody": "场所覆盖范围随链和路径而变。Suwappu 评估兼容的子集，并展示它选中的路径。",
+      "bestExTitle": "报价不等于最优执行。",
+      "bestExBody": "路径是依据询价时可得的证据选出的。实际成本在事后衡量，我们公开方法，而不是承诺结果。",
+      "agentsTitle": "代理工具只做准备，不动用资金。",
+      "agentsBody": "MCP 交换工具返回一笔未签名的交易。托管执行是一条独立且明确的路径，有自己的授权。",
+      "postQuantumTitle": "后量子部分已经建成，但尚未认证。",
+      "postQuantumBody": "Lattice Transfer Protocol 正朝 FedRAMP High 就绪方向建设，目前并不持有该授权。"
+    },
     "faq": {
       "eyebrow": "连接之前",
       "title": "直接回答实际问题。",
@@ -297,6 +310,10 @@
     "announce": {
       "tag": "新功能 · WebMCP",
       "copy": "Agent Desk：给浏览器里的代理一份授权书，而不是你的密钥。无需登录。"
+    },
+    "thesis": {
+      "quote": "无法检视的执行是一个承诺，而不是一个价格。",
+      "attribution": "Suwappu"
     }
   },
   "cta": {

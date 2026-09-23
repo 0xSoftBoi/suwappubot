@@ -93,9 +93,9 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Plataforma de trading full-stack",
-      "h1": "La plataforma de trading full-stack para mercados cross-chain.",
-      "lead": "Envía una intención de trading. Suwappu clasifica cada mercado, muestra la ruta y ejecuta solo cuando tú apruebas. Ejecución, investigación y seguimiento de portafolio conviven en un solo lugar.",
+      "eyebrow": "Infraestructura de ejecución",
+      "h1": "Cada venue compite antes de que apruebes.",
+      "lead": "Envía una intención de operación. Suwappu la cotiza en cada venue que puede servir la ruta, te muestra cuál eligió y por qué, y mueve el dinero solo después de que lo autorices.",
       "ctaTerminal": "Abrir Terminal",
       "ctaApi": "Leer la documentación",
       "ctaTelegram": "Operar en Telegram",
@@ -212,6 +212,19 @@
       "boundaryTitle": "Límite de garantías actual",
       "boundaryBody": "Esta página no afirma certificación SOC 2 ni una auditoría pública completa del protocolo por terceros. La página de seguridad documenta los controles y límites actuales."
     },
+    "limits": {
+      "eyebrow": "Lo que esto no hace",
+      "title": "Los límites, aquí y no en las notas al pie.",
+      "lead": "Cada afirmación anterior tiene un límite. Estos son los que importan antes de enrutar dinero real.",
+      "venuesTitle": "No todos los venues compiten en cada cotización.",
+      "venuesBody": "La cobertura varía según la cadena y la ruta. Suwappu evalúa el subconjunto compatible y muestra qué ruta seleccionó.",
+      "bestExTitle": "Una cotización no es mejor ejecución.",
+      "bestExBody": "La ruta se elige con la evidencia disponible al cotizar. El coste real se mide después, y publicamos el método en lugar de prometer el resultado.",
+      "agentsTitle": "Las herramientas de agente preparan, no gastan.",
+      "agentsBody": "La herramienta de swap por MCP devuelve una transacción sin firmar. La ejecución gestionada es una ruta aparte y explícita, con su propia autorización.",
+      "postQuantumTitle": "El trabajo post-cuántico está construido, no certificado.",
+      "postQuantumBody": "El Lattice Transfer Protocol se construye hacia la preparación FedRAMP High. Hoy no tiene esa autorización."
+    },
     "faq": {
       "eyebrow": "Antes de conectar",
       "title": "Las preguntas prácticas, respondidas con claridad.",
@@ -297,6 +310,10 @@
     "announce": {
       "tag": "Nuevo · WebMCP",
       "copy": "El Agent Desk: dale al agente de tu navegador un mandato, no tus claves. Sin registro."
+    },
+    "thesis": {
+      "quote": "Una ejecución que no puedes inspeccionar es una promesa, no un precio.",
+      "attribution": "Suwappu"
     }
   },
   "cta": {

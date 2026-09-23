@@ -93,9 +93,9 @@
   },
   "home": {
     "hero": {
-      "eyebrow": "Full-stack trading platform",
-      "h1": "The full-stack trading platform for cross-chain markets.",
-      "lead": "Send a trade intent. Suwappu ranks every venue, shows the route, and executes only when you approve. Execution, research, and portfolio tracking live in one venue.",
+      "eyebrow": "Execution infrastructure",
+      "h1": "Every venue competes before you approve.",
+      "lead": "Send a trade intent. Suwappu prices it across every venue that can serve the route, shows you the one it picked and why, and moves money only after you authorize it.",
       "ctaTerminal": "Launch Terminal",
       "ctaApi": "Read the docs",
       "ctaTelegram": "Trade in Telegram",
@@ -212,6 +212,19 @@
       "boundaryTitle": "Current assurance boundary",
       "boundaryBody": "This page does not claim SOC 2 certification or a completed public third-party protocol audit. The security page documents current controls and limitations."
     },
+    "limits": {
+      "eyebrow": "What this does not do",
+      "title": "The limits, stated here rather than in the footnotes.",
+      "lead": "Every claim above has an edge. These are the ones that matter before you route real money.",
+      "venuesTitle": "Not every venue competes for every quote.",
+      "venuesBody": "Venue support varies by chain and by route. Suwappu evaluates the compatible subset and shows which route it selected.",
+      "bestExTitle": "A quote is not best execution.",
+      "bestExBody": "The route is selected on the evidence available at quote time. Realized cost is measured after the fact, and we publish the method rather than claiming the outcome.",
+      "agentsTitle": "Agent tools prepare, they do not spend.",
+      "agentsBody": "The MCP swap tool returns an unsigned transaction. Managed execution is a separate, explicit path with its own authorization.",
+      "postQuantumTitle": "Post-quantum work is built, not certified.",
+      "postQuantumBody": "The Lattice Transfer Protocol is built toward FedRAMP High readiness. It does not hold that authorization today."
+    },
     "faq": {
       "eyebrow": "Before you connect",
       "title": "The practical questions, answered plainly.",
@@ -297,6 +310,10 @@
     "announce": {
       "tag": "New · WebMCP",
       "copy": "The Agent Desk: give the agent in your browser a mandate, not your keys. No login."
+    },
+    "thesis": {
+      "quote": "An execution you cannot inspect is a promise, not a price.",
+      "attribution": "Suwappu"
     }
   },
   "cta": {

@@ -129,6 +129,18 @@ export default async function Home() {
     { title: h('security.policiesTitle'), body: h('security.policiesBody') },
   ];
 
+  // Each limit restates, in the body, a constraint the FAQ also answers. The
+  // source for every one is on the site or in the docs already: venue coverage
+  // and prepare-vs-execute from the FAQ and docs/README.md "Execution
+  // authority", FedRAMP from the government section, best execution from the
+  // routing research note.
+  const limits = [
+    { title: h('limits.venuesTitle'), body: h('limits.venuesBody') },
+    { title: h('limits.bestExTitle'), body: h('limits.bestExBody') },
+    { title: h('limits.agentsTitle'), body: h('limits.agentsBody') },
+    { title: h('limits.postQuantumTitle'), body: h('limits.postQuantumBody') },
+  ];
+
   const faq = [
     {
       q: h('faq.coverageQuestion'),
@@ -196,6 +208,13 @@ export default async function Home() {
             </div>
 
           </section>
+
+          {/* The one line a skimmer should leave with. Rendered once, full
+              width, directly under the hero it summarises. */}
+          <aside className="home-thesis">
+            <p>{h('thesis.quote')}</p>
+            <cite>{h('thesis.attribution')}</cite>
+          </aside>
 
             {/* The hero's visual is the real trading desk, which is what every
                 comparable product leads with. It replaces the live-quote
@@ -417,6 +436,27 @@ export default async function Home() {
                     <p>{h('security.boundaryBody')}</p>
                   </aside>
                 </div>
+              </div>
+            </Reveal>
+          </section>
+
+          {/* Limits sit in the body, at the same size as the claims they
+              qualify. The FAQ still answers them, but a reader who never opens
+              an accordion should still meet them. */}
+          <section id="limits" className="home-section" aria-labelledby="limits-title">
+            <Reveal>
+              <div className="home-section__head">
+                <p className="home-eyebrow">{h('limits.eyebrow')}</p>
+                <h2 id="limits-title">{h('limits.title')}</h2>
+                <p className="home-section__head-lead">{h('limits.lead')}</p>
+              </div>
+              <div className="home-limits">
+                {limits.map((item) => (
+                  <article key={item.title}>
+                    <h3>{item.title}</h3>
+                    <p>{item.body}</p>
+                  </article>
+                ))}
               </div>
             </Reveal>
           </section>
