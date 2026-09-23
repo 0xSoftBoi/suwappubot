@@ -31,6 +31,9 @@ export type { TransactionProgressProps, TransactionStatus } from './TransactionP
 export { ErrorMessage, parseErrorCode, useErrorHandler } from './ErrorMessage'
 export type { ErrorMessageProps, ErrorCode, ErrorAction } from './ErrorMessage'
 
+export { RegionRestrictedNotice } from './RegionRestrictedNotice'
+export type { RegionRestrictedNoticeProps } from './RegionRestrictedNotice'
+
 export {
   AnimatedButton,
   Confetti,
