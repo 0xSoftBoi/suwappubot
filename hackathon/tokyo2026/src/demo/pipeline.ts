@@ -33,6 +33,8 @@ export interface PipelineInput {
 	intent: TradeIntent
 	/** x402 payTo / trade counterparty */
 	payTo: string
+	/** Agent wallet that will initiate the swap — the W3A simulation `from`. */
+	agentAddress: string
 	chain: string
 	agentName: string
 	valueUsd: number
@@ -171,7 +173,10 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 	)
 
 	// --- Gate 5: Intercepta pre-execute screen ---------------------------------
-	const txScan = await p.screen.screenTransaction({ from: input.payTo, to: UNISWAP_ROUTER, chain: input.chain })
+	// `from` is the agent wallet initiating the swap — NOT the x402 payee.
+	// Simulating as the wrong initiator would check balances/allowances
+	// against the wrong account.
+	const txScan = await p.screen.screenTransaction({ from: input.agentAddress, to: UNISWAP_ROUTER, chain: input.chain })
 	const preExec = scanResultToPolicySignal(txScan, 'transaction')
 	if (preExec.verdict === 'block') {
 		steps.push(step('intercepta', 'block', preExec.reason))

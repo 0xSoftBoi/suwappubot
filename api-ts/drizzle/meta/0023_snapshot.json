@@ -1,0 +1,177 @@
+{
+  "id": "c2f116c4-e763-4961-8620-7d08e7624eeb",
+  "prevId": "0c7a650b-b96e-49d3-8448-673621e3aebd",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.world_id_nullifiers": {
+      "name": "world_id_nullifiers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nullifier": {
+          "name": "nullifier",
+          "type": "numeric(78, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "consumed_at": {
+          "name": "consumed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "world_id_nullifiers_nullifier_action_unique": {
+          "name": "world_id_nullifiers_nullifier_action_unique",
+          "columns": [
+            {
+              "expression": "nullifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "action",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.autopilot_action": {
+      "name": "autopilot_action",
+      "schema": "public",
+      "values": [
+        "buy",
+        "sell",
+        "hold"
+      ]
+    },
+    "public.autopilot_cycle_status": {
+      "name": "autopilot_cycle_status",
+      "schema": "public",
+      "values": [
+        "running",
+        "completed",
+        "failed"
+      ]
+    },
+    "public.autopilot_decision_status": {
+      "name": "autopilot_decision_status",
+      "schema": "public",
+      "values": [
+        "sealed",
+        "rejected",
+        "executing",
+        "filled",
+        "failed",
+        "revealed"
+      ]
+    },
+    "public.autopilot_mode": {
+      "name": "autopilot_mode",
+      "schema": "public",
+      "values": [
+        "paper",
+        "live"
+      ]
+    },
+    "public.autopilot_status": {
+      "name": "autopilot_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "paused",
+        "stopped"
+      ]
+    },
+    "public.dca_interval": {
+      "name": "dca_interval",
+      "schema": "public",
+      "values": [
+        "hourly",
+        "daily",
+        "weekly"
+      ]
+    },
+    "public.dca_order_status": {
+      "name": "dca_order_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "paused",
+        "completed",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "public.limit_order_status": {
+      "name": "limit_order_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "filled",
+        "cancelled",
+        "expired",
+        "failed"
+      ]
+    },
+    "public.web_checkout_status": {
+      "name": "web_checkout_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "active",
+        "linked",
+        "canceled"
+      ]
+    },
+    "public.web_checkout_tier": {
+      "name": "web_checkout_tier",
+      "schema": "public",
+      "values": [
+        "pro",
+        "premium",
+        "enterprise"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

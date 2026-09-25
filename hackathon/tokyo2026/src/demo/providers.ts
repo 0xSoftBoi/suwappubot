@@ -22,7 +22,7 @@ export interface WorldIdProvider {
 
 export interface ScreenProvider {
 	screenAddress(address: string, chain: string): Promise<ScanResult>
-	screenTransaction(tx: { from?: string; to: string; data?: string; value?: string; chain: string }): Promise<ScanResult>
+	screenTransaction(tx: { from: string; to: string; data?: string; value?: string; chain: string }): Promise<ScanResult>
 }
 
 export interface QuoteProvider {
@@ -79,6 +79,8 @@ export class MockWorldIdProvider implements WorldIdProvider {
 export const ADDR_CLEAN = '0x1111111111111111111111111111111111111111'
 export const ADDR_FLAGGED = '0x2222222222222222222222222222222222222222'
 export const ADDR_SUSPICIOUS = '0x3333333333333333333333333333333333333333'
+/** Demo agent wallet — the W3A simulation `from` for the swap tx. */
+export const ADDR_AGENT = '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 export class MockScreenProvider implements ScreenProvider {
 	async screenAddress(address: string, _chain: string): Promise<ScanResult> {
@@ -107,7 +109,7 @@ export class MockScreenProvider implements ScreenProvider {
 		return { target: address, verdict: 'safe', riskScore: 4, findings: [] }
 	}
 
-	async screenTransaction(tx: { to: string; chain: string }): Promise<ScanResult> {
+	async screenTransaction(tx: { from: string; to: string; chain: string }): Promise<ScanResult> {
 		// The prepared tx goes to the Uniswap router — screen the destination.
 		return this.screenAddress(tx.to, tx.chain)
 	}

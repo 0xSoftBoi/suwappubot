@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { hashIntent, MemoryNullifierStore } from '../src/world-id/guardianGate.ts'
+import { hashIntent, MemoryNullifierStore, normalizeNullifier } from '../src/world-id/guardianGate.ts'
 
 const intent = {
 	agentId: 'demo-agent',
@@ -30,19 +30,48 @@ describe('hashIntent', () => {
 })
 
 describe('MemoryNullifierStore', () => {
-	test('first consume succeeds, replay rejected', () => {
+	test('first consume succeeds, replay rejected', async () => {
 		const store = new MemoryNullifierStore()
-		expect(store.consume('suwappu-trade-approval', '12345')).toBe(true)
-		expect(store.consume('suwappu-trade-approval', '12345')).toBe(false)
+		await expect(store.consume('suwappu-trade-approval', '0x12345')).resolves.toBe(true)
+		await expect(store.consume('suwappu-trade-approval', '0x12345')).resolves.toBe(false)
 	})
-	test('different actions are independent', () => {
+	test('different actions are independent', async () => {
 		const store = new MemoryNullifierStore()
-		expect(store.consume('action-a', '12345')).toBe(true)
-		expect(store.consume('action-b', '12345')).toBe(true)
+		await expect(store.consume('action-a', '0x12345')).resolves.toBe(true)
+		await expect(store.consume('action-b', '0x12345')).resolves.toBe(true)
 	})
-	test('nullifier matching is case-insensitive', () => {
+	test('nullifier matching is case-insensitive', async () => {
 		const store = new MemoryNullifierStore()
-		expect(store.consume('a', '0xABC')).toBe(true)
-		expect(store.consume('a', '0xabc')).toBe(false)
+		await expect(store.consume('a', '0xABC')).resolves.toBe(true)
+		await expect(store.consume('a', '0xabc')).resolves.toBe(false)
+	})
+	test('leading zeros and casing collapse to the same nullifier', async () => {
+		const store = new MemoryNullifierStore()
+		await expect(store.consume('a', '0x00ABC')).resolves.toBe(true)
+		await expect(store.consume('a', '0xabc')).resolves.toBe(false)
+	})
+	test('malformed nullifier throws (fail closed)', async () => {
+		const store = new MemoryNullifierStore()
+		await expect(store.consume('a', 'not-hex')).rejects.toThrow('malformed nullifier')
+		await expect(store.consume('a', '0x' + 'ff'.repeat(33))).rejects.toThrow('exceeds 256 bits')
+	})
+})
+
+describe('normalizeNullifier', () => {
+	test('hex → canonical decimal', () => {
+		expect(normalizeNullifier('0xABC')).toBe('2748')
+		expect(normalizeNullifier('0xabc')).toBe('2748')
+		expect(normalizeNullifier('0x00abc')).toBe('2748')
+		expect(normalizeNullifier('0x0')).toBe('0')
+	})
+	test('full 256-bit range fits (NUMERIC(78,0) holds 2^256-1)', () => {
+		const max = '0x' + 'f'.repeat(64)
+		expect(normalizeNullifier(max)).toBe((2n ** 256n - 1n).toString(10))
+	})
+	test('rejects malformed input', () => {
+		expect(() => normalizeNullifier('')).toThrow('malformed nullifier')
+		expect(() => normalizeNullifier('12345')).toThrow('malformed nullifier')
+		expect(() => normalizeNullifier('0xZZZ')).toThrow('malformed nullifier')
+		expect(() => normalizeNullifier('0x' + 'f'.repeat(65))).toThrow('exceeds 256 bits')
 	})
 })

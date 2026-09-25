@@ -264,7 +264,8 @@ function txDetectorRisk(code: string): RiskLevel {
 }
 
 export interface UnsignedTx {
-	from?: string
+	/** Transaction initiator — required by the W3A simulation endpoint. */
+	from: string
 	to: string
 	data?: string
 	value?: string
@@ -275,6 +276,11 @@ export interface UnsignedTx {
 
 /** Screen the exact unsigned transaction (pre-sign). Uses short simulation mode. */
 export async function scanTransaction(cfg: InterceptaConfig, tx: UnsignedTx): Promise<ScanResult> {
+	if (!tx.from) {
+		// Fail closed: a simulation without the initiator is meaningless —
+		// balance/allowance checks would run against the wrong account.
+		throw new Error('scanTransaction: tx.from (transaction initiator) is required')
+	}
 	const chainId = resolveChainId(tx.chain)
 	const payload = (await request(cfg, 'POST', `/api/public/v1/extension/simulation/transaction?chainId=${chainId}`, {
 		from: tx.from,

@@ -18,6 +18,7 @@ import { runTradePipeline, type PipelineInput } from './pipeline.ts'
 import { buildProviders } from './live.ts'
 import {
 	mockProviders,
+	ADDR_AGENT,
 	ADDR_CLEAN,
 	ADDR_FLAGGED,
 	ADDR_SUSPICIOUS,
@@ -50,6 +51,7 @@ function baseInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
 	return {
 		intent: baseIntent(),
 		payTo: ADDR_CLEAN,
+		agentAddress: ADDR_AGENT,
 		chain: 'base',
 		agentName: 'agent.demo.suwappu.eth',
 		valueUsd: 450, // under the $500 mock onchain cap

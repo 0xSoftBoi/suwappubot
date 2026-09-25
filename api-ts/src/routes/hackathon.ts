@@ -13,6 +13,9 @@
  *
  * The verify step blocks up to the IDKit poll timeout (5 min) — the demo
  * client should call it after the human scans the QR.
+ *
+ * OPENAPI TREATMENT: these routes are intentionally excluded from the public
+ * OpenAPI spec (see app.ts mount comment). Demo surface, not public API.
  */
 
 import { randomUUID } from 'node:crypto'

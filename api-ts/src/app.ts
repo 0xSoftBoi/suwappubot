@@ -164,6 +164,12 @@ export function createApp(config: AppConfig) {
 	// unmounted by default, so the surface doesn't exist unless explicitly
 	// enabled. MONEY-PATH adjacent (demo only): no production approval or
 	// execution flow reads these endpoints.
+	// OPENAPI TREATMENT: /hackathon/* is intentionally EXCLUDED from the
+	// public OpenAPI spec (openapi-agent.json, served at /v1/agent/openapi).
+	// The spec documents the versioned /v1/agent public surface; hackathon
+	// routes are unversioned demo endpoints and must never be presented as
+	// public API. The spec generator only derives from src/routes/validators.ts,
+	// so exclusion holds by construction — do not add hackathon schemas there.
 	if (config.hackathonTrustLayer) {
 		app.route('/hackathon', hackathonRoutes)
 	}

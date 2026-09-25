@@ -148,7 +148,7 @@ describe('scanTransaction (simulation)', () => {
 	})
 	test('no detectors → safe', async () => {
 		nextJson = { from: '0xagent', to: '0xrouter', detectors: [], transactionType: 'other' }
-		const r = await scanTransaction(cfg, { to: '0xrouter', chain: '1' })
+		const r = await scanTransaction(cfg, { from: '0xagent', to: '0xrouter', chain: '1' })
 		expect(r.verdict).toBe('safe')
 		expect(r.riskScore).toBe(5)
 	})
@@ -156,8 +156,14 @@ describe('scanTransaction (simulation)', () => {
 		nextJson = {
 			detectors: [{ code: 'SUSPICIOUS_APPROVE', description: 'Suspicious approval pattern' }],
 		}
-		const r = await scanTransaction(cfg, { to: '0xrouter', chain: '1' })
+		const r = await scanTransaction(cfg, { from: '0xagent', to: '0xrouter', chain: '1' })
 		expect(r.verdict).toBe('suspicious')
 		expect(r.riskScore).toBe(60)
+	})
+	test('missing from → throws (fail closed)', async () => {
+		await expect(
+			// @ts-expect-error — intentionally omitting required `from`
+			scanTransaction(cfg, { to: '0xrouter', chain: '1' }),
+		).rejects.toThrow('tx.from')
 	})
 })

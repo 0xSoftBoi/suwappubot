@@ -42,15 +42,52 @@ export function hashIntent(intent: Omit<TradeIntent, 'summary'>): string {
 }
 
 /**
- * Minimal nullifier store. Production implementation: a table with
- * (action, nullifier NUMERIC(78,0)) UNIQUE. This in-memory version is for the
- * demo/tests only — it enforces the same uniqueness contract.
+ * Canonicalize a World ID nullifier for storage.
+ *
+ * The verifier returns nullifiers as 0x-prefixed hex strings representing
+ * 256-bit integers (uint256 onchain — WorldIDIdentityManager.verifyProof
+ * takes `uint256 nullifierHash`). We store NUMERIC(78,0) decimals, per the
+ * official Worldcoin integration guide: text storage invites parsing/casing
+ * bugs that become replay vulnerabilities. Throws on malformed input — the
+ * caller must fail closed.
  */
-export class MemoryNullifierStore {
+export function normalizeNullifier(nullifier: string): string {
+	if (typeof nullifier !== 'string' || !/^0x[0-9a-fA-F]+$/.test(nullifier)) {
+		throw new Error('malformed nullifier: expected 0x-prefixed hex')
+	}
+	const hex = nullifier.slice(2)
+	if (hex.length > 64) {
+		throw new Error('malformed nullifier: exceeds 256 bits')
+	}
+	return BigInt(`0x${hex}`).toString(10)
+}
+
+/**
+ * Nullifier store contract. `consume` records (action, nullifier) and returns
+ * true on first use, false when already consumed. `nullifier` is the raw hex
+ * string from the verifier; stores canonicalize via `normalizeNullifier`
+ * before persisting. Malformed nullifiers throw (fail closed upstream) —
+ * false means strictly "already consumed". The check-and-insert MUST be
+ * atomic — concurrent consumes of the same proof must let exactly one win.
+ * `MemoryNullifierStore` is single-process/demo-only; production uses a
+ * durable store with a UNIQUE (nullifier, action) constraint over
+ * NUMERIC(78,0) (see api-ts/src/hackathon/worldIdNullifiers.ts).
+ */
+export interface NullifierStore {
+	consume(action: string, nullifier: string): Promise<boolean>
+}
+
+/**
+ * Minimal nullifier store. In-memory version for the demo/tests only — it
+ * enforces the same uniqueness contract within one process. Async to match
+ * the NullifierStore interface; the Set operations are still atomic within
+ * a single Node/Bun process (no awaits between check and insert).
+ */
+export class MemoryNullifierStore implements NullifierStore {
 	private seen = new Set<string>()
 	/** Returns false when this (action, nullifier) was already consumed. */
-	consume(action: string, nullifier: string): boolean {
-		const key = `${action}:${nullifier.toLowerCase()}`
+	async consume(action: string, nullifier: string): Promise<boolean> {
+		const key = `${action}:${normalizeNullifier(nullifier)}`
 		if (this.seen.has(key)) return false
 		this.seen.add(key)
 		return true
@@ -124,7 +161,7 @@ export interface VerifyResult {
 export async function awaitAndVerifyTradeApproval(
 	cfg: WorldIdConfig,
 	pending: PendingVerification,
-	store: MemoryNullifierStore,
+	store: NullifierStore,
 ): Promise<VerifyResult> {
 	let proof: unknown
 	try {
@@ -145,7 +182,7 @@ export async function verifyTradeProof(
 	proof: unknown,
 	expectedSignal: string,
 	expectedAction: string,
-	store: MemoryNullifierStore,
+	store: NullifierStore,
 ): Promise<VerifyResult> {
 	let res: Response
 	try {
@@ -180,7 +217,15 @@ export async function verifyTradeProof(
 	if (!data.nullifier) {
 		return { ok: false, reason: 'verifier returned no nullifier' }
 	}
-	if (!store.consume(expectedAction, data.nullifier)) {
+	// Malformed nullifiers throw out of consume (fail closed); false is
+	// strictly "already consumed". Distinguish the two for the user.
+	let consumed: boolean
+	try {
+		consumed = await store.consume(expectedAction, data.nullifier)
+	} catch (e) {
+		return { ok: false, reason: `nullifier rejected: ${(e as Error).message}` }
+	}
+	if (!consumed) {
 		return { ok: false, reason: 'proof already used (replay rejected)' }
 	}
 	return { ok: true, nullifier: data.nullifier }
