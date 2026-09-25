@@ -13,6 +13,7 @@ import {
 import { DatabaseError, ValidationError } from '../errors'
 import { getTransactionReceipt } from '../config/chains'
 import { AGENT_FEE_FRACTION_EVM, DEFAULT_FEE_WALLET_EVM } from '../config/constants'
+import { EnvService } from '../config/EnvService'
 // HACKATHON (Tokyo 2026): Uniswap Trading API comparison quote for the route
 // race. Opt-in only (UNISWAP_COMPARISON_ENABLED, default off); see
 // src/hackathon/uniswapComparison.ts.
@@ -209,7 +210,9 @@ export interface SwapServiceInterface {
 		offset?: number,
 	) => Effect.Effect<SwapTransaction[], DatabaseError, DrizzleService>
 
-	readonly getQuote: (params: QuoteParams) => Effect.Effect<SwapQuote, ValidationError | Error>
+	readonly getQuote: (
+		params: QuoteParams,
+	) => Effect.Effect<SwapQuote, ValidationError | Error, EnvService>
 
 	readonly createSwapRecord: (
 		swap: NewSwapTransaction,
@@ -550,12 +553,13 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			// plus UNISWAP_API_KEY configured (checked inside
 			// fetchUniswapComparisonQuote). Can never win execution — Li.Fi
 			// stays the only executable provider.
+			const env = yield* EnvService
 			const uniswapComparisonActive =
-				uniswapComparisonEnabled() && fromChainId === toChainId
+				uniswapComparisonEnabled(env) && fromChainId === toChainId
 
 			const uniswapEffect: Effect.Effect<Option.Option<UniswapComparisonQuote>, never> =
 				uniswapComparisonActive
-					? fetchUniswapComparisonQuote({
+					? fetchUniswapComparisonQuote(env, {
 							fromChainId,
 							fromToken: params.fromToken,
 							toToken: params.toToken,

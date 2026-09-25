@@ -2,12 +2,30 @@
  * HACKATHON (Tokyo 2026) — trust-layer gate tests.
  *
  * Covers the merge discipline (only ever escalates, never downgrades) and the
- * fail-open behavior when providers are unconfigured. Network-touching paths
- * are stubbed with mock.module; the unconfigured paths make no network calls
- * at all.
+ * fail-open behavior when providers are unconfigured. Env config goes
+ * through the real EnvService schema (Schema.decodeUnknownSync), so the
+ * tests exercise the same defaults the production boot path uses.
+ * Network-touching paths are stubbed with mock.module; the unconfigured
+ * paths make no network calls at all.
  */
 import { describe, expect, mock, test } from 'bun:test'
+import { Schema } from '@effect/schema'
+import { EnvSchema, type Env } from '../config/EnvService'
+import { applyTrustLayerGates, screenX402Payer } from '../hackathon/gates'
+import {
+	ensv2Enabled,
+	interceptaEnabled,
+	trustLayerEnabled,
+	uniswapComparisonEnabled,
+} from '../hackathon/env'
 import type { PolicyDecisionResult, PolicyIntent } from '../services/PolicyService'
+
+/** Decode a minimal env patch through the real schema — same defaults as boot. */
+const envOf = (patch: Record<string, string | undefined> = {}): Env => {
+	const raw: Record<string, string> = {}
+	for (const [k, v] of Object.entries(patch)) if (v !== undefined) raw[k] = v
+	return Schema.decodeUnknownSync(EnvSchema)(raw)
+}
 
 const baseIntent = (over: Partial<PolicyIntent> = {}): PolicyIntent => ({
 	organizationId: 'org_1',
@@ -21,78 +39,61 @@ const baseIntent = (over: Partial<PolicyIntent> = {}): PolicyIntent => ({
 
 const allowResult: PolicyDecisionResult = { decision: 'allow' }
 
-function setEnv(patch: Record<string, string | undefined>) {
-	for (const [k, v] of Object.entries(patch)) {
-		if (v === undefined) delete process.env[k]
-		else process.env[k] = v
-	}
-}
-
 describe('trust layer flags', () => {
-	test('everything is off by default', async () => {
-		setEnv({
-			HACKATHON_TRUST_LAYER: undefined,
-			HACKATHON_INTERCEPTA: undefined,
-			UNISWAP_COMPARISON_ENABLED: undefined,
-		})
-		const env = await import('../hackathon/env')
-		expect(env.trustLayerEnabled()).toBe(false)
-		expect(env.interceptaEnabled()).toBe(false)
-		expect(env.uniswapComparisonEnabled()).toBe(false)
+	test('everything is off by default', () => {
+		const env = envOf()
+		expect(trustLayerEnabled(env)).toBe(false)
+		expect(interceptaEnabled(env)).toBe(false)
+		expect(uniswapComparisonEnabled(env)).toBe(false)
 	})
 
-	test('master flag enables per-sponsor gates; uniswap stays opt-in', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: 'true' })
-		const env = await import('../hackathon/env')
-		expect(env.trustLayerEnabled()).toBe(true)
-		expect(env.interceptaEnabled()).toBe(true)
-		expect(env.ensv2Enabled()).toBe(true)
+	test('master flag enables per-sponsor gates; uniswap stays opt-in', () => {
+		const env = envOf({ HACKATHON_TRUST_LAYER: 'true' })
+		expect(trustLayerEnabled(env)).toBe(true)
+		expect(interceptaEnabled(env)).toBe(true)
+		expect(ensv2Enabled(env)).toBe(true)
 		// Explicit opt-in, independent of the master flag.
-		expect(env.uniswapComparisonEnabled()).toBe(false)
-		setEnv({ HACKATHON_TRUST_LAYER: undefined })
+		expect(uniswapComparisonEnabled(env)).toBe(false)
+		expect(uniswapComparisonEnabled(envOf({ UNISWAP_COMPARISON_ENABLED: 'true' }))).toBe(true)
+	})
+
+	test('per-sponsor flags can be disabled independently', () => {
+		const env = envOf({ HACKATHON_TRUST_LAYER: 'true', HACKATHON_INTERCEPTA: 'false' })
+		expect(trustLayerEnabled(env)).toBe(true)
+		expect(interceptaEnabled(env)).toBe(false)
 	})
 })
 
 describe('applyTrustLayerGates', () => {
 	test('disabled: returns the base verdict untouched (single boolean check)', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: undefined })
-		const { applyTrustLayerGates } = await import('../hackathon/gates')
 		const out = await applyTrustLayerGates(
 			{ policyIntent: baseIntent(), agentIdentifier: 'agent_1', orgId: 'org_1' },
 			allowResult,
+			envOf(),
 		)
 		expect(out).toBe(allowResult)
 	})
 
 	test('enabled but unconfigured: fails open, no escalation, no network', async () => {
-		setEnv({
-			HACKATHON_TRUST_LAYER: 'true',
-			INTERCEPTA_API_KEY: undefined,
-			SEPOLIA_RPC_URL: undefined,
-		})
-		const { applyTrustLayerGates } = await import('../hackathon/gates')
 		const out = await applyTrustLayerGates(
 			{ policyIntent: baseIntent(), agentIdentifier: 'agent_1', orgId: 'org_1' },
 			allowResult,
+			envOf({ HACKATHON_TRUST_LAYER: 'true' }),
 		)
 		expect(out.decision).toBe('allow')
-		setEnv({ HACKATHON_TRUST_LAYER: undefined })
 	})
 
 	test('policy block is never downgraded by a clean trust layer', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: 'true', INTERCEPTA_API_KEY: undefined })
-		const { applyTrustLayerGates } = await import('../hackathon/gates')
 		const blocked: PolicyDecisionResult = { decision: 'block', reason: 'policy: kill switch' }
 		const out = await applyTrustLayerGates(
 			{ policyIntent: baseIntent(), agentIdentifier: 'agent_1', orgId: 'org_1' },
 			blocked,
+			envOf({ HACKATHON_TRUST_LAYER: 'true' }),
 		)
 		expect(out).toBe(blocked)
-		setEnv({ HACKATHON_TRUST_LAYER: undefined })
 	})
 
 	test('malicious counterparty escalates allow → block', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: 'true', INTERCEPTA_API_KEY: 'test-key' })
 		mock.module('../../../hackathon/tokyo2026/src/intercepta/client', () => ({
 			isInterceptaConfigured: () => true,
 			loadInterceptaConfig: () => ({ apiKey: 'test-key', baseUrl: 'https://x', timeoutMs: 1 }),
@@ -111,7 +112,6 @@ describe('applyTrustLayerGates', () => {
 				raw: {},
 			}),
 		}))
-		const { applyTrustLayerGates } = await import('../hackathon/gates')
 		const out = await applyTrustLayerGates(
 			{
 				policyIntent: baseIntent({ destinationAddress: '0xevil' }),
@@ -119,15 +119,14 @@ describe('applyTrustLayerGates', () => {
 				orgId: 'org_1',
 			},
 			allowResult,
+			envOf({ HACKATHON_TRUST_LAYER: 'true' }),
 		)
 		expect(out.decision).toBe('block')
 		expect(out.reason).toContain('Intercepta')
 		mock.restore()
-		setEnv({ HACKATHON_TRUST_LAYER: undefined, INTERCEPTA_API_KEY: undefined })
 	})
 
 	test('suspicious counterparty escalates allow → require_approval', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: 'true', INTERCEPTA_API_KEY: 'test-key' })
 		mock.module('../../../hackathon/tokyo2026/src/intercepta/client', () => ({
 			isInterceptaConfigured: () => true,
 			loadInterceptaConfig: () => ({ apiKey: 'test-key', baseUrl: 'https://x', timeoutMs: 1 }),
@@ -146,7 +145,6 @@ describe('applyTrustLayerGates', () => {
 				raw: {},
 			}),
 		}))
-		const { applyTrustLayerGates } = await import('../hackathon/gates')
 		const out = await applyTrustLayerGates(
 			{
 				policyIntent: baseIntent({ destinationAddress: '0xshady' }),
@@ -154,23 +152,20 @@ describe('applyTrustLayerGates', () => {
 				orgId: 'org_1',
 			},
 			allowResult,
+			envOf({ HACKATHON_TRUST_LAYER: 'true' }),
 		)
 		expect(out.decision).toBe('require_approval')
 		mock.restore()
-		setEnv({ HACKATHON_TRUST_LAYER: undefined, INTERCEPTA_API_KEY: undefined })
 	})
 })
 
 describe('screenX402Payer', () => {
 	test('returns null when disabled or sender missing', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: undefined })
-		const { screenX402Payer } = await import('../hackathon/gates')
-		expect(await screenX402Payer(undefined)).toBeNull()
-		expect(await screenX402Payer('0xabc')).toBeNull()
+		expect(await screenX402Payer(undefined, envOf())).toBeNull()
+		expect(await screenX402Payer('0xabc', envOf())).toBeNull()
 	})
 
 	test('returns null when enabled but unconfigured (fail-open)', async () => {
-		setEnv({ HACKATHON_TRUST_LAYER: 'true', INTERCEPTA_API_KEY: undefined })
 		// mock.module persists for the file after mock.restore() — re-register
 		// the unconfigured shape explicitly.
 		mock.module('../../../hackathon/tokyo2026/src/intercepta/client', () => ({
@@ -185,9 +180,7 @@ describe('screenX402Payer', () => {
 				throw new Error('not configured')
 			},
 		}))
-		const { screenX402Payer } = await import('../hackathon/gates')
-		expect(await screenX402Payer('0xabc')).toBeNull()
+		expect(await screenX402Payer('0xabc', envOf({ HACKATHON_TRUST_LAYER: 'true' }))).toBeNull()
 		mock.restore()
-		setEnv({ HACKATHON_TRUST_LAYER: undefined })
 	})
 })

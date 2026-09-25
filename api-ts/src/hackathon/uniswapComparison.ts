@@ -15,6 +15,7 @@ import { Effect } from 'effect'
 import { UniswapTradingProvider } from '../../../hackathon/tokyo2026/src/uniswap/routeAdapter'
 import { isTradingApiConfigured } from '../../../hackathon/tokyo2026/src/uniswap/tradingApi'
 import { uniswapComparisonEnabled } from './env'
+import type { Env } from '../config/EnvService'
 
 export interface UniswapComparisonQuote {
 	provider: 'uniswap'
@@ -29,15 +30,18 @@ export interface UniswapComparisonQuote {
  * as the KyberSwap race. Fails (→ None via Effect.option at the call site)
  * when disabled, unconfigured, or on any provider error.
  */
-export function fetchUniswapComparisonQuote(params: {
-	fromChainId: number
-	fromToken: string
-	toToken: string
-	fromAmount: string
-}): Effect.Effect<UniswapComparisonQuote, Error> {
+export function fetchUniswapComparisonQuote(
+	env: Env,
+	params: {
+		fromChainId: number
+		fromToken: string
+		toToken: string
+		fromAmount: string
+	},
+): Effect.Effect<UniswapComparisonQuote, Error> {
 	return Effect.tryPromise({
 		try: async () => {
-			if (!uniswapComparisonEnabled() || !isTradingApiConfigured()) {
+			if (!uniswapComparisonEnabled(env) || !isTradingApiConfigured()) {
 				throw new Error('uniswap comparison disabled or UNISWAP_API_KEY not configured')
 			}
 			const provider = new UniswapTradingProvider()

@@ -21,6 +21,7 @@ import { isInterceptaConfigured } from '../../../hackathon/tokyo2026/src/interce
 import { isTradingApiConfigured } from '../../../hackathon/tokyo2026/src/uniswap/tradingApi'
 import { logger } from '../lib/logger'
 import { interceptaEnabled, trustLayerEnabled } from '../hackathon/env'
+import { resolveHackathonEnv } from '../hackathon/gates'
 import {
 	awaitWorldIdGate,
 	startWorldIdGate,
@@ -30,20 +31,22 @@ import {
 
 export const hackathonRoutes = new Hono()
 
-hackathonRoutes.get('/status', (c) =>
-	c.json({
-		trustLayer: trustLayerEnabled(),
+hackathonRoutes.get('/status', async (c) => {
+	const env = await resolveHackathonEnv()
+	return c.json({
+		trustLayer: env ? trustLayerEnabled(env) : false,
 		providers: {
-			worldId: worldIdReady(),
-			intercepta: interceptaEnabled() && isInterceptaConfigured(),
+			worldId: env ? worldIdReady(env) : false,
+			intercepta: (env ? interceptaEnabled(env) : false) && isInterceptaConfigured(),
 			uniswap: isTradingApiConfigured(),
-			ensv2: Boolean(process.env['SEPOLIA_RPC_URL']),
+			ensv2: Boolean(env?.SEPOLIA_RPC_URL),
 		},
-	}),
-)
+	})
+})
 
 hackathonRoutes.post('/world-id/start', async (c) => {
-	if (!worldIdReady()) {
+	const env = await resolveHackathonEnv()
+	if (!env || !worldIdReady(env)) {
 		return c.json({ error: 'World ID not configured — set WORLD_APP_ID / WORLD_RP_ID / RP_SIGNING_KEY' }, 503)
 	}
 	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
@@ -80,7 +83,8 @@ hackathonRoutes.post('/world-id/start', async (c) => {
 })
 
 hackathonRoutes.post('/world-id/verify', async (c) => {
-	if (!worldIdReady()) {
+	const env = await resolveHackathonEnv()
+	if (!env || !worldIdReady(env)) {
 		return c.json({ error: 'World ID not configured' }, 503)
 	}
 	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null

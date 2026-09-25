@@ -2,6 +2,7 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
+import { trustLayerEnabled } from './hackathon/env'
 import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
@@ -42,6 +43,7 @@ async function main() {
 		internalApiKey: env.INTERNAL_API_KEY,
 		internalApiUrl: env.INTERNAL_API_URL,
 		otelEnabled: env.OTEL_ENABLED,
+		hackathonTrustLayer: trustLayerEnabled(env),
 	})
 
 	// Start server. `websocket` (from hono/bun) wires the Bun-native WS upgrade

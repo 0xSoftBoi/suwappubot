@@ -34,12 +34,35 @@ import type {
 } from '../services/PolicyService'
 import { writeAuditLog } from '../services/audit'
 import { logger } from '../lib/logger'
+import { Effect, Either } from 'effect'
+import { EnvService, type Env } from '../config/EnvService'
+import { runEffectEither } from '../runtime'
 import { ensv2Enabled, interceptaEnabled, trustLayerEnabled } from './env'
 
 export interface TrustGateInput {
 	policyIntent: PolicyIntent
 	agentIdentifier: string
 	orgId: string | null
+}
+
+/**
+ * Resolve the decoded EnvService config. Null when the runtime can't provide
+ * it — callers treat that as "layer unavailable" and fail open per the
+ * failure discipline below. Accepts an injected Env (tests) to avoid
+ * coupling flag logic to the Effect runtime.
+ */
+export async function resolveHackathonEnv(injected?: Env): Promise<Env | null> {
+	if (injected) return injected
+	const r = await runEffectEither(
+		Effect.gen(function* () {
+			return yield* EnvService
+		}),
+	)
+	if (Either.isLeft(r)) {
+		logger.warn('[hackathon] EnvService unavailable — trust layer failing open')
+		return null
+	}
+	return r.right
 }
 
 const RANK: Record<PolicyVerdict, number> = { allow: 0, require_approval: 1, block: 2 }
@@ -52,19 +75,21 @@ const RANK: Record<PolicyVerdict, number> = { allow: 0, require_approval: 1, blo
 export async function applyTrustLayerGates(
 	input: TrustGateInput,
 	base: PolicyDecisionResult,
+	injectedEnv?: Env,
 ): Promise<PolicyDecisionResult> {
-	if (!trustLayerEnabled()) return base
+	const env = await resolveHackathonEnv(injectedEnv)
+	if (!env || !trustLayerEnabled(env)) return base
 	// Policy already blocked — nothing to escalate, and policy stays primary.
 	if (base.decision === 'block') return base
 
 	const escalations: Array<{ decision: PolicyVerdict; reason: string; gate: string }> = []
 
-	const screen = await screenCounterparty(input)
+	const screen = await screenCounterparty(input, env)
 	if (screen && screen.verdict !== 'allow') {
 		escalations.push({ decision: screen.verdict, reason: screen.reason, gate: 'intercepta' })
 	}
 
-	const ensBlockReason = await checkEnsv2Cap(input)
+	const ensBlockReason = await checkEnsv2Cap(input, env)
 	if (ensBlockReason) {
 		escalations.push({ decision: 'block', reason: ensBlockReason, gate: 'ensv2' })
 	}
@@ -100,8 +125,9 @@ export async function applyTrustLayerGates(
  */
 async function screenCounterparty(
 	input: TrustGateInput,
+	env: Env,
 ): Promise<{ verdict: PolicyVerdict; reason: string } | null> {
-	if (!interceptaEnabled() || !isInterceptaConfigured()) return null
+	if (!interceptaEnabled(env) || !isInterceptaConfigured()) return null
 	const { destinationAddress, toToken, chain } = input.policyIntent
 	try {
 		const cfg = loadInterceptaConfig()
@@ -125,10 +151,10 @@ async function screenCounterparty(
  * suwappu.policy text records on agent.<name>.suwappu.eth, Sepolia).
  * Returns a block reason, or null when disabled / unmapped / passing.
  */
-async function checkEnsv2Cap(input: TrustGateInput): Promise<string | null> {
-	if (!ensv2Enabled()) return null
-	const rpcUrl = process.env['SEPOLIA_RPC_URL']
-	const agentName = resolveAgentName(input.agentIdentifier)
+async function checkEnsv2Cap(input: TrustGateInput, env: Env): Promise<string | null> {
+	if (!ensv2Enabled(env)) return null
+	const rpcUrl = env.SEPOLIA_RPC_URL
+	const agentName = resolveAgentName(input.agentIdentifier, env)
 	if (!rpcUrl || !agentName) return null
 	try {
 		const { blockReason } = await resolveAndCheckPolicy(rpcUrl, agentName, {
@@ -147,13 +173,10 @@ async function checkEnsv2Cap(input: TrustGateInput): Promise<string | null> {
  * (HACKATHON_ENSV2_NAMES as JSON, e.g. {"agent_123":"agent.acme.suwappu.eth"});
  * a bare *.eth identifier passes through directly.
  */
-function resolveAgentName(agentIdentifier: string): string | null {
+function resolveAgentName(agentIdentifier: string, env: Env): string | null {
 	if (agentIdentifier.toLowerCase().endsWith('.eth')) return agentIdentifier
 	try {
-		const map = JSON.parse(process.env['HACKATHON_ENSV2_NAMES'] ?? '{}') as Record<
-			string,
-			string
-		>
+		const map = JSON.parse(env.HACKATHON_ENSV2_NAMES ?? '{}') as Record<string, string>
 		return map[agentIdentifier] ?? null
 	} catch {
 		return null
@@ -165,8 +188,12 @@ function resolveAgentName(agentIdentifier: string): string | null {
  * Used by src/middleware/mppAuth.ts. Returns a block reason, or null when
  * disabled / unconfigured / clean / scanner error (fail-open).
  */
-export async function screenX402Payer(sender: string | undefined): Promise<string | null> {
-	if (!interceptaEnabled() || !isInterceptaConfigured() || !sender) return null
+export async function screenX402Payer(
+	sender: string | undefined,
+	injectedEnv?: Env,
+): Promise<string | null> {
+	const env = await resolveHackathonEnv(injectedEnv)
+	if (!env || !interceptaEnabled(env) || !isInterceptaConfigured() || !sender) return null
 	try {
 		const cfg = loadInterceptaConfig()
 		const scan = await scanAddress(cfg, sender)

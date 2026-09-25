@@ -15,9 +15,6 @@ import {
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
-// HACKATHON (Tokyo 2026): trust-layer demo routes (/hackathon/*). The import
-// is static but the routes are only mounted when HACKATHON_TRUST_LAYER=true.
-import { trustLayerEnabled } from './hackathon/env'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -77,6 +74,9 @@ export interface AppConfig {
 	// Only when 'true' is the OTel request-tracing middleware registered at
 	// all — see the otelRequestTracing() call below and lib/otel.ts.
 	otelEnabled?: string | undefined
+	// ETHGlobal Tokyo 2026 trust-layer demo routes. When true, /hackathon/*
+	// is mounted (see index.ts — decoded from EnvService at boot).
+	hackathonTrustLayer?: boolean | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -164,7 +164,7 @@ export function createApp(config: AppConfig) {
 	// unmounted by default, so the surface doesn't exist unless explicitly
 	// enabled. MONEY-PATH adjacent (demo only): no production approval or
 	// execution flow reads these endpoints.
-	if (trustLayerEnabled()) {
+	if (config.hackathonTrustLayer) {
 		app.route('/hackathon', hackathonRoutes)
 	}
 
