@@ -1,0 +1,22 @@
+{
+  "dependencies": {
+    "@worldcoin/agentkit": "0.2.0",
+    "@worldcoin/idkit-core": "4.2.2",
+    "viem": "2.55.10",
+    "zod": "^4.3.6"
+  },
+  "description": "ETHGlobal Tokyo 2026 \u2014 Suwappu agent trust layer: World ID-gated execution, Intercepta screening, ENSv2 agent identity, Uniswap routing.",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "name": "@suwappu/tokyo2026-trust-layer",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test tests/",
+    "demo": "bun run src/demo/run.ts"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
