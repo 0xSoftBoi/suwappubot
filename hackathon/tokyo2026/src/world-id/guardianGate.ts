@@ -1,0 +1,187 @@
+/**
+ * Guardian gate: a human proves unique personhood (World ID) to authorize one
+ * specific agent trade intent. Server-driven vanilla idkit-core flow — the
+ * client (Telegram bot / terminal) only displays `connectorURI` as a QR.
+ *
+ * Security properties:
+ * - `signal` binds the proof to the exact trade intent (chain, pair, amount,
+ *   agent, nonce). A proof verified for trade A cannot authorize trade B.
+ * - The proof JSON is forwarded to the verifier byte-identical — never mutate,
+ *   re-encode, or trim it.
+ * - `(action, nullifier)` is stored with a UNIQUE constraint (NUMERIC(78,0));
+ *   replays are rejected by the database, not just app logic.
+ */
+import { IDKit, proofOfHuman } from '@worldcoin/idkit-core'
+import { createHash } from 'node:crypto'
+import { makeRpContext } from './rpSignature.ts'
+import type { WorldIdConfig } from './config.ts'
+
+/** The trade the human is being asked to approve. */
+export interface TradeIntent {
+	agentId: string
+	chain: string
+	fromToken: string
+	toToken: string
+	amountIn: string
+	/** Human-readable summary shown next to the QR, e.g. "Swap 1.5 ETH → USDC on Base". */
+	summary: string
+	nonce: string
+}
+
+/** Deterministic binding of a proof to one intent. */
+export function hashIntent(intent: Omit<TradeIntent, 'summary'>): string {
+	const canonical = [
+		intent.agentId,
+		intent.chain.toLowerCase(),
+		intent.fromToken.toLowerCase(),
+		intent.toToken.toLowerCase(),
+		intent.amountIn,
+		intent.nonce,
+	].join('|')
+	return '0x' + createHash('sha256').update(canonical).digest('hex')
+}
+
+/**
+ * Minimal nullifier store. Production implementation: a table with
+ * (action, nullifier NUMERIC(78,0)) UNIQUE. This in-memory version is for the
+ * demo/tests only — it enforces the same uniqueness contract.
+ */
+export class MemoryNullifierStore {
+	private seen = new Set<string>()
+	/** Returns false when this (action, nullifier) was already consumed. */
+	consume(action: string, nullifier: string): boolean {
+		const key = `${action}:${nullifier.toLowerCase()}`
+		if (this.seen.has(key)) return false
+		this.seen.add(key)
+		return true
+	}
+}
+
+export interface PendingVerification {
+	requestId: string
+	/** Render as QR for the human to scan with World App. */
+	connectorURI: string
+	intent: TradeIntent
+	signal: string
+	startedAt: Date
+	/**
+	 * The live IDKit request. Poll it with `pollForCompletion`, then pass the
+	 * completed proof to `verifyTradeProof`. Kept opaque here so the polling
+	 * loop stays in one place.
+	 */
+	_poll: () => Promise<unknown>
+}
+
+function buildRequest(cfg: WorldIdConfig, signal: string) {
+	return IDKit.request({
+		app_id: cfg.appId,
+		action: cfg.action,
+		rp_context: makeRpContext({
+			rpId: cfg.rpId,
+			signingKeyHex: cfg.signingKeyHex,
+			action: cfg.action,
+		}),
+		allow_legacy_proofs: true,
+		environment: cfg.environment,
+	}).preset(proofOfHuman({ signal }))
+}
+
+/** Step 1 — create the verification request; display `connectorURI` to the human. */
+export async function startTradeVerification(
+	cfg: WorldIdConfig,
+	intent: TradeIntent,
+): Promise<PendingVerification> {
+	const signal = hashIntent(intent)
+	const request = await buildRequest(cfg, signal)
+	return {
+		requestId: request.requestId,
+		connectorURI: request.connectorURI,
+		intent,
+		signal,
+		startedAt: new Date(),
+		_poll: async () => {
+			const completed = await request.pollUntilCompletion({
+				pollInterval: 2000,
+				timeout: 5 * 60 * 1000,
+			})
+			return completed
+		},
+	}
+}
+
+export interface VerifyResult {
+	ok: boolean
+	nullifier?: string
+	reason?: string
+}
+
+/**
+ * Step 2 — wait for the human, then verify server-side.
+ * Returns ok:false (never throws) on: user decline / expiry / cancellation /
+ * invalid proof / replay / signal mismatch. Callers map these to
+ * "trade blocked" with the reason shown to the user.
+ */
+export async function awaitAndVerifyTradeApproval(
+	cfg: WorldIdConfig,
+	pending: PendingVerification,
+	store: MemoryNullifierStore,
+): Promise<VerifyResult> {
+	let proof: unknown
+	try {
+		proof = await pending._poll()
+	} catch (e) {
+		// IDKit surfaces decline/expiry/cancellation as poll errors.
+		return { ok: false, reason: `verification not completed: ${(e as Error).message}` }
+	}
+	return verifyTradeProof(cfg, proof, pending.signal, cfg.action, store)
+}
+
+/**
+ * Step 2b — verify a completed proof against World's verifier, backend-side.
+ * `proof` must be the exact object IDKit produced.
+ */
+export async function verifyTradeProof(
+	cfg: WorldIdConfig,
+	proof: unknown,
+	expectedSignal: string,
+	expectedAction: string,
+	store: MemoryNullifierStore,
+): Promise<VerifyResult> {
+	let res: Response
+	try {
+		res = await fetch(`https://developer.world.org/api/v4/verify/${cfg.rpId}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(proof),
+		})
+	} catch (e) {
+		return { ok: false, reason: `verifier unreachable: ${(e as Error).message}` }
+	}
+	if (!res.ok) {
+		return { ok: false, reason: `verifier rejected proof (http ${res.status})` }
+	}
+	const data = (await res.json()) as {
+		success?: boolean
+		nullifier?: string
+		signal?: string
+		action?: string
+		code?: string
+		detail?: string
+	}
+	if (!data.success) {
+		return { ok: false, reason: `proof invalid: ${data.code ?? 'unknown'} ${data.detail ?? ''}`.trim() }
+	}
+	if (data.action !== expectedAction) {
+		return { ok: false, reason: 'proof bound to a different action' }
+	}
+	if (data.signal !== expectedSignal) {
+		return { ok: false, reason: 'proof signal does not match this trade intent' }
+	}
+	if (!data.nullifier) {
+		return { ok: false, reason: 'verifier returned no nullifier' }
+	}
+	if (!store.consume(expectedAction, data.nullifier)) {
+		return { ok: false, reason: 'proof already used (replay rejected)' }
+	}
+	return { ok: true, nullifier: data.nullifier }
+}
