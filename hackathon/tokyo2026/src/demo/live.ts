@@ -51,7 +51,7 @@ class LiveScreenProvider implements ScreenProvider {
 	screenAddress(address: string, chain: string) {
 		return scanAddress(this.cfg, address, chain)
 	}
-	screenTransaction(tx: { to: string; data?: string; value?: string; chain: string }) {
+	screenTransaction(tx: { from?: string; to: string; data?: string; value?: string; chain: string }) {
 		return scanTransaction(this.cfg, tx)
 	}
 }

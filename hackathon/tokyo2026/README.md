@@ -90,7 +90,7 @@ env-flagged insertion points — no behavior change when flags are off:
 
 - `WORLD_APP_ID`, `WORLD_RP_ID`, `RP_SIGNING_KEY` — developer.world.org
 - `AGENTKIT_AGENT_ADDRESS` — `npx @worldcoin/agentkit-cli@0.2.0 register` (needs Orb)
-- `INTERCEPTA_API_KEY` — intercepta.io/ethglobal (sandbox, 1,000 req)
+- `INTERCEPTA_API_KEY` — Intercepta booth / W3A dashboard (sandbox, 1,000 req)
 - `UNISWAP_API_KEY` — developers.uniswap.org/dashboard
 - `SEPOLIA_RPC_URL`, `ENSV2_OWNER_PRIVATE_KEY` — testnet only
 

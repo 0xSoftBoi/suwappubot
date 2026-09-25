@@ -143,7 +143,7 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 	)
 
 	// --- Gate 5: Intercepta pre-execute screen ---------------------------------
-	const txScan = await p.screen.screenTransaction({ to: UNISWAP_ROUTER, chain: input.chain })
+	const txScan = await p.screen.screenTransaction({ from: input.payTo, to: UNISWAP_ROUTER, chain: input.chain })
 	const preExec = scanResultToPolicySignal(txScan, 'transaction')
 	if (preExec.verdict === 'block') {
 		steps.push(step('intercepta', 'block', preExec.reason))

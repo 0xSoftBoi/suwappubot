@@ -22,7 +22,7 @@ export interface WorldIdProvider {
 
 export interface ScreenProvider {
 	screenAddress(address: string, chain: string): Promise<ScanResult>
-	screenTransaction(tx: { to: string; data?: string; value?: string; chain: string }): Promise<ScanResult>
+	screenTransaction(tx: { from?: string; to: string; data?: string; value?: string; chain: string }): Promise<ScanResult>
 }
 
 export interface QuoteProvider {

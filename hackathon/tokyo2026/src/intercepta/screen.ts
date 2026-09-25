@@ -27,6 +27,8 @@ export interface PreSignScreenInput {
 }
 
 export interface PreparedTx {
+	/** Transaction initiator — required by the W3A simulation endpoint. */
+	from?: string
 	to: string
 	data?: string
 	value?: string
