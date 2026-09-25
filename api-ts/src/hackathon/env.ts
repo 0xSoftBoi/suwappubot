@@ -32,11 +32,6 @@ export function hackathonEnv(): Env {
 	return snapshot
 }
 
-/** Test seam: override (or clear, with no args) the snapshot. */
-export function setHackathonEnvForTests(env?: Env): void {
-	snapshot = env
-}
-
 const on = (v: string | undefined, def: boolean): boolean =>
 	v === undefined ? def : v.toLowerCase() === 'true' || v === '1'
 
