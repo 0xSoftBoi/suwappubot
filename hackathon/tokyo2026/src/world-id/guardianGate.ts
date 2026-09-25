@@ -109,27 +109,33 @@ export interface PendingVerification {
 	_poll: () => Promise<unknown>
 }
 
-function buildRequest(cfg: WorldIdConfig, signal: string) {
+function buildRequest(cfg: WorldIdConfig, signal: string, action: string) {
 	return IDKit.request({
 		app_id: cfg.appId,
-		action: cfg.action,
+		action,
 		rp_context: makeRpContext({
 			rpId: cfg.rpId,
 			signingKeyHex: cfg.signingKeyHex,
-			action: cfg.action,
+			action,
 		}),
 		allow_legacy_proofs: true,
 		environment: cfg.environment,
 	}).preset(proofOfHuman({ signal }))
 }
 
-/** Step 1 — create the verification request; display `connectorURI` to the human. */
+/**
+ * Step 1 — create the verification request; display `connectorURI` to the human.
+ * `action` defaults to cfg.action (the guardian gate); pass cfg.stepUpAction
+ * for step-up re-verifications — same human + same action yields the same
+ * nullifier, so reusing the gate action would replay-reject the fresh proof.
+ */
 export async function startTradeVerification(
 	cfg: WorldIdConfig,
 	intent: TradeIntent,
+	action: string = cfg.action,
 ): Promise<PendingVerification> {
 	const signal = hashIntent(intent)
-	const request = await buildRequest(cfg, signal)
+	const request = await buildRequest(cfg, signal, action)
 	return {
 		requestId: request.requestId,
 		connectorURI: request.connectorURI,
@@ -157,11 +163,15 @@ export interface VerifyResult {
  * Returns ok:false (never throws) on: user decline / expiry / cancellation /
  * invalid proof / replay / signal mismatch. Callers map these to
  * "trade blocked" with the reason shown to the user.
+ * `action` must be the same action passed to startTradeVerification —
+ * the verifier checks the proof is bound to it and the nullifier is
+ * consumed under it.
  */
 export async function awaitAndVerifyTradeApproval(
 	cfg: WorldIdConfig,
 	pending: PendingVerification,
 	store: NullifierStore,
+	action: string = cfg.action,
 ): Promise<VerifyResult> {
 	let proof: unknown
 	try {
@@ -170,7 +180,7 @@ export async function awaitAndVerifyTradeApproval(
 		// IDKit surfaces decline/expiry/cancellation as poll errors.
 		return { ok: false, reason: `verification not completed: ${(e as Error).message}` }
 	}
-	return verifyTradeProof(cfg, proof, pending.signal, cfg.action, store)
+	return verifyTradeProof(cfg, proof, pending.signal, action, store)
 }
 
 /**

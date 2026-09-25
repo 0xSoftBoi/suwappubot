@@ -60,18 +60,25 @@ function nullifierStore(): Promise<NullifierStore> {
 
 /** signal → pending verification. Single-process; a multi-replica deploy
  * needs this in Redis/DB keyed by signal. */
-const pending = new Map<string, PendingVerification>()
+const pending = new Map<string, { p: PendingVerification; action: string }>()
 
 export function worldIdReady(env: Env = hackathonEnv()): boolean {
 	return worldIdEnabled(env) && isWorldIdConfigured()
 }
 
+/**
+ * `stepUp` requests the step-up action (cfg.stepUpAction) instead of the
+ * gate action — the step-up is a distinct authorization with its own
+ * nullifier namespace (see WorldIdConfig.stepUpAction).
+ */
 export async function startWorldIdGate(
 	intent: TradeIntent,
+	stepUp = false,
 ): Promise<{ connectorURI: string; signal: string }> {
 	const cfg = loadWorldIdConfig()
-	const p = await startTradeVerification(cfg, intent)
-	pending.set(p.signal, p)
+	const action = stepUp ? cfg.stepUpAction : cfg.action
+	const p = await startTradeVerification(cfg, intent, action)
+	pending.set(p.signal, { p, action })
 	return { connectorURI: p.connectorURI, signal: p.signal }
 }
 
@@ -79,11 +86,11 @@ export async function awaitWorldIdGate(
 	signal: string,
 ): Promise<{ ok: true; nullifier: string } | { ok: false; reason: string }> {
 	const cfg = loadWorldIdConfig()
-	const p = pending.get(signal)
-	if (!p) return { ok: false, reason: 'unknown or expired signal' }
+	const entry = pending.get(signal)
+	if (!entry) return { ok: false, reason: 'unknown or expired signal' }
 	pending.delete(signal)
 	const store = await nullifierStore()
-	const res = await awaitAndVerifyTradeApproval(cfg, p, store)
+	const res = await awaitAndVerifyTradeApproval(cfg, entry.p, store, entry.action)
 	if (!res.ok) return { ok: false, reason: res.reason ?? 'verification failed' }
 	return { ok: true, nullifier: res.nullifier ?? '' }
 }

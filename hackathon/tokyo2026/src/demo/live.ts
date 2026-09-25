@@ -27,18 +27,22 @@ import { mockProviders } from './providers.ts'
 class LiveWorldIdProvider implements WorldIdProvider {
 	private cfg = loadWorldIdConfig()
 	private store = new MemoryNullifierStore()
-	private pending = new Map<string, PendingVerification>()
+	private pending = new Map<string, { p: PendingVerification; action: string }>()
 
-	async start(intent: TradeIntent) {
-		const p = await startTradeVerification(this.cfg, intent)
-		this.pending.set(p.signal, p)
+	get stepUpAction(): string {
+		return this.cfg.stepUpAction
+	}
+
+	async start(intent: TradeIntent, action: string = this.cfg.action) {
+		const p = await startTradeVerification(this.cfg, intent, action)
+		this.pending.set(p.signal, { p, action })
 		return { connectorURI: p.connectorURI, signal: p.signal }
 	}
 
 	async awaitApproval(signal: string) {
-		const p = this.pending.get(signal)
-		if (!p) return { ok: false as const, reason: 'no pending verification for this signal' }
-		const res = await awaitAndVerifyTradeApproval(this.cfg, p, this.store)
+		const entry = this.pending.get(signal)
+		if (!entry) return { ok: false as const, reason: 'no pending verification for this signal' }
+		const res = await awaitAndVerifyTradeApproval(this.cfg, entry.p, this.store, entry.action)
 		this.pending.delete(signal)
 		return res.ok
 			? { ok: true as const, nullifier: res.nullifier as string }

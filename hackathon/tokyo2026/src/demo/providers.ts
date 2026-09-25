@@ -9,14 +9,20 @@
 import type { ScanResult } from '../intercepta/client.ts'
 import type { NormalizedQuote } from '../uniswap/routeAdapter.ts'
 import type { TradeIntent } from '../world-id/guardianGate.ts'
-import { hashIntent } from '../world-id/guardianGate.ts'
+import { hashIntent, MemoryNullifierStore } from '../world-id/guardianGate.ts'
 
 // ---------------------------------------------------------------------------
 // Interfaces
 // ---------------------------------------------------------------------------
 
 export interface WorldIdProvider {
-	start(intent: TradeIntent): Promise<{ connectorURI: string; signal: string }>
+	/**
+	 * World action for step-up re-verifications. Distinct from the gate
+	 * action: nullifiers are action-scoped, so the step-up needs its own
+	 * namespace or the fresh proof replay-rejects against Gate 1.
+	 */
+	readonly stepUpAction: string
+	start(intent: TradeIntent, action?: string): Promise<{ connectorURI: string; signal: string }>
 	awaitApproval(signal: string): Promise<{ ok: true; nullifier: string } | { ok: false; reason: string }>
 }
 
@@ -51,10 +57,23 @@ export interface DemoProviders {
 export type MockHumanBehavior = 'approves' | 'denies' | 'expires'
 
 export class MockWorldIdProvider implements WorldIdProvider {
+	readonly stepUpAction = 'suwappu-trade-stepup'
+	/** Real store, not a stub — the demo exercises the actual replay defense. */
+	private store = new MemoryNullifierStore()
+	/** Realistic 0x hex nullifiers per action, like the verifier returns. */
+	private nullifiers: Record<string, string> = {
+		'suwappu-trade-approval':
+			'0x8f3b2a1c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8',
+		'suwappu-trade-stepup':
+			'0x1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809',
+	}
+	private actions = new Map<string, string>()
+
 	constructor(private behavior: MockHumanBehavior = 'approves') {}
 
-	async start(intent: TradeIntent) {
+	async start(intent: TradeIntent, action = 'suwappu-trade-approval') {
 		const signal = hashIntent(intent)
+		this.actions.set(signal, action)
 		// In the live flow this is the idkit-core connectorURI rendered as a QR.
 		return { connectorURI: `worldapp://verify/mock?signal=${signal.slice(0, 18)}`, signal }
 	}
@@ -62,12 +81,21 @@ export class MockWorldIdProvider implements WorldIdProvider {
 	async awaitApproval(signal: string) {
 		await new Promise((r) => setTimeout(r, 300)) // simulate the human moment
 		switch (this.behavior) {
-			case 'approves':
-				return { ok: true as const, nullifier: '12345678901234567890' }
 			case 'denies':
 				return { ok: false as const, reason: 'user declined the verification request' }
 			case 'expires':
 				return { ok: false as const, reason: 'verification request expired (5 min timeout)' }
+			case 'approves': {
+				const action = this.actions.get(signal) ?? 'suwappu-trade-approval'
+				const nullifier = this.nullifiers[action] ?? this.nullifiers['suwappu-trade-approval']!
+				// Consume through the real store: a replayed proof is rejected
+				// here exactly as the live path rejects it.
+				const first = await this.store.consume(action, nullifier)
+				if (!first) {
+					return { ok: false as const, reason: 'proof already used (replay rejected)' }
+				}
+				return { ok: true as const, nullifier }
+			}
 		}
 	}
 }

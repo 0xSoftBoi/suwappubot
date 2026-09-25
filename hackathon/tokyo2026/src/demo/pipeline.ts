@@ -96,7 +96,7 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 				nonce: randomUUID(),
 				summary: `Step-up: re-confirm flagged payment — ${intent.summary}`,
 			}
-			const stepUpReq = await p.worldId.start(stepUpIntent)
+			const stepUpReq = await p.worldId.start(stepUpIntent, p.worldId.stepUpAction)
 			steps.push(
 				step('world-id-step-up', 'info', `fresh proof requested — signal ${stepUpReq.signal.slice(0, 14)}…`),
 			)

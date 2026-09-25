@@ -8,6 +8,14 @@ export interface WorldIdConfig {
 	appId: `app_${string}`
 	rpId: string
 	action: string
+	/**
+	 * World action for step-up re-verifications (Gate 5). MUST differ from
+	 * `action`: World ID nullifiers are action-scoped (same human + same
+	 * action = same nullifier), so a step-up verified against `action`
+	 * would be rejected as a replay of the Gate 1 proof. The step-up is a
+	 * distinct authorization and gets its own nullifier namespace.
+	 */
+	stepUpAction: string
 	environment: 'production' | 'staging'
 	/** RP signing key — server-only. Never expose, log, or send to a client. */
 	signingKeyHex: string
@@ -31,10 +39,12 @@ export function loadWorldIdConfig(env: NodeJS.ProcessEnv = process.env): WorldId
 		)
 	}
 	const environment = env['WORLD_ENV'] === 'staging' ? 'staging' : 'production'
+	const action = env['WORLD_ACTION'] ?? 'suwappu-trade-approval'
 	return {
 		appId: appId as `app_${string}`,
 		rpId: rpId as string,
-		action: env['WORLD_ACTION'] ?? 'suwappu-trade-approval',
+		action,
+		stepUpAction: env['WORLD_STEP_UP_ACTION'] ?? `${action}-stepup`,
 		environment,
 		signingKeyHex: signingKeyHex as string,
 		approvalTtlMs: Number(env['WORLD_APPROVAL_TTL_MS'] ?? 15 * 60 * 1000),

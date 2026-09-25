@@ -75,9 +75,12 @@ hackathonRoutes.post('/world-id/start', async (c) => {
 		summary,
 		nonce: randomUUID(),
 	}
+	// stepUp: true requests the step-up action (distinct nullifier namespace)
+	// for re-verifications after a hold — the client never picks the action.
+	const stepUp = body?.['stepUp'] === true
 	try {
-		const { connectorURI, signal } = await startWorldIdGate(intent)
-		return c.json({ connectorURI, signal })
+		const { connectorURI, signal } = await startWorldIdGate(intent, stepUp)
+		return c.json({ connectorURI, signal, stepUp })
 	} catch (e) {
 		logger.warn('[hackathon] world-id start failed: %s', String(e))
 		return c.json({ error: 'failed to start World ID verification' }, 502)
