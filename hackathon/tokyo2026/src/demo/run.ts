@@ -15,6 +15,7 @@
  *                       step-up → EXECUTED
  */
 import { runTradePipeline, type PipelineInput } from './pipeline.ts'
+import { buildProviders } from './live.ts'
 import {
 	mockProviders,
 	ADDR_CLEAN,
@@ -104,6 +105,31 @@ const SCENARIOS: Scenario[] = [
 ]
 
 let failures = 0
+
+const liveMode = process.argv.includes('--live')
+
+if (liveMode) {
+	// Strict live mode: every provider must be live (keys in .env). Runs the
+	// happy path once — the human scans the REAL World ID QR.
+	console.log(`${DIM}LIVE mode — all providers must be configured${RESET}`)
+	const { providers, live } = buildProviders({ strictLive: true })
+	console.log(`${DIM}live: ${Object.entries(live).filter(([, v]) => v).map(([k]) => k).join(', ')}${RESET}`)
+	const input = baseInput()
+	console.log(`\n${DIM}━━━ live: happy-path ━━━${RESET}`)
+	console.log(`${DIM}intent:${RESET} ${input.intent.summary}`)
+	const result = await runTradePipeline(providers, input)
+	for (const st of result.steps) {
+		console.log(`  ${SYMBOL[st.status]} ${DIM}[${st.gate}]${RESET} ${st.detail}`)
+	}
+	const decisionColor = result.decision === 'EXECUTED' ? GREEN : RED
+	console.log(`  ${decisionColor}decision: ${result.decision}${RESET}`)
+	if (result.decision !== 'EXECUTED') {
+		console.log(`${RED}live happy-path did not execute${RESET}`)
+		process.exit(1)
+	}
+	console.log(`${GREEN}live happy-path executed${RESET}`)
+	process.exit(0)
+}
 
 for (const s of SCENARIOS) {
 	console.log(`\n${DIM}━━━ scenario: ${s.name} ━━━${RESET}`)

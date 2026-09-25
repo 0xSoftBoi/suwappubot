@@ -55,8 +55,8 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 
 	// --- Gate 1: World ID guardian gate -------------------------------------
 	const { connectorURI, signal } = await p.worldId.start(intent)
-	steps.push(step('world-id', 'info', `QR issued (signal ${signal.slice(0, 14)}… bound to this exact trade)`))
-	void connectorURI
+	steps.push(step('world-id', 'info', `proof request ready — signal ${signal.slice(0, 14)}… bound to this exact trade`))
+	steps.push(step('world-id', 'info', `scan to verify: ${connectorURI}`))
 
 	const approval = await p.worldId.awaitApproval(signal)
 	if (!approval.ok) {
