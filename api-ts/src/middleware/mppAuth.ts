@@ -8,6 +8,9 @@ import { TTLCache } from '../lib/cache'
 import { requireDb } from '../db'
 import { consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
+// HACKATHON (Tokyo 2026): Intercepta x402 payer screening. Flag-gated,
+// default off; see src/hackathon/gates.ts.
+import { screenX402Payer } from '../hackathon/gates'
 
 interface PaymentChallenge {
 	price: string
@@ -135,6 +138,16 @@ async function verifyPayment(c: Context, next: Next, proofHeader: string, env: E
 	})
 	if (!verification.verified) {
 		return c.json({ error: verification.error || 'Payment not verified on-chain' }, 402)
+	}
+
+	// HACKATHON (Tokyo 2026 trust layer): Intercepta x402 payer screen —
+	// refuse paid requests funded by sanctioned/malicious payers. Flag-gated
+	// (HACKATHON_TRUST_LAYER, default off); fail-open on scanner errors per
+	// house convention. Placed AFTER on-chain verification so we only ever
+	// screen real, funded payments.
+	const payerBlockReason = await screenX402Payer(verification.sender)
+	if (payerBlockReason) {
+		return c.json({ error: payerBlockReason }, 403)
 	}
 
 	// SECURITY (residual, documented): unlike the topup / subscribe / webapp-crypto

@@ -39,6 +39,10 @@ import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
+// HACKATHON (Tokyo 2026): trust-layer gates (Intercepta + ENSv2), merged into
+// the institutional verdict below. Flag-gated, default off; see
+// src/hackathon/gates.ts.
+import { applyTrustLayerGates } from '../hackathon/gates'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -1165,9 +1169,23 @@ export async function enforcePolicyGateForFreshQuote(
 		return null
 	}
 
-	if (verdict.right.decision === 'allow') return null
+	// HACKATHON (Tokyo 2026 trust layer): Intercepta counterparty screening +
+	// ENSv2 onchain agent-policy caps, merged into the institutional verdict.
+	// Additive and flag-gated (HACKATHON_TRUST_LAYER, default off) — when
+	// disabled this is one boolean check inside applyTrustLayerGates. Policy
+	// stays the authority: the merge only ever escalates
+	// allow → require_approval → block, never downgrades. A policy block above
+	// skips this entirely (early return, unchanged). The existing downstream
+	// handling (audit, require_approval → ApprovalService.create, block → 403)
+	// applies uniformly to the merged verdict.
+	const gatedVerdict = await applyTrustLayerGates(
+		{ policyIntent, agentIdentifier, orgId },
+		verdict.right,
+	)
 
-	const { decision, reason, matchedPolicyId, id: policyDecisionId } = verdict.right
+	if (gatedVerdict.decision === 'allow') return null
+
+	const { decision, reason, matchedPolicyId, id: policyDecisionId } = gatedVerdict
 	writeAuditLog({
 		userId: 0,
 		orgId,

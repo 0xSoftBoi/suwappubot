@@ -15,6 +15,9 @@ import {
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
+// HACKATHON (Tokyo 2026): trust-layer demo routes (/hackathon/*). The import
+// is static but the routes are only mounted when HACKATHON_TRUST_LAYER=true.
+import { trustLayerEnabled } from './hackathon/env'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -26,6 +29,7 @@ import {
 	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseRoutes,
+	hackathonRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -155,6 +159,14 @@ export function createApp(config: AppConfig) {
 
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
+
+	// HACKATHON (Tokyo 2026 trust layer): World ID demo routes. Flag-gated —
+	// unmounted by default, so the surface doesn't exist unless explicitly
+	// enabled. MONEY-PATH adjacent (demo only): no production approval or
+	// execution flow reads these endpoints.
+	if (trustLayerEnabled()) {
+		app.route('/hackathon', hackathonRoutes)
+	}
 
 	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
 	// This exact-path gateway must be mounted before swapRoutes; requests carrying
