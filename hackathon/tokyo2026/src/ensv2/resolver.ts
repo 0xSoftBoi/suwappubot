@@ -2,14 +2,32 @@
  * Live policy resolution: before executing, the backend resolves the agent's
  * ENSv2 name and reads its onchain policy + World ID binding.
  *
- * Reads go through the UniversalResolver so the caller never needs to know
- * which resolver proxy a given agent uses.
+ * Read path (verified 2026-09-25 from contracts-v2 @ 97a57293):
+ *  - PRIMARY: UniversalResolverV2.resolve(dnsEncodedName, data) where data =
+ *    encodeFunctionData(text, [namehash(name), key]). Returns (bytes result,
+ *    address resolver); result is the ABI-encoded return of the inner call.
+ *    This proves the full name → registry → resolver chain.
+ *  - FALLBACK: text(namehash, key) directly on the agent's resolver proxy
+ *    (address recorded at setup). Same record, no registry walk.
+ * Either path failing falls through; both failing = fail closed.
+ *
+ * Records are keyed by namehash(node) on PermissionedResolver
+ * (mapping(bytes32 node => mapping(uint64 version => Record))).
  */
-import { createPublicClient, http, namehash, type Address } from 'viem'
+import {
+	createPublicClient,
+	http,
+	namehash,
+	decodeFunctionResult,
+	encodeFunctionData,
+	type Address,
+	type PublicClient,
+} from 'viem'
 import { sepolia } from 'viem/chains'
 import { ENSV2_SEPOLIA, TEXT_KEYS } from './addresses.ts'
 import type { AgentPolicy } from './register.ts'
 
+/** resolve(bytes name, bytes data) → (bytes result, address resolver). */
 const UNIVERSAL_RESOLVER_ABI = [
 	{
 		type: 'function',
@@ -20,13 +38,13 @@ const UNIVERSAL_RESOLVER_ABI = [
 			{ name: 'data', type: 'bytes' },
 		],
 		outputs: [
-			{ name: '', type: 'bytes' },
-			{ name: '', type: 'address' },
+			{ name: 'result', type: 'bytes' },
+			{ name: 'resolver', type: 'address' },
 		],
 	},
 ] as const
 
-const RESOLVER_READ_ABI = [
+const TEXT_READ_ABI = [
 	{
 		type: 'function',
 		name: 'text',
@@ -37,6 +55,9 @@ const RESOLVER_READ_ABI = [
 		],
 		outputs: [{ name: '', type: 'string' }],
 	},
+] as const
+
+const ADDR_READ_ABI = [
 	{
 		type: 'function',
 		name: 'addr',
@@ -49,21 +70,76 @@ const RESOLVER_READ_ABI = [
 export interface ResolvedAgentPolicy {
 	name: string
 	agentAddress: Address
+	resolver: Address | null
+	viaUniversalResolver: boolean
 	policy: AgentPolicy
 	worldIdBound: boolean
 	riskNote: string | null
 }
 
-function dnsEncode(name: string): `0x${string}` {
-	// Minimal DNS wire-format encoding for UniversalResolver.resolve.
+/** DNS wire-format encoding for UniversalResolver.resolve. */
+export function dnsEncode(name: string): `0x${string}` {
 	const parts = name.split('.')
 	const bytes: number[] = []
 	for (const p of parts) {
 		const enc = new TextEncoder().encode(p)
+		if (enc.length === 0 || enc.length > 63) throw new Error(`invalid label: ${p}`)
 		bytes.push(enc.length, ...enc)
 	}
 	bytes.push(0)
 	return ('0x' + Buffer.from(bytes).toString('hex')) as `0x${string}`
+}
+
+function textCalldata(node: `0x${string}`, key: string): `0x${string}` {
+	return encodeFunctionData({ abi: TEXT_READ_ABI, functionName: 'text', args: [node, key] })
+}
+
+function decodeTextResult(result: `0x${string}`): string {
+	return decodeFunctionResult({ abi: TEXT_READ_ABI, functionName: 'text', data: result }) as string
+}
+
+/**
+ * Read one text record for a name. Primary: UniversalResolverV2.resolve();
+ * fallback: direct text() on the configured resolver proxy.
+ */
+export async function resolveTextRecord(
+	client: PublicClient,
+	name: string,
+	key: string,
+	fallbackResolver?: Address,
+): Promise<{ value: string; resolver: Address | null; viaUniversalResolver: boolean }> {
+	const node = namehash(name)
+	const data = textCalldata(node, key)
+
+	try {
+		const [result, resolver] = await client.readContract({
+			address: ENSV2_SEPOLIA.universalResolverV2,
+			abi: UNIVERSAL_RESOLVER_ABI,
+			functionName: 'resolve',
+			args: [dnsEncode(name), data],
+		})
+		return { value: decodeTextResult(result), resolver, viaUniversalResolver: true }
+	} catch {
+		// fall through to direct read
+	}
+	if (fallbackResolver) {
+		try {
+			const value = await client.readContract({
+				address: fallbackResolver,
+				abi: TEXT_READ_ABI,
+				functionName: 'text',
+				args: [node, key],
+			})
+			return { value, resolver: fallbackResolver, viaUniversalResolver: false }
+		} catch {
+			// fall through to empty
+		}
+	}
+	return { value: '', resolver: null, viaUniversalResolver: false }
+}
+
+export function createEnsv2PublicClient(rpcUrl: string): PublicClient {
+	return createPublicClient({ chain: sepolia, transport: http(rpcUrl) })
 }
 
 /**
@@ -75,72 +151,73 @@ export async function resolveAndCheckPolicy(
 	rpcUrl: string,
 	agentName: string,
 	intent: { valueUsd: number; chain: string },
+	opts: { fallbackResolver?: Address } = {},
 ): Promise<{ resolved: ResolvedAgentPolicy; blockReason: string | null }> {
-	const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) })
+	const publicClient = createEnsv2PublicClient(rpcUrl)
 	const node = namehash(agentName)
 
-	const [policyRaw, worldIdRaw, riskRaw, agentAddress] = await Promise.all([
-		publicClient.readContract({
-			address: ENSV2_SEPOLIA.UniversalResolver,
-			abi: RESOLVER_READ_ABI,
-			functionName: 'text',
-			args: [node, TEXT_KEYS.policy],
-		}).catch(() => ''),
-		publicClient.readContract({
-			address: ENSV2_SEPOLIA.UniversalResolver,
-			abi: RESOLVER_READ_ABI,
-			functionName: 'text',
-			args: [node, TEXT_KEYS.worldId],
-		}).catch(() => ''),
-		publicClient.readContract({
-			address: ENSV2_SEPOLIA.UniversalResolver,
-			abi: RESOLVER_READ_ABI,
-			functionName: 'text',
-			args: [node, TEXT_KEYS.risk],
-		}).catch(() => ''),
-		publicClient.readContract({
-			address: ENSV2_SEPOLIA.UniversalResolver,
-			abi: RESOLVER_READ_ABI,
-			functionName: 'addr',
-			args: [node],
-		}).catch(() => '0x0000000000000000000000000000000000000000' as Address),
+	const [policyRec, worldIdRec, riskRec, agentAddress] = await Promise.all([
+		resolveTextRecord(publicClient, agentName, TEXT_KEYS.policy, opts.fallbackResolver),
+		resolveTextRecord(publicClient, agentName, TEXT_KEYS.worldId, opts.fallbackResolver),
+		resolveTextRecord(publicClient, agentName, TEXT_KEYS.risk, opts.fallbackResolver),
+		publicClient
+			.readContract({
+				address: ENSV2_SEPOLIA.universalResolverV2,
+				abi: UNIVERSAL_RESOLVER_ABI,
+				functionName: 'resolve',
+				args: [dnsEncode(agentName), encodeFunctionData({ abi: ADDR_READ_ABI, functionName: 'addr', args: [node] })],
+			})
+			.then(
+				([result]) =>
+					decodeFunctionResult({ abi: ADDR_READ_ABI, functionName: 'addr', data: result }) as Address,
+			)
+			.catch(() => '0x0000000000000000000000000000000000000000' as Address),
 	])
 
-	if (!policyRaw) {
-		return {
-			resolved: {
-				name: agentName,
-				agentAddress,
-				policy: { maxTxUsd: 0, requireApprovalAboveUsd: 0, allowedChains: [], version: 0 },
-				worldIdBound: false,
-				riskNote: null,
-			},
-			blockReason: `no ${TEXT_KEYS.policy} record on ${agentName} — fail closed`,
-		}
+	const empty = (blockReason: string): { resolved: ResolvedAgentPolicy; blockReason: string } => ({
+		resolved: {
+			name: agentName,
+			agentAddress,
+			resolver: policyRec.resolver,
+			viaUniversalResolver: policyRec.viaUniversalResolver,
+			policy: { maxTxUsd: 0, requireApprovalAboveUsd: 0, allowedChains: [], version: 0 },
+			worldIdBound: false,
+			riskNote: null,
+		},
+		blockReason,
+	})
+
+	if (!policyRec.value) {
+		return empty(`no ${TEXT_KEYS.policy} record on ${agentName} — fail closed`)
 	}
 
 	let policy: AgentPolicy
 	try {
-		policy = JSON.parse(policyRaw) as AgentPolicy
-	} catch {
-		return {
-			resolved: {
-				name: agentName,
-				agentAddress,
-				policy: { maxTxUsd: 0, requireApprovalAboveUsd: 0, allowedChains: [], version: 0 },
-				worldIdBound: false,
-				riskNote: null,
-			},
-			blockReason: `unparseable ${TEXT_KEYS.policy} record on ${agentName} — fail closed`,
+		const raw = JSON.parse(policyRec.value) as Partial<AgentPolicy>
+		if (
+			typeof raw.maxTxUsd !== 'number' ||
+			!Number.isFinite(raw.maxTxUsd) ||
+			raw.maxTxUsd < 0 ||
+			typeof raw.requireApprovalAboveUsd !== 'number' ||
+			!Number.isFinite(raw.requireApprovalAboveUsd) ||
+			!Array.isArray(raw.allowedChains) ||
+			typeof raw.version !== 'number'
+		) {
+			throw new Error('invalid policy shape')
 		}
+		policy = raw as AgentPolicy
+	} catch {
+		return empty(`unparseable ${TEXT_KEYS.policy} record on ${agentName} — fail closed`)
 	}
 
 	const resolved: ResolvedAgentPolicy = {
 		name: agentName,
 		agentAddress,
+		resolver: policyRec.resolver,
+		viaUniversalResolver: policyRec.viaUniversalResolver,
 		policy,
-		worldIdBound: worldIdRaw.length > 0,
-		riskNote: riskRaw || null,
+		worldIdBound: worldIdRec.value.length > 0,
+		riskNote: riskRec.value || null,
 	}
 
 	if (intent.valueUsd > policy.maxTxUsd) {
@@ -156,5 +233,3 @@ export async function resolveAndCheckPolicy(
 	}
 	return { resolved, blockReason: null }
 }
-
-export { dnsEncode }
