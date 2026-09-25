@@ -7,11 +7,17 @@
  *  3. uniswap       — quote + Permit2-aware approval check
  *  4. ensv2         — live onchain policy (spending caps)
  *  5. intercepta    — pre-execute screen of the exact unsigned transaction
- *  → decision: EXECUTED | BLOCKED | HELD→(step-up)→EXECUTED
+ *  → decision: CLEARED | BLOCKED | HELD→(step-up)→CLEARED
+ *
+ * CLEARED means every trust gate passed and the trade is cleared for
+ * execution — it does NOT mean a transaction was signed or broadcast. This
+ * pipeline is the decision layer; signing/broadcast stays with the agent
+ * wallet (AgentKit) outside this module.
  *
  * Verdicts use the REAL logic: scanResultToPolicySignal, validateWorldIdStepUp.
  * Mocks only replace the network transports (see providers.ts).
  */
+import { randomUUID } from 'node:crypto'
 import { scanResultToPolicySignal, escalationFor } from '../intercepta/policy.ts'
 import { validateWorldIdStepUp, type WorldIdApproval } from '../world-id/stepUp.ts'
 import type { TradeIntent } from '../world-id/guardianGate.ts'
@@ -35,7 +41,8 @@ export interface PipelineInput {
 }
 
 export interface PipelineResult {
-	decision: 'EXECUTED' | 'BLOCKED'
+	/** CLEARED = all trust gates passed (not signed/broadcast — see header). */
+	decision: 'CLEARED' | 'BLOCKED'
 	steps: PipelineStep[]
 	/** Present when BLOCKED — the exact reason shown to the user. */
 	blockReason?: string
@@ -76,11 +83,32 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 	if (preSign.verdict === 'require_approval') {
 		steps.push(step('intercepta', 'hold', preSign.reason))
 		if (escalationFor(preSign) === 'world_id_step_up') {
-			// Held → escalate to World ID step-up (fresh, single-use approval).
+			// Held → escalate to a FRESH World ID proof. The gate-1 approval
+			// authorized the trade intent only and is single-use — reusing it
+			// here would let one human tap authorize two different decisions.
+			// The step-up is its own verification (fresh nonce → fresh signal),
+			// bound to the same trade; the pipeline only continues the
+			// original trade after the fresh proof validates.
+			const stepUpIntent: TradeIntent = {
+				...intent,
+				nonce: randomUUID(),
+				summary: `Step-up: re-confirm flagged payment — ${intent.summary}`,
+			}
+			const stepUpReq = await p.worldId.start(stepUpIntent)
+			steps.push(
+				step('world-id-step-up', 'info', `fresh proof requested — signal ${stepUpReq.signal.slice(0, 14)}…`),
+			)
+			steps.push(step('world-id-step-up', 'info', `scan to verify: ${stepUpReq.connectorURI}`))
+			const stepUpRes = await p.worldId.awaitApproval(stepUpReq.signal)
+			if (!stepUpRes.ok) {
+				const reason = `step-up verification failed: ${stepUpRes.reason} — trade NOT executed`
+				steps.push(step('world-id-step-up', 'block', reason))
+				return { decision: 'BLOCKED', steps, blockReason: reason }
+			}
 			const stepUpApproval: WorldIdApproval = {
-				nullifier: approval.nullifier,
-				signal,
-				expectedSignal: signal,
+				nullifier: stepUpRes.nullifier,
+				signal: stepUpReq.signal,
+				expectedSignal: stepUpReq.signal,
 				verifiedAt: new Date(),
 				consumedAt: null,
 				userId: input.userId,
@@ -97,7 +125,7 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 				steps.push(step('world-id-step-up', 'block', reason))
 				return { decision: 'BLOCKED', steps, blockReason: reason }
 			}
-			steps.push(step('world-id-step-up', 'escalate', 'human re-verified via World ID step-up — hold released'))
+			steps.push(step('world-id-step-up', 'escalate', 'human re-verified via fresh World ID proof — hold released'))
 		}
 	} else {
 		steps.push(step('intercepta', 'pass', `payTo screened before signing (risk ${addrScan.riskScore}/100)`))
@@ -156,5 +184,5 @@ export async function runTradePipeline(p: DemoProviders, input: PipelineInput): 
 	}
 	steps.push(step('intercepta', 'pass', `exact unsigned tx screened (risk ${txScan.riskScore}/100)`))
 
-	return { decision: 'EXECUTED', steps }
+	return { decision: 'CLEARED', steps }
 }

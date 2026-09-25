@@ -7,12 +7,12 @@
  * is self-checking and exits non-zero if any scenario misbehaves.
  *
  * Scenarios:
- *  1. happy-path        all gates pass → EXECUTED
+ *  1. happy-path        all gates pass → CLEARED
  *  2. blocked-payee     Intercepta flags payTo → BLOCKED before signing
  *  3. over-cap          ENSv2 onchain cap exceeded → BLOCKED
  *  4. denied-world-id   human declines World ID → BLOCKED, nothing executes
  *  5. held-escalation   suspicious payTo → require_approval → World ID
- *                       step-up → EXECUTED
+ *                       step-up → CLEARED
  */
 import { runTradePipeline, type PipelineInput } from './pipeline.ts'
 import { buildProviders } from './live.ts'
@@ -63,7 +63,7 @@ interface Scenario {
 	name: string
 	human: MockHumanBehavior
 	input: PipelineInput
-	expect: 'EXECUTED' | 'BLOCKED'
+	expect: 'CLEARED' | 'BLOCKED'
 	expectGate?: string // a gate that must appear with a block in the transcript
 }
 
@@ -72,7 +72,7 @@ const SCENARIOS: Scenario[] = [
 		name: 'happy-path — all gates pass',
 		human: 'approves',
 		input: baseInput(),
-		expect: 'EXECUTED',
+		expect: 'CLEARED',
 	},
 	{
 		name: 'blocked-payee — Intercepta flags the destination',
@@ -96,10 +96,10 @@ const SCENARIOS: Scenario[] = [
 		expectGate: 'world-id',
 	},
 	{
-		name: 'held-escalation — suspicious payTo → World ID step-up → executed',
+		name: 'held-escalation — suspicious payTo → World ID step-up → cleared',
 		human: 'approves',
 		input: baseInput({ payTo: ADDR_SUSPICIOUS }),
-		expect: 'EXECUTED',
+		expect: 'CLEARED',
 		expectGate: 'world-id-step-up',
 	},
 ]
@@ -121,13 +121,13 @@ if (liveMode) {
 	for (const st of result.steps) {
 		console.log(`  ${SYMBOL[st.status]} ${DIM}[${st.gate}]${RESET} ${st.detail}`)
 	}
-	const decisionColor = result.decision === 'EXECUTED' ? GREEN : RED
+	const decisionColor = result.decision === 'CLEARED' ? GREEN : RED
 	console.log(`  ${decisionColor}decision: ${result.decision}${RESET}`)
-	if (result.decision !== 'EXECUTED') {
+	if (result.decision !== 'CLEARED') {
 		console.log(`${RED}live happy-path did not execute${RESET}`)
 		process.exit(1)
 	}
-	console.log(`${GREEN}live happy-path executed${RESET}`)
+	console.log(`${GREEN}live happy-path cleared${RESET}`)
 	process.exit(0)
 }
 
@@ -137,7 +137,7 @@ for (const s of SCENARIOS) {
 	for (const st of result.steps) {
 		console.log(`  ${SYMBOL[st.status]} ${DIM}[${st.gate}]${RESET} ${st.detail}`)
 	}
-	const decisionColor = result.decision === 'EXECUTED' ? GREEN : RED
+	const decisionColor = result.decision === 'CLEARED' ? GREEN : RED
 	console.log(`  ${decisionColor}decision: ${result.decision}${RESET}`)
 
 	let ok = result.decision === s.expect
