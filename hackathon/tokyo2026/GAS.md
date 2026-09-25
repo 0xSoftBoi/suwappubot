@@ -11,12 +11,12 @@ optimizations.
 
 | Step | Tx | Notes |
 |------|----|-------|
-| Deploy resolver proxy | 1 | `VerifiableFactory.deployProxy`; owner policy records written inline via `initialize(..., setters)` |
+| Deploy resolver proxy | 1 | `VerifiableFactory.deployProxy`; owner policy records written inline via `initialize(grants, calls)` |
 | Register subname + set resolver | 1 | Parent `IStandardRegistry.register` sets resolver atomically |
-| Authorize metadata keys | 1 | All `authorizeTextRoles` grants in one `multicall` |
+| Authorize metadata keys | 1 | All `grantSetterRoles` grants in one `multicall` |
 
 Was 5 (separate tx per key grant). Saves ~42k base gas per agent.
-Grants can't fold into `initialize()` setters: those delegatecall with
+Grants can't fold into `initialize()` calls: those run with
 `msg.sender == VerifiableFactory`, which holds no admin roles.
 See `ENSV2_SETUP.md` and `tests/ensGas.test.ts`.
 
@@ -28,7 +28,7 @@ from an EOA.
 
 ### ENSv2 reads — 0 gas
 
-Policy checks are `eth_call` via `UniversalResolverV2` (fresh `0x4a18…`)
+Policy checks are `eth_call` via `UniversalResolverV2` (fresh `0x5d25…`)
 with public-proxy fallback. Reads never cost gas.
 
 ### Autopilot anchor — 1 tx per decision (~22.7k gas, inherent)

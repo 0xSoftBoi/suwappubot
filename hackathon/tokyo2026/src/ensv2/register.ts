@@ -1,15 +1,15 @@
 /**
  * Agent subname issuance on ENSv2 Sepolia: `<agent>.suwappu.eth`.
  *
- * All ABIs verified 2026-09-25 against contracts-v2 @ 97a57293f3b4279d94b571e678edb53ce62638f4
+ * All ABIs verified 2026-09-25 against contracts-v2 @ sepolia-deployment-2026-09-15
  * (primary sources: contracts/src + auto-generated deployments/sepolia docs).
  *
  * Setup ceremony (see ENSV2_SETUP.md for the ordered runbook). Gas-optimized:
  * per-agent setup is 3 transactions total —
- *  1. `deployProxy` (resolver + initial policy records atomically via initialize setters),
+ *  1. `deployProxy` (resolver + initial policy records atomically via initialize calls),
  *  2. `register` on suwappu.eth's registry (resolver set inline, no separate setResolver),
- *  3. ONE `multicall` batching all `authorizeTextRoles` grants (not one tx per key,
- *     and not in initialize setters — those run with msg.sender = the factory).
+ *  3. ONE `multicall` batching all `grantSetterRoles` grants (not one tx per key,
+ *     and not in initialize calls — those run with msg.sender = the factory).
  * Read path (resolver.ts) is pure eth_call: zero gas.
  */
 import {
@@ -51,10 +51,13 @@ const FACTORY_ABI = [
 ] as const
 
 /**
- * PermissionedResolver (verified ABI):
- * - initialize(address admin, uint256 roleBitmap, bytes[] setters)
- * - setText(bytes32 node, string key, string value)
- * - authorizeTextRoles(bytes toName, string key, address account, bool grant) → bool
+ * PermissionedResolver (verified ABI @ sepolia-deployment-2026-09-15):
+ * - initialize(Grant[] grants, bytes[] calls) — Grant = {account, roleBitmap}
+ * - setText(bytes name, string key, string value) — name is DNS-encoded
+ * - grantSetterRoles(bytes setter, address account) → bool — setter is the
+ *   encoded setText(name, key, "") call; the contract decodes it to find the
+ *   key-scoped resource. (authorizeTextRoles is GONE at this deployment.)
+ * - multicall(bytes[] calls) → bytes[]
  */
 const RESOLVER_ADMIN_ABI = [
 	{
@@ -62,9 +65,15 @@ const RESOLVER_ADMIN_ABI = [
 		name: 'initialize',
 		stateMutability: 'nonpayable',
 		inputs: [
-			{ name: 'admin', type: 'address' },
-			{ name: 'roleBitmap', type: 'uint256' },
-			{ name: 'setters', type: 'bytes[]' },
+			{
+				name: 'grants',
+				type: 'tuple[]',
+				components: [
+					{ name: 'account', type: 'address' },
+					{ name: 'roleBitmap', type: 'uint256' },
+				],
+			},
+			{ name: 'calls', type: 'bytes[]' },
 		],
 		outputs: [],
 	},
@@ -73,7 +82,7 @@ const RESOLVER_ADMIN_ABI = [
 		name: 'setText',
 		stateMutability: 'nonpayable',
 		inputs: [
-			{ name: 'node', type: 'bytes32' },
+			{ name: 'name', type: 'bytes' },
 			{ name: 'key', type: 'string' },
 			{ name: 'value', type: 'string' },
 		],
@@ -81,13 +90,11 @@ const RESOLVER_ADMIN_ABI = [
 	},
 	{
 		type: 'function',
-		name: 'authorizeTextRoles',
+		name: 'grantSetterRoles',
 		stateMutability: 'nonpayable',
 		inputs: [
-			{ name: 'toName', type: 'bytes' },
-			{ name: 'key', type: 'string' },
+			{ name: 'setter', type: 'bytes' },
 			{ name: 'account', type: 'address' },
-			{ name: 'grant', type: 'bool' },
 		],
 		outputs: [{ name: '', type: 'bool' }],
 	},
@@ -99,6 +106,12 @@ const RESOLVER_ADMIN_ABI = [
 		outputs: [{ name: 'results', type: 'bytes[]' }],
 	},
 ] as const
+
+/** One EAC grant: account ← roleBitmap. */
+export interface ResolverGrant {
+	account: Address
+	roleBitmap: bigint
+}
 
 /**
  * ETHRegistrar (verified ABI):
@@ -243,39 +256,41 @@ export interface AgentPolicy {
 	version: number
 }
 
-/** Encode initialize(admin, roleBitmap, setters) for VerifiableFactory.deployProxy. */
+/** Encode initialize(grants, calls) for VerifiableFactory.deployProxy. */
 export function encodeResolverInit(
-	admin: Address,
-	roleBitmap: bigint,
-	setters: `0x${string}`[],
+	grants: ResolverGrant[],
+	calls: `0x${string}`[],
 ): `0x${string}` {
 	return encodeFunctionData({
 		abi: RESOLVER_ADMIN_ABI,
 		functionName: 'initialize',
-		args: [admin, roleBitmap, setters],
+		args: [grants, calls],
 	})
 }
 
-/** Encode a setText(node, key, value) setter for initialize() or multicall(). */
-export function encodeSetText(node: `0x${string}`, key: string, value: string): `0x${string}` {
+/** Encode a setText(name, key, value) setter for initialize() calls or multicall(). */
+export function encodeSetText(name: string, key: string, value: string): `0x${string}` {
 	return encodeFunctionData({
 		abi: RESOLVER_ADMIN_ABI,
 		functionName: 'setText',
-		args: [node, key, value],
+		args: [dnsEncode(name), key, value],
 	})
 }
 
-/** Encode an authorizeTextRoles(toName, key, account, grant) call (for multicall batching). */
-export function encodeAuthorizeTextRoles(
+/**
+ * Encode a grantSetterRoles(setter, account) call (for multicall batching).
+ * The setter is the encoded setText(name, key, "") — the contract decodes it
+ * to the key-scoped resource; the value is irrelevant to the grant.
+ */
+export function encodeGrantSetterRoles(
 	name: string,
 	key: string,
 	account: Address,
-	grant: boolean,
 ): `0x${string}` {
 	return encodeFunctionData({
 		abi: RESOLVER_ADMIN_ABI,
-		functionName: 'authorizeTextRoles',
-		args: [dnsEncode(name), key, account, grant],
+		functionName: 'grantSetterRoles',
+		args: [encodeSetText(name, key, ''), account],
 	})
 }
 
@@ -290,18 +305,20 @@ export function encodeMulticall(calls: `0x${string}`[]): `0x${string}` {
 
 /**
  * Step 1: deploy the agent's PermissionedResolver proxy via the VerifiableFactory.
- * The initial policy record is written atomically inside initialize() via setters.
+ * The initial policy record is written atomically inside initialize() via calls.
+ * The owner receives the admin grant; per-key agent grants come later (Step 3)
+ * because grantSetterRoles checks the caller's roles and initialize runs with
+ * msg.sender = the factory.
  */
 export async function deployAgentResolver(
 	clients: Ensv2Clients,
 	opts: { name: string; policy: AgentPolicy; adminRoleBitmap: bigint; salt?: bigint },
 ): Promise<{ proxy: Address; tx: Hash }> {
-	const node = namehash(opts.name)
-	const setters = [
-		encodeSetText(node, TEXT_KEYS.policy, JSON.stringify(opts.policy)),
-		encodeSetText(node, TEXT_KEYS.version, String(opts.policy.version)),
+	const calls = [
+		encodeSetText(opts.name, TEXT_KEYS.policy, JSON.stringify(opts.policy)),
+		encodeSetText(opts.name, TEXT_KEYS.version, String(opts.policy.version)),
 	]
-	const data = encodeResolverInit(clients.account, opts.adminRoleBitmap, setters)
+	const data = encodeResolverInit([{ account: clients.account, roleBitmap: opts.adminRoleBitmap }], calls)
 	// Predict the proxy address via eth_call (does not persist state).
 	const { result: proxy } = await clients.public.simulateContract({
 		address: ENSV2_SEPOLIA.verifiableFactory,
@@ -359,14 +376,13 @@ export async function registerAgentSubname(
 
 /**
  * Step 3: authorize the agent key for metadata keys ONLY — batched into a
- * SINGLE transaction via the resolver's multicall() (verified:
- * `multicall(bytes[])` delegatecalls each call and reverts on first failure).
- * One tx instead of one per key: saves ~21k base gas per key and the
- * round-trips. Cannot be folded into initialize() setters: those run with
- * msg.sender = the factory, which holds no admin roles.
+ * SINGLE transaction via the resolver's multicall(). One tx instead of one
+ * per key: saves ~21k base gas per key and the round-trips. Cannot be folded
+ * into initialize(): grantSetterRoles checks the caller's admin roles and
+ * initialize runs with msg.sender = the factory, which holds none.
  *
- * The policy key is never authorized → setText(node, "suwappu.policy") from
- * the agent key reverts onchain (EACUnauthorizedAccountRoles).
+ * The policy key is never authorized → setText(name, "suwappu.policy") from
+ * the agent key reverts onchain (onlyRoles check).
  */
 export async function authorizeAgentKeys(
 	clients: Ensv2Clients,
@@ -374,7 +390,7 @@ export async function authorizeAgentKeys(
 ): Promise<Hash> {
 	const keys = opts.keys ?? AGENT_WRITABLE_KEYS
 	assertAgentKeysSafe(keys, TEXT_KEYS.policy)
-	const calls = keys.map((key) => encodeAuthorizeTextRoles(opts.name, key, opts.agentKey, true))
+	const calls = keys.map((key) => encodeGrantSetterRoles(opts.name, key, opts.agentKey))
 	const tx = await clients.wallet.writeContract({
 		address: opts.resolver,
 		abi: RESOLVER_ADMIN_ABI,
@@ -403,12 +419,14 @@ export async function estimateAgentSetupGas(
 		salt?: bigint
 	},
 ): Promise<{ deploy: bigint; register: bigint; authorize: bigint; total: bigint }> {
-	const node = namehash(opts.name)
-	const setters = [
-		encodeSetText(node, TEXT_KEYS.policy, JSON.stringify(opts.policy)),
-		encodeSetText(node, TEXT_KEYS.version, String(opts.policy.version)),
+	const calls = [
+		encodeSetText(opts.name, TEXT_KEYS.policy, JSON.stringify(opts.policy)),
+		encodeSetText(opts.name, TEXT_KEYS.version, String(opts.policy.version)),
 	]
-	const initData = encodeResolverInit(clients.account, opts.adminRoleBitmap, setters)
+	const initData = encodeResolverInit(
+		[{ account: clients.account, roleBitmap: opts.adminRoleBitmap }],
+		calls,
+	)
 	// Predict the proxy address to estimate the later steps against it.
 	const { result: proxy } = await clients.public.simulateContract({
 		address: ENSV2_SEPOLIA.verifiableFactory,
@@ -418,8 +436,8 @@ export async function estimateAgentSetupGas(
 		account: clients.account,
 	})
 	const expiry = BigInt(Math.floor(Date.now() / 1000) + 365 * 86400)
-	const calls = AGENT_WRITABLE_KEYS.map((key) =>
-		encodeAuthorizeTextRoles(opts.name, key, opts.agentKey, true),
+	const grantCalls = AGENT_WRITABLE_KEYS.map((key) =>
+		encodeGrantSetterRoles(opts.name, key, opts.agentKey),
 	)
 	const [deploy, register, authorize] = await Promise.all([
 		clients.public.estimateContractGas({
@@ -447,7 +465,7 @@ export async function estimateAgentSetupGas(
 			address: proxy,
 			abi: RESOLVER_ADMIN_ABI,
 			functionName: 'multicall',
-			args: [calls],
+			args: [grantCalls],
 			account: clients.account,
 		}),
 	])

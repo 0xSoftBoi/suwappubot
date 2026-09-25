@@ -2,7 +2,7 @@
  * Live policy resolution: before executing, the backend resolves the agent's
  * ENSv2 name and reads its onchain policy + World ID binding.
  *
- * Read path (verified 2026-09-25 from contracts-v2 @ 97a57293):
+ * Read path (verified 2026-09-25 from contracts-v2 @ sepolia-deployment-2026-09-15):
  *  - PRIMARY: UniversalResolverV2.resolve(dnsEncodedName, data) where data =
  *    encodeFunctionData(text, [namehash(name), key]). Returns (bytes result,
  *    address resolver); result is the ABI-encoded return of the inner call.

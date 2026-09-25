@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-	encodeAbiParameters,
 	encodeFunctionData,
 	keccak256,
 	namehash,
@@ -16,7 +15,6 @@ import {
 	hasRole,
 	resolverResource,
 	revokeRoles,
-	textPart,
 	textRecordResource,
 } from '../src/ensv2/roles.ts'
 import { dnsEncode } from '../src/ensv2/resolver.ts'
@@ -50,22 +48,21 @@ describe('canonical registry roles (RegistryRolesLib)', () => {
 })
 
 describe('canonical resolver roles (PermissionedResolverLib)', () => {
-	test('SET_TEXT is nybble 1 (1 << 4)', () => {
+	test('SET_TEXT is bit 4 (1 << 4)', () => {
 		expect(RESOLVER_ROLES.SET_TEXT).toBe(1n << 4n)
 	})
-	test('resource(node, part) = keccak256(abi.encode(node, part))', () => {
-		const node = namehash('clanker.suwappu.eth')
-		const part = textPart('suwappu.policy')
-		const expected = BigInt(keccak256(encodeAbiParameters([{ type: 'bytes32' }, { type: 'bytes32' }], [node, part])))
-		expect(resolverResource(node, part)).toBe(expected)
-		expect(textRecordResource(node, 'suwappu.policy')).toBe(expected)
+	test('SET_NAME moved to bit 20, SET_DATA to bit 24, SET_ABI to bit 12', () => {
+		expect(RESOLVER_ROLES.SET_NAME).toBe(1n << 20n)
+		expect(RESOLVER_ROLES.SET_DATA).toBe(1n << 24n)
+		expect(RESOLVER_ROLES.SET_ABI).toBe(1n << 12n)
 	})
-	test('textPart(key) = keccak256(bytes(key))', () => {
-		expect(textPart('avatar')).toBe(keccak256(Buffer.from('avatar', 'utf8')))
+	test('resource(key) = uint256(keccak256(bytes(key))) — key-scoped', () => {
+		const expected = BigInt(keccak256(Buffer.from('suwappu.policy', 'utf8')))
+		expect(resolverResource('suwappu.policy')).toBe(expected)
+		expect(textRecordResource('suwappu.policy')).toBe(expected)
 	})
 	test('different keys map to different resources', () => {
-		const node = namehash('clanker.suwappu.eth')
-		expect(textRecordResource(node, 'suwappu.policy')).not.toBe(textRecordResource(node, 'avatar'))
+		expect(textRecordResource('suwappu.policy')).not.toBe(textRecordResource('avatar'))
 	})
 })
 
@@ -83,7 +80,7 @@ describe('agent authorization invariant', () => {
 	test('empty agent root grant is safe; anything else throws', () => {
 		assertAgentRootGrantSafe(0n)
 		expect(() => assertAgentRootGrantSafe(adminOf(RESOLVER_ROLES.SET_TEXT))).toThrow('SECURITY')
-		expect(() => assertAgentRootGrantSafe(RESOLVER_ROLES.CLEAR)).toThrow('SECURITY')
+		expect(() => assertAgentRootGrantSafe(RESOLVER_ROLES.UPGRADE)).toThrow('SECURITY')
 		expect(() => assertAgentRootGrantSafe(RESOLVER_ROLES.SET_TEXT)).toThrow('SECURITY')
 	})
 })
@@ -101,26 +98,27 @@ describe('dnsEncode', () => {
 })
 
 describe('calldata encoding matches canonical ABIs', () => {
-	const node = namehash('clanker.suwappu.eth')
-
 	test('setText selector matches canonical signature', () => {
-		const sel = toFunctionSelector('setText(bytes32,string,string)')
-		const encoded = encodeSetText(node, TEXT_KEYS.policy, '{"maxTxUsd":50}')
+		const sel = toFunctionSelector('setText(bytes,string,string)')
+		const encoded = encodeSetText('clanker.suwappu.eth', TEXT_KEYS.policy, '{"maxTxUsd":50}')
 		expect(encoded.slice(0, 10)).toBe(sel)
 		// cross-check full encoding via viem directly
 		const expected = encodeFunctionData({
-			abi: [{ type: 'function', name: 'setText', stateMutability: 'nonpayable', inputs: [{ name: 'node', type: 'bytes32' }, { name: 'key', type: 'string' }, { name: 'value', type: 'string' }], outputs: [] }],
+			abi: [{ type: 'function', name: 'setText', stateMutability: 'nonpayable', inputs: [{ name: 'name', type: 'bytes' }, { name: 'key', type: 'string' }, { name: 'value', type: 'string' }], outputs: [] }],
 			functionName: 'setText',
-			args: [node, TEXT_KEYS.policy, '{"maxTxUsd":50}'],
+			args: [dnsEncode('clanker.suwappu.eth'), TEXT_KEYS.policy, '{"maxTxUsd":50}'],
 		})
 		expect(encoded).toBe(expected)
 	})
 
 	test('initialize selector matches canonical signature', () => {
-		const sel = toFunctionSelector('initialize(address,uint256,bytes[])')
+		const sel = toFunctionSelector('initialize((address,uint256)[],bytes[])')
 		const admin = '0x1111111111111111111111111111111111111111' as const
-		const setters = [encodeSetText(node, TEXT_KEYS.policy, '{}')]
-		const encoded = encodeResolverInit(admin, adminOf(RESOLVER_ROLES.SET_TEXT), setters)
+		const calls = [encodeSetText('clanker.suwappu.eth', TEXT_KEYS.policy, '{}')]
+		const encoded = encodeResolverInit(
+			[{ account: admin, roleBitmap: adminOf(RESOLVER_ROLES.SET_TEXT) }],
+			calls,
+		)
 		expect(encoded.slice(0, 10)).toBe(sel)
 	})
 
@@ -128,7 +126,7 @@ describe('calldata encoding matches canonical ABIs', () => {
 		// IEnhancedAccessControl: grantRoles(uint256 resource, uint256 roleBitmap, address account).
 		// PermissionedRegistry overrides the first param as `anyId` and maps it
 		// to the resource internally — positional order is unchanged.
-		const anyId = BigInt(node)
+		const anyId = BigInt(namehash('clanker.suwappu.eth'))
 		const bitmap = REGISTRY_ROLES.SET_RESOLVER
 		const account = '0x2222222222222222222222222222222222222222' as const
 		const encoded = encodeFunctionData({

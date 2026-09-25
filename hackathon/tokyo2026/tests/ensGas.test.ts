@@ -2,15 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { decodeFunctionData, toFunctionSelector } from 'viem'
 import { AGENT_WRITABLE_KEYS } from '../src/ensv2/addresses.ts'
 import { dnsEncode } from '../src/ensv2/resolver.ts'
-import { encodeAuthorizeTextRoles, encodeMulticall } from '../src/ensv2/register.ts'
+import { encodeGrantSetterRoles, encodeMulticall } from '../src/ensv2/register.ts'
 
 const AGENT = '0x3333333333333333333333333333333333333333' as const
 const NAME = 'clanker.suwappu.eth'
 
 describe('gas: authorize batching', () => {
-	test('authorizeTextRoles selector matches canonical signature', () => {
-		const sel = toFunctionSelector('authorizeTextRoles(bytes,string,address,bool)')
-		expect(encodeAuthorizeTextRoles(NAME, 'avatar', AGENT, true).slice(0, 10)).toBe(sel)
+	test('grantSetterRoles selector matches canonical signature', () => {
+		const sel = toFunctionSelector('grantSetterRoles(bytes,address)')
+		expect(encodeGrantSetterRoles(NAME, 'avatar', AGENT).slice(0, 10)).toBe(sel)
 	})
 
 	test('multicall selector matches IMulticallable', () => {
@@ -19,7 +19,7 @@ describe('gas: authorize batching', () => {
 	})
 
 	test('all agent keys batch into one multicall with correct args', () => {
-		const calls = AGENT_WRITABLE_KEYS.map((k) => encodeAuthorizeTextRoles(NAME, k, AGENT, true))
+		const calls = AGENT_WRITABLE_KEYS.map((k) => encodeGrantSetterRoles(NAME, k, AGENT))
 		expect(calls.length).toBe(AGENT_WRITABLE_KEYS.length)
 
 		const batched = encodeMulticall(calls)
@@ -38,36 +38,50 @@ describe('gas: authorize batching', () => {
 		const inner = (decoded.args as [`0x${string}`[]])[0]
 		expect(inner.length).toBe(calls.length)
 
-		// each inner call decodes back to (dnsName, key, account, true)
+		// each inner call decodes back to (setter, account); the setter is an
+		// encoded setText(dnsName, key, "") — the grant is key-scoped onchain
 		const seenKeys = new Set<string>()
 		for (const call of inner) {
 			const d = decodeFunctionData({
 				abi: [
 					{
 						type: 'function',
-						name: 'authorizeTextRoles',
+						name: 'grantSetterRoles',
 						inputs: [
-							{ name: 'toName', type: 'bytes' },
-							{ name: 'key', type: 'string' },
+							{ name: 'setter', type: 'bytes' },
 							{ name: 'account', type: 'address' },
-							{ name: 'grant', type: 'bool' },
 						],
 						outputs: [],
 					},
 				],
 				data: call,
 			})
-			const [toName, key, account, grant] = d.args as [`0x${string}`, string, string, boolean]
-			expect(toName).toBe(dnsEncode(NAME))
+			const [setter, account] = d.args as [`0x${string}`, string]
+			const s = decodeFunctionData({
+				abi: [
+					{
+						type: 'function',
+						name: 'setText',
+						inputs: [
+							{ name: 'name', type: 'bytes' },
+							{ name: 'key', type: 'string' },
+							{ name: 'value', type: 'string' },
+						],
+						outputs: [],
+					},
+				],
+				data: setter,
+			})
+			const [dnsName, key] = s.args as [`0x${string}`, string, string]
+			expect(dnsName).toBe(dnsEncode(NAME))
 			expect(account.toLowerCase()).toBe(AGENT.toLowerCase())
-			expect(grant).toBe(true)
 			seenKeys.add(key)
 		}
 		expect(seenKeys).toEqual(new Set(AGENT_WRITABLE_KEYS))
 	})
 
 	test('policy key is never in the batch (defense in depth)', () => {
-		const calls = AGENT_WRITABLE_KEYS.map((k) => encodeAuthorizeTextRoles(NAME, k, AGENT, true))
+		const calls = AGENT_WRITABLE_KEYS.map((k) => encodeGrantSetterRoles(NAME, k, AGENT))
 		const joined = calls.join('').toLowerCase()
 		// "suwappu.policy" must not appear in any batched calldata
 		expect(joined).not.toContain(Buffer.from('suwappu.policy').toString('hex'))
