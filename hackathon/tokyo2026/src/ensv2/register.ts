@@ -4,20 +4,13 @@
  * All ABIs verified 2026-09-25 against contracts-v2 @ 97a57293f3b4279d94b571e678edb53ce62638f4
  * (primary sources: contracts/src + auto-generated deployments/sepolia docs).
  *
- * Setup ceremony (see ENSV2_SETUP.md for the ordered runbook):
- *  1. Owner registers `suwappu.eth` via ETHRegistrar (commit → wait → register,
- *     paying MockUSDC). Registration auto-grants the owner
- *     ROLE_SET_SUBREGISTRY/ROLE_SET_RESOLVER (+admins) on the .eth registry.
- *  2. Owner deploys the agent's resolver proxy via
- *     VerifiableFactory.deployProxy(permissionedResolverImpl, salt,
- *     initialize(admin, roleBitmap, setters)) — setters atomically write the
- *     initial `suwappu.policy` record at deploy time.
- *  3. Owner creates `<agent>.suwappu.eth` on suwappu.eth's registry via
- *     register(label, owner, subregistry, resolver, roleBitmap, expiry).
- *  4. Owner calls authorizeTextRoles(dnsName, key, agentKey, true) ONLY for
- *     metadata keys (avatar, description, suwappu.agent-version). The agent
- *     key can never obtain ROLE_SET_TEXT for `suwappu.policy` → onchain
- *     revert if it tries (EACUnauthorizedAccountRoles).
+ * Setup ceremony (see ENSV2_SETUP.md for the ordered runbook). Gas-optimized:
+ * per-agent setup is 3 transactions total —
+ *  1. `deployProxy` (resolver + initial policy records atomically via initialize setters),
+ *  2. `register` on suwappu.eth's registry (resolver set inline, no separate setResolver),
+ *  3. ONE `multicall` batching all `authorizeTextRoles` grants (not one tx per key,
+ *     and not in initialize setters — those run with msg.sender = the factory).
+ * Read path (resolver.ts) is pure eth_call: zero gas.
  */
 import {
 	createPublicClient,
@@ -97,6 +90,13 @@ const RESOLVER_ADMIN_ABI = [
 			{ name: 'grant', type: 'bool' },
 		],
 		outputs: [{ name: '', type: 'bool' }],
+	},
+	{
+		type: 'function',
+		name: 'multicall',
+		stateMutability: 'nonpayable',
+		inputs: [{ name: 'calls', type: 'bytes[]' }],
+		outputs: [{ name: 'results', type: 'bytes[]' }],
 	},
 ] as const
 
@@ -265,6 +265,29 @@ export function encodeSetText(node: `0x${string}`, key: string, value: string): 
 	})
 }
 
+/** Encode an authorizeTextRoles(toName, key, account, grant) call (for multicall batching). */
+export function encodeAuthorizeTextRoles(
+	name: string,
+	key: string,
+	account: Address,
+	grant: boolean,
+): `0x${string}` {
+	return encodeFunctionData({
+		abi: RESOLVER_ADMIN_ABI,
+		functionName: 'authorizeTextRoles',
+		args: [dnsEncode(name), key, account, grant],
+	})
+}
+
+/** Encode a multicall(calls) batch. */
+export function encodeMulticall(calls: `0x${string}`[]): `0x${string}` {
+	return encodeFunctionData({
+		abi: RESOLVER_ADMIN_ABI,
+		functionName: 'multicall',
+		args: [calls],
+	})
+}
+
 /**
  * Step 1: deploy the agent's PermissionedResolver proxy via the VerifiableFactory.
  * The initial policy record is written atomically inside initialize() via setters.
@@ -335,30 +358,100 @@ export async function registerAgentSubname(
 }
 
 /**
- * Step 3: authorize the agent key for metadata keys ONLY.
+ * Step 3: authorize the agent key for metadata keys ONLY — batched into a
+ * SINGLE transaction via the resolver's multicall() (verified:
+ * `multicall(bytes[])` delegatecalls each call and reverts on first failure).
+ * One tx instead of one per key: saves ~21k base gas per key and the
+ * round-trips. Cannot be folded into initialize() setters: those run with
+ * msg.sender = the factory, which holds no admin roles.
+ *
  * The policy key is never authorized → setText(node, "suwappu.policy") from
  * the agent key reverts onchain (EACUnauthorizedAccountRoles).
  */
 export async function authorizeAgentKeys(
 	clients: Ensv2Clients,
 	opts: { name: string; resolver: Address; agentKey: Address; keys?: readonly string[] },
-): Promise<Hash[]> {
+): Promise<Hash> {
 	const keys = opts.keys ?? AGENT_WRITABLE_KEYS
 	assertAgentKeysSafe(keys, TEXT_KEYS.policy)
-	const txs: Hash[] = []
-	for (const key of keys) {
-		const tx = await clients.wallet.writeContract({
-			address: opts.resolver,
-			abi: RESOLVER_ADMIN_ABI,
-			functionName: 'authorizeTextRoles',
-			args: [dnsEncode(opts.name), key, opts.agentKey, true],
+	const calls = keys.map((key) => encodeAuthorizeTextRoles(opts.name, key, opts.agentKey, true))
+	const tx = await clients.wallet.writeContract({
+		address: opts.resolver,
+		abi: RESOLVER_ADMIN_ABI,
+		functionName: 'multicall',
+		args: [calls],
+		account: clients.account,
+		chain: sepolia,
+	})
+	await clients.public.waitForTransactionReceipt({ hash: tx })
+	return tx
+}
+
+/**
+ * Estimate the gas for the full per-agent setup (deploy + register +
+ * authorize-multicall) so the owner can fund precisely. Read-only.
+ */
+export async function estimateAgentSetupGas(
+	clients: Ensv2Clients,
+	opts: {
+		name: string
+		policy: AgentPolicy
+		adminRoleBitmap: bigint
+		agentLabel: string
+		parentRegistry: Address
+		agentKey: Address
+		salt?: bigint
+	},
+): Promise<{ deploy: bigint; register: bigint; authorize: bigint; total: bigint }> {
+	const node = namehash(opts.name)
+	const setters = [
+		encodeSetText(node, TEXT_KEYS.policy, JSON.stringify(opts.policy)),
+		encodeSetText(node, TEXT_KEYS.version, String(opts.policy.version)),
+	]
+	const initData = encodeResolverInit(clients.account, opts.adminRoleBitmap, setters)
+	// Predict the proxy address to estimate the later steps against it.
+	const { result: proxy } = await clients.public.simulateContract({
+		address: ENSV2_SEPOLIA.verifiableFactory,
+		abi: FACTORY_ABI,
+		functionName: 'deployProxy',
+		args: [ENSV2_SEPOLIA.permissionedResolverImpl, opts.salt ?? 0n, initData],
+		account: clients.account,
+	})
+	const expiry = BigInt(Math.floor(Date.now() / 1000) + 365 * 86400)
+	const calls = AGENT_WRITABLE_KEYS.map((key) =>
+		encodeAuthorizeTextRoles(opts.name, key, opts.agentKey, true),
+	)
+	const [deploy, register, authorize] = await Promise.all([
+		clients.public.estimateContractGas({
+			address: ENSV2_SEPOLIA.verifiableFactory,
+			abi: FACTORY_ABI,
+			functionName: 'deployProxy',
+			args: [ENSV2_SEPOLIA.permissionedResolverImpl, opts.salt ?? 0n, initData],
 			account: clients.account,
-			chain: sepolia,
-		})
-		txs.push(tx)
-	}
-	for (const h of txs) await clients.public.waitForTransactionReceipt({ hash: h })
-	return txs
+		}),
+		clients.public.estimateContractGas({
+			address: opts.parentRegistry,
+			abi: PARENT_REGISTRY_ABI,
+			functionName: 'register',
+			args: [
+				opts.agentLabel,
+				clients.account,
+				'0x0000000000000000000000000000000000000000',
+				proxy,
+				0n,
+				expiry,
+			],
+			account: clients.account,
+		}),
+		clients.public.estimateContractGas({
+			address: proxy,
+			abi: RESOLVER_ADMIN_ABI,
+			functionName: 'multicall',
+			args: [calls],
+			account: clients.account,
+		}),
+	])
+	return { deploy, register, authorize, total: deploy + register + authorize }
 }
 
 /**

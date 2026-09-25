@@ -69,7 +69,13 @@ register(string label, address owner, address registry, address resolver,
 
 ## Step 3 — Authorize the agent key for metadata ONLY (owner only, per agent)
 
-`authorizeAgentKeys()` calls, on the agent's resolver proxy:
+`authorizeAgentKeys()` batches all grants into **one** transaction via the
+resolver's `multicall(bytes[])` (verified: delegatecalls each call, reverts
+on first failure). One tx instead of one per key — saves ~21k base gas per
+key plus the round-trips. Not folded into `initialize()` setters: those run
+with `msg.sender` = the factory, which holds no admin roles.
+
+Each batched call is:
 
 ```
 authorizeTextRoles(bytes toName, string key, address account, bool grant) → bool
@@ -78,6 +84,9 @@ authorizeTextRoles(bytes toName, string key, address account, bool grant) → bo
 with `toName = dnsEncode("<agent>.suwappu.eth")`, `account = AGENT_KEY`,
 for each key in `AGENT_WRITABLE_KEYS` (`avatar`, `description`,
 `agent-version`).
+
+**Total per-agent setup: 3 transactions** (deploy → register → authorize-batch).
+Use `estimateAgentSetupGas()` to quote the exact cost before funding.
 
 **The policy key is never authorized.** `assertAgentKeysSafe()` rejects any
 `suwappu.*` key at the client layer; onchain, the fine-grained text resource
