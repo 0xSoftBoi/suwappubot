@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
-import { trustLayerEnabled } from './hackathon/env'
+import { initHackathonEnv, trustLayerEnabled } from './hackathon/env'
 import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
@@ -21,6 +21,12 @@ async function main() {
 			return yield* EnvService
 		}),
 	)
+
+	// Seed the hackathon trust-layer flag snapshot from the decoded
+	// EnvService value, before any request can read it. The snapshot is
+	// process-lifetime config; request-path gates read it without spinning
+	// the Effect runtime.
+	initHackathonEnv(env)
 
 	// Initialize Sentry as early as possible — before app/route construction,
 	// so any error during startup or the first request is captured. No-op

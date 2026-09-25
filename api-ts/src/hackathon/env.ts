@@ -4,10 +4,16 @@
  * Config source: the EnvService SCHEMA (src/config/EnvService.ts) — the
  * single source of truth for env validation and defaults. Because these
  * flags are read on the hot money path (plain async functions, not Effect
- * generators), they resolve from a lazily-decoded process-wide snapshot
- * rather than spinning the Effect runtime per request: the values are
- * fixed for the life of the process, exactly like EnvServiceLive's own
- * memoized decode. No raw process.env reads anywhere here.
+ * generators), they resolve from a process-wide snapshot rather than
+ * spinning the Effect runtime per request: the values are fixed for the
+ * life of the process, exactly like EnvServiceLive's own memoized decode.
+ *
+ * Seeding: src/index.ts seeds the snapshot from the already-decoded
+ * EnvService value at boot, before the server accepts requests. The lazy
+ * fallback below (decoding process.env through EnvSchema) only runs in
+ * contexts that never boot the server — tests, scripts — and goes through
+ * the same validation and defaults. Production request paths never read
+ * process.env directly here.
  *
  * Everything is additive and OFF by default: with no env vars set, the
  * only runtime cost is a boolean check per call site. The master flag
@@ -22,11 +28,18 @@ import { Schema } from '@effect/schema'
 import { EnvSchema, type Env } from '../config/EnvService'
 
 /**
- * Lazily-decoded, process-wide snapshot of the validated env. Decoded once
- * (first flag read) through EnvSchema — same validation and defaults the
- * boot path gets from EnvServiceLive.
+ * Process-wide snapshot of the validated env. Seeded at boot from the
+ * decoded EnvService value (see src/index.ts); lazily decoded from
+ * process.env through EnvSchema on first use only when never seeded
+ * (tests / scripts that don't boot the server).
  */
 let snapshot: Env | undefined
+
+/** Seed the snapshot. Called once at boot from the EnvService value. */
+export function initHackathonEnv(env: Env): void {
+	snapshot = env
+}
+
 export function hackathonEnv(): Env {
 	if (!snapshot) snapshot = Schema.decodeUnknownSync(EnvSchema)(process.env)
 	return snapshot
