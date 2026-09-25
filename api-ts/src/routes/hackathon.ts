@@ -20,8 +20,7 @@ import { Hono } from 'hono'
 import { isInterceptaConfigured } from '../../../hackathon/tokyo2026/src/intercepta/client'
 import { isTradingApiConfigured } from '../../../hackathon/tokyo2026/src/uniswap/tradingApi'
 import { logger } from '../lib/logger'
-import { interceptaEnabled, trustLayerEnabled } from '../hackathon/env'
-import { resolveHackathonEnv } from '../hackathon/gates'
+import { interceptaEnabled, hackathonEnv, trustLayerEnabled } from '../hackathon/env'
 import {
 	awaitWorldIdGate,
 	startWorldIdGate,
@@ -31,22 +30,22 @@ import {
 
 export const hackathonRoutes = new Hono()
 
-hackathonRoutes.get('/status', async (c) => {
-	const env = await resolveHackathonEnv()
+hackathonRoutes.get('/status', (c) => {
+	const env = hackathonEnv()
 	return c.json({
-		trustLayer: env ? trustLayerEnabled(env) : false,
+		trustLayer: trustLayerEnabled(env),
 		providers: {
-			worldId: env ? worldIdReady(env) : false,
-			intercepta: (env ? interceptaEnabled(env) : false) && isInterceptaConfigured(),
+			worldId: worldIdReady(env),
+			intercepta: interceptaEnabled(env) && isInterceptaConfigured(),
 			uniswap: isTradingApiConfigured(),
-			ensv2: Boolean(env?.SEPOLIA_RPC_URL),
+			ensv2: Boolean(env.SEPOLIA_RPC_URL),
 		},
 	})
 })
 
 hackathonRoutes.post('/world-id/start', async (c) => {
-	const env = await resolveHackathonEnv()
-	if (!env || !worldIdReady(env)) {
+	const env = hackathonEnv()
+	if (!worldIdReady(env)) {
 		return c.json({ error: 'World ID not configured — set WORLD_APP_ID / WORLD_RP_ID / RP_SIGNING_KEY' }, 503)
 	}
 	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
@@ -83,8 +82,8 @@ hackathonRoutes.post('/world-id/start', async (c) => {
 })
 
 hackathonRoutes.post('/world-id/verify', async (c) => {
-	const env = await resolveHackathonEnv()
-	if (!env || !worldIdReady(env)) {
+	const env = hackathonEnv()
+	if (!worldIdReady(env)) {
 		return c.json({ error: 'World ID not configured' }, 503)
 	}
 	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null

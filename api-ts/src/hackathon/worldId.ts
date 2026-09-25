@@ -23,7 +23,7 @@ import {
 	type PendingVerification,
 	type TradeIntent,
 } from '../../../hackathon/tokyo2026/src/world-id/guardianGate'
-import { worldIdEnabled } from './env'
+import { worldIdEnabled, hackathonEnv } from './env'
 import type { Env } from '../config/EnvService'
 
 export type { TradeIntent }
@@ -33,7 +33,7 @@ const nullifierStore = new MemoryNullifierStore()
  * needs this in Redis/DB keyed by signal. */
 const pending = new Map<string, PendingVerification>()
 
-export function worldIdReady(env: Env): boolean {
+export function worldIdReady(env: Env = hackathonEnv()): boolean {
 	return worldIdEnabled(env) && isWorldIdConfigured()
 }
 

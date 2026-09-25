@@ -34,35 +34,13 @@ import type {
 } from '../services/PolicyService'
 import { writeAuditLog } from '../services/audit'
 import { logger } from '../lib/logger'
-import { Effect, Either } from 'effect'
-import { EnvService, type Env } from '../config/EnvService'
-import { runEffectEither } from '../runtime'
-import { ensv2Enabled, interceptaEnabled, trustLayerEnabled } from './env'
+import type { Env } from '../config/EnvService'
+import { ensv2Enabled, hackathonEnv, interceptaEnabled, trustLayerEnabled } from './env'
 
 export interface TrustGateInput {
 	policyIntent: PolicyIntent
 	agentIdentifier: string
 	orgId: string | null
-}
-
-/**
- * Resolve the decoded EnvService config. Null when the runtime can't provide
- * it — callers treat that as "layer unavailable" and fail open per the
- * failure discipline below. Accepts an injected Env (tests) to avoid
- * coupling flag logic to the Effect runtime.
- */
-export async function resolveHackathonEnv(injected?: Env): Promise<Env | null> {
-	if (injected) return injected
-	const r = await runEffectEither(
-		Effect.gen(function* () {
-			return yield* EnvService
-		}),
-	)
-	if (Either.isLeft(r)) {
-		logger.warn('[hackathon] EnvService unavailable — trust layer failing open')
-		return null
-	}
-	return r.right
 }
 
 const RANK: Record<PolicyVerdict, number> = { allow: 0, require_approval: 1, block: 2 }
@@ -75,10 +53,9 @@ const RANK: Record<PolicyVerdict, number> = { allow: 0, require_approval: 1, blo
 export async function applyTrustLayerGates(
 	input: TrustGateInput,
 	base: PolicyDecisionResult,
-	injectedEnv?: Env,
+	env: Env = hackathonEnv(),
 ): Promise<PolicyDecisionResult> {
-	const env = await resolveHackathonEnv(injectedEnv)
-	if (!env || !trustLayerEnabled(env)) return base
+	if (!trustLayerEnabled(env)) return base
 	// Policy already blocked — nothing to escalate, and policy stays primary.
 	if (base.decision === 'block') return base
 
@@ -190,10 +167,9 @@ function resolveAgentName(agentIdentifier: string, env: Env): string | null {
  */
 export async function screenX402Payer(
 	sender: string | undefined,
-	injectedEnv?: Env,
+	env: Env = hackathonEnv(),
 ): Promise<string | null> {
-	const env = await resolveHackathonEnv(injectedEnv)
-	if (!env || !interceptaEnabled(env) || !isInterceptaConfigured() || !sender) return null
+	if (!interceptaEnabled(env) || !isInterceptaConfigured() || !sender) return null
 	try {
 		const cfg = loadInterceptaConfig()
 		const scan = await scanAddress(cfg, sender)
