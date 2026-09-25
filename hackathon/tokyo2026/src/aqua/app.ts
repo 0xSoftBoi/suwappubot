@@ -40,7 +40,17 @@ const swapVM = new SwapVMContract(new SvmAddress(SWAPVM_ROUTER_SEPOLIA))
 
 /**
  * Build a concentrated-liquidity XYC AMM program.
- * Prices are P = tokenGt/tokenLt in 1e18 fixed point.
+ *
+ * Price semantics (from SDK source): P = tokenGt/tokenLt in 1e18 fixed point,
+ * where tokenGt/tokenLt are by ADDRESS ordering. Critically, P is in RAW
+ * token units — for tokens with different decimals, convert:
+ *   P_raw = (human price) * 10^(decLt - decGt)
+ * Example: 1 WETH (18 dec) = 2000 USDC (6 dec) → P_raw = 2000 * 10^(6-18) = 2e-9,
+ *   which as 1e18 fixed point is 2e9 (not 2000e18).
+ * The shipped amounts must also balance with the range per the concentrated
+ * liquidity formula, or quotes revert / fill at distorted prices.
+ * Verified end-to-end on a Sepolia fork: ship → virtual balances → quote →
+ * swap → dock all execute against the real registry + previous SwapVM router.
  */
 export function buildXycProgram(opts: {
 	rawPriceMin: bigint
