@@ -103,6 +103,31 @@ export function stopAgentCleanup() {}
 // agent.metadata.wallet_address. A caller-supplied `wallet_address` used as the
 // swap sender must match it — otherwise an agent could build a fund-moving tx from
 // an arbitrary/victim address.
+//
+// SECURITY: These metadata keys are reserved for server-side wallet provisioning
+// (POST /v1/agent/wallets). They must NEVER be settable via PATCH /v1/agent/me,
+// otherwise any agent can claim ownership of an arbitrary address and bypass
+// checkEvmWalletOwnership. See sanitizeUserMetadata below.
+const RESERVED_METADATA_KEYS = new Set([
+	'wallet_address',
+	'wallet_sub_org_id',
+	'wallet_id',
+	'internal_user_id',
+	'internal_wallet_id',
+	'turnkey_wallet_id',
+	'turnkey_sub_org_id',
+])
+/** Strip server-reserved keys from user-supplied metadata. Returns a new object. */
+function sanitizeUserMetadata(
+	metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+	if (!metadata) return metadata
+	const clean: Record<string, unknown> = {}
+	for (const [k, v] of Object.entries(metadata)) {
+		if (!RESERVED_METADATA_KEYS.has(k)) clean[k] = v
+	}
+	return clean
+}
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 function isEvmAddress(addr: unknown): addr is string {
 	return typeof addr === 'string' && EVM_ADDRESS_RE.test(addr)
@@ -609,7 +634,9 @@ agentRoutes.patch('/me', async (c) => {
 			return yield* agentService.updateAgent(agent.id, {
 				description,
 				callbackUrl: callback_url,
-				metadata,
+				// Strip server-reserved wallet keys: agents must not be able to
+				// claim ownership of arbitrary addresses via metadata.
+				metadata: sanitizeUserMetadata(metadata),
 			})
 		}),
 	)
