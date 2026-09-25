@@ -1,11 +1,13 @@
 {
   "dependencies": {
+    "@1inch/aqua-sdk": "0.3.4",
+    "@1inch/swap-vm-sdk": "0.4.4",
     "@worldcoin/agentkit": "0.2.0",
     "@worldcoin/idkit-core": "4.2.2",
     "viem": "2.55.10",
     "zod": "^4.3.6"
   },
-  "description": "ETHGlobal Tokyo 2026 \u2014 Suwappu agent trust layer: World ID-gated execution, Intercepta screening, ENSv2 agent identity, Uniswap routing.",
+  "description": "ETHGlobal Tokyo 2026 — Suwappu agent trust layer: World ID-gated execution, Intercepta screening, ENSv2 agent identity, Uniswap routing.",
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.6.0"
