@@ -193,7 +193,9 @@ export default function PassportPageClient() {
                 {!started && (
                   <div className={styles.specimenWrap}>
                     <PassportCard agentName="your-agent.suwappu-agents.eth" specimen />
-                    <span className={styles.specimenLabel}>Your agent&rsquo;s passport</span>
+                    {/* The card already carries "Your agent's passport"; this
+                        marks the specimen as a preview, not a live claim. */}
+                    <span className={styles.specimenLabel}>Preview — yours appears here</span>
                   </div>
                 )}
 
@@ -226,7 +228,11 @@ export default function PassportPageClient() {
 
         <HowItWorks />
 
-        <ProofStrip evidence={evidence} evidenceUnavailable={evidenceUnavailable} />
+        <ProofStrip
+          evidence={evidence}
+          evidenceUnavailable={evidenceUnavailable}
+          humanVerified={humanDone}
+        />
 
         <TechnicalDetails
           status={status}

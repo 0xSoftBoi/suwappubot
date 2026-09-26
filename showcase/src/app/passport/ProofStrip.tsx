@@ -26,9 +26,11 @@ function openTechnicalDetails() {
 export default function ProofStrip({
   evidence,
   evidenceUnavailable,
+  humanVerified,
 }: {
   evidence: Evidence | null;
   evidenceUnavailable: boolean;
+  humanVerified: boolean;
 }) {
   if (evidenceUnavailable) {
     return (
@@ -44,13 +46,19 @@ export default function ProofStrip({
   const ensLanded =
     !!evidence?.ens?.sample?.resolvedAddress || receiptOk(evidence?.receipts, evidence?.ens?.sample?.txHash);
   const swapHash = evidence?.uniswap?.swapTx;
-  const swapLanded = receiptOk(evidence?.receipts, swapHash) || (!!swapHash && !evidence?.receipts);
-  const humanLanded = !!evidence; // reaching this component at all implies the evidence fetch succeeded
+  // Only a confirmed receipt counts — missing receipts are "unknown", not success.
+  const swapLanded = receiptOk(evidence?.receipts, swapHash);
 
+  // The human check is the visitor's own: it lands only when THEY verify on
+  // this page. Evidence existing says nothing about whether you're human.
   const checks = [
-    { id: 'human', label: 'Human verified', ok: humanLanded },
+    {
+      id: 'human',
+      label: humanVerified ? 'You’re verified' : 'Your human check — pending',
+      ok: humanVerified,
+    },
     { id: 'name', label: 'Agent name issued', ok: ensLanded },
-    { id: 'gate', label: 'Trade gate wired', ok: swapLanded },
+    { id: 'gate', label: 'Trade gate deployed', ok: swapLanded },
   ];
   const confirmed = checks.filter((c) => c.ok).length;
 
