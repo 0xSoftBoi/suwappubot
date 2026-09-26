@@ -24,6 +24,7 @@ export default function AmbientOrb({ state }: { state: OrbState }) {
         <span className={styles.orbLayer} />
         <span className={styles.orbLayer} />
         <span className={styles.orbCore} />
+        <span className={styles.orbSheen} />
       </div>
     </div>
   );
