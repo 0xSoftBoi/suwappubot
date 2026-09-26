@@ -114,7 +114,7 @@ export interface PendingVerification {
 	 * completed proof to `verifyTradeProof`. Kept opaque here so the polling
 	 * loop stays in one place.
 	 */
-	_poll: () => Promise<unknown>
+	_poll: (signal?: AbortSignal) => Promise<unknown>
 }
 
 function buildRequest(cfg: WorldIdConfig, signal: string, action: string) {
@@ -150,10 +150,11 @@ export async function startTradeVerification(
 		intent,
 		signal,
 		startedAt: new Date(),
-		_poll: async () => {
+		_poll: async (signal?: AbortSignal) => {
 			const completed = await request.pollUntilCompletion({
 				pollInterval: 2000,
 				timeout: 5 * 60 * 1000,
+				signal,
 			})
 			return completed
 		},
@@ -180,10 +181,11 @@ export async function awaitAndVerifyTradeApproval(
 	pending: PendingVerification,
 	store: NullifierStore,
 	action: string = cfg.action,
+	abortSignal?: AbortSignal,
 ): Promise<VerifyResult> {
 	let completed: unknown
 	try {
-		completed = await pending._poll()
+		completed = await pending._poll(abortSignal)
 	} catch (e) {
 		return { ok: false, reason: `verification not completed: ${(e as Error).message}` }
 	}

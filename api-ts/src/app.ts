@@ -15,6 +15,7 @@ import {
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
+import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -171,6 +172,12 @@ export function createApp(config: AppConfig) {
 	// public API. The spec generator only derives from src/routes/validators.ts,
 	// so exclusion holds by construction — do not add hackathon schemas there.
 	if (config.hackathonTrustLayer) {
+		// Demo-only surface, but it shares the process with money routes —
+		// same defense pattern as /mcp: a loose floor on the whole router plus
+		// a tight budget on the one endpoint that spawns background work.
+		app.use('/hackathon/*', bodyLimit({ maxSize: 4 * 1024 }))
+		app.use('/hackathon/*', ipRateLimit(30))
+		app.use('/hackathon/world-id/start', ipRateLimit(5))
 		app.route('/hackathon', hackathonRoutes)
 	}
 
