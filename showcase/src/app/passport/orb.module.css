@@ -1,0 +1,33 @@
+/* Living orb — GL canvas + CSS fallback share this stage. */
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas {
+  position: absolute;
+  inset: -60%;
+  width: 220%;
+  height: 220%;
+  display: block;
+}
+
+/* Static fallback: no WebGL, or prefers-reduced-motion. Single frame,
+   same palette family as the shader (persimmon/amber core, warm rose
+   mid, cream highlight), no hard edge. */
+.fallback {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 38% 32%, rgba(255, 246, 232, 0.9), transparent 32%),
+    radial-gradient(circle at 50% 50%, var(--sw-accent-bright), var(--sw-accent) 45%, var(--sw-accent-deep) 72%, transparent 100%);
+  box-shadow: 0 0 60px 10px color-mix(in srgb, var(--sw-accent) 35%, transparent);
+}
+.fallback[data-state='error'] {
+  filter: grayscale(0.7) brightness(0.75);
+}
+.fallback[data-state='success'] {
+  filter: saturate(1.2) brightness(1.08);
+}
