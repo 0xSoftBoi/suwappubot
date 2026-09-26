@@ -486,6 +486,93 @@
   100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
 }
 
+/* ── Wallet row ── */
+.walletRow {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.walletInput {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+}
+.walletBtn {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.walletBtn:hover { background: rgba(255, 255, 255, 0.1); }
+
+/* ── Beats ── */
+.beat {
+  width: 100%;
+  border-radius: 20px;
+  padding: 24px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 48px -20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+.beatKicker {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(244, 244, 246, 0.5);
+}
+.beatTitle {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  color: #fff;
+  margin: 0;
+}
+
+.banner {
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.banner[data-tone='blocked'] {
+  background: rgba(240, 120, 120, 0.1);
+  border: 1px solid rgba(240, 120, 120, 0.28);
+  color: #f3b7b3;
+}
+.banner[data-tone='success'] {
+  background: color-mix(in srgb, var(--sw-accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sw-accent) 40%, transparent);
+  color: rgba(244, 244, 246, 0.94);
+}
+.banner[data-tone='pending'] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(244, 244, 246, 0.8);
+}
+.bannerTitle { font-weight: 700; }
+.bannerTitle[data-tone='blocked'] { color: #f7cfcc; }
+
 /* ── Copy field ── */
 .copyField { display: inline-flex; align-items: center; gap: 6px; }
 .copyFieldCode,

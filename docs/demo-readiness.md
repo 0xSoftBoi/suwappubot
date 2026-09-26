@@ -61,6 +61,17 @@ preset, whereas the only run that ever verified used `orbLegacy` with `allow_leg
 Second hazard seen: `/hackathon/world-id/verify` blocks server-side for up to 300 s while Cloudflare cuts the client off at ~100 s (524).
 Any demo UI that waits on that call will time out if the human takes more than ~90 s to scan.
 
+### Passport v2 (per-wallet, real on-chain effects) — shipped 2026-09-26 evening
+Judge flow on https://suwappu.bot/passport: (1) try a swap for an unverified wallet → hook reverts `SwapperNotVerified` (simulated, 0 gas);
+(2) scan World ID QR (action `suwappu-passport`, signal `passport:<wallet>`) → server mints `<wallet[2:10]>.suwappu-agents.eth` and calls
+`setWorldIdVerified(wallet,true)` on the hook (two real Sepolia txs by relayer 0x2386…); (3) swap again → executed through the hook, tx link.
+Passport state is read from chain (`GET /hackathon/passport/:wallet`), so it survives restarts; only pending polls and tx hashes are in memory
+(single replica). Same human re-scanning gets `status: existing` (one human, one passport).
+**Rollback**: set `HACKATHON_TRUST_LAYER=false` on api-ts (page degrades to "not enabled"), or redeploy api-ts `9c623226` / showcase previous green.
+**Relayer gas**: 0.0237 Sepolia ETH at 22:50 UTC ≈ 20 passports; top up before demo day.
+**Open question for the operator**: prod is `WORLD_ENV=staging` and the actions are registered on staging — real phones produce production
+proofs. If judges scan with their own World App, register `suwappu-passport` in production, set `WORLD_ENV=production`, and re-prove with a phone.
+
 ## BLOCKERS (must decide / act before the demo)
 
 | # | Finding | Evidence | Fix |
