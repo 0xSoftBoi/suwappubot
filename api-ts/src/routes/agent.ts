@@ -137,6 +137,21 @@ function getAgentWalletAddress(agent: Agent): string | undefined {
 	return typeof addr === 'string' ? addr : undefined
 }
 /** True only if `addr` is a valid EVM address matching the agent's managed wallet. */
+/**
+ * True when an EVM quote's tx was built for `wallet` as both sender and recipient.
+ * A quote requested without wallet_address is built for the placeholder 0x...0001
+ * and Li.Fi's recipient defaults to it — handing that tx to a self-signing wallet
+ * would send the swap output to an unrecoverable address. Shared by POST /swap
+ * and the MCP execute_swap tool.
+ */
+export function quoteBoundToWallet(quote: SwapQuote, wallet: string): boolean {
+	const want = wallet.toLowerCase()
+	const action = quote._rawQuote?.action
+	const txFrom = (quote.transactionRequest?.from || action?.fromAddress || '').toLowerCase()
+	const txTo = (action?.toAddress || action?.fromAddress || '').toLowerCase()
+	return txFrom === want && txTo === want
+}
+
 export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	if (!isEvmAddress(addr)) return false
 	const owned = getAgentWalletAddress(agent)
@@ -1058,11 +1073,7 @@ async function buildSwapTxResponse(
 	if (!isEvmAddress(walletAddress)) {
 		return agentError(c, 400, 'VALIDATION_ERROR', 'wallet_address must be a valid EVM address')
 	}
-	const want = walletAddress.toLowerCase()
-	const action = evmQuote._rawQuote?.action
-	const txFrom = (evmQuote.transactionRequest?.from || action?.fromAddress || '').toLowerCase()
-	const txTo = (action?.toAddress || action?.fromAddress || '').toLowerCase()
-	if (txFrom !== want || txTo !== want) {
+	if (!quoteBoundToWallet(evmQuote, walletAddress)) {
 		return agentError(
 			c,
 			400,
