@@ -85,8 +85,8 @@ export interface AgentServiceInterface {
 	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
 
 	/**
-	 * Atomically merge `patch` into metadata only if `key` is currently unset.
-	 * Returns false (nothing written) when the key is already present.
+	 * Atomically merge `patch` into metadata only if `key` is currently unset
+	 * (missing or JSON null). Returns false (nothing written) otherwise.
 	 */
 	readonly mergeMetadataIfAbsent: (
 		agentId: number,
@@ -381,7 +381,7 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 							metadata: sql`coalesce(${agents.metadata}::jsonb, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
 							updatedAt: new Date(),
 						})
-						.where(and(eq(agents.id, agentId), sql`not coalesce(${agents.metadata}::jsonb ? ${key}, false)`))
+						.where(and(eq(agents.id, agentId), sql`(${agents.metadata}::jsonb ->> ${key}) is null`))
 						.returning({ id: agents.id }),
 				catch: (e) => new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
 			})
