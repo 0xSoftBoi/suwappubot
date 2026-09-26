@@ -123,6 +123,43 @@ async function main() {
 		console.log('[SKIP] (d) POST /v1/agent/link/code — SMOKE_AGENT_API_KEY not set')
 	}
 
+	// (e) POST /hackathon/passport/start — random wallet, expect a QR connectorURI
+	const randomWallet = () =>
+		'0x' + Array.from({ length: 40 }, () => Math.floor(Math.random() * 16).toString(16)).join('')
+	try {
+		const wallet = randomWallet()
+		const res = await fetch(`${base}/hackathon/passport/start`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ wallet }),
+		})
+		const body = (await res.json().catch(() => null)) as { connectorURI?: string; signal?: string } | null
+		const ok =
+			res.status === 200 &&
+			typeof body?.connectorURI === 'string' &&
+			body.connectorURI.startsWith('https://') &&
+			typeof body?.signal === 'string'
+		report('(e) POST /hackathon/passport/start', ok, body)
+	} catch (e) {
+		report('(e) POST /hackathon/passport/start', false, String(e))
+	}
+
+	// (f) POST /hackathon/passport/swap — fresh unverified wallet, expect a
+	// synchronous 'blocked' with reason SwapperNotVerified (simulate-only, no gas).
+	try {
+		const wallet = randomWallet()
+		const res = await fetch(`${base}/hackathon/passport/swap`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ wallet }),
+		})
+		const body = (await res.json().catch(() => null)) as { status?: string; reason?: string } | null
+		const ok = res.status === 200 && body?.status === 'blocked' && body?.reason === 'SwapperNotVerified'
+		report('(f) POST /hackathon/passport/swap (unverified)', ok, body)
+	} catch (e) {
+		report('(f) POST /hackathon/passport/swap (unverified)', false, String(e))
+	}
+
 	console.log(failed ? '\nSMOKE: FAILED' : '\nSMOKE: ALL PASS')
 	process.exit(failed ? 1 : 0)
 }

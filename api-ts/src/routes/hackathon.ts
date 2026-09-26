@@ -36,6 +36,14 @@ import {
 	type TradeIntent,
 } from '../hackathon/worldId'
 import { getEvidence } from '../hackathon/tokyo2026/evidence'
+import {
+	getPassport,
+	getSwapJob,
+	isValidWallet,
+	pollPassportGate,
+	startPassportGate,
+	startPassportSwap,
+} from '../hackathon/passport'
 
 export const hackathonRoutes = new Hono()
 
@@ -120,6 +128,96 @@ hackathonRoutes.post('/world-id/verify', async (c) => {
 			return c.json(res, 200)
 		}
 		await new Promise((r) => setTimeout(r, VERIFY_POLL_INTERVAL_MS))
+	}
+})
+
+// -----------------------------------------------------------------------
+// Agent Swap Passport (see api-ts/src/hackathon/passport.ts): server-driven
+// World ID gate → idempotent ENS mint + hook allowlist → gated Sepolia swap.
+// Same non-blocking start/verify polling contract as /world-id/*.
+// -----------------------------------------------------------------------
+
+function parseWallet(body: unknown): string | null {
+	const wallet = (body as Record<string, unknown> | null)?.['wallet']
+	if (!isValidWallet(wallet)) return null
+	return (wallet as string).toLowerCase()
+}
+
+hackathonRoutes.post('/passport/start', async (c) => {
+	const env = hackathonEnv()
+	if (!worldIdReady(env)) {
+		return c.json({ error: 'World ID not configured' }, 503)
+	}
+	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+	const wallet = parseWallet(body)
+	if (!wallet) return c.json({ error: 'missing or invalid field: wallet (0x + 40 hex chars)' }, 400)
+	try {
+		const { connectorURI, signal } = await startPassportGate(wallet)
+		return c.json({
+			connectorURI,
+			signal,
+			simulatorUrl: 'https://simulator.worldcoin.org/?uri=' + encodeURIComponent(connectorURI),
+		})
+	} catch (e) {
+		logger.warn('[hackathon] passport start failed: %s', String(e))
+		return c.json({ error: 'failed to start passport verification' }, 502)
+	}
+})
+
+const PASSPORT_VERIFY_POLL_BUDGET_MS = 25_000
+const PASSPORT_VERIFY_POLL_INTERVAL_MS = 1_000
+
+hackathonRoutes.post('/passport/verify', async (c) => {
+	const env = hackathonEnv()
+	if (!worldIdReady(env)) {
+		return c.json({ error: 'World ID not configured' }, 503)
+	}
+	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+	const signal = typeof body?.['signal'] === 'string' ? (body['signal'] as string) : null
+	if (!signal) return c.json({ error: 'missing required field: signal' }, 400)
+
+	const deadline = Date.now() + PASSPORT_VERIFY_POLL_BUDGET_MS
+	for (;;) {
+		const res = pollPassportGate(signal)
+		if (res.status !== 'pending' && res.status !== 'provisioning') {
+			return c.json(res, 200)
+		}
+		if (Date.now() >= deadline) {
+			return c.json(res, 200)
+		}
+		await new Promise((r) => setTimeout(r, PASSPORT_VERIFY_POLL_INTERVAL_MS))
+	}
+})
+
+hackathonRoutes.post('/passport/swap', async (c) => {
+	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
+	const wallet = parseWallet(body)
+	if (!wallet) return c.json({ error: 'missing or invalid field: wallet (0x + 40 hex chars)' }, 400)
+	try {
+		const result = await startPassportSwap(wallet)
+		return c.json(result, result.status === 'blocked' ? 200 : 202)
+	} catch (e) {
+		logger.warn('[hackathon] passport swap failed: %s', String(e))
+		return c.json({ error: 'failed to start passport swap' }, 502)
+	}
+})
+
+hackathonRoutes.get('/passport/swap/:jobId', (c) => {
+	const jobId = c.req.param('jobId')
+	return c.json(getSwapJob(jobId))
+})
+
+hackathonRoutes.get('/passport/:wallet', async (c) => {
+	const wallet = c.req.param('wallet')
+	if (!isValidWallet(wallet)) {
+		return c.json({ error: 'invalid wallet (0x + 40 hex chars)' }, 400)
+	}
+	try {
+		const record = await getPassport(wallet.toLowerCase())
+		return c.json(record)
+	} catch (e) {
+		logger.warn('[hackathon] passport read failed: %s', String(e))
+		return c.json({ error: 'passport temporarily unavailable' }, 502)
 	}
 })
 

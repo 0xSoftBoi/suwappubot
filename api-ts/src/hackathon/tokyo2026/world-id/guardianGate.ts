@@ -117,7 +117,18 @@ export interface PendingVerification {
 	_poll: () => Promise<unknown>
 }
 
-function buildRequest(cfg: WorldIdConfig, signal: string, action: string) {
+/** Lean pending-verification shape shared by trade intents and any other
+ * signal-bound verification (e.g. the passport gate) — only what
+ * `awaitAndVerifyTradeApproval` actually needs. */
+export interface PendingProof {
+	requestId: string
+	connectorURI: string
+	signal: string
+	startedAt: Date
+	_poll: () => Promise<unknown>
+}
+
+export function buildRequest(cfg: WorldIdConfig, signal: string, action: string) {
 	return IDKit.request({
 		app_id: cfg.appId,
 		action,
@@ -143,11 +154,25 @@ export async function startTradeVerification(
 	action: string = cfg.action,
 ): Promise<PendingVerification> {
 	const signal = hashIntent(intent)
+	const pending = await startVerification(cfg, signal, action)
+	return { ...pending, intent }
+}
+
+/**
+ * Generic signal-bound verification start, for flows that aren't a
+ * TradeIntent (e.g. the passport gate, which binds to `passport:<wallet>`
+ * rather than a hashed trade). Same request semantics as
+ * `startTradeVerification` minus the intent field.
+ */
+export async function startVerification(
+	cfg: WorldIdConfig,
+	signal: string,
+	action: string,
+): Promise<PendingProof> {
 	const request = await buildRequest(cfg, signal, action)
 	return {
 		requestId: request.requestId,
 		connectorURI: request.connectorURI,
-		intent,
 		signal,
 		startedAt: new Date(),
 		_poll: async () => {
@@ -177,7 +202,7 @@ export interface VerifyResult {
  */
 export async function awaitAndVerifyTradeApproval(
 	cfg: WorldIdConfig,
-	pending: PendingVerification,
+	pending: PendingProof,
 	store: NullifierStore,
 	action: string = cfg.action,
 ): Promise<VerifyResult> {
@@ -283,7 +308,10 @@ export async function verifyTradeProof(
 		return { ok: false, reason: `nullifier rejected: ${(e as Error).message}` }
 	}
 	if (!consumed) {
-		return { ok: false, reason: REPLAY_REJECTED_REASON }
+		// Include the nullifier even on replay-rejection — callers that map one
+		// human to one durable record (e.g. the passport gate) need it to look
+		// up the existing record instead of erroring on a repeated scan.
+		return { ok: false, reason: REPLAY_REJECTED_REASON, nullifier: data.nullifier }
 	}
 	return { ok: true, nullifier: data.nullifier }
 }
