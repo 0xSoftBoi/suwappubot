@@ -212,36 +212,52 @@ class WalletService:
 
         rpc_manager.invalidate(chain_name)
 
-    async def _evm_rpc_call(self, chain_name: str, method: str, params: list, timeout: float = 3.5):
-        """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking."""
+    async def _evm_rpc_call(
+        self,
+        chain_name: str,
+        method: str,
+        params: list,
+        timeout: float = 3.5,
+        max_attempts: int = 3,
+    ):
+        """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking.
+
+        Fails over across up to ``max_attempts`` distinct endpoints: a single
+        rate-limited (429) or dead endpoint must not make the call fail when
+        other healthy endpoints exist for the chain.
+        """
         # Skip the network entirely when every endpoint for this chain is
         # circuit-open: firing a doomed request just opens a socket against a
         # known-dead RPC. Raising here (before any session is created) lets the
         # circuit cool down instead of being hammered every call.
         if rpc_manager.chain_all_circuits_open(chain_name):
             raise ConnectionError("all_circuits_open")
-        url = rpc_manager.get_rpc_url(chain_name)
+        first = rpc_manager.get_rpc_url(chain_name)
+        urls = [first] + [u for u in rpc_manager.get_healthy_urls(chain_name) if u != first]
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
-        t0 = time.monotonic()
-        try:
-            async with self._http_session() as session:
-                async with session.post(
-                    url,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
-                ) as resp:
-                    if resp.status == 429:
-                        raise ConnectionError("rate_limited_429")
-                    if resp.status != 200:
-                        raise ConnectionError(f"http_{resp.status}")
-                    data = await resp.json()
-                    if "error" in data:
-                        raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
-                    rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
-                    return data.get("result")
-        except Exception as e:
-            rpc_manager.report_failure(chain_name, url, str(e)[:80])
-            raise
+        last_error: Exception | None = None
+        async with self._http_session() as session:
+            for url in urls[:max_attempts]:
+                t0 = time.monotonic()
+                try:
+                    async with session.post(
+                        url,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                    ) as resp:
+                        if resp.status == 429:
+                            raise ConnectionError("rate_limited_429")
+                        if resp.status != 200:
+                            raise ConnectionError(f"http_{resp.status}")
+                        data = await resp.json()
+                        if "error" in data:
+                            raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
+                        rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
+                        return data.get("result")
+                except Exception as e:
+                    rpc_manager.report_failure(chain_name, url, str(e)[:80])
+                    last_error = e
+        raise last_error or ConnectionError(f"no_rpc_endpoints:{chain_name}")
 
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
@@ -820,15 +836,19 @@ class WalletService:
         chain_name: str,
         token_symbol: str,
         address: str,
+        strict: bool = False,
     ) -> float:
-        """Get ERC20 token balance via direct aiohttp JSON-RPC (no executor)."""
+        """Get ERC20 token balance via direct aiohttp JSON-RPC (no executor).
+
+        strict=True raises BalanceUnavailableError instead of returning 0.0.
+        """
         token_address = get_token_address(token_symbol, chain_name)
         if not token_address:
             return 0.0
 
         # Skip zero/null addresses (native tokens listed as 0x000...0)
         if token_address.replace("0x", "").strip("0") == "":
-            return await self.get_evm_native_balance(chain_name, address)
+            return await self.get_evm_native_balance(chain_name, address, strict=strict)
 
         # ABI-encode balanceOf(address): selector + 32-byte padded address
         selector = "70a08231"
@@ -843,15 +863,28 @@ class WalletService:
                 [{"to": checksum_contract, "data": data}, "latest"],
             )
             if not result or not str(result).startswith("0x"):
+                if strict:
+                    raise BalanceUnavailableError(f"empty balanceOf result on {chain_name}")
                 return 0.0
             balance_raw = int(result, 16)
             decimals = get_token_decimals(token_symbol, chain_name)
             return balance_raw / (10**decimals)
-        except Exception:
+        except BalanceUnavailableError:
+            raise
+        except Exception as e:
+            if strict:
+                raise BalanceUnavailableError(f"{chain_name} RPC unavailable: {e}") from e
             return 0.0
 
-    async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
-        """Get native token balance (ETH, BNB, etc.) via direct aiohttp JSON-RPC."""
+    async def get_evm_native_balance(
+        self, chain_name: str, address: str, strict: bool = False
+    ) -> float:
+        """Get native token balance (ETH, BNB, etc.) via direct aiohttp JSON-RPC.
+
+        strict=True raises BalanceUnavailableError when the balance can't be read,
+        instead of reporting 0.0 (which pre-trade checks would misreport as an
+        insufficient balance).
+        """
         # Tempo has no native gas token — skip entirely.
         if chain_name == "tempo":
             return 0.0
@@ -868,9 +901,15 @@ class WalletService:
                 [checksum, "latest"],
             )
             if not result or not str(result).startswith("0x"):
+                if strict:
+                    raise BalanceUnavailableError(f"empty eth_getBalance result on {chain_name}")
                 return 0.0
             return int(result, 16) / (10**chain.native_decimals)
-        except Exception:
+        except BalanceUnavailableError:
+            raise
+        except Exception as e:
+            if strict:
+                raise BalanceUnavailableError(f"{chain_name} RPC unavailable: {e}") from e
             return 0.0
 
     async def _solana_rpc_post(
@@ -2085,6 +2124,10 @@ class WalletService:
         tx.sign([keypair])
 
         return bytes(tx)
+
+
+class BalanceUnavailableError(Exception):
+    """A balance could not be read (RPC failure) — distinct from a zero balance."""
 
 
 class InvalidTransactionError(ValueError):
