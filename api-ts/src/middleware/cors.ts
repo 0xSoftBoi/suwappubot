@@ -7,13 +7,22 @@ export function isCorsOriginAllowed(origin: string, allowedOrigins: string, isPr
 	return !isProduction && /^http:\/\/localhost(:\d+)?$/.test(origin)
 }
 
+/**
+ * ETHGlobal Tokyo 2026 demo: the showcase page at suwappu.bot/passport calls
+ * /hackathon/* directly from the browser. Scoped to that path prefix only —
+ * does not change CORS behavior for any other route.
+ */
+const HACKATHON_ORIGINS = ['https://suwappu.bot', 'https://www.suwappu.bot', 'http://localhost:3000']
+
 export function createCorsMiddleware(allowedOrigins: string) {
 	const isProduction = process.env.NODE_ENV === 'production'
 
 	return cors({
-		origin: (origin) => {
+		origin: (origin, c) => {
 			if (!origin) return '*'
-			return isCorsOriginAllowed(origin, allowedOrigins, isProduction) ? origin : null
+			if (isCorsOriginAllowed(origin, allowedOrigins, isProduction)) return origin
+			if (c.req.path.startsWith('/hackathon/') && HACKATHON_ORIGINS.includes(origin)) return origin
+			return null
 		},
 		// The webapp/terminal SPA calls with fetch(credentials:'include'), so the
 		// browser requires Access-Control-Allow-Credentials: true or it blocks every

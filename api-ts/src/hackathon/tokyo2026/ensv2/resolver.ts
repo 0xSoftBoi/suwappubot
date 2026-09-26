@@ -142,6 +142,25 @@ export function createEnsv2PublicClient(rpcUrl: string): PublicClient {
 	return createPublicClient({ chain: sepolia, transport: http(rpcUrl) })
 }
 
+/** Resolve just the `addr` record for a name via UniversalResolverV2. Returns
+ * null on any resolution failure (unset record, revert, RPC error). */
+export async function resolveAddress(client: PublicClient, name: string): Promise<Address | null> {
+	try {
+		const node = namehash(name)
+		const [result] = await client.readContract({
+			address: ENSV2_SEPOLIA.universalResolverV2,
+			abi: UNIVERSAL_RESOLVER_ABI,
+			functionName: 'resolve',
+			args: [dnsEncode(name), encodeFunctionData({ abi: ADDR_READ_ABI, functionName: 'addr', args: [node] })],
+		})
+		const addr = decodeFunctionResult({ abi: ADDR_READ_ABI, functionName: 'addr', data: result }) as Address
+		if (addr === '0x0000000000000000000000000000000000000000') return null
+		return addr
+	} catch {
+		return null
+	}
+}
+
 /**
  * Resolve an agent subname and enforce its policy against a proposed trade.
  * Returns a block reason when the trade violates the onchain caps, or null
