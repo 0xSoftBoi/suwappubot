@@ -29,6 +29,7 @@ import {
 	createWalletClient,
 	http,
 	isAddress,
+	namehash,
 	type Hex,
 	type PublicClient,
 	type WalletClient,
@@ -37,7 +38,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { sepolia } from 'viem/chains'
 import { hackathonEnv } from '../env'
 import { mintAgentSubname, type EnsSubnameConfig } from '../../lib/ensSubname'
-import { resolveAddress } from './ensv2/resolver'
+import { resolveAddressWithResolver } from './ensv2/resolver'
 import { logger } from '../../lib/logger'
 
 const HOOK_ADDRESS = '0xc72ab4dFd3d6B2C1b3af51816EA8331599e6c080' as const
@@ -45,6 +46,32 @@ const POOL_SWAP_TEST_ADDRESS = '0x9B6b46e2c869aa39918Db7f52f5557FE577B6eEe' as c
 const TOKEN_A = '0x4408c29d4dc2653a3dce5dade8227927bc33f656' as const
 const TOKEN_B = '0xcb2e4e474dfc367687a98f731c7e3261c975c382' as const
 const PARENT_NAME = 'suwappu-agents.eth'
+
+// PassportResolver — hackathon-scope owned resolver (see contracts-hackathon
+// PassportResolver.sol). PublicResolverV2's setAddr() authorization is
+// NameWrapper-based and can never be satisfied by ENSv2 registry names, so
+// ENS_RESOLVER_ADDRESS is expected to point at PassportResolver for names
+// minted after this fix; setAddr is only ever attempted when the name's
+// registered resolver matches ENS_RESOLVER_ADDRESS (see provisionPassport).
+const RESOLVER_ABI = [
+	{
+		type: 'function',
+		name: 'setAddr',
+		stateMutability: 'nonpayable',
+		inputs: [
+			{ name: 'node', type: 'bytes32' },
+			{ name: 'a', type: 'address' },
+		],
+		outputs: [],
+	},
+	{
+		type: 'function',
+		name: 'addr',
+		stateMutability: 'view',
+		inputs: [{ name: 'node', type: 'bytes32' }],
+		outputs: [{ type: 'address' }],
+	},
+] as const
 
 const HOOK_ABI = [
 	{
@@ -200,6 +227,9 @@ export interface PassportReadResult {
 	ensName: string
 	ensResolvesToWallet: boolean
 	hookAllowlisted: boolean
+	/** Resolver address registered for `ensName`, when cheaply readable via
+	 * UniversalResolverV2 (omitted on resolution failure). */
+	resolver?: string
 }
 
 /**
@@ -212,7 +242,7 @@ export async function readPassport(wallet: string): Promise<PassportReadResult> 
 	const client = publicClient()
 
 	const [resolved, allowlisted] = await Promise.all([
-		resolveAddress(client, ensName).catch(() => null),
+		resolveAddressWithResolver(client, ensName).catch(() => ({ address: null, resolver: null })),
 		client
 			.readContract({ address: HOOK_ADDRESS, abi: HOOK_ABI, functionName: 'isWorldIdVerified', args: [wallet as Hex] })
 			.catch(() => false),
@@ -222,13 +252,14 @@ export async function readPassport(wallet: string): Promise<PassportReadResult> 
 		wallet,
 		label,
 		ensName,
-		ensResolvesToWallet: Boolean(resolved && resolved.toLowerCase() === wallet.toLowerCase()),
+		ensResolvesToWallet: Boolean(resolved.address && resolved.address.toLowerCase() === wallet.toLowerCase()),
 		hookAllowlisted: Boolean(allowlisted),
+		...(resolved.resolver ? { resolver: resolved.resolver } : {}),
 	}
 }
 
 export interface ProvisionResult {
-	ens: { name: string; txHash: string | null; existing: boolean }
+	ens: { name: string; txHash: string | null; existing: boolean; addrTx: string | null }
 	hook: { allowlistTx: string | null; existing: boolean }
 }
 
@@ -236,6 +267,14 @@ export interface ProvisionResult {
  * Idempotent provisioning: mint the ENS subname and/or flip the hook
  * allowlist only if not already done. Safe to call repeatedly (e.g. on
  * nullifier replay / restart-then-retry).
+ *
+ * When the name is freshly minted, or already exists but doesn't resolve to
+ * the wallet AND its registered resolver is our owned PassportResolver
+ * (ENS_RESOLVER_ADDRESS), also calls setAddr(node, wallet) on the resolver
+ * from the minter wallet — the actual fix that makes the name resolve. Names
+ * still pointed at the old PublicResolverV2 (minted before this fix) can't
+ * be repaired this way: only the name owner can change a name's resolver,
+ * and the minter isn't that owner.
  */
 export async function provisionPassport(wallet: string): Promise<ProvisionResult> {
 	const label = passportLabel(wallet)
@@ -251,6 +290,39 @@ export async function provisionPassport(wallet: string): Promise<ProvisionResult
 			throw new Error(res.error ?? 'ens_mint_failed')
 		}
 		ensTxHash = res.txHash ?? null
+	}
+
+	let addrTx: string | null = null
+	const env = hackathonEnv()
+	const resolverAddress = env.ENS_RESOLVER_ADDRESS
+	const usesOwnedResolver =
+		!ensExisting || (before.resolver && before.resolver.toLowerCase() === resolverAddress?.toLowerCase())
+	if (usesOwnedResolver && resolverAddress && isAddress(resolverAddress)) {
+		try {
+			const node = namehash(ensName)
+			const client = publicClient()
+			const current = await client
+				.readContract({ address: resolverAddress as Hex, abi: RESOLVER_ABI, functionName: 'addr', args: [node] })
+				.catch(() => '0x0000000000000000000000000000000000000000' as Hex)
+			if (current.toLowerCase() !== wallet.toLowerCase()) {
+				const wc = walletClient()
+				const account = minterAccount()
+				const { request } = await client.simulateContract({
+					address: resolverAddress as Hex,
+					abi: RESOLVER_ABI,
+					functionName: 'setAddr',
+					args: [node, wallet as Hex],
+					account,
+				})
+				const txHash = await wc.writeContract(request)
+				await client.waitForTransactionReceipt({ hash: txHash })
+				addrTx = txHash
+			}
+		} catch (e) {
+			// setAddr is a nice-to-have identity-resolution fix, never a gate —
+			// mirrors the module's fail-open-on-non-critical-writes stance.
+			logger.warn('[hackathon] passport setAddr failed for %s (%s): %s', wallet, ensName, String(e))
+		}
 	}
 
 	let allowlistTx: string | null = null
@@ -272,7 +344,7 @@ export async function provisionPassport(wallet: string): Promise<ProvisionResult
 	}
 
 	return {
-		ens: { name: ensName, txHash: ensTxHash, existing: ensExisting },
+		ens: { name: ensName, txHash: ensTxHash, existing: ensExisting, addrTx },
 		hook: { allowlistTx, existing: hookExisting },
 	}
 }

@@ -137,7 +137,7 @@ export async function startPassportGate(wallet: string): Promise<{ connectorURI:
 						status: 'existing',
 						wallet: existingWallet,
 						nullifier: res.nullifier,
-						ens: { name: state.ensName, txHash: null, existing: state.ensResolvesToWallet },
+						ens: { name: state.ensName, txHash: null, existing: state.ensResolvesToWallet, addrTx: null },
 						hook: { allowlistTx: null, existing: state.hookAllowlisted },
 					})
 				} catch (e) {
@@ -228,11 +228,17 @@ export function getSwapJob(jobId: string): SwapJob {
 	return entry.job
 }
 
-/** GET /passport/:wallet — chain reads merged with in-memory tx history. */
+/** GET /passport/:wallet — chain reads merged with in-memory tx history, plus
+ * the ens/hook tx objects from the verify step when the gate for this wallet
+ * is still cached (the page reads ens.txHash / hook.allowlistTx off this). */
 export async function getPassport(wallet: string) {
 	const state = await readPassport(wallet)
+	const gate = pollPassportGate(passportSignal(wallet))
+	const gateTxs =
+		gate.status === 'ready' || gate.status === 'existing' ? { ens: gate.ens, hook: gate.hook } : {}
 	return {
 		...state,
+		...gateTxs,
 		swaps: swapHistory.get(wallet.toLowerCase()) ?? [],
 		explorer: 'https://sepolia.etherscan.io/tx/',
 	}
