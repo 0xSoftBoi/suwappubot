@@ -101,7 +101,11 @@ async function backfillOne(agent: Pick<typeof agents.$inferSelect, 'id' | 'uuid'
 	if (p.address.toLowerCase() !== address.toLowerCase()) {
 		return ['error', `provision returned address ${p.address}, expected ${address}`]
 	}
-	if (md.internal_user_id === p.internal_user_id && md.internal_wallet_id === p.internal_wallet_id) {
+	if (
+		md.internal_user_id === p.internal_user_id &&
+		md.internal_wallet_id === p.internal_wallet_id &&
+		md.turnkey_wallet_id === walletId
+	) {
 		return ['already-ok', current]
 	}
 
@@ -112,6 +116,7 @@ async function backfillOne(agent: Pick<typeof agents.$inferSelect, 'id' | 'uuid'
 			metadata: sql`coalesce(${agents.metadata}::jsonb, '{}'::jsonb) || ${JSON.stringify({
 				internal_user_id: p.internal_user_id,
 				internal_wallet_id: p.internal_wallet_id,
+				turnkey_wallet_id: walletId, // lets POST /wallets re-provision later
 			})}::jsonb`,
 			updatedAt: new Date(),
 		})

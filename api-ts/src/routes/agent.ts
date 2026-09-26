@@ -2441,13 +2441,75 @@ function existingWalletResponse(c: Context<AgentContext>, address: string) {
 	)
 }
 
+// Register the agent's Turnkey wallet with python-api for /swap/execute signing.
+// Idempotent on the python side; null if python-api is unconfigured or fails.
+function provisionInternalWallet(
+	env: { INTERNAL_API_KEY?: string | undefined; INTERNAL_API_URL?: string | undefined },
+	agentUuid: string,
+	wallet: { walletId: string; subOrgId: string; address: string },
+) {
+	if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) return Effect.succeed(null)
+	return Effect.tryPromise({
+		try: async () => {
+			const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Internal-Key': env.INTERNAL_API_KEY!,
+				},
+				body: JSON.stringify({
+					agent_uuid: agentUuid,
+					chain_type: 'evm',
+					turnkey_wallet_id: wallet.walletId,
+					turnkey_sub_org_id: wallet.subOrgId,
+					address: wallet.address,
+				}),
+				signal: AbortSignal.timeout(15_000),
+			})
+			if (res.ok) {
+				return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
+			}
+			return null
+		},
+		catch: () => null, // Non-fatal
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)))
+}
+
 agentRoutes.post('/wallets', async (c) => {
 	const agent = c.get('agent')
 
 	// Idempotent: a second call must not mint a new wallet and overwrite
 	// wallet_address — that strands any funds sent to the first one.
-	const existingAddress = (agent.metadata as Record<string, unknown> | null)?.wallet_address
-	if (typeof existingAddress === 'string') return existingWalletResponse(c, existingAddress)
+	const md = (agent.metadata as Record<string, unknown> | null) ?? {}
+	if (typeof md.wallet_address === 'string') {
+		const address = md.wallet_address
+		// Repair: if python provisioning failed when the wallet was created, the
+		// internal_* ids are null and /swap/execute can't sign. Re-provision the
+		// same Turnkey wallet (idempotent) instead of leaving the agent stuck.
+		if (
+			(md.internal_user_id == null || md.internal_wallet_id == null) &&
+			typeof md.turnkey_wallet_id === 'string' &&
+			typeof md.wallet_sub_org_id === 'string'
+		) {
+			const walletId = md.turnkey_wallet_id
+			const subOrgId = md.wallet_sub_org_id
+			await runEffectEither(
+				Effect.gen(function* () {
+					const env = yield* EnvService
+					const provisioned = yield* provisionInternalWallet(env, agent.uuid, { walletId, subOrgId, address })
+					if (!provisioned) return
+					const agentService = yield* AgentService
+					yield* agentService.updateAgent(agent.id, {
+						mergeMetadata: {
+							internal_user_id: provisioned.internal_user_id,
+							internal_wallet_id: provisioned.internal_wallet_id,
+						},
+					})
+				}),
+			)
+		}
+		return existingWalletResponse(c, address)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -2463,36 +2525,10 @@ agentRoutes.post('/wallets', async (c) => {
 			let internalUserId: number | undefined
 			let internalWalletId: number | undefined
 
-			if (env.INTERNAL_API_KEY && env.INTERNAL_API_URL) {
-				const provisionResult = yield* Effect.tryPromise({
-					try: async () => {
-						const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								'X-Internal-Key': env.INTERNAL_API_KEY!,
-							},
-							body: JSON.stringify({
-								agent_uuid: agent.uuid,
-								chain_type: 'evm',
-								turnkey_wallet_id: wallet.walletId,
-								turnkey_sub_org_id: wallet.subOrgId,
-								address: wallet.address,
-							}),
-							signal: AbortSignal.timeout(15_000),
-						})
-						if (res.ok) {
-							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
-						}
-						return null
-					},
-					catch: () => null, // Non-fatal
-				}).pipe(Effect.catchAll(() => Effect.succeed(null)))
-
-				if (provisionResult) {
-					internalUserId = provisionResult.internal_user_id
-					internalWalletId = provisionResult.internal_wallet_id
-				}
+			const provisioned = yield* provisionInternalWallet(env, agent.uuid, wallet)
+			if (provisioned) {
+				internalUserId = provisioned.internal_user_id
+				internalWalletId = provisioned.internal_wallet_id
 			}
 
 			// Store wallet address in agent metadata
@@ -2503,6 +2539,7 @@ agentRoutes.post('/wallets', async (c) => {
 			const claimed = yield* agentService.mergeMetadataIfAbsent(agent.id, 'wallet_address', {
 				wallet_address: wallet.address,
 				wallet_sub_org_id: wallet.subOrgId,
+				turnkey_wallet_id: wallet.walletId,
 				// Always write: if provisioning failed, a stale internal_* pair from an
 				// earlier wallet would sign with a different wallet than wallet_address.
 				internal_user_id: internalUserId ?? null,

@@ -1772,6 +1772,10 @@ class WalletService:
         Returns:
             Signed transaction hex string
         """
+        # Checked before routing so neither Turnkey, its local fallback, nor local
+        # signing can produce an unprotected (pre-EIP-155, replayable) transaction.
+        require_evm_chain_id(transaction)
+
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_evm_with_fallback
 
@@ -2082,6 +2086,29 @@ class WalletService:
         return bytes(tx)
 
 
+def _to_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        return int(value, 16) if value.lower().startswith("0x") else int(value)
+    return int(value)
+
+
+def _tx_type(tx: dict) -> int | None:
+    return _to_int(tx.get("type"))
+
+
+def require_evm_chain_id(transaction: dict) -> int:
+    """Return chainId as an int; raise if missing or zero (would be replayable)."""
+    try:
+        chain_id = _to_int(transaction.get("chainId"))
+    except (TypeError, ValueError):
+        chain_id = None
+    if not chain_id:
+        raise ValueError("Refusing to sign EVM transaction without a valid chainId")
+    return chain_id
+
+
 def serialize_unsigned_evm_tx(transaction: dict) -> str:
     """Unsigned serialized EVM tx (hex) for Turnkey TRANSACTION_TYPE_ETHEREUM.
 
@@ -2101,15 +2128,22 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
     from eth_account.typed_transactions import TypedTransaction
     from toolz import dissoc
 
-    if transaction.get("chainId") in (None, "", 0, "0x0"):
-        raise ValueError("Refusing to sign EVM transaction without chainId")
+    chain_id = require_evm_chain_id(transaction)
 
     tx = dissoc(transaction, "from")
-    is_typed = "maxFeePerGas" in tx or tx.get("type") not in (None, 0, "0x0", "0x00")
+    tx["chainId"] = chain_id
+    if "input" in tx and "data" not in tx:
+        tx["data"] = tx.pop("input")
+    if _tx_type(tx) == 0:
+        tx.pop("type", None)  # eth_account rejects an explicit legacy type 0
+    is_typed = "maxFeePerGas" in tx or _tx_type(tx) is not None
     if not is_typed:
-        # Preserve the historical defaults for optional legacy fields.
-        tx = {"nonce": 0, "gas": 21000, "value": 0, "data": "0x", **tx}
-        tx.setdefault("gasPrice", 0)
+        # Preserve the historical defaults for optional legacy fields (None too).
+        for key, default in (("nonce", 0), ("gas", 21000), ("value", 0), ("data", "0x")):
+            if tx.get(key) is None:
+                tx[key] = default
+        if tx.get("gasPrice") is None:
+            tx["gasPrice"] = 0
         if not tx.get("to"):
             tx.pop("to", None)
     unsigned = serializable_unsigned_transaction_from_dict(tx)
