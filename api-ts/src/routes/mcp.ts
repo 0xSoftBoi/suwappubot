@@ -418,12 +418,8 @@ function isTempoChain(chain: string): boolean {
 const TEMPO_CHAIN_ID = 4217
 const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
 	pathUSD: 'Tempo native stablecoin',
-	AlphaUSD: 'Alpha yield-bearing stablecoin',
-	BetaUSD: 'Beta yield-bearing stablecoin',
-	ThetaUSD: 'Theta yield-bearing stablecoin',
 }
-// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService) — the authoritative source
-// is bot/config/tokens.py, which declares decimals=18 for all Tempo TIP-20 stablecoins.
+// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService); TIP-20s are 6dp on-chain.
 
 // Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
 // isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
@@ -439,7 +435,7 @@ function buildTempoTokens() {
 		symbol,
 		name: symbol,
 		address,
-		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 18,
+		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 6,
 		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
 		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
 		currency: TEMPO_TIP20_CURRENCY,

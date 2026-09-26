@@ -298,7 +298,7 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			// USDG MUST stay here: it is 6dp on-chain, and defaulting it to 18 would
 			// misprice every Robinhood Chain quote by 1e12.
 			// USTB/USCC (Superstate fund tokens) are 6dp on-chain like USDC.
-			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG', 'USTB', 'USCC'])
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'USDG', 'USTB', 'USCC'])
 
 			if (chainTokens && chainTokens[normalized]) {
 				return {

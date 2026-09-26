@@ -200,7 +200,7 @@ const TOOLS = [
 	},
 	{
 		name: 'get_tempo_tokens',
-		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated stablecoins: pathUSD, AlphaUSD, BetaUSD, ThetaUSD. Free and public — no API key required.',
+		description: 'Get TIP-20 token list on Tempo mainnet (chain ID 4217) with addresses, decimals, and TIP-20 metadata (currency code, isTip20 flag). Tempo uses USD-denominated TIP-20 stablecoins (6 decimals); pathUSD is the one listed on mainnet. Free and public — no API key required.',
 		inputSchema: {
 			type: 'object',
 			properties: {
