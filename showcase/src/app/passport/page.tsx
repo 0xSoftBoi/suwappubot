@@ -2,15 +2,14 @@ import type { Metadata } from 'next';
 import PassportPageClient from './PassportPageClient';
 
 export const metadata: Metadata = {
-  title: 'Agent Swap Passport | Suwappu',
+  title: 'Agent Passport | Suwappu',
   description:
-    'ETHGlobal Tokyo 2026 live demo: one agent identity across World ID proof-of-personhood, an ' +
-    'ENSv2 Sepolia subname, and a World-ID-gated Uniswap v4 swap hook.',
+    'Give your AI agent an identity people can trust. A human proves they’re real, and every ' +
+    'trade the agent makes after that is protected — powered by World, ENS, and Uniswap.',
   alternates: { canonical: '/passport' },
   openGraph: {
-    title: 'Agent Swap Passport',
-    description:
-      'World ID + ENSv2 + Uniswap v4: one gated identity for AI agent swaps, live at ETHGlobal Tokyo 2026.',
+    title: 'Agent Passport',
+    description: 'Give your AI agent an identity people can trust.',
     url: '/passport',
   },
 };
