@@ -225,9 +225,15 @@ export async function verifyTradeProof(
 	}
 	let res: Response
 	try {
+		const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+		// Staging proofs are refused (403 environment_not_allowed) without the
+		// token from the app's open staging window. Production never sends it.
+		if (cfg.environment === 'staging' && cfg.stagingVerificationToken) {
+			headers['x-staging-verification-token'] = cfg.stagingVerificationToken
+		}
 		res = await fetch(`https://developer.world.org/api/v4/verify/${cfg.rpId}`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers,
 			body: JSON.stringify(bare),
 		})
 	} catch (e) {

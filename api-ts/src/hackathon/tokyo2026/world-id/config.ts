@@ -19,6 +19,14 @@ export interface WorldIdConfig {
 	environment: 'production' | 'staging'
 	/** RP signing key — server-only. Never expose, log, or send to a client. */
 	signingKeyHex: string
+	/**
+	 * Staging-only. World's verifier answers 403 `environment_not_allowed`
+	 * for staging proofs unless the request carries the token issued when
+	 * the app's staging verification window was opened (developer portal /
+	 * `set_world_id_staging_verification`). The window auto-closes after 24h,
+	 * so this must be re-issued within a day of the demo. Server-only.
+	 */
+	stagingVerificationToken?: string
 	/** How long a verified approval satisfies step-up (ms). Default 15 min. */
 	approvalTtlMs: number
 }
@@ -47,6 +55,7 @@ export function loadWorldIdConfig(env: NodeJS.ProcessEnv = process.env): WorldId
 		stepUpAction: env['WORLD_STEP_UP_ACTION'] ?? `${action}-stepup`,
 		environment,
 		signingKeyHex: signingKeyHex as string,
+		stagingVerificationToken: env['WORLD_STAGING_VERIFICATION_TOKEN'] || undefined,
 		approvalTtlMs: Number(env['WORLD_APPROVAL_TTL_MS'] ?? 15 * 60 * 1000),
 	}
 }
