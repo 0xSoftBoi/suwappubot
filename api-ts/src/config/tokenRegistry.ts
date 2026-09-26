@@ -36,6 +36,8 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		// from ever offering them to the swap path.
 		USTB: '0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e',
 		USCC: '0x14d60E7FDC0D71d8611742720E4C50E7a974020c',
+		// JPYC — yen-pegged stablecoin, JPYC Inc. (Circle-backed via Series A). 18 decimals, not 6.
+		JPYC: '0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29',
 	},
 	// Optimism
 	10: {
@@ -62,6 +64,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		'USDC.e': '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
 		USDT: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
 		DAI: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063',
+		JPYC: '0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29',
 	},
 	// Arbitrum
 	42161: {
@@ -86,6 +89,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		USDC: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
 		'USDC.e': '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664',
 		USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+		JPYC: '0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29',
 	},
 	// Tempo — only pathUSD exists on mainnet. AlphaUSD/BetaUSD/ThetaUSD
 	// (0x20c0..01-03) are Moderato-testnet-only; on 4217 they revert

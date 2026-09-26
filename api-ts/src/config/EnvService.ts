@@ -47,34 +47,13 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://suwappu.bot',
 	}),
 
-	// World ID (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 1).
-	// RP-based World ID 4.0 verify flow: POST https://developer.world.org/api/v4/verify/{rp_id}.
-	// All optional — unset means worldId.ts fails closed (verification unavailable, never silently
-	// "verified"). staging env unless WORLD_ID_ENV=production is set explicitly.
-	// No defaults for APP_ID/RP_ID — money-path-reviewer flagged that a
-	// hardcoded default silently defeats the fail-closed check in worldId.ts
-	// (missing config should actually fail closed, not fall back to a baked-in
-	// hackathon app). Leave unset in prod until real World ID config is wired.
-	WORLD_ID_APP_ID: Schema.optional(Schema.String),
-	WORLD_ID_RP_ID: Schema.optional(Schema.String),
-	WORLD_ID_ACTION: Schema.optionalWith(Schema.String, {
-		default: () => 'agent-swap-passport-verify',
-	}),
-	WORLD_ID_API_KEY: Schema.optional(Schema.String),
-	WORLD_ID_ENV: Schema.optionalWith(Schema.Literal('staging', 'production'), {
-		default: () => 'staging' as const,
-	}),
-	// RP signing key from `configure_world_id` (managed RP setup) — signs the
-	// `rp_context` attestation required on every /api/v4/verify call. Without
-	// it, verifyWorldIdProof fails closed (world_id_not_configured).
-	WORLD_ID_RP_SIGNING_KEY: Schema.optional(Schema.String),
-	// Staging-only dev-portal token (`set_world_id_staging_verification`), lets
-	// the portal accept simulator-generated proofs. Never set in production.
-	WORLD_ID_STAGING_VERIFICATION_TOKEN: Schema.optional(Schema.String),
-
-	// AgentKit SIWE `domain` binding (worldIdAuth.ts) — the host callers must
-	// sign against in the EIP-4361 message. Defaults to the prod api-ts host.
-	API_DOMAIN: Schema.optionalWith(Schema.String, { default: () => 'api.suwappu.bot' }),
+	// World ID verification (ETHGlobal Tokyo 2026 "Agent Swap Passport") now
+	// lives entirely in ../hackathon/tokyo2026/world-id/config.ts, which reads
+	// its own env vars (WORLD_APP_ID, WORLD_RP_ID, RP_SIGNING_KEY, WORLD_ENV,
+	// WORLD_ACTION, WORLD_STEP_UP_ACTION, WORLD_APPROVAL_TTL_MS) directly from
+	// process.env. The prior WORLD_ID_* vars here belonged to the superseded
+	// hand-rolled lib/worldId.ts + middleware/worldIdAuth.ts and have been
+	// removed along with those files.
 
 	// Intercepta (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 2).
 	// Address risk screening: GET https://api.web3antivirus.io/api/public/v2/extension/account/{address}/quick-scan.

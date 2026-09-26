@@ -17,7 +17,9 @@ import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
-import { verifyWorldIdProof } from '../lib/worldId'
+import { verifyTradeProof } from '../hackathon/tokyo2026/world-id/guardianGate'
+import { loadWorldIdConfig, isWorldIdConfigured } from '../hackathon/tokyo2026/world-id/config'
+import { PostgresNullifierStore } from '../hackathon/worldIdNullifiers'
 import { mintAgentSubname } from '../lib/ensSubname'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
@@ -36,7 +38,6 @@ import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
-import { worldIdAuth } from '../middleware/worldIdAuth'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
@@ -579,12 +580,14 @@ agentRoutes.use('/quote', meteredPayment('quote'))
 agentRoutes.use('/swap', meteredPayment('swap'))
 agentRoutes.use('/execute', meteredPayment('execute'))
 // AgentKit passport gate (ETHGlobal Tokyo 2026 Phase 1, step 3 — see
-// docs/plans/ethglobal-tokyo2026-agent-passport.md). Verifies the optional
-// `agentkit` header BEFORE the metered payment gate on this real protected
-// action (on-chain swap execution). Falls through silently (agentKitVerified
-// = false) when the header is absent, so the standard x402 path below is
-// untouched; only rejects when the header is present-but-invalid.
-agentRoutes.use('/swap/execute', worldIdAuth())
+// docs/plans/ethglobal-tokyo2026-agent-passport.md): the prior hand-rolled
+// worldIdAuth() middleware was superseded by the hackathon/tokyo2026/world-id
+// guardian-gate implementation (real @worldcoin/idkit-core, intent-bound
+// signals, Postgres nullifier table). This is a deliberate scope-down —
+// there is currently no AgentKit-header-based gate wired in front of
+// /swap/execute. A future pass should add one here using a
+// verifyAgentKitHeader()-style helper built on
+// ../hackathon/tokyo2026/world-id/guardianGate.ts's verifyTradeProof.
 agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
 // Read-only dry-run — same cost tier as /quote (1 credit). No funds move.
 agentRoutes.use('/swap/simulate', meteredPayment('swap/simulate'))
@@ -4392,118 +4395,105 @@ agentRoutes.post('/link/code', async (c) => {
 	// agents.metadata. This makes the *claim* step sybil-resistant — World ID's
 	// nullifier is per-human-per-action, so one real human can't mint unlimited
 	// linked agents. Body is optional/additive: omitting it preserves prior behavior.
+	//
+	// Verification now goes through the real AgentKit-based guardian gate
+	// (../hackathon/tokyo2026/world-id/guardianGate.ts) instead of the
+	// superseded hand-rolled lib/worldId.ts: real @worldcoin/idkit-core
+	// verifier call, and replay defense via the Postgres-backed
+	// PostgresNullifierStore (DB-level UNIQUE (action, nullifier) constraint)
+	// instead of an application-level SELECT check.
 	const body = await c.req.json().catch(() => ({}) as Record<string, unknown>)
-	const worldIdProof = body?.world_id_proof as
-		| {
-				protocol_version: string
-				environment?: 'production' | 'staging' | 'sandbox'
-				responses: {
-					identifier: string
-					merkle_root: string
-					nullifier: string
-					proof: string
-					signal_hash?: string
-				}[]
-		  }
-		| undefined
+	const worldIdProof = body?.world_id_proof as unknown | undefined
+
+	// Distinct action from the trade-approval gate so nullifiers don't
+	// collide across features (same human verifying for a trade vs. for
+	// linking an agent must yield independent nullifiers).
+	const WORLD_ID_AGENT_LINK_ACTION = 'suwappu-agent-link'
+
+	const code = randomBytes(8).toString('hex')
+	const codeHash = createHash('sha256').update(code).digest('hex')
+	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
 
 	let worldIdMetadata: Record<string, unknown> | undefined
 
 	if (worldIdProof) {
-		const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
-		const verifyResult =
-			Either.isRight(env) && env.right.WORLD_ID_RP_ID && env.right.WORLD_ID_RP_SIGNING_KEY
-				? await verifyWorldIdProof(
-						{
-							rpId: env.right.WORLD_ID_RP_ID,
-							action: env.right.WORLD_ID_ACTION,
-							signingKeyHex: env.right.WORLD_ID_RP_SIGNING_KEY,
-							apiKey: env.right.WORLD_ID_API_KEY,
-							stagingVerificationToken: env.right.WORLD_ID_STAGING_VERIFICATION_TOKEN,
-						},
-						{
-							...worldIdProof,
-							// Server-computed signal (agent id) — never trust a
-							// caller-supplied signal or action (money-path finding 4).
-							signal: agentIdentifierOf(agent),
-						},
-					)
-				: { verified: false, error: 'world_id_env_unavailable' }
-
-		if (!verifyResult.verified) {
+		if (!isWorldIdConfigured()) {
 			writeAuditLog({
 				userId: 0,
 				agentId: agentIdentifierOf(agent),
 				eventType: 'agent.link_code_rejected',
-				details: { reason: 'world_id_verification_failed', error: verifyResult.error },
+				details: { reason: 'world_id_env_unavailable' },
 			})
 			return c.json(
 				{
 					success: false,
 					error: 'World ID verification failed. Ask the owner to re-verify and try again.',
-					reason: verifyResult.error,
+					reason: 'world_id_env_unavailable',
 				},
 				409,
 			)
 		}
 
-		// Sybil-resistance: reject if this nullifier is already bound to a
-		// *different* agent. Query-based uniqueness check (not a DB constraint —
-		// acceptable for hackathon scope given agents.metadata is a loosely
-		// shaped jsonb column with no existing convention for a partial/expression
-		// unique index here; flagged as a production follow-up).
-		const nullifierRows = await runEffectEither(
+		const cfg = loadWorldIdConfig()
+		// The claim intent (agent + one-time link code) is the bound signal,
+		// mirroring guardianGate.ts's intent-hashing pattern for trades.
+		const signal =
+			'0x' +
+			createHash('sha256')
+				.update(`agent-link:${agentIdentifierOf(agent)}:${codeHash}`)
+				.digest('hex')
+
+		const dbEither = await runEffectEither(
 			Effect.gen(function* () {
-				const db = yield* requireDb
-				return yield* Effect.tryPromise({
-					try: () =>
-						db
-							.select({ id: agents.id })
-							.from(agents)
-							.where(
-								and(
-									sql`${agents.metadata} -> 'worldId' ->> 'nullifierHash' = ${verifyResult.nullifierHash}`,
-									sql`${agents.id} != ${agent.id}`,
-								),
-							)
-							.limit(1),
-					catch: (e) => new ValidationError({ message: `Failed to check World ID nullifier: ${e}` }),
-				})
+				return yield* requireDb
 			}),
 		)
-		if (Either.isRight(nullifierRows) && nullifierRows.right.length > 0) {
+		if (Either.isLeft(dbEither)) {
+			return c.json(
+				{ success: false, error: 'World ID verification unavailable.', reason: 'db_unavailable' },
+				503,
+			)
+		}
+		const nullifierStore = new PostgresNullifierStore(dbEither.right)
+
+		const verifyResult = await verifyTradeProof(
+			cfg,
+			worldIdProof,
+			signal,
+			WORLD_ID_AGENT_LINK_ACTION,
+			nullifierStore,
+		)
+
+		if (!verifyResult.ok) {
 			writeAuditLog({
 				userId: 0,
 				agentId: agentIdentifierOf(agent),
 				eventType: 'agent.link_code_rejected',
-				details: { reason: 'world_id_nullifier_already_used' },
+				details: { reason: 'world_id_verification_failed', error: verifyResult.reason },
 			})
 			return c.json(
 				{
 					success: false,
-					error: 'World ID verification failed. This World ID is already linked to another agent.',
-					reason: 'world_id_verification_failed',
+					error: 'World ID verification failed. Ask the owner to re-verify and try again.',
+					reason: verifyResult.reason,
 				},
 				409,
 			)
 		}
 
+		// Sybil-resistance across agents is enforced by the nullifier store's
+		// DB-level UNIQUE (action, nullifier) constraint above — a nullifier
+		// already consumed under WORLD_ID_AGENT_LINK_ACTION fails verifyResult.ok
+		// before we get here, so no separate application-level SELECT check is
+		// needed (replacing the prior query-based uniqueness check).
 		worldIdMetadata = {
 			worldId: {
 				verified: true,
-				nullifierHash: verifyResult.nullifierHash,
-				verificationLevel: verifyResult.verificationLevel,
-				proofHash: createHash('sha256')
-					.update(worldIdProof.responses.map((r) => r.proof).join(''))
-					.digest('hex'),
+				nullifierHash: verifyResult.nullifier,
 				verifiedAt: new Date().toISOString(),
 			},
 		}
 	}
-
-	const code = randomBytes(8).toString('hex')
-	const codeHash = createHash('sha256').update(code).digest('hex')
-	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
