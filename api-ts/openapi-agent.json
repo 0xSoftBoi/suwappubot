@@ -4601,6 +4601,10 @@
             "example": "base"
           },
           "amount": {
+            "type": [
+              "string",
+              "number"
+            ],
             "oneOf": [
               {
                 "type": "string"
