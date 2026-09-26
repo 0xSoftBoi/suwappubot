@@ -318,7 +318,9 @@ async def lifespan(app: FastAPI):
                             )
                         )
             else:
-                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
+                logger.warning(
+                    "⚠️ Placeholder or missing Telegram token. Skipping polling/webhook."
+                )
         except Exception as e:
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")

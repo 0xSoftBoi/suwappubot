@@ -309,7 +309,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python deps for schema drift check
-        run: pip install sqlalchemy psycopg2-binary
+        run: pip install sqlalchemy "psycopg[binary]"
 
       - name: Schema drift check (Python runtime migration vs Drizzle schema)
         env:
