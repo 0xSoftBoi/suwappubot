@@ -41,9 +41,10 @@ export default function TechnicalDetails({
   const swapHash = evidence?.uniswap?.swapTx;
 
   return (
-    <section className={styles.techSection}>
+    <section className={styles.techSection} id="technical-details">
       <button
         type="button"
+        id="technical-details-toggle"
         className={styles.techToggle}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}

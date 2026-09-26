@@ -424,6 +424,197 @@
 }
 .resultChecks li svg { color: var(--sw-accent-bright); flex: 0 0 auto; }
 
+.resultIssued {
+  display: block;
+  margin-top: 20px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(244, 244, 246, 0.4);
+}
+
+/* Holographic sheen: a soft light that tracks pointer position, subtle. */
+.resultCard {
+  position: relative;
+  overflow: hidden;
+  --holo-x: 50%;
+  --holo-y: 30%;
+}
+.holoSheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    480px circle at var(--holo-x) var(--holo-y),
+    color-mix(in srgb, var(--sw-accent-bright) 16%, transparent),
+    transparent 62%
+  );
+  opacity: 0.9;
+  transition: opacity 0.4s ease;
+}
+.resultCard[data-specimen] {
+  opacity: 0.55;
+  filter: blur(1.5px) saturate(0.85);
+  pointer-events: none;
+  user-select: none;
+}
+.resultCard[data-specimen] .holoSheen { opacity: 0.4; animation: holoDrift 9s ease-in-out infinite; }
+
+@keyframes holoDrift {
+  0%, 100% { --holo-x: 30%; --holo-y: 20%; }
+  50% { --holo-x: 70%; --holo-y: 55%; }
+}
+
+/* ── Specimen wrapper in the hero, before the flow starts ── */
+.specimenWrap {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.specimenLabel {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(244, 244, 246, 0.4);
+}
+
+/* ── How it works ── */
+.howItWorks {
+  margin-top: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+}
+.howItWorksHead {
+  text-align: center;
+}
+.howItWorksTitle {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: clamp(1.6rem, 1rem + 2vw, 2.25rem);
+  color: #fff;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+.howItWorksSub {
+  margin: 0;
+  color: rgba(244, 244, 246, 0.6);
+  font-size: 0.98rem;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+}
+@media (min-width: 720px) {
+  .steps { grid-template-columns: repeat(3, 1fr); gap: 28px; }
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.stepStage {
+  width: 100%;
+  max-width: 180px;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stepTitle {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+.stepSub {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(244, 244, 246, 0.58);
+  max-width: 26ch;
+}
+
+/* ── Proof strip ── */
+.proofStrip {
+  margin-top: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+.proofHeadline {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  color: rgba(244, 244, 246, 0.85);
+}
+.proofChecks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.proofCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: rgba(244, 244, 246, 0.68);
+}
+.proofCheck svg { color: var(--sw-accent-bright); flex: 0 0 auto; }
+.proofCheck[data-pending='true'] svg { color: rgba(244, 244, 246, 0.35); }
+.proofLink {
+  font-size: 0.8rem;
+  color: rgba(244, 244, 246, 0.55);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+.proofLink:hover { color: rgba(244, 244, 246, 0.85); }
+
+/* ── Closing CTA ── */
+.closing {
+  margin-top: 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+.closingTitle {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: clamp(1.5rem, 1rem + 1.8vw, 2rem);
+  color: #fff;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
 /* ── Technical details (all jargon lives here) ── */
 .techSection {
   margin-top: 64px;
@@ -575,4 +766,5 @@
 @media (prefers-reduced-motion: reduce) {
   .dot[data-state='up'] { animation: none; }
   .cta:hover:not(:disabled) { transform: none; }
+  .holoSheen { animation: none !important; opacity: 0.3; }
 }

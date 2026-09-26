@@ -7,8 +7,10 @@ import SummerFooter from '@/components/SummerFooter';
 import AmbientOrb, { OrbState } from './AmbientOrb';
 import NarrationFlow, { NarrationLine } from './NarrationFlow';
 import QrModal from './QrModal';
-import ResultCard from './PassportCard';
+import PassportCard from './PassportCard';
 import TechnicalDetails from './TechnicalDetails';
+import HowItWorks from './HowItWorks';
+import ProofStrip from './ProofStrip';
 import { usePassportFlow } from './usePassportFlow';
 import styles from './passport.module.css';
 
@@ -185,12 +187,20 @@ export default function PassportPageClient() {
             transition={{ duration: 0.5, ease: EASE }}
           >
             {resultReady ? (
-              <ResultCard agentName={agentDisplayName} returning={returning} />
+              <PassportCard agentName={agentDisplayName} returning={returning} />
             ) : (
               <>
+                {!started && (
+                  <div className={styles.specimenWrap}>
+                    <PassportCard agentName="your-agent.suwappu-agents.eth" specimen />
+                    <span className={styles.specimenLabel}>Your agent&rsquo;s passport</span>
+                  </div>
+                )}
+
                 <motion.button
                   layout="position"
                   type="button"
+                  id="passport-cta"
                   className={styles.cta}
                   onClick={() => (worldPhase === 'awaiting' ? cancelVerification() : beginVerification())}
                   disabled={worldPhase === 'starting'}
@@ -214,6 +224,10 @@ export default function PassportPageClient() {
 
         <QrModal open={qrOpen} connectorURI={start?.connectorURI ?? null} onClose={cancelVerification} />
 
+        <HowItWorks />
+
+        <ProofStrip evidence={evidence} evidenceUnavailable={evidenceUnavailable} />
+
         <TechnicalDetails
           status={status}
           statusError={statusError}
@@ -222,6 +236,19 @@ export default function PassportPageClient() {
           evidence={evidence}
           evidenceError={evidenceError}
         />
+
+        <section className={styles.closing}>
+          <h2 className={styles.closingTitle}>Give your agent a passport of its own.</h2>
+          <button
+            type="button"
+            className={styles.cta}
+            onClick={() => {
+              document.getElementById('passport-cta')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+          >
+            Get your agent a passport
+          </button>
+        </section>
       </main>
 
       <SummerFooter />
