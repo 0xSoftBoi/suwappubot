@@ -897,6 +897,7 @@ _PER_CHAIN_DECIMALS: dict[tuple[str, str], int] = {
     ("WBTC", "bsc"): 18,
     # Solana ETH is Wormhole-wrapped (7vfCX...), 8dp on-chain NOT 18
     ("ETH", "solana"): 8,
+    ("WETH", "solana"): 8,
 }
 
 

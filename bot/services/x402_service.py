@@ -478,7 +478,8 @@ class X402Service:
                 user_id=user_id,
                 payment_id=payment.payment_id,
                 amount=price,
-                token_symbol="USDC",
+                token_symbol=payment.token_symbol,
+                token_address=payment.token_address,
                 chain=chain,
                 product_type="subscription",
                 product_id=tier.value,
@@ -719,6 +720,17 @@ class X402Service:
             if payment.status == PaymentStatus.COMPLETED:
                 return True, "Already completed"
 
+            # Rows created before token_address was persisted have it NULL; an
+            # empty address verifies as a *native* transfer, so a USDC-priced
+            # tier could be bought with ~price units of a sub-$1 gas token.
+            # Resolve from config by (chain, symbol) and fail closed otherwise.
+            expected_token = payment.token_address or self.payment_tokens.get(
+                payment.chain, {}
+            ).get(payment.token_symbol or "")
+            if not expected_token:
+                payment.status = PaymentStatus.FAILED
+                return False, "Verification failed: unknown payment token"
+
             # Verify transaction on-chain
             try:
                 # Verify the transaction matches payment parameters
@@ -727,7 +739,7 @@ class X402Service:
                     chain=payment.chain,
                     expected_recipient=self.payment_recipient,
                     expected_amount=payment.amount,
-                    token_address=payment.token_address,
+                    token_address=expected_token,
                 )
 
                 if not success:
