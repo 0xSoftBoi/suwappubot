@@ -38,7 +38,7 @@ export default function ResultCard({
         </li>
         <li>
           <CheckCircle weight="fill" size={18} />
-          Protected trading enabled
+          Trades can require a verified human
         </li>
       </ul>
     </motion.div>

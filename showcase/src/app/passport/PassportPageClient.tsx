@@ -98,9 +98,9 @@ export default function PassportPageClient() {
 
     if (humanDone && !evidenceUnavailable && !evidenceError && !evidenceLoading) {
       if (swapLanded) {
-        out.push({ id: 'trading', text: 'Protected trading enabled', state: 'done' });
+        out.push({ id: 'trading', text: 'Trades can require a verified human', state: 'done' });
       } else {
-        out.push({ id: 'trading', text: 'Unlocking protected trading…', state: 'active' });
+        out.push({ id: 'trading', text: 'Wiring the verified-human trade gate…', state: 'active' });
       }
     }
 
@@ -174,8 +174,8 @@ export default function PassportPageClient() {
           >
             <h1 className={styles.h1}>Give your AI agent an identity people can trust.</h1>
             <p className={styles.lede}>
-              A human confirms they&rsquo;re real, and every trade the agent makes after that is
-              covered by that trust — automatically.
+              A human confirms they&rsquo;re real once, and the agent&rsquo;s identity carries that
+              verification from then on.
             </p>
           </motion.div>
 
