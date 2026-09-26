@@ -19,6 +19,13 @@ export default function ResultCard({
 }) {
   const reduceMotion = useReducedMotion();
 
+  // Split "f4c68576.suwappu-agents.eth" into the unique label and the shared
+  // parent domain so the parent (which has a hyphen) wraps on its own line
+  // and never breaks mid-word.
+  const dotIndex = agentName.indexOf('.');
+  const label = dotIndex === -1 ? agentName : agentName.slice(0, dotIndex);
+  const parent = dotIndex === -1 ? null : agentName.slice(dotIndex);
+
   return (
     <motion.div
       className={styles.resultCard}
@@ -30,7 +37,10 @@ export default function ResultCard({
       <span className={styles.resultKicker}>
         {returning ? 'Welcome back — your passport is active' : 'Your agent’s passport'}
       </span>
-      <h2 className={styles.resultName}>{agentName}</h2>
+      <h2 className={styles.resultName}>
+        <span className={styles.resultLabel}>{label}</span>
+        {parent && <span className={styles.resultParent}>{parent}</span>}
+      </h2>
       <ul className={styles.resultChecks}>
         <li>
           <CheckCircle weight="fill" size={18} />

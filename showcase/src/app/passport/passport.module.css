@@ -368,11 +368,29 @@
 }
 
 .resultName {
-  font-family: var(--font-serif);
-  font-size: clamp(1.5rem, 5vw, 2.1rem);
-  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   margin: 0 0 20px;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.resultLabel {
+  font-family: var(--font-serif);
+  font-size: clamp(1.4rem, 4.2vw, 2.1rem);
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.resultParent {
+  font-family: var(--font-mono);
+  font-size: clamp(0.68rem, 2.6vw, 0.85rem);
+  color: rgba(244, 244, 246, 0.55);
+  overflow-wrap: normal;
+  word-break: keep-all;
+  white-space: nowrap;
 }
 
 .resultChecks {
