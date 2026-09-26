@@ -2,6 +2,7 @@ import { Context, Effect, Layer } from 'effect'
 import { DEFAULT_AGENT_FEE_BPS, DEFAULT_FEE_WALLET_SOLANA } from '../config/constants'
 import { SOLANA_TOKENS } from '../config/tokenRegistry'
 import { ValidationError } from '../errors'
+import { type AgentFeeMetadata, getPlatformFeeBpsSolana } from '../lib/feeDiscount'
 import { logger } from '../lib/logger'
 
 // Jupiter API base URL
@@ -52,6 +53,8 @@ export interface JupiterServiceInterface {
 		outputMint: string
 		amount: string
 		slippageBps?: number
+		/** World ID fee-discount lookup only — never trust for anything else. */
+		agent?: AgentFeeMetadata | null
 	}) => Effect.Effect<JupiterQuote, ValidationError | Error>
 
 	readonly getSwapTransaction: (params: {
@@ -74,7 +77,7 @@ export class JupiterService extends Context.Tag('JupiterService')<
 export const JupiterServiceLive = Layer.succeed(JupiterService, {
 	getQuote: (params) =>
 		Effect.gen(function* () {
-			const { inputMint, outputMint, amount, slippageBps = 300 } = params
+			const { inputMint, outputMint, amount, slippageBps = 300, agent } = params
 
 			if (!inputMint || !outputMint || !amount) {
 				return yield* Effect.fail(
@@ -86,8 +89,10 @@ export const JupiterServiceLive = Layer.succeed(JupiterService, {
 
 			// Platform fee to Suwappu (flat agent-surface rate; default 0.3% / 30 bps).
 			// Sourced from the single DEFAULT_AGENT_FEE_BPS constant so the quote we
-			// build can never diverge from EnvService's FEE_BPS default.
-			const platformFeeBps = process.env.FEE_BPS || String(DEFAULT_AGENT_FEE_BPS)
+			// build can never diverge from EnvService's FEE_BPS default. World ID
+			// verified agents get a discount off this base rate — see lib/feeDiscount.
+			const baseFeeBps = parseInt(process.env.FEE_BPS || String(DEFAULT_AGENT_FEE_BPS), 10)
+			const platformFeeBps = String(getPlatformFeeBpsSolana(baseFeeBps, agent))
 
 			const queryParams = new URLSearchParams({
 				inputMint,

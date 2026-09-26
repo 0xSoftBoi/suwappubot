@@ -17,6 +17,8 @@ import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
+import { verifyWorldIdProof } from '../lib/worldId'
+import { mintAgentSubname } from '../lib/ensSubname'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
@@ -34,6 +36,7 @@ import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
+import { worldIdAuth } from '../middleware/worldIdAuth'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
@@ -530,6 +533,13 @@ agentRoutes.use('/approvals/:id/step-up/challenge', ipRateLimit(30))
 agentRoutes.use('/quote', meteredPayment('quote'))
 agentRoutes.use('/swap', meteredPayment('swap'))
 agentRoutes.use('/execute', meteredPayment('execute'))
+// AgentKit passport gate (ETHGlobal Tokyo 2026 Phase 1, step 3 — see
+// docs/plans/ethglobal-tokyo2026-agent-passport.md). Verifies the optional
+// `agentkit` header BEFORE the metered payment gate on this real protected
+// action (on-chain swap execution). Falls through silently (agentKitVerified
+// = false) when the header is absent, so the standard x402 path below is
+// untouched; only rejects when the header is present-but-invalid.
+agentRoutes.use('/swap/execute', worldIdAuth())
 agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
 // Read-only dry-run — same cost tier as /quote (1 credit). No funds move.
 agentRoutes.use('/swap/simulate', meteredPayment('swap/simulate'))
@@ -563,6 +573,11 @@ agentRoutes.get('/me', async (c) => {
 			// including via the MCP surface. See PolicyService + routes/mcp.ts.
 			org_linked: agent.organizationId != null,
 			owner_linked: agent.ownerUserId != null,
+			// ENS identity anchor (ETHGlobal Tokyo 2026 "Agent Swap Passport" Phase 3) —
+			// set once agent.link/code has minted a subname; null until then.
+			ens_name:
+				(((agent.metadata || {}) as Record<string, unknown>).ensName as { name?: string } | undefined)
+					?.name ?? null,
 			stats: {
 				total_requests: agent.totalRequests,
 				total_swaps: agent.totalSwaps,
@@ -732,6 +747,7 @@ agentRoutes.post('/quote', async (c) => {
 						outputMint: toTokenInfo.address,
 						amount: fromAmountLamports,
 						slippageBps: slippage ? Math.floor(slippage * 10000) : 300, // Default 3%
+						agent,
 					})
 					.pipe(
 						Effect.mapError((e) => {
@@ -870,6 +886,7 @@ agentRoutes.post('/quote', async (c) => {
 				// the agent-vs-human split real — without it every captured
 				// route is anonymous.
 				agentId: agent.id,
+				agent,
 			}
 
 			// Get quote from Li.Fi
@@ -1340,6 +1357,7 @@ async function releaseApprovalReserve(reserve: ApprovalReserve): Promise<void> {
  */
 async function resolveApprovalResubmit(
 	c: Context,
+	agent: Agent,
 	agentIdentifier: string,
 	orgId: string | null,
 	approvalId: string,
@@ -1394,6 +1412,7 @@ async function resolveApprovalResubmit(
 						outputMint: storedTerms.toToken,
 						amount: storedTerms.amountIn,
 						slippageBps: storedTerms.slippageBps ?? 300,
+						agent,
 					})
 					.pipe(
 						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
@@ -1412,6 +1431,7 @@ async function resolveApprovalResubmit(
 					slippage: storedTerms.slippage ?? 0.03,
 					order: 'RECOMMENDED',
 					integrator: 'suwappu-agent',
+					agent,
 				})
 				.pipe(
 					Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
@@ -1652,7 +1672,7 @@ agentRoutes.post('/swap', async (c) => {
 	if (approval_id) {
 		const orgId = apiKeyCtx?.orgId ?? null
 
-		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, wallet_address)
+		const outcome = await resolveApprovalResubmit(c, agent, agentIdentifier, orgId, approval_id, wallet_address)
 		if (outcome.kind === 'response') return outcome.response
 
 		const { freshQuote, isSolana, decidedBy, decidedAt, payload, reserve } = outcome
@@ -1911,6 +1931,7 @@ agentRoutes.post('/swap/simulate', async (c) => {
 						outputMint: toTokenInfo.address,
 						amount: fromAmountLamports,
 						slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+						agent,
 					})
 					.pipe(
 						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
@@ -1999,6 +2020,7 @@ agentRoutes.post('/swap/simulate', async (c) => {
 				slippage: slippage || 0.03,
 				order: 'RECOMMENDED',
 				integrator: 'suwappu-agent',
+				agent,
 			}
 
 			const quote = yield* swapService.getQuote(quoteParams).pipe(
@@ -2174,6 +2196,7 @@ agentRoutes.post('/execute', async (c) => {
 						fromAddress,
 						slippage: 0.03,
 						integrator: 'suwappu-agent',
+						agent,
 					} as QuoteParams)
 					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
@@ -2552,7 +2575,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 		// Same re-quote + validate + policy-recheck + cap-reservation flow as
 		// POST /swap (see resolveApprovalResubmit) — this is the SAME gate the
 		// custodial execute path was previously missing entirely (money-path fix).
-		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, walletAddress)
+		const outcome = await resolveApprovalResubmit(c, agent, agentIdentifier, orgId, approval_id, walletAddress)
 		if (outcome.kind === 'response') {
 			await refundSwapExecuteCharge(c, agent, 'approval resubmit failed')
 			return outcome.response
@@ -4176,6 +4199,9 @@ agentRoutes.post('/billing/recurring', async (c) => {
 agentRoutes.post('/link/code', async (c) => {
 	const agent = c.get('agent')
 
+	// Already-linked check runs BEFORE World ID proof verification (money-path
+	// review finding 6) so an already-linked agent gets a fast 409 without us
+	// spending a call against the World ID portal.
 	if (agent.ownerUserId != null) {
 		writeAuditLog({
 			userId: 0,
@@ -4190,6 +4216,120 @@ agentRoutes.post('/link/code', async (c) => {
 			},
 			409,
 		)
+	}
+
+	// Optional World ID proof (ETHGlobal Tokyo 2026 "Agent Swap Passport" Phase 1):
+	// when present, verify it before minting the code and stamp the result into
+	// agents.metadata. This makes the *claim* step sybil-resistant — World ID's
+	// nullifier is per-human-per-action, so one real human can't mint unlimited
+	// linked agents. Body is optional/additive: omitting it preserves prior behavior.
+	const body = await c.req.json().catch(() => ({}) as Record<string, unknown>)
+	const worldIdProof = body?.world_id_proof as
+		| {
+				protocol_version: string
+				environment?: 'production' | 'staging' | 'sandbox'
+				responses: {
+					identifier: string
+					merkle_root: string
+					nullifier: string
+					proof: string
+					signal_hash?: string
+				}[]
+		  }
+		| undefined
+
+	let worldIdMetadata: Record<string, unknown> | undefined
+
+	if (worldIdProof) {
+		const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+		const verifyResult =
+			Either.isRight(env) && env.right.WORLD_ID_RP_ID && env.right.WORLD_ID_RP_SIGNING_KEY
+				? await verifyWorldIdProof(
+						{
+							rpId: env.right.WORLD_ID_RP_ID,
+							action: env.right.WORLD_ID_ACTION,
+							signingKeyHex: env.right.WORLD_ID_RP_SIGNING_KEY,
+							apiKey: env.right.WORLD_ID_API_KEY,
+							stagingVerificationToken: env.right.WORLD_ID_STAGING_VERIFICATION_TOKEN,
+						},
+						{
+							...worldIdProof,
+							// Server-computed signal (agent id) — never trust a
+							// caller-supplied signal or action (money-path finding 4).
+							signal: agentIdentifierOf(agent),
+						},
+					)
+				: { verified: false, error: 'world_id_env_unavailable' }
+
+		if (!verifyResult.verified) {
+			writeAuditLog({
+				userId: 0,
+				agentId: agentIdentifierOf(agent),
+				eventType: 'agent.link_code_rejected',
+				details: { reason: 'world_id_verification_failed', error: verifyResult.error },
+			})
+			return c.json(
+				{
+					success: false,
+					error: 'World ID verification failed. Ask the owner to re-verify and try again.',
+					reason: verifyResult.error,
+				},
+				409,
+			)
+		}
+
+		// Sybil-resistance: reject if this nullifier is already bound to a
+		// *different* agent. Query-based uniqueness check (not a DB constraint —
+		// acceptable for hackathon scope given agents.metadata is a loosely
+		// shaped jsonb column with no existing convention for a partial/expression
+		// unique index here; flagged as a production follow-up).
+		const nullifierRows = await runEffectEither(
+			Effect.gen(function* () {
+				const db = yield* requireDb
+				return yield* Effect.tryPromise({
+					try: () =>
+						db
+							.select({ id: agents.id })
+							.from(agents)
+							.where(
+								and(
+									sql`${agents.metadata} -> 'worldId' ->> 'nullifierHash' = ${verifyResult.nullifierHash}`,
+									sql`${agents.id} != ${agent.id}`,
+								),
+							)
+							.limit(1),
+					catch: (e) => new ValidationError({ message: `Failed to check World ID nullifier: ${e}` }),
+				})
+			}),
+		)
+		if (Either.isRight(nullifierRows) && nullifierRows.right.length > 0) {
+			writeAuditLog({
+				userId: 0,
+				agentId: agentIdentifierOf(agent),
+				eventType: 'agent.link_code_rejected',
+				details: { reason: 'world_id_nullifier_already_used' },
+			})
+			return c.json(
+				{
+					success: false,
+					error: 'World ID verification failed. This World ID is already linked to another agent.',
+					reason: 'world_id_verification_failed',
+				},
+				409,
+			)
+		}
+
+		worldIdMetadata = {
+			worldId: {
+				verified: true,
+				nullifierHash: verifyResult.nullifierHash,
+				verificationLevel: verifyResult.verificationLevel,
+				proofHash: createHash('sha256')
+					.update(worldIdProof.responses.map((r) => r.proof).join(''))
+					.digest('hex'),
+				verifiedAt: new Date().toISOString(),
+			},
+		}
 	}
 
 	const code = randomBytes(8).toString('hex')
@@ -4211,9 +4351,97 @@ agentRoutes.post('/link/code', async (c) => {
 			if (!row) {
 				return yield* Effect.fail(new ValidationError({ message: 'Link code insert returned no row' }))
 			}
+
+			// Stamp World ID verification result into agents.metadata (jsonb, no
+			// migration needed) so the claim can later be shown as sybil-resistant.
+			if (worldIdMetadata) {
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(agents)
+							.set({
+								metadata: sql`coalesce(${agents.metadata}, '{}'::jsonb) || ${JSON.stringify(worldIdMetadata)}::jsonb`,
+								updatedAt: new Date(),
+							})
+							.where(eq(agents.id, agent.id)),
+					catch: (e) => new ValidationError({ message: `Failed to store World ID metadata: ${e}` }),
+				})
+			}
+
 			return row
 		}),
 	)
+
+	// ENS subname mint (ETHGlobal Tokyo 2026 "Agent Swap Passport" Phase 3):
+	// once World ID verification has succeeded (worldIdMetadata set above),
+	// mint `<agent-uuid-prefix>.suwappu-agents.eth` as a durable identity
+	// anchor. Best-effort and non-blocking — a mint failure (unconfigured
+	// minter key/subregistry, no EVM wallet on the agent, RPC error) never
+	// fails the link-code issuance; the agent just proceeds without an ENS
+	// name. NOTE: this fires at code-mint time, not at bot-side claim
+	// completion (agents.ownerUserId is set by the Python bot's /claim
+	// handler, outside this file's scope) — "claimed AND verified" from the
+	// plan doc is approximated here as "verified", since claim finalization
+	// isn't observable from api-ts.
+	if (Either.isRight(result) && worldIdMetadata) {
+		const walletAddress = ((agent.metadata || {}) as Record<string, unknown>).wallet_address
+		if (typeof walletAddress === 'string' && walletAddress) {
+			const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+			if (Either.isRight(env)) {
+				const label = agent.uuid.split('-')[0]?.toLowerCase()
+				if (label) {
+					const mintResult = await mintAgentSubname(
+						{
+							rpcUrl: env.right.ENS_SEPOLIA_RPC_URL,
+							minterPrivateKey: env.right.ENS_MINTER_PRIVATE_KEY,
+							subregistryAddress: env.right.ENS_SUWAPPU_AGENTS_SUBREGISTRY,
+							resolverAddress: env.right.ENS_RESOLVER_ADDRESS,
+							parentName: 'suwappu-agents.eth',
+						},
+						label,
+						walletAddress,
+					)
+					if (mintResult.minted) {
+						await runEffectEither(
+							Effect.gen(function* () {
+								const db = yield* requireDb
+								yield* Effect.tryPromise({
+									try: () =>
+										db
+											.update(agents)
+											.set({
+												metadata: sql`coalesce(${agents.metadata}, '{}'::jsonb) || ${JSON.stringify({
+													ensName: {
+														name: mintResult.ensName,
+														txHash: mintResult.txHash,
+														mintedAt: new Date().toISOString(),
+													},
+												})}::jsonb`,
+												updatedAt: new Date(),
+											})
+											.where(eq(agents.id, agent.id)),
+									catch: (e) => new ValidationError({ message: `Failed to store ENS metadata: ${e}` }),
+								})
+							}),
+						)
+						writeAuditLog({
+							userId: 0,
+							agentId: agentIdentifierOf(agent),
+							eventType: 'agent.ens_subname_minted',
+							details: { ensName: mintResult.ensName, txHash: mintResult.txHash },
+						})
+					} else {
+						writeAuditLog({
+							userId: 0,
+							agentId: agentIdentifierOf(agent),
+							eventType: 'agent.ens_subname_mint_skipped',
+							details: { reason: mintResult.error },
+						})
+					}
+				}
+			}
+		}
+	}
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
@@ -4231,6 +4459,7 @@ agentRoutes.post('/link/code', async (c) => {
 		success: true,
 		code,
 		expires_at: expiresAt.toISOString(),
+		world_id_verified: !!worldIdMetadata,
 		instructions:
 			'Send /claim <code> to the Suwappu Telegram bot within 10 minutes to link this agent to your account.',
 	})

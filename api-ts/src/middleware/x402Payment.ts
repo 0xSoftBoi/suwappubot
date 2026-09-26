@@ -1,10 +1,13 @@
-import { sql } from 'drizzle-orm'
+import { decodePaymentSignatureHeader } from '@x402/core/http'
+import { eq, sql } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import type { Context, Next } from 'hono'
 import { EnvService } from '../config/EnvService'
 import { resolveX402Networks } from '../config/x402Networks'
 import { requireDb } from '../db/DrizzleService'
-import { agentCredits } from '../db/schema'
+import { agentCredits, agents } from '../db/schema'
+import { InterceptaUnavailableError, quickScan } from '../lib/intercepta'
+import { logger } from '../lib/logger'
 import { runEffectEither } from '../runtime'
 import {
 	facilitatorVerifyAndSettle,
@@ -213,12 +216,101 @@ function deductCredits(agentId: number, cost: number) {
  *  - 'skip'         metering off, no agent, or bypass tier — proceed free.
  *  - 'ok'           credits deducted; `balance` is the new balance.
  *  - 'insufficient' no credits; `challenge` is the x402 402 body to return.
+ *  - 'blocked'      Intercepta risk screening rejected the counterparty
+ *                    (or screening itself was unavailable — fail-closed);
+ *                    the on-chain settlement was never attempted.
  */
 export type ChargeResult =
 	| { kind: 'skip'; reason: 'disabled' | 'no_agent' | 'bypass' | 'free'; tier?: string }
 	| { kind: 'ok'; balance: number; cost: number; tier: string }
 	| { kind: 'settled'; cost: number; txHash?: string; network?: string }
 	| { kind: 'insufficient'; cost: number; challenge: ReturnType<typeof buildX402Challenge> }
+	| { kind: 'blocked'; cost: number; reason: string; traits?: string[] }
+
+/**
+ * Best-effort, defensive extraction of the on-chain payer address from a
+ * decoded x402 PaymentPayload. The `payload.payload` field is scheme-defined
+ * (Record<string, unknown>) — for the EIP-3009 "exact" scheme used by the
+ * facilitator here it carries `authorization.from`, but we tolerate other
+ * shapes (`from`, `sender`) defensively and return undefined rather than
+ * throwing if nothing matches. Undefined is treated as "cannot screen" by the
+ * caller, which fails closed (rejects), not as "clean".
+ */
+function extractPayerAddress(payload: { payload: Record<string, unknown> }): string | undefined {
+	const inner = payload.payload
+	const authorization = inner?.authorization as Record<string, unknown> | undefined
+	const candidate =
+		(typeof authorization?.from === 'string' ? authorization.from : undefined) ??
+		(typeof inner?.from === 'string' ? (inner.from as string) : undefined) ??
+		(typeof inner?.sender === 'string' ? (inner.sender as string) : undefined)
+	return candidate
+}
+
+/**
+ * Intercepta screening result persisted onto agents.metadata as a running
+ * "risk passport" per agent (Phase 2 of the hackathon plan). Read-merge-write
+ * on the JSON column: we read current metadata, splice in the new scan under
+ * `intercepta.lastScan`, and append to `intercepta.history` capped at the
+ * last 20 entries so the column can't grow unbounded. Recording BOTH allowed
+ * and blocked scans (not just blocks) so the history is an honest record of
+ * everything that was screened, not just the incidents.
+ *
+ * Never throws — a persistence failure must not affect the payment decision
+ * that already happened; it only logs.
+ */
+async function persistInterceptaScan(
+	agentId: number,
+	entry: {
+		address: string
+		toxicScore: number
+		traits: string[]
+		blocked: boolean
+	},
+): Promise<void> {
+	const scannedAt = new Date().toISOString()
+	const historyEntry = { ...entry, scannedAt }
+
+	const result = await runEffectEither(
+		Effect.gen(function* () {
+			const db = yield* requireDb
+			const rows = yield* Effect.tryPromise({
+				try: () =>
+					db.select({ metadata: agents.metadata }).from(agents).where(eq(agents.id, agentId)),
+				catch: (e) => new Error(`Failed to read agent metadata for intercepta persist: ${e}`),
+			})
+			const existing = (rows[0]?.metadata as Record<string, unknown> | undefined) || {}
+			const existingIntercepta = (existing.intercepta as Record<string, unknown> | undefined) || {}
+			const existingHistory = Array.isArray(existingIntercepta.history)
+				? (existingIntercepta.history as unknown[])
+				: []
+			const nextHistory = [...existingHistory, historyEntry].slice(-20)
+
+			const nextMetadata = {
+				...existing,
+				intercepta: {
+					lastScan: historyEntry,
+					history: nextHistory,
+				},
+			}
+
+			yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(agents)
+						.set({ metadata: nextMetadata, updatedAt: new Date() })
+						.where(eq(agents.id, agentId)),
+				catch: (e) => new Error(`Failed to persist intercepta scan: ${e}`),
+			})
+		}),
+	)
+
+	if (Either.isLeft(result)) {
+		logger.error(
+			{ agentId, err: result.left },
+			'[intercepta] failed to persist scan to agent metadata (payment decision unaffected)',
+		)
+	}
+}
 
 /**
  * Reusable charge primitive shared by the REST middleware and the MCP handler.
@@ -265,6 +357,67 @@ export async function chargeAgentForCall(params: {
 				paymentHeader,
 				challenge.accepts as PaymentRequirements[],
 			)
+
+			// Intercepta risk screening (ETHGlobal Tokyo 2026 Phase 2): screen the
+			// counterparty BEFORE settling. Fail-closed — if we can't decode a payer
+			// address, or the scan itself fails (no API key, network error,
+			// malformed response), reject rather than charge. Only a successful scan
+			// under the configured threshold clears the way to settle.
+			let payerAddress: string | undefined
+			try {
+				const decoded = decodePaymentSignatureHeader(paymentHeader)
+				payerAddress = extractPayerAddress(decoded as unknown as { payload: Record<string, unknown> })
+			} catch {
+				payerAddress = undefined
+			}
+
+			if (!payerAddress) {
+				logger.error(
+					{ agentId: agent.id, resource },
+					'[intercepta] could not extract payer address from payment header — failing closed',
+				)
+				return {
+					kind: 'blocked',
+					cost,
+					reason: 'risk screening unavailable: could not resolve payer address',
+				}
+			}
+
+			const threshold = Number(env.right.INTERCEPTA_TOXIC_SCORE_THRESHOLD)
+			try {
+				const scan = await quickScan(payerAddress, { apiKey: env.right.INTERCEPTA_API_KEY })
+				const blocked = scan.toxicScore > threshold
+				await persistInterceptaScan(agent.id, {
+					address: scan.address,
+					toxicScore: scan.toxicScore,
+					traits: scan.traits,
+					blocked,
+				})
+				if (blocked) {
+					logger.warn(
+						{ agentId: agent.id, address: scan.address, toxicScore: scan.toxicScore, traits: scan.traits },
+						'[intercepta] blocked metered payment: counterparty exceeds toxic score threshold',
+					)
+					return {
+						kind: 'blocked',
+						cost,
+						reason: `counterparty flagged as high risk (score ${scan.toxicScore} > ${threshold}): ${scan.traits.join(', ') || 'no traits reported'}`,
+						traits: scan.traits,
+					}
+				}
+			} catch (e) {
+				const reason = e instanceof InterceptaUnavailableError ? e.reason : 'unknown_error'
+				logger.error(
+					{ agentId: agent.id, address: payerAddress, reason },
+					'[intercepta] risk screening unavailable — failing closed, rejecting payment',
+				)
+				return {
+					kind: 'blocked',
+					cost,
+					reason: 'risk screening unavailable — payment rejected (fail-closed)',
+				}
+			}
+
 			const settle = await facilitatorVerifyAndSettle(env.right, paymentHeader, requirements)
 			if (settle.ok) {
 				return { kind: 'settled', cost, txHash: settle.txHash, network: settle.network }
@@ -372,6 +525,15 @@ export function meteredPayment(endpoint: string) {
 			c.set('meterCharge', result)
 			await next()
 			return
+		}
+
+		if (result.kind === 'blocked') {
+			// Intercepta rejected the counterparty (or screening was unavailable) —
+			// fail-closed: no charge happens, no route handler runs.
+			return c.json(
+				{ error: 'payment_rejected', reason: result.reason, traits: result.traits },
+				402,
+			)
 		}
 
 		c.header('X-Metering-Cost', String(result.cost))

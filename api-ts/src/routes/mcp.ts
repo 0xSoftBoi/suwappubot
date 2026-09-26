@@ -538,6 +538,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				const quote = yield* jupiterService.getQuote({
 					inputMint: fromInfo.address, outputMint: toInfo.address,
 					amount: lamports, slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+					agent,
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -638,6 +639,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				fromToken: fromInfo.address, toToken: toInfo.address,
 				fromAmount: wei, fromAddress: wallet_address as string || '0x0000000000000000000000000000000000000001',
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
+				agent,
 			} as QuoteParams).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
@@ -1215,6 +1217,7 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				const quote = yield* jupiterService.getQuote({
 					inputMint: fromInfo.address, outputMint: toInfo.address,
 					amount: lamports, slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+					agent,
 				}).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -1263,6 +1266,7 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				fromToken: fromInfo.address, toToken: toInfo.address,
 				fromAmount: wei, fromAddress: wallet_address || '0x0000000000000000000000000000000000000001',
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
+				agent,
 			} as QuoteParams).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
 			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
@@ -1599,6 +1603,17 @@ mcpRoutes.post('/', async (c) => {
 					return c.json(charge.challenge, 402)
 				}
 				return c.json(rpcErr(req.id, -32002, 'Payment required', { x402: charge.challenge }), 200)
+			}
+			if (charge.kind === 'blocked') {
+				// Intercepta rejected the counterparty (or screening was unavailable) —
+				// fail-closed: no charge happened, do not run the tool.
+				return c.json(
+					rpcErr(req.id, -32003, 'Payment rejected', {
+						reason: charge.reason,
+						traits: charge.traits,
+					}),
+					200,
+				)
 			}
 			if (charge.kind === 'ok') {
 				c.header('X-Metering-Cost', String(charge.cost))

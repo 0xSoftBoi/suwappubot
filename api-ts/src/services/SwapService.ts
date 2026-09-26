@@ -13,6 +13,7 @@ import {
 import { DatabaseError, ValidationError } from '../errors'
 import { getTransactionReceipt } from '../config/chains'
 import { AGENT_FEE_FRACTION_EVM, DEFAULT_FEE_WALLET_EVM } from '../config/constants'
+import { type AgentFeeMetadata, getPlatformFeeFractionEvm } from '../lib/feeDiscount'
 
 // Li.Fi API base URL
 const LIFI_API_BASE = 'https://li.quest/v1'
@@ -38,6 +39,12 @@ export interface QuoteParams {
 	// dataset — permanently empty.
 	userId?: number | null
 	agentId?: number | null
+
+	/**
+	 * World ID fee-discount lookup only (agents.metadata.worldId.verified) —
+	 * never trust this object for anything beyond selecting the fee rate.
+	 */
+	agent?: AgentFeeMetadata | null
 }
 
 // Token info from Li.Fi
@@ -450,7 +457,9 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				// EVM agent integrator fee (0.8%). Single source: AGENT_FEE_FRACTION_EVM
 				// in config/constants — see that constant for the known EVM↔Solana
 				// agent-fee divergence and why it is intentionally not unified here.
-				fee: AGENT_FEE_FRACTION_EVM,
+				// World ID verified agents get a discount off this base rate — see
+				// lib/feeDiscount.
+				fee: getPlatformFeeFractionEvm(AGENT_FEE_FRACTION_EVM, params.agent),
 			})
 
 			const url = `${LIFI_API_BASE}/quote?${queryParams.toString()}`
@@ -503,7 +512,9 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				fromChainId === toChainId &&
 				KYBERSWAP_CHAIN_SLUGS[fromChainId] !== undefined
 
-			const feeBpsEvm = Math.round(parseFloat(AGENT_FEE_FRACTION_EVM) * 10000)
+			const feeBpsEvm = Math.round(
+				parseFloat(getPlatformFeeFractionEvm(AGENT_FEE_FRACTION_EVM, params.agent)) * 10000,
+			)
 			const feeReceiverEvm = process.env.FEE_WALLET_EVM || DEFAULT_FEE_WALLET_EVM
 
 			const kyberEffect: Effect.Effect<Option.Option<KyberComparisonQuote>, never> =

@@ -47,6 +47,76 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://suwappu.bot',
 	}),
 
+	// World ID (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 1).
+	// RP-based World ID 4.0 verify flow: POST https://developer.world.org/api/v4/verify/{rp_id}.
+	// All optional — unset means worldId.ts fails closed (verification unavailable, never silently
+	// "verified"). staging env unless WORLD_ID_ENV=production is set explicitly.
+	// No defaults for APP_ID/RP_ID — money-path-reviewer flagged that a
+	// hardcoded default silently defeats the fail-closed check in worldId.ts
+	// (missing config should actually fail closed, not fall back to a baked-in
+	// hackathon app). Leave unset in prod until real World ID config is wired.
+	WORLD_ID_APP_ID: Schema.optional(Schema.String),
+	WORLD_ID_RP_ID: Schema.optional(Schema.String),
+	WORLD_ID_ACTION: Schema.optionalWith(Schema.String, {
+		default: () => 'agent-swap-passport-verify',
+	}),
+	WORLD_ID_API_KEY: Schema.optional(Schema.String),
+	WORLD_ID_ENV: Schema.optionalWith(Schema.Literal('staging', 'production'), {
+		default: () => 'staging' as const,
+	}),
+	// RP signing key from `configure_world_id` (managed RP setup) — signs the
+	// `rp_context` attestation required on every /api/v4/verify call. Without
+	// it, verifyWorldIdProof fails closed (world_id_not_configured).
+	WORLD_ID_RP_SIGNING_KEY: Schema.optional(Schema.String),
+	// Staging-only dev-portal token (`set_world_id_staging_verification`), lets
+	// the portal accept simulator-generated proofs. Never set in production.
+	WORLD_ID_STAGING_VERIFICATION_TOKEN: Schema.optional(Schema.String),
+
+	// AgentKit SIWE `domain` binding (worldIdAuth.ts) — the host callers must
+	// sign against in the EIP-4361 message. Defaults to the prod api-ts host.
+	API_DOMAIN: Schema.optionalWith(Schema.String, { default: () => 'api.suwappu.bot' }),
+
+	// Intercepta (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 2).
+	// Address risk screening: GET https://api.web3antivirus.io/api/public/v2/extension/account/{address}/quick-scan.
+	// Key is obtained via a self-serve Typeform (docs.web3antivirus.io/reference/getting-started-1)
+	// and is NOT YET PROVISIONED as of this build. Unset means lib/intercepta.ts fails closed
+	// (screening unavailable -> the metered payment is rejected, never silently allowed through).
+	INTERCEPTA_API_KEY: Schema.optional(Schema.String),
+	INTERCEPTA_TOXIC_SCORE_THRESHOLD: Schema.optionalWith(Schema.NumberFromString, {
+		default: () => 70,
+	}),
+
+	// ENS (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 3).
+	// Mints `<agent>.suwappu-agents.eth` ENSv2 subnames on Sepolia once an agent
+	// is claimed + World ID-verified. All optional — unset means ensSubname.ts
+	// fails closed (mint skipped, agent flow proceeds without an ENS name; this
+	// is a nice-to-have identity anchor, never a gate on the claim flow).
+	ENS_SEPOLIA_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://ethereum-sepolia-rpc.publicnode.com',
+	}),
+	// Private key of 0x23865aA89E79511950987CC15cd5834BE010E8E7, the account
+	// that owns `suwappu-agents.eth` and holds admin roles on its subregistry.
+	// Loaded from an env var in real deployments; the hackathon build sandbox
+	// keeps it at scripts/.ens_sepolia_key (gitignored, chmod 600) instead.
+	ENS_MINTER_PRIVATE_KEY: Schema.optional(Schema.String),
+	// Subregistry contract for suwappu-agents.eth (a PermissionedRegistry
+	// instance deployed as the child registry of the parent .eth registry
+	// entry) — this is what register() is actually called on to mint agent
+	// subnames. Deployed and wired via setSubregistry() on 2026-09-26; see
+	// docs/plans/ethglobal-tokyo2026-agent-passport.md Phase 3 for tx hashes.
+	ENS_SUWAPPU_AGENTS_SUBREGISTRY: Schema.optionalWith(Schema.String, {
+		default: () => '0xd617a7918b89c7bac8f85c53e327d034914bd062',
+	}),
+	// Resolver to attach to each minted subname. Defaults to the shared
+	// PublicResolverV2 on Sepolia (verified contract, confirmed via Blockscout
+	// as `PublicResolverV2`) rather than PermissionedResolver, which ENSv2
+	// docs describe as a per-account proxy meant to be deployed once per
+	// name via a factory — unnecessary complexity for a shared hackathon
+	// namespace where every subname can safely share one resolver.
+	ENS_RESOLVER_ADDRESS: Schema.optionalWith(Schema.String, {
+		default: () => '0xd7e590ad0e92a6ac1d81f4483a9b951d3585a50f',
+	}),
+
 	// Internal Python API
 	INTERNAL_API_KEY: Schema.optional(Schema.String),
 	INTERNAL_API_URL: Schema.optionalWith(Schema.String, {
