@@ -730,6 +730,12 @@ class RPCManager:
         endpoints = self._endpoints.get(chain_name, [])
         return [ep.url for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True)]
 
+    def get_healthy_urls(self, chain_name: str) -> List[str]:
+        """URLs whose circuit is closed, best health first (for failover retries)."""
+        chain_name = chain_name.lower()
+        endpoints = [ep for ep in self._endpoints.get(chain_name, []) if not ep.is_circuit_open]
+        return [ep.url for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True)]
+
     def report_success(self, chain_name: str, url: str, latency_ms: float):
         """Report a successful RPC call."""
         ep = self._find_endpoint(chain_name.lower(), url)
