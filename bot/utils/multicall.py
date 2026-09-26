@@ -8,6 +8,7 @@ allowFailure=true per inner call, so one bad token doesn't fail the batch.
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from web3 import Web3
 
@@ -123,6 +124,15 @@ def _multicall_balances_sync(
     return balances
 
 
+# Dedicated pool for the blocking Web3 eth_call. asyncio.to_thread used the
+# default executor (min(32, CPUs+4) threads — ~6-12 on the worker), so with up
+# to 24 balance reads admitted at once most calls sat queued for a thread while
+# their 4s asyncio timeout ran, and every chain "timed out" together. Timed-out
+# thread calls can't be cancelled, so they kept the pool saturated. Must stay
+# larger than wallet._BALANCE_RPC_CONCURRENCY.
+_MULTICALL_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="multicall")
+
+
 async def multicall_balances(
     web3_or_rpc_url, holder_address: str, token_addresses: list[str]
 ) -> dict[str, int]:
@@ -133,6 +143,10 @@ async def multicall_balances(
     Raises on full-call failure (e.g. chain without Multicall3, RPC error) —
     callers should fall back to per-token fetching.
     """
-    return await asyncio.to_thread(
-        _multicall_balances_sync, web3_or_rpc_url, holder_address, token_addresses
+    return await asyncio.get_running_loop().run_in_executor(
+        _MULTICALL_EXECUTOR,
+        _multicall_balances_sync,
+        web3_or_rpc_url,
+        holder_address,
+        token_addresses,
     )
