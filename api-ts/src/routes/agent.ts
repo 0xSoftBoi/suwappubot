@@ -2428,8 +2428,26 @@ agentRoutes.get('/portfolio', async (c) => {
 })
 
 // POST /v1/agent/wallets - Create agent wallet via Turnkey + internal provision
+const SUPPORTED_WALLET_CHAINS = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
+
+function existingWalletResponse(c: Context<AgentContext>, address: string) {
+	return c.json(
+		{
+			success: true,
+			wallet: { address, chain_type: 'evm', supported_chains: SUPPORTED_WALLET_CHAINS },
+			message: 'Agent already has a managed wallet.',
+		},
+		200,
+	)
+}
+
 agentRoutes.post('/wallets', async (c) => {
 	const agent = c.get('agent')
+
+	// Idempotent: a second call must not mint a new wallet and overwrite
+	// wallet_address — that strands any funds sent to the first one.
+	const existingAddress = (agent.metadata as Record<string, unknown> | null)?.wallet_address
+	if (typeof existingAddress === 'string') return existingWalletResponse(c, existingAddress)
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -2479,19 +2497,26 @@ agentRoutes.post('/wallets', async (c) => {
 
 			// Store wallet address in agent metadata
 			const agentService = yield* AgentService
-			// Atomic jsonb merge: a snapshot-spread here could drop a concurrent PATCH /me.
-			yield* agentService.updateAgent(agent.id, {
-				mergeMetadata: {
-					wallet_address: wallet.address,
-					wallet_sub_org_id: wallet.subOrgId,
-					// Always overwrite: if provisioning failed, a stale internal_* pair from
-					// an earlier wallet would sign with a different wallet than wallet_address.
-					internal_user_id: internalUserId ?? null,
-					internal_wallet_id: internalWalletId ?? null,
-				},
+			// Atomic jsonb merge (a snapshot-spread could drop a concurrent PATCH /me),
+			// and only while wallet_address is unset: if a concurrent call won, keep its
+			// wallet (ours stays unfunded and unused) and return that one.
+			const claimed = yield* agentService.mergeMetadataIfAbsent(agent.id, 'wallet_address', {
+				wallet_address: wallet.address,
+				wallet_sub_org_id: wallet.subOrgId,
+				// Always write: if provisioning failed, a stale internal_* pair from an
+				// earlier wallet would sign with a different wallet than wallet_address.
+				internal_user_id: internalUserId ?? null,
+				internal_wallet_id: internalWalletId ?? null,
 			})
 
-			return wallet
+			let winnerAddress: string | null = null
+			if (!claimed) {
+				const current = yield* agentService.getAgentById(agent.id)
+				const md = Option.isSome(current) ? (current.value.metadata as Record<string, unknown> | null) : null
+				winnerAddress = typeof md?.wallet_address === 'string' ? md.wallet_address : null
+			}
+
+			return { wallet, claimed, winnerAddress }
 		}),
 	)
 
@@ -2500,7 +2525,11 @@ agentRoutes.post('/wallets', async (c) => {
 		return c.json(body, status)
 	}
 
-	const wallet = result.right
+	const { wallet, claimed, winnerAddress } = result.right
+	if (!claimed) {
+		if (winnerAddress !== null) return existingWalletResponse(c, winnerAddress)
+		return agentError(c, 500, 'INTERNAL', 'Wallet creation raced another request; retry')
+	}
 
 	return c.json(
 		{
@@ -2508,7 +2537,7 @@ agentRoutes.post('/wallets', async (c) => {
 			wallet: {
 				address: wallet.address,
 				chain_type: 'evm',
-				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc'],
+				supported_chains: SUPPORTED_WALLET_CHAINS,
 			},
 			message: 'Wallet created. Fund it to start swapping.',
 		},
