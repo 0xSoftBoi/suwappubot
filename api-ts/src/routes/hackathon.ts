@@ -8,11 +8,16 @@
  *  POST /hackathon/world-id/start    — begin a World ID guardian-gate
  *                                      verification for a trade intent;
  *                                      returns the QR connectorURI + signal
- *  POST /hackathon/world-id/verify   — poll for completion and verify the
- *                                      proof server-side; returns the nullifier
+ *  POST /hackathon/world-id/verify   — short long-poll (<=25s) for the
+ *                                      background verification kicked off by
+ *                                      /start; returns pending/verified/failed
+ *  GET  /hackathon/evidence          — live Sepolia ENS + tx receipt evidence
+ *                                      for the demo UI (60s cache, never throws)
  *
- * The verify step blocks up to the IDKit poll timeout (5 min) — the demo
- * client should call it after the human scans the QR.
+ * /world-id/start kicks off the IDKit poll + server-side proof verification
+ * in the background (result keyed by signal, ~10min TTL) so no single request
+ * blocks past Cloudflare's ~100s proxy timeout. The demo client polls
+ * /world-id/verify repeatedly after displaying the QR from /start.
  *
  * OPENAPI TREATMENT: these routes are intentionally excluded from the public
  * OpenAPI spec (see app.ts mount comment). Demo surface, not public API.
@@ -25,11 +30,12 @@ import { isTradingApiConfigured } from '../hackathon/tokyo2026/uniswap/tradingAp
 import { logger } from '../lib/logger'
 import { interceptaEnabled, hackathonEnv, trustLayerEnabled } from '../hackathon/env'
 import {
-	awaitWorldIdGate,
+	pollWorldIdGate,
 	startWorldIdGate,
 	worldIdReady,
 	type TradeIntent,
 } from '../hackathon/worldId'
+import { getEvidence } from '../hackathon/tokyo2026/evidence'
 
 export const hackathonRoutes = new Hono()
 
@@ -87,6 +93,14 @@ hackathonRoutes.post('/world-id/start', async (c) => {
 	}
 })
 
+// Short long-poll: /world-id/start already kicked off await+verify in the
+// background (see hackathon/worldId.ts), so this just polls the in-memory
+// result — never blocks past ~25s, well under Cloudflare's ~100s proxy
+// timeout. The client is expected to call this repeatedly until it gets a
+// terminal (verified/failed) status; each call is idempotent.
+const VERIFY_POLL_BUDGET_MS = 25_000
+const VERIFY_POLL_INTERVAL_MS = 1_000
+
 hackathonRoutes.post('/world-id/verify', async (c) => {
 	const env = hackathonEnv()
 	if (!worldIdReady(env)) {
@@ -95,12 +109,28 @@ hackathonRoutes.post('/world-id/verify', async (c) => {
 	const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
 	const signal = typeof body?.['signal'] === 'string' ? (body['signal'] as string) : null
 	if (!signal) return c.json({ error: 'missing required field: signal' }, 400)
+
+	const deadline = Date.now() + VERIFY_POLL_BUDGET_MS
+	for (;;) {
+		const res = pollWorldIdGate(signal)
+		if (res.status !== 'pending') {
+			return c.json(res, 200)
+		}
+		if (Date.now() >= deadline) {
+			return c.json(res, 200)
+		}
+		await new Promise((r) => setTimeout(r, VERIFY_POLL_INTERVAL_MS))
+	}
+})
+
+hackathonRoutes.get('/evidence', async (c) => {
 	try {
-		const res = await awaitWorldIdGate(signal)
-		if (!res.ok) return c.json({ ok: false, reason: res.reason }, 200)
-		return c.json({ ok: true, nullifier: res.nullifier })
+		const evidence = await getEvidence()
+		return c.json(evidence)
 	} catch (e) {
-		logger.warn('[hackathon] world-id verify failed: %s', String(e))
-		return c.json({ ok: false, reason: 'verification error' }, 502)
+		// getEvidence() is designed never to throw; this is a last-resort
+		// safety net so the demo page never sees a 500 from this endpoint.
+		logger.warn('[hackathon] evidence route failed: %s', String(e))
+		return c.json({ error: 'evidence temporarily unavailable' }, 502)
 	}
 })

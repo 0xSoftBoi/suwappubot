@@ -58,9 +58,42 @@ function nullifierStore(): Promise<NullifierStore> {
 	return storePromise
 }
 
-/** signal → pending verification. Single-process; a multi-replica deploy
+/**
+ * Terminal verification outcome, keyed by signal. Populated by the
+ * background task kicked off in startWorldIdGate; polled (never re-awaited)
+ * by verifyWorldIdGate. TTL-bounded so a client that never polls doesn't
+ * leak memory.
+ */
+type GateResult =
+	| { status: 'pending' }
+	| { status: 'verified'; ok: true; nullifier: string }
+	| { status: 'failed'; ok: false; reason: string }
+
+interface GateEntry {
+	result: GateResult
+	expiresAt: number
+}
+
+/** signal → verification state. Single-process; a multi-replica deploy
  * needs this in Redis/DB keyed by signal. */
-const pending = new Map<string, { p: PendingVerification; action: string }>()
+const results = new Map<string, GateEntry>()
+
+const RESULT_TTL_MS = 10 * 60 * 1000
+const MAX_ENTRIES = 5_000
+
+function pruneResults(): void {
+	if (results.size <= MAX_ENTRIES) return
+	const now = Date.now()
+	for (const [signal, entry] of results) {
+		if (entry.expiresAt <= now) results.delete(signal)
+	}
+	// Still over budget (e.g. burst of live entries): evict oldest first.
+	while (results.size > MAX_ENTRIES) {
+		const oldest = results.keys().next().value
+		if (oldest === undefined) break
+		results.delete(oldest)
+	}
+}
 
 export function worldIdReady(env: Env = hackathonEnv()): boolean {
 	return worldIdEnabled(env) && isWorldIdConfigured()
@@ -70,6 +103,11 @@ export function worldIdReady(env: Env = hackathonEnv()): boolean {
  * `stepUp` requests the step-up action (cfg.stepUpAction) instead of the
  * gate action — the step-up is a distinct authorization with its own
  * nullifier namespace (see WorldIdConfig.stepUpAction).
+ *
+ * Starts the human's IDKit request (fast — returns the QR connectorURI), then
+ * kicks off the poll+verify in the background so a slow/absent human never
+ * blocks this call or the eventual /verify poll past Cloudflare's ~100s
+ * proxy timeout. The result lands in `results` keyed by signal once settled.
  */
 export async function startWorldIdGate(
 	intent: TradeIntent,
@@ -78,19 +116,40 @@ export async function startWorldIdGate(
 	const cfg = loadWorldIdConfig()
 	const action = stepUp ? cfg.stepUpAction : cfg.action
 	const p = await startTradeVerification(cfg, intent, action)
-	pending.set(p.signal, { p, action })
+
+	pruneResults()
+	results.set(p.signal, { result: { status: 'pending' }, expiresAt: Date.now() + RESULT_TTL_MS })
+
+	void (async () => {
+		try {
+			const store = await nullifierStore()
+			const res = await awaitAndVerifyTradeApproval(cfg, p, store, action)
+			const result: GateResult = res.ok
+				? { status: 'verified', ok: true, nullifier: res.nullifier ?? '' }
+				: { status: 'failed', ok: false, reason: res.reason ?? 'verification failed' }
+			results.set(p.signal, { result, expiresAt: Date.now() + RESULT_TTL_MS })
+		} catch (e) {
+			logger.warn('[world-id] background verification failed for signal %s: %s', p.signal, String(e))
+			results.set(p.signal, {
+				result: { status: 'failed', ok: false, reason: 'verification error' },
+				expiresAt: Date.now() + RESULT_TTL_MS,
+			})
+		}
+	})()
+
 	return { connectorURI: p.connectorURI, signal: p.signal }
 }
 
-export async function awaitWorldIdGate(
-	signal: string,
-): Promise<{ ok: true; nullifier: string } | { ok: false; reason: string }> {
-	const cfg = loadWorldIdConfig()
-	const entry = pending.get(signal)
-	if (!entry) return { ok: false, reason: 'unknown or expired signal' }
-	pending.delete(signal)
-	const store = await nullifierStore()
-	const res = await awaitAndVerifyTradeApproval(cfg, entry.p, store, entry.action)
-	if (!res.ok) return { ok: false, reason: res.reason ?? 'verification failed' }
-	return { ok: true, nullifier: res.nullifier ?? '' }
+/**
+ * Poll the in-memory result for a signal. Non-blocking, idempotent — returns
+ * the same terminal result on repeat calls until TTL expiry. Unknown signal
+ * (never started, or expired/evicted) is reported as a terminal failure so
+ * the client can stop polling instead of spinning forever.
+ */
+export function pollWorldIdGate(signal: string): GateResult {
+	const entry = results.get(signal)
+	if (!entry || entry.expiresAt <= Date.now()) {
+		return { status: 'failed', ok: false, reason: 'unknown or expired signal' }
+	}
+	return entry.result
 }

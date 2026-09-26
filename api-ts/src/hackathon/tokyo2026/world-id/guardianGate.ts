@@ -11,7 +11,7 @@
  * - `(action, nullifier)` is stored with a UNIQUE constraint (NUMERIC(78,0));
  *   replays are rejected by the database, not just app logic.
  */
-import { IDKit, proofOfHuman } from '@worldcoin/idkit-core'
+import { IDKit, hashSignal, proofOfHuman } from '@worldcoin/idkit-core'
 import { createHash } from 'node:crypto'
 import { makeRpContext } from './rpSignature.ts'
 import type { WorldIdConfig } from './config.ts'
@@ -173,14 +173,25 @@ export async function awaitAndVerifyTradeApproval(
 	store: NullifierStore,
 	action: string = cfg.action,
 ): Promise<VerifyResult> {
-	let proof: unknown
+	let completed: unknown
 	try {
-		proof = await pending._poll()
+		completed = await pending._poll()
 	} catch (e) {
-		// IDKit surfaces decline/expiry/cancellation as poll errors.
 		return { ok: false, reason: `verification not completed: ${(e as Error).message}` }
 	}
-	return verifyTradeProof(cfg, proof, pending.signal, action, store)
+	// pollUntilCompletion() never throws: it resolves to a discriminated
+	// envelope `{success:true, result}` | `{success:false, error}`. The
+	// verifier wants the bare v4 result (`protocol_version`, `nonce`, `action`,
+	// `responses`, ...) — posting the envelope yields
+	// `400 validation_error: action is required for uniqueness proofs`.
+	const env = completed as { success?: boolean; result?: unknown; error?: string } | null
+	if (!env || typeof env !== 'object') {
+		return { ok: false, reason: 'verification not completed: empty IDKit result' }
+	}
+	if (env.success !== true || !env.result) {
+		return { ok: false, reason: `verification not completed: ${env.error ?? 'unknown_error'}` }
+	}
+	return verifyTradeProof(cfg, env.result, pending.signal, action, store)
 }
 
 /**
@@ -194,18 +205,49 @@ export async function verifyTradeProof(
 	expectedAction: string,
 	store: NullifierStore,
 ): Promise<VerifyResult> {
+	// Accept either the bare v4 result or (defensively) the IDKit completion
+	// envelope, so HTTP callers that forward `pollUntilCompletion()` verbatim
+	// still verify.
+	const bare =
+		proof && typeof proof === 'object' && 'result' in (proof as Record<string, unknown>)
+			? (proof as { result: unknown }).result
+			: proof
+	const p = bare as { responses?: Array<{ signal_hash?: string }> } | null
+	if (!p || typeof p !== 'object' || !Array.isArray(p.responses) || p.responses.length === 0) {
+		return { ok: false, reason: 'proof malformed: no credential responses' }
+	}
+	// World's verify response carries no `signal`; the binding lives in each
+	// response item's `signal_hash`. Check it here, before spending a verifier
+	// call, against the hash IDKit derives from the signal we issued.
+	const expectedHash = hashSignal(expectedSignal).toLowerCase()
+	if (!p.responses.every((r) => (r.signal_hash ?? '').toLowerCase() === expectedHash)) {
+		return { ok: false, reason: 'proof signal does not match this trade intent' }
+	}
 	let res: Response
 	try {
+		const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+		// Staging proofs are refused (403 environment_not_allowed) without the
+		// token from the app's open staging window. Production never sends it.
+		if (cfg.environment === 'staging' && cfg.stagingVerificationToken) {
+			headers['x-staging-verification-token'] = cfg.stagingVerificationToken
+		}
 		res = await fetch(`https://developer.world.org/api/v4/verify/${cfg.rpId}`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(proof),
+			headers,
+			body: JSON.stringify(bare),
 		})
 	} catch (e) {
 		return { ok: false, reason: `verifier unreachable: ${(e as Error).message}` }
 	}
 	if (!res.ok) {
-		return { ok: false, reason: `verifier rejected proof (http ${res.status})` }
+		// World returns the rejection reason in the body (e.g. invalid_proof,
+		// invalid_merkle_root, max_verifications_reached). Keep a bounded excerpt
+		// so operators can see *why* instead of a bare status code.
+		const detail = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300)
+		return {
+			ok: false,
+			reason: `verifier rejected proof (http ${res.status})${detail ? `: ${detail}` : ''}`,
+		}
 	}
 	const data = (await res.json()) as {
 		success?: boolean
@@ -220,9 +262,6 @@ export async function verifyTradeProof(
 	}
 	if (data.action !== expectedAction) {
 		return { ok: false, reason: 'proof bound to a different action' }
-	}
-	if (data.signal !== expectedSignal) {
-		return { ok: false, reason: 'proof signal does not match this trade intent' }
 	}
 	if (!data.nullifier) {
 		return { ok: false, reason: 'verifier returned no nullifier' }
