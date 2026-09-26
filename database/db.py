@@ -836,6 +836,42 @@ def _ensure_schema(db_engine) -> None:
     if "savings_events" in tables:
         _add_savings_events_venue_column(db_engine, inspector, is_sqlite)
 
+    # --- world_id_nullifiers: subject column so a consumed nullifier can be
+    # traced back to what it was consumed for (e.g. the passport wallet),
+    # surviving a redeploy of api-ts's in-memory nullifier->wallet map ---
+    if "world_id_nullifiers" in tables:
+        _add_world_id_nullifiers_subject_column(db_engine, inspector, is_sqlite)
+
+
+def _add_world_id_nullifiers_subject_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add ``world_id_nullifiers.subject`` (nullable text).
+
+    Table is Drizzle-owned (api-ts/src/db/schema/worldIdNullifiers.ts) — the
+    Python side never creates it, only adds this column when it already
+    exists, so a bot boot before api-ts has pushed the table is a no-op.
+    Stores what the nullifier was consumed for (e.g. the lowercased wallet
+    for the `suwappu-passport` action); left NULL for other actions.
+    """
+    try:
+        cols = {c["name"] for c in inspector.get_columns("world_id_nullifiers")}
+    except Exception as e:
+        logger.warning(f"Could not inspect world_id_nullifiers columns: {e}")
+        return
+
+    if "subject" in cols:
+        return
+
+    try:
+        if is_sqlite:
+            ddl = "ALTER TABLE world_id_nullifiers ADD COLUMN subject TEXT"
+        else:
+            ddl = "ALTER TABLE world_id_nullifiers ADD COLUMN IF NOT EXISTS subject TEXT"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+        logger.info("Added world_id_nullifiers.subject column")
+    except Exception as e:
+        logger.warning(f"Failed to add world_id_nullifiers.subject column: {e}")
+
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Widen swap_transactions.from_token/to_token from VARCHAR(20) to VARCHAR(64).

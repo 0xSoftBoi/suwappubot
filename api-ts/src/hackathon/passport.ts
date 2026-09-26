@@ -51,7 +51,14 @@ type PassportGateResult =
 	| { status: 'pending' }
 	| { status: 'provisioning'; wallet: string; nullifier: string }
 	| { status: 'ready'; wallet: string; nullifier: string; ens: ProvisionResult['ens']; hook: ProvisionResult['hook'] }
-	| { status: 'existing'; wallet: string; nullifier: string; ens: ProvisionResult['ens']; hook: ProvisionResult['hook'] }
+	| {
+			status: 'existing'
+			wallet: string
+			nullifier: string
+			ens: ProvisionResult['ens']
+			hook: ProvisionResult['hook']
+			requestedWallet?: string
+	  }
 	| { status: 'failed'; reason: string }
 
 interface GateEntry {
@@ -122,24 +129,47 @@ export async function startPassportGate(wallet: string): Promise<{ connectorURI:
 	void (async () => {
 		try {
 			const store = await nullifierStore()
-			const res = await awaitAndVerifyTradeApproval(cfg, pending, store, PASSPORT_ACTION)
+			const res = await awaitAndVerifyTradeApproval(
+				cfg,
+				pending,
+				store,
+				PASSPORT_ACTION,
+				wallet.toLowerCase(),
+			)
 			if (res.ok && res.nullifier) {
 				void runProvisioning(signal, wallet, res.nullifier)
 				return
 			}
 			if (res.reason === REPLAY_REJECTED_REASON && res.nullifier) {
 				// Same human, same action, already used — one human, one passport.
-				// Idempotent re-scan: return the existing record instead of erroring.
-				const existingWallet = findWalletByNullifier(res.nullifier) ?? wallet
-				try {
-					const state = await readPassport(existingWallet)
+				// Resolve the wallet this nullifier is actually bound to: the
+				// durable store first (survives redeploys), then the in-memory
+				// map (same-process fallback). Never fall back to the *requested*
+				// wallet — nothing was minted for it, so that would misreport a
+				// fresh wallet as "existing".
+				const boundWallet =
+					(await store.lookup?.(PASSPORT_ACTION, res.nullifier).catch(() => null)) ??
+					findWalletByNullifier(res.nullifier)
+				if (!boundWallet) {
 					setGate(signal, {
+						status: 'failed',
+						reason: 'this World ID already holds a passport but its wallet could not be recovered',
+					})
+					return
+				}
+				try {
+					const state = await readPassport(boundWallet)
+					const result: PassportGateResult = {
 						status: 'existing',
-						wallet: existingWallet,
+						wallet: boundWallet,
 						nullifier: res.nullifier,
 						ens: { name: state.ensName, txHash: null, existing: state.ensResolvesToWallet, addrTx: null },
 						hook: { allowlistTx: null, existing: state.hookAllowlisted },
-					})
+					}
+					if (boundWallet.toLowerCase() !== wallet.toLowerCase()) {
+						result.requestedWallet = wallet
+					}
+					setGate(signal, result)
 				} catch (e) {
 					setGate(signal, { status: 'failed', reason: e instanceof Error ? e.message : String(e) })
 				}
