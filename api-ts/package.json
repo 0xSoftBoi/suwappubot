@@ -8,6 +8,7 @@
 		"build": "bun build src/index.ts --outdir ./dist --target bun",
 		"check": "tsc --noEmit",
 		"verify:smart-account": "bun run scripts/verify-smart-account-send.ts",
+		"smoke:world-id": "bun run scripts/smoke-world-id.ts",
 		"test": "bun test src/__tests__/",
 		"test:watch": "bun test --watch src/__tests__/",
 		"test:coverage": "bun test --coverage src/__tests__/",

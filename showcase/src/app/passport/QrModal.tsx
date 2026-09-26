@@ -16,10 +16,12 @@ export default function QrModal({
   open,
   connectorURI,
   onClose,
+  simulatorUrl: simulatorUrlOverride,
 }: {
   open: boolean;
   connectorURI: string | null;
   onClose: () => void;
+  simulatorUrl?: string;
 }) {
   const reduceMotion = useReducedMotion();
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -117,7 +119,7 @@ export default function QrModal({
             <div className={styles.modalActions}>
               <a
                 className={styles.modalSimLink}
-                href={simulatorUrl(connectorURI)}
+                href={simulatorUrlOverride || simulatorUrl(connectorURI)}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={openSimulator}

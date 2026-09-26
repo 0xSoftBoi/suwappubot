@@ -19,46 +19,50 @@ export type HackathonStatus = {
   providers?: Record<string, ProviderState | boolean | string>;
 };
 
-export type TradeIntent = {
-  agentId: string;
-  chain: string;
-  fromToken: string;
-  toToken: string;
-  amountIn: string;
+export type SwapBlocked = { status: 'blocked'; reason: string; detail?: string };
+export type SwapSubmitted = { status: 'submitted'; jobId: string };
+export type SwapStartResponse = SwapBlocked | SwapSubmitted;
+
+export type SwapJob = {
+  status: 'submitted' | 'executed' | 'failed';
+  txHash?: string;
+  blockNumber?: number;
+  reason?: string;
+  executedBy?: string;
+  swapper?: string;
 };
 
-export const TRADE_DEFAULTS: TradeIntent = {
-  agentId: 'suwappu-demo-agent',
-  chain: 'base',
-  fromToken: 'USDC',
-  toToken: 'ETH',
-  amountIn: '10',
-};
-
-export type WorldIdStartResponse = {
+export type PassportStartResponse = {
   connectorURI: string;
   signal: string;
-  stepUp?: unknown;
+  simulatorUrl?: string;
 };
 
-export type WorldIdVerifyResponse =
-  | { status: 'pending' }
-  | { status: 'verified'; ok: true; nullifier: string }
-  // Fresh, valid proof from a human who already verified under this action.
-  | { status: 'already_verified'; ok: false; reason?: string }
-  | { status: 'failed'; ok: false; reason?: string };
+type EnsInfo = { name: string; txHash: string | null; existing: boolean };
+type HookInfo = { allowlistTx: string | null; existing: boolean };
 
-export type Receipt = { status?: string; blockNumber?: number };
+export type PassportVerifyResponse =
+  | { status: 'pending' }
+  | { status: 'provisioning'; nullifier: string }
+  | { status: 'ready'; nullifier: string; wallet: string; ens: EnsInfo; hook: HookInfo }
+  | { status: 'existing'; nullifier: string; wallet: string; ens: EnsInfo; hook: HookInfo }
+  | { status: 'failed'; reason?: string };
+
+export type PassportRecord = {
+  label?: string;
+  ensName?: string;
+  ensResolvesToWallet?: boolean;
+  hookAllowlisted?: boolean;
+  ens?: Record<string, unknown>;
+  hook?: Record<string, unknown>;
+  swaps?: { txHash: string; blockNumber?: number; status: string }[];
+  explorer?: string;
+};
 
 export type Evidence = {
   chainId?: number;
-  ens?: {
-    parent?: string;
-    subregistry?: string;
-    sample?: { name?: string; txHash?: string; resolvedAddress?: string };
-  };
-  uniswap?: { hook?: string; deployTx?: string; swapTx?: string };
-  receipts?: Record<string, Receipt>;
+  ens?: { parent?: string };
+  uniswap?: { hook?: string; deployTx?: string };
 };
 
 export class ApiError extends Error {
@@ -86,24 +90,37 @@ export function getStatus(): Promise<HackathonStatus> {
   return fetchJson('/hackathon/status');
 }
 
-export function startWorldId(
-  trade: TradeIntent & { summary: string },
-): Promise<WorldIdStartResponse> {
-  return fetchJson('/hackathon/world-id/start', {
+export function getEvidence(): Promise<Evidence> {
+  return fetchJson('/hackathon/evidence');
+}
+
+export function passportSwap(wallet: string): Promise<SwapStartResponse> {
+  return fetchJson('/hackathon/passport/swap', {
     method: 'POST',
-    body: JSON.stringify(trade),
+    body: JSON.stringify({ wallet }),
   });
 }
 
-export function verifyWorldId(signal: string): Promise<WorldIdVerifyResponse> {
-  return fetchJson('/hackathon/world-id/verify', {
+export function getSwapJob(jobId: string): Promise<SwapJob> {
+  return fetchJson(`/hackathon/passport/swap/${jobId}`);
+}
+
+export function passportStart(wallet: string): Promise<PassportStartResponse> {
+  return fetchJson('/hackathon/passport/start', {
+    method: 'POST',
+    body: JSON.stringify({ wallet }),
+  });
+}
+
+export function passportVerify(signal: string): Promise<PassportVerifyResponse> {
+  return fetchJson('/hackathon/passport/verify', {
     method: 'POST',
     body: JSON.stringify({ signal }),
   });
 }
 
-export function getEvidence(): Promise<Evidence> {
-  return fetchJson('/hackathon/evidence');
+export function getPassport(wallet: string): Promise<PassportRecord> {
+  return fetchJson(`/hackathon/passport/${wallet}`);
 }
 
 /** World ID simulator deep link for scanning without a physical device. */
@@ -117,4 +134,17 @@ export function etherscanTx(hash: string): string {
 
 export function etherscanAddress(address: string): string {
   return `https://sepolia.etherscan.io/address/${address}`;
+}
+
+export const HOOK_ADDRESS = '0xc72ab4dFd3d6B2C1b3af51816EA8331599e6c080';
+
+export function ensAppUrl(name: string): string {
+  return `https://sepolia.app.ens.domains/${name}`;
+}
+
+/** Client-side random 20-byte EVM address — good enough for a demo "fresh agent wallet". */
+export function randomWallet(): string {
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return '0x' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }

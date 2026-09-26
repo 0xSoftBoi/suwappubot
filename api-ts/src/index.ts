@@ -2,7 +2,8 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
-import { initHackathonEnv, trustLayerEnabled } from './hackathon/env'
+import { initHackathonEnv, trustLayerEnabled, worldIdEnabled } from './hackathon/env'
+import { isWorldIdConfigured } from './hackathon/tokyo2026/world-id/config'
 import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
@@ -27,6 +28,21 @@ async function main() {
 	// process-lifetime config; request-path gates read it without spinning
 	// the Effect runtime.
 	initHackathonEnv(env)
+
+	// Fail fast if the trust layer is enabled but World ID isn't actually
+	// configured — this exact gap (secret set under the wrong env name) shipped
+	// to prod once already (see docs/DECISIONS.md "Demo hardening 2026-09-26").
+	if (trustLayerEnabled(env) && worldIdEnabled(env) && !isWorldIdConfigured()) {
+		logger.error(
+			'[boot] HACKATHON_TRUST_LAYER + World ID enabled but not configured — missing one or more of WORLD_APP_ID / WORLD_RP_ID / RP_SIGNING_KEY',
+		)
+		process.exit(1)
+	}
+	if (process.env['WORLD_ENV'] === 'staging' && !process.env['WORLD_STAGING_VERIFICATION_TOKEN']) {
+		logger.warn(
+			'[boot] WORLD_ENV=staging but WORLD_STAGING_VERIFICATION_TOKEN is unset — World ID staging verification will fail',
+		)
+	}
 
 	// Initialize Sentry as early as possible — before app/route construction,
 	// so any error during startup or the first request is captured. No-op

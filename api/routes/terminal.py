@@ -1576,7 +1576,7 @@ async def terminal_perps_connect(request: Request, body: PerpsConnectBody):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid API secret — could not derive your HyperLiquid address.",
-            )
+            ) from e
 
         perps_service.setup_account(
             user_id=uid,
@@ -1589,7 +1589,9 @@ async def terminal_perps_connect(request: Request, body: PerpsConnectBody):
         raise
     except Exception as e:
         logger.error("terminal perps connect failed: %s", e)
-        raise HTTPException(status_code=400, detail="Could not connect your HyperLiquid account.")
+        raise HTTPException(
+            status_code=400, detail="Could not connect your HyperLiquid account."
+        ) from e
 
 
 @router.get("/perps/positions")
@@ -1681,7 +1683,7 @@ async def terminal_perps_cancel(request: Request, body: PerpsCancelBody):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("terminal perps cancel failed: %s", e)
-        raise HTTPException(status_code=502, detail="Could not cancel the order. Try again.")
+        raise HTTPException(status_code=502, detail="Could not cancel the order. Try again.") from e
 
     if not ok:
         raise HTTPException(status_code=502, detail="Could not cancel the order. Try again.")
@@ -1720,7 +1722,7 @@ async def terminal_perps_tpsl(request: Request, body: PerpsTpSlBody):
         raise HTTPException(
             status_code=502,
             detail="HyperLiquid did not accept the change. Your existing protection is unchanged.",
-        )
+        ) from e
 
     return {"ok": True, "takeProfit": body.takeProfit, "stopLoss": body.stopLoss}
 
@@ -1791,7 +1793,9 @@ async def terminal_perps_execute(request: Request, body: PerpsExecuteBody):
         raise
     except Exception as e:
         logger.error("terminal perps execute failed: %s", e)
-        raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
+        raise HTTPException(
+            status_code=502, detail="Order failed on HyperLiquid. Try again."
+        ) from e
 
     if not pos:
         raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
@@ -1826,7 +1830,9 @@ async def terminal_perps_close(request: Request, body: PerpsCloseBody):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("terminal perps close failed: %s", e)
-        raise HTTPException(status_code=502, detail="Order failed on HyperLiquid. Try again.")
+        raise HTTPException(
+            status_code=502, detail="Order failed on HyperLiquid. Try again."
+        ) from e
 
     return {"ok": True, "result": _jsonify(result)}
 
@@ -1912,7 +1918,7 @@ async def terminal_predict_order(request: Request, body: PredictOrderBody):
                 private_key = wallet_service.get_private_key(wallet)
         except Exception as e:
             logger.error("terminal predict wallet key resolution failed: %s", e)
-            raise HTTPException(status_code=400, detail="Could not access your wallet key.")
+            raise HTTPException(status_code=400, detail="Could not access your wallet key.") from e
 
     if not private_key:
         raise HTTPException(status_code=400, detail="Could not access your wallet key.")
@@ -2082,7 +2088,9 @@ async def terminal_predict_redeem(request: Request, body: PredictRedeemBody):
         )
     except Exception as e:
         logger.error("terminal predict redeem failed: %s", e)
-        raise HTTPException(status_code=502, detail="Redeem failed. Your position is unchanged.")
+        raise HTTPException(
+            status_code=502, detail="Redeem failed. Your position is unchanged."
+        ) from e
 
     if result.success:
         with get_session() as session:

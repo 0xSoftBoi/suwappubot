@@ -23,6 +23,7 @@ import { PostgresNullifierStore } from '../hackathon/worldIdNullifiers'
 import { mintAgentSubname } from '../lib/ensSubname'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { describeError } from '../lib/errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
@@ -4521,7 +4522,7 @@ agentRoutes.post('/link/code', async (c) => {
 						.insert(agentLinkCodes)
 						.values({ agentId: agent.id, codeHash, expiresAt })
 						.returning(),
-				catch: (e) => new ValidationError({ message: `Failed to create link code: ${e}` }),
+				catch: (e) => new ValidationError({ message: `Failed to create link code: ${describeError(e)}` }),
 			})
 			const row = rows[0]
 			if (!row) {
@@ -4540,7 +4541,7 @@ agentRoutes.post('/link/code', async (c) => {
 								updatedAt: new Date(),
 							})
 							.where(eq(agents.id, agent.id)),
-					catch: (e) => new ValidationError({ message: `Failed to store World ID metadata: ${e}` }),
+					catch: (e) => new ValidationError({ message: `Failed to store World ID metadata: ${describeError(e)}` }),
 				})
 			}
 
@@ -4596,7 +4597,7 @@ agentRoutes.post('/link/code', async (c) => {
 												updatedAt: new Date(),
 											})
 											.where(eq(agents.id, agent.id)),
-									catch: (e) => new ValidationError({ message: `Failed to store ENS metadata: ${e}` }),
+									catch: (e) => new ValidationError({ message: `Failed to store ENS metadata: ${describeError(e)}` }),
 								})
 							}),
 						)

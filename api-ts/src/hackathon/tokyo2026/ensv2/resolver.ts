@@ -161,6 +161,31 @@ export async function resolveAddress(client: PublicClient, name: string): Promis
 	}
 }
 
+/** Resolve the `addr` record AND the resolver address for a name via
+ * UniversalResolverV2, in one call. Returns `resolver: null` alongside
+ * `address: null` on any resolution failure. */
+export async function resolveAddressWithResolver(
+	client: PublicClient,
+	name: string,
+): Promise<{ address: Address | null; resolver: Address | null }> {
+	try {
+		const node = namehash(name)
+		const [result, resolver] = await client.readContract({
+			address: ENSV2_SEPOLIA.universalResolverV2,
+			abi: UNIVERSAL_RESOLVER_ABI,
+			functionName: 'resolve',
+			args: [dnsEncode(name), encodeFunctionData({ abi: ADDR_READ_ABI, functionName: 'addr', args: [node] })],
+		})
+		const addr = decodeFunctionResult({ abi: ADDR_READ_ABI, functionName: 'addr', data: result }) as Address
+		return {
+			address: addr === '0x0000000000000000000000000000000000000000' ? null : addr,
+			resolver,
+		}
+	} catch {
+		return { address: null, resolver: null }
+	}
+}
+
 /**
  * Resolve an agent subname and enforce its policy against a proposed trade.
  * Returns a block reason when the trade violates the onchain caps, or null

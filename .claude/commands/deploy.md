@@ -30,6 +30,9 @@ env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
 
 ## Manual deploy (emergency override / when you can't merge)
 
+**Pre-flight:** before deploying, run `python3 scripts/env_parity.py --service <service> --env <env>` to confirm no required env vars are missing in Railway (names only, no values).
+
+
 This machine has the `railway` CLI (no `aws`, no `docker` needed for source-upload deploys).
 Deploy from a **clean `origin/main` worktree** so you never upload other sessions' uncommitted changes:
 

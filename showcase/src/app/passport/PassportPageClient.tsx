@@ -1,139 +1,57 @@
 'use client';
 
-import { useMemo } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import AmbientOrb, { OrbState } from './AmbientOrb';
-import NarrationFlow, { NarrationLine } from './NarrationFlow';
 import QrModal from './QrModal';
-import ResultCard from './PassportCard';
-import TechnicalDetails from './TechnicalDetails';
+import StatusStrip from './StatusStrip';
+import CopyField from './CopyField';
+import { HOOK_ADDRESS, ensAppUrl, etherscanAddress, etherscanTx } from './api';
 import { usePassportFlow } from './usePassportFlow';
 import styles from './passport.module.css';
-
-function receiptOk(receipts: Record<string, { status?: string }> | undefined, hash?: string) {
-  if (!receipts || !hash) return false;
-  const r = receipts[hash];
-  return !!r && /success|1|confirmed|ok/i.test(String(r.status ?? ''));
-}
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 export default function PassportPageClient() {
   const reduceMotion = useReducedMotion();
   const {
-    trade,
-    worldPhase,
-    worldError,
-    start,
-    nullifier,
-    beginVerification,
-    cancelVerification,
-    evidence,
-    evidenceError,
-    evidenceLoading,
     status,
     statusError,
     statusLoading,
+    wallet,
+    setWallet,
+    newWallet,
+    swapPhase,
+    swapResult,
+    swapJob,
+    swapError,
+    attemptSwap,
+    verifyPhase,
+    verifyError,
+    start,
+    verified,
+    humanVerified,
+    beginVerification,
+    cancelVerification,
+    passportRecord,
+    evidence,
+    evidenceError,
   } = usePassportFlow();
 
-  const started = worldPhase !== 'idle';
-  // 'returning' = World accepted a fresh proof from someone who already
-  // verified; for this page that is still a proven human.
-  const returning = worldPhase === 'returning';
-  const humanDone = worldPhase === 'verified' || returning;
-  const humanFailed = worldPhase === 'failed' || worldPhase === 'error';
-  const evidenceUnavailable = evidenceError === 'not-deployed';
+  const enabled = status?.trustLayer !== undefined || !statusError;
+  const notEnabled = !statusLoading && !!statusError && !status;
 
-  const ensName = evidence?.ens?.sample?.name;
-  // The mint receipt is the proof the name exists; the sample name carries no
-  // addr record, so resolvedAddress is legitimately null.
-  const ensLanded =
-    !!evidence?.ens?.sample?.resolvedAddress ||
-    receiptOk(evidence?.receipts, evidence?.ens?.sample?.txHash);
-  const swapHash = evidence?.uniswap?.swapTx;
-  const swapLanded = receiptOk(evidence?.receipts, swapHash) || (!!swapHash && !evidence?.receipts);
+  const orbState: OrbState =
+    swapPhase === 'checking' || swapPhase === 'submitted' || verifyPhase === 'starting' || verifyPhase === 'pending' || verifyPhase === 'provisioning'
+      ? 'thinking'
+      : swapPhase === 'executed' || humanVerified
+        ? 'success'
+        : swapPhase === 'failed' || verifyPhase === 'failed' || verifyPhase === 'error'
+          ? 'error'
+          : 'idle';
 
-  const resultReady = humanDone && !evidenceLoading;
-
-  // Real-state narration — every line is a direct read of usePassportFlow /
-  // evidence, never a timer pretending progress.
-  const lines: NarrationLine[] = useMemo(() => {
-    if (!started) return [];
-    const out: NarrationLine[] = [];
-
-    if (worldPhase === 'starting' || worldPhase === 'awaiting') {
-      out.push({ id: 'human', text: "Asking you to prove you're a real person…", state: 'active' });
-    } else if (returning) {
-      out.push({ id: 'human', text: "Welcome back — you're already verified", state: 'done' });
-    } else if (humanDone) {
-      out.push({ id: 'human', text: "Verified — you're human", state: 'done' });
-    } else if (humanFailed) {
-      // Raw fetch/verifier strings ("Failed to fetch", "http 400") stay in
-      // Technical details; the narration speaks plainly.
-      const unreachable = !worldError || /fetch|network|http|5\d\d/i.test(worldError);
-      out.push({
-        id: 'human',
-        text: unreachable
-          ? "Couldn't reach the verification service. Give it another try."
-          : "We couldn't confirm you're human this time. Give it another try.",
-        state: 'error',
-      });
-    }
-
-    if (humanDone) {
-      if (evidenceUnavailable) {
-        out.push({ id: 'name', text: "Agent identity isn't live on this build yet.", state: 'unavailable' });
-      } else if (evidenceError) {
-        out.push({ id: 'name', text: "Couldn't fetch your agent's name.", state: 'error' });
-      } else if (evidenceLoading) {
-        out.push({ id: 'name', text: 'Giving your agent a name…', state: 'active' });
-      } else if (ensLanded && ensName) {
-        out.push({ id: 'name', text: ensName, state: 'done' });
-      } else {
-        out.push({ id: 'name', text: 'Giving your agent a name…', state: 'active' });
-      }
-    }
-
-    if (humanDone && !evidenceUnavailable && !evidenceError && !evidenceLoading) {
-      if (swapLanded) {
-        out.push({ id: 'trading', text: 'Protected trading enabled', state: 'done' });
-      } else {
-        out.push({ id: 'trading', text: 'Unlocking protected trading…', state: 'active' });
-      }
-    }
-
-    return out;
-  }, [
-    started,
-    worldPhase,
-    returning,
-    humanDone,
-    humanFailed,
-    worldError,
-    evidenceUnavailable,
-    evidenceError,
-    evidenceLoading,
-    ensLanded,
-    ensName,
-    swapLanded,
-  ]);
-
-  const orbState: OrbState = humanFailed
-    ? 'error'
-    : humanDone
-      ? 'success'
-      : worldPhase === 'starting' || worldPhase === 'awaiting' || (started && evidenceLoading)
-        ? 'thinking'
-        : 'idle';
-
-  // The sheet is open only while worldPhase is starting/awaiting, so it
-  // closes itself automatically the instant usePassportFlow's poll resolves
-  // to verified or failed — no extra effect needed.
-  const qrOpen = worldPhase === 'starting' || worldPhase === 'awaiting';
-
-  const agentDisplayName = ensName || trade.agentId;
+  const qrOpen = verifyPhase === 'starting' || verifyPhase === 'pending' || verifyPhase === 'provisioning';
 
   return (
     <div className={`summer-page ${styles.canvas}`}>
@@ -149,59 +67,292 @@ export default function PassportPageClient() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: EASE }}
           >
-            <h1 className={styles.h1}>Give your AI agent an identity people can trust.</h1>
+            <h1 className={styles.h1}>Agent Swap Passport</h1>
             <p className={styles.lede}>
-              A human confirms they&rsquo;re real, and every trade the agent makes after that is
-              covered by that trust — automatically.
+              A human proves they&rsquo;re real once. From then on, a Uniswap v4 hook checks that
+              proof on every trade the agent&rsquo;s wallet tries to make.
             </p>
           </motion.div>
 
-          <motion.div
-            layout
-            className={styles.flowStage}
-            transition={{ duration: 0.5, ease: EASE }}
-          >
-            {resultReady ? (
-              <ResultCard agentName={agentDisplayName} returning={returning} />
-            ) : (
-              <>
-                <motion.button
-                  layout="position"
+          {notEnabled ? (
+            <div className={styles.banner} data-tone="pending">
+              <span className={styles.bannerTitle}>Trust layer not enabled on this deploy.</span>
+              <span>
+                {statusError} — the demo endpoints (<code>/hackathon/*</code>) haven&rsquo;t shipped
+                to this environment yet.
+              </span>
+            </div>
+          ) : (
+            <div className={styles.flowStage} style={{ maxWidth: 560, gap: 24 }}>
+              {/* Beat 0 — wallet */}
+              <div className={styles.beat}>
+                <span className={styles.beatKicker}>Beat 0 — the agent&rsquo;s wallet</span>
+                <p className={styles.hint} style={{ margin: 0 }}>
+                  This is the agent&rsquo;s own wallet. The demo relayer executes swaps on its
+                  behalf, and the Uniswap v4 hook checks <em>this</em> address before letting any
+                  trade through.
+                </p>
+                <div className={styles.walletRow}>
+                  <input
+                    className={styles.walletInput}
+                    value={wallet}
+                    onChange={(e) => setWallet(e.target.value.trim())}
+                    spellCheck={false}
+                    aria-label="Agent wallet address"
+                  />
+                  <button type="button" className={styles.walletBtn} onClick={newWallet}>
+                    New wallet
+                  </button>
+                </div>
+              </div>
+
+              {/* Beat 1 — swap without a passport */}
+              <div className={styles.beat}>
+                <span className={styles.beatKicker}>Beat 1</span>
+                <h2 className={styles.beatTitle}>Try to swap without a passport</h2>
+                <button
                   type="button"
                   className={styles.cta}
-                  onClick={() => (worldPhase === 'awaiting' ? cancelVerification() : beginVerification())}
-                  disabled={worldPhase === 'starting'}
+                  onClick={attemptSwap}
+                  disabled={swapPhase === 'checking' || swapPhase === 'submitted'}
                 >
-                  {worldPhase === 'starting'
-                    ? 'Starting…'
-                    : worldPhase === 'awaiting'
-                      ? 'Cancel'
-                      : humanFailed
-                        ? 'Try again'
-                        : 'Get your agent a passport'}
-                </motion.button>
+                  {swapPhase === 'checking'
+                    ? 'Checking…'
+                    : swapPhase === 'submitted'
+                      ? 'Submitted…'
+                      : 'Attempt swap'}
+                </button>
 
-                <NarrationFlow lines={lines} />
-              </>
-            )}
-          </motion.div>
+                {swapPhase === 'blocked' && swapResult?.status === 'blocked' && (
+                  <div className={styles.banner} data-tone="blocked">
+                    <span className={styles.bannerTitle} data-tone="blocked">
+                      Reverted: {swapResult.reason}
+                    </span>
+                    <span>
+                      0 gas spent — rejected by the hook before execution.
+                      {swapResult.detail ? ` ${swapResult.detail}` : ''}
+                    </span>
+                    <a
+                      href={etherscanAddress(HOOK_ADDRESS)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.copyFieldLink}
+                    >
+                      View the hook on Etherscan →
+                    </a>
+                  </div>
+                )}
+
+                {swapPhase === 'executed' && swapJob?.status === 'executed' && (
+                  <SwapExecutedBanner wallet={wallet} txHash={swapJob.txHash} executedBy={swapJob.executedBy} swapper={swapJob.swapper} />
+                )}
+
+                {swapPhase === 'failed' && (
+                  <div className={styles.banner} data-tone="blocked">
+                    <span className={styles.bannerTitle} data-tone="blocked">Swap failed</span>
+                    <span>{swapError}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Beat 2 — prove human */}
+              <div className={styles.beat}>
+                <span className={styles.beatKicker}>Beat 2</span>
+                <h2 className={styles.beatTitle}>Prove you&rsquo;re human</h2>
+                <button
+                  type="button"
+                  className={styles.cta}
+                  onClick={() =>
+                    verifyPhase === 'pending' || verifyPhase === 'provisioning' || verifyPhase === 'starting'
+                      ? cancelVerification()
+                      : beginVerification()
+                  }
+                  disabled={humanVerified}
+                >
+                  {humanVerified
+                    ? 'Verified'
+                    : verifyPhase === 'starting'
+                      ? 'Starting…'
+                      : verifyPhase === 'pending' || verifyPhase === 'provisioning'
+                        ? 'Cancel'
+                        : verifyPhase === 'failed' || verifyPhase === 'error'
+                          ? 'Try again'
+                          : 'Get a passport'}
+                </button>
+
+                {verifyPhase === 'provisioning' && (
+                  <div className={styles.banner} data-tone="pending">
+                    Minting your agent&rsquo;s ENS name and allowlisting it on the hook…
+                  </div>
+                )}
+
+                {(verifyPhase === 'ready' || verifyPhase === 'existing') &&
+                  verified &&
+                  (verified.status === 'ready' || verified.status === 'existing') && (
+                    <div className={styles.banner} data-tone="success">
+                      {verifyPhase === 'existing' && (
+                        <span className={styles.bannerTitle}>This human already holds a passport.</span>
+                      )}
+                      <span>
+                        ENS name:{' '}
+                        <a
+                          href={ensAppUrl(verified.ens.name)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.copyFieldLink}
+                        >
+                          {verified.ens.name}
+                        </a>
+                        {verified.ens.txHash && (
+                          <>
+                            {' '}
+                            (
+                            <CopyField value={verified.ens.txHash} href={etherscanTx(verified.ens.txHash)} display="tx" />
+                            )
+                          </>
+                        )}
+                        {verified.ens.existing && ' — already registered'}
+                      </span>
+                      <span>
+                        Hook allowlist:{' '}
+                        {verified.hook.allowlistTx ? (
+                          <CopyField value={verified.hook.allowlistTx} href={etherscanTx(verified.hook.allowlistTx)} display="tx" />
+                        ) : (
+                          'already allowlisted'
+                        )}
+                        {verified.hook.existing && ' — already allowlisted'}
+                      </span>
+                      <span>Bound wallet: <code>{verified.wallet}</code></span>
+                    </div>
+                  )}
+
+                {(verifyPhase === 'failed' || verifyPhase === 'error') && (
+                  <div className={styles.banner} data-tone="blocked">
+                    <span className={styles.bannerTitle} data-tone="blocked">Verification failed</span>
+                    <span>{verifyError}</span>
+                  </div>
+                )}
+              </div>
+
+              <QrModal
+                open={qrOpen}
+                connectorURI={start?.connectorURI ?? null}
+                onClose={cancelVerification}
+                simulatorUrl={start?.simulatorUrl}
+              />
+
+              {/* Beat 3 — swap with passport */}
+              {humanVerified && (
+                <div className={styles.beat}>
+                  <span className={styles.beatKicker}>Beat 3</span>
+                  <h2 className={styles.beatTitle}>Swap with passport</h2>
+                  <button
+                    type="button"
+                    className={styles.cta}
+                    onClick={attemptSwap}
+                    disabled={swapPhase === 'checking' || swapPhase === 'submitted'}
+                  >
+                    {swapPhase === 'checking'
+                      ? 'Checking…'
+                      : swapPhase === 'submitted'
+                        ? 'Submitted…'
+                        : 'Swap with passport'}
+                  </button>
+
+                  {swapPhase === 'submitted' && (
+                    <div className={styles.banner} data-tone="pending">Job submitted — waiting for the relayer…</div>
+                  )}
+
+                  {swapPhase === 'executed' && swapJob?.status === 'executed' && (
+                    <SwapExecutedBanner wallet={wallet} txHash={swapJob.txHash} executedBy={swapJob.executedBy} swapper={swapJob.swapper} />
+                  )}
+
+                  {swapPhase === 'blocked' && swapResult?.status === 'blocked' && (
+                    <div className={styles.banner} data-tone="blocked">
+                      <span className={styles.bannerTitle} data-tone="blocked">
+                        Still blocked: {swapResult.reason}
+                      </span>
+                      <span>{swapResult.detail}</span>
+                    </div>
+                  )}
+
+                  {swapPhase === 'failed' && (
+                    <div className={styles.banner} data-tone="blocked">
+                      <span className={styles.bannerTitle} data-tone="blocked">Swap failed</span>
+                      <span>{swapError}</span>
+                    </div>
+                  )}
+
+                  {passportRecord?.swaps && passportRecord.swaps.length > 0 && (
+                    <p className={styles.hint} style={{ margin: 0 }}>
+                      {passportRecord.swaps.length} swap{passportRecord.swaps.length === 1 ? '' : 's'} recorded for
+                      this passport.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <p className={styles.poweredBy}>Powered by World · ENS · Uniswap</p>
         </section>
 
-        <QrModal open={qrOpen} connectorURI={start?.connectorURI ?? null} onClose={cancelVerification} />
-
-        <TechnicalDetails
-          status={status}
-          statusError={statusError}
-          statusLoading={statusLoading}
-          nullifier={nullifier}
-          evidence={evidence}
-          evidenceError={evidenceError}
-        />
+        <section className={styles.techSection}>
+          <span className={styles.beatKicker}>Reference deployment</span>
+          <div className={styles.techBody} style={{ marginTop: 12 }}>
+            <StatusStrip status={status} error={statusError} loading={statusLoading} />
+            {evidenceError === 'not-deployed' ? (
+              <p className={styles.hint}>
+                <code>/hackathon/evidence</code> isn&rsquo;t live on this deploy yet.
+              </p>
+            ) : (
+              <>
+                <div className={styles.techRow}>
+                  <span className={styles.techLabel}>Hook</span>
+                  <CopyField value={HOOK_ADDRESS} href={etherscanAddress(HOOK_ADDRESS)} />
+                </div>
+                {evidence?.uniswap?.deployTx && (
+                  <div className={styles.techRow}>
+                    <span className={styles.techLabel}>Hook deploy tx</span>
+                    <CopyField value={evidence.uniswap.deployTx} href={etherscanTx(evidence.uniswap.deployTx)} />
+                  </div>
+                )}
+                {evidence?.ens?.parent && (
+                  <div className={styles.techRow}>
+                    <span className={styles.techLabel}>ENS parent</span>
+                    <span>{evidence.ens.parent}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </section>
       </main>
 
       <SummerFooter />
+    </div>
+  );
+}
+
+function SwapExecutedBanner({
+  wallet,
+  txHash,
+  executedBy,
+  swapper,
+}: {
+  wallet: string;
+  txHash?: string;
+  executedBy?: string;
+  swapper?: string;
+}) {
+  return (
+    <div className={styles.banner} data-tone="success">
+      <span className={styles.bannerTitle}>Executed</span>
+      {txHash && <CopyField value={txHash} href={etherscanTx(txHash)} display="view transaction" />}
+      <span>
+        Executed by relayer <code>{executedBy || 'the relayer'}</code> on behalf of{' '}
+        <code>{swapper || wallet}</code>; the hook verified <code>{wallet}</code>.
+      </span>
     </div>
   );
 }
