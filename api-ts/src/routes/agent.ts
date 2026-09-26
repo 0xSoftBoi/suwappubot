@@ -128,6 +128,15 @@ function sanitizeUserMetadata(
 	}
 	return clean
 }
+/** Copy the server-reserved keys that already exist on a stored metadata row. */
+function pickReservedMetadata(stored: unknown): Record<string, unknown> {
+	const kept: Record<string, unknown> = {}
+	if (!stored || typeof stored !== 'object') return kept
+	for (const [k, v] of Object.entries(stored as Record<string, unknown>)) {
+		if (RESERVED_METADATA_KEYS.has(k)) kept[k] = v
+	}
+	return kept
+}
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 function isEvmAddress(addr: unknown): addr is string {
 	return typeof addr === 'string' && EVM_ADDRESS_RE.test(addr)
@@ -259,7 +268,8 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				name,
 				description,
 				callbackUrl: callback_url,
-				metadata,
+				// Reserved wallet keys are server-managed (set by POST /wallets only).
+				metadata: sanitizeUserMetadata(metadata),
 				ip,
 			})
 
@@ -635,8 +645,13 @@ agentRoutes.patch('/me', async (c) => {
 				description,
 				callbackUrl: callback_url,
 				// Strip server-reserved wallet keys: agents must not be able to
-				// claim ownership of arbitrary addresses via metadata.
-				metadata: sanitizeUserMetadata(metadata),
+				// claim ownership of arbitrary addresses via metadata. updateAgent
+				// replaces the whole column, so carry the stored reserved keys over
+				// or an ordinary profile PATCH would orphan the managed wallet.
+				metadata:
+					metadata === undefined
+						? undefined
+						: { ...sanitizeUserMetadata(metadata), ...pickReservedMetadata(agent.metadata) },
 			})
 		}),
 	)
