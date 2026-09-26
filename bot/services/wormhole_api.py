@@ -294,6 +294,8 @@ class WormholeAPI:
             "WETH": 18,
         }
         decimals = decimals_map.get(token.upper(), 18)
+        if is_solana_src and token.upper() == "WETH":
+            decimals = 8  # Wormhole-wrapped ETH mint on Solana is 8dp
 
         from_amount_human = amount_int / (10**decimals)
         to_amount_human = from_amount_human  # 1:1 for same token
