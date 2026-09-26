@@ -252,7 +252,10 @@ class WalletService:
                             raise ConnectionError("rate_limited_429")
                         if resp.status != 200:
                             raise ConnectionError(f"http_{resp.status}")
-                        data = await resp.json()
+                        try:
+                            data = await resp.json()
+                        except (aiohttp.ContentTypeError, ValueError) as e:
+                            raise ConnectionError(f"non_json_response: {str(e)[:60]}") from e
                         if "error" in data:
                             raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
                         rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)

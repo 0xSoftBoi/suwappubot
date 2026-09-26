@@ -60,7 +60,8 @@ _QUOTA_ERROR = re.compile(
 _UNRECOVERABLE_ERROR = re.compile(
     r"name or service not known|temporary failure in name resolution|"
     r"nodename nor servname|no address associated with hostname|"
-    r"\bhttp_401\b|\bhttp_403\b",
+    r"\bhttp_401\b|\bhttp_403\b|"
+    r"method .{0,20}not supported|eth_call unsupported|-32601",
     re.IGNORECASE,
 )
 
