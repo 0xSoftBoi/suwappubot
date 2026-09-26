@@ -1601,6 +1601,7 @@ class WalletService:
 
         # Don't cache empty results caused by RPC failures
         rpc_failed = balances.pop("_solana_rpc_failed", False)
+        rpc_failed = balances.pop("_rpc_failed", False) or rpc_failed
         if not rpc_failed:
             await balance_cache.set(cache_key, balances)
         else:
@@ -1619,7 +1620,7 @@ class WalletService:
 
         balances: dict[str, dict[str, float]] = {}
 
-        async def _safe_call(coro, default=0.0):
+        async def _safe_call(coro, default=0.0, label: str = ""):
             """Wrap an RPC call with a timeout. Returns None on RPC errors (not 0.0)."""
             try:
                 # Bounded: the timeout starts once a slot is held, so queueing
@@ -1627,7 +1628,7 @@ class WalletService:
                 async with _balance_rpc_semaphore():
                     return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
             except asyncio.TimeoutError:
-                logger.warning("RPC call timed out")
+                logger.warning(f"RPC call timed out{f' ({label})' if label else ''}")
                 return None  # Distinguish timeout from zero balance
             except ConnectionError as e:
                 logger.warning(f"RPC connection error: {e}")
@@ -1686,19 +1687,27 @@ class WalletService:
 
         async def _fetch_evm_chain_rpc(chain_name, chain):
             """Fetch all balances for a single EVM chain — Multicall3 batch first,
-            per-token RPC calls as fallback."""
+            per-token RPC calls as fallback. Returns (chain_name, None) when this
+            read timed out, so the caller doesn't cache the partial result."""
+            if _slow_chain_skipped(chain_name):
+                # Known-broken chain on cooldown: omit it without marking the
+                # result partial, or a chronically dead long-tail chain would
+                # stop every balance result from ever being cached.
+                return chain_name, {}
             try:
                 async with _balance_rpc_semaphore():
-                    return await asyncio.wait_for(
+                    result = await asyncio.wait_for(
                         self._fetch_evm_chain_multicall(chain_name, chain, address),
                         timeout=CALL_TIMEOUT,
                     )
+                _slow_chain_ok(chain_name)
+                return result
             except asyncio.TimeoutError:
                 # The chain's endpoint is slow: fanning out one call per token to
                 # it only multiplies load (this is what saturated the worker —
                 # ~94 concurrent calls per wallet). Report nothing for this chain.
-                logger.debug(f"Multicall3 timed out for {chain_name}; skipping per-token fan-out")
-                return chain_name, {}
+                _slow_chain_timed_out(chain_name)
+                return chain_name, None
             except Exception as e:
                 logger.debug(
                     f"Multicall3 fetch failed for {chain_name}, "
@@ -1711,14 +1720,19 @@ class WalletService:
             task_keys = []
 
             # Native balance
-            tasks.append(_safe_call(self.get_evm_native_balance(chain_name, address)))
+            tasks.append(
+                _safe_call(self.get_evm_native_balance(chain_name, address), label=chain_name)
+            )
             task_keys.append(chain.native_token)
 
             # Token balances
             for token_symbol, token in TOKENS.items():
                 if chain_name in token.addresses:
                     tasks.append(
-                        _safe_call(self.get_evm_token_balance(chain_name, token_symbol, address))
+                        _safe_call(
+                            self.get_evm_token_balance(chain_name, token_symbol, address),
+                            label=f"{chain_name}:{token_symbol}",
+                        )
                     )
                     task_keys.append(token_symbol)
 
@@ -1747,8 +1761,14 @@ class WalletService:
                     for result in results:
                         if isinstance(result, tuple):
                             chain_name, chain_balances = result
-                            if chain_balances:
+                            if chain_balances is None:
+                                # Unread (timeout / slow-chain cooldown): the
+                                # result is partial and must not be cached.
+                                balances["_rpc_failed"] = True
+                            elif chain_balances:
                                 balances[chain_name] = chain_balances
+                        else:
+                            balances["_rpc_failed"] = True
 
                 elif chain_type == "solana":
                     # Batched: 3 RPC calls total instead of one per mint
@@ -1812,6 +1832,8 @@ class WalletService:
 
         except asyncio.TimeoutError:
             logger.warning(f"Global timeout fetching balances for {address}")
+            # Chains still in flight are missing: partial, don't cache as truth.
+            balances["_rpc_failed"] = True
 
         return balances
 
@@ -2152,6 +2174,39 @@ class WalletService:
 # worker so every provider "timed out" and passes never completed.
 _BALANCE_RPC_CONCURRENCY = 24
 _balance_rpc_sem: asyncio.Semaphore | None = None
+
+
+# Per-chain cooldown for balance reads: a chain whose Multicall3 read keeps
+# timing out (typically a long-tail chain whose only endpoints are slow free
+# RPCs) is skipped for a while instead of holding a concurrency slot for
+# CALL_TIMEOUT on every wallet, which starved the healthy chains and blew the
+# per-wallet budget.
+_SLOW_CHAIN_THRESHOLD = 3
+_SLOW_CHAIN_COOLDOWN_S = 300.0
+_slow_chain_state: dict[str, list[float]] = {}  # chain -> [consecutive_timeouts, skip_until]
+
+
+def _slow_chain_skipped(chain_name: str) -> bool:
+    state = _slow_chain_state.get(chain_name)
+    return bool(state) and time.monotonic() < state[1]
+
+
+def _slow_chain_ok(chain_name: str) -> None:
+    _slow_chain_state.pop(chain_name, None)
+
+
+def _slow_chain_timed_out(chain_name: str) -> None:
+    state = _slow_chain_state.setdefault(chain_name, [0, 0.0])
+    state[0] += 1
+    if state[0] >= _SLOW_CHAIN_THRESHOLD:
+        state[0] = 0
+        state[1] = time.monotonic() + _SLOW_CHAIN_COOLDOWN_S
+        logger.warning(
+            f"Balance reads on {chain_name} timed out {_SLOW_CHAIN_THRESHOLD}x in a row; "
+            f"skipping it for {int(_SLOW_CHAIN_COOLDOWN_S)}s"
+        )
+    else:
+        logger.info(f"Balance multicall timed out on {chain_name} ({int(state[0])} in a row)")
 
 
 def _balance_rpc_semaphore() -> asyncio.Semaphore:
