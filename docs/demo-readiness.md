@@ -36,6 +36,21 @@ developer portal within 24 h of the demo and set the new token (`bunx @railway/c
 use as a replay. Do NOT rehearse the on-stage World App against prod under `agent-swap-passport-verify` before the demo, or the live
 verification will fail with "proof already used". Rehearse with the simulator identity (already consumed) or a different action.
 
+### Passport CLAIM proven on prod (2026-09-26 19:13 UTC, after PR #1045)
+
+Full agent path over HTTP against api.suwappu.bot: `POST /v1/agent/register` → `POST /v1/agent/wallets` (Turnkey, `0x25b6…821D`)
+→ `POST /v1/agent/link/code` `{}` (returns `world_id: {action:"suwappu-agent-link", signal:"agent-link:<uuid>", environment:"staging"}`)
+→ simulator proof with that action/signal → `POST /v1/agent/link/code {world_id_proof}` → 200 in 17 s → `GET /v1/agent/me` shows
+`ens_name: "cfffefda.suwappu-agents.eth"`. On-chain: `register` on the subregistry, tx `0x99dcc7a591b2d712c6899b0d5f71ec497fc9c6a949b7ca006864ea1cfbbce5b9`
+(Sepolia block 11788181, success). A second proof for the same identity was rejected 409 "proof already used (replay rejected)", as designed.
+Test agent left in prod: `cfffefda-1d12-42e8-8d0e-d0ae5276b876` ("demo-readiness-passport"); harmless, delete if you want a clean list.
+
+Two more prod bugs were found and fixed on the way (PR #1045):
+- The link signal was derived from the link code's hash, which is generated inside the same request — no client could ever have matched it.
+  Signal is now `agent-link:<agent id>`; action `suwappu-agent-link` is registered on the World RP (staging).
+- `agent_link_codes` was created by the Python runtime migration with a bare `INTEGER PRIMARY KEY` (no sequence on Postgres), so every
+  link-code insert 500'd before any World ID logic ran. The migration now uses SERIAL and repairs the existing table at boot.
+
 ### Earlier attempt (17:03 UTC) — FAILED at the verifier (kept for the record)
 
 Headless run (Playwright + simulator.worldcoin.org, same method as the earlier local proof): `POST /hackathon/world-id/start` → 200,
