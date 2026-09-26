@@ -27,7 +27,7 @@ The original report said "wallet creation is broken; existing managed-wallet age
 - **Broken EIP-1559 signing.** Turnkey signing of typed (EIP-1559/2930) transactions imported a module that doesn't exist in `eth-account 0.13.7`. It also sent the 32-byte signing hash instead of the unsigned transaction. This affected **all** Turnkey wallets, not only agents.
 - **Unsafe legacy signing.** The legacy Turnkey path defaulted a missing `chainId` to 1, which signs a replayable mainnet transaction. It also encoded hex-string fields incorrectly.
 
-Not yet checked: prod logs, to confirm the 400s actually occurred for existing agents.
+**[prod]** python-api logs (Railway, retained window) contain exactly one `execute-swap` attempt: 2026-09-19 10:37:54 UTC, `Agent swap execution failed: cannot import name 'swap_engine'`. There are no `Executing swap for agent` or `Swap executed` lines. So no agent swap reached signing in the retained window. Anything older than Railway's log retention was not checked.
 
 ### 3. Self-signed `/swap` is documented but rejected [prod]
 - `POST /v1/agent/swap` with a self-custody wallet returns `403 POLICY_VIOLATION`.
@@ -44,7 +44,7 @@ What that allowed:
 - **On `/swap/execute` (high impact):** forged `internal_*` IDs are forwarded to Python, which signs with that wallet's custodial key. The only ownership check was `wallet.user_id == user_id`, and both values came from the forged metadata. So in principle an agent could trigger swaps from another user's custodial wallet, bot users included.
 - **Why it was very likely unexploitable in prod:** execution failed before signing (section 2).
 
-Not proven: that no funds moved. Action: search prod logs for `/internal/agent/execute-swap` calls that reached `execute_swap`. Also look for agents whose `internal_wallet_id` is not an `agent_<uuid8>` Turnkey wallet; the backfill dry run lists these.
+**[prod]** No `execute-swap` call reached `execute_swap` in the retained logs (see section 2), so there is no evidence that forged IDs were ever used to sign. Before the logs' start, it is unproven. The backfill dry run lists every agent whose stored wallet doesn't match its Turnkey wallet; review that list for anomalies.
 
 ## Fixes (PR #1017, each commit tagged `[MONEY-PATH]` and money-path reviewed)
 | Commit | Fix |
@@ -58,7 +58,7 @@ Not proven: that no funds moved. Action: search prod logs for `/internal/agent/e
 | `df79584` | `POST /wallets` is idempotent and never rotates an existing wallet. |
 
 ## Still required
-1. **Prod config.** Set the same `TURNKEY_*` keypair and org on **both** api-ts and python-api. Agent sub-orgs name the api-ts key as their root user. Then redeploy.
+1. ~~**Prod config.**~~ Done 2026-09-26. api-ts `TURNKEY_*` now reference python-api's values (`${{python-api.TURNKEY_*}}`), so both services share one keypair. api-ts redeployed and `/health` is ok. Wallet creation itself has not yet been exercised.
 2. **Merge and deploy**, then check boot via `scripts/status.py` and the import-error log scan.
 3. **Backfill.** Dry run, review the skipped list, then `--apply`.
 4. **Live proof.** One small testnet or dust swap through a Turnkey wallet, confirmed on-chain. Until then, everything above is code-complete, not functionally verified.
