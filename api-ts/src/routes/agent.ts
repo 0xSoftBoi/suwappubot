@@ -175,6 +175,19 @@ export function agentIdentifierOf(agent: Agent): string {
 }
 
 /**
+ * World ID action + signal contract for claiming an agent (POST /link/code
+ * with `world_id_proof`). Both are returned by an unproven /link/code call so
+ * a client can build the IDKit request:
+ *   IDKit.request({ action }).preset(proofOfHuman({ signal }))
+ * The action is its own nullifier namespace (one human ↔ one agent link),
+ * distinct from the trade-approval action used by the guardian gate.
+ */
+export const WORLD_ID_AGENT_LINK_ACTION = process.env.WORLD_LINK_ACTION || 'suwappu-agent-link'
+export function worldIdLinkSignal(agent: Agent): string {
+	return `agent-link:${agentIdentifierOf(agent)}`
+}
+
+/**
  * Resolve the token decimals used to build `quote_data.from_amount_human` /
  * `to_amount_human` for POST /v1/agent/swap/execute. These feed the Python
  * pipeline's pre-swap balance guard (bot/utils/quote_validator.py), so
@@ -4411,8 +4424,6 @@ agentRoutes.post('/link/code', async (c) => {
 	// Distinct action from the trade-approval gate so nullifiers don't
 	// collide across features (same human verifying for a trade vs. for
 	// linking an agent must yield independent nullifiers).
-	const WORLD_ID_AGENT_LINK_ACTION = 'suwappu-agent-link'
-
 	const code = randomBytes(8).toString('hex')
 	const codeHash = createHash('sha256').update(code).digest('hex')
 	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
@@ -4440,11 +4451,14 @@ agentRoutes.post('/link/code', async (c) => {
 		const cfg = loadWorldIdConfig()
 		// The claim intent (agent + one-time link code) is the bound signal,
 		// mirroring guardianGate.ts's intent-hashing pattern for trades.
-		const signal =
-			'0x' +
-			createHash('sha256')
-				.update(`agent-link:${agentIdentifierOf(agent)}:${codeHash}`)
-				.digest('hex')
+		// The signal must be something the prover can know BEFORE calling this
+		// route. The previous derivation mixed in the link code's hash, but the
+		// code is generated inside this very request, so no client could ever
+		// produce a proof bound to it and every proof failed the signal check.
+		// Bind to the agent identifier instead: the caller proves "this human
+		// claims THIS agent"; replay across agents is stopped by the signal,
+		// replay across humans by the (action, nullifier) uniqueness store.
+		const signal = worldIdLinkSignal(agent)
 
 		const dbEither = await runEffectEither(
 			Effect.gen(function* () {
@@ -4622,6 +4636,14 @@ agentRoutes.post('/link/code', async (c) => {
 		code,
 		expires_at: expiresAt.toISOString(),
 		world_id_verified: !!worldIdMetadata,
+		// What a client must prove to make the next /link/code call World ID-
+		// verified (see worldIdLinkSignal). Stable per agent, so it can be
+		// fetched with an unproven call first.
+		world_id: {
+			action: WORLD_ID_AGENT_LINK_ACTION,
+			signal: worldIdLinkSignal(agent),
+			environment: isWorldIdConfigured() ? loadWorldIdConfig().environment : null,
+		},
 		instructions:
 			'Send /claim <code> to the Suwappu Telegram bot within 10 minutes to link this agent to your account.',
 	})
