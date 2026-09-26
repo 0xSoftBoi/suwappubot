@@ -282,43 +282,17 @@ TOKENS: dict[str, TokenConfig] = {
     "PATHUSD": TokenConfig(
         symbol="pathUSD",
         name="Path USD",
-        decimals=18,
+        decimals=6,  # TIP-20: 6dp on-chain (decimals() on 4217 and 42431)
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000000",
         },
         logo_emoji="⚡",
         is_stablecoin=True,
     ),
-    "ALPHAUSD": TokenConfig(
-        symbol="AlphaUSD",
-        name="Alpha USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000001",
-        },
-        logo_emoji="🅰️",
-        is_stablecoin=True,
-    ),
-    "BETAUSD": TokenConfig(
-        symbol="BetaUSD",
-        name="Beta USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000002",
-        },
-        logo_emoji="🅱️",
-        is_stablecoin=True,
-    ),
-    "THETAUSD": TokenConfig(
-        symbol="ThetaUSD",
-        name="Theta USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000003",
-        },
-        logo_emoji="🔷",
-        is_stablecoin=True,
-    ),
+    # AlphaUSD/BetaUSD/ThetaUSD (0x20c0..01-03) exist only on the Tempo
+    # testnet (Moderato, 42431). On mainnet (4217) those addresses revert with
+    # "TIP20 token error: Uninitialized", so they are not listed under "tempo".
+    # scripts/tempo_testnet_smoke.py carries its own testnet token map.
     # === Robinhood Chain (4663) anchor stablecoin ===
     # There is NO USDC on Robinhood Chain. Paxos USDG is the anchor. Two contracts
     # report symbol "USDG"; we pin the one with real supply (338.7M vs 1.1k when

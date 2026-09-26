@@ -87,12 +87,11 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		'USDC.e': '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664',
 		USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
 	},
-	// Tempo
+	// Tempo — only pathUSD exists on mainnet. AlphaUSD/BetaUSD/ThetaUSD
+	// (0x20c0..01-03) are Moderato-testnet-only; on 4217 they revert
+	// "TIP20 token error: Uninitialized".
 	4217: {
 		pathUSD: '0x20c0000000000000000000000000000000000000',
-		AlphaUSD: '0x20c0000000000000000000000000000000000001',
-		BetaUSD: '0x20c0000000000000000000000000000000000002',
-		ThetaUSD: '0x20c0000000000000000000000000000000000003',
 	},
 	// Robinhood Chain — anchor stablecoin is Paxos USDG, there is NO USDC here.
 	// The two on-chain contracts both report symbol "USDG"; 0x5fc5... is the real
@@ -120,15 +119,10 @@ export const GATED_TOKEN_SYMBOLS: ReadonlySet<string> = new Set(['USTB', 'USCC']
 
 // Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
 // into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.
-// Authoritative source: bot/config/tokens.py TOKENS["PATHUSD"|"ALPHAUSD"|"BETAUSD"|"THETAUSD"]
-// all declare decimals=18 (get_token_decimals() has no Tempo-specific override, unlike the
-// GOAT/Citrea per-chain pins), and bot/services/swap_engine.py's _get_tempo_dex_quote() scales
-// raw amounts using that same 18. There is no on-chain "6dp USDC-style" override for Tempo.
+// TIP-20 stablecoins are 6 decimals on-chain (decimals() on 4217 and 42431). This map
+// and bot/config/tokens.py previously said 18, a 10^12 scaling error.
 export const TEMPO_TOKEN_DECIMALS: Record<string, number> = {
-	pathUSD: 18,
-	AlphaUSD: 18,
-	BetaUSD: 18,
-	ThetaUSD: 18,
+	pathUSD: 6,
 }
 
 // Decimals for Robinhood Chain (4663) tokens. USDG is 6dp like USDC; the ~100

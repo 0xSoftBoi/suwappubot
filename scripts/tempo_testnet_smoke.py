@@ -36,7 +36,26 @@ from web3 import Web3
 
 # Import the REAL bot client code + canonical addresses so this validates them.
 from bot.config.chains import TEMPO_TESTNETS
-from bot.config.tokens import get_token_address, get_token_decimals
+
+# Tempo TESTNET TIP-20 stablecoins (Moderato, 42431). These are testnet-only:
+# only pathUSD exists on mainnet, so they are not in bot/config/tokens.py.
+# All TIP-20s are 6 decimals (verified via decimals()).
+_TESTNET_TOKENS = {
+    "PATHUSD": "0x20c0000000000000000000000000000000000000",
+    "ALPHAUSD": "0x20c0000000000000000000000000000000000001",
+    "BETAUSD": "0x20c0000000000000000000000000000000000002",
+    "THETAUSD": "0x20c0000000000000000000000000000000000003",
+}
+
+
+def get_token_address(sym: str, chain: str) -> str:
+    return _TESTNET_TOKENS[sym.upper()]
+
+
+def get_token_decimals(sym: str, chain: str) -> int:
+    return 6
+
+
 from bot.services.tempo_dex_api import TEMPO_DEX_ADDRESS, TEMPO_DEX_ABI
 from bot.services.tempo_tip20 import TIP20_ABI, TempoTIP20
 
