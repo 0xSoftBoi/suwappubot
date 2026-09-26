@@ -1844,64 +1844,9 @@ class WalletService:
 
         return signed_tx
 
-    @staticmethod
-    def _serialize_typed_unsigned(transaction: dict) -> bytes:
-        """Unsigned `type || rlp(fields)` for a typed tx; keccak of it is the signing hash."""
-        import rlp
-        from eth_account._utils.legacy_transactions import (
-            serializable_unsigned_transaction_from_dict,
-        )
-        from eth_account._utils.transaction_utils import transaction_rpc_to_rlp_structure
-        from eth_account.typed_transactions import TypedTransaction
-        from toolz import dissoc
-
-        typed = serializable_unsigned_transaction_from_dict(dissoc(transaction, "from"))
-        if not isinstance(typed, TypedTransaction):
-            raise ValueError(f"expected a typed transaction, got {type(typed).__name__}")
-        inner = typed.transaction
-        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
-        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
-        return bytes([typed.transaction_type]) + body
-
     def _serialize_evm_transaction(self, transaction: dict) -> str:
-        """Serialize an EVM transaction to hex for Turnkey signing."""
-        # Typed transactions (EIP-1559 / EIP-2930): Turnkey needs the unsigned
-        # serialized payload `type || rlp(fields)`, NOT the 32-byte signing hash
-        # (keccak of that payload). The old import path
-        # (eth_account._utils.typed_transactions) no longer exists in eth-account
-        # 0.13, so this branch raised ModuleNotFoundError on every call.
-        if "maxFeePerGas" in transaction or transaction.get("type") not in (None, 0, "0x0", "0x00"):
-            return "0x" + self._serialize_typed_unsigned(transaction).hex()
-
-        # For legacy transactions, build the serialized form
-        tx_data = {
-            "nonce": transaction.get("nonce", 0),
-            "gasPrice": transaction.get("gasPrice", 0),
-            "gas": transaction.get("gas", 21000),
-            "to": bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
-            "value": transaction.get("value", 0),
-            "data": (
-                bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b""
-            ),
-        }
-
-        # Return as hex string
-        import rlp
-
-        encoded = rlp.encode(
-            [
-                tx_data["nonce"],
-                tx_data["gasPrice"],
-                tx_data["gas"],
-                tx_data["to"],
-                tx_data["value"],
-                tx_data["data"],
-                transaction.get("chainId", 1),
-                0,
-                0,
-            ]
-        )
-        return "0x" + encoded.hex()
+        """Serialize an EVM transaction to unsigned hex for Turnkey signing."""
+        return serialize_unsigned_evm_tx(transaction)
 
     async def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
@@ -2135,3 +2080,43 @@ class WalletService:
         tx.sign([keypair])
 
         return bytes(tx)
+
+
+def serialize_unsigned_evm_tx(transaction: dict) -> str:
+    """Unsigned serialized EVM tx (hex) for Turnkey TRANSACTION_TYPE_ETHEREUM.
+
+    keccak of the returned bytes is exactly the signing hash eth_account would
+    sign, for both typed (EIP-1559/2930: `type || rlp(fields)`) and legacy
+    (EIP-155: `rlp([..., chainId, 0, 0])`) transactions. Uses eth_account's own
+    serializers so hex-string / HexBytes fields encode correctly.
+
+    chainId is required: defaulting it (previously to 1) would sign a valid
+    Ethereum-mainnet transaction that anyone could replay there.
+    """
+    import rlp
+    from eth_account._utils.legacy_transactions import (
+        serializable_unsigned_transaction_from_dict,
+    )
+    from eth_account._utils.transaction_utils import transaction_rpc_to_rlp_structure
+    from eth_account.typed_transactions import TypedTransaction
+    from toolz import dissoc
+
+    if transaction.get("chainId") in (None, "", 0, "0x0"):
+        raise ValueError("Refusing to sign EVM transaction without chainId")
+
+    tx = dissoc(transaction, "from")
+    is_typed = "maxFeePerGas" in tx or tx.get("type") not in (None, 0, "0x0", "0x00")
+    if not is_typed:
+        # Preserve the historical defaults for optional legacy fields.
+        tx = {"nonce": 0, "gas": 21000, "value": 0, "data": "0x", **tx}
+        tx.setdefault("gasPrice", 0)
+        if not tx.get("to"):
+            tx.pop("to", None)
+    unsigned = serializable_unsigned_transaction_from_dict(tx)
+
+    if isinstance(unsigned, TypedTransaction):
+        inner = unsigned.transaction
+        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
+        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
+        return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
+    return "0x" + rlp.encode(unsigned).hex()
