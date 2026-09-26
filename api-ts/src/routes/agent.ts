@@ -51,6 +51,7 @@ import {
 	BalanceService,
 	CHAINS,
 	COMMON_TOKENS,
+	commonTokenDecimals,
 	JupiterService,
 	type JupiterQuote,
 	PolicyService,
@@ -3207,7 +3208,9 @@ agentRoutes.get('/tokens', async (c) => {
 		let entries = Object.entries(tokens).map(([symbol, address]) => ({
 			symbol,
 			address,
-			decimals: symbol === 'USDC' || symbol === 'USDT' || symbol.includes('USDC') ? 6 : 18,
+			// On-chain table (COMMON_TOKEN_DECIMALS); the old symbol guess reported
+			// BSC USDC/USDT as 6dp (they're 18), WBTC as 18 (8), pathUSD/USDG/USDT0 as 18 (6).
+			decimals: commonTokenDecimals(chainId, symbol) ?? 18,
 		}))
 		if (searchParam) {
 			entries = entries.filter((t) => t.symbol.includes(searchParam))

@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from 'effect'
 import {
 	COMMON_TOKENS,
+	commonTokenDecimals,
 	GATED_TOKEN_SYMBOLS,
 	ROBINHOOD_TOKEN_DECIMALS,
 	TEMPO_TOKEN_DECIMALS,
@@ -10,7 +11,7 @@ import {
 // these names from '../services' — the token registry itself now lives in
 // config/tokenRegistry.ts (see docs/plans/market-data-parity.md Phase 3), the
 // single source of truth shared with routes/data.ts's reference API.
-export { COMMON_TOKENS, ROBINHOOD_TOKEN_DECIMALS, TEMPO_TOKEN_DECIMALS }
+export { COMMON_TOKENS, commonTokenDecimals, ROBINHOOD_TOKEN_DECIMALS, TEMPO_TOKEN_DECIMALS }
 
 // Token info
 export interface TokenInfo {
@@ -304,7 +305,8 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 				return {
 					address: chainTokens[normalized],
 					symbol: normalized,
-					decimals: DECIMALS_6.has(normalized) ? 6 : 18,
+					// On-chain table first; the symbol guess is only a fallback.
+					decimals: commonTokenDecimals(chainId, normalized) ?? (DECIMALS_6.has(normalized) ? 6 : 18),
 					name: normalized,
 					chainId,
 				}
