@@ -321,7 +321,17 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			const updates: Record<string, unknown> = { updatedAt: new Date() }
 			if (params.description !== undefined) updates.description = params.description
 			if (params.callbackUrl !== undefined) updates.callbackUrl = params.callbackUrl
-			if (params.metadata !== undefined) updates.metadata = params.metadata
+			// Merge, don't replace: server-owned keys (worldId, ensName,
+			// wallet_address, etc. — see RESERVED_METADATA_KEYS in
+			// routes/validators.ts, which already rejects caller-supplied
+			// metadata containing those keys) live in this same jsonb column.
+			// A plain column replace here would silently delete them on any
+			// caller PATCH. Same coalesce-merge convention used elsewhere for
+			// agents.metadata (see the World ID / ENS metadata stamps in
+			// routes/agent.ts).
+			if (params.metadata !== undefined) {
+				updates.metadata = sql`coalesce(${agents.metadata}, '{}'::jsonb) || ${JSON.stringify(params.metadata)}::jsonb`
+			}
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)).returning(),

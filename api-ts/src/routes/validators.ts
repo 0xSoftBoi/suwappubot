@@ -59,6 +59,30 @@ const tokenAmountSchema = z
 // Exported schemas
 // ---------------------------------------------------------------------------
 
+// Keys inside agents.metadata that are written exclusively by server-side
+// logic (World ID verification, ENS subname minting, wallet provisioning,
+// internal user/wallet linkage). Callers must never be able to set or
+// overwrite these via public /register or PATCH /me — doing so would let a
+// caller self-grant the World ID fee discount, forge an ENS identity claim,
+// or corrupt the nullifier-uniqueness sybil check. Keep this list in sync
+// with every `metadata.<key>` write in routes/agent.ts and AgentService.ts.
+export const RESERVED_METADATA_KEYS = [
+	'worldId',
+	'ensName',
+	'wallet_address',
+	'wallet_sub_org_id',
+	'internal_user_id',
+	'internal_wallet_id',
+	'intercepta',
+] as const
+
+function rejectReservedMetadataKeys(metadata: Record<string, unknown> | undefined) {
+	if (!metadata) return true
+	return !RESERVED_METADATA_KEYS.some((key) => key in metadata)
+}
+
+const reservedMetadataMessage = `metadata must not contain server-managed keys: ${RESERVED_METADATA_KEYS.join(', ')}`
+
 export const RegisterAgentSchema = z.object({
 	name: z
 		.string()
@@ -67,7 +91,10 @@ export const RegisterAgentSchema = z.object({
 		.regex(/^[a-zA-Z0-9_-]+$/, 'Name must be alphanumeric with underscores and hyphens only'),
 	description: z.string().max(500).optional(),
 	callback_url: callbackUrlSchema.optional(),
-	metadata: z.record(z.string(), z.unknown()).optional(),
+	metadata: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.refine(rejectReservedMetadataKeys, { message: reservedMetadataMessage }),
 })
 
 export const QuoteRequestSchema = z.object({
@@ -125,7 +152,10 @@ export const UpdateAgentSchema = z
 	.object({
 		description: z.string().max(500).optional(),
 		callback_url: callbackUrlSchema.nullish(),
-		metadata: z.record(z.string(), z.unknown()).optional(),
+		metadata: z
+			.record(z.string(), z.unknown())
+			.optional()
+			.refine(rejectReservedMetadataKeys, { message: reservedMetadataMessage }),
 	})
 	.refine(
 		(data) =>
