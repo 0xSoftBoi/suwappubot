@@ -94,7 +94,7 @@ describe('applyTrustLayerGates', () => {
 	})
 
 	test('malicious counterparty escalates allow → block', async () => {
-		mock.module('../../../hackathon/tokyo2026/src/intercepta/client', () => ({
+		mock.module('../hackathon/tokyo2026/intercepta/client', () => ({
 			isInterceptaConfigured: () => true,
 			loadInterceptaConfig: () => ({ apiKey: 'test-key', baseUrl: 'https://x', timeoutMs: 1 }),
 			scanAddress: async () => ({
@@ -127,7 +127,7 @@ describe('applyTrustLayerGates', () => {
 	})
 
 	test('suspicious counterparty escalates allow → require_approval', async () => {
-		mock.module('../../../hackathon/tokyo2026/src/intercepta/client', () => ({
+		mock.module('../hackathon/tokyo2026/intercepta/client', () => ({
 			isInterceptaConfigured: () => true,
 			loadInterceptaConfig: () => ({ apiKey: 'test-key', baseUrl: 'https://x', timeoutMs: 1 }),
 			scanAddress: async () => ({
@@ -168,7 +168,7 @@ describe('screenX402Payer', () => {
 	test('returns null when enabled but unconfigured (fail-open)', async () => {
 		// mock.module persists for the file after mock.restore() — re-register
 		// the unconfigured shape explicitly.
-		mock.module('../../../hackathon/tokyo2026/src/intercepta/client', () => ({
+		mock.module('../hackathon/tokyo2026/intercepta/client', () => ({
 			isInterceptaConfigured: () => false,
 			loadInterceptaConfig: () => {
 				throw new Error('not configured')

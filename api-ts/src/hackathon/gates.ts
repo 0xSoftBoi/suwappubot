@@ -24,9 +24,9 @@ import {
 	loadInterceptaConfig,
 	scanAddress,
 	scanToken,
-} from '../../../hackathon/tokyo2026/src/intercepta/client'
-import { scanResultToPolicySignal } from '../../../hackathon/tokyo2026/src/intercepta/policy'
-import { resolveAndCheckPolicy } from '../../../hackathon/tokyo2026/src/ensv2/resolver'
+} from './tokyo2026/intercepta/client'
+import { scanResultToPolicySignal } from './tokyo2026/intercepta/policy'
+import { resolveAndCheckPolicy } from './tokyo2026/ensv2/resolver'
 import type {
 	PolicyDecisionResult,
 	PolicyIntent,

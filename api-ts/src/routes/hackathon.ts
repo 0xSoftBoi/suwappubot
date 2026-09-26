@@ -20,8 +20,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
-import { isInterceptaConfigured } from '../../../hackathon/tokyo2026/src/intercepta/client'
-import { isTradingApiConfigured } from '../../../hackathon/tokyo2026/src/uniswap/tradingApi'
+import { isInterceptaConfigured } from '../hackathon/tokyo2026/intercepta/client'
+import { isTradingApiConfigured } from '../hackathon/tokyo2026/uniswap/tradingApi'
 import { logger } from '../lib/logger'
 import { interceptaEnabled, hackathonEnv, trustLayerEnabled } from '../hackathon/env'
 import {
