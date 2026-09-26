@@ -26,7 +26,6 @@ export default function SummerNav() {
 
       <nav aria-label="Primary navigation" className="summer-nav__menu">
         <ProductMenu triggerClassName="summer-nav__trigger" />
-        <a href="/products"><strong>Explore</strong></a>
         <a href="/dashboard/signals">Signals <span aria-hidden="true">↗</span></a>
         <a href="/research">Research</a>
         <a href="/passport">{nav('passport')}</a>

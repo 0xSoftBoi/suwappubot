@@ -61,7 +61,16 @@ export default function PassportPageClient() {
     } else if (humanDone) {
       out.push({ id: 'human', text: "Verified — you're human", state: 'done' });
     } else if (humanFailed) {
-      out.push({ id: 'human', text: worldError || "We couldn't verify you.", state: 'error' });
+      // Raw fetch/verifier strings ("Failed to fetch", "http 400") stay in
+      // Technical details; the narration speaks plainly.
+      const unreachable = !worldError || /fetch|network|http|5\d\d/i.test(worldError);
+      out.push({
+        id: 'human',
+        text: unreachable
+          ? "Couldn't reach the verification service. Give it another try."
+          : "We couldn't confirm you're human this time. Give it another try.",
+        state: 'error',
+      });
     }
 
     if (humanDone) {

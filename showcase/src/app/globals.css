@@ -432,6 +432,15 @@ h2 {
   padding: 0 12px;
 }
 
+/* Mid-width desktops: the full link row plus both CTAs doesn't fit at 12px
+   padding, so the CTAs used to wrap or overlap the last link. */
+@media (max-width: 1400px) {
+  .summer-nav nav a,
+  .summer-nav nav .summer-nav__trigger {
+    padding: 0 8px;
+  }
+}
+
 .summer-nav nav a:hover {
   color: var(--summer-ink);
   background: rgba(237, 248, 251, 0.92);
