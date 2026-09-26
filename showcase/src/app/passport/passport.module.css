@@ -48,7 +48,9 @@
   font-size: 1.02rem;
   line-height: 1.6;
   color: rgba(244, 244, 246, 0.72);
-  margin: 0;
+  margin: 0 auto;
+  max-width: 42ch;
+  text-wrap: balance;
 }
 
 .poweredBy {
@@ -184,6 +186,12 @@
 }
 
 .cta {
+  /* Also used on an <a> (the QR sheet's "Open World App"), so center the
+     label and drop the link underline explicitly. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   min-height: 52px;
   padding: 0 30px;
   border-radius: 999px;
