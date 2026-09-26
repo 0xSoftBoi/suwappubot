@@ -844,6 +844,8 @@ class WalletService:
         """
         token_address = get_token_address(token_symbol, chain_name)
         if not token_address:
+            if strict:
+                raise BalanceUnavailableError(f"unknown token {token_symbol} on {chain_name}")
             return 0.0
 
         # Skip zero/null addresses (native tokens listed as 0x000...0)
@@ -891,6 +893,8 @@ class WalletService:
 
         chain = get_chain_by_name(chain_name)
         if not chain:
+            if strict:
+                raise BalanceUnavailableError(f"unknown chain: {chain_name}")
             return 0.0
 
         checksum = Web3.to_checksum_address(address)
