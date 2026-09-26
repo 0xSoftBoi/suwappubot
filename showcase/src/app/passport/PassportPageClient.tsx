@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import AmbientOrb, { OrbState } from './AmbientOrb';
@@ -55,7 +55,7 @@ export default function PassportPageClient() {
   const swapHash = evidence?.uniswap?.swapTx;
   const swapLanded = receiptOk(evidence?.receipts, swapHash) || (!!swapHash && !evidence?.receipts);
 
-  const resultReady = humanDone && !evidenceLoading;
+  const dataReady = humanDone && !evidenceLoading;
 
   // Real-state narration — every line is a direct read of usePassportFlow /
   // evidence, never a timer pretending progress.
@@ -119,6 +119,29 @@ export default function PassportPageClient() {
     ensName,
     swapLanded,
   ]);
+
+  // Let the streamed narration lines actually finish revealing before the
+  // result card swaps in — otherwise "Verified" / the agent name / "Protected
+  // trading enabled" flash for a frame and get replaced. Hold ~600ms after
+  // the last line lands (skipped for reduced motion, which wants the state
+  // change to read instantly rather than animate).
+  const narrationComplete = dataReady && lines.length > 0 && lines.every((l) => l.state === 'done');
+  const [showResult, setShowResult] = useState(false);
+
+  useEffect(() => {
+    if (!narrationComplete) {
+      setShowResult(false);
+      return;
+    }
+    if (reduceMotion) {
+      setShowResult(true);
+      return;
+    }
+    const t = setTimeout(() => setShowResult(true), 600);
+    return () => clearTimeout(t);
+  }, [narrationComplete, reduceMotion]);
+
+  const resultReady = showResult;
 
   const orbState: OrbState = humanFailed
     ? 'error'

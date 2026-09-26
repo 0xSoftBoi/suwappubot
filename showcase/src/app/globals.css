@@ -32,6 +32,12 @@
   --sw-accent-faint: rgba(229, 141, 43, 0.11);
   --sw-accent-fainter: rgba(229, 141, 43, 0.045);
 
+  /* Semantic status colors — error/success states on dark surfaces (e.g.
+     the passport narration/status dots). Not part of the accent ramp. */
+  --sw-danger: #e2726b;
+  --sw-danger-bright: #f2a5a0;
+  --sw-success: #4ade80;
+
   /* ================================================================
      PERSIMMON ORCHARD — brand-colour identity layer.
      One job per colour, enforced everywhere it is used:

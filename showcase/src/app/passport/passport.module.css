@@ -199,7 +199,7 @@
 }
 .narrationLine[data-state='done'] { color: rgba(244, 244, 246, 0.94); }
 .narrationLine[data-state='active'] { color: rgba(244, 244, 246, 0.85); }
-.narrationLine[data-state='error'] { color: #f2a5a0; }
+.narrationLine[data-state='error'] { color: var(--sw-danger-bright); }
 .narrationLine[data-state='unavailable'] { color: rgba(244, 244, 246, 0.5); }
 
 .narrationMark {
@@ -233,7 +233,7 @@
   height: 8px;
   border-radius: 50%;
 }
-.narrationDotError { background: #e2726b; }
+.narrationDotError { background: var(--sw-danger); }
 .narrationDotMuted { background: rgba(244, 244, 246, 0.3); }
 
 .narrationText { line-height: 1.45; }
@@ -473,11 +473,11 @@
   flex: 0 0 auto;
 }
 .dot[data-state='up'] {
-  background: #4ade80;
+  background: var(--sw-success);
   box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
   animation: pulse 2s ease-out infinite;
 }
-.dot[data-state='down'] { background: #f87171; }
+.dot[data-state='down'] { background: var(--sw-danger-bright); }
 .dot[data-state='unknown'] { background: var(--sw-accent-bright); }
 .dot[data-state='neutral'] { background: rgba(244, 244, 246, 0.35); }
 
@@ -517,7 +517,7 @@
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.receiptBadge[data-state='success'] { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.receiptBadge[data-state='success'] { color: var(--sw-success); background: color-mix(in srgb, var(--sw-success) 10%, transparent); }
 .receiptBadge[data-state='pending'] { color: var(--sw-accent-bright); background: color-mix(in srgb, var(--sw-accent) 15%, transparent); }
 
 @media (prefers-reduced-motion: reduce) {
