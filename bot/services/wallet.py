@@ -1772,6 +1772,11 @@ class WalletService:
         Returns:
             Signed transaction hex string
         """
+        # Checked before routing so neither Turnkey, its local fallback, nor local
+        # signing can produce an unprotected (pre-EIP-155, replayable) transaction.
+        # Every path (Turnkey, its local fallback, local) signs the normalized int chainId.
+        transaction = {**transaction, "chainId": require_evm_chain_id(transaction)}
+
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_evm_with_fallback
 
@@ -1845,44 +1850,8 @@ class WalletService:
         return signed_tx
 
     def _serialize_evm_transaction(self, transaction: dict) -> str:
-        """Serialize an EVM transaction to hex for Turnkey signing."""
-        # Create unsigned transaction bytes
-        # For EIP-1559 transactions
-        if "maxFeePerGas" in transaction:
-            from eth_account._utils.typed_transactions import TypedTransaction
-
-            typed_tx = TypedTransaction.from_dict(transaction)
-            return "0x" + typed_tx.hash().hex()
-
-        # For legacy transactions, build the serialized form
-        tx_data = {
-            "nonce": transaction.get("nonce", 0),
-            "gasPrice": transaction.get("gasPrice", 0),
-            "gas": transaction.get("gas", 21000),
-            "to": bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
-            "value": transaction.get("value", 0),
-            "data": (
-                bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b""
-            ),
-        }
-
-        # Return as hex string
-        import rlp
-
-        encoded = rlp.encode(
-            [
-                tx_data["nonce"],
-                tx_data["gasPrice"],
-                tx_data["gas"],
-                tx_data["to"],
-                tx_data["value"],
-                tx_data["data"],
-                transaction.get("chainId", 1),
-                0,
-                0,
-            ]
-        )
-        return "0x" + encoded.hex()
+        """Serialize an EVM transaction to unsigned hex for Turnkey signing."""
+        return serialize_unsigned_evm_tx(transaction)
 
     async def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
@@ -2116,3 +2085,80 @@ class WalletService:
         tx.sign([keypair])
 
         return bytes(tx)
+
+
+class InvalidTransactionError(ValueError):
+    """The transaction itself is unsignable (e.g. no chainId). Never retried/fallen back."""
+
+
+def _to_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        return int(value, 16) if value.lower().startswith("0x") else int(value)
+    return int(value)
+
+
+def _tx_type(tx: dict) -> int | None:
+    return _to_int(tx.get("type"))
+
+
+def require_evm_chain_id(transaction: dict) -> int:
+    """Return chainId as an int; raise if missing or zero (would be replayable)."""
+    try:
+        chain_id = _to_int(transaction.get("chainId"))
+    except (TypeError, ValueError):
+        chain_id = None
+    if not chain_id:
+        raise InvalidTransactionError("Refusing to sign EVM transaction without a valid chainId")
+    return chain_id
+
+
+def serialize_unsigned_evm_tx(transaction: dict) -> str:
+    """Unsigned serialized EVM tx (hex) for Turnkey TRANSACTION_TYPE_ETHEREUM.
+
+    keccak of the returned bytes is exactly the signing hash eth_account would
+    sign, for both typed (EIP-1559/2930: `type || rlp(fields)`) and legacy
+    (EIP-155: `rlp([..., chainId, 0, 0])`) transactions. Uses eth_account's own
+    serializers so hex-string / HexBytes fields encode correctly.
+
+    chainId is required: defaulting it (previously to 1) would sign a valid
+    Ethereum-mainnet transaction that anyone could replay there.
+    """
+    import rlp
+    from eth_account._utils.legacy_transactions import (
+        serializable_unsigned_transaction_from_dict,
+    )
+    from eth_account._utils.transaction_utils import transaction_rpc_to_rlp_structure
+    from eth_account.typed_transactions import TypedTransaction
+    from toolz import dissoc
+
+    chain_id = require_evm_chain_id(transaction)
+
+    tx = dissoc(transaction, "from")
+    tx["chainId"] = chain_id
+    if "input" in tx and "data" not in tx:
+        tx["data"] = tx.pop("input")
+    if _tx_type(tx) == 0:
+        tx.pop("type", None)  # eth_account rejects an explicit legacy type 0
+    is_typed = "maxFeePerGas" in tx or _tx_type(tx) is not None
+    if not is_typed:
+        # Preserve the historical defaults for optional legacy fields (None too).
+        for key, default in (("nonce", 0), ("gas", 21000), ("value", 0), ("data", "0x")):
+            if tx.get(key) is None:
+                tx[key] = default
+        if tx.get("gasPrice") is None:
+            tx["gasPrice"] = 0
+        if not tx.get("to"):
+            tx.pop("to", None)
+    try:
+        unsigned = serializable_unsigned_transaction_from_dict(tx)
+    except (TypeError, ValueError) as e:
+        raise InvalidTransactionError(f"Unsignable EVM transaction: {e}") from e
+
+    if isinstance(unsigned, TypedTransaction):
+        inner = unsigned.transaction
+        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
+        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
+        return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
+    return "0x" + rlp.encode(unsigned).hex()

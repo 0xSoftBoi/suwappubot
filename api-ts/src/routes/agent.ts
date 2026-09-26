@@ -39,6 +39,10 @@ import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
+// HACKATHON (Tokyo 2026): trust-layer gates (Intercepta + ENSv2), merged into
+// the institutional verdict below. Flag-gated, default off; see
+// src/hackathon/gates.ts.
+import { applyTrustLayerGates } from '../hackathon/gates'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -99,6 +103,31 @@ export function stopAgentCleanup() {}
 // agent.metadata.wallet_address. A caller-supplied `wallet_address` used as the
 // swap sender must match it — otherwise an agent could build a fund-moving tx from
 // an arbitrary/victim address.
+//
+// SECURITY: These metadata keys are reserved for server-side wallet provisioning
+// (POST /v1/agent/wallets). They must NEVER be settable via PATCH /v1/agent/me,
+// otherwise any agent can claim ownership of an arbitrary address and bypass
+// checkEvmWalletOwnership. See sanitizeUserMetadata below.
+const RESERVED_METADATA_KEYS = new Set([
+	'wallet_address',
+	'wallet_sub_org_id',
+	'wallet_id',
+	'internal_user_id',
+	'internal_wallet_id',
+	'turnkey_wallet_id',
+	'turnkey_sub_org_id',
+])
+/** Strip server-reserved keys from user-supplied metadata. Returns a new object. */
+function sanitizeUserMetadata(
+	metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+	if (!metadata) return metadata
+	const clean: Record<string, unknown> = {}
+	for (const [k, v] of Object.entries(metadata)) {
+		if (!RESERVED_METADATA_KEYS.has(k)) clean[k] = v
+	}
+	return clean
+}
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 function isEvmAddress(addr: unknown): addr is string {
 	return typeof addr === 'string' && EVM_ADDRESS_RE.test(addr)
@@ -230,7 +259,8 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				name,
 				description,
 				callbackUrl: callback_url,
-				metadata,
+				// Reserved wallet keys are server-managed (set by POST /wallets only).
+				metadata: sanitizeUserMetadata(metadata),
 				ip,
 			})
 
@@ -605,7 +635,14 @@ agentRoutes.patch('/me', async (c) => {
 			return yield* agentService.updateAgent(agent.id, {
 				description,
 				callbackUrl: callback_url,
-				metadata,
+				// Strip server-reserved wallet keys: agents must not be able to
+				// claim ownership of arbitrary addresses via metadata. Keep the stored
+				// reserved keys (read inside the UPDATE, not from this request's
+				// snapshot) or a profile PATCH would orphan the managed wallet.
+				replaceMetadataPreserving:
+					metadata === undefined
+						? undefined
+						: { data: sanitizeUserMetadata(metadata) ?? {}, preserveKeys: [...RESERVED_METADATA_KEYS] },
 			})
 		}),
 	)
@@ -1165,9 +1202,23 @@ export async function enforcePolicyGateForFreshQuote(
 		return null
 	}
 
-	if (verdict.right.decision === 'allow') return null
+	// HACKATHON (Tokyo 2026 trust layer): Intercepta counterparty screening +
+	// ENSv2 onchain agent-policy caps, merged into the institutional verdict.
+	// Additive and flag-gated (HACKATHON_TRUST_LAYER, default off) — when
+	// disabled this is one boolean check inside applyTrustLayerGates. Policy
+	// stays the authority: the merge only ever escalates
+	// allow → require_approval → block, never downgrades. A policy block above
+	// skips this entirely (early return, unchanged). The existing downstream
+	// handling (audit, require_approval → ApprovalService.create, block → 403)
+	// applies uniformly to the merged verdict.
+	const gatedVerdict = await applyTrustLayerGates(
+		{ policyIntent, agentIdentifier, orgId },
+		verdict.right,
+	)
 
-	const { decision, reason, matchedPolicyId, id: policyDecisionId } = verdict.right
+	if (gatedVerdict.decision === 'allow') return null
+
+	const { decision, reason, matchedPolicyId, id: policyDecisionId } = gatedVerdict
 	writeAuditLog({
 		userId: 0,
 		orgId,
@@ -2377,8 +2428,88 @@ agentRoutes.get('/portfolio', async (c) => {
 })
 
 // POST /v1/agent/wallets - Create agent wallet via Turnkey + internal provision
+const SUPPORTED_WALLET_CHAINS = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
+
+function existingWalletResponse(c: Context<AgentContext>, address: string) {
+	return c.json(
+		{
+			success: true,
+			wallet: { address, chain_type: 'evm', supported_chains: SUPPORTED_WALLET_CHAINS },
+			message: 'Agent already has a managed wallet.',
+		},
+		200,
+	)
+}
+
+// Register the agent's Turnkey wallet with python-api for /swap/execute signing.
+// Idempotent on the python side; null if python-api is unconfigured or fails.
+function provisionInternalWallet(
+	env: { INTERNAL_API_KEY?: string | undefined; INTERNAL_API_URL?: string | undefined },
+	agentUuid: string,
+	wallet: { walletId: string; subOrgId: string; address: string },
+) {
+	if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) return Effect.succeed(null)
+	return Effect.tryPromise({
+		try: async () => {
+			const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Internal-Key': env.INTERNAL_API_KEY!,
+				},
+				body: JSON.stringify({
+					agent_uuid: agentUuid,
+					chain_type: 'evm',
+					turnkey_wallet_id: wallet.walletId,
+					turnkey_sub_org_id: wallet.subOrgId,
+					address: wallet.address,
+				}),
+				signal: AbortSignal.timeout(15_000),
+			})
+			if (res.ok) {
+				return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
+			}
+			return null
+		},
+		catch: () => null, // Non-fatal
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)))
+}
+
 agentRoutes.post('/wallets', async (c) => {
 	const agent = c.get('agent')
+
+	// Idempotent: a second call must not mint a new wallet and overwrite
+	// wallet_address — that strands any funds sent to the first one.
+	const md = (agent.metadata as Record<string, unknown> | null) ?? {}
+	if (typeof md.wallet_address === 'string') {
+		const address = md.wallet_address
+		// Repair: if python provisioning failed when the wallet was created, the
+		// internal_* ids are null and /swap/execute can't sign. Re-provision the
+		// same Turnkey wallet (idempotent) instead of leaving the agent stuck.
+		if (
+			(md.internal_user_id == null || md.internal_wallet_id == null) &&
+			typeof md.turnkey_wallet_id === 'string' &&
+			typeof md.wallet_sub_org_id === 'string'
+		) {
+			const walletId = md.turnkey_wallet_id
+			const subOrgId = md.wallet_sub_org_id
+			await runEffectEither(
+				Effect.gen(function* () {
+					const env = yield* EnvService
+					const provisioned = yield* provisionInternalWallet(env, agent.uuid, { walletId, subOrgId, address })
+					if (!provisioned) return
+					const agentService = yield* AgentService
+					yield* agentService.updateAgent(agent.id, {
+						mergeMetadata: {
+							internal_user_id: provisioned.internal_user_id,
+							internal_wallet_id: provisioned.internal_wallet_id,
+						},
+					})
+				}),
+			)
+		}
+		return existingWalletResponse(c, address)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -2394,51 +2525,35 @@ agentRoutes.post('/wallets', async (c) => {
 			let internalUserId: number | undefined
 			let internalWalletId: number | undefined
 
-			if (env.INTERNAL_API_KEY && env.INTERNAL_API_URL) {
-				const provisionResult = yield* Effect.tryPromise({
-					try: async () => {
-						const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								'X-Internal-Key': env.INTERNAL_API_KEY!,
-							},
-							body: JSON.stringify({
-								agent_uuid: agent.uuid,
-								chain_type: 'evm',
-								turnkey_wallet_id: wallet.walletId,
-								turnkey_sub_org_id: wallet.subOrgId,
-							}),
-							signal: AbortSignal.timeout(15_000),
-						})
-						if (res.ok) {
-							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
-						}
-						return null
-					},
-					catch: () => null, // Non-fatal
-				}).pipe(Effect.catchAll(() => Effect.succeed(null)))
-
-				if (provisionResult) {
-					internalUserId = provisionResult.internal_user_id
-					internalWalletId = provisionResult.internal_wallet_id
-				}
+			const provisioned = yield* provisionInternalWallet(env, agent.uuid, wallet)
+			if (provisioned) {
+				internalUserId = provisioned.internal_user_id
+				internalWalletId = provisioned.internal_wallet_id
 			}
 
 			// Store wallet address in agent metadata
 			const agentService = yield* AgentService
-			const existingMetadata = (agent.metadata as Record<string, unknown>) || {}
-			yield* agentService.updateAgent(agent.id, {
-				metadata: {
-					...existingMetadata,
-					wallet_address: wallet.address,
-					wallet_sub_org_id: wallet.subOrgId,
-					...(internalUserId !== undefined && { internal_user_id: internalUserId }),
-					...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
-				},
+			// Atomic jsonb merge (a snapshot-spread could drop a concurrent PATCH /me),
+			// and only while wallet_address is unset: if a concurrent call won, keep its
+			// wallet (ours stays unfunded and unused) and return that one.
+			const claimed = yield* agentService.mergeMetadataIfAbsent(agent.id, 'wallet_address', {
+				wallet_address: wallet.address,
+				wallet_sub_org_id: wallet.subOrgId,
+				turnkey_wallet_id: wallet.walletId,
+				// Always write: if provisioning failed, a stale internal_* pair from an
+				// earlier wallet would sign with a different wallet than wallet_address.
+				internal_user_id: internalUserId ?? null,
+				internal_wallet_id: internalWalletId ?? null,
 			})
 
-			return wallet
+			let winnerAddress: string | null = null
+			if (!claimed) {
+				const current = yield* agentService.getAgentById(agent.id)
+				const md = Option.isSome(current) ? (current.value.metadata as Record<string, unknown> | null) : null
+				winnerAddress = typeof md?.wallet_address === 'string' ? md.wallet_address : null
+			}
+
+			return { wallet, claimed, winnerAddress }
 		}),
 	)
 
@@ -2447,7 +2562,11 @@ agentRoutes.post('/wallets', async (c) => {
 		return c.json(body, status)
 	}
 
-	const wallet = result.right
+	const { wallet, claimed, winnerAddress } = result.right
+	if (!claimed) {
+		if (winnerAddress !== null) return existingWalletResponse(c, winnerAddress)
+		return agentError(c, 500, 'INTERNAL', 'Wallet creation raced another request; retry')
+	}
 
 	return c.json(
 		{
@@ -2455,7 +2574,7 @@ agentRoutes.post('/wallets', async (c) => {
 			wallet: {
 				address: wallet.address,
 				chain_type: 'evm',
-				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc'],
+				supported_chains: SUPPORTED_WALLET_CHAINS,
 			},
 			message: 'Wallet created. Fund it to start swapping.',
 		},

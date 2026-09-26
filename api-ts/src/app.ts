@@ -26,6 +26,7 @@ import {
 	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseRoutes,
+	hackathonRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -73,6 +74,9 @@ export interface AppConfig {
 	// Only when 'true' is the OTel request-tracing middleware registered at
 	// all — see the otelRequestTracing() call below and lib/otel.ts.
 	otelEnabled?: string | undefined
+	// ETHGlobal Tokyo 2026 trust-layer demo routes. When true, /hackathon/*
+	// is mounted (see index.ts — decoded from EnvService at boot).
+	hackathonTrustLayer?: boolean | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -155,6 +159,20 @@ export function createApp(config: AppConfig) {
 
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
+
+	// HACKATHON (Tokyo 2026 trust layer): World ID demo routes. Flag-gated —
+	// unmounted by default, so the surface doesn't exist unless explicitly
+	// enabled. MONEY-PATH adjacent (demo only): no production approval or
+	// execution flow reads these endpoints.
+	// OPENAPI TREATMENT: /hackathon/* is intentionally EXCLUDED from the
+	// public OpenAPI spec (openapi-agent.json, served at /v1/agent/openapi).
+	// The spec documents the versioned /v1/agent public surface; hackathon
+	// routes are unversioned demo endpoints and must never be presented as
+	// public API. The spec generator only derives from src/routes/validators.ts,
+	// so exclusion holds by construction — do not add hackathon schemas there.
+	if (config.hackathonTrustLayer) {
+		app.route('/hackathon', hackathonRoutes)
+	}
 
 	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
 	// This exact-path gateway must be mounted before swapRoutes; requests carrying

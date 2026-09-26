@@ -6,6 +6,9 @@ export { autopilotAdminRoutes, autopilotRoutes } from './autopilot'
 export { billingRoutes } from './billing'
 export { dataRoutes, stopDataLiveTicker } from './data'
 export { enterpriseRoutes } from './enterprise'
+// HACKATHON (Tokyo 2026): trust-layer demo routes. Mounted in app.ts only
+// when HACKATHON_TRUST_LAYER=true.
+export { hackathonRoutes } from './hackathon'
 export { healthRoutes } from './health'
 export { internalRoutes } from './internal'
 export { lendRoutes } from './lend'

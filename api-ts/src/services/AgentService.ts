@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { Context, Effect, Layer, Option } from 'effect'
 import {
 	type Agent,
@@ -47,7 +47,15 @@ export interface RegisterAgentParams {
 export interface UpdateAgentParams {
 	description?: string | undefined
 	callbackUrl?: string | null | undefined
+	/** Replaces the whole metadata column. */
 	metadata?: Record<string, unknown> | undefined
+	/**
+	 * Replaces metadata with `data`, but keeps the stored values of `preserveKeys`.
+	 * Evaluated inside the UPDATE, so it can't clobber a concurrent write to those keys.
+	 */
+	replaceMetadataPreserving?: { data: Record<string, unknown>; preserveKeys: readonly string[] } | undefined
+	/** Shallow-merges into the stored metadata atomically (`metadata || patch`). */
+	mergeMetadata?: Record<string, unknown> | undefined
 }
 
 export interface AgentServiceInterface {
@@ -75,6 +83,16 @@ export interface AgentServiceInterface {
 		agentId: number,
 		params: UpdateAgentParams,
 	) => Effect.Effect<Agent, DatabaseError, DrizzleService>
+
+	/**
+	 * Atomically merge `patch` into metadata only if `key` is currently unset.
+	 * Returns false (nothing written) when the key is already present.
+	 */
+	readonly mergeMetadataIfAbsent: (
+		agentId: number,
+		key: string,
+		patch: Record<string, unknown>,
+	) => Effect.Effect<boolean, DatabaseError, DrizzleService>
 
 	readonly updateAgentActivity: (
 		agentId: number,
@@ -322,6 +340,24 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			if (params.description !== undefined) updates.description = params.description
 			if (params.callbackUrl !== undefined) updates.callbackUrl = params.callbackUrl
 			if (params.metadata !== undefined) updates.metadata = params.metadata
+			// Metadata writes below are single-statement jsonb expressions: the row lock
+			// taken by UPDATE serializes them, and each reads the latest committed row,
+			// so PATCH /me and POST /wallets can't lose each other's keys.
+			// Reads cast ::jsonb: the shared DB's agents.metadata may be TEXT (created by
+			// python's _ensure_schema) or json/jsonb (drizzle); a jsonb value assigns to all three.
+			if (params.replaceMetadataPreserving !== undefined) {
+				const { data, preserveKeys } = params.replaceMetadataPreserving
+				const keys = JSON.stringify(preserveKeys)
+				// Preserved keys come only from the stored row, never from `data`.
+				updates.metadata = sql`(${JSON.stringify(data)}::jsonb - array(select jsonb_array_elements_text(${keys}::jsonb))) || coalesce((
+					select jsonb_object_agg(e.key, e.value)
+					from jsonb_each(coalesce(${agents.metadata}::jsonb, '{}'::jsonb)) e
+					where e.key in (select jsonb_array_elements_text(${keys}::jsonb))
+				), '{}'::jsonb)`
+			}
+			if (params.mergeMetadata !== undefined) {
+				updates.metadata = sql`coalesce(${agents.metadata}::jsonb, '{}'::jsonb) || ${JSON.stringify(params.mergeMetadata)}::jsonb`
+			}
 
 			const result = yield* Effect.tryPromise({
 				try: () => db.update(agents).set(updates).where(eq(agents.id, agentId)).returning(),
@@ -329,6 +365,28 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			})
 
 			return yield* requireRow(result, 'Agent not found')
+		}),
+
+	mergeMetadataIfAbsent: (agentId: number, key: string, patch: Record<string, unknown>) =>
+		Effect.gen(function* () {
+			const db = yield* requireDb.pipe(
+				Effect.mapError((e) => new DatabaseError({ message: e.message })),
+			)
+
+			const result = yield* Effect.tryPromise({
+				try: () =>
+					db
+						.update(agents)
+						.set({
+							metadata: sql`coalesce(${agents.metadata}::jsonb, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+							updatedAt: new Date(),
+						})
+						.where(and(eq(agents.id, agentId), sql`not coalesce(${agents.metadata}::jsonb ? ${key}, false)`))
+						.returning({ id: agents.id }),
+				catch: (e) => new DatabaseError({ message: `Failed to update agent: ${e}`, cause: e }),
+			})
+
+			return result.length > 0
 		}),
 
 	updateAgentActivity: (agentId: number) =>

@@ -202,6 +202,22 @@ export const EnvSchema = Schema.Struct({
 	// collector). Traces are POSTed to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`.
 	// When unset, the exporter's own default (http://localhost:4318) is used.
 	OTEL_EXPORTER_OTLP_ENDPOINT: Schema.optional(Schema.String),
+
+	// ETHGlobal Tokyo 2026 hackathon trust layer — additive, default OFF.
+	// The master flag gates the whole layer; per-sponsor flags default to the
+	// master and can be toggled independently. Uniswap comparison is an
+	// explicit opt-in even when the master flag is on.
+	HACKATHON_TRUST_LAYER: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	HACKATHON_INTERCEPTA: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	HACKATHON_ENSV2: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	HACKATHON_WORLD_ID: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	// JSON map of internal agent id → ENSv2 agent name, e.g.
+	// {"agent_123":"agent.acme.suwappu.eth"}. A bare *.eth identifier passes
+	// through directly without a mapping entry.
+	HACKATHON_ENSV2_NAMES: Schema.optional(Schema.String),
+	UNISWAP_COMPARISON_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Sepolia RPC for ENSv2 onchain policy reads. Unset = ENSv2 gate disabled.
+	SEPOLIA_RPC_URL: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>
