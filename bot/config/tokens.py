@@ -895,6 +895,8 @@ _PER_CHAIN_DECIMALS: dict[tuple[str, str], int] = {
     ("BTC", "citrea"): 18,  # native cBTC, ETH-style
     # WBTC's bsc address is actually BTCB which is 18dp NOT 8
     ("WBTC", "bsc"): 18,
+    # Solana ETH is Wormhole-wrapped (7vfCX...), 8dp on-chain NOT 18
+    ("ETH", "solana"): 8,
 }
 
 
