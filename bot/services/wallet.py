@@ -1844,15 +1844,34 @@ class WalletService:
 
         return signed_tx
 
+    @staticmethod
+    def _serialize_typed_unsigned(transaction: dict) -> bytes:
+        """Unsigned `type || rlp(fields)` for a typed tx; keccak of it is the signing hash."""
+        import rlp
+        from eth_account._utils.legacy_transactions import (
+            serializable_unsigned_transaction_from_dict,
+        )
+        from eth_account._utils.transaction_utils import transaction_rpc_to_rlp_structure
+        from eth_account.typed_transactions import TypedTransaction
+        from toolz import dissoc
+
+        typed = serializable_unsigned_transaction_from_dict(dissoc(transaction, "from"))
+        if not isinstance(typed, TypedTransaction):
+            raise ValueError(f"expected a typed transaction, got {type(typed).__name__}")
+        inner = typed.transaction
+        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
+        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
+        return bytes([typed.transaction_type]) + body
+
     def _serialize_evm_transaction(self, transaction: dict) -> str:
         """Serialize an EVM transaction to hex for Turnkey signing."""
-        # Create unsigned transaction bytes
-        # For EIP-1559 transactions
-        if "maxFeePerGas" in transaction:
-            from eth_account._utils.typed_transactions import TypedTransaction
-
-            typed_tx = TypedTransaction.from_dict(transaction)
-            return "0x" + typed_tx.hash().hex()
+        # Typed transactions (EIP-1559 / EIP-2930): Turnkey needs the unsigned
+        # serialized payload `type || rlp(fields)`, NOT the 32-byte signing hash
+        # (keccak of that payload). The old import path
+        # (eth_account._utils.typed_transactions) no longer exists in eth-account
+        # 0.13, so this branch raised ModuleNotFoundError on every call.
+        if "maxFeePerGas" in transaction or transaction.get("type") not in (None, 0, "0x0", "0x00"):
+            return "0x" + self._serialize_typed_unsigned(transaction).hex()
 
         # For legacy transactions, build the serialized form
         tx_data = {
