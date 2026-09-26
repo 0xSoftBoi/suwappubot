@@ -1774,7 +1774,8 @@ class WalletService:
         """
         # Checked before routing so neither Turnkey, its local fallback, nor local
         # signing can produce an unprotected (pre-EIP-155, replayable) transaction.
-        require_evm_chain_id(transaction)
+        # Every path (Turnkey, its local fallback, local) signs the normalized int chainId.
+        transaction = {**transaction, "chainId": require_evm_chain_id(transaction)}
 
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_evm_with_fallback
@@ -2086,6 +2087,10 @@ class WalletService:
         return bytes(tx)
 
 
+class InvalidTransactionError(ValueError):
+    """The transaction itself is unsignable (e.g. no chainId). Never retried/fallen back."""
+
+
 def _to_int(value) -> int | None:
     if value is None or value == "":
         return None
@@ -2105,7 +2110,7 @@ def require_evm_chain_id(transaction: dict) -> int:
     except (TypeError, ValueError):
         chain_id = None
     if not chain_id:
-        raise ValueError("Refusing to sign EVM transaction without a valid chainId")
+        raise InvalidTransactionError("Refusing to sign EVM transaction without a valid chainId")
     return chain_id
 
 
@@ -2146,7 +2151,10 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
             tx["gasPrice"] = 0
         if not tx.get("to"):
             tx.pop("to", None)
-    unsigned = serializable_unsigned_transaction_from_dict(tx)
+    try:
+        unsigned = serializable_unsigned_transaction_from_dict(tx)
+    except (TypeError, ValueError) as e:
+        raise InvalidTransactionError(f"Unsignable EVM transaction: {e}") from e
 
     if isinstance(unsigned, TypedTransaction):
         inner = unsigned.transaction
