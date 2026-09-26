@@ -1691,17 +1691,30 @@ class WalletService:
             """Fetch all balances for a single EVM chain — Multicall3 batch first,
             per-token RPC calls as fallback. Returns (chain_name, None) when this
             read timed out, so the caller doesn't cache the partial result."""
+            t0 = time.monotonic()
             try:
                 async with _balance_rpc_semaphore():
+                    t0 = time.monotonic()
                     result = await asyncio.wait_for(
                         self._fetch_evm_chain_multicall(chain_name, chain, address),
                         timeout=CALL_TIMEOUT,
                     )
+                # Feed the multicall path's outcome back to rpc_manager: it uses
+                # a cached per-chain Web3 that only fails over when the
+                # endpoint's circuit opens, and nothing on this path reported
+                # health — so a slow endpoint stayed selected indefinitely.
+                url = self._web3_cache_url(chain_name)
+                if url:
+                    rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
                 return result
             except asyncio.TimeoutError:
                 # The chain's endpoint is slow: fanning out one call per token to
                 # it only multiplies load (this is what saturated the worker —
                 # ~94 concurrent calls per wallet). Report nothing for this chain.
+                url = self._web3_cache_url(chain_name)
+                if url:
+                    rpc_manager.report_failure(chain_name, url, "multicall_timeout")
+                self._invalidate_web3(chain_name)
                 logger.info(f"Balance multicall timed out on {chain_name}")
                 return chain_name, None
             except Exception as e:
