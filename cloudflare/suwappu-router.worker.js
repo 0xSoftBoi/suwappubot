@@ -37,6 +37,18 @@ const ORIGINS = {
 //   the terminal SPA's data layer; without these here every chart/orderbook/token call 404'd.
 const PYTHON_PREFIXES = ["/auth", "/telegram", "/webhook", "/users", "/tools", "/terminal", "/webapp"];
 
+// Exceptions to the blanket "/webapp → python" rule: these namespaces exist ONLY in
+// api-ts (see api-ts/src/app.ts mounts) — python-api 404s every one of them, which is
+// how the Mini App's market-data views sat empty through this domain. Checked before
+// PYTHON_PREFIXES so they win the longest-prefix match. Money-path namespaces
+// (/webapp/swap, /webapp/bridge) deliberately stay on python here — do not add them
+// without a money-path review.
+//   /webapp/data    → read-only market data platform (webappData.ts)
+//   /webapp/tokens  → public token search/lookup/prices (tokens.ts; superset of python's)
+//   /webapp/p2p     → P2P marketplace (p2p.ts)
+//   /webapp/rewards → fee-cashback rewards read API (rewards.ts)
+const API_TS_WEBAPP_PREFIXES = ["/webapp/data", "/webapp/tokens", "/webapp/p2p", "/webapp/rewards"];
+
 function pickOrigin(hostname, pathname) {
   if (hostname === "www.suwappu.bot" || hostname === "suwappu.bot") {
     return ORIGINS.SHOWCASE;
@@ -56,6 +68,9 @@ function pickOrigin(hostname, pathname) {
     return ORIGINS.PYTHON_DEV;
   }
   // api.suwappu.bot (and any other host that reaches this Worker) → API path-routing
+  for (const p of API_TS_WEBAPP_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + "/")) return ORIGINS.API_TS;
+  }
   for (const p of PYTHON_PREFIXES) {
     if (pathname === p || pathname.startsWith(p + "/")) return ORIGINS.PYTHON;
   }

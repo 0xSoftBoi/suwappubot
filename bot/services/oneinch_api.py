@@ -38,6 +38,9 @@ ONEINCH_CHAIN_IDS = {
     "zksync": "324",
     "linea": "59144",
     "aurora": "1313161554",
+    # 1inch is an official Robinhood Chain launch partner — Classic Swap +
+    # Fusion live since mainnet launch 2026-07-01 (help.1inch.com/robinhood-chain).
+    "robinhood": "4663",
 }
 
 # 1inch represents the native asset (ETH/BNB/etc.) with this sentinel address.

@@ -316,7 +316,7 @@ async def pos_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
-    key = query.data[len("pos_manage_") :]
+    key = query.data[len("pos_manage_") :]  # noqa: E203
     ctx_map = context.user_data.get("pos_manage") or {}
     pair = ctx_map.get(key)
     if not pair:
@@ -346,7 +346,7 @@ async def pos_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     await query.answer()
 
-    raw = query.data[len("pos_sell_") :]
+    raw = query.data[len("pos_sell_") :]  # noqa: E203
     key, _, pct_str = raw.rpartition("_")
     try:
         pct = int(pct_str)

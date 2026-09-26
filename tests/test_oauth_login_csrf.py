@@ -15,14 +15,13 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
 
-import pytest
-from fastapi import HTTPException
-from starlette.responses import RedirectResponse
+import pytest  # noqa: E402
+from starlette.responses import RedirectResponse  # noqa: E402
 
-import api.routes.oauth as oauth
+import api.routes.oauth as oauth  # noqa: E402
 
 
 def _db_returning(state_obj):
@@ -52,7 +51,11 @@ async def _call(db, request):
 
 async def test_login_callback_rejects_missing_nonce_cookie():
     state = SimpleNamespace(
-        action="login", user_id=None, is_expired=False, login_nonce="secret-nonce"
+        action="login",
+        user_id=None,
+        is_expired=False,
+        login_nonce="secret-nonce",
+        redirect_uri=None,
     )
     result = await _call(_db_returning(state), _request_with_cookies({}))
     # Code returns RedirectResponse with nonce_missing error, not HTTPException
@@ -63,7 +66,11 @@ async def test_login_callback_rejects_missing_nonce_cookie():
 
 async def test_login_callback_rejects_wrong_nonce_cookie():
     state = SimpleNamespace(
-        action="login", user_id=None, is_expired=False, login_nonce="secret-nonce"
+        action="login",
+        user_id=None,
+        is_expired=False,
+        login_nonce="secret-nonce",
+        redirect_uri=None,
     )
     request = _request_with_cookies({oauth.OAUTH_NONCE_COOKIE: "attacker-value"})
     result = await _call(_db_returning(state), request)
@@ -83,6 +90,7 @@ async def test_login_callback_matching_nonce_passes_the_check(monkeypatch):
         is_expired=False,
         login_nonce="secret-nonce",
         code_verifier="x",
+        redirect_uri=None,
     )
     request = _request_with_cookies({oauth.OAUTH_NONCE_COOKIE: "secret-nonce"})
 

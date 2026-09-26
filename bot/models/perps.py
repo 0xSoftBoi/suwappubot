@@ -1,6 +1,6 @@
 """Perpetual trading models for HyperLiquid integration."""
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Float, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Numeric
 from datetime import datetime
 from database.db import Base
 

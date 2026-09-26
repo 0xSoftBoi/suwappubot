@@ -9,15 +9,36 @@ import type { WalletBalance } from '../../types/api'
 
 type Tab = 'deposit' | 'withdraw'
 
-// Chains a custodial user can deposit on. `type` picks which omnibus address.
-const DEPOSIT_CHAINS: { id: string; label: string; type: 'evm' | 'solana' }[] = [
-  { id: 'ethereum', label: 'Ethereum', type: 'evm' },
-  { id: 'base', label: 'Base', type: 'evm' },
-  { id: 'arbitrum', label: 'Arbitrum', type: 'evm' },
-  { id: 'optimism', label: 'Optimism', type: 'evm' },
-  { id: 'polygon', label: 'Polygon', type: 'evm' },
-  { id: 'bsc', label: 'BSC', type: 'evm' },
-  { id: 'solana', label: 'Solana', type: 'solana' },
+// A deposit address belongs to an address FAMILY, not to a chain: one EVM
+// address receives on every EVM network. Offering six chips over a single
+// address presented a choice that does not exist — switching them changed the
+// label and nothing else, which is what made the picker look broken. Polymarket
+// models deposits the same way (evm / svm / btc / tron), and it is the only
+// framing that lets the wrong-network warning name something true.
+// See docs/research/deposit-ux-2026.md.
+const DEPOSIT_FAMILIES: {
+  id: string
+  label: string
+  type: 'evm' | 'solana'
+  /** Chain ids that credit to this address — used to match balances. */
+  chains: string[]
+  /** Human list for the warning. Every network here shares the address. */
+  networks: string
+}[] = [
+  {
+    id: 'evm',
+    label: 'EVM networks',
+    type: 'evm',
+    chains: ['ethereum', 'base', 'arbitrum', 'optimism', 'polygon', 'bsc'],
+    networks: 'Ethereum, Base, Arbitrum, Optimism, Polygon or BSC',
+  },
+  {
+    id: 'solana',
+    label: 'Solana',
+    type: 'solana',
+    chains: ['solana'],
+    networks: 'Solana',
+  },
 ]
 
 const EXPLORER_TX: Record<string, string> = {
@@ -287,26 +308,45 @@ function TimelineStep({
   )
 }
 
-// Deposit panel: chain chips → QR + copyable address + network warning. Balances
-// auto-refresh in the background so an incoming deposit shows up on its own.
+// Receive panel: address family → QR + copyable address + a warning that names
+// every network the address accepts. Balances auto-refresh in the background so
+// an incoming deposit shows up on its own.
 function DepositView({
   evmAddress,
   solanaAddress,
   balances,
   loaded,
+  families = DEPOSIT_FAMILIES,
+  selfCustody = false,
+  creditableTokens,
 }: {
   evmAddress: string | null
   solanaAddress: string | null
   balances: WalletBalance[]
   loaded: boolean
+  // Families this account can actually receive into. A connected external
+  // wallet signs for exactly one, so we never present an EVM address as a place
+  // to send SOL.
+  families?: typeof DEPOSIT_FAMILIES
+  // Self-custody: the address shown is the user's own connected wallet.
+  selfCustody?: boolean
+  // Tokens the deposit watcher actually credits. Anything else sent to the
+  // address is not detected, and the panel says so rather than implying
+  // everything lands.
+  creditableTokens?: string[]
 }) {
-  const [chain, setChain] = useState('ethereum')
+  const [familyId, setFamilyId] = useState(() => families[0]?.id ?? 'evm')
   const [qr, setQr] = useState<
     { status: 'idle' } | { status: 'loading' } | { status: 'ready'; src: string } | { status: 'error' }
   >({ status: 'idle' })
   const [qrAttempt, setQrAttempt] = useState(0)
-  const def = DEPOSIT_CHAINS.find((c) => c.id === chain)!
-  const address = def.type === 'solana' ? solanaAddress : evmAddress
+  // `families` narrows once the session resolves which wallet is connected, so a
+  // stale selection must fall back instead of leaving `def` undefined.
+  useEffect(() => {
+    if (families.length && !families.some((f) => f.id === familyId)) setFamilyId(families[0].id)
+  }, [families, familyId])
+  const def = families.find((f) => f.id === familyId) ?? families[0]
+  const address = def?.type === 'solana' ? solanaAddress : evmAddress
 
   useEffect(() => {
     if (!address) {
@@ -336,18 +376,23 @@ function DepositView({
   // deposit landed (an unrelated fill on the same chain can move balances).
   const chainTokenAmounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const b of balances) if (b.chain === chain) m.set(b.token, b.amount)
+    // Sum per token across every chain in the family — the address is shared, so
+    // a credit can land on any of them.
+    for (const b of balances) {
+      if (!def?.chains.includes(b.chain)) continue
+      m.set(b.token, (m.get(b.token) ?? 0) + b.amount)
+    }
     return m
-  }, [balances, chain])
+  }, [balances, def])
   const baselineRef = useRef<Map<string, number> | null>(null)
   const [creditedToken, setCreditedToken] = useState<string | null>(null)
   const credited = creditedToken !== null
 
   useEffect(() => {
-    // Chain switch: drop the baseline; it re-arms from loaded data below.
+    // Family switch: drop the baseline; it re-arms from loaded data below.
     baselineRef.current = null
     setCreditedToken(null)
-  }, [chain])
+  }, [familyId])
 
   useEffect(() => {
     if (!loaded) return
@@ -366,21 +411,25 @@ function DepositView({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
-        {DEPOSIT_CHAINS.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setChain(c.id)}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
-              chain === c.id
-                ? 'bg-sakura-500/15 text-sakura-600 ring-1 ring-sakura-500/40'
-                : 'text-terminal-text-secondary hover:bg-terminal-bg-tertiary/60 hover:text-terminal-text'
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      {/* One chip per address family. With a single family there is nothing to
+          choose, so we render no control rather than a decorative one. */}
+      {families.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {families.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFamilyId(f.id)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                familyId === f.id
+                  ? 'bg-sakura-500/15 text-sakura-600 ring-1 ring-sakura-500/40'
+                  : 'text-terminal-text-secondary hover:bg-terminal-bg-tertiary/60 hover:text-terminal-text'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {address ? (
         <>
@@ -414,10 +463,24 @@ function DepositView({
             </div>
           </div>
 
+          {/* Name the networks outright. "Only send Ethereum-network tokens"
+              was false — this one address also accepts Base, Arbitrum and the
+              rest, and a user reading the old copy would think it did not. */}
           <div className="rounded-lg border border-terminal-warn/40 bg-terminal-warn/10 px-3 py-2 text-[11px] text-terminal-warn">
-            ⚠ Only send <b>{def.label}</b>-network tokens to this address. Sending from another network
-            can lose funds.
+            ⚠ Send only on <b>{def?.networks}</b>. This one address receives on all of them. Sending
+            from any other network can lose funds.
           </div>
+
+          {/* The watcher books an allowlist, nothing else. Saying so is the
+              difference between a deposit page and a trap: anything else sent
+              here is not detected and will not appear as a balance. */}
+          {creditableTokens && creditableTokens.length > 0 && (
+            <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2 text-[11px] text-terminal-text-secondary">
+              Only <b className="text-terminal-text">{creditableTokens.join(' and ')}</b> are
+              credited. Other tokens — including {def?.type === 'evm' ? 'ETH and other native coins' : 'SOL'} —
+              are not detected and will not show up in your balance.
+            </div>
+          )}
 
           {credited && (
             <div className="flex items-center gap-2 rounded-lg border border-bull/30 bg-bull-dim px-3 py-2 text-[12px] font-medium text-bull">
@@ -425,17 +488,42 @@ function DepositView({
             </div>
           )}
 
+          {/* Already holding funds elsewhere? An address cannot move them —
+              a route can. /bridge is the shipped flow: ranked routes, custody
+              disclosure, and in-flight tracking that survives a reload. */}
+          <a
+            href="/bridge"
+            className="flex items-center justify-between gap-2 rounded-lg border border-terminal-border bg-terminal-bg px-3 py-2.5 transition-colors hover:border-sakura-500/40 hover:bg-terminal-bg-tertiary/40"
+          >
+            <span className="min-w-0">
+              <span className="block text-[12px] font-medium text-terminal-text">
+                Funds on another chain?
+              </span>
+              <span className="block text-[11px] text-terminal-text-muted">
+                Bridge them over instead of sending manually
+              </span>
+            </span>
+            <span aria-hidden className="text-terminal-text-muted">
+              →
+            </span>
+          </a>
+
           <div>
             <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-terminal-text-muted">
               What happens next
             </div>
             <div role="status" aria-live="polite" className="space-y-2 rounded-lg border border-terminal-border bg-terminal-bg p-3">
               <TimelineStep index={1} label="Submitted" note="Sent from your wallet or exchange" state="pending" />
-              <TimelineStep index={2} label="Confirming" note="Network confirmation, usually 1–5 min" state="pending" />
+              <TimelineStep
+                index={2}
+                label="Confirming"
+                note="Held until the network confirms — longest on Polygon"
+                state="pending"
+              />
               <TimelineStep
                 index={3}
                 label="Credited"
-                note={credited ? 'Balance increase detected just now' : 'Appears in your balance automatically'}
+                note={credited ? 'Balance increase detected just now' : 'Credited to your balance'}
                 state={credited ? 'done' : 'pending'}
               />
             </div>
@@ -443,7 +531,9 @@ function DepositView({
         </>
       ) : (
         <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-6 text-center text-sm text-terminal-text-muted">
-          No {def.label} deposit address available on your account yet.
+          {selfCustody
+            ? `Connect a wallet to receive on ${def?.networks ?? 'this network'}.`
+            : `No ${def?.label ?? ''} deposit address available on your account yet.`}
         </div>
       )}
     </div>
@@ -737,7 +827,7 @@ export function WalletModal({
   initialTab?: Tab
 }) {
   const [tab, setTab] = useState<Tab>(initialTab)
-  const { isExternalWallet, connectedAddress } = useAuth()
+  const { isExternalWallet, connectedAddress, walletAddress, externalChain } = useAuth()
   const { data: summary } = useWalletSummary(open)
 
   useEffect(() => {
@@ -751,6 +841,27 @@ export function WalletModal({
   }, [open, onClose])
 
   const balances = useMemo(() => summary?.balances ?? [], [summary])
+
+  // A connected wallet receives at its own address. Prefer the authenticated
+  // session's wallet over wagmi's `connectedAddress`: wagmi is EVM-only, so a
+  // Phantom session has no `connectedAddress` and would otherwise show nothing.
+  const externalAddress = walletAddress ?? connectedAddress ?? null
+  // A family is only offered when we hold an address for it. The server returns
+  // null for a family whose deposits nothing credits yet.
+  const custodialFamilies = useMemo(
+    () =>
+      DEPOSIT_FAMILIES.filter((f) =>
+        f.type === 'solana' ? !!summary?.solanaDepositAddress : !!summary?.evmDepositAddress
+      ),
+    [summary?.evmDepositAddress, summary?.solanaDepositAddress]
+  )
+
+  const externalIsSolana = externalChain === 'solana'
+  // Only the family this wallet can actually control.
+  const externalFamilies = useMemo(
+    () => DEPOSIT_FAMILIES.filter((f) => (externalIsSolana ? f.type === 'solana' : f.type === 'evm')),
+    [externalIsSolana]
+  )
 
   if (!open) return null
 
@@ -788,17 +899,17 @@ export function WalletModal({
                   <p className="text-sm text-terminal-text">
                     You’re signed in with your own wallet — receive funds directly to it:
                   </p>
-                  {connectedAddress && (
-                    <div className="flex items-center gap-2 rounded-lg bg-terminal-bg-tertiary/60 px-3 py-2">
-                      <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-terminal-text">
-                        {connectedAddress}
-                      </span>
-                      <CopyButton value={connectedAddress} />
-                    </div>
-                  )}
-                  <p className="text-[11px] text-terminal-text-muted">
-                    Send tokens on the matching network. They’ll appear in your portfolio automatically.
-                  </p>
+                  {/* Same picker as the custodial flow: a self-custody user still
+                      has to choose which network they are sending from, and still
+                      needs the QR and the wrong-network warning. */}
+                  <DepositView
+                    evmAddress={externalIsSolana ? null : externalAddress}
+                    solanaAddress={externalIsSolana ? externalAddress : null}
+                    balances={balances}
+                    loaded={summary !== undefined}
+                    families={externalFamilies}
+                    selfCustody
+                  />
                 </>
               ) : (
                 <p className="py-6 text-center text-sm text-terminal-text-muted">
@@ -813,6 +924,11 @@ export function WalletModal({
               solanaAddress={summary?.solanaDepositAddress ?? null}
               balances={balances}
               loaded={summary !== undefined}
+              // Offer only families a deposit to which is actually credited.
+              // Solana comes back null until its watcher ships, and an address
+              // nothing books must not be presented as a way to add funds.
+              families={custodialFamilies}
+              creditableTokens={summary?.creditableTokens}
             />
           ) : (
             <WithdrawView balances={balances} enabled={summary?.withdrawEnabled !== false} />

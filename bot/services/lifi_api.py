@@ -1,6 +1,6 @@
 """Li.Fi API client for cross-chain swaps."""
 
-from typing import Optional, Any
+from typing import Optional
 from dataclasses import dataclass
 from bot.config.settings import settings
 from bot.config.chains import get_chain_by_name

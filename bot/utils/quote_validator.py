@@ -2,8 +2,8 @@
 
 import logging
 import calendar
-from datetime import datetime, timezone, timedelta
-from typing import Optional, TYPE_CHECKING
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from decimal import Decimal
 
 from bot.utils.exceptions import SwapError
@@ -109,14 +109,20 @@ class QuoteValidator:
 
         # Get balance for the specific token on the chain
         if wallet.chain_type == "evm":
-            if quote.from_token in ["ETH", "BNB", "MATIC", "AVAX"]:
-                balance = await wallet_service.get_evm_native_balance(
-                    quote.from_chain, wallet.address
-                )
-            else:
-                balance = await wallet_service.get_evm_token_balance(
-                    quote.from_chain, quote.from_token, wallet.address
-                )
+            from bot.services.wallet import BalanceUnavailableError
+
+            # strict: an RPC failure must not be reported as "insufficient balance".
+            try:
+                if quote.from_token in ["ETH", "BNB", "MATIC", "AVAX"]:
+                    balance = await wallet_service.get_evm_native_balance(
+                        quote.from_chain, wallet.address, strict=True
+                    )
+                else:
+                    balance = await wallet_service.get_evm_token_balance(
+                        quote.from_chain, quote.from_token, wallet.address, strict=True
+                    )
+            except BalanceUnavailableError as e:
+                raise SwapError(f"Could not verify balance (RPC unavailable), try again: {e}")
         else:  # solana
             if quote.from_token == "SOL":
                 balance = await wallet_service.get_solana_native_balance(wallet.address)

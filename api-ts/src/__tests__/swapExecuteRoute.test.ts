@@ -59,7 +59,7 @@ mock.module('../middleware/auth', () => ({
 // Bypass DB-backed x402 credit metering — this route is not what's under test here.
 mock.module('../middleware/x402Payment', () => ({
 	meteredPayment: () => async (c: any, next: any) => next(),
-	chargeAgentForCall: async () => ({ kind: 'bypass', tier: 'free' }),
+	chargeAgentForCall: async () => ({ kind: 'skip', reason: 'bypass', tier: 'free' }),
 	setX402Headers: () => {},
 	costForTool: () => 0,
 	costForEndpoint: () => 0,

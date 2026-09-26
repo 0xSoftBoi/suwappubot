@@ -334,7 +334,7 @@ class StarknetYieldService:
         - if assets_raw >= 99.5% of the position's current value, redeem ALL
           shares instead (true max path, no dust).
         """
-        venue = get_venue(venue_key)
+        venue = get_venue(venue_key)  # noqa: F841
         assets_raw = int(assets_raw)
         if assets_raw <= 0:
             raise StarknetYieldError("Amount must be greater than zero.")

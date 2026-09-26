@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "erouter-evm"
+version = "0.1.0"
+description = "The router's in-memory EVM: revm over prefetched state"
+requires-python = ">=3.11"
+classifiers = ["Programming Language :: Rust"]
+
+[tool.maturin]
+features = ["python", "pyo3/extension-module"]
+module-name = "erouter_evm"

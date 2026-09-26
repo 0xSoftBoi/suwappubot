@@ -24,7 +24,6 @@ Security:
 
 import logging
 import time
-from typing import Optional
 
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes

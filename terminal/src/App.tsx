@@ -7,6 +7,7 @@ import { MarketRegimeStrip } from './components/market/MarketRegimeStrip'
 import { TradingLayout } from './components/layout/TradingLayout'
 import { HotkeysHelpOverlay } from './components/hotkeys/HotkeysHelpOverlay'
 import { TerminalThemeScope } from './theme/TerminalThemeScope'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { FirstRunChecklist } from './components/onboarding/FirstRunChecklist'
 
 // The live terminal is the latency-critical entrypoint. Route-only dashboards,
@@ -41,7 +42,10 @@ function DeferredRoute({ children }: { children: ReactNode }) {
 
 function isTerminalHost() {
   if (typeof window === 'undefined') return false
-  if (window.location.hostname === 'terminal.suwappu.bot') return true
+  if (
+    window.location.hostname === 'terminal.suwappu.bot' ||
+    window.location.hostname === 'www.terminal.suwappu.bot'
+  ) return true
   // In local dev the terminal is otherwise unreachable: `/` is host-gated to the
   // marketing site and `/terminal` is proxied to the Python API. Treat localhost
   // as the terminal host while developing so the workspace (and its E2E tests)
@@ -64,7 +68,17 @@ function TradingWorkspace() {
 
     const root = document.documentElement
     const syncViewport = () => {
-      const visualHeight = Math.max(1, Math.round(viewport.height))
+      // Min of the three height signals, not visualViewport alone: wallet
+      // in-app webviews (Base app, etc.) extend the page under their native
+      // bottom bar with viewport-fit=cover and report the full span in
+      // visualViewport.height, which pushed the mobile bottom nav into the
+      // covered strip. innerHeight/clientHeight are the layout viewport and
+      // track the truly visible area in those webviews; in real browsers the
+      // three agree (keyboard open: visualViewport is the smallest), so the
+      // min never regresses Chrome/Safari.
+      const candidates = [viewport.height, window.innerHeight, document.documentElement.clientHeight]
+        .filter((v) => Number.isFinite(v) && v > 0)
+      const visualHeight = Math.max(1, Math.round(Math.min(...candidates)))
       const occludedBottom =
         viewport.scale === 1
           ? Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop))
@@ -130,6 +144,10 @@ function TradingWorkspace() {
 export function App() {
   return (
     <BrowserRouter>
+      {/* Root boundary: panel-level boundaries exist, but a crash in the shell
+          itself (routing, layout, a bad market-data shape above the panels)
+          white-screened the whole terminal. */}
+      <ErrorBoundary label="Terminal">
       <Routes>
         {/* OAuth provider landing — must win over host-based branching so the
             callback forwards to the backend regardless of which origin (terminal
@@ -152,6 +170,7 @@ export function App() {
       )}
         />
       </Routes>
+      </ErrorBoundary>
       <HotkeysHelpOverlay />
       <Toaster
         position="bottom-right"

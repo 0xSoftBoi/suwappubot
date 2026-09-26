@@ -2,7 +2,6 @@
 
 from types import SimpleNamespace
 
-import pytest
 
 from bot.i18n import get_text, get_user_lang
 

@@ -14,22 +14,19 @@ It provides:
 
 import logging
 import asyncio
-from typing import Optional, Dict, Any, List, Callable, Set
+from typing import Optional, Dict, List, Callable, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import re
 
-from bot.config.settings import settings
 from bot.services.sniping.pump_fun_api import (
     pump_fun_api,
     PumpFunToken,
     PumpFunTrade,
-    PumpFunEventType,
 )
 from bot.services.sniping.raydium_monitor import (
     raydium_monitor,
-    RaydiumPool,
     PoolCreationEvent,
     PoolType,
 )
@@ -211,10 +208,10 @@ class LaunchDetector:
 
         # Filter by platform
         if platform:
-            launches = [l for l in launches if l.platform == platform]
+            launches = [launch for launch in launches if launch.platform == platform]
 
         # Sort by detection time (newest first)
-        launches.sort(key=lambda l: l.detected_at, reverse=True)
+        launches.sort(key=lambda launch: launch.detected_at, reverse=True)
 
         return launches[:limit]
 
@@ -441,7 +438,7 @@ class LaunchDetector:
                 pattern, launch.symbol, re.IGNORECASE
             ):
                 score -= 30
-                reasons.append(f"Suspicious name/symbol")
+                reasons.append("Suspicious name/symbol")
                 break
 
         # Clamp score

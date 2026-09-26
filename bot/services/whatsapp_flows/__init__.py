@@ -1,6 +1,6 @@
 """WhatsApp conversation flow registry."""
 
-from typing import Dict, Type
+from typing import Dict
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow
 
 # Flow name -> Flow class mapping

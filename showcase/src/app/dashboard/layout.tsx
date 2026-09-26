@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
 import { type AuthState, DashboardAuthContext } from './auth-context';
@@ -9,163 +10,186 @@ import styles from './dashboard.module.css';
 
 const TOKEN_KEY = 'suwappu_dashboard_token';
 
+function currentDashboardDestination(): string {
+  if (typeof window === 'undefined') return 'https://suwappu.bot/dashboard';
+  const url = new URL(window.location.href);
+  // OAuth result flags are transport metadata, not part of the destination.
+  url.searchParams.delete('auth');
+  url.searchParams.delete('provider');
+  url.searchParams.delete('auth_error');
+  return url.toString();
+}
 
-// ── Login screen ────────────────────────────────────────────────────────────
+/**
+ * Plain-language translations of the backend's `auth_error` slugs
+ * (api/routes/oauth.py `_oauth_failure_redirect`). Before this, a failed
+ * Google sign-in silently returned the user to the login screen — or worse,
+ * to a different product's home page — with the reason living only in the
+ * address bar. Nobody reads query strings; the card has to say what happened
+ * and what to do next, in words a non-engineer can act on.
+ */
+const AUTH_ERROR_COPY: Record<string, string> = {
+  state_not_found:
+    'That sign-in link was stale, so we started over for safety. Please try again.',
+  state_expired:
+    'The sign-in took a little too long and expired. Please try again — it only needs a few seconds.',
+  nonce_missing:
+    'We couldn’t confirm this sign-in started on this page, so we stopped it for your security. Please try again from here.',
+  nonce_mismatch:
+    'We couldn’t confirm this sign-in started on this page, so we stopped it for your security. Please try again from here.',
+  provider_rejected:
+    'Google couldn’t complete the sign-in. Please try again; if it keeps happening, email support@suwappu.bot and we’ll sort it out.',
+};
 
-function LoginScreen({ onToken }: { onToken: (t: string) => void }) {
+function readAuthFlags(): { error: string | null; success: boolean } {
+  if (typeof window === 'undefined') return { error: null, success: false };
+  const params = new URLSearchParams(window.location.search);
+  const slug = params.get('auth_error');
+  return {
+    error: slug
+      ? (AUTH_ERROR_COPY[slug] ?? 'Sign-in didn’t complete. Please try again.')
+      : null,
+    success: params.get('auth') === 'success',
+  };
+}
+
+/** Drop the OAuth transport flags from the address bar once they're handled,
+ *  so a reload or a shared link doesn't replay a stale success/error. */
+function clearAuthFlags() {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('auth') && !url.searchParams.has('auth_error')) return;
+  url.searchParams.delete('auth');
+  url.searchParams.delete('provider');
+  url.searchParams.delete('auth_error');
+  window.history.replaceState(null, '', url.toString());
+}
+
+function LoginScreen({ onToken, initialError }: { onToken: (t: string) => void; initialError?: string | null }) {
   const [draft, setDraft] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(initialError ?? null);
   const [showToken, setShowToken] = useState(false);
 
   function handlePaste() {
-    // Token pasted manually: validate minimally and store
     const t = draft.trim();
     if (!t) {
       setErr('Paste a valid Bearer token to continue.');
       return;
     }
-    // Verify the token works against the API before committing
     setErr(null);
     fetch(`${API_BASE_URL}/enterprise/orgs/me`, {
       headers: { Authorization: `Bearer ${t}` },
     })
       .then((r) => {
-        if (r.status === 401 || r.status === 403) {
-          setErr('Token rejected: check it and try again.');
-        } else {
-          // Accept any non-401 (even 404) because the org endpoint may not exist in dev
-          onToken(t);
-        }
+        if (r.status === 401 || r.status === 403) setErr('Token rejected: check it and try again.');
+        else onToken(t);
       })
-      .catch(() => {
-        // If the network is down, still let the user in: the page will show errors
-        onToken(t);
-      });
+      .catch(() => onToken(t));
   }
+
+  const destination = currentDashboardDestination();
 
   return (
     <div className={`summer-page ${styles.loginPage}`}>
       <div className={styles.loginCard}>
-        <Image
-          src="/logo.svg"
-          alt="Suwappu"
-          width={52}
-          height={52}
-          className={styles.loginLogo}
-        />
-        <h1 className={styles.loginTitle}>Sign in</h1>
-        <p className={styles.loginLead}>
-          Connect the account you use with Suwappu to see usage, manage API keys
-          and handle billing.
-        </p>
-
-        {/* Google is the primary path: python-api's OAuth flow is already
-            live in production (GET /auth/oauth/providers -> {"google":true})
-            and provisions a Turnkey wallet on first sign-in. It leaves an
-            HttpOnly session cookie, so there is no token for this page to
-            hold — the dashboard probes the session on load. */}
+        <Image src="/logo.svg" alt="Suwappu" width={52} height={52} className={styles.loginLogo} />
+        <h1 className={styles.loginTitle}>Sign in to Suwappu</h1>
+        <p className={styles.loginLead}>Continue to the product you opened. Your account also gives you Signal Intelligence, API management, and billing in one workspace.</p>
         <a
           className="summer-button summer-button--primary"
           style={{ display: 'inline-flex', width: '100%', justifyContent: 'center' }}
-          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(
-            typeof window !== 'undefined'
-              ? `${window.location.origin}/dashboard`
-              : 'https://suwappu.bot/dashboard',
-          )}`}
+          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(destination)}`}
         >
           Continue with Google
         </a>
-
-        {/* Telegram is hidden until its domain is registered (see
-            TelegramLoginButton), so the divider must not render alone. */}
         <TelegramLoginButton onToken={onToken} onError={setErr} />
-
         <div className={styles.loginFooterLinks}>
-          <a
-            className={styles.loginAdvancedToggle}
-            href={`${TELEGRAM_URL}?start=link`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open the Suwappu bot
-          </a>
-
-        {/* Token entry is a fallback, not a peer of the primary action.
-            Presenting "paste a Bearer token" as a co-equal sign-in option made
-            the first screen of a paid product read like a debug console, so it
-            is collapsed behind a disclosure. */}
-          <button
-            type="button"
-            className={styles.loginAdvancedToggle}
-            onClick={() => setShowToken((v) => !v)}
-            aria-expanded={showToken}
-          >
+          <a className={styles.loginAdvancedToggle} href={`${TELEGRAM_URL}?start=link`} target="_blank" rel="noopener noreferrer">Open the Suwappu bot</a>
+          <button type="button" className={styles.loginAdvancedToggle} onClick={() => setShowToken((v) => !v)} aria-expanded={showToken}>
             {showToken ? 'Hide' : 'Use an access token instead'}
           </button>
         </div>
-
         {showToken && (<>
-        <input
-          className={styles.tokenInput}
-          type="password"
-          placeholder="Bearer eyJ…"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handlePaste()}
-          aria-label="Access token"
-          autoComplete="off"
-        />
-        <button className={styles.tokenSubmit} onClick={handlePaste}>
-          Continue
-        </button>
-        </>)}
-
-        {err && (
-          <p className={styles.loginError} role="alert">
-            {err}
+          <p className={styles.tokenHelp}>
+            For advanced setups: paste the access token your administrator or the API gave you.
+            Most people can ignore this and use Google above.
           </p>
-        )}
+          <input className={styles.tokenInput} type="password" placeholder="Paste your access token" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePaste()} aria-label="Access token" autoComplete="off" />
+          <button className={styles.tokenSubmit} onClick={handlePaste}>Continue</button>
+        </>)}
+        {err && <p className={styles.loginError} role="alert">{err}</p>}
       </div>
     </div>
   );
 }
 
-// ── Layout root ─────────────────────────────────────────────────────────────
+function WorkspaceNav({ onSignOut }: { onSignOut: () => void }) {
+  const linkStyle: React.CSSProperties = {
+    color: '#c9d0da', textDecoration: 'none', fontSize: 14, padding: '9px 12px',
+    borderRadius: 8, border: '1px solid transparent', whiteSpace: 'nowrap',
+  };
+  return (
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '18px 24px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: '1px solid #202631', borderRadius: 12, background: '#0d1117', overflowX: 'auto' }}>
+        <Link href="/" style={{ ...linkStyle, fontWeight: 800, color: '#fff' }}>suwappu</Link>
+        <span style={{ color: '#48505c' }}>/</span>
+        <Link href="/dashboard" style={linkStyle}>Home</Link>
+        <Link href="/dashboard/signals" style={{ ...linkStyle, color: '#fff', background: '#171d26', borderColor: '#2a3340', fontWeight: 700 }}>Signal Intelligence <span aria-hidden="true">●</span></Link>
+        <Link href="/products" style={linkStyle}>All products</Link>
+        <Link href="/research" style={linkStyle}>Research</Link>
+        <Link href="/docs" style={linkStyle}>Docs</Link>
+        <span style={{ flex: 1 }} />
+        <button onClick={onSignOut} style={{ ...linkStyle, cursor: 'pointer', background: 'transparent', border: '1px solid #2a313b' }}>Sign out</button>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  // null = not yet probed. See AuthState — a cookie session carries no token.
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [ready, setReady] = useState(false);
+  // OAuth flags from the URL, captured once. `signingIn` keeps the branded
+  // "finishing sign-in" state on screen while the session probe runs, so the
+  // moment after Google hands the user back is never a blank page.
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
+    const flags = readAuthFlags();
+    if (flags.error) setLoginError(flags.error);
+    if (flags.success) setSigningIn(true);
+
     const stored = localStorage.getItem(TOKEN_KEY) ?? '';
     if (stored) {
       setAuth({ kind: 'token', value: stored });
       setReady(true);
+      clearAuthFlags();
       return;
     }
-    // No pasted token — probe for a parent-domain cookie session. This is the
-    // normal path now: Google OAuth and Telegram both leave an HttpOnly cookie
-    // that the browser sends to api-ts automatically, so there is nothing for
-    // the page to store. Previously the absence of a token meant "logged out",
-    // which is why an OAuth round-trip could not sign anyone in.
     let cancelled = false;
     fetch(`${API_BASE_URL}/enterprise/orgs/me`, { credentials: 'include' })
       .then((r) => {
         if (cancelled) return;
-        // Any non-401 means the cookie authenticated us. SESSION is a sentinel:
-        // there is no token to hold, and holding one would defeat HttpOnly.
-        setAuth(r.status === 401 ? { kind: 'none' } : { kind: 'cookie' });
+        if (r.status === 401) {
+          setAuth({ kind: 'none' });
+          // Google said success but the session didn't stick — say so instead
+          // of silently re-presenting the same login card.
+          if (flags.success) {
+            setLoginError('We couldn’t finish signing you in. Please try again.');
+          }
+        } else {
+          setAuth({ kind: 'cookie' });
+        }
       })
-      .catch(() => {
-        if (!cancelled) setAuth({ kind: 'none' });
-      })
+      .catch(() => { if (!cancelled) setAuth({ kind: 'none' }); })
       .finally(() => {
-        if (!cancelled) setReady(true);
+        if (!cancelled) {
+          setSigningIn(false);
+          setReady(true);
+          clearAuthFlags();
+        }
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const handleToken = useCallback((t: string) => {
@@ -176,27 +200,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const clearToken = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setAuth({ kind: 'none' });
-    // Also end the server session, or a cookie-authenticated user would be
-    // signed straight back in by the probe above on the next page load.
-    fetch(`${AUTH_BASE_URL}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    }).catch(() => {});
+    fetch(`${AUTH_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
   }, []);
 
-  // SSR / hydration guard
-  if (!ready) return null;
-
-  if (!auth || auth.kind === 'none') {
-    return <LoginScreen onToken={handleToken} />;
+  if (!ready) {
+    // Never a blank page while we check the session — especially right after
+    // an OAuth return, when "did that work?" is the only question on screen.
+    return (
+      <div className={`summer-page ${styles.loginPage}`}>
+        <div className={styles.stateBox} role="status">
+          <div className={styles.spinner} aria-hidden="true" />
+          <span>{signingIn ? 'Finishing sign-in…' : 'Checking your session…'}</span>
+        </div>
+      </div>
+    );
   }
+  if (!auth || auth.kind === 'none') return <LoginScreen onToken={handleToken} initialError={loginError} />;
 
   return (
     <DashboardAuthContext.Provider value={{ auth, clearToken }}>
       <div className="summer-page">
-        <div className={styles.shell} style={{ paddingTop: 24 }}>
-          {children}
-        </div>
+        <WorkspaceNav onSignOut={clearToken} />
+        <div className={styles.shell} style={{ paddingTop: 24 }}>{children}</div>
       </div>
     </DashboardAuthContext.Provider>
   );

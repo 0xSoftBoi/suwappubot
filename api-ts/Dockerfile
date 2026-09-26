@@ -14,6 +14,17 @@ WORKDIR /app
 COPY package.json bun.lock* ./
 RUN bun install --ignore-scripts
 COPY . .
+
+# Production deploys must not be able to outrun GitHub-hosted runner capacity.
+# Mirror the blocking api-ts CI lane here so Railway refuses a candidate image
+# when type contracts, generated API/MCP schemas, unit tests, or the Bun compile
+# are broken. The currently healthy deployment remains serving if this fails.
+RUN bun run check && \
+    bun run check:openapi && \
+    bun run check:mcp && \
+    bun run test && \
+    bun run build
+
 RUN mkdir -p drizzle
 
 # Production stage

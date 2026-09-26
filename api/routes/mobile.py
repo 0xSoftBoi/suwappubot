@@ -13,7 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, Tuple, Dict
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
@@ -603,7 +603,7 @@ async def set_default_wallet(request: Request, body: SetDefaultWalletRequest):
             session.query(Wallet)
             .filter(
                 Wallet.user_id == payload["user_id"],
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -669,7 +669,7 @@ async def create_alert(request: Request, body: CreateAlertBody):
     payload = _jwt_user(request)
     _require_db()
 
-    from bot.models.advanced import AdvancedPriceAlert, AlertType
+    from bot.models.advanced import AdvancedPriceAlert
 
     with get_session() as session:
         alert = AdvancedPriceAlert(
@@ -1139,7 +1139,7 @@ async def get_milestones(request: Request):
     with get_session() as session:
         milestones = (
             session.query(Milestone)
-            .filter(Milestone.is_active == True)
+            .filter(Milestone.is_active == True)  # noqa: E712
             .order_by(Milestone.requirement_value)
             .all()
         )
@@ -1173,7 +1173,7 @@ async def get_rewards(request: Request):
     from bot.models.points import Reward
 
     with get_session() as session:
-        rewards = session.query(Reward).filter(Reward.is_active == True).all()
+        rewards = session.query(Reward).filter(Reward.is_active == True).all()  # noqa: E712
         return [
             {
                 "id": r.id,
@@ -1238,7 +1238,9 @@ def redeem_reward(request: Request, reward_id: int):
 
     with get_session() as session:
         reward = (
-            session.query(Reward).filter(Reward.id == reward_id, Reward.is_active == True).first()
+            session.query(Reward)
+            .filter(Reward.id == reward_id, Reward.is_active == True)  # noqa: E712
+            .first()  # noqa: E712
         )
         if not reward:
             raise HTTPException(status_code=404, detail="Reward not found")
@@ -1539,7 +1541,7 @@ async def get_trader_leaderboard(request: Request, limit: int = Query(default=50
         traders = (
             session.query(TraderProfile)
             .filter(
-                TraderProfile.is_public == True,
+                TraderProfile.is_public == True,  # noqa: E712
             )
             .order_by(TraderProfile.rank_score.desc())
             .limit(limit)
@@ -1615,7 +1617,7 @@ async def follow_trader(request: Request, trader_id: int, body: FollowTraderBody
             .filter(
                 CopyFollow.follower_id == payload["user_id"],
                 CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True,
+                CopyFollow.is_active == True,  # noqa: E712
             )
             .first()
         )
@@ -1654,7 +1656,7 @@ async def unfollow_trader(request: Request, trader_id: int):
             .filter(
                 CopyFollow.follower_id == payload["user_id"],
                 CopyFollow.trader_id == trader_id,
-                CopyFollow.is_active == True,
+                CopyFollow.is_active == True,  # noqa: E712
             )
             .first()
         )
@@ -1685,7 +1687,7 @@ async def get_my_follows(request: Request):
             )
             .filter(
                 CopyFollow.follower_id == payload["user_id"],
-                CopyFollow.is_active == True,
+                CopyFollow.is_active == True,  # noqa: E712
             )
             .all()
         )

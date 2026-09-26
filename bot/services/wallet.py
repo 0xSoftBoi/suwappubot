@@ -21,7 +21,7 @@ from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.config.chains import CHAINS, ChainType, get_chain_by_name
 from bot.config.tokens import get_token_address, get_token_decimals
-from bot.utils.encryption import encrypt_private_key, decrypt_private_key
+from bot.utils.encryption import encrypt_private_key
 from bot.utils.envelope_crypto import (
     encrypt_private_key_v2,
     encode_for_db,
@@ -29,11 +29,29 @@ from bot.utils.envelope_crypto import (
     SCHEME_LEGACY_FERNET_V1,
     SCHEME_KMS_AESGCM_V2,
 )
-from bot.utils.validators import validate_private_key, validate_address
-from bot.models.user import User, Wallet
+from bot.utils.validators import validate_private_key
+from bot.models.user import Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+# Starknet endpoint cooldowns, keyed by the label from settings.starknet_rpc_endpoints().
+# Module-level on purpose: WalletService is instantiated in several places and the
+# breaker must be shared, or every instance re-discovers the same dead endpoint.
+_STARKNET_COOLDOWN: dict[str, float] = {}
+_STARKNET_QUOTA_COOLDOWN_SECONDS = 120.0  # HTTP 429: the provider told us to back off
+_STARKNET_FAILURE_COOLDOWN_SECONDS = 30.0
+# A cancellation counts as "this endpoint is slow" only if the request had been
+# in flight at least this long (the balance path's per-call budget is 4 s).
+_STARKNET_SLOW_CANCEL_SECONDS = 2.0
+
+# Solana token program ids — one getTokenAccountsByOwner per program returns
+# every token account the owner has, so a portfolio fetch is 3 RPC calls
+# (getBalance + classic SPL + Token-2022) instead of one call per mint.
+SOLANA_TOKEN_PROGRAM_IDS = (
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  # classic SPL
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",  # Token-2022 (PYUSD, ...)
+)
 
 
 # ---------------------------------------------------------------------------
@@ -147,8 +165,10 @@ class WalletService:
         """
         if self._http_connector is None or self._http_connector.closed:
             self._http_connector = aiohttp.TCPConnector(
-                limit=50,
-                limit_per_host=10,
+                limit=100,
+                # Keyed dRPC serves ~10 chains from one host (lb.drpc.org);
+                # 10/host queued calls past their RPC timeout.
+                limit_per_host=32,
                 ttl_dns_cache=300,
                 enable_cleanup_closed=True,
             )
@@ -194,36 +214,53 @@ class WalletService:
 
         rpc_manager.invalidate(chain_name)
 
-    async def _evm_rpc_call(self, chain_name: str, method: str, params: list, timeout: float = 3.5):
-        """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking."""
+    async def _evm_rpc_call(
+        self,
+        chain_name: str,
+        method: str,
+        params: list,
+        timeout: float = 3.5,
+        max_attempts: int = 1,
+    ):
+        """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking.
+
+        With ``max_attempts`` > 1, fails over across distinct endpoints so a single
+        rate-limited (429) or dead endpoint can't fail a call that matters (e.g. a
+        pre-trade balance check). Default 1 keeps high-volume background callers
+        from multiplying load when RPCs are timing out.
+        """
         # Skip the network entirely when every endpoint for this chain is
         # circuit-open: firing a doomed request just opens a socket against a
         # known-dead RPC. Raising here (before any session is created) lets the
         # circuit cool down instead of being hammered every call.
         if rpc_manager.chain_all_circuits_open(chain_name):
             raise ConnectionError("all_circuits_open")
-        url = rpc_manager.get_rpc_url(chain_name)
+        first = rpc_manager.get_rpc_url(chain_name)
+        urls = [first] + [u for u in rpc_manager.get_healthy_urls(chain_name) if u != first]
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
-        t0 = time.monotonic()
-        try:
-            async with self._http_session() as session:
-                async with session.post(
-                    url,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=timeout),
-                ) as resp:
-                    if resp.status == 429:
-                        raise ConnectionError("rate_limited_429")
-                    if resp.status != 200:
-                        raise ConnectionError(f"http_{resp.status}")
-                    data = await resp.json()
-                    if "error" in data:
-                        raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
-                    rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
-                    return data.get("result")
-        except Exception as e:
-            rpc_manager.report_failure(chain_name, url, str(e)[:80])
-            raise
+        last_error: Exception | None = None
+        async with self._http_session() as session:
+            for url in urls[:max_attempts]:
+                t0 = time.monotonic()
+                try:
+                    async with session.post(
+                        url,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                    ) as resp:
+                        if resp.status == 429:
+                            raise ConnectionError("rate_limited_429")
+                        if resp.status != 200:
+                            raise ConnectionError(f"http_{resp.status}")
+                        data = await resp.json()
+                        if "error" in data:
+                            raise ConnectionError(f"rpc_error: {str(data['error'])[:60]}")
+                        rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
+                        return data.get("result")
+                except Exception as e:
+                    rpc_manager.report_failure(chain_name, url, str(e)[:80])
+                    last_error = e
+        raise last_error or ConnectionError(f"no_rpc_endpoints:{chain_name}")
 
     async def _get_solana_client(self) -> SolanaClient:
         """Get or create a Solana RPC client."""
@@ -608,7 +645,7 @@ class WalletService:
                 session.query(Wallet).filter(
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
-                    Wallet.is_default == True,
+                    Wallet.is_default == True,  # noqa: E712
                 ).update({"is_default": False})
 
             wallet = Wallet(
@@ -639,7 +676,7 @@ class WalletService:
         """Get all wallets for a user, optionally filtered by chain type."""
         with get_session() as session:
             query = session.query(Wallet).filter(
-                Wallet.user_id == user_id, Wallet.is_active == True
+                Wallet.user_id == user_id, Wallet.is_active == True  # noqa: E712
             )
             if chain_type:
                 query = query.filter(Wallet.chain_type == chain_type)
@@ -653,8 +690,8 @@ class WalletService:
                 .filter(
                     Wallet.user_id == user_id,
                     Wallet.chain_type == chain_type,
-                    Wallet.is_default == True,
-                    Wallet.is_active == True,
+                    Wallet.is_default == True,  # noqa: E712
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -666,7 +703,7 @@ class WalletService:
                     .filter(
                         Wallet.user_id == user_id,
                         Wallet.chain_type == chain_type,
-                        Wallet.is_active == True,
+                        Wallet.is_active == True,  # noqa: E712
                     )
                     .first()
                 )
@@ -782,18 +819,29 @@ class WalletService:
             if native_balance > 0:
                 chain_balances[chain.native_token] = native_balance
 
+        reverted: list[str] = []
         for token_addr in token_addrs:
             symbol, decimals = addr_meta[token_addr]
             raw_balance = raw.get(token_addr)
             if raw_balance is None:
-                # Inner call reverted — fall back per-token for just this one
-                fallback = await self.get_evm_token_balance(chain_name, symbol, address)
-                if fallback and fallback > 0:
-                    chain_balances[symbol] = fallback
+                reverted.append(symbol)
                 continue
             balance = raw_balance / (10**decimals)
             if balance > 0:
                 chain_balances[symbol] = balance
+
+        # Inner calls that reverted fall back per-token — concurrently. These ran
+        # sequentially inside the caller's 4s multicall budget, so a chain with a
+        # few reverting tokens (ethereum had 3 misconfigured addresses) timed out
+        # on every wallet whenever one fallback hit a slow endpoint.
+        if reverted:
+            fallbacks = await asyncio.gather(
+                *(self.get_evm_token_balance(chain_name, sym, address) for sym in reverted),
+                return_exceptions=True,
+            )
+            for sym, fallback in zip(reverted, fallbacks):
+                if isinstance(fallback, (int, float)) and fallback > 0:
+                    chain_balances[sym] = fallback
 
         return chain_name, chain_balances
 
@@ -802,15 +850,21 @@ class WalletService:
         chain_name: str,
         token_symbol: str,
         address: str,
+        strict: bool = False,
     ) -> float:
-        """Get ERC20 token balance via direct aiohttp JSON-RPC (no executor)."""
+        """Get ERC20 token balance via direct aiohttp JSON-RPC (no executor).
+
+        strict=True raises BalanceUnavailableError instead of returning 0.0.
+        """
         token_address = get_token_address(token_symbol, chain_name)
         if not token_address:
+            if strict:
+                raise BalanceUnavailableError(f"unknown token {token_symbol} on {chain_name}")
             return 0.0
 
         # Skip zero/null addresses (native tokens listed as 0x000...0)
         if token_address.replace("0x", "").strip("0") == "":
-            return await self.get_evm_native_balance(chain_name, address)
+            return await self.get_evm_native_balance(chain_name, address, strict=strict)
 
         # ABI-encode balanceOf(address): selector + 32-byte padded address
         selector = "70a08231"
@@ -823,37 +877,147 @@ class WalletService:
                 chain_name,
                 "eth_call",
                 [{"to": checksum_contract, "data": data}, "latest"],
+                max_attempts=3 if strict else 1,
             )
             if not result or not str(result).startswith("0x"):
+                if strict:
+                    raise BalanceUnavailableError(f"empty balanceOf result on {chain_name}")
                 return 0.0
             balance_raw = int(result, 16)
             decimals = get_token_decimals(token_symbol, chain_name)
             return balance_raw / (10**decimals)
-        except Exception:
+        except BalanceUnavailableError:
+            raise
+        except Exception as e:
+            if strict:
+                raise BalanceUnavailableError(f"{chain_name} RPC unavailable: {e}") from e
             return 0.0
 
-    async def get_evm_native_balance(self, chain_name: str, address: str) -> float:
-        """Get native token balance (ETH, BNB, etc.) via direct aiohttp JSON-RPC."""
+    async def get_evm_native_balance(
+        self, chain_name: str, address: str, strict: bool = False
+    ) -> float:
+        """Get native token balance (ETH, BNB, etc.) via direct aiohttp JSON-RPC.
+
+        strict=True raises BalanceUnavailableError when the balance can't be read,
+        instead of reporting 0.0 (which pre-trade checks would misreport as an
+        insufficient balance).
+        """
         # Tempo has no native gas token — skip entirely.
         if chain_name == "tempo":
             return 0.0
 
         chain = get_chain_by_name(chain_name)
         if not chain:
+            if strict:
+                raise BalanceUnavailableError(f"unknown chain: {chain_name}")
             return 0.0
 
         checksum = Web3.to_checksum_address(address)
         try:
+            # Failover only for strict (pre-trade) reads: background refreshers
+            # fan out hundreds of lenient calls, and retrying each timeout 3x
+            # amplifies load on an already-saturated worker.
             result = await self._evm_rpc_call(
                 chain_name,
                 "eth_getBalance",
                 [checksum, "latest"],
+                max_attempts=3 if strict else 1,
             )
             if not result or not str(result).startswith("0x"):
+                if strict:
+                    raise BalanceUnavailableError(f"empty eth_getBalance result on {chain_name}")
                 return 0.0
             return int(result, 16) / (10**chain.native_decimals)
-        except Exception:
+        except BalanceUnavailableError:
+            raise
+        except Exception as e:
+            if strict:
+                raise BalanceUnavailableError(f"{chain_name} RPC unavailable: {e}") from e
             return 0.0
+
+    async def _solana_rpc_post(
+        self, session: aiohttp.ClientSession, payload: dict, context: str
+    ) -> dict:
+        """POST one JSON-RPC payload to the healthiest Solana endpoint.
+
+        Reports the outcome to rpc_manager so rate-limited (429) or blocked
+        (403) endpoints circuit-open and the next call rotates to another URL
+        — without this the fetcher hammers the same dead endpoint forever.
+        """
+        url = rpc_manager.get_rpc_url("solana")
+        start = time.monotonic()
+        async with session.post(url, json=payload) as resp:
+            if resp.status == 429:
+                rpc_manager.report_failure("solana", url, "rate_limited_429")
+                logger.warning(f"Solana RPC rate limited (429) {context}")
+                raise ConnectionError("Solana RPC rate limited")
+            if resp.status >= 400:
+                rpc_manager.report_failure("solana", url, f"http_{resp.status}")
+                logger.warning(f"Solana RPC HTTP {resp.status} {context}")
+                raise ConnectionError(f"Solana RPC HTTP {resp.status}")
+            result = await resp.json()
+        if "error" in result:
+            rpc_manager.report_failure("solana", url, f"rpc_error: {str(result['error'])[:80]}")
+            logger.warning(f"Solana RPC error {context}: {result['error']}")
+            raise ConnectionError(f"Solana RPC error: {result['error']}")
+        rpc_manager.report_success("solana", url, (time.monotonic() - start) * 1000)
+        return result
+
+    async def get_solana_all_balances(self, address: str) -> dict[str, float]:
+        """Fetch SOL + every configured SPL token balance in 3 RPC calls.
+
+        Sequential getBalance + one getTokenAccountsByOwner per token program
+        (classic SPL and Token-2022), instead of one per-mint call — the
+        per-mint fan-out was 9+ concurrent requests per wallet and got the
+        whole worker rate-limited. Raises ConnectionError on RPC failure so
+        callers don't cache an empty result as truth.
+        """
+        from bot.config.tokens import TOKENS
+
+        if rpc_manager.chain_all_circuits_open("solana"):
+            raise ConnectionError("all_circuits_open")
+
+        mint_to_symbol = {
+            token.addresses["solana"]: symbol
+            for symbol, token in TOKENS.items()
+            if "solana" in token.addresses
+        }
+
+        balances: dict[str, float] = {}
+        async with self._http_session() as session:
+            native = await self._solana_rpc_post(
+                session,
+                {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]},
+                f"fetching SOL for {address[:8]}...",
+            )
+            lamports = (native.get("result") or {}).get("value")
+            if isinstance(lamports, int) and lamports > 0:
+                balances["SOL"] = lamports / 1e9
+
+            for program_id in SOLANA_TOKEN_PROGRAM_IDS:
+                result = await self._solana_rpc_post(
+                    session,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTokenAccountsByOwner",
+                        "params": [address, {"programId": program_id}, {"encoding": "jsonParsed"}],
+                    },
+                    f"fetching token accounts for {address[:8]}...",
+                )
+                for account in (result.get("result") or {}).get("value") or []:
+                    try:
+                        info = account["account"]["data"]["parsed"]["info"]
+                        symbol = mint_to_symbol.get(info.get("mint"))
+                        if not symbol:
+                            continue
+                        amount = int(info["tokenAmount"]["amount"])
+                        decimals = info["tokenAmount"]["decimals"]
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if amount > 0:
+                        balances[symbol] = balances.get(symbol, 0.0) + amount / (10**decimals)
+        return balances
 
     async def get_solana_token_balance(
         self,
@@ -873,48 +1037,27 @@ class WalletService:
         if rpc_manager.chain_all_circuits_open("solana"):
             raise ConnectionError("all_circuits_open")
 
-        client = await self._get_solana_client()
-
         try:
-            # Get token accounts for the wallet
-            pubkey = Pubkey.from_string(address)
-            mint_pubkey = Pubkey.from_string(token_mint)
-
-            # Use getTokenAccountsByOwner RPC method
             async with self._http_session() as session:
-                payload = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "getTokenAccountsByOwner",
-                    "params": [address, {"mint": token_mint}, {"encoding": "jsonParsed"}],
-                }
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    if resp.status == 429:
-                        logger.warning(
-                            f"Solana RPC rate limited (429) fetching {token_symbol} for {address[:8]}..."
-                        )
-                        raise ConnectionError("Solana RPC rate limited")
-                    if resp.status >= 400:
-                        logger.warning(f"Solana RPC HTTP {resp.status} fetching {token_symbol}")
-                        raise ConnectionError(f"Solana RPC HTTP {resp.status}")
-
-                    result = await resp.json()
-
-                    if "error" in result:
-                        logger.warning(
-                            f"Solana RPC error fetching {token_symbol}: {result['error']}"
-                        )
-                        raise ConnectionError(f"Solana RPC error: {result['error']}")
-
-                    if "result" in result and result["result"]["value"]:
-                        accounts = result["result"]["value"]
-                        total_balance = 0
-                        for account in accounts:
-                            info = account["account"]["data"]["parsed"]["info"]
-                            amount = int(info["tokenAmount"]["amount"])
-                            decimals = info["tokenAmount"]["decimals"]
-                            total_balance += amount / (10**decimals)
-                        return total_balance
+                result = await self._solana_rpc_post(
+                    session,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "getTokenAccountsByOwner",
+                        "params": [address, {"mint": token_mint}, {"encoding": "jsonParsed"}],
+                    },
+                    f"fetching {token_symbol} for {address[:8]}...",
+                )
+                if "result" in result and result["result"]["value"]:
+                    accounts = result["result"]["value"]
+                    total_balance = 0
+                    for account in accounts:
+                        info = account["account"]["data"]["parsed"]["info"]
+                        amount = int(info["tokenAmount"]["amount"])
+                        decimals = info["tokenAmount"]["decimals"]
+                        total_balance += amount / (10**decimals)
+                    return total_balance
 
             return 0.0
         except ConnectionError:
@@ -929,26 +1072,14 @@ class WalletService:
             raise ConnectionError("all_circuits_open")
         try:
             async with self._http_session() as session:
-                payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]}
-                async with session.post(rpc_manager.get_rpc_url("solana"), json=payload) as resp:
-                    if resp.status == 429:
-                        logger.warning(
-                            f"Solana RPC rate limited (429) fetching SOL for {address[:8]}..."
-                        )
-                        raise ConnectionError("Solana RPC rate limited")
-                    if resp.status >= 400:
-                        logger.warning(f"Solana RPC HTTP {resp.status} fetching SOL balance")
-                        raise ConnectionError(f"Solana RPC HTTP {resp.status}")
-
-                    result = await resp.json()
-
-                    if "error" in result:
-                        logger.warning(f"Solana RPC error for {address[:8]}...: {result['error']}")
-                        raise ConnectionError(f"Solana RPC error: {result['error']}")
-
-                    if "result" in result:
-                        lamports = result["result"]["value"]
-                        return lamports / 1e9  # Convert lamports to SOL
+                result = await self._solana_rpc_post(
+                    session,
+                    {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [address]},
+                    f"fetching SOL for {address[:8]}...",
+                )
+                if "result" in result:
+                    lamports = result["result"]["value"]
+                    return lamports / 1e9  # Convert lamports to SOL
 
             return 0.0
         except ConnectionError:
@@ -1009,16 +1140,30 @@ class WalletService:
         return hex(digest & ((1 << 250) - 1))
 
     async def _starknet_rpc_call(self, method: str, params, timeout: float = 6.0):
-        """JSON-RPC call against the Starknet RPC with primary→fallback failover."""
-        urls = []
-        if settings.starknet_rpc_url:
-            urls.append(settings.starknet_rpc_url)
-        if settings.starknet_rpc_fallback_url not in urls:
-            urls.append(settings.starknet_rpc_fallback_url)
+        """JSON-RPC call against the Starknet RPC with primary→fallback failover.
+
+        Endpoints that just failed are skipped for a cooldown (2 min on HTTP 429,
+        30 s otherwise). Without it the balance refresher re-hit a quota-exhausted
+        Alchemy on every token of every Starknet wallet, every pass — a warning
+        storm that cost a failover round-trip per call and never succeeded.
+        """
+        endpoints = settings.starknet_rpc_endpoints()
+        now = time.monotonic()
+        live = [(l, u) for l, u in endpoints if _STARKNET_COOLDOWN.get(l, 0.0) <= now]
+        if not live:
+            raise ConnectionError(
+                f"All Starknet RPCs cooling down after failures ({method} not attempted)"
+            )
 
         payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
         last_error: Optional[Exception] = None
-        for url in urls:
+        for label, url in live:
+            # Re-check at attempt time: the balance refresher runs these calls
+            # concurrently, and a sibling task may have tripped this endpoint
+            # while we were waiting on the previous one.
+            if _STARKNET_COOLDOWN.get(label, 0.0) > time.monotonic():
+                continue
+            started = time.monotonic()
             try:
                 async with self._http_session() as session:
                     async with session.post(
@@ -1032,9 +1177,44 @@ class WalletService:
                             # CONTRACT_NOT_FOUND for undeployed accounts) — surface them.
                             return {"error": data["error"]}
                         return data.get("result")
+            except asyncio.CancelledError:
+                # The caller's wait_for timeout arrives here as cancellation, not
+                # as an exception: a slow endpoint must still cool down or the
+                # next token task retries it. Only count it when the request had
+                # actually been in flight for a while — a group-wide cancel
+                # (shutdown, batch retirement) must not cool healthy endpoints —
+                # and never shorten a longer cooldown a sibling already set
+                # (e.g. the 120 s quota cooldown). Never swallow the cancellation.
+                if time.monotonic() - started >= _STARKNET_SLOW_CANCEL_SECONDS:
+                    _STARKNET_COOLDOWN[label] = max(
+                        _STARKNET_COOLDOWN.get(label, 0.0),
+                        time.monotonic() + _STARKNET_FAILURE_COOLDOWN_SECONDS,
+                    )
+                raise
             except Exception as e:
                 last_error = e
-                logger.warning("Starknet RPC %s failed on %s: %s", method, url, str(e)[:80])
+                reason = str(e)[:80]
+                cooldown = (
+                    _STARKNET_QUOTA_COOLDOWN_SECONDS
+                    if "http_429" in reason
+                    else _STARKNET_FAILURE_COOLDOWN_SECONDS
+                )
+                _STARKNET_COOLDOWN[label] = max(
+                    _STARKNET_COOLDOWN.get(label, 0.0), time.monotonic() + cooldown
+                )
+                # Log the endpoint label, never the URL: the Alchemy URL carries
+                # the API key in its path (CodeQL clear-text-logging).
+                logger.warning(
+                    "Starknet RPC %s failed on %s: %s (cooling down %ds)",
+                    method,
+                    label,
+                    reason,
+                    int(cooldown),
+                )
+        if last_error is None:
+            raise ConnectionError(
+                f"All Starknet RPCs cooling down after failures ({method} not attempted)"
+            )
         raise ConnectionError(f"All Starknet RPCs failed for {method}: {last_error}")
 
     async def get_starknet_token_balance_raw(self, token_symbol: str, address: str) -> int:
@@ -1350,26 +1530,14 @@ class WalletService:
                         balances[name] = chain_bal
 
         elif wallet.chain_type == "solana":
-            chain_balances: dict[str, float] = {}
-
-            # Parallel: SOL native + all SPL tokens
-            tasks = []
-            task_labels = []
-
-            tasks.append(_safe_fetch(self.get_solana_native_balance(wallet.address)))
-            task_labels.append("SOL")
-
-            for token_symbol, token in TOKENS.items():
-                if "solana" in token.addresses:
-                    tasks.append(
-                        _safe_fetch(self.get_solana_token_balance(token_symbol, wallet.address))
-                    )
-                    task_labels.append(token_symbol)
-
-            results = await asyncio.gather(*tasks)
-            for label, bal in zip(task_labels, results):
-                if isinstance(bal, (int, float)) and bal > 0:
-                    chain_balances[label] = bal
+            # Batched: 3 RPC calls total instead of one per mint
+            try:
+                chain_balances = await asyncio.wait_for(
+                    self.get_solana_all_balances(wallet.address), timeout=15
+                )
+            except (ConnectionError, asyncio.TimeoutError) as e:
+                logger.warning(f"Solana balance fetch failed for {wallet.address[:8]}...: {e}")
+                chain_balances = {}
 
             if chain_balances:
                 balances["solana"] = chain_balances
@@ -1446,6 +1614,7 @@ class WalletService:
 
         # Don't cache empty results caused by RPC failures
         rpc_failed = balances.pop("_solana_rpc_failed", False)
+        rpc_failed = balances.pop("_rpc_failed", False) or rpc_failed
         if not rpc_failed:
             await balance_cache.set(cache_key, balances)
         else:
@@ -1464,12 +1633,15 @@ class WalletService:
 
         balances: dict[str, dict[str, float]] = {}
 
-        async def _safe_call(coro, default=0.0):
+        async def _safe_call(coro, default=0.0, label: str = ""):
             """Wrap an RPC call with a timeout. Returns None on RPC errors (not 0.0)."""
             try:
-                return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
+                # Bounded: the timeout starts once a slot is held, so queueing
+                # behind other wallets' calls isn't counted as an RPC timeout.
+                async with _balance_rpc_semaphore():
+                    return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
             except asyncio.TimeoutError:
-                logger.warning("RPC call timed out")
+                logger.warning(f"RPC call timed out{f' ({label})' if label else ''}")
                 return None  # Distinguish timeout from zero balance
             except ConnectionError as e:
                 logger.warning(f"RPC connection error: {e}")
@@ -1528,12 +1700,34 @@ class WalletService:
 
         async def _fetch_evm_chain_rpc(chain_name, chain):
             """Fetch all balances for a single EVM chain — Multicall3 batch first,
-            per-token RPC calls as fallback."""
+            per-token RPC calls as fallback. Returns (chain_name, None) when this
+            read timed out, so the caller doesn't cache the partial result."""
+            t0 = time.monotonic()
             try:
-                return await asyncio.wait_for(
-                    self._fetch_evm_chain_multicall(chain_name, chain, address),
-                    timeout=CALL_TIMEOUT,
-                )
+                async with _balance_rpc_semaphore():
+                    t0 = time.monotonic()
+                    result = await asyncio.wait_for(
+                        self._fetch_evm_chain_multicall(chain_name, chain, address),
+                        timeout=CALL_TIMEOUT,
+                    )
+                # Feed the multicall path's outcome back to rpc_manager: it uses
+                # a cached per-chain Web3 that only fails over when the
+                # endpoint's circuit opens, and nothing on this path reported
+                # health — so a slow endpoint stayed selected indefinitely.
+                url = self._web3_cache_url(chain_name)
+                if url:
+                    rpc_manager.report_success(chain_name, url, (time.monotonic() - t0) * 1000)
+                return result
+            except asyncio.TimeoutError:
+                # The chain's endpoint is slow: fanning out one call per token to
+                # it only multiplies load (this is what saturated the worker —
+                # ~94 concurrent calls per wallet). Report nothing for this chain.
+                url = self._web3_cache_url(chain_name)
+                if url:
+                    rpc_manager.report_failure(chain_name, url, "multicall_timeout")
+                self._invalidate_web3(chain_name)
+                logger.info(f"Balance multicall timed out on {chain_name}")
+                return chain_name, None
             except Exception as e:
                 logger.debug(
                     f"Multicall3 fetch failed for {chain_name}, "
@@ -1546,14 +1740,19 @@ class WalletService:
             task_keys = []
 
             # Native balance
-            tasks.append(_safe_call(self.get_evm_native_balance(chain_name, address)))
+            tasks.append(
+                _safe_call(self.get_evm_native_balance(chain_name, address), label=chain_name)
+            )
             task_keys.append(chain.native_token)
 
             # Token balances
             for token_symbol, token in TOKENS.items():
                 if chain_name in token.addresses:
                     tasks.append(
-                        _safe_call(self.get_evm_token_balance(chain_name, token_symbol, address))
+                        _safe_call(
+                            self.get_evm_token_balance(chain_name, token_symbol, address),
+                            label=f"{chain_name}:{token_symbol}",
+                        )
                     )
                     task_keys.append(token_symbol)
 
@@ -1582,38 +1781,25 @@ class WalletService:
                     for result in results:
                         if isinstance(result, tuple):
                             chain_name, chain_balances = result
-                            if chain_balances:
+                            if chain_balances is None:
+                                # Unread (timeout / slow-chain cooldown): the
+                                # result is partial and must not be cached.
+                                balances["_rpc_failed"] = True
+                            elif chain_balances:
                                 balances[chain_name] = chain_balances
+                        else:
+                            balances["_rpc_failed"] = True
 
                 elif chain_type == "solana":
-                    chain_balances: dict[str, float] = {}
-
-                    # Build all Solana tasks in parallel
-                    tasks = []
-                    task_keys = []
-
-                    tasks.append(_safe_call(self.get_solana_native_balance(address)))
-                    task_keys.append("SOL")
-
-                    for token_symbol, token in TOKENS.items():
-                        if "solana" in token.addresses:
-                            tasks.append(
-                                _safe_call(self.get_solana_token_balance(token_symbol, address))
-                            )
-                            task_keys.append(token_symbol)
-
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    any_rpc_failed = False
-                    for key, result in zip(task_keys, results):
-                        if result is None:
-                            any_rpc_failed = True  # RPC error — don't treat as zero
-                        elif isinstance(result, (int, float)) and result > 0:
-                            chain_balances[key] = result
-
-                    if chain_balances:
-                        balances["solana"] = chain_balances
-                    elif any_rpc_failed:
+                    # Batched: 3 RPC calls total instead of one per mint
+                    try:
+                        chain_balances = await asyncio.wait_for(
+                            self.get_solana_all_balances(address), timeout=CALL_TIMEOUT * 3
+                        )
+                        if chain_balances:
+                            balances["solana"] = chain_balances
+                    except (ConnectionError, asyncio.TimeoutError) as e:
+                        logger.warning(f"Solana balance fetch failed for {address[:8]}...: {e}")
                         # Mark that Solana fetch failed — prevents caching empty as truth
                         balances["_solana_rpc_failed"] = True
 
@@ -1666,6 +1852,8 @@ class WalletService:
 
         except asyncio.TimeoutError:
             logger.warning(f"Global timeout fetching balances for {address}")
+            # Chains still in flight are missing: partial, don't cache as truth.
+            balances["_rpc_failed"] = True
 
         return balances
 
@@ -1685,6 +1873,11 @@ class WalletService:
         Returns:
             Signed transaction hex string
         """
+        # Checked before routing so neither Turnkey, its local fallback, nor local
+        # signing can produce an unprotected (pre-EIP-155, replayable) transaction.
+        # Every path (Turnkey, its local fallback, local) signs the normalized int chainId.
+        transaction = {**transaction, "chainId": require_evm_chain_id(transaction)}
+
         if wallet.is_turnkey_wallet:
             from bot.services.turnkey_fallback import sign_evm_with_fallback
 
@@ -1741,7 +1934,6 @@ class WalletService:
     async def _sign_evm_via_turnkey(self, wallet: Wallet, transaction: dict) -> str:
         """Sign EVM transaction via Turnkey API."""
         from bot.services.turnkey_client import get_turnkey_client
-        from rlp import encode as rlp_encode
 
         client = get_turnkey_client()
 
@@ -1759,44 +1951,8 @@ class WalletService:
         return signed_tx
 
     def _serialize_evm_transaction(self, transaction: dict) -> str:
-        """Serialize an EVM transaction to hex for Turnkey signing."""
-        # Create unsigned transaction bytes
-        # For EIP-1559 transactions
-        if "maxFeePerGas" in transaction:
-            from eth_account._utils.typed_transactions import TypedTransaction
-
-            typed_tx = TypedTransaction.from_dict(transaction)
-            return "0x" + typed_tx.hash().hex()
-
-        # For legacy transactions, build the serialized form
-        tx_data = {
-            "nonce": transaction.get("nonce", 0),
-            "gasPrice": transaction.get("gasPrice", 0),
-            "gas": transaction.get("gas", 21000),
-            "to": bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
-            "value": transaction.get("value", 0),
-            "data": (
-                bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b""
-            ),
-        }
-
-        # Return as hex string
-        import rlp
-
-        encoded = rlp.encode(
-            [
-                tx_data["nonce"],
-                tx_data["gasPrice"],
-                tx_data["gas"],
-                tx_data["to"],
-                tx_data["value"],
-                tx_data["data"],
-                transaction.get("chainId", 1),
-                0,
-                0,
-            ]
-        )
-        return "0x" + encoded.hex()
+        """Serialize an EVM transaction to unsigned hex for Turnkey signing."""
+        return serialize_unsigned_evm_tx(transaction)
 
     async def sign_solana_transaction(self, wallet: Wallet, transaction_bytes: bytes) -> bytes:
         """
@@ -2030,3 +2186,99 @@ class WalletService:
         tx.sign([keypair])
 
         return bytes(tx)
+
+
+# Cap on concurrent balance RPC calls across all wallets in this process. The
+# balance refresher runs batches of wallets x every EVM chain x every token;
+# unbounded, that was ~470 in-flight calls for 5 wallets, which saturated the
+# worker so every provider "timed out" and passes never completed.
+_BALANCE_RPC_CONCURRENCY = 24
+_balance_rpc_sem: asyncio.Semaphore | None = None
+
+
+def _balance_rpc_semaphore() -> asyncio.Semaphore:
+    global _balance_rpc_sem
+    if _balance_rpc_sem is None:
+        _balance_rpc_sem = asyncio.Semaphore(_BALANCE_RPC_CONCURRENCY)
+    return _balance_rpc_sem
+
+
+class BalanceUnavailableError(Exception):
+    """A balance could not be read (RPC failure) — distinct from a zero balance."""
+
+
+class InvalidTransactionError(ValueError):
+    """The transaction itself is unsignable (e.g. no chainId). Never retried/fallen back."""
+
+
+def _to_int(value) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        return int(value, 16) if value.lower().startswith("0x") else int(value)
+    return int(value)
+
+
+def _tx_type(tx: dict) -> int | None:
+    return _to_int(tx.get("type"))
+
+
+def require_evm_chain_id(transaction: dict) -> int:
+    """Return chainId as an int; raise if missing or zero (would be replayable)."""
+    try:
+        chain_id = _to_int(transaction.get("chainId"))
+    except (TypeError, ValueError):
+        chain_id = None
+    if not chain_id:
+        raise InvalidTransactionError("Refusing to sign EVM transaction without a valid chainId")
+    return chain_id
+
+
+def serialize_unsigned_evm_tx(transaction: dict) -> str:
+    """Unsigned serialized EVM tx (hex) for Turnkey TRANSACTION_TYPE_ETHEREUM.
+
+    keccak of the returned bytes is exactly the signing hash eth_account would
+    sign, for both typed (EIP-1559/2930: `type || rlp(fields)`) and legacy
+    (EIP-155: `rlp([..., chainId, 0, 0])`) transactions. Uses eth_account's own
+    serializers so hex-string / HexBytes fields encode correctly.
+
+    chainId is required: defaulting it (previously to 1) would sign a valid
+    Ethereum-mainnet transaction that anyone could replay there.
+    """
+    import rlp
+    from eth_account._utils.legacy_transactions import (
+        serializable_unsigned_transaction_from_dict,
+    )
+    from eth_account._utils.transaction_utils import transaction_rpc_to_rlp_structure
+    from eth_account.typed_transactions import TypedTransaction
+    from toolz import dissoc
+
+    chain_id = require_evm_chain_id(transaction)
+
+    tx = dissoc(transaction, "from")
+    tx["chainId"] = chain_id
+    if "input" in tx and "data" not in tx:
+        tx["data"] = tx.pop("input")
+    if _tx_type(tx) == 0:
+        tx.pop("type", None)  # eth_account rejects an explicit legacy type 0
+    is_typed = "maxFeePerGas" in tx or _tx_type(tx) is not None
+    if not is_typed:
+        # Preserve the historical defaults for optional legacy fields (None too).
+        for key, default in (("nonce", 0), ("gas", 21000), ("value", 0), ("data", "0x")):
+            if tx.get(key) is None:
+                tx[key] = default
+        if tx.get("gasPrice") is None:
+            tx["gasPrice"] = 0
+        if not tx.get("to"):
+            tx.pop("to", None)
+    try:
+        unsigned = serializable_unsigned_transaction_from_dict(tx)
+    except (TypeError, ValueError) as e:
+        raise InvalidTransactionError(f"Unsignable EVM transaction: {e}") from e
+
+    if isinstance(unsigned, TypedTransaction):
+        inner = unsigned.transaction
+        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
+        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
+        return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
+    return "0x" + rlp.encode(unsigned).hex()

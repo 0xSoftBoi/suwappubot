@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from database.db import get_session
-from bot.models.user import User, Wallet
+from bot.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class DigestService:
             return
 
         now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(days=DIGEST_INTERVAL_DAYS)
+        cutoff = now - timedelta(days=DIGEST_INTERVAL_DAYS)  # noqa: F841
 
         with get_session() as session:
             # Include users with either Telegram or WhatsApp so WA-only users get digests

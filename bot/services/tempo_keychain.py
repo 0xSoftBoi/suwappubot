@@ -22,7 +22,6 @@ from eth_account import Account
 from eth_utils import keccak
 from web3 import Web3
 
-from bot.config.settings import settings
 from bot.config.tokens import get_token_address
 from bot.models.tempo_access_key import TempoAccessKey
 from bot.services.tempo_fee_sponsor import tempo_fee_sponsor
@@ -35,8 +34,9 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-# Capped/scoped tokens — the four mainnet TIP-20 stablecoins.
-_SCOPED_TOKENS = ("pathUSD", "alphaUSD", "betaUSD", "thetaUSD")
+# Capped/scoped tokens — TIP-20 stablecoins listed for Tempo mainnet. Only
+# pathUSD exists there; AlphaUSD/BetaUSD/ThetaUSD are testnet-only.
+_SCOPED_TOKENS = ("pathUSD",)
 
 # Enshrined-DEX selectors the access key may call (swap only — never withdraw).
 _SWAP_SELECTORS = (
@@ -282,7 +282,7 @@ class TempoKeychainService:
             with get_session() as session:
                 sw = (
                     session.query(HotWallet)
-                    .filter(HotWallet.name == name, HotWallet.is_active == True)
+                    .filter(HotWallet.name == name, HotWallet.is_active == True)  # noqa: E712
                     .first()
                 )
                 if not sw:

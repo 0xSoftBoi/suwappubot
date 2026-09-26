@@ -13,7 +13,6 @@ from telegram.ext import (
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
 from bot.utils.validators import validate_private_key
-from bot.utils.formatters import format_address_link
 from bot.utils.qr_code import generate_wallet_qr
 from bot.utils.telegram_safe import safe_md
 from bot.services.error_guidance import user_facing_error
@@ -61,7 +60,7 @@ async def wallet_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 session.query(Wallet)
                 .filter(
                     Wallet.user_id == db_user.id,
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .all()
             )
@@ -176,7 +175,7 @@ async def show_wallet_menu(
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -291,7 +290,7 @@ async def wallet_create_callback(update: Update, context: ContextTypes.DEFAULT_T
             .filter(
                 Wallet.user_id == user_id,
                 Wallet.chain_type == chain_type,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .count()
         )
@@ -585,7 +584,7 @@ async def wallet_import_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             .filter(
                 Wallet.user_id == user_id,
                 Wallet.chain_type == chain_type,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .count()
         )

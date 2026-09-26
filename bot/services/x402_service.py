@@ -1,13 +1,11 @@
 """x402 Protocol Service for token-gated subscriptions and payments."""
 
 import logging
-import hashlib
 import secrets
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from enum import Enum
 from decimal import Decimal
 
 from web3 import Web3
@@ -28,7 +26,7 @@ from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
-import os as _os
+import os as _os  # noqa: E402
 
 
 def _load_beta_passwords() -> dict:
@@ -222,13 +220,11 @@ class X402Service:
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
             "tempo": {
-                # Tempo TIP-20 stablecoins (18 decimals). pathUSD is the primary
-                # payment token; the others are accepted fallbacks. Decimals are
-                # resolved per-address at verify time via get_decimals_by_address.
+                # Tempo TIP-20 stablecoin (6 decimals on-chain). Only pathUSD
+                # exists on mainnet (4217) — AlphaUSD/BetaUSD/ThetaUSD are
+                # testnet-only. Decimals are resolved per-address at verify time
+                # via get_decimals_by_address.
                 "pathUSD": "0x20c0000000000000000000000000000000000000",
-                "AlphaUSD": "0x20c0000000000000000000000000000000000001",
-                "BetaUSD": "0x20c0000000000000000000000000000000000002",
-                "ThetaUSD": "0x20c0000000000000000000000000000000000003",
             },
             "robinhood": {
                 # Robinhood Chain (4663) has NO USDC. Paxos USDG ("Global Dollar")
@@ -421,7 +417,11 @@ class X402Service:
         """Create an x402 payment request."""
         payment_id = f"x402_{secrets.token_hex(16)}"
 
-        token_address = self.payment_tokens.get(chain, {}).get(token_symbol, "")
+        token_address = self.payment_tokens.get(chain, {}).get(token_symbol)
+        if not token_address:
+            # An empty address would later verify as a *native* transfer. Refuse
+            # tokens not listed for this chain instead of issuing that request.
+            raise ValueError(f"Unsupported payment token {token_symbol!r} on {chain}")
 
         return X402PaymentRequest(
             payment_id=payment_id,
@@ -570,9 +570,11 @@ class X402Service:
                         amount_wei = int.from_bytes(data, byteorder="big")
 
                     # Resolve token decimals from the canonical token config so
-                    # non-6dp stablecoins (e.g. Tempo TIP-20 pathUSD/AlphaUSD/
-                    # BetaUSD/ThetaUSD = 18dp) are scaled correctly. Falls back to
-                    # 6 (USDC standard) when the address is unknown.
+                    # non-6dp tokens are scaled correctly (Tempo TIP-20 pathUSD
+                    # is 6dp — it was misconfigured as 18dp, which read every real
+                    # payment as 1e-12 of its value). get_decimals_by_address
+                    # returns 18 for an unknown address (under-credits: safe); the
+                    # except below falls back to 6 only if the lookup itself fails.
                     try:
                         from bot.config.tokens import get_decimals_by_address
 

@@ -6,7 +6,7 @@ and a real-time trade feed to configured Discord channels.
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import discord
 from discord.ext import tasks
@@ -15,10 +15,8 @@ from sqlalchemy import func, desc
 from bot.config.settings import settings
 from bot.models.swap import SwapTransaction
 from bot.models.user import User
-from bot.models.points import UserPoints
 from bot.platforms.discord_embeds import (
     COLOR_ALERT,
-    COLOR_LEADERBOARD,
     COLOR_SUCCESS,
     COLOR_INFO,
     build_leaderboard_embed,

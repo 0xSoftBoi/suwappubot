@@ -60,7 +60,7 @@ class WalletRecoveryService:
                 .filter(
                     Wallet.user_id == user.id,
                     Wallet.wallet_provider == "turnkey",
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -105,7 +105,7 @@ class WalletRecoveryService:
                 .filter(
                     Wallet.user_id == user.id,
                     Wallet.wallet_provider == "turnkey",
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -159,7 +159,7 @@ class WalletRecoveryService:
                 .filter(
                     Wallet.user_id == user.id,
                     Wallet.wallet_provider == "turnkey",
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .first()
             )

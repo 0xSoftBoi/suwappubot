@@ -1,7 +1,14 @@
+import { useEffect, useState } from "react";
 import { TerminalInset, TerminalKeyValueRow, TerminalStatusPill } from "../foundation";
 import type { BridgeTransfer } from "../../types/bridge";
 import { CustodyTimeline } from "./CustodyTimeline";
-import { STATE_COPY, TRUST_COPY, formatDuration } from "./custody";
+import {
+  STATE_COPY,
+  TRUST_COPY,
+  chainLabel,
+  explorerTxUrl,
+  formatDuration,
+} from "./custody";
 
 /**
  * One in-flight or finished transfer.
@@ -17,9 +24,15 @@ interface Props {
   transfer: BridgeTransfer;
   /** Called for a terminal failure, where the user cannot do anything alone. */
   onContactSupport?: (transfer: BridgeTransfer) => void;
+  /** Offered only once the transfer is settled — clears it from the list. */
+  onDismiss?: () => void;
 }
 
-export function BridgeTransferCard({ transfer, onContactSupport }: Props) {
+export function BridgeTransferCard({
+  transfer,
+  onContactSupport,
+  onDismiss,
+}: Props) {
   const stateCopy = STATE_COPY[transfer.state];
   const trust = TRUST_COPY[transfer.trustModel];
 
@@ -27,8 +40,12 @@ export function BridgeTransferCard({ transfer, onContactSupport }: Props) {
     0,
     (Date.parse(transfer.updatedAt) - Date.parse(transfer.startedAt)) / 1000,
   );
+  // "Overdue" only makes sense once the system owns the clock. While we are
+  // waiting for the user's own deposit, elapsed time says nothing is wrong.
   const isOverdue =
-    !stateCopy.settled && elapsedSeconds > transfer.estimatedTime * 2;
+    !stateCopy.settled &&
+    transfer.state !== "awaiting_deposit" &&
+    elapsedSeconds > transfer.estimatedTime * 2;
 
   return (
     <TerminalInset className="space-y-3">
@@ -41,12 +58,26 @@ export function BridgeTransferCard({ transfer, onContactSupport }: Props) {
             {transfer.token}
           </div>
           <div className="mt-0.5 text-[11px] text-terminal-text-secondary">
-            {transfer.fromChain} → {transfer.toChain} · {transfer.provider}
+            {chainLabel(transfer.fromChain)} → {chainLabel(transfer.toChain)} ·{" "}
+            {transfer.provider}
           </div>
         </div>
-        <TerminalStatusPill tone={stateCopy.tone}>
-          {stateCopy.label}
-        </TerminalStatusPill>
+        <div className="flex shrink-0 items-center gap-2">
+          <TerminalStatusPill tone={stateCopy.tone}>
+            {stateCopy.label}
+          </TerminalStatusPill>
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label="Dismiss this transfer"
+              title="Dismiss"
+              className="text-[13px] leading-none text-terminal-text-muted hover:text-terminal-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent"
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <CustodyTimeline
@@ -61,10 +92,13 @@ export function BridgeTransferCard({ transfer, onContactSupport }: Props) {
       {transfer.state === "awaiting_deposit" && transfer.depositAddress ? (
         <div className="hairline rounded-[var(--terminal-radius-card)] bg-terminal-bg px-3 py-2.5">
           <div className="terminal-theme-caption text-[9px] uppercase text-terminal-text-muted">
-            Send {transfer.token} on {transfer.fromChain} to
+            Send {transfer.token} on {chainLabel(transfer.fromChain)} to
           </div>
-          <div className="mt-1 break-all font-mono text-[12px] text-terminal-text">
-            {transfer.depositAddress}
+          <div className="mt-1 flex items-start justify-between gap-2">
+            <div className="break-all font-mono text-[12px] text-terminal-text">
+              {transfer.depositAddress}
+            </div>
+            <CopyButton value={transfer.depositAddress} label="address" />
           </div>
           <p className="mt-1.5 text-[11px] leading-[1.45] text-terminal-text-secondary">
             This address is for this transfer only. Send the exact amount —
@@ -95,6 +129,24 @@ export function BridgeTransferCard({ transfer, onContactSupport }: Props) {
         ) : null}
       </div>
 
+      {/* The hashes are the user's independent proof — especially during the
+          in-transit window, "check it on the explorer yourself" is part of
+          being trustworthy. */}
+      {transfer.sourceTxHash || transfer.destinationTxHash ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <TxLink
+            label="Source tx"
+            chain={transfer.fromChain}
+            txHash={transfer.sourceTxHash}
+          />
+          <TxLink
+            label="Arrival tx"
+            chain={transfer.toChain}
+            txHash={transfer.destinationTxHash}
+          />
+        </div>
+      ) : null}
+
       {/* Taking much longer than quoted is worth saying out loud, without
           implying the funds are lost — they usually are not. */}
       {isOverdue ? (
@@ -114,5 +166,64 @@ export function BridgeTransferCard({ transfer, onContactSupport }: Props) {
         </button>
       ) : null}
     </TerminalInset>
+  );
+}
+
+function TxLink({
+  label,
+  chain,
+  txHash,
+}: {
+  label: string;
+  chain: string;
+  txHash?: string | null;
+}) {
+  if (!txHash) return null;
+  const url = explorerTxUrl(chain, txHash);
+  const short = `${txHash.slice(0, 8)}…${txHash.slice(-6)}`;
+  if (!url) {
+    return (
+      <span className="text-[11px] text-terminal-text-secondary">
+        {label}: <span className="font-mono">{short}</span>
+      </span>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-[11px] text-terminal-text-secondary underline decoration-dotted underline-offset-2 hover:text-terminal-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent"
+    >
+      {label}: <span className="font-mono">{short}</span> ↗
+    </a>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+        } catch {
+          /* clipboard denied — the address is still selectable by hand */
+        }
+      }}
+      aria-label={`Copy ${label}`}
+      className="hairline shrink-0 rounded-[6px] px-2 py-1 text-[10px] uppercase tracking-wide text-terminal-text-secondary hover:text-terminal-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terminal-accent"
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }

@@ -11,6 +11,7 @@ const columns: { title: string; links: { label: string; href: string; external?:
     title: 'Product',
     links: [
       { label: 'Terminal', href: TERMINAL_URL, external: true },
+      { label: 'Agent Desk (WebMCP)', href: '/agent-terminal' },
       { label: 'Telegram Bot', href: TELEGRAM_URL, external: true },
       { label: 'Agent API', href: '/docs/api-reference/overview' },
       { label: 'TypeScript SDK', href: '/docs/quick-start/sdk-examples' },

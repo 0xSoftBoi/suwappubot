@@ -3,11 +3,11 @@
 import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler
 
-from bot.services.gas_tracker import gas_tracker, GasPrice
+from bot.services.gas_tracker import gas_tracker
 from bot.services.price_service import PriceService
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.config.chains import get_chain_by_name
 from bot.utils.formatters import format_usd
 from bot.services.error_guidance import user_facing_error
 

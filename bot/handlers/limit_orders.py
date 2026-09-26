@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 from bot.models.user import User
-from bot.models.advanced import OrderStatus, OrderType, DCAStatus
+from bot.models.advanced import OrderType, DCAStatus
 from bot.services.orders import order_service
 from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
@@ -21,8 +21,8 @@ from bot.utils.formatters import escape_markdown
 from database.db import get_session
 
 
-from bot.config.chains import CHAINS, get_chain_by_name
-from bot.config.tokens import get_tokens_for_chain, get_token_address, get_token_decimals
+from bot.config.chains import CHAINS
+from bot.config.tokens import get_tokens_for_chain, get_token_decimals
 
 # Module-level wallet service singleton (matches the pattern used in other
 # handlers, e.g. balance.py / swap.py). Previously `wallet_service` was
@@ -757,7 +757,7 @@ async def ts_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     context.user_data["ts"]["amount_human"] = amount
     await update.message.reply_text(
-        f"Trailing percentage (1–50). Example: enter *10* to sell if price drops 10% from its peak:",
+        "Trailing percentage (1–50). Example: enter *10* to sell if price drops 10% from its peak:",
         parse_mode="Markdown",
     )
     return TS_PCT

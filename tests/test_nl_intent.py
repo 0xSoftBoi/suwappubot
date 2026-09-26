@@ -17,9 +17,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services import nl_intent_service
-from bot.services.nl_intent_service import TradeIntent, parse_trade_intent
-from bot.handlers import nl_trade
+from bot.services import nl_intent_service  # noqa: E402
+from bot.services.nl_intent_service import TradeIntent, parse_trade_intent  # noqa: E402
+from bot.handlers import nl_trade  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Flet build output
+build/
+dist/
+storage/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Flet publish output
+src/dist/
+.flet/
+src/.flet/
+
+# Local wallet config (see flet-pay-example README)
+src/local_config.toml
+
+# Real credentials -- the Pinata key for tools/publish_ipfs.py. Kept out
+# of src/ so `flet publish` cannot bundle it into the app.
+local_secrets.toml
+
+# uv lockfile - the venv is reproducible from pyproject.toml, whose
+# runtime pins and dev group are both exact
+uv.lock
+
+# Compiled from vendor/curve-assets by tools/build_assets.py
+src/assets/curve/
+
+# Built by tools/build_router.py from vendor/electric-router: the router
+# package, the committed caches it warms from, and the wasm module carrying
+# the solver and the EVM.  Build products, like src/assets/curve.
+src/erouter/
+src/assets/router/

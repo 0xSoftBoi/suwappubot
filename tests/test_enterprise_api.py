@@ -10,7 +10,6 @@ All HTTP calls are mocked — no network traffic.
 """
 
 import os
-import sys
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,7 +20,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("INTERNAL_API_URL", "http://localhost:9999")
 os.environ.setdefault("INTERNAL_API_KEY", "test-key")
 
-from bot.services.api_client import InternalAPIClient, APIClientError
+from bot.services.api_client import InternalAPIClient, APIClientError  # noqa: E402
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 

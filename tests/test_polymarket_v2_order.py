@@ -17,12 +17,12 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
-from eth_account import Account
-from eth_account.messages import encode_typed_data
-from web3 import Web3
+import pytest  # noqa: E402
+from eth_account import Account  # noqa: E402
+from eth_account.messages import encode_typed_data  # noqa: E402
+from web3 import Web3  # noqa: E402
 
-from bot.services.polymarket_v2_order import (
+from bot.services.polymarket_v2_order import (  # noqa: E402
     CTF_EXCHANGE,
     DEPRECATED_EXCHANGE,
     DEPRECATED_NEG_RISK_EXCHANGE,

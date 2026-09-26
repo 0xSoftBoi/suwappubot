@@ -73,7 +73,16 @@ _CANCEL_KB = InlineKeyboardMarkup(
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_CHAINS = ["ethereum", "base", "polygon", "bsc", "arbitrum", "optimism", "solana"]
+_SUPPORTED_CHAINS = [
+    "ethereum",
+    "base",
+    "polygon",
+    "bsc",
+    "arbitrum",
+    "optimism",
+    "robinhood",
+    "solana",
+]
 
 
 def _resolve_db_user(telegram_id: int) -> tuple[int, str] | tuple[None, None]:
@@ -299,7 +308,7 @@ async def airdrop_enter_split(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     ad = context.user_data.get("airdrop", {})
     total = Decimal(ad.get("total_amount", "0"))
-    token = ad.get("token", "")
+    token = ad.get("token", "")  # noqa: F841
 
     per_user_amount: Decimal | None = None
     max_claimants: int | None = None

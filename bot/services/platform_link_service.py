@@ -4,7 +4,6 @@ import logging
 import string
 import secrets
 import json
-from typing import Optional
 
 from bot.models.user import User, Wallet
 from bot.utils.redis_cache import redis_cache

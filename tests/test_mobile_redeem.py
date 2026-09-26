@@ -20,16 +20,16 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-import jwt
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import jwt  # noqa: E402
+import pytest  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.points import Reward
-from bot.models.user import User
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.points import Reward  # noqa: E402
+from bot.models.user import User  # noqa: E402
 
-import api.routes.mobile as mobile_mod
+import api.routes.mobile as mobile_mod  # noqa: E402
 
 _SECRET = "test-secret"
 

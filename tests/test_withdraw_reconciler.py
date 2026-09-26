@@ -13,7 +13,6 @@ Covers the two money-path races the reconciler must never lose:
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from bot.models.custodial import CustodialTransaction, TransactionStatus, TransactionType
 from bot.services.withdraw_reconciler import WithdrawReconciler

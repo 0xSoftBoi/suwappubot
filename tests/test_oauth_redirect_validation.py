@@ -14,8 +14,8 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.config.settings import settings
-from api.routes.oauth import _is_allowed_redirect
+from bot.config.settings import settings  # noqa: E402
+from api.routes.oauth import _is_allowed_redirect  # noqa: E402
 
 
 @pytest.fixture()

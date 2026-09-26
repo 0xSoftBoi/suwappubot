@@ -14,12 +14,12 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.hyperliquid_signing import (
+from bot.services.hyperliquid_signing import (  # noqa: E402
     sign_l1_action,
     sign_approve_builder_fee,
     float_to_wire,
 )
-from bot.services.hyperliquid_client import (
+from bot.services.hyperliquid_client import (  # noqa: E402
     HyperLiquidClient,
     BUILDER_MIN_ACCOUNT_VALUE_USD,
 )

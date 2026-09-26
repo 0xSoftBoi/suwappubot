@@ -10,10 +10,10 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import sys
-import types
+import sys  # noqa: E402
+import types  # noqa: E402
 
-import pytest
+_inserted_stub_names = []
 
 
 def _install_stub(name):
@@ -30,6 +30,7 @@ def _install_stub(name):
     mod = _StubModule(name)
     mod.__path__ = []
     sys.modules[name] = mod
+    _inserted_stub_names.append(name)
     return mod
 
 
@@ -57,6 +58,13 @@ _spec = importlib.util.spec_from_file_location(
 )
 limit_orders = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(limit_orders)
+
+# These stubs are only needed for the exec_module() call above. Leaving them
+# in sys.modules leaks a fake "PIL"/"PIL.Image" into every other test file
+# collected in the same pytest process (e.g. tests/test_chart_render.py,
+# which needs the real Pillow Image.new) — pop them back out now.
+for _stub_name in _inserted_stub_names:
+    sys.modules.pop(_stub_name, None)
 
 
 def _run(coro):

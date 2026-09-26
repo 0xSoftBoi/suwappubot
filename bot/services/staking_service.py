@@ -77,7 +77,7 @@ class StakingService:
                 session.query(StakingPosition)
                 .filter(
                     StakingPosition.user_id == user_id,
-                    StakingPosition.is_active == True,
+                    StakingPosition.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -114,7 +114,7 @@ class StakingService:
                 session.query(StakingPosition)
                 .filter(
                     StakingPosition.user_id == user_id,
-                    StakingPosition.is_active == True,
+                    StakingPosition.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -143,7 +143,7 @@ class StakingService:
                     func.count(StakingPosition.id).label("staker_count"),
                 )
                 .filter(
-                    StakingPosition.is_active == True,
+                    StakingPosition.is_active == True,  # noqa: E712
                     StakingPosition.suwp_staked > 0,
                 )
                 .one()
@@ -197,7 +197,7 @@ class StakingService:
                     func.coalesce(func.sum(FeeTransaction.fee_amount_usd), 0).label("total")
                 )
                 .filter(
-                    FeeTransaction.collected == True,
+                    FeeTransaction.collected == True,  # noqa: E712
                     FeeTransaction.created_at >= period_start,
                     FeeTransaction.created_at < period_end,
                 )
@@ -221,7 +221,7 @@ class StakingService:
                     func.coalesce(func.sum(StakingPosition.suwp_staked), 0).label("total")
                 )
                 .filter(
-                    StakingPosition.is_active == True,
+                    StakingPosition.is_active == True,  # noqa: E712
                     StakingPosition.suwp_staked > 0,
                 )
                 .one()
@@ -252,7 +252,7 @@ class StakingService:
             stakers = (
                 session.query(StakingPosition)
                 .filter(
-                    StakingPosition.is_active == True,
+                    StakingPosition.is_active == True,  # noqa: E712
                     StakingPosition.suwp_staked > 0,
                 )
                 .all()

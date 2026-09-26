@@ -1,0 +1,17 @@
+[package]
+name = "suwappu-execution-searcher"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+blake3 = "1.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

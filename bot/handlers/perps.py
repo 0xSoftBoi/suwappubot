@@ -196,7 +196,7 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                     InlineKeyboardButton(
                         f"Close {pos.market}", callback_data=f"perps_close_{pos.id}"
                     ),
-                    InlineKeyboardButton(f"TP/SL", callback_data=f"perps_tpsl_{pos.id}"),
+                    InlineKeyboardButton("TP/SL", callback_data=f"perps_tpsl_{pos.id}"),
                 ]
             )
 
@@ -450,7 +450,7 @@ async def perps_setup_secret(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             logger.warning(f"Could not derive HL address from key: {e}")
 
-        account = perps_service.setup_account(
+        account = perps_service.setup_account(  # noqa: F841
             user_id=update.effective_user.id,
             hl_address=hl_address,
             api_key_encrypted=encrypted_key,

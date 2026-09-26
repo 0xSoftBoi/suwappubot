@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, test } from 'bun:test'
 import { keccak_256 } from '@noble/hashes/sha3'
@@ -24,6 +24,14 @@ function encodeType(): string {
 	const fields = ORDER_TYPES.Order
 	return `Order(${fields.map((f) => `${f.type} ${f.name}`).join(',')})`
 }
+
+const pythonSignerPath = join(import.meta.dir, '../../../bot/services/polymarket_v2_order.py')
+// Railway builds api-ts from an intentionally isolated service context, so the
+// sibling Python tree does not exist inside that image. Keep this parity test
+// mandatory in a full repository checkout (GitHub/local) and skip only when the
+// external fixture is physically unavailable. All TypeScript signer/vector tests
+// below still run in the deploy image.
+const crossLanguageTest = existsSync(pythonSignerPath) ? test : test.skip
 
 describe('Polymarket CTF Exchange v2 EIP712', () => {
 	test('order type string matches the on-chain ORDER_TYPEHASH preimage', () => {
@@ -100,13 +108,12 @@ describe('Polymarket CTF Exchange v2 EIP712', () => {
 		expect(hashEip712Order(standard)).not.toBe(hashEip712Order(negRisk))
 	})
 
-	test('NEG_RISK_CTF_EXCHANGE byte-matches bot/services/polymarket_v2_order.py', () => {
+	crossLanguageTest('NEG_RISK_CTF_EXCHANGE byte-matches bot/services/polymarket_v2_order.py', () => {
 		// The Python and TypeScript order signers MUST bind to the exact same
 		// contract address or one side's signatures are rejected by the CLOB.
 		// Read the constant out of the Python source directly rather than
 		// hardcoding a second copy that could drift silently.
-		const pyPath = join(import.meta.dir, '../../../bot/services/polymarket_v2_order.py')
-		const pySource = readFileSync(pyPath, 'utf-8')
+		const pySource = readFileSync(pythonSignerPath, 'utf-8')
 		const ctfMatch = pySource.match(/^CTF_EXCHANGE = "(0x[0-9a-fA-F]{40})"/m)
 		const negRiskMatch = pySource.match(/^NEG_RISK_CTF_EXCHANGE = "(0x[0-9a-fA-F]{40})"/m)
 		expect(ctfMatch).not.toBeNull()

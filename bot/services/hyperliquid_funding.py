@@ -20,7 +20,7 @@ the user's wallet via WalletService and broadcast through rpc_manager.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from web3 import Web3
 

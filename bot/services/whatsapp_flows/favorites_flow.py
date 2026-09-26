@@ -251,7 +251,7 @@ class FavoritesFlow(BaseWhatsAppFlow):
             return self._build_chain_list("To which chain?", "tc")
 
         await self._update(user_id, "add_to_token", {"user_db_id": db_id, "to_chain": chain})
-        from_token = state.data.get("from_token", "?")
+        from_token = state.data.get("from_token", "?")  # noqa: F841
         return FlowResponse(
             text=(
                 f"To chain: *{chain}*\n\n"
@@ -291,7 +291,7 @@ class FavoritesFlow(BaseWhatsAppFlow):
             name = text.strip()[:100] or None
 
         # Save to DB
-        saved = self._save_favorite(
+        saved = self._save_favorite(  # noqa: F841
             user_db_id=db_id,
             from_chain=data.get("from_chain", ""),
             from_token=data.get("from_token", ""),
@@ -600,7 +600,7 @@ class FavoritesFlow(BaseWhatsAppFlow):
     @staticmethod
     def _parse_id(text: str, prefix: str) -> int | None:
         try:
-            return int(text[len(prefix) :])
+            return int(text[len(prefix) :])  # noqa: E203
         except (ValueError, IndexError):
             return None
 

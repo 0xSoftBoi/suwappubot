@@ -1,0 +1,7 @@
+[submodule "vendor/curve-assets"]
+	path = vendor/curve-assets
+	url = git@github.com:curvefi/curve-assets.git
+[submodule "vendor/electric-router"]
+	path = vendor/electric-router
+	url = git@github.com:michwill/electric-router.git
+	branch = master

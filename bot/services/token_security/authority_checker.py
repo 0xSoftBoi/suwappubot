@@ -19,7 +19,6 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
@@ -201,32 +200,38 @@ class AuthorityChecker:
         # Parse mint authority
         # COption<Pubkey>: first 4 bytes indicate Some(1) or None(0)
         mint_auth_option = int.from_bytes(
-            data[MINT_AUTHORITY_OPTION_OFFSET : MINT_AUTHORITY_OPTION_OFFSET + 4], "little"
+            data[MINT_AUTHORITY_OPTION_OFFSET : MINT_AUTHORITY_OPTION_OFFSET + 4],  # noqa: E203
+            "little",  # noqa: E203
         )
 
         if mint_auth_option == 1:
             # Mint authority is set
             result.has_mint_authority = True
-            mint_auth_bytes = data[MINT_AUTHORITY_OFFSET : MINT_AUTHORITY_OFFSET + 32]
+            mint_auth_bytes = data[MINT_AUTHORITY_OFFSET : MINT_AUTHORITY_OFFSET + 32]  # noqa: E203
             result.mint_authority = self._bytes_to_base58(mint_auth_bytes)
         else:
             result.has_mint_authority = False
             result.mint_authority = None
 
         # Parse supply (u64, little-endian)
-        result.supply = int.from_bytes(data[SUPPLY_OFFSET : SUPPLY_OFFSET + 8], "little")
+        result.supply = int.from_bytes(
+            data[SUPPLY_OFFSET : SUPPLY_OFFSET + 8], "little"  # noqa: E203
+        )  # noqa: E203
 
         # Parse decimals
         result.decimals = data[DECIMALS_OFFSET]
 
         # Parse freeze authority
         freeze_auth_option = int.from_bytes(
-            data[FREEZE_AUTHORITY_OPTION_OFFSET : FREEZE_AUTHORITY_OPTION_OFFSET + 4], "little"
+            data[FREEZE_AUTHORITY_OPTION_OFFSET : FREEZE_AUTHORITY_OPTION_OFFSET + 4],  # noqa: E203
+            "little",  # noqa: E203
         )
 
         if freeze_auth_option == 1:
             result.has_freeze_authority = True
-            freeze_auth_bytes = data[FREEZE_AUTHORITY_OFFSET : FREEZE_AUTHORITY_OFFSET + 32]
+            freeze_auth_bytes = data[
+                FREEZE_AUTHORITY_OFFSET : FREEZE_AUTHORITY_OFFSET + 32  # noqa: E203
+            ]  # noqa: E203
             result.freeze_authority = self._bytes_to_base58(freeze_auth_bytes)
         else:
             result.has_freeze_authority = False
@@ -308,7 +313,7 @@ class AuthorityChecker:
 
 
 # Need asyncio for check_multiple
-import asyncio
+import asyncio  # noqa: E402
 
 # Global instance
 authority_checker = AuthorityChecker()

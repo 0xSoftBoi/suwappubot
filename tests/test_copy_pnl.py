@@ -66,13 +66,17 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
+import pytest  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.copy_trading import CopyFollow, TraderProfile, TraderTrade
-from bot.models.swap import SwapStatus, SwapTransaction
-from bot.models.user import User
-from bot.services.copy_service import CopyService, _wallet_pnl_cache, format_wallet_pnl_pct
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.copy_trading import CopyFollow, TraderProfile, TraderTrade  # noqa: E402
+from bot.models.swap import SwapStatus, SwapTransaction  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.services.copy_service import (  # noqa: E402
+    CopyService,
+    _wallet_pnl_cache,
+    format_wallet_pnl_pct,
+)  # noqa: E402
 
 
 @pytest.fixture()

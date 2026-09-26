@@ -7,9 +7,8 @@ encrypt with KMS envelope encryption → store in DB.
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
-from bot.utils.envelope_crypto import encrypt_private_key_v2, encode_for_db, zeroize
+from bot.utils.envelope_crypto import encrypt_private_key_v2, encode_for_db
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,6 @@ for the iOS/Android mobile app.
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import text
 
 from database.db import get_session, DATABASE_AVAILABLE
 
@@ -96,7 +95,7 @@ async def get_my_profile(request: Request):
             session.query(Wallet)
             .filter(
                 Wallet.user_id == user_id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )

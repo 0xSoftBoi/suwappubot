@@ -2,21 +2,31 @@ import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { HTTPException } from 'hono/http-exception'
 import { logger as honoLogger } from 'hono/logger'
-import { logger } from './lib/logger'
-import type { AgentErrorCode } from './lib/agentError'
-import { captureServerError } from './lib/sentry'
 import agentCard from '../agent-card.json'
 import aiCatalog from '../ai-catalog.json'
-import { adminKeyAuth, createCorsMiddleware, createMcpOriginGuard, otelRequestTracing } from './middleware'
+import type { AgentErrorCode } from './lib/agentError'
+import { logger } from './lib/logger'
+import { captureServerError } from './lib/sentry'
+import {
+	adminKeyAuth,
+	createCorsMiddleware,
+	createMcpOriginGuard,
+	otelRequestTracing,
+} from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import {
 	a2aRoutes,
 	adminRoutes,
 	agentRoutes,
+	autopilotAdminRoutes,
+	autopilotRoutes,
 	billingRoutes,
+	createPythonProxyRoutes,
+	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseRoutes,
+	hackathonRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -24,11 +34,9 @@ import {
 	mcpRoutes,
 	p2pRoutes,
 	perpsRoutes,
-	rewardsRoutes,
 	predictRoutes,
-	createPythonProxyRoutes,
-	createTerminalSwapProxyRoutes,
 	publicSwapRoutes,
+	rewardsRoutes,
 	smartAccountRoutes,
 	stakingRoutes,
 	swapRoutes,
@@ -66,6 +74,9 @@ export interface AppConfig {
 	// Only when 'true' is the OTel request-tracing middleware registered at
 	// all — see the otelRequestTracing() call below and lib/otel.ts.
 	otelEnabled?: string | undefined
+	// ETHGlobal Tokyo 2026 trust-layer demo routes. When true, /hackathon/*
+	// is mounted (see index.ts — decoded from EnvService at boot).
+	hackathonTrustLayer?: boolean | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -131,7 +142,8 @@ export function createApp(config: AppConfig) {
 			if (isAgentSurface) {
 				body.error_code = httpExceptionCode(err.status, err.message)
 				if (cause?.hint) body.hint = cause.hint
-				else if (err.status === 401) body.hint = 'Register at POST /v1/agent/register to get an API key'
+				else if (err.status === 401)
+					body.hint = 'Register at POST /v1/agent/register to get an API key'
 			}
 
 			return c.json(body, err.status)
@@ -147,6 +159,20 @@ export function createApp(config: AppConfig) {
 
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
+
+	// HACKATHON (Tokyo 2026 trust layer): World ID demo routes. Flag-gated —
+	// unmounted by default, so the surface doesn't exist unless explicitly
+	// enabled. MONEY-PATH adjacent (demo only): no production approval or
+	// execution flow reads these endpoints.
+	// OPENAPI TREATMENT: /hackathon/* is intentionally EXCLUDED from the
+	// public OpenAPI spec (openapi-agent.json, served at /v1/agent/openapi).
+	// The spec documents the versioned /v1/agent public surface; hackathon
+	// routes are unversioned demo endpoints and must never be presented as
+	// public API. The spec generator only derives from src/routes/validators.ts,
+	// so exclusion holds by construction — do not add hackathon schemas there.
+	if (config.hackathonTrustLayer) {
+		app.route('/hackathon', hackathonRoutes)
+	}
 
 	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
 	// This exact-path gateway must be mounted before swapRoutes; requests carrying
@@ -207,6 +233,11 @@ export function createApp(config: AppConfig) {
 	// historical OHLCV, and live WS price ticks. Auth mirrors /v1/agent (org API
 	// key or agent bearer token via agentFlexAuth), enforced inside dataRoutes.
 	app.route('/v1/data', dataRoutes)
+
+	// Autopilot — the autonomous trading agent's public transparency surface.
+	// Unauthenticated by design: decisions, refusals, positions and P&L are the
+	// product. Control lives on /admin/autopilot behind X-Admin-Key.
+	app.route('/v1/autopilot', autopilotRoutes)
 
 	// A2A JSON-RPC endpoint - uses Bearer token auth internally
 	app.route('/a2a', a2aRoutes)
@@ -466,6 +497,7 @@ https://suwappu.bot/docs
 	// Admin API routes - X-Admin-Key required
 	app.use('/admin/*', adminKeyAuth(config.adminApiKey))
 	app.route('/admin', adminRoutes)
+	app.route('/admin/autopilot', autopilotAdminRoutes)
 
 	// Dashboard SPA - static files
 	app.use(

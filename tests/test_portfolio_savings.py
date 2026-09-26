@@ -12,7 +12,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.handlers.portfolio import PRO_FEE_RATE, _compute_pro_delta_usd
+from bot.handlers.portfolio import PRO_FEE_RATE, _compute_pro_delta_usd  # noqa: E402
 
 
 class TestComputeProDeltaUsd:

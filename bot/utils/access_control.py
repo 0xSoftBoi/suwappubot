@@ -2,7 +2,7 @@
 
 import logging
 from functools import wraps
-from typing import Optional, List
+from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -72,9 +72,9 @@ def require_subscription(
                 if not has_access:
                     message = update.message or update.callback_query.message
                     await message.reply_text(
-                        f"🔒 **Feature Locked**\n\n"
-                        f"This feature is not available on your current plan.\n\n"
-                        f"Use /sub to upgrade!",
+                        "🔒 **Feature Locked**\n\n"
+                        "This feature is not available on your current plan.\n\n"
+                        "Use /sub to upgrade!",
                         parse_mode="Markdown",
                     )
                     return

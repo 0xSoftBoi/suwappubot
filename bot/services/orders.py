@@ -2,9 +2,8 @@
 
 import asyncio
 import logging
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from datetime import datetime, timedelta
-from decimal import Decimal
 
 from bot.models.advanced import (
     LimitOrder,

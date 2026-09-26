@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 
 export const metadata: Metadata = {
@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>
@@ -26,7 +26,7 @@ export default function TermsPage() {
           <p className="legal-page__updated">Last updated: June 18, 2026</p>
 
           <h2>1. Acceptance</h2>
-          <p>By accessing or using Suwappu: including the Telegram bot, trading terminal, REST API, SDK, and MCP server (together, the “Service”): you agree to these Terms. If you do not agree, do not use the Service.</p>
+          <p>By accessing or using Suwappu, including the Telegram bot, trading terminal, REST API, SDK, and MCP server (together, the “Service”), you agree to these Terms. If you do not agree, do not use the Service.</p>
 
           <h2>2. Eligibility</h2>
           <p>You must be of legal age in your jurisdiction and not barred from using the Service under applicable law or sanctions programs. You are responsible for ensuring your use complies with the laws that apply to you, including any restrictions on trading digital assets or derivatives in your region.</p>

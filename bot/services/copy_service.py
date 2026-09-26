@@ -25,7 +25,6 @@ from bot.models.copy_trading import (
     TraderProfile,
     CopyFollow,
     CopyTrade,
-    CopyNotification,
     TraderTrade,
     TraderPosition,
 )
@@ -194,7 +193,10 @@ class CopyService:
             # Check if trader has a public profile
             trader_profile = (
                 session.query(TraderProfile)
-                .filter(TraderProfile.user_id == trader_id, TraderProfile.is_public == True)
+                .filter(
+                    TraderProfile.user_id == trader_id,
+                    TraderProfile.is_public == True,  # noqa: E712
+                )  # noqa: E712
                 .first()
             )
 
@@ -204,7 +206,10 @@ class CopyService:
             # Check follow limit
             follow_count = (
                 session.query(func.count(CopyFollow.id))
-                .filter(CopyFollow.follower_id == follower_id, CopyFollow.is_active == True)
+                .filter(
+                    CopyFollow.follower_id == follower_id,
+                    CopyFollow.is_active == True,  # noqa: E712
+                )  # noqa: E712
                 .scalar()
             )
 
@@ -253,7 +258,7 @@ class CopyService:
                 .filter(
                     CopyFollow.follower_id == follower_id,
                     CopyFollow.trader_id == trader_id,
-                    CopyFollow.is_active == True,
+                    CopyFollow.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -288,7 +293,7 @@ class CopyService:
                 .filter(
                     CopyFollow.follower_id == follower_id,
                     CopyFollow.trader_id == trader_id,
-                    CopyFollow.is_active == True,
+                    CopyFollow.is_active == True,  # noqa: E712
                 )
                 .first()
             )
@@ -313,7 +318,9 @@ class CopyService:
             follows = (
                 session.query(CopyFollow, TraderProfile)
                 .join(TraderProfile, CopyFollow.trader_id == TraderProfile.user_id)
-                .filter(CopyFollow.follower_id == user_id, CopyFollow.is_active == True)
+                .filter(
+                    CopyFollow.follower_id == user_id, CopyFollow.is_active == True  # noqa: E712
+                )  # noqa: E712
                 .all()
             )
 
@@ -337,7 +344,9 @@ class CopyService:
             follows = (
                 session.query(CopyFollow, User)
                 .join(User, CopyFollow.follower_id == User.id)
-                .filter(CopyFollow.trader_id == trader_id, CopyFollow.is_active == True)
+                .filter(
+                    CopyFollow.trader_id == trader_id, CopyFollow.is_active == True  # noqa: E712
+                )  # noqa: E712
                 .all()
             )
 
@@ -489,7 +498,7 @@ class CopyService:
                 )
                 .filter(
                     TraderTrade.trader_id == trader_id,
-                    TraderTrade.is_closed == True,
+                    TraderTrade.is_closed == True,  # noqa: E712
                     TraderTrade.created_at >= cutoff,
                     TraderTrade.pnl_usd.isnot(None),
                     TraderTrade.amount_usd.isnot(None),
@@ -570,7 +579,7 @@ class CopyService:
                 )
                 .filter(
                     TraderTrade.trader_id.in_(missing_ids),
-                    TraderTrade.is_closed == True,
+                    TraderTrade.is_closed == True,  # noqa: E712
                     TraderTrade.created_at >= cutoff,
                     TraderTrade.pnl_usd.isnot(None),
                     TraderTrade.amount_usd.isnot(None),
@@ -702,7 +711,9 @@ class CopyService:
         with get_session() as session:
             followers = (
                 session.query(CopyFollow)
-                .filter(CopyFollow.trader_id == trader_id, CopyFollow.is_active == True)
+                .filter(
+                    CopyFollow.trader_id == trader_id, CopyFollow.is_active == True  # noqa: E712
+                )  # noqa: E712
                 # Serialize budget reservations for each follow. Without this,
                 # two trader events could both observe the same remaining daily
                 # budget and each schedule an automatic copy.
@@ -1023,8 +1034,8 @@ class CopyService:
                 .filter(
                     Wallet.user_id == copier_id,
                     Wallet.chain_type == source_chain.chain_type.value,
-                    Wallet.is_active == True,
-                    Wallet.is_default == True,
+                    Wallet.is_active == True,  # noqa: E712
+                    Wallet.is_default == True,  # noqa: E712
                 )
                 .first()
             )
@@ -1034,7 +1045,7 @@ class CopyService:
                     .filter(
                         Wallet.user_id == copier_id,
                         Wallet.chain_type == source_chain.chain_type.value,
-                        Wallet.is_active == True,
+                        Wallet.is_active == True,  # noqa: E712
                     )
                     .order_by(Wallet.id.asc())
                     .first()
@@ -1297,7 +1308,7 @@ class CopyService:
                 .filter(
                     Wallet.user_id == copier_id,
                     Wallet.chain_type == source_chain.chain_type.value,
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .order_by(Wallet.is_default.desc(), Wallet.id.asc())
                 .first()
@@ -1428,7 +1439,7 @@ class CopyService:
         # the trader's per-unit price as a best-effort proxy for now.
         try:
             copy_amount = follower_info.get("copy_amount", 0.0)
-            trader_amount = swap_data.get("amount_usd", 0.0)
+            trader_amount = swap_data.get("amount_usd", 0.0)  # noqa: F841
             current_token_price_usd = None  # placeholder — wire up price feed if available
 
             with get_session() as session:
@@ -1515,7 +1526,7 @@ class CopyService:
                 session.query(TraderProfile, User)
                 .join(User, TraderProfile.user_id == User.id)
                 .filter(
-                    TraderProfile.is_public == True,
+                    TraderProfile.is_public == True,  # noqa: E712
                     TraderProfile.total_trades >= 5,  # Minimum trades to appear
                 )
                 .order_by(desc(TraderProfile.rank_score))
@@ -1556,7 +1567,8 @@ class CopyService:
                 session.query(TraderProfile, User)
                 .join(User, TraderProfile.user_id == User.id)
                 .filter(
-                    TraderProfile.is_public == True, TraderProfile.display_name.ilike(f"%{query}%")
+                    TraderProfile.is_public == True,  # noqa: E712
+                    TraderProfile.display_name.ilike(f"%{query}%"),  # noqa: E712
                 )
                 .limit(limit)
                 .all()

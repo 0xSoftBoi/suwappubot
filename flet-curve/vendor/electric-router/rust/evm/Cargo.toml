@@ -1,0 +1,49 @@
+[package]
+name = "erouter-evm"
+version = "0.1.0"
+edition = "2021"
+description = "An in-memory EVM for the router: revm over prefetched state, with the misses reported."
+license = "MIT"
+
+[lib]
+name = "erouter_evm"
+# `cdylib` for the Python extension, `rlib` so the wasm crate can link it.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# No `secp256k1`, `c-kzg` or `blst`: all three are C or assembly and have no
+# wasm build.  Without them revm falls back to pure Rust for every precompile
+# (k256 for ecrecover, arkworks for bn254/bls12-381 and for the KZG point
+# evaluation, aurora-engine-modexp for modexp), which is what makes the same
+# crate compile for wasm32 and for CPython.
+#
+# The four `optional_*` features are `eth_call` semantics: a quote is a read by
+# an account that holds nothing, so a balance check, a nonce check, a base fee
+# or a block gas limit would all refuse calls a node answers happily.
+revm = { version = "42.0.1", default-features = false, features = [
+    "std",
+    "optional_no_base_fee",
+    "optional_balance_check",
+    "optional_block_gas_limit",
+    "optional_eip3607",
+    "optional_priority_fee_check",
+    "optional_fee_charge",
+] }
+
+[dependencies.pyo3]
+version = "0.23"
+features = ["extension-module", "abi3-py311"]
+optional = true
+
+[features]
+default = []
+# PyO3 is optional so the same core compiles to wasm32 with no Python at all.
+python = ["dep:pyo3"]
+
+# Never called, and it still has to be there.  k256's `rand_core` pulls
+# `getrandom` in for key generation; ecrecover only *verifies*, so no path
+# here asks for a random byte -- but getrandom 0.2 refuses to compile for
+# wasm32-unknown-unknown unless a backend is named, so the target gets one.
+# In a Web Worker that backend is `crypto.getRandomValues`, which exists.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

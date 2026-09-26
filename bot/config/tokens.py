@@ -14,6 +14,11 @@ class TokenConfig:
     addresses: dict[str, str]  # chain_name -> token_address
     logo_emoji: str
     is_stablecoin: bool = True
+    # True for ERC-20s that enforce an on-chain transfer allowlist (e.g.
+    # Superstate RWA funds): transfers revert for non-allowlisted wallets even
+    # though quoting works fine. See bot/config/protocols.py:is_gated_token().
+    transfer_gated: bool = False
+    gated_note: Optional[str] = None
 
 
 # Native token address placeholder (used by Li.Fi)
@@ -34,7 +39,9 @@ TOKENS: dict[str, TokenConfig] = {
             "base": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
             "solana": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
             "tron": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
-            "plasma": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            # No "plasma" entry: Plasma has no native USDT deployment (see the
+            # USDT0 registry note below) — the previous entry was the Ethereum
+            # mainnet address and mis-addressed every Plasma quote.
             "starknet": starknet_addresses.USDT,
             "goat": "0xE1AD845D93853fff44990aE0DcecD8575293681e",  # 6 decimals on GOAT
             # Rootstock rUSDT — 18 decimals NOT 6 (see get_token_decimals override)
@@ -80,7 +87,8 @@ TOKENS: dict[str, TokenConfig] = {
             "base-sepolia": "0xDABa329Ed949f28F64019f22c33c3B253B2Ded60",
             "solana": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "tron": "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8",
-            "plasma": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+            # No "plasma" entry: previous value was the ETHEREUM USDC address
+            # (see the USDT note above).
             "starknet": starknet_addresses.USDC,
             # GOAT's canonical USDC is bridged USDC.e (6 decimals)
             "goat": "0x3022b87ac063DE95b1570F46f5e470F8B53112D8",
@@ -96,7 +104,7 @@ TOKENS: dict[str, TokenConfig] = {
         name="Dai Stablecoin",
         decimals=18,
         addresses={
-            "ethereum": "0x6B175474E89094C44Da98b954EedeA397C5daBE9",
+            "ethereum": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
             "bsc": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
             "polygon": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
             "arbitrum": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
@@ -236,6 +244,37 @@ TOKENS: dict[str, TokenConfig] = {
         },
         logo_emoji="🟣",
     ),
+    # sUSDe — ERC-4626 yield-bearing wrapper over USDe above (Ethena's staked
+    # vault share). Accrues protocol yield, so its redemption value drifts
+    # above $1 (~$1.23 as of 2026-08-26) rather than holding a $1 peg like
+    # USDe — NOT a stablecoin.
+    # NOTE: dict key is "SUSDE" (uppercase) NOT "sUSDe" — get_token_address(),
+    # get_token_by_symbol(), and get_token_decimals() all do symbol.upper()
+    # lookups against TOKENS, so a mixed-case key here is unreachable via any
+    # of them (dead entry). symbol="sUSDe" below is unaffected and still
+    # drives display text. Mirrors api-ts tokenRegistry.ts, which already
+    # keys this SUSDE. The pre-existing USDe/stETH/wstETH/cbETH/rETH mixed-case
+    # keys have the same defect but are out of scope for this fix.
+    "SUSDE": TokenConfig(
+        symbol="sUSDe",
+        name="Ethena Staked USDe",
+        decimals=18,
+        addresses={
+            "ethereum": "0x9D39A5DE30e57443BfF2A8307A4256c8797A3497",
+        },
+        logo_emoji="🟣",
+        is_stablecoin=False,
+    ),
+    "ENA": TokenConfig(
+        symbol="ENA",
+        name="Ethena",
+        decimals=18,
+        addresses={
+            "ethereum": "0x57e114B691Db790C35207b2e685D4A43181e6061",
+        },
+        logo_emoji="🟣",
+        is_stablecoin=False,
+    ),
     # === Tempo TIP-20 Stablecoins (mainnet live March 18, 2026) ===
     # NOTE: These are TIP-20 tokens, NOT ERC-20. Circle USDC and Tether USDT
     # are NOT yet deployed on Tempo. pathUSD is the primary payment token.
@@ -243,43 +282,17 @@ TOKENS: dict[str, TokenConfig] = {
     "PATHUSD": TokenConfig(
         symbol="pathUSD",
         name="Path USD",
-        decimals=18,
+        decimals=6,  # TIP-20: 6dp on-chain (decimals() on 4217 and 42431)
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000000",
         },
         logo_emoji="⚡",
         is_stablecoin=True,
     ),
-    "ALPHAUSD": TokenConfig(
-        symbol="AlphaUSD",
-        name="Alpha USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000001",
-        },
-        logo_emoji="🅰️",
-        is_stablecoin=True,
-    ),
-    "BETAUSD": TokenConfig(
-        symbol="BetaUSD",
-        name="Beta USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000002",
-        },
-        logo_emoji="🅱️",
-        is_stablecoin=True,
-    ),
-    "THETAUSD": TokenConfig(
-        symbol="ThetaUSD",
-        name="Theta USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000003",
-        },
-        logo_emoji="🔷",
-        is_stablecoin=True,
-    ),
+    # AlphaUSD/BetaUSD/ThetaUSD (0x20c0..01-03) exist only on the Tempo
+    # testnet (Moderato, 42431). On mainnet (4217) those addresses revert with
+    # "TIP20 token error: Uninitialized", so they are not listed under "tempo".
+    # scripts/tempo_testnet_smoke.py carries its own testnet token map.
     # === Robinhood Chain (4663) anchor stablecoin ===
     # There is NO USDC on Robinhood Chain. Paxos USDG is the anchor. Two contracts
     # report symbol "USDG"; we pin the one with real supply (338.7M vs 1.1k when
@@ -549,8 +562,8 @@ TOKENS: dict[str, TokenConfig] = {
         name="Optimism",
         decimals=18,
         addresses={
+            # OP exists only on Optimism (predeploy); 0x42..42 has no code on L1.
             "optimism": "0x4200000000000000000000000000000000000042",
-            "ethereum": "0x4200000000000000000000000000000000000042",
         },
         logo_emoji="🔴",
         is_stablecoin=False,
@@ -593,6 +606,30 @@ TOKENS: dict[str, TokenConfig] = {
             "polygon": "0xD6DF932A45C0f255f85145f286eA0b292B21C90B",
             "arbitrum": "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196",
             "optimism": "0x76FB31fb4af56892A25e32cFC43De717950c9278",
+        },
+        logo_emoji="👻",
+        is_stablecoin=False,
+    ),
+    "PENDLE": TokenConfig(
+        symbol="PENDLE",
+        name="Pendle",
+        decimals=18,
+        addresses={
+            "ethereum": "0x808507121B80c02388fAd14726482e061B8da827",
+        },
+        logo_emoji="👻",
+        is_stablecoin=False,
+    ),
+    # Governance token of Morpho lending. Verified EIP-1967 proxy. Morpho's
+    # actual borrow/earn integration (cbBTC/USDC market + vaults on Base)
+    # lives in bot/config/morpho_config.py + bot/services/morpho_api.py — this
+    # entry is only the swappable ERC-20, not that integration.
+    "MORPHO": TokenConfig(
+        symbol="MORPHO",
+        name="Morpho",
+        decimals=18,
+        addresses={
+            "ethereum": "0x58D97B57BB95320F9a05dC918Aef65434969c2B2",
         },
         logo_emoji="👻",
         is_stablecoin=False,
@@ -689,13 +726,60 @@ TOKENS: dict[str, TokenConfig] = {
         logo_emoji="🪙",
         is_stablecoin=False,
     ),
+    # === Superstate tokenized funds (RWA, allowlist-gated) ===
+    # Superstate (superstate.co) funds enforce an on-chain KYC allowlist on
+    # the ERC-20 itself: quoting/pricing works normally, but the transfer
+    # underlying settlement REVERTS for any wallet that is not allowlisted
+    # with Superstate (qualified purchasers only). transfer_gated=True below
+    # drives the swap-engine guard in bot/services/swap_engine.py that fails
+    # a quote fast instead of racing providers toward a doomed settlement.
+    # Ethereum mainnet only here — Superstate also has USTB/USCC-equivalent
+    # deployments on Solana and Plume, but those addresses were NOT verified
+    # on-chain for this change, so they are intentionally omitted.
+    # NOTE: names below use the current on-chain name() (issuer rebranded from
+    # "Superstate" branding to Invesco/Bitwise sub-brands) — Superstate is
+    # still the protocol/issuer of record (superstate.co) and remains the
+    # PROTOCOLS entry + gated_note context.
+    "USTB": TokenConfig(
+        symbol="USTB",
+        name="Invesco Short Duration US Government Securities Fund",
+        decimals=6,
+        addresses={
+            "ethereum": "0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e",
+        },
+        logo_emoji="🏦",
+        is_stablecoin=False,
+        transfer_gated=True,
+        gated_note=(
+            "Superstate allowlist — transfers revert unless the wallet is "
+            "KYC-allowlisted with Superstate (qualified purchasers only). "
+            "See superstate.co/ustb"
+        ),
+    ),
+    "USCC": TokenConfig(
+        symbol="USCC",
+        name="Bitwise Crypto Carry Fund",
+        decimals=6,
+        addresses={
+            "ethereum": "0x14d60E7FDC0D71d8611742720E4C50E7a974020c",
+        },
+        logo_emoji="🏦",
+        is_stablecoin=False,
+        transfer_gated=True,
+        gated_note=(
+            "Superstate allowlist — transfers revert unless the wallet is "
+            "KYC-allowlisted with Superstate (qualified purchasers only). "
+            "See superstate.co/uscc"
+        ),
+    ),
     # === L2 Native Tokens ===
     "ZK": TokenConfig(
         symbol="ZK",
         name="zkSync",
         decimals=18,
         addresses={
-            "ethereum": "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",
+            # ZK lives on zkSync Era; this address has no code on Ethereum L1.
+            "zksync": "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",
         },
         logo_emoji="⚡",
         is_stablecoin=False,

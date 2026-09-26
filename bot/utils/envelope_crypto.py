@@ -8,7 +8,7 @@ import os
 import base64
 import logging
 import ctypes
-from typing import Optional, Tuple
+from typing import Optional
 from dataclasses import dataclass
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM

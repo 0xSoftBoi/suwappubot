@@ -28,7 +28,6 @@ trade path catches ``EscrowNotConfiguredError``/``P2PError`` and shows a clear
 """
 
 import logging
-from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (

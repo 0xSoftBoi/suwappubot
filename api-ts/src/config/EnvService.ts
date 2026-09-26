@@ -123,6 +123,37 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'http://localhost:8000',
 	}),
 
+	// Autopilot — autonomous trading agent. Live execution is opt-in and goes
+	// through our own agent API, so it needs that API's base URL and an agent
+	// API key. Without the key an agent can only run in paper mode.
+	AUTOPILOT_API_BASE_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://api.suwappu.bot',
+	}),
+	AUTOPILOT_AGENT_API_KEY: Schema.optional(Schema.String),
+	/**
+	 * Anchoring key for decision commitments. Separate from every trading and
+	 * fee key by design — it only ever signs zero-value self-sends carrying the
+	 * commitment memo. Unset = no anchoring.
+	 */
+	AUTOPILOT_ANCHOR_PRIVATE_KEY: Schema.optional(Schema.String),
+	AUTOPILOT_ANCHOR_CHAIN: Schema.optionalWith(Schema.String, { default: () => 'base' }),
+	/** Required only for agents whose thesis_engine is 'llm'. */
+	ANTHROPIC_API_KEY: Schema.optional(Schema.String),
+	AUTOPILOT_LLM_MODEL: Schema.optionalWith(Schema.String, { default: () => 'claude-opus-5' }),
+	AUTOPILOT_LLM_EFFORT: Schema.optionalWith(Schema.Literal('low', 'medium', 'high'), {
+		default: () => 'low' as const,
+	}),
+	/** Model calls per cycle. The cost ceiling for an LLM-driven agent. */
+	AUTOPILOT_LLM_MAX_CALLS: Schema.optionalWith(Schema.NumberFromString, { default: () => 8 }),
+	/** Minutes between scheduled cycles. 0 disables the scheduler entirely. */
+	AUTOPILOT_CYCLE_MINUTES: Schema.optionalWith(Schema.NumberFromString, { default: () => 0 }),
+	/**
+	 * JSON describing one PAPER agent this environment should have. Seeded on
+	 * boot if missing, never modified if it already exists. Cannot create a live
+	 * agent — see services/autopilot/bootstrap.ts.
+	 */
+	AUTOPILOT_BOOTSTRAP: Schema.optional(Schema.String),
+
 	// Redis
 	REDIS_URL: Schema.optional(Schema.String),
 
@@ -142,6 +173,14 @@ export const EnvSchema = Schema.Struct({
 	// Agent pay-per-call metering (x402 prepaid credits).
 	// Default OFF so deploying this never blocks existing free agents.
 	AGENT_METERING_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Comma-separated agent UUIDs (agents.uuid) exempted from metering for
+	// quote-class reads ONLY (see middleware/x402Payment.ts's chargeAgentForCall).
+	// Purpose-built for the showcase homepage's live-quote widget, which
+	// authenticates as a server-side proxy key whose prepaid credits kept
+	// draining and going dark. Deliberately NOT a general bypass tier: swap
+	// prep/execution and every other resource for these agents stay fully
+	// metered. Unset = no exemptions, existing behavior unchanged.
+	DEMO_UNMETERED_AGENT_IDS: Schema.optional(Schema.String),
 	// Require a server-issued step-up challenge (approval_step_up_challenges)
 	// to be presented and consumed before an owner's approve decision is
 	// honored. Default OFF so existing owner approve flows are unaffected.
@@ -169,9 +208,17 @@ export const EnvSchema = Schema.Struct({
 	X402_FACILITATOR_URL: Schema.optionalWith(Schema.String, {
 		default: () => 'https://x402.org/facilitator',
 	}),
-	// Optional bearer token for facilitators that accept one. CDP mainnet needs
-	// JWT auth via @coinbase/x402 instead (follow-up).
+	// Optional static bearer token for facilitators that accept one. Ignored in
+	// favor of CDP JWT auth below when both CDP_API_KEY_ID/SECRET are set.
 	X402_FACILITATOR_API_KEY: Schema.optional(Schema.String),
+	// CDP hosted mainnet facilitator auth — a CDP API key (from the CDP Portal,
+	// https://portal.cdp.coinbase.com/), NOT a wallet/signing key. When both are
+	// set, FacilitatorService generates a per-request JWT via @coinbase/x402
+	// instead of using X402_FACILITATOR_API_KEY's static bearer token, and (unless
+	// X402_FACILITATOR_URL was explicitly overridden) points at CDP's hosted
+	// facilitator automatically.
+	CDP_API_KEY_ID: Schema.optional(Schema.String),
+	CDP_API_KEY_SECRET: Schema.optional(Schema.String),
 
 	// Recurring crypto billing via Base Spend Permissions (true auto-renew). OFF by
 	// default — needs a funded operator (spender) key on Base. SPEND_OPERATOR_PK is
@@ -225,6 +272,22 @@ export const EnvSchema = Schema.Struct({
 	// collector). Traces are POSTed to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`.
 	// When unset, the exporter's own default (http://localhost:4318) is used.
 	OTEL_EXPORTER_OTLP_ENDPOINT: Schema.optional(Schema.String),
+
+	// ETHGlobal Tokyo 2026 hackathon trust layer — additive, default OFF.
+	// The master flag gates the whole layer; per-sponsor flags default to the
+	// master and can be toggled independently. Uniswap comparison is an
+	// explicit opt-in even when the master flag is on.
+	HACKATHON_TRUST_LAYER: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	HACKATHON_INTERCEPTA: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	HACKATHON_ENSV2: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	HACKATHON_WORLD_ID: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	// JSON map of internal agent id → ENSv2 agent name, e.g.
+	// {"agent_123":"agent.acme.suwappu.eth"}. A bare *.eth identifier passes
+	// through directly without a mapping entry.
+	HACKATHON_ENSV2_NAMES: Schema.optional(Schema.String),
+	UNISWAP_COMPARISON_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Sepolia RPC for ENSv2 onchain policy reads. Unset = ENSv2 gate disabled.
+	SEPOLIA_RPC_URL: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>
@@ -247,10 +310,30 @@ export const EnvServiceLive = Layer.effect(
 		}
 		// Warn if using default fee wallet addresses
 		if (!process.env.FEE_WALLET_EVM) {
-			console.warn('[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!')
+			console.warn(
+				'[EnvService] WARNING: FEE_WALLET_EVM not set, using default address. Set this in production!',
+			)
 		}
 		if (!process.env.FEE_WALLET_SOLANA) {
-			console.warn('[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!')
+			console.warn(
+				'[EnvService] WARNING: FEE_WALLET_SOLANA not set, using default address. Set this in production!',
+			)
+		}
+		// CDP facilitator auth (see FacilitatorService.resolveFacilitatorConfig)
+		// requires BOTH vars — one without the other is almost certainly a
+		// misconfiguration (partial copy-paste from the CDP Portal) and silently
+		// falls back to no CDP auth, which then either 401s against CDP's hosted
+		// facilitator or falls through to an unauthenticated call. Empty string
+		// counts as unset, matching the trim-and-treat-empty-as-unset behavior in
+		// resolveFacilitatorConfig.
+		const cdpKeyId = env.CDP_API_KEY_ID?.trim()
+		const cdpKeySecret = env.CDP_API_KEY_SECRET?.trim()
+		if (!!cdpKeyId !== !!cdpKeySecret) {
+			console.error(
+				'[EnvService] ERROR: only one of CDP_API_KEY_ID / CDP_API_KEY_SECRET is set — ' +
+					'CDP facilitator JWT auth requires BOTH. Falling back to no CDP auth for the x402 ' +
+					'facilitator path until both are set correctly.',
+			)
 		}
 		return env
 	}),

@@ -185,7 +185,7 @@ def test_rendering_is_byte_identical_across_calls(sweep, ctx):
     """A marketplace caches the image it first fetched. If the next render
     differs byte for byte, the cached art and the live art drift apart."""
     cfg, registry, corpus = ctx
-    for tid in (1, 501, 4_213, 9_999):
+    for tid in (1, 501, 3_213, 4_444):
         a, _ = sweep.render_one(cfg, registry, corpus[tid - 1])
         b, _ = sweep.render_one(cfg, registry, corpus[tid - 1])
         assert a == b, f"#{tid} render is not deterministic"

@@ -34,7 +34,6 @@ def _sign_widget(payload: dict, bot_token: str = BOT_TOKEN) -> str:
 def verify():
     """Import the verifier without importing the whole FastAPI app graph."""
     import ast
-    import textwrap
 
     src = open("api/main.py").read()
     tree = ast.parse(src)

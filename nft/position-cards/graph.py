@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A tiny content-addressed DAG runner for the Positions pipeline.
 
-Why a graph and not a script: the 10,000-card sweep is expensive, it is run
+Why a graph and not a script: the 4,444-card sweep is expensive, it is run
 repeatedly while the renderer changes, and a `/loop` tick must be able to pick
 up exactly where the last one stopped. Nodes are cached by the hash of
 (version, params, dependency hashes), so editing one node re-runs that node and
@@ -104,7 +104,7 @@ class Graph:
         editing a node's BODY and re-running silently replayed the cached value:
         `0 ran / 1 cached`, old answer. For a sweep whose whole job is to catch
         renderer regressions, a cache that serves the pre-edit corpus and prints
-        "10,000/10,000 ok" is the failure it was built to prevent.
+        "4,444/4,444 ok" is the failure it was built to prevent.
         """
         code = getattr(fn, "__code__", None)
         if code is None:  # builtins / callables without bytecode

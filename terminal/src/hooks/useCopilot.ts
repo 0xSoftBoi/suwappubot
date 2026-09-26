@@ -29,7 +29,9 @@ export function useCopilot() {
   const [isTyping, setIsTyping] = useState(false)
 
   const addMessage = useCallback((msg: CopilotMessage) => {
-    setMessages((prev) => [...prev, msg])
+    // Cap the transcript: an unbounded array (some messages carry big payloads)
+    // grows for the life of the tab and eventually freezes long sessions.
+    setMessages((prev) => [...prev, msg].slice(-200))
   }, [])
 
   const sendMessage = useCallback(

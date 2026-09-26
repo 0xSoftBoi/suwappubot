@@ -3,19 +3,15 @@
 import logging
 from typing import Optional, Tuple
 from decimal import Decimal
-from datetime import datetime, date
+from datetime import date
 from web3 import Web3
 from eth_account import Account
 
-from bot.config.settings import settings
-from bot.config.chains import CHAINS, ChainType, get_chain_by_name
+from bot.config.chains import get_chain_by_name
 from bot.models.custodial import (
-    HotWallet,
     GasSponsorshipConfig,
     UserGasUsage,
-    CustodialTransaction,
     TransactionType,
-    TransactionStatus,
 )
 from bot.services.hot_wallet import hot_wallet_service
 from bot.services.price_service import price_service
@@ -271,7 +267,7 @@ class PaymasterService:
                 to_address=user_address,
                 gas_sponsored=True,
                 gas_cost=gas_cost_native,
-                notes=f"Gas sponsorship for swap",
+                notes="Gas sponsorship for swap",
             )
 
             logger.info(

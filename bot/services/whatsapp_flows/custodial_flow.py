@@ -180,7 +180,6 @@ class WithdrawFlow(BaseWhatsAppFlow):
 
         try:
             from bot.services.wallet import WalletService
-            from bot.services.swap_engine import SwapEngine
             from database.db import get_session
             from bot.models.user import User
 

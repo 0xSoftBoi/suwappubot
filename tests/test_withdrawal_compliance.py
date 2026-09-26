@@ -16,9 +16,12 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.hot_wallet import ComplianceBlockedError, _assert_recipient_compliant
+from bot.services.hot_wallet import (  # noqa: E402
+    ComplianceBlockedError,
+    _assert_recipient_compliant,
+)  # noqa: E402
 
 EVM_BAD = "0x" + "ba" * 20
 EVM_OK = "0x" + "0c" * 20

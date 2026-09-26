@@ -14,7 +14,6 @@ unified history; for external trades we keep the provider's reference ids.
 """
 
 import enum
-from datetime import datetime
 
 from sqlalchemy import (
     Column,
@@ -22,7 +21,6 @@ from sqlalchemy import (
     BigInteger,
     String,
     Float,
-    Boolean,
     DateTime,
     ForeignKey,
     Text,

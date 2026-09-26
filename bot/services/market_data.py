@@ -170,7 +170,7 @@ class MarketDataService:
             with get_session() as session:
                 rows = (
                     session.query(PriceAlert.token_symbol, PriceAlert.chain)
-                    .filter(PriceAlert.is_active == True)
+                    .filter(PriceAlert.is_active == True)  # noqa: E712
                     .distinct()
                     .all()
                 )

@@ -12,9 +12,9 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.handlers.custodial import validate_withdraw_address
+from bot.handlers.custodial import validate_withdraw_address  # noqa: E402
 
 EVM = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"  # vitalik.eth, EIP-55
 SOL = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"  # 44-char base58 pubkey

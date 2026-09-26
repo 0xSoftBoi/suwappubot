@@ -238,6 +238,75 @@ MODEL_CATALOG: dict = {
         price_per_1m_input_usd=3.00,
         price_per_1m_output_usd=15.00,
     ),
+    # --- OpenRouter (aggregator route) -------------------------------------
+    # OpenRouter is excluded from resolution unless LLM_ALLOW_UNVERIFIED_PROVIDERS
+    # is set — see llm_providers.PROVIDERS["openrouter"] for why forced-tool-choice
+    # support is treated as unverified. Prices below were read directly from
+    # OpenRouter's live https://openrouter.ai/api/v1/models response (fetched
+    # 2026-08-10) — OpenRouter's OWN listed per-token price for each upstream
+    # model, not re-derived from the direct-provider entries above, since
+    # OpenRouter's pass-through rate can differ from the vendor's own list
+    # price (see deepseek-flash-or's cache multiplier for a concrete example).
+    "claude-sonnet-or": ModelSpec(
+        friendly_name="claude-sonnet-or",
+        provider="openrouter",
+        model_id="anthropic/claude-sonnet-5",
+        min_tier=SubscriptionTier.PREMIUM,
+        # OpenRouter's live-listed rate is $2/$10 (Anthropic's intro price,
+        # thru 2026-08-31). Priced at the same post-intro $3/$15 rate as the
+        # direct "claude-sonnet" entry above, for the same reason: billing at
+        # the lower intro rate would silently under-charge from 2026-09-01.
+        price_per_1m_input_usd=3.00,
+        price_per_1m_output_usd=15.00,
+        cache_read_multiplier=0.1,
+        cache_write_multiplier=1.25,
+        cache_min_prefix_tokens=1024,
+        price_deviation_reason=(
+            "intro pricing is $2/$10 through 2026-08-31, reverting to $3/$15; "
+            "priced at the post-intro rate so we do not under-charge from 2026-09-01"
+        ),
+    ),
+    "gpt-mini-or": ModelSpec(
+        friendly_name="gpt-mini-or",
+        provider="openrouter",
+        model_id="openai/gpt-5-mini",
+        min_tier=SubscriptionTier.PRO,
+        # Matches OpenRouter's live-listed rate exactly: $0.25 / $2.00.
+        price_per_1m_input_usd=0.25,
+        price_per_1m_output_usd=2.00,
+        cache_read_multiplier=0.1,
+        cache_min_prefix_tokens=1024,
+    ),
+    "deepseek-flash-or": ModelSpec(
+        friendly_name="deepseek-flash-or",
+        provider="openrouter",
+        model_id="deepseek/deepseek-v4-flash",
+        min_tier=SubscriptionTier.FREE,
+        # Matches OpenRouter's live-listed rate exactly: $0.14 / $0.28.
+        price_per_1m_input_usd=0.14,
+        price_per_1m_output_usd=0.28,
+        metered=True,  # the only unmetered slot is the direct-provider default
+        # OpenRouter's own cache-read price here is $0.028/1M = 0.2x of the
+        # fresh-input rate — NOT the ~0.02x DeepSeek quotes on its direct API
+        # (see deepseek-pro/deepseek-flash above). Use OpenRouter's own
+        # observed ratio rather than assuming it inherits DeepSeek's direct
+        # discount; the min-prefix threshold for when this engages is
+        # unconfirmed through the OpenRouter proxy, so it is left at the
+        # (informational-only) default of 0 rather than guessed.
+        cache_read_multiplier=0.2,
+    ),
+    "llama-3.3-70b-or": ModelSpec(
+        friendly_name="llama-3.3-70b-or",
+        provider="openrouter",
+        model_id="meta-llama/llama-3.3-70b-instruct",
+        min_tier=SubscriptionTier.FREE,
+        # Matches OpenRouter's live-listed rate exactly: $0.10 / $0.32. No
+        # cache pricing is listed for this model on OpenRouter, so this rides
+        # the no-caching defaults (read == full price) rather than guessing.
+        price_per_1m_input_usd=0.10,
+        price_per_1m_output_usd=0.32,
+        metered=True,
+    ),
 }
 
 # The one unmetered entry: the free parse every user gets without spending

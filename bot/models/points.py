@@ -27,7 +27,6 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
-    Text,
     JSON,
     Index,
 )
@@ -152,7 +151,7 @@ class UserPoints(Base):
         for level_name in reversed(level_order):
             if self.xp >= LEVELS[level_name]["xp"]:
                 if level_name != self.level:
-                    old_level = self.level
+                    old_level = self.level  # noqa: F841
                     self.level = level_name
                     return level_name
                 break

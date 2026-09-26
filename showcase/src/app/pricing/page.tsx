@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Fragment } from 'react';
 import stats from '@/data/stats.generated.json';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import FaqAccordion from '@/components/FaqAccordion';
 import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
@@ -96,7 +96,7 @@ const tiers: Tier[] = [
       'Up to 10 seats per org (configurable)',
       'Programmatic API keys with scoped permissions',
       'Agent key: 10,000 API requests/min',
-      `${stats.platformChains}-chain execution (competitors offer 1–2)`,
+      `${stats.platformChains}-chain execution (competitors offer 1-2)`,
       'KMS envelope encryption: institutional-grade custody',
       'Dedicated support + SLA: first in category',
       'Usage dashboard: API calls, rate-limit monitoring',
@@ -301,10 +301,9 @@ function CompareValue({ value }: { value: string }) {
 export default function PricingPage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
-          <p className="summer-kicker">Pricing</p>
           <h1>One subscription. A lower fee on every swap.</h1>
           <p className="mkt-hero__lead">
             Every plan carries the same engine: {stats.platformChains} chains, {stats.routerCount}{' '}
@@ -381,13 +380,12 @@ export default function PricingPage() {
         >
           <div className={styles.enterpriseGrid}>
             <div>
-              <p className="sw-kicker">Enterprise</p>
               <h2 className={styles.enterpriseTitle} id="enterprise-band">
                 Priced per desk, not per seat.
               </h2>
               <p className={styles.enterpriseBody}>
-                BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom ship no enterprise tier at all
-               : no org accounts, no scoped API keys, no SLA. Enterprise is built for trading
+                BullX, Photon, Banana Gun, Maestro, Trojan, and Axiom ship no enterprise tier at
+                all: no org accounts, no scoped API keys, no SLA. Enterprise is built for trading
                 desks, agent fleets, and institutions that need all three.
               </p>
               <div className={styles.enterpriseStats}>
@@ -434,7 +432,6 @@ export default function PricingPage() {
         </div>
 
         <section className={styles.compare} aria-labelledby="compare-plans">
-          <p className="sw-kicker">Every line, side by side</p>
           <h2 className={styles.compareTitle} id="compare-plans">
             Compare plans
           </h2>

@@ -24,73 +24,89 @@ from urllib.parse import urlsplit
 # the same async context without threading explicit parameters everywhere.
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="unknown")
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, Security, Response, Cookie
-from fastapi.security.api_key import APIKeyHeader, APIKey
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import (  # noqa: E402
+    FastAPI,
+    Depends,
+    HTTPException,
+    Request,
+    Security,
+    Response,
+    Cookie,
+)  # noqa: E402
+from fastapi.security.api_key import APIKeyHeader  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import PlainTextResponse, JSONResponse, RedirectResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 # Import webapp router (may be removed in some branches)
 try:
     from api.webapp import router as webapp_router
 except ImportError:
     webapp_router = None
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, ConfigDict
-import secrets
-import json
-import jwt
-import hashlib
-import hmac
-import base64
+from sqlalchemy.orm import Session  # noqa: E402
+from pydantic import BaseModel, ConfigDict  # noqa: E402
+import secrets  # noqa: E402
+import json  # noqa: E402
+import jwt  # noqa: E402
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+import base64  # noqa: E402
 
 # Add project root to path to import bot modules
 project_root = str(Path(__file__).parent.parent)
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from bot.services.wallet import WalletService
-from bot.config.settings import settings
-from bot.services.fee_sweeper import fee_sweeper
-from bot.services.alerts import alert_service
-from bot.services.market_data import market_data_service
-from bot.services.venue_data import venue_data_service
-from bot.services.orders import order_service
-from bot.services.swap_engine import SwapEngine
-from bot.services.tx_poller import tx_poller
-from bot.services.execution_scorer import execution_scorer
-from bot.services.withdraw_reconciler import withdraw_reconciler
-from bot.services.health_monitor import health_monitor
-from bot.services.approval_notifier import approval_notifier
-from bot.services.webhook_dispatcher import webhook_dispatcher
-from bot.services.balance_refresher import balance_refresher
-from bot.services.perps_monitor import perps_monitor
-from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor
-from bot.services.hl_ws_alerts import hl_ws_alerts
-from bot.services.predict_monitor import predict_monitor
-from bot.services.cctp_relayer import cctp_relayer
-from bot.services.cctp_generic_relayer import cctp_generic_relayer
-from bot.services.event_bus import event_bus
-from bot.services.digest_service import digest_service
-from bot.services.api_client import api_client
-from bot.utils.preload import preload_config
-from bot.services.rpc_manager import rpc_manager
-from bot.services.aegis_service import get_aegis
-from database.db import init_db, engine, get_session, DATABASE_AVAILABLE
-from bot.models.user import User, Wallet
-from bot.models.swap import SwapTransaction, SwapStatus
-from bot.models.advanced import LimitOrder, DCAOrder
-from bot.models.agent import RegisteredAgent
-from bot.utils.db_monitor import setup_db_monitoring
-from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded
-from bot.utils.telegram_safe import safe_md
-from bot.main import add_handlers
-from telegram.ext import AIORateLimiter, Application, PicklePersistence
-from telegram import Update
-from contextlib import asynccontextmanager, contextmanager
+from bot.services.wallet import WalletService  # noqa: E402
+from bot.config.settings import settings  # noqa: E402
+from bot.services.fee_sweeper import fee_sweeper  # noqa: E402
+from bot.services.alerts import alert_service  # noqa: E402
+from bot.services.market_data import market_data_service  # noqa: E402
+from bot.services.venue_data import venue_data_service  # noqa: E402
+from bot.services.orders import order_service  # noqa: E402
+from bot.services.swap_engine import SwapEngine  # noqa: E402
+from bot.services.tx_poller import tx_poller  # noqa: E402
+from bot.services.execution_scorer import execution_scorer  # noqa: E402
+from bot.services.withdraw_reconciler import withdraw_reconciler  # noqa: E402
+from bot.services.health_monitor import health_monitor  # noqa: E402
+from bot.services.approval_notifier import approval_notifier  # noqa: E402
+from bot.services.webhook_dispatcher import webhook_dispatcher  # noqa: E402
+from bot.services.balance_refresher import balance_refresher  # noqa: E402
+from bot.services.perps_monitor import perps_monitor  # noqa: E402
+from bot.services.hl_ecosystem_monitor import hl_ecosystem_monitor  # noqa: E402
+from bot.services.hl_ws_alerts import hl_ws_alerts  # noqa: E402
+from bot.services.predict_monitor import predict_monitor  # noqa: E402
+from bot.services.cctp_relayer import cctp_relayer  # noqa: E402
+from bot.services.cctp_generic_relayer import cctp_generic_relayer  # noqa: E402
+from bot.services.event_bus import event_bus  # noqa: E402
+from bot.services.digest_service import digest_service  # noqa: E402
+from bot.services.api_client import api_client  # noqa: E402
+from bot.utils.preload import preload_config  # noqa: E402
+from bot.services.rpc_manager import rpc_manager  # noqa: E402
+from bot.services.aegis_service import get_aegis  # noqa: E402
+from database.db import init_db, engine, get_session, DATABASE_AVAILABLE  # noqa: E402
+from bot.models.user import User, Wallet  # noqa: E402
+from bot.models.swap import SwapTransaction, SwapStatus  # noqa: E402
+from bot.models.agent import RegisteredAgent  # noqa: E402
+from bot.utils.db_monitor import setup_db_monitoring  # noqa: E402
+from bot.utils.rate_limiter import UserRateLimiter, RateLimitExceeded  # noqa: E402
+from bot.utils.telegram_safe import safe_md  # noqa: E402
 
-import logging
+# NOT `from bot.main import add_handlers` at module level: that pulls the entire
+# Telegram handler tree (40+ modules and everything they import) into a process
+# that, in worker mode, never registers a handler. It is imported lazily inside
+# the RUN_TELEGRAM_BOT branch below. The one side effect the worker *did* rely
+# on from that import — log format + httpx/urllib3 token-leak silencing — is now
+# explicit here.
+from bot.utils.logging_setup import configure_logging  # noqa: E402
+from bot.services.memory_guard import memory_guard, GuardConfig  # noqa: E402
+from telegram.ext import AIORateLimiter, Application, PicklePersistence  # noqa: E402
+from telegram import Update  # noqa: E402
+from contextlib import asynccontextmanager, contextmanager  # noqa: E402
 
+import logging  # noqa: E402
+
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Tracks optional/non-critical services that failed to start (or, for
@@ -140,6 +156,20 @@ def _track_degraded(name: str, log_prefix: str, auto_clear: bool = True):
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the consolidated API + Bot service."""
     logger.info("🚀 Starting consolidated Suwappu Monolith...")
+
+    # Memory guard first, before anything that can allocate: it is the only
+    # thing standing between a runaway loop and a 30 GB bill (see
+    # bot/services/memory_guard.py). Independent of DB/Redis availability.
+    memory_guard.enabled = bool(settings.memory_guard_enabled)
+    if memory_guard.enabled:
+        try:
+            memory_guard.config = GuardConfig.from_settings()
+            await memory_guard.start()
+        except Exception as e:
+            logger.warning(f"Memory guard failed to start (non-fatal): {e}")
+            _mark_degraded("memory_guard", e)
+    else:
+        logger.warning("Memory guard disabled by MEMORY_GUARD_ENABLED — RSS is unbounded")
 
     # 0. Error tracking (no-op unless SENTRY_DSN is set; never raises)
     from bot.services.sentry_service import init_sentry
@@ -215,6 +245,8 @@ async def lifespan(app: FastAPI):
                 .rate_limiter(AIORateLimiter(max_retries=3))
             )
         bot_app = _bot_builder.build()
+        from bot.main import add_handlers
+
         add_handlers(bot_app)
 
     # Store bot_app (or None in worker mode) in app.state for webhook endpoint access
@@ -247,7 +279,7 @@ async def lifespan(app: FastAPI):
                         drop_pending_updates=True,
                         max_connections=40,
                     )
-                    using_webhook = True
+                    using_webhook = True  # noqa: F841
                     logger.info(f"✓ Telegram webhook set: {settings.webhook_url}")
                 else:
                     # Guard: refuse to start polling when multiple replicas are
@@ -301,7 +333,7 @@ async def lifespan(app: FastAPI):
             from bot.platforms.discord_bot import SuwappuDiscordBot
 
             discord_bot = SuwappuDiscordBot()
-            discord_task = asyncio.create_task(discord_bot.start())
+            discord_task = asyncio.create_task(discord_bot.start())  # noqa: F841
             app.state.discord_bot = discord_bot
             logger.info("✓ Discord bot starting")
         except Exception as e:
@@ -365,6 +397,15 @@ async def lifespan(app: FastAPI):
 
         # Stagger service starts to avoid thundering herd on DB
         await fee_sweeper.start()
+        await asyncio.sleep(2)
+        # Credits inbound custodial deposits. Without it TransactionType.DEPOSIT
+        # is never written and funds sent to a deposit address are never booked
+        # to anyone. Optional-start: a watcher that cannot reach an RPC must not
+        # block the API, but it must be visible as degraded rather than silent.
+        with _track_degraded("deposit_watcher", "⚠️ Deposit watcher failed to start"):
+            from bot.services.deposit_watcher import deposit_watcher
+
+            await deposit_watcher.start()
         await asyncio.sleep(2)
         await alert_service.start(bot=bot_app.bot if bot_initialized else None)
         await asyncio.sleep(2)
@@ -524,6 +565,8 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
+    await memory_guard.stop()
+
     # Only stop services if they were started
     if db_success and enable_background_services:
         await fee_sweeper.stop()
@@ -569,9 +612,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Suwappu Agent Infrastructure",
     description="""
-    A high-performance liquidity API for AI agents. 
+    A high-performance liquidity API for AI agents.
     This API allows agents to manage multi-chain wallets, fetch portfolio balances, and execute cross-chain swaps.
-    
+
     **Agent Instructions**:
     - Use the `/wallets` endpoint to discover available addresses.
     - Use `/portfolio` to check balances before trading.
@@ -633,7 +676,7 @@ async def get_agent_key(
                         session.query(RegisteredAgent)
                         .filter(
                             RegisteredAgent.api_key == api_key,
-                            RegisteredAgent.is_active == True,
+                            RegisteredAgent.is_active == True,  # noqa: E712
                         )
                         .first()
                     )
@@ -763,22 +806,22 @@ if webapp_router:
     app.include_router(webapp_router)
 
 # --- Import and register OAuth routes ---
-from api.routes.oauth import router as oauth_router
+from api.routes.oauth import router as oauth_router  # noqa: E402
 
 app.include_router(oauth_router)
 
 # --- Import and register mobile app API routes ---
-from api.routes.settings import router as settings_router
+from api.routes.settings import router as settings_router  # noqa: E402
 
 app.include_router(settings_router)
 
 # --- Import and register Phase 2 mobile feature routes ---
-from api.routes.mobile import router as mobile_router
+from api.routes.mobile import router as mobile_router  # noqa: E402
 
 app.include_router(mobile_router)
 
 # Jelly-native public discovery and wallet-backed creator claims (no third-party login).
-from api.routes.social import router as social_router
+from api.routes.social import router as social_router  # noqa: E402
 
 app.include_router(social_router)
 
@@ -873,6 +916,9 @@ class SwapResponse(BaseModel):
 
 class AuthChallengeRequest(BaseModel):
     address: str
+    # EVM chain the wallet is connected to. Smart accounts bind their EIP-1271
+    # check to block.chainid, so we must sign for — and verify on — that chain.
+    chainId: Optional[int] = None
 
 
 class AuthChallengeResponse(BaseModel):
@@ -1058,6 +1104,39 @@ SERVICE_STALENESS_SECONDS: dict[str, int] = {
 }
 DEFAULT_STALENESS_SECONDS = 90
 
+# A supervised loop can beat while the work it supervises is wedged. That is
+# the price of decoupling the heartbeat from the pass (see
+# bot/services/balance_refresher.py) and it must not become a new blind spot,
+# so services that publish a "last completed pass" marker get a second check.
+# The result is reported as the service's own status word rather than pushed
+# only into `degraded`, because the uptime probe walks `checks` and would never
+# see a top-level-only signal — which is how the previous wedge went unnoticed.
+# Each value must exceed that service's pass budget plus its interval, or a
+# healthy-but-slow pass reads as stalled.
+SERVICE_PASS_STALL_SECONDS: dict[str, int] = {
+    # budget 600s + interval 60s; 1800s leaves room for two bad passes.
+    "balance_refresher": 1800,
+}
+
+
+async def _pass_progress_status(svc: str, now: float) -> str:
+    """ "alive", or "stalled" when the loop beats but its work is not landing."""
+    from bot.utils.redis_cache import redis_cache
+
+    stall = SERVICE_PASS_STALL_SECONDS.get(svc)
+    if stall is None:
+        return "alive"
+    last_pass = await redis_cache.get(f"service:{svc}:last_pass")
+    if last_pass is None:
+        # No marker yet is only damning once a pass has had time to finish;
+        # before that it is an ordinary fresh boot.
+        return "stalled" if (now - _PROCESS_STARTED_AT) > stall else "alive"
+    try:
+        return "stalled" if now - float(last_pass) > stall else "alive"
+    except (TypeError, ValueError):
+        return "stalled"
+
+
 # When this process came up. Needed to distinguish a service that has NOT YET
 # written its first heartbeat (normal, for a few seconds after boot) from one
 # that never will. Without it both read "unknown", and "unknown" was excluded
@@ -1216,7 +1295,7 @@ async def health_ready():
             svc_heartbeats[svc] = "dead"
             never_beat.append(svc)
         else:
-            svc_heartbeats[svc] = "alive"
+            svc_heartbeats[svc] = await _pass_progress_status(svc, now)
 
     # The worker publishes its own fingerprint to Redis at startup (it has no
     # public URL of its own). Reporting it here is the only way to verify a
@@ -1228,6 +1307,9 @@ async def health_ready():
         "redis": redis_ok,
         "bot": bot_status in ("polling", "webhook"),
         "services": svc_heartbeats,
+        # RSS as seen by the process itself; peak_gb is the tell for a balloon
+        # that already came and went since the last restart.
+        "memory": memory_guard.snapshot(),
     }
     # Critical: DB must be up; Redis + bot strongly preferred
     is_ready = checks["database"]
@@ -1248,6 +1330,7 @@ async def health_ready():
                 "redis": "connected" if redis_ok else "memory-fallback",
                 "bot": bot_status,
                 "background_services": svc_heartbeats,
+                "memory": checks["memory"],
             },
             # Optional non-critical services that failed to start (or, for
             # periodic tasks, most recently failed) — never affects
@@ -1259,6 +1342,14 @@ async def health_ready():
             + [
                 {"service": name, "error": "no heartbeat past staleness threshold"}
                 for name in never_beat
+            ]
+            # Beating, but its work is not completing. A different fault from a
+            # dead loop and it needs a different message, or the operator reads
+            # "dead" and goes looking for a crash that never happened.
+            + [
+                {"service": name, "error": "loop alive but refresh passes are not completing"}
+                for name, state in svc_heartbeats.items()
+                if state == "stalled"
             ],
         },
     )
@@ -1334,7 +1425,9 @@ async def auth_challenge(body: AuthChallengeRequest, request: Request):
         raise HTTPException(status_code=400, detail="Invalid Ethereum address format")
 
     domain, uri = _wallet_auth_origin(request)
-    result = generate_auth_challenge(address, domain=domain, uri=uri)
+    # Pass chainId through as-is: None means "client didn't say", which tells the
+    # verifier to probe the major chains instead of assuming mainnet.
+    result = generate_auth_challenge(address, domain=domain, uri=uri, chain_id=body.chainId)
 
     return AuthChallengeResponse(
         challenge=result["challenge"],
@@ -1351,12 +1444,14 @@ async def auth_verify(
     Verify the signed challenge and create a session.
     Returns a JWT token for subsequent authenticated requests.
     """
-    from bot.services.turnkey_client import verify_auth_signature
+    from bot.services.turnkey_client import verify_wallet_auth_signature
 
     address = request.address.strip().lower()
 
-    # Verify the signature
-    is_valid = verify_auth_signature(
+    # Verify the signature. Handles both EOAs (65-byte ECDSA) and smart accounts
+    # (EIP-1271 / ERC-6492 — Coinbase Smart Wallet, Safe, passkey/4337 wallets),
+    # whose signatures are not recoverable and must be checked on-chain.
+    is_valid = await verify_wallet_auth_signature(
         address=address, signature=request.signature, nonce=request.nonce
     )
 
@@ -1550,7 +1645,7 @@ async def auth_me(
     if address:
         wallet_query = db.query(Wallet).filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         if address.startswith("0x"):
             wallet_query = wallet_query.filter(Wallet.address.ilike(address))
@@ -1627,7 +1722,7 @@ async def _complete_telegram_login(tg_user: Dict[str, Any], response: Response, 
         db.query(Wallet)
         .filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         .order_by(Wallet.is_default.desc(), Wallet.id.asc())
         .first()
@@ -2104,7 +2199,7 @@ async def passkey_register_complete(
             db.query(Wallet)
             .filter(
                 Wallet.user_id == existing_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .order_by(Wallet.is_default.desc(), Wallet.id.asc())
             .first()
@@ -2225,7 +2320,6 @@ async def passkey_auth_init():
     _require_passkey_enabled()
     import secrets
     import time
-    import urllib.parse
 
     challenge = secrets.token_urlsafe(32)
 
@@ -2281,7 +2375,7 @@ async def passkey_auth_complete(
         db.query(Wallet)
         .filter(
             Wallet.user_id == user.id,
-            Wallet.is_active == True,
+            Wallet.is_active == True,  # noqa: E712
         )
         .first()
     )
@@ -2459,106 +2553,9 @@ async def provision_agent_wallet(
 # ==========================================
 
 
-@app.post("/internal/agent/provision-wallet", tags=["Internal"])
-async def internal_provision_wallet(request: Request):
-    """Create User + Wallet for an agent. Called by TS API during wallet creation."""
-    key = request.headers.get("X-Internal-Key", "")
-    expected = os.environ.get("INTERNAL_API_KEY", "")
-    if not expected or key != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal key")
-
-    body = await request.json()
-    agent_uuid = body.get("agent_uuid", "")
-    chain_type = body.get("chain_type", "evm")
-    if not agent_uuid:
-        raise HTTPException(status_code=400, detail="agent_uuid required")
-
-    agent_int_id = abs(hash(agent_uuid)) % (2**31 - 1)
-
-    with get_session() as session:
-        user = session.query(User).filter(User.telegram_id == agent_int_id).first()
-        if not user:
-            user = User(
-                telegram_id=agent_int_id, username=f"agent_{agent_uuid[:8]}", first_name="Agent"
-            )
-            session.add(user)
-            session.flush()
-        user_id = user.id
-
-    # Create Turnkey-managed wallet row — no local key encryption
-    turnkey_wallet_id = body.get("turnkey_wallet_id")
-    turnkey_sub_org_id = body.get("turnkey_sub_org_id")
-
-    with get_session() as session:
-        wallet = Wallet(
-            user_id=user_id,
-            name=f"agent_{agent_uuid[:8]}",
-            address="pending",
-            encrypted_private_key="turnkey_managed",
-            encryption_scheme="turnkey",
-            wallet_provider="turnkey",
-            turnkey_wallet_id=turnkey_wallet_id,
-            turnkey_sub_org_id=turnkey_sub_org_id,
-            chain_type=chain_type,
-            is_active=True,
-            is_default=True,
-            created_at=datetime.utcnow(),
-        )
-        session.add(wallet)
-        session.flush()
-        wallet_id = wallet.id
-
-    return {"internal_user_id": user_id, "internal_wallet_id": wallet_id}
-
-
-@app.post("/internal/agent/execute-swap", tags=["Internal"])
-async def internal_execute_swap(request: Request):
-    """Execute swap via Python pipeline. Called by TS API."""
-    key = request.headers.get("X-Internal-Key", "")
-    expected = os.environ.get("INTERNAL_API_KEY", "")
-    if not expected or key != expected:
-        raise HTTPException(status_code=401, detail="Invalid internal key")
-
-    body = await request.json()
-    from bot.services.swap_engine import SwapEngine, SwapQuote
-    from bot.services.fee_service import fee_service
-
-    swap_engine = SwapEngine()
-
-    qd = body.get("quote_data", {})
-    # Carry the platform fee so EVM execution re-fetches the tx WITH the fee
-    # (this internal/webapp execute path was dropping it). Falls back to the
-    # default rate; collection stays gated per-provider on a configured collector.
-    quote = SwapQuote(
-        provider=qd.get("provider", "lifi"),
-        from_chain=str(qd.get("from_chain", "base")),
-        to_chain=str(qd.get("to_chain", "base")),
-        from_token=str(qd.get("from_token", "")),
-        to_token=str(qd.get("to_token", "")),
-        from_amount=str(qd.get("from_amount", "0")),
-        from_amount_human=float(qd.get("from_amount_human", 0)),
-        to_amount=str(qd.get("to_amount", "0")),
-        to_amount_human=float(qd.get("to_amount_human", 0)),
-        to_amount_min=str(qd.get("to_amount_min", qd.get("to_amount", "0"))),
-        gas_cost_usd=float(qd.get("gas_cost_usd", 0)),
-        fee_cost_usd=float(qd.get("fee_cost_usd", 0)),
-        total_cost_usd=float(qd.get("total_cost_usd", 0)),
-        estimated_time=int(qd.get("estimated_time", 60)),
-        price_impact=float(qd.get("price_impact", 0)),
-        exchange_rate=float(qd.get("exchange_rate", 0)),
-        raw_quote=qd.get("raw_quote", {}),
-        timestamp=datetime.now(),
-        platform_fee_bps=qd.get("platform_fee_bps") or fee_service.get_fee_bps(),
-    )
-
-    swap_tx = await swap_engine.execute_swap(
-        quote=quote,
-        wallet_id=body.get("internal_wallet_id"),
-        user_id=body.get("internal_user_id"),
-        idempotency_key=body.get("idempotency_key"),
-    )
-
-    return {"swap_id": swap_tx.id, "tx_hash": swap_tx.tx_hash, "status": swap_tx.status}
+# /internal/agent/provision-wallet and /internal/agent/execute-swap live in
+# api/routes/internal.py (ownership-guarded). No fallback copies here: if that
+# router fails to import, these must 404, not silently skip the guard.
 
 
 # --- Dependencies ---
@@ -2580,7 +2577,11 @@ async def get_wallets(
     Retrieve all active wallets for a specific user.
     Agents use this to identify target addresses for deposit/swap operations.
     """
-    wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
+    wallets = (
+        db.query(Wallet)
+        .filter(Wallet.user_id == user_id, Wallet.is_active == True)  # noqa: E712
+        .all()  # noqa: E712
+    )  # noqa: E712
     # Map camelCase for iOS compatibility
     res = []
     for w in wallets:
@@ -2612,7 +2613,11 @@ async def get_portfolio(
     Fetches a real-time consolidated balance sheet for a user across all supported chains.
     Agents must call this to verify sufficient liquidity before initiating swap orders.
     """
-    wallets = db.query(Wallet).filter(Wallet.user_id == user_id, Wallet.is_active == True).all()
+    wallets = (
+        db.query(Wallet)
+        .filter(Wallet.user_id == user_id, Wallet.is_active == True)  # noqa: E712
+        .all()  # noqa: E712
+    )  # noqa: E712
 
     total_usd = 0.0
     all_token_balances = []
@@ -2732,12 +2737,10 @@ async def admin_get_swaps(
 
 # ============ WhatsApp Webhook ============
 
-from fastapi import Request
-from fastapi.responses import PlainTextResponse
-from bot.services.whatsapp_service import whatsapp_service
-from bot.services.unified_bot_service import unified_bot_service
-from bot.services.whatsapp_voice import voice_handler
-from bot.services.whatsapp_queue import WhatsAppMessageQueue
+from fastapi import Request  # noqa: E402
+from bot.services.whatsapp_service import whatsapp_service  # noqa: E402
+from bot.services.whatsapp_voice import voice_handler  # noqa: E402
+from bot.services.whatsapp_queue import WhatsAppMessageQueue  # noqa: E402
 
 
 async def _wa_dispatch(message):

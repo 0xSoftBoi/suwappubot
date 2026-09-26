@@ -11,7 +11,7 @@ from telegram.ext import (
     filters,
 )
 
-from bot.services.x402_service import x402_service, TIER_LIMITS
+from bot.services.x402_service import x402_service
 from bot.services.api_client import api_client
 from bot.models.subscription import SubscriptionTier
 from database.db import get_session
@@ -263,7 +263,7 @@ async def select_chain_callback(update: Update, context: ContextTypes.DEFAULT_TY
     payment = await x402_service.create_subscription_payment(user_id, tier, chain)
     context.user_data["payment_id"] = payment.payment_id
 
-    tier_info = x402_service.get_tier_info(tier)
+    tier_info = x402_service.get_tier_info(tier)  # noqa: F841
 
     message = f"""
 💳 **x402 Payment Request**

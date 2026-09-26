@@ -21,16 +21,16 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.config.morpho_config import (
+from bot.config.morpho_config import (  # noqa: E402
     DEFAULT_LTV,
     LLTV,
     MAX_LTV,
     MIN_WITHDRAW_HF,
     WAD,
 )
-from bot.services.morpho_api import compute_health_factor
+from bot.services.morpho_api import compute_health_factor  # noqa: E402
 
 # 1 BTC = $100,000 → oracle price() is 1e34-scaled USD/BTC
 PRICE = 100_000 * 10**34

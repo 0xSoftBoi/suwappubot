@@ -11,7 +11,6 @@ approval_requests, agent_webhook_deliveries) monkeypatched in for
 pattern in tests/test_agent_approvals.py.
 """
 
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -23,7 +22,6 @@ from bot.services import approval_webhook, webhook_dispatcher
 from bot.services.approval_webhook import sign_payload, is_callback_url_safe
 from bot.services.webhook_dispatcher import (
     WebhookDispatcher,
-    BACKOFF_SCHEDULE_SECONDS,
     MAX_ATTEMPTS,
 )
 

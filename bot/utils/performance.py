@@ -132,7 +132,7 @@ def track_time(metric_name: str, tags: Dict[str, str] = None):
             is_error = False
             try:
                 return await func(*args, **kwargs)
-            except Exception as e:
+            except Exception as e:  # noqa: F841
                 is_error = True
                 raise
             finally:
@@ -162,7 +162,7 @@ def track_time_sync(metric_name: str, tags: Dict[str, str] = None):
             is_error = False
             try:
                 return func(*args, **kwargs)
-            except Exception as e:
+            except Exception as e:  # noqa: F841
                 is_error = True
                 raise
             finally:

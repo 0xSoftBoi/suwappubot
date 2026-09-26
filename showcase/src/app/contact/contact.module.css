@@ -13,19 +13,6 @@
   box-shadow: var(--sw-shadow-sm);
 }
 
-.demoEyebrow {
-  margin: 0 0 0.35rem;
-  padding: 2px 10px;
-  display: inline-block;
-  border-radius: var(--sw-r-pill);
-  background: var(--sw-accent);
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .demoCard h2 {
   margin: 0 0 0.5rem;
 }

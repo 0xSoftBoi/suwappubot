@@ -14,11 +14,14 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from database.db import get_session, init_db
-from bot.models.user import User
-from bot.models.recovery import RecoveryRequest, RecoveryStatus
-from bot.services.dkim_verifier import canonicalize_body_relaxed, canonicalize_header_relaxed
-from bot.services.social_recovery import social_recovery_service as svc
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.models.recovery import RecoveryRequest, RecoveryStatus  # noqa: E402
+from bot.services.dkim_verifier import (  # noqa: E402
+    canonicalize_body_relaxed,
+    canonicalize_header_relaxed,
+)  # noqa: E402
+from bot.services.social_recovery import social_recovery_service as svc  # noqa: E402
 
 GUARDIAN = "alice@example.com"
 

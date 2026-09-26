@@ -92,7 +92,7 @@ function shareXUrl(handle: string, url: string): string {
 }
 
 function shareTelegramUrl(handle: string, url: string): string {
-  const text = `I just reserved @${handle} on Suwappu — claim your name before it's gone.`;
+  const text = `I just reserved @${handle} on Suwappu. Claim your name before it's gone.`;
   return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
 }
 
@@ -305,10 +305,10 @@ export default function ReserveClient() {
         const err = body as ReserveError;
         let msg = 'Something went wrong. Please try again.';
         if (err.error === 'handle_taken') {
-          msg = 'That name was just taken — try another.';
+          msg = 'That name was just taken. Try another.';
           setAvailability('taken');
         } else if (err.error === 'invalid_handle') {
-          msg = "That name isn't valid. Use 3–32 letters, numbers or dashes.";
+          msg = "That name isn't valid. Use 3-32 letters, numbers or dashes.";
         } else if (err.error === 'invalid_email') {
           msg = "That email address doesn't look right.";
         }
@@ -366,7 +366,7 @@ export default function ReserveClient() {
       case 'taken':
         return 'That name is already taken.';
       case 'invalid':
-        return 'Use 3–32 letters, numbers or dashes — no leading/trailing dash.';
+        return 'Use 3-32 letters, numbers or dashes. No leading or trailing dash.';
       case 'error':
         return "Couldn't check that name. Try again.";
       default:

@@ -9,12 +9,12 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from web3 import Web3
-import json as _json
+from web3 import Web3  # noqa: E402
+import json as _json  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.user import User
-from bot.models.swap import SwapTransaction
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.models.swap import SwapTransaction  # noqa: E402
 
 # --- CoW appData hash ------------------------------------------------------
 

@@ -214,7 +214,7 @@ def _ts_object_literal(path: Path, const_name: str) -> str:
         elif src[i] == "}":
             depth -= 1
             if depth == 0:
-                return src[start + 1 : i]
+                return src[start + 1 : i]  # noqa: E203
     pytest.fail(f"{path.name}: unbalanced braces in `{const_name}`")
 
 

@@ -12,9 +12,7 @@ Key benefits:
 import logging
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
-from decimal import Decimal
 
-from bot.config.chains import get_chain_by_name
 from bot.config.tokens import get_token_decimals
 from bot.config.settings import settings
 from bot.utils.http_client import get_session

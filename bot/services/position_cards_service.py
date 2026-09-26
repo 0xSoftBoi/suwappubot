@@ -6,12 +6,13 @@ live P&L against it. Holding one grants a swap-fee discount.
 
 Trust model
 -----------
-Token ids come from an indexer (Blockscout), which is convenient but NOT
-authoritative. The discount's VALUE is always resolved by an ``eth_call``
-against ``discountFractionBpsFor``, which re-checks ownership on-chain and ignores ids
-the address does not own. A stale or hostile indexer can therefore only ever
-produce a SMALLER discount, never a larger one. The discount is flat per
-holder, not per card, so stacking cards cannot compound the giveaway.
+Card STATE (P&L, grade) comes from an indexer (Blockscout) for the token-id
+list, which is convenient but NOT authoritative — each id is re-verified
+on-chain before it is trusted. The fee discount does not need that indexer at
+all: its VALUE is resolved by an ``eth_call`` against ``discountFor(address)``,
+which reads native ERC-721 state (goldBalance / balanceOf) directly. The
+discount is flat per holder, not per card — Gold beats base, never additive —
+so stacking cards cannot compound the giveaway.
 
 Guardrails (money path)
 -----------------------
@@ -35,17 +36,19 @@ logger = logging.getLogger(__name__)
 CHAIN = "robinhood"
 CHAIN_ID = 4663
 
-# The contract reports the discount in BASIS POINTS OF THE TIER RATE
-# (holdDiscountFractionBps in SuwappuPositions.sol; 4000 == 40% off), so we divide
-# by 10,000 to get the fraction fee_service multiplies by. Note the unit: these are
-# bps OF THE RATE, not bps OF THE SWAP. That distinction is the whole point — a flat
+# discountFor() reports the discount in BASIS POINTS OF THE TIER RATE
+# (holdDiscountFractionBps / goldDiscountFractionBps in SuwappuPositions.sol;
+# 4000 == 40% base, 5500 == 55% Founders' Gold), so we divide by 10,000 to get
+# the fraction fee_service multiplies by. Note the unit: these are bps OF THE
+# RATE, not bps OF THE SWAP. That distinction is the whole point — a flat
 # bps-of-the-swap subtraction from unevenly-spaced tiers (FREE 100 / PRO 50 /
 # PREMIUM 30 / ENTERPRISE 10) floored PRO and PREMIUM to the same rate, making
 # PREMIUM worthless to a card holder. See fee_service.get_fee_decimal.
 #
-# The contract default of 4000 yields the 0.40 fraction documented as
-# economics.hold_discount_fraction in nft/position-cards/config.json — pinned equal
-# in tests/test_position_cards.py so the two cannot drift.
+# The contract defaults (4000, 5500) yield the 0.40 / 0.55 fractions documented
+# as economics.hold_discount_fraction / economics.gold_discount_fraction in
+# nft/position-cards/config.json — pinned equal in tests/test_position_cards.py
+# so the two cannot drift.
 #
 # Hard backstop on the FRACTION this module can return, independent of whatever the
 # deployed contract reports. It mirrors MAX_HOLD_DISCOUNT_FRACTION_BPS (6000) so the
@@ -132,13 +135,10 @@ PRICED_TICKERS = [
 
 _ABI = [
     {
-        "name": "discountFractionBpsFor",
+        "name": "discountFor",
         "type": "function",
         "stateMutability": "view",
-        "inputs": [
-            {"name": "owner", "type": "address"},
-            {"name": "tokenIds", "type": "uint256[]"},
-        ],
+        "inputs": [{"name": "holder", "type": "address"}],
         "outputs": [{"name": "", "type": "uint16"}],
     },
     {
@@ -175,6 +175,13 @@ _ABI = [
         "stateMutability": "view",
         "inputs": [{"name": "tickerIndex", "type": "uint8"}],
         "outputs": [{"name": "", "type": "uint256"}],
+    },
+    {
+        "name": "isGold",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "bool"}],
     },
 ]
 
@@ -296,7 +303,13 @@ class PositionCardsService:
 
     async def get_discount_fraction(self, address: Optional[str]) -> float:
         """Swap-fee discount for an address, as a PROPORTIONAL fraction of the
-        tier rate (0.40 == 40% off). 0.0 on any failure.
+        tier rate (0.40 base, 0.55 Founders' Gold). 0.0 on any failure.
+
+        Reads the contract's `discountFor(address)` directly — goldBalance and
+        balanceOf are both native ERC-721 state, so this needs no indexer-sourced
+        token-id list and cannot under-count a holder's Gold card the way a stale
+        indexer snapshot could. `discountFor` already applies the best-single-card
+        rule (Gold beats base; never additive), so this only clamps the result.
         """
         if not address or not self.enabled:
             return 0.0
@@ -305,15 +318,11 @@ class PositionCardsService:
         if hit and time.time() - hit[0] < _CACHE_TTL:
             return hit[1]
         try:
-            ids = await self._token_ids(address)
-            if not ids:
-                self._discount[key] = (time.time(), 0.0)
-                return 0.0
 
             def _read():
                 contract = self._contract()
-                return contract.functions.discountFractionBpsFor(
-                    contract.w3.to_checksum_address(address), ids
+                return contract.functions.discountFor(
+                    contract.w3.to_checksum_address(address)
                 ).call()
 
             raw = await self._offload(_read)
@@ -341,7 +350,16 @@ class PositionCardsService:
                 for tid in ids[:50]:
                     try:
                         bps, priced = contract.functions.returnBps(tid).call()
-                        rows.append((tid, bps, priced, contract.functions.grade(tid).call()))
+                        grade_idx = contract.functions.grade(tid).call()
+                        # Fail-safe false: a Gold read is decorative (a badge in
+                        # /cards output), never a discount source — the fee path
+                        # already resolves Gold authoritatively via discountFor.
+                        # A failed isGold call must not drop the whole row.
+                        try:
+                            gold = bool(contract.functions.isGold(tid).call())
+                        except Exception:
+                            gold = False
+                        rows.append((tid, bps, priced, grade_idx, gold))
                     except Exception:
                         continue
                 return rows
@@ -352,13 +370,14 @@ class PositionCardsService:
             # budget than _RPC_TIMEOUT — up to 100 eth_calls do not fit in 2s.
             rows = await self._offload(_read_all, default=[], timeout=_VIEW_TIMEOUT)
             out = []
-            for tid, bps, priced, grade_idx in rows or []:
+            for tid, bps, priced, grade_idx, gold in rows or []:
                 out.append(
                     {
                         "token_id": tid,
                         "return_bps": int(bps) if priced else None,
                         "priced": bool(priced),
                         "grade": GRADES[grade_idx] if 0 <= grade_idx < len(GRADES) else "Flat",
+                        "gold": gold,
                     }
                 )
             return out

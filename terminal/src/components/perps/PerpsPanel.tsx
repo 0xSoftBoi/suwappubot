@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import type { HLMarket, PerpsOrderType } from '../../types/api'
 import { useAuth } from '../../contexts/AuthContext'
@@ -8,6 +8,7 @@ import { usePerpsAccount, useExecutePerps } from '../../hooks/useTerminalPerps'
 import { ConnectHyperliquid } from './ConnectHyperliquid'
 import { usePersistentState } from '../../lib/persist'
 import type { MarginMode } from '../../types/perps'
+import { clampLeverage, isLeverageValid, normalizeMaxLeverage } from '../../lib/perpsRisk'
 import { WalletConnect } from '../auth/WalletConnect'
 
 interface Props {
@@ -37,7 +38,17 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   const execute = useExecutePerps()
 
   const market = markets?.find((m: HLMarket) => m.name === selectedMarket)
+  const maxLeverage = normalizeMaxLeverage(market?.maxLeverage)
   const funding = usePerpsFunding(market)
+
+  // A persisted leverage can become invalid when the market changes. Keep the
+  // ticket bounded immediately; the backend still re-checks live HL metadata.
+  useEffect(() => {
+    setLeverage((current) => {
+      const bounded = clampLeverage(current, maxLeverage)
+      return bounded === current ? current : bounded
+    })
+  }, [maxLeverage, setLeverage])
   const fundingUp = funding.hourlyRate >= 0
 
   const marginModes: { value: MarginMode; label: string }[] = [
@@ -77,7 +88,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   // (maxLeverage, markPrice) from the markets query, plus ticket state.
   const mmf = market?.maxLeverage ? 1 / (2 * market.maxLeverage) : 0
   const liqPrice =
-    refPrice > 0 && leverage > 0 && mmf > 0 && mmf < 1
+    marginMode === 'isolated' && refPrice > 0 && leverage > 0 && mmf > 0 && mmf < 1
       ? side === 'long'
         ? (refPrice * (1 - 1 / leverage)) / (1 - mmf)
         : (refPrice * (1 + 1 / leverage)) / (1 + mmf)
@@ -93,17 +104,20 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
   const marginRatioPct =
     equity && equity > 0 ? Math.min((projectedMaint / equity) * 100, 100) : null
 
+  const leverageValid = isLeverageValid(leverage, maxLeverage)
   const canSubmit =
     isAuthenticated &&
     !needsTradingProof &&
     connected &&
     market &&
     sizeNum > 0 &&
+    leverageValid &&
     limitValid &&
     !execute.isPending
 
   async function submit() {
     if (!market || !(sizeNum > 0)) return
+    if (!leverageValid) return
     if (isLimit && !(limitNum > 0)) return
     try {
       const res = await execute.mutateAsync({
@@ -111,6 +125,7 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
         side,
         size: sizeNum,
         leverage,
+        marginMode,
         orderType,
         limitPrice: isLimit ? limitNum : undefined,
         tpPrice: !isLimit && tpNum > 0 ? tpNum : undefined,
@@ -290,15 +305,15 @@ export function PerpsPanel({ markets, selectedMarket, onSelectMarket }: Props) {
         <input
           type="range"
           min="1"
-          max={market?.maxLeverage || 20}
+          max={maxLeverage}
           value={leverage}
-          onChange={(e) => setLeverage(parseInt(e.target.value))}
+          onChange={(e) => setLeverage(clampLeverage(parseInt(e.target.value), maxLeverage))}
           aria-label="Leverage"
           className="w-full accent-sakura-500"
         />
         <div className="flex justify-between font-mono text-[10px] tnum text-terminal-text-muted">
           <span>1×</span>
-          <span>{market?.maxLeverage || 20}×</span>
+          <span>{maxLeverage}×</span>
         </div>
       </div>
 

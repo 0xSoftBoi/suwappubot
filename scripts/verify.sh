@@ -3,10 +3,10 @@ set -e
 MODE=${1:-all}
 
 case "$MODE" in
-  all|python|api|agent|env|health|onchain) ;;
+  all|python|api|agent|env|health|onchain|docs) ;;
   *)
     echo "✗ Unknown verify lane: '$MODE'" >&2
-    echo "  Valid lanes: all python api agent env health onchain" >&2
+    echo "  Valid lanes: all python api agent env health onchain docs" >&2
     exit 2
     ;;
 esac
@@ -52,6 +52,15 @@ if [[ "$MODE" == "all" || "$MODE" == "env" ]]; then
     exit 1
   fi
   echo "✓ Env contract in sync"
+fi
+
+if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
+  echo "=== Docs drift ==="
+  if ! python3 scripts/check_docs_drift.py; then
+    echo "✗ Canonical docs reference paths that no longer exist."
+    echo "  Update the doc alongside the rename/removal that stranded it."
+    exit 1
+  fi
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then

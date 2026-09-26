@@ -7,8 +7,8 @@ Commands:
     /mpp status  — View active sessions
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram import Update
+from telegram.ext import ContextTypes, CommandHandler
 
 from bot.models.user import User
 from bot.services.tempo_mpp import tempo_mpp

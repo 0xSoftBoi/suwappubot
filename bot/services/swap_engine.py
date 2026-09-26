@@ -1441,6 +1441,47 @@ class SwapEngine:
                 flight.task.cancel()
                 await asyncio.gather(flight.task, return_exceptions=True)
 
+    def _assert_not_gated(
+        self,
+        from_token: str,
+        to_token: str,
+        from_chain: str,
+        to_chain: str,
+    ) -> None:
+        """Fail fast for allowlist-gated tokens (e.g. Superstate RWA funds).
+
+        Gated tokens quote fine but settlement REVERTS for non-allowlisted
+        wallets. Call this before any provider is raced / any tx is built /
+        any execution proceeds, rather than let a doomed quote win a race
+        and fail later. Chain-aware so a pasted contract address is checked
+        against gated addresses on the token's own chain.
+        """
+        from bot.config.protocols import is_gated_token
+        from bot.config.tokens import get_token_by_symbol
+
+        for gated_symbol, gated_chain in ((from_token, from_chain), (to_token, to_chain)):
+            if is_gated_token(gated_symbol, gated_chain):
+                token = get_token_by_symbol(gated_symbol)
+                fund_name = f" ({token.name})" if token and token.name else ""
+                if token and token.gated_note:
+                    note = token.gated_note
+                elif token:
+                    note = (
+                        "This is a Superstate tokenized fund — transfers require KYC "
+                        "allowlisting with Superstate (qualified purchasers only) and "
+                        "revert for non-allowlisted wallets. Get onboarded at superstate.co."
+                    )
+                else:
+                    note = (
+                        f"{gated_symbol} is an allowlist-gated token address — transfers revert "
+                        "for non-allowlisted wallets."
+                    )
+                # This guard is intentionally cheap/synchronous — it sits in the hot
+                # quote path — and never consults live allowlist status. That advisory
+                # check (superstate_service.is_allowlisted) belongs in the handler
+                # layer, not here: an RPC hiccup must never look like a bypass signal.
+                raise SwapError(f"{gated_symbol}{fund_name} is allowlist-gated: {note}")
+
     async def _get_quote_impl(
         self,
         from_chain: str,
@@ -1498,6 +1539,13 @@ class SwapEngine:
                     )
                     tier = None
             platform_fee_bps = fee_service.get_fee_bps(tier)
+
+        # Allowlist-gated tokens (e.g. Superstate RWA funds) quote fine but
+        # settlement reverts for non-allowlisted wallets. Fail fast here,
+        # BEFORE the quote-cache read below, so a transfer_gated flag flip
+        # can't be masked by a cached quote from a moment ago (cache TTL is
+        # short but non-zero) — and before racing any provider.
+        self._assert_not_gated(from_token, to_token, from_chain, to_chain)
 
         # Check quote cache — keyed on platform_fee_bps so quotes for different
         # tiers (different fee) never collide.
@@ -2171,7 +2219,9 @@ class SwapEngine:
         )
 
         to_amount_human = self._get_token_amount_human(quote.to_amount, to_token, to_chain)
-        to_amount_min_human = self._get_token_amount_human(quote.to_amount_min, to_token, to_chain)
+        to_amount_min_human = self._get_token_amount_human(  # noqa: F841
+            quote.to_amount_min, to_token, to_chain
+        )  # noqa: F841
 
         # Calculate exchange rate
         exchange_rate = to_amount_human / amount if amount > 0 else 0
@@ -2232,6 +2282,9 @@ class SwapEngine:
         chain = get_chain_by_name(from_chain)
         if not chain or chain.chain_type != ChainType.EVM:
             raise SwapError("External-wallet swaps are only supported on EVM chains.")
+
+        # Fail fast for allowlist-gated tokens before building any unsigned tx.
+        self._assert_not_gated(from_token, to_token, from_chain, to_chain)
 
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
 
@@ -3482,7 +3535,25 @@ class SwapEngine:
             slippage=slippage,
         )
 
-        to_amount_human = self._get_token_amount_human(quote.amount_out, token, to_chain)
+        # `quote.amount_out` / `quote.amount_out_min` are denominated in
+        # SOURCE-chain local decimals (Stargate's sendParam.amountLD/
+        # minAmountLD use the source token's decimals — see
+        # LayerZeroAPI.get_quote). Cross-chain stablecoin decimals can
+        # differ (e.g. USDT: 18 on bsc, 6 on ethereum), so scale the raw
+        # figure into DESTINATION decimals purely to compute the
+        # human-readable/ranking value. The SwapQuote.to_amount /
+        # to_amount_min fields below stay as the original SOURCE-decimal
+        # strings unchanged, because execution (_execute_layerzero_swap ->
+        # build_send_transaction) feeds to_amount_min straight into
+        # on-chain minAmountLD calldata, which Stargate expects in source
+        # decimals.
+        src_decimals = get_token_decimals(token, from_chain)
+        dst_decimals = get_token_decimals(token, to_chain)
+        if dst_decimals != src_decimals:
+            scaled_amount_out = (int(quote.amount_out) * (10**dst_decimals)) // (10**src_decimals)
+        else:
+            scaled_amount_out = int(quote.amount_out)
+        to_amount_human = self._get_token_amount_human(str(scaled_amount_out), token, to_chain)
 
         return SwapQuote(
             provider="layerzero",
@@ -3799,6 +3870,10 @@ class SwapEngine:
         Returns:
             List of SwapQuotes sorted by best output amount
         """
+        # Fail fast for allowlist-gated tokens before any provider is raced —
+        # see _assert_not_gated docstring.
+        self._assert_not_gated(from_token, to_token, from_chain, to_chain)
+
         amount_raw = self._get_token_amount_raw(amount, from_token, from_chain)
         slippage_bps = int(slippage * 100)
         tasks = []
@@ -4012,6 +4087,8 @@ class SwapEngine:
         user_id: int,
         idempotency_key: Optional[str] = None,
         automated: bool = False,
+        agent_id: Optional[int] = None,
+        agent_uuid: Optional[str] = None,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -4043,6 +4120,14 @@ class SwapEngine:
                 "Executing it through another provider's executor would sign a transaction "
                 "that does not match this quote."
             )
+
+        # Hard backstop BEFORE any provider dispatch: allowlist-gated tokens
+        # (e.g. Superstate RWA funds) quote fine but settlement reverts for
+        # non-allowlisted wallets. Rejected here, before locks, DB rows or any
+        # fund movement — a quote could have been cached/stale-approved by the
+        # time execute_swap is called, so this cannot rely solely on the
+        # get_quote-time guard.
+        self._assert_not_gated(quote.from_token, quote.to_token, quote.from_chain, quote.to_chain)
 
         # Hard backstop BEFORE any provider dispatch: GOAT must NEVER execute via
         # the Li.Fi/EVM aggregator path — no aggregator supports chain id 2345.
@@ -4223,6 +4308,8 @@ class SwapEngine:
                         gas_fee=quote.gas_cost_usd,
                         bridge_fee=quote.fee_cost_usd,
                         idempotency_key=idempotency_key,
+                        agent_id=agent_id,
+                        agent_uuid=agent_uuid,
                         # Execution-savings receipt, carried on the winning
                         # SwapQuote from get_best_quote's race resolution.
                         # Consume-once: a SwapQuote object is reused across
@@ -4245,13 +4332,6 @@ class SwapEngine:
                     return swap_tx.id
 
             swap_id = await run_in_db(_create_swap_record)
-
-            # Create a simple wallet data object for signing
-            wallet_data = {
-                "address": wallet_address,
-                "encrypted_private_key": wallet_encrypted_key,
-                "chain_type": wallet_chain_type,
-            }
 
             # Phase 2: Deep State Simulation (Solana Anti-Honeypot)
             if quote.from_chain == "solana" and quote.to_chain == "solana":
@@ -4457,8 +4537,10 @@ class SwapEngine:
                 except Exception as e:
                     logger.warning(f"User-position settlement failed for swap {swap_id}: {e}")
 
-                # Clean up local references
-                wallet_encrypted_key = None
+                # Clean up local references (drop the encrypted-key reference
+                # from this scope as soon as it's no longer needed; the store
+                # is intentionally never read again).
+                wallet_encrypted_key = None  # noqa: F841
 
                 # Re-fetch the updated record to return
                 def _refetch():
@@ -4493,6 +4575,11 @@ class SwapEngine:
                 except Exception:  # pragma: no cover - defensive
                     error_category = "unknown"
 
+                # Capture the message now: `e` is bound by `except ... as e`
+                # and Python unbinds it as soon as this except block exits,
+                # so a nested function referencing `e` directly is unsafe.
+                error_message = str(e)
+
                 # Mark as failed
                 def _mark_failed():
                     with get_session() as session:
@@ -4503,7 +4590,7 @@ class SwapEngine:
                         )
                         if db_tx:
                             db_tx.status = SwapStatus.FAILED.value
-                            db_tx.error_message = str(e)
+                            db_tx.error_message = error_message
                             db_tx.error_category = error_category
 
                 await run_in_db(_mark_failed)
@@ -4522,8 +4609,10 @@ class SwapEngine:
                     },
                 )
 
-                # Clean up local references
-                wallet_encrypted_key = None
+                # Clean up local references (drop the encrypted-key reference
+                # from this scope as soon as it's no longer needed; the store
+                # is intentionally never read again).
+                wallet_encrypted_key = None  # noqa: F841
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
 
@@ -5112,7 +5201,7 @@ class SwapEngine:
         web3 = rpc_manager.get_web3(quote.from_chain)
 
         # First, check if we need to approve the token
-        token_address = transfer_data.token_address
+        token_address = transfer_data.token_address  # noqa: F841
         approval_tx = await self.ccip.get_approval_tx(
             chain=quote.from_chain,
             token=quote.from_token,
@@ -5560,7 +5649,9 @@ class SwapEngine:
             with get_session() as session:
                 sw = (
                     session.query(HotWallet)
-                    .filter(HotWallet.name == sponsor_name, HotWallet.is_active == True)
+                    .filter(
+                        HotWallet.name == sponsor_name, HotWallet.is_active == True  # noqa: E712
+                    )  # noqa: E712
                     .first()
                 )
                 if not sw:

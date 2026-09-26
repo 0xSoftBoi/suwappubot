@@ -168,6 +168,9 @@
 }
 
 .input {
+  /* No CSS reset emits in this project, so width:100% + padding + border
+     overflowed the field's container on phones. */
+  box-sizing: border-box;
   width: 100%;
   padding: 0.72rem 0.9rem;
   font: inherit;

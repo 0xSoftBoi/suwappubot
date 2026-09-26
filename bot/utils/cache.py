@@ -3,7 +3,7 @@
 import asyncio
 import time
 from typing import Any, Optional, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import wraps
 
 

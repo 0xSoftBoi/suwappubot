@@ -12,9 +12,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import api.webapp as webapp
-from bot.models.user import Wallet
-from bot.services.swap_engine import SwapEngine, SwapQuote
+import api.webapp as webapp  # noqa: E402
+from bot.models.user import Wallet  # noqa: E402
+from bot.services.swap_engine import SwapEngine, SwapQuote  # noqa: E402
 
 
 def _quote() -> SwapQuote:

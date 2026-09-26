@@ -4,17 +4,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    MessageHandler,
-    filters,
 )
 from datetime import datetime, timezone
 
 from bot.models.user import User
 from bot.models.favorites import FavoriteSwapPair
-from bot.config.tokens import TOKENS
-from bot.config.chains import CHAINS
 from database.db import get_session
 
 

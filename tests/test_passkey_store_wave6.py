@@ -15,7 +15,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.utils.redis_cache import redis_cache
+from bot.utils.redis_cache import redis_cache  # noqa: E402
 
 
 def _passkey_key(challenge: str) -> str:

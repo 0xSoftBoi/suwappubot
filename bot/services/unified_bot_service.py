@@ -1,14 +1,13 @@
 """Unified bot logic service for multi-platform support (Telegram/WhatsApp)."""
 
 import logging
-import asyncio
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from datetime import datetime, timezone
 
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
-from bot.services.tos_service import tos_service, TOS_TEXT
+from bot.services.tos_service import TOS_TEXT
 from bot.utils.templates import WELCOME_MESSAGE, HELP_MESSAGE, NO_WALLETS, START_FIRST
 from bot.utils.formatters import format_balance_list
 from database.db import get_session

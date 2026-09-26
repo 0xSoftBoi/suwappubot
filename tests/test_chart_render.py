@@ -19,7 +19,7 @@ def _make_candles(n: int, start_price: float = 100.0) -> list[dict]:
         o = price
         c = price * (1.01 if i % 2 == 0 else 0.99)
         h = max(o, c) * 1.005
-        l = min(o, c) * 0.995
+        l = min(o, c) * 0.995  # noqa: E741
         candles.append(
             {
                 "ts": now - timedelta(hours=(n - i)),

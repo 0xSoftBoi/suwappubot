@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 from bot.models.user import User
-from bot.models.custodial import TransactionType, TransactionStatus
+from bot.models.custodial import TransactionType
 from bot.services.hot_wallet import (
     hot_wallet_service,
     WithdrawalsPausedError,
@@ -22,9 +22,9 @@ from bot.services.hot_wallet import (
     ComplianceBlockedError,
     quantize_to_decimals,
 )
-from bot.config.chains import CHAINS, get_chain_by_name
+from bot.config.chains import get_chain_by_name
 from bot.config.tokens import TOKENS, get_token_address
-from bot.utils.formatters import format_amount, format_usd
+from bot.utils.formatters import format_amount
 from bot.utils.validators import validate_amount
 from bot.utils.qr_code import generate_wallet_qr
 from database.db import get_session
@@ -96,7 +96,7 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lines.append("Your balances managed by the bot:\n")
 
     if balances:
-        total_usd = 0.0
+        total_usd = 0.0  # noqa: F841
         for chain, tokens in balances.items():
             chain_info = get_chain_by_name(chain)
             chain_display = (
@@ -115,10 +115,10 @@ async def custodial_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # Deposit info
     lines.append("📥 *Deposit Addresses*")
     if evm_wallet:
-        lines.append(f"\n*EVM Chains* (ETH, BSC, etc.):")
+        lines.append("\n*EVM Chains* (ETH, BSC, etc.):")
         lines.append(f"`{evm_wallet.address}`")
     if sol_wallet:
-        lines.append(f"\n*SOL*:")
+        lines.append("\n*SOL*:")
         lines.append(f"`{sol_wallet.address}`")
 
     if not evm_wallet and not sol_wallet:
@@ -188,10 +188,10 @@ async def custodial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     lines.append("\n📥 *Deposit Addresses*")
     if evm_wallet:
-        lines.append(f"\n*EVM Chains*:")
+        lines.append("\n*EVM Chains*:")
         lines.append(f"`{evm_wallet.address}`")
     if sol_wallet:
-        lines.append(f"\n*SOL*:")
+        lines.append("\n*SOL*:")
         lines.append(f"`{sol_wallet.address}`")
 
     keyboard = [

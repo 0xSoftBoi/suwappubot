@@ -14,6 +14,15 @@ import { DatabaseError, ValidationError } from '../errors'
 import { getTransactionReceipt } from '../config/chains'
 import { AGENT_FEE_FRACTION_EVM, DEFAULT_FEE_WALLET_EVM } from '../config/constants'
 import { type AgentFeeMetadata, getPlatformFeeFractionEvm } from '../lib/feeDiscount'
+import { EnvService } from '../config/EnvService'
+// HACKATHON (Tokyo 2026): Uniswap Trading API comparison quote for the route
+// race. Opt-in only (UNISWAP_COMPARISON_ENABLED, default off); see
+// src/hackathon/uniswapComparison.ts.
+import {
+	fetchUniswapComparisonQuote,
+	type UniswapComparisonQuote,
+} from '../hackathon/uniswapComparison'
+import { uniswapComparisonEnabled } from '../hackathon/env'
 
 // Li.Fi API base URL
 const LIFI_API_BASE = 'https://li.quest/v1'
@@ -208,7 +217,9 @@ export interface SwapServiceInterface {
 		offset?: number,
 	) => Effect.Effect<SwapTransaction[], DatabaseError, DrizzleService>
 
-	readonly getQuote: (params: QuoteParams) => Effect.Effect<SwapQuote, ValidationError | Error>
+	readonly getQuote: (
+		params: QuoteParams,
+	) => Effect.Effect<SwapQuote, ValidationError | Error, EnvService>
 
 	readonly createSwapRecord: (
 		swap: NewSwapTransaction,
@@ -252,9 +263,26 @@ const CHAIN_IDS: Record<string, number> = {
 	solana: 1151111081099710, // Li.Fi uses this for Solana
 }
 
-function resolveChainId(chain: string | number): number {
+/**
+ * Chain key (or numeric id) -> Li.Fi chain id. Exported so routes that must
+ * talk to Li.Fi directly — e.g. the public preview's token-decimals lookup —
+ * resolve chains the same way the quote path does, instead of keeping a second
+ * copy of this table that can drift.
+ */
+export function resolveChainId(chain: string | number): number {
 	if (typeof chain === 'number') return chain
 	return CHAIN_IDS[chain.toLowerCase()] || parseInt(chain, 10)
+}
+
+/**
+ * Li.Fi chain id -> canonical chain key. Insertion order of CHAIN_IDS puts
+ * canonical names before aliases (fantom before ftm), so the first hit wins.
+ */
+export function chainKeyFromId(chainId: number): string | null {
+	for (const [key, id] of Object.entries(CHAIN_IDS)) {
+		if (id === chainId) return key
+	}
+	return null
 }
 
 // Native token address placeholder
@@ -529,6 +557,30 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 			// Li.Fi below; we only ever check on it non-blockingly via Fiber.poll.
 			const kyberFiber = yield* Effect.fork(kyberEffect)
 
+			// HACKATHON (Tokyo 2026): race a Uniswap Trading API quote alongside
+			// Li.Fi for SAME-CHAIN EVM swaps, purely for comparison/telemetry —
+			// same fork/timeout/option/poll discipline as the KyberSwap race
+			// above. Opt-in only: UNISWAP_COMPARISON_ENABLED=true (default off)
+			// plus UNISWAP_API_KEY configured (checked inside
+			// fetchUniswapComparisonQuote). Can never win execution — Li.Fi
+			// stays the only executable provider.
+			const env = yield* EnvService
+			const uniswapComparisonActive =
+				uniswapComparisonEnabled(env) && fromChainId === toChainId
+
+			const uniswapEffect: Effect.Effect<Option.Option<UniswapComparisonQuote>, never> =
+				uniswapComparisonActive
+					? fetchUniswapComparisonQuote(env, {
+							fromChainId,
+							fromToken: params.fromToken,
+							toToken: params.toToken,
+							fromAmount: params.fromAmount,
+						}).pipe(Effect.timeout(3500), Effect.option)
+					: Effect.succeed(Option.none())
+
+			// Fork — do NOT await. Same non-blocking discipline as kyberFiber.
+			const uniswapFiber = yield* Effect.fork(uniswapEffect)
+
 			const response = yield* lifiEffect
 
 			// Calculate derived values
@@ -644,6 +696,53 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 					toUsd.toFixed(2),
 					kyber.toAmount,
 					kyber.toAmountUsd?.toFixed(2) ?? 'n/a',
+					deltaBps,
+					canCompareNet,
+				)
+			}
+
+			// HACKATHON (Tokyo 2026): non-blocking poll of the Uniswap comparison
+			// fiber — same discipline as the KyberSwap poll above. Adds ~0ms:
+			// a fast Uniswap response is captured, a slow one is skipped.
+			const uniswapPolled = yield* Fiber.poll(uniswapFiber)
+			const uniswapResultOption: Option.Option<UniswapComparisonQuote> = Option.isSome(uniswapPolled)
+				? Exit.isSuccess(uniswapPolled.value)
+					? uniswapPolled.value.value
+					: Option.none()
+				: Option.none()
+
+			if (Option.isSome(uniswapResultOption)) {
+				const uni = uniswapResultOption.value
+				const lifiToAmountBig = BigInt(response.estimate.toAmount || '0')
+				const uniToAmountBig = BigInt(uni.toAmount || '0')
+
+				const lifiNet = toUsd - gasUsd
+				const uniNet =
+					uni.toAmountUsd !== null && uni.gasUsd !== null ? uni.toAmountUsd - uni.gasUsd : null
+				const canCompareNet = uniNet !== null && toUsd > 0
+
+				const deltaBps =
+					lifiToAmountBig > 0n
+						? Number(((uniToAmountBig - lifiToAmountBig) * 10000n) / lifiToAmountBig)
+						: 0
+
+				const wouldWin: 'lifi' | 'uniswap' = canCompareNet
+					? (uniNet as number) > lifiNet
+						? 'uniswap'
+						: 'lifi'
+					: uniToAmountBig > lifiToAmountBig
+						? 'uniswap'
+						: 'lifi'
+
+				logger.info(
+					'[SwapService] route_race_uniswap executed=lifi would_win=%s from=%s to=%s lifi_out=%s lifi_out_usd=%s uniswap_out=%s uniswap_out_usd=%s delta_bps=%d net_compared=%s',
+					wouldWin,
+					quote.fromToken.symbol,
+					quote.toToken.symbol,
+					response.estimate.toAmount,
+					toUsd.toFixed(2),
+					uni.toAmount,
+					uni.toAmountUsd?.toFixed(2) ?? 'n/a',
 					deltaBps,
 					canCompareNet,
 				)

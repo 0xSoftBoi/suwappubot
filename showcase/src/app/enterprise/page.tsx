@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import stats from '@/data/stats.generated.json';
 import { ENTERPRISE_CONTACT_PATH, GITHUB_URL } from '@/lib/links';
@@ -72,7 +72,7 @@ const controls = [
 export default function EnterprisePage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">
           <p className="summer-kicker">Enterprise / Evaluation</p>
@@ -108,7 +108,7 @@ export default function EnterprisePage() {
             <span>Enterprise evaluation</span>
             <span>Five questions procurement, engineering and risk should ask</span>
           </div>
-          <div className="institutional-section__intro">
+          <div className="institutional-section__intro institutional-section__intro--stack">
             <h2 id="evaluation-title">Proof before promises.</h2>
             <p>
               Infrastructure buyers should be able to separate a capability claim from the
@@ -129,7 +129,7 @@ export default function EnterprisePage() {
         </section>
 
         <section className="institutional-darkband" aria-labelledby="control-plane-title">
-          <div className="institutional-darkband__head">
+          <div className="institutional-darkband__head institutional-darkband__head--stack">
             <h2 id="control-plane-title">A control plane, not a black box.</h2>
             <p>
               Routing, simulation and authorization are separate steps. That separation makes it
@@ -154,7 +154,7 @@ export default function EnterprisePage() {
             <span>Evidence room</span>
             <span>No diligence gate required</span>
           </div>
-          <div className="institutional-section__intro">
+          <div className="institutional-section__intro institutional-section__intro--stack">
             <h2 id="evidence-title">Verify the public surface first.</h2>
             <p>
               The fastest enterprise diligence starts with artifacts you can inspect without a

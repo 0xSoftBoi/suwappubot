@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Optional, List, Dict, Callable
+from typing import Optional, List, Dict
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from dataclasses import dataclass

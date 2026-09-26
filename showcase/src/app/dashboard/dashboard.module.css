@@ -689,9 +689,138 @@
 }
 
 .loginError {
-  margin-top: 10px;
-  color: #c0392b;
-  font-size: 0.82rem;
+  margin-top: 12px;
+  padding: 10px 13px;
+  border: 1px solid rgba(214, 129, 116, 0.55);
+  border-radius: 9px;
+  background: rgba(247, 223, 219, 0.5);
+  color: #8e3c30;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* Fallback-path explainer above the token field: the field itself looks
+   technical, so the words around it must say who it is for. */
+.tokenHelp {
+  margin: 14px 0 8px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  text-align: left;
+}
+
+/* ── First-run onboarding (no organisation yet) ──
+   A fresh sign-in used to land on a page whose only content was a paragraph
+   explaining what it could not show. This card gives that moment one clear
+   next step in plain words. */
+.onboardCard {
+  margin-bottom: 20px;
+  padding: 32px 34px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(240, 249, 252, 0.8));
+  box-shadow: 0 16px 36px rgba(33, 88, 110, 0.09);
+}
+
+.onboardTitle {
+  margin: 0 0 8px;
+  color: var(--summer-ink, #17324a);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.onboardLead {
+  margin: 0 0 22px;
+  max-width: 560px;
+  color: var(--summer-muted, #345069);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.onboardForm {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.onboardInput {
+  flex: 1 1 260px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid rgba(207, 227, 234, 0.9);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--summer-ink, #17324a);
+  font-size: 0.92rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.onboardInput:focus {
+  border-color: rgba(14, 149, 189, 0.5);
+  box-shadow: 0 0 0 3px rgba(14, 149, 189, 0.1);
+}
+
+.onboardBtn {
+  min-height: 42px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #27bdf0, #0b8bc7);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+.onboardBtn:hover { filter: brightness(1.06); }
+.onboardBtn:active { transform: translateY(1px); }
+.onboardBtn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.onboardHint {
+  margin: 10px 0 0;
+  color: rgba(33, 88, 110, 0.62);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.onboardError {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  color: #8e3c30;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+/* The three things a workspace unlocks — stated up front so "create a
+   workspace" is a decision, not a mystery step. */
+.onboardPerks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.onboardPerks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--summer-ink, #17324a);
+  font-size: 0.85rem;
+}
+
+.onboardPerks li::before {
+  content: '✓';
+  color: #1e8449;
+  font-weight: 800;
 }
 
 /* ── Loading / error states ── */

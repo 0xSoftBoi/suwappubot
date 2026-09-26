@@ -16,9 +16,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services import nl_intent_service
-from bot.services.nl_intent_service import parse_trade_intent
-from bot.services.nl_deterministic_parser import parse_deterministic
+from bot.services import nl_intent_service  # noqa: E402
+from bot.services.nl_intent_service import parse_trade_intent  # noqa: E402
+from bot.services.nl_deterministic_parser import parse_deterministic  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -263,7 +263,9 @@ async def test_llm_fallback_per_user_daily_cap_blocks_llm_call():
         patch.object(nl_intent_service.settings, "NL_LLM_FALLBACK_GLOBAL_DAILY", 5000),
         patch("anthropic.AsyncAnthropic", return_value=fake_client),
     ):
-        first = await parse_trade_intent("please swap some of my crypto around", user_id=42)
+        first = await parse_trade_intent(  # noqa: F841
+            "please swap some of my crypto around", user_id=42
+        )  # noqa: F841
         assert fake_client.messages.create.await_count == 1
 
         second = await parse_trade_intent("please swap some of my crypto around", user_id=42)

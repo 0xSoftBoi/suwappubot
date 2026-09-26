@@ -11,8 +11,8 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from bot.services.predict_monitor import PredictMonitor
-from bot.services.polymarket_api import PolymarketClient
+from bot.services.predict_monitor import PredictMonitor  # noqa: E402
+from bot.services.polymarket_api import PolymarketClient  # noqa: E402
 
 # --- unrealized PnL ---------------------------------------------------------
 

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import EnterpriseContactForm from '@/components/EnterpriseContactForm';
 import DemoCallCta from '@/components/DemoCallCta';
@@ -23,7 +23,7 @@ const trust = [
 export default function ContactPage() {
   return (
     <main id="main-content" className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Enterprise</p>
@@ -38,7 +38,6 @@ export default function ContactPage() {
         {/* Saphira-style gate: the fastest path is a 30-min call, not the form. */}
         <section className={styles.demoCard} aria-label="Schedule a demo">
           <div>
-            <p className={styles.demoEyebrow}>Fastest path</p>
             <h2 className="mkt-h2">Book a 30-min demo.</h2>
             <p className={styles.demoBody}>
               Skip the form: grab time with our team directly and we&rsquo;ll walk through rate

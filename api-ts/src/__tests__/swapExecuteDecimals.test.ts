@@ -77,27 +77,23 @@ describe('resolveSwapExecuteDecimals (MONEY-PATH: quote_data.from_amount_human)'
 		expect(fromDecimals).toBeUndefined()
 	})
 
-	// TEMPO_TOKEN_DECIMALS (TokenService) carries the authoritative 18dp from
-	// bot/config/tokens.py, correcting a stale hardcoded 6 that made the tempo token
-	// list wrong. NOTE: mcp.ts deliberately does NOT pass these at quote-cache time,
-	// so Tempo quotes still 422 at /swap/execute — /internal/tempo/quote does not
-	// exist on the Python side, and /swap/execute has no provider:'tempo' quote_data
-	// branch, so "executable" Tempo quotes would ship malformed Li.Fi-shaped data
-	// with the balance guard disabled. This asserts the decimals VALUE is right and
-	// would resolve, not that the Tempo path is currently executable.
-	it('supplies the authoritative 18dp for Tempo tokens (pathUSD -> AlphaUSD) when provided at cache time', () => {
-		expect(Object.keys(COMMON_TOKENS[4217] || {})).toEqual(
-			expect.arrayContaining(['pathUSD', 'AlphaUSD', 'BetaUSD', 'ThetaUSD']),
-		)
+	// TEMPO_TOKEN_DECIMALS carries the on-chain 6dp for Tempo TIP-20 pathUSD
+	// (decimals() on chain 4217). It previously said 18 — a 10^12 scaling error.
+	// NOTE: mcp.ts deliberately does NOT pass these at quote-cache time, so Tempo
+	// quotes still 422 at /swap/execute (no Python tempo quote_data branch). This
+	// asserts the decimals VALUE is right and would resolve, not that the Tempo path
+	// is currently executable.
+	it('supplies the on-chain 6dp for Tempo pathUSD when provided at cache time', () => {
+		expect(Object.keys(COMMON_TOKENS[4217] || {})).toEqual(['pathUSD'])
 		const cached = {
-			quote: { amount_out: '999500000000000000000' },
+			quote: { amount_out: '999500' },
 			isSolana: false,
 			fromDecimals: TEMPO_TOKEN_DECIMALS.pathUSD,
-			toDecimals: TEMPO_TOKEN_DECIMALS.AlphaUSD,
+			toDecimals: TEMPO_TOKEN_DECIMALS.pathUSD,
 		}
 		const { fromDecimals, toDecimals } = resolveSwapExecuteDecimals(cached)
-		expect(fromDecimals).toBe(18)
-		expect(toDecimals).toBe(18)
+		expect(fromDecimals).toBe(6)
+		expect(toDecimals).toBe(6)
 		// Resolvable, so IF the Tempo cache site ever populates these (see note above,
 		// blocked on the Python endpoint + a tempo quote_data branch), it would clear
 		// the 422 gate, which only fires when fromDecimals is undefined.

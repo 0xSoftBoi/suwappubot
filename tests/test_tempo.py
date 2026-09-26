@@ -22,13 +22,13 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # chain config
 # ---------------------------------------------------------------------------
 
-from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name  # noqa: E402
 
 
 class TestTempoChainConfig:
@@ -93,7 +93,7 @@ class TestTempoSettings:
 # tokens
 # ---------------------------------------------------------------------------
 
-from bot.config.tokens import get_token_address, get_token_decimals, TOKENS
+from bot.config.tokens import get_token_address, TOKENS  # noqa: E402
 
 
 class TestTempoTokens:
@@ -103,22 +103,52 @@ class TestTempoTokens:
         )
         assert TOKENS["PATHUSD"].is_stablecoin is True
 
-    def test_all_four_tip20_stablecoins(self):
-        for sym in ("PATHUSD", "ALPHAUSD", "BETAUSD", "THETAUSD"):
-            assert get_token_address(sym, "tempo")
-            assert TOKENS[sym].is_stablecoin is True
+    def test_mainnet_lists_only_real_tip20s(self):
+        # Verified on-chain: on Tempo mainnet (4217) only pathUSD exists;
+        # 0x20c0..01-03 (AlphaUSD/BetaUSD/ThetaUSD) revert "Uninitialized" and
+        # exist only on the Moderato testnet. All TIP-20s are 6 decimals.
+        assert TOKENS["PATHUSD"].decimals == 6
+        for sym in ("ALPHAUSD", "BETAUSD", "THETAUSD"):
+            assert not get_token_address(sym, "tempo")
+
+
+# A synthetic second TIP-20 stablecoin for DEX-mechanics tests: mainnet config
+# only lists pathUSD, and the enshrined DEX needs two tokens to form a pair.
+_TEST_TIP20 = "0x20c0000000000000000000000000000000000099"
+
+
+@pytest.fixture
+def second_tip20(monkeypatch):
+    from bot.config.tokens import TokenConfig
+
+    monkeypatch.setitem(
+        TOKENS,
+        "TESTUSD",
+        TokenConfig(
+            symbol="TESTUSD",
+            name="Test USD",
+            decimals=6,
+            addresses={"tempo": _TEST_TIP20},
+            logo_emoji="🧪",
+            is_stablecoin=True,
+        ),
+    )
+    return "TESTUSD"
 
 
 # ---------------------------------------------------------------------------
 # tempo_dex_api — enshrined DEX pair support
 # ---------------------------------------------------------------------------
 
-from bot.services.tempo_dex_api import tempo_dex_api, TempoDexQuote
+from bot.services.tempo_dex_api import tempo_dex_api, TempoDexQuote  # noqa: E402
 
 
 class TestTempoDexSupportedPair:
-    def test_stablecoin_pair_supported(self):
-        assert tempo_dex_api.is_supported_pair("PATHUSD", "ALPHAUSD") is True
+    def test_stablecoin_pair_supported(self, second_tip20):
+        assert tempo_dex_api.is_supported_pair("PATHUSD", second_tip20) is True
+
+    def test_testnet_only_token_unsupported_on_mainnet(self):
+        assert tempo_dex_api.is_supported_pair("PATHUSD", "ALPHAUSD") is False
 
     def test_non_stablecoin_pair_unsupported(self):
         # WETH is not a stablecoin (and not on Tempo) — the enshrined DEX is
@@ -134,7 +164,7 @@ class TestTempoDexAbiGroundTruth:
     def test_dex_address_matches_tempo_std(self):
         assert tempo_dex_api.dex_address == "0xDEc0000000000000000000000000000000000000"
 
-    def test_swap_calldata_uses_4arg_selector(self):
+    def test_swap_calldata_uses_4arg_selector(self, second_tip20):
         from web3 import Web3
 
         expected = (
@@ -143,7 +173,7 @@ class TestTempoDexAbiGroundTruth:
         # Encode offline with a provider-less Web3 (ABI encoding needs no RPC).
         with patch("bot.services.tempo_dex_api._get_tempo_web3", return_value=Web3()):
             bundle = tempo_dex_api.build_swap_tx(
-                "PATHUSD", "ALPHAUSD", 1_000_000, 990_000, sender="0x" + "11" * 20
+                "PATHUSD", second_tip20, 1_000_000, 990_000, sender="0x" + "11" * 20
             )
         assert bundle["swap_tx"]["data"].startswith(expected)
         # approval targets the DEX as spender
@@ -243,7 +273,7 @@ class TestTempoRouting:
         assert engine._is_tempo_only_swap("tempo", "ethereum") is False
         assert engine._is_tempo_only_swap("ethereum", "tempo") is False
 
-    def test_tempo_quote_applies_slippage(self, engine):
+    def test_tempo_quote_applies_slippage(self, engine, second_tip20):
         """_get_tempo_dex_quote must set to_amount_min below to_amount per the
         configured tempo slippage (stablecoin pairs barely move but micro-drift
         between quote and execution must not revert the swap)."""
@@ -251,8 +281,8 @@ class TestTempoRouting:
         dex_quote = TempoDexQuote(
             token_in="PATHUSD",
             token_in_address="0x20c0000000000000000000000000000000000000",
-            token_out="ALPHAUSD",
-            token_out_address="0x20c0000000000000000000000000000000000001",
+            token_out=second_tip20,
+            token_out_address=_TEST_TIP20,
             amount_in=1_000_000_000,
             amount_out=amount_out,
             amount_in_human=1.0,
@@ -264,7 +294,7 @@ class TestTempoRouting:
             new=AsyncMock(return_value=dex_quote),
         ):
             quote = asyncio.run(
-                engine._get_tempo_dex_quote("PATHUSD", "ALPHAUSD", 1.0, "1000000000", 0.5)
+                engine._get_tempo_dex_quote("PATHUSD", second_tip20, 1.0, "1000000000", 0.5)
             )
         assert quote.provider == "tempo_dex"
         assert quote.from_chain == "tempo" and quote.to_chain == "tempo"

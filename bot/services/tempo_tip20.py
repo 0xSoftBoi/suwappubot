@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from eth_account import Account
-from eth_account.messages import encode_typed_data
 from web3 import Web3
 
 from bot.services.tempo_dex_api import _get_tempo_web3
@@ -307,7 +306,9 @@ class TempoTIP20:
         owner = Account.from_key(owner_key).address
 
         nonce = await loop.run_in_executor(None, token.functions.nonces(owner).call)
-        domain_separator = await loop.run_in_executor(None, token.functions.DOMAIN_SEPARATOR().call)
+        domain_separator = await loop.run_in_executor(  # noqa: F841
+            None, token.functions.DOMAIN_SEPARATOR().call
+        )  # noqa: F841
         name = await loop.run_in_executor(None, token.functions.name().call)
         chain_id = await loop.run_in_executor(None, lambda: web3.eth.chain_id)
 

@@ -134,7 +134,9 @@ def _try_merge_followup(pending: TradeIntent, text: str) -> Optional[TradeIntent
     candidate = None
     if chain_m:
         candidate = chain_m.group(1).strip()
-        scan_text = (lowered[: chain_m.start()] + " " + lowered[chain_m.end() :]).strip()
+        scan_text = (
+            lowered[: chain_m.start()] + " " + lowered[chain_m.end() :]  # noqa: E203
+        ).strip()  # noqa: E203
         scan_text = re.sub(r"\s+", " ", scan_text)
         if candidate and not merged.chain:
             resolved_chain = resolve_chain_name(candidate)

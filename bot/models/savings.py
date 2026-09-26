@@ -18,6 +18,9 @@ class SavingsEvent(Base):
     chain = Column(String(32), nullable=False, default="base")
     token = Column(String(16), nullable=False, default="USDC")
     action = Column(String(16), nullable=False)  # deposit / withdraw
+    venue = Column(
+        String(32), nullable=True
+    )  # e.g. vault key for /earn events; NULL for Aave savings
     amount = Column(Numeric(18, 6), nullable=True)  # None for withdraw-all
     tx_hash = Column(String(80), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

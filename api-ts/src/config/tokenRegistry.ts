@@ -22,6 +22,20 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
 		DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
 		WBTC: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+		// DeFi protocol tokens (verified on-chain via Blockscout, 2026-08-26).
+		// Keys are UPPERCASE because TokenService.resolveToken uppercases the
+		// input symbol before this lookup — 'sUSDe' as a key would never match.
+		SUSDE: '0x9D39A5DE30e57443BfF2A8307A4256c8797A3497', // Ethena Staked USDe (ERC-4626, 18dp)
+		ENA: '0x57e114B691Db790C35207b2e685D4A43181e6061',
+		PENDLE: '0x808507121B80c02388fAd14726482e061B8da827',
+		MORPHO: '0x58D97B57BB95320F9a05dC918Aef65434969c2B2',
+		// Superstate fund tokens — allowlist-gated (transfers revert unless the
+		// wallet is Superstate-KYC'd). 6dp; mirrored in bot/config/tokens.py
+		// with transfer_gated=True. Kept here so the reference API can serve
+		// canonical addresses, but GATED_TOKEN_SYMBOLS below stops resolveToken
+		// from ever offering them to the swap path.
+		USTB: '0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e',
+		USCC: '0x14d60E7FDC0D71d8611742720E4C50E7a974020c',
 	},
 	// Optimism
 	10: {
@@ -73,12 +87,11 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		'USDC.e': '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664',
 		USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
 	},
-	// Tempo
+	// Tempo — only pathUSD exists on mainnet. AlphaUSD/BetaUSD/ThetaUSD
+	// (0x20c0..01-03) are Moderato-testnet-only; on 4217 they revert
+	// "TIP20 token error: Uninitialized".
 	4217: {
 		pathUSD: '0x20c0000000000000000000000000000000000000',
-		AlphaUSD: '0x20c0000000000000000000000000000000000001',
-		BetaUSD: '0x20c0000000000000000000000000000000000002',
-		ThetaUSD: '0x20c0000000000000000000000000000000000003',
 	},
 	// Robinhood Chain — anchor stablecoin is Paxos USDG, there is NO USDC here.
 	// The two on-chain contracts both report symbol "USDG"; 0x5fc5... is the real
@@ -97,17 +110,19 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 	},
 }
 
+// Allowlist-gated tokens (on-chain transfer allowlists — settlement reverts
+// for non-allowlisted wallets, so quoting/building swaps for them is a trap).
+// TokenService.resolveToken refuses these on every chain; the Python engine
+// enforces the same via TokenConfig.transfer_gated. Keys are UPPERCASE to
+// match resolveToken's symbol normalization.
+export const GATED_TOKEN_SYMBOLS: ReadonlySet<string> = new Set(['USTB', 'USCC'])
+
 // Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
 // into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.
-// Authoritative source: bot/config/tokens.py TOKENS["PATHUSD"|"ALPHAUSD"|"BETAUSD"|"THETAUSD"]
-// all declare decimals=18 (get_token_decimals() has no Tempo-specific override, unlike the
-// GOAT/Citrea per-chain pins), and bot/services/swap_engine.py's _get_tempo_dex_quote() scales
-// raw amounts using that same 18. There is no on-chain "6dp USDC-style" override for Tempo.
+// TIP-20 stablecoins are 6 decimals on-chain (decimals() on 4217 and 42431). This map
+// and bot/config/tokens.py previously said 18, a 10^12 scaling error.
 export const TEMPO_TOKEN_DECIMALS: Record<string, number> = {
-	pathUSD: 18,
-	AlphaUSD: 18,
-	BetaUSD: 18,
-	ThetaUSD: 18,
+	pathUSD: 6,
 }
 
 // Decimals for Robinhood Chain (4663) tokens. USDG is 6dp like USDC; the ~100

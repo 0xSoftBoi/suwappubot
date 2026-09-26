@@ -2,14 +2,17 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
+import { initHackathonEnv, trustLayerEnabled } from './hackathon/env'
+import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
 import { initOtel, shutdownOtel } from './lib/otel'
 import { initSentry } from './lib/sentry'
-import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { stopA2aCleanup } from './routes/a2a'
 import { stopAgentCleanup } from './routes/agent'
 import { stopDataLiveTicker } from './routes/data'
 import { runEffect, shutdownRuntime } from './runtime'
+import { runAutopilotBootstrap } from './services/autopilot/bootstrap'
+import { startAutopilotScheduler, stopAutopilotScheduler } from './services/autopilot/scheduler'
 
 async function main() {
 	// Get environment config
@@ -18,6 +21,12 @@ async function main() {
 			return yield* EnvService
 		}),
 	)
+
+	// Seed the hackathon trust-layer flag snapshot from the decoded
+	// EnvService value, before any request can read it. The snapshot is
+	// process-lifetime config; request-path gates read it without spinning
+	// the Effect runtime.
+	initHackathonEnv(env)
 
 	// Initialize Sentry as early as possible — before app/route construction,
 	// so any error during startup or the first request is captured. No-op
@@ -40,6 +49,7 @@ async function main() {
 		internalApiKey: env.INTERNAL_API_KEY,
 		internalApiUrl: env.INTERNAL_API_URL,
 		otelEnabled: env.OTEL_ENABLED,
+		hackathonTrustLayer: trustLayerEnabled(env),
 	})
 
 	// Start server. `websocket` (from hono/bun) wires the Bun-native WS upgrade
@@ -56,12 +66,23 @@ async function main() {
 	logger.info(`Environment: ${env.NODE_ENV}`)
 	logger.info(`Database: ${env.DATABASE_URL ? 'configured' : 'not configured'}`)
 
+	// Seed the paper agent this environment declares, if it is missing. Paper
+	// only, and never modifies an agent that already exists. If the schema is not
+	// up yet (dual-owned tables — see ADR 0003), the scheduler retries it.
+	const seeded = await runAutopilotBootstrap(env.AUTOPILOT_BOOTSTRAP)
+
+	// Autopilot — periodic autonomous trading cycles. Disabled unless
+	// AUTOPILOT_CYCLE_MINUTES is set, and each agent still has to be `active`
+	// and (for real money) explicitly in live mode.
+	startAutopilotScheduler(env.AUTOPILOT_CYCLE_MINUTES, seeded ? undefined : env.AUTOPILOT_BOOTSTRAP)
+
 	// Graceful shutdown
 	const shutdown = async () => {
 		logger.info('Shutting down...')
 		stopA2aCleanup()
 		stopAgentCleanup()
 		stopDataLiveTicker()
+		stopAutopilotScheduler()
 		// Drain the write-behind usage buffer before stopping the flush timer —
 		// otherwise any unflushed /v1/data/* request counts from the last <30s
 		// are silently dropped on every deploy/restart.

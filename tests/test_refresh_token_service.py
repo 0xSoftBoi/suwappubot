@@ -6,9 +6,8 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
 
-from bot.services.refresh_token_service import (
+from bot.services.refresh_token_service import (  # noqa: E402
     issue_refresh_token,
     revoke_refresh_token,
     rotate_refresh_token,

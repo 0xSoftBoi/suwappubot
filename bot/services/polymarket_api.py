@@ -6,20 +6,14 @@ Endpoints:
 """
 
 import asyncio
-import base64
 import logging
 import re
-import secrets
-import time
 import json
 import hashlib
-import hmac
 from typing import Optional
 from dataclasses import dataclass, field
 
 import aiohttp
-from eth_account import Account
-from eth_account.messages import encode_typed_data
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +333,6 @@ class PolymarketClient:
     def _get_clob_client(self, private_key: str):
         """Create an authenticated ClobClient using the official Polymarket SDK."""
         from py_clob_client.client import ClobClient
-        from py_clob_client.clob_types import ApiCreds
 
         pk = private_key if private_key.startswith("0x") else "0x" + private_key
         client = ClobClient(

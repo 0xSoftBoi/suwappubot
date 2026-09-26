@@ -13,10 +13,10 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
+import pytest  # noqa: E402
 
-import bot.services.swap_engine as se
-from bot.services.swap_engine import SwapEngine, SwapQuote
+import bot.services.swap_engine as se  # noqa: E402
+from bot.services.swap_engine import SwapEngine, SwapQuote  # noqa: E402
 
 
 def _minimal_quote() -> SwapQuote:

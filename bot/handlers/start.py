@@ -93,6 +93,9 @@ def _build_more_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("₿ BTC Bridge", callback_data="btc_menu"),
         ],
         [
+            InlineKeyboardButton("🌾 Yield Vaults", callback_data="earn_menu"),
+        ],
+        [
             InlineKeyboardButton("🏦 Borrow", callback_data="borrow_menu"),
             InlineKeyboardButton("🔥 Trending", callback_data="trending_open"),
         ],

@@ -30,7 +30,7 @@ from bot.services.rpc_manager import rpc_manager
 from bot.services.swap_engine import SwapEngine
 from bot.services.wallet import WalletService
 from bot.utils.http_client import get_session as get_http_session
-from bot.models.user import User, Wallet
+from bot.models.user import User
 from bot.models.favorites import UserSettings
 from bot.models.swap import SwapTransaction
 from database.db import get_session, run_in_db
@@ -695,7 +695,7 @@ class RugService:
                 .join(UserSettings, UserSettings.user_id == User.id)
                 .join(SwapTransaction, SwapTransaction.user_id == User.id)
                 .filter(
-                    UserSettings.panic_sell_enabled == True,
+                    UserSettings.panic_sell_enabled == True,  # noqa: E712
                     SwapTransaction.to_token == token_mint,
                     SwapTransaction.status == "completed",
                 )

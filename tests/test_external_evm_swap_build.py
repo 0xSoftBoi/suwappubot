@@ -11,9 +11,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import bot.services.swap_engine as swap_module
-from bot.config.chains import ChainType
-from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
+import bot.services.swap_engine as swap_module  # noqa: E402
+from bot.config.chains import ChainType  # noqa: E402
+from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote  # noqa: E402
 
 SENDER = "0x1111111111111111111111111111111111111111"
 TOKEN = "0x2222222222222222222222222222222222222222"

@@ -1,0 +1,110 @@
+{
+ "chain_id": 252,
+ "fingerprint": "8105012d58ca2413",
+ "unquotable": {},
+ "verdicts": {
+  "0x15d1ed4418da1f268bcad5ba7c8d06bb3c3081ed": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x1e199dbe1f7aa237282fe941d5bcc3b167c8ce48": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x277fa53c8a53c880e0625c92c92a62a9f60f3f04": {
+   "family": "twocrypto",
+   "legacy_fee": true,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": false,
+   "v21": true
+  },
+  "0x35c6c59277f8fa9ae98dea29b0546d79957acdd8": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x3a38e9b0b5cb034de01d5298fc2ed2d793c0c36f": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x4c86d266e969e186a2f197d859df2d91e5ea1ed2": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x4cfc391d75c43cf1bdb368e8bf680aed1228df39": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x5ecfa6940a33a2dad5c473896452f018c6c04577": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x63d64a76c2d616676cbac3068d3c6548f8485314": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x63eb7846642630456707c3efbb50a03c79b89d81": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x6e9b6660b94fa74a8087d7ee14dc28698249d242": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x8fd56bcfba75718dd1b920c854256b0c5f4a7401": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xa0d3911349e701a1f49c1ba2dda34b4ce9636569": {
+   "family": "tricrypto"
+  },
+  "0xa8eb7b41fe8df7ea3de982397ad183721784d987": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xac5dd1861bcf660a788e5f1f3d4d09bcf661946c": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xbc3705b2bfd42d38e8fa2c8efdc3fdda645c3b2a": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xee454138083b9b9714cac3c7cf12560248d76d6b": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xf2f426fe123de7b769b2d4f8c911512f065225d3": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0xf593ae314749d0c92b450f0a13e7e1791f352bb7": {
+   "family": "tricrypto"
+  },
+  "0xfb8b95fb2296a0ad4b6b1419fdaa5aa5f13e4009": {
+   "family": "twocrypto",
+   "legacy_fee": true,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": false,
+   "v21": true
+  }
+ },
+ "version": 1
+}

@@ -3,11 +3,11 @@
 import asyncio
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler
 
 from bot.models.user import User, Wallet
 from bot.services.wallet import WalletService
-from bot.utils.formatters import format_balance_list, format_amount, format_chain_name
+from bot.utils.formatters import format_amount, format_chain_name
 from bot.utils.telegram_safe import safe_md
 from bot.utils.templates import (
     LOADING_BALANCE,
@@ -41,7 +41,7 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -117,7 +117,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             session.query(Wallet)
             .filter(
                 Wallet.user_id == db_user.id,
-                Wallet.is_active == True,
+                Wallet.is_active == True,  # noqa: E712
             )
             .all()
         )
@@ -136,7 +136,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.edit_message_text("⏳ Fetching balances...")
 
     try:
-        all_balances = {}
+        all_balances = {}  # noqa: F841
 
         # Fetch all wallet balances in parallel (same as balance_command)
         async def fetch_wallet_balance(wallet_info):
@@ -186,7 +186,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 def _format_wallet_balances(wallet_infos, balance_results) -> str:
     """Format balance results with clean, scannable layout."""
-    total_usd = 0.0
+    total_usd = 0.0  # noqa: F841
     wallet_sections = []
 
     for wallet_info, balances in zip(wallet_infos, balance_results):

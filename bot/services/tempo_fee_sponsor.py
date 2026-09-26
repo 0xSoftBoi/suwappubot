@@ -114,7 +114,7 @@ class TempoFeeSponsor:
         from database.db import get_session
         from bot.models.tempo import TempoSponsorship
 
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(timezone.utc).date()  # noqa: F841
         with get_session() as session:
             row = (
                 session.query(TempoSponsorship).filter(TempoSponsorship.user_id == user_id).first()

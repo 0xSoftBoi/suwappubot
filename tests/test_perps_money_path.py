@@ -2,8 +2,7 @@
 
 import pytest
 from decimal import Decimal
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from bot.services.perps_service import PerpsService
 from bot.models.perps import PerpPosition, HyperLiquidAccount

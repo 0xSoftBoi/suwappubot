@@ -219,7 +219,7 @@ class SunSwapAPI:
         amounts = []
         for i in range(array_length):
             start = 128 + i * 64
-            amounts.append(int(result_hex[start : start + 64], 16))
+            amounts.append(int(result_hex[start : start + 64], 16))  # noqa: E203
 
         return amounts
 

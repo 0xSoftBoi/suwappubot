@@ -12,10 +12,10 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.swap_engine import SwapEngine, MAX_UINT256
-import bot.services.swap_engine as swap_engine_mod
+from bot.services.swap_engine import SwapEngine, MAX_UINT256  # noqa: E402
+import bot.services.swap_engine as swap_engine_mod  # noqa: E402
 
 
 @pytest.fixture()

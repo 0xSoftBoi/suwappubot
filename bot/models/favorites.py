@@ -1,7 +1,6 @@
 """Models for user favorites and settings."""
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Float
-from sqlalchemy.orm import relationship
 from datetime import datetime
 from database.db import Base
 

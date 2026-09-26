@@ -11,11 +11,11 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from database.db import get_session, init_db
-from bot.models.favorites import UserSettings
-from bot.models.security import SpendEvent
-from bot.models.user import User
-from bot.services.spending_limits import (
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.favorites import UserSettings  # noqa: E402
+from bot.models.security import SpendEvent  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.services.spending_limits import (  # noqa: E402
     DEFAULT_2FA_THRESHOLD_USD,
     DEFAULT_DAILY_LIMIT_USD,
     DEFAULT_PER_SWAP_LIMIT_USD,

@@ -1,17 +1,11 @@
 """Security utilities: spending limits, 2FA, transaction simulation."""
 
 import asyncio
-import hashlib
 import secrets
 import time
 import logging
 from typing import Optional
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-
-from bot.config.settings import settings
-from bot.models.user import User
-from database.db import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +228,7 @@ class TransactionSimulator:
         """
         try:
             # Use eth_call to simulate
-            result = web3.eth.call(
+            result = web3.eth.call(  # noqa: F841
                 {
                     "to": transaction.get("to"),
                     "from": from_address,

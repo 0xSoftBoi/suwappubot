@@ -6,7 +6,7 @@ Spec: mpp.dev
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List
 from datetime import datetime, timezone
 

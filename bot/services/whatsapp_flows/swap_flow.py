@@ -1,7 +1,6 @@
 """Full swap flow for WhatsApp."""
 
 import logging
-import re
 from typing import Optional
 
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
@@ -12,7 +11,16 @@ from bot.services.whatsapp_conversation import ConversationState
 logger = logging.getLogger(__name__)
 
 # Top-level chains shown in swap selection (most popular first)
-_POPULAR_EVM = ["ethereum", "arbitrum", "base", "polygon", "optimism", "bsc", "avalanche"]
+_POPULAR_EVM = [
+    "ethereum",
+    "arbitrum",
+    "base",
+    "robinhood",
+    "polygon",
+    "optimism",
+    "bsc",
+    "avalanche",
+]
 _ALL_CHAINS = _POPULAR_EVM + ["solana"]
 
 
@@ -270,7 +278,7 @@ class SwapFlow(BaseWhatsAppFlow):
             from bot.services.wallet import WalletService
             from database.db import get_session
 
-            ws = WalletService()
+            ws = WalletService()  # noqa: F841
             with get_session() as session:
                 from bot.models.user import User
 
@@ -338,11 +346,10 @@ class SwapFlow(BaseWhatsAppFlow):
         try:
             from bot.services.swap_engine import SwapEngine
             from bot.services.wallet import WalletService
-            from bot.services.fee_service import fee_service
             from database.db import get_session
             from bot.models.user import User
 
-            ws = WalletService()
+            ws = WalletService()  # noqa: F841
             with get_session() as session:
                 user = session.query(User).filter(User.id == db_user_id).first()
                 wallet = next((w for w in user.wallets if w.is_active), None) if user else None

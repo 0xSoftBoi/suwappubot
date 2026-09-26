@@ -1,6 +1,6 @@
 """Points-based rewards models — tiers, fee discounts, reward claims."""
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Float, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, Numeric
 from datetime import datetime
 from database.db import Base
 

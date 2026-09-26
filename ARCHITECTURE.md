@@ -14,9 +14,8 @@ detail lives in `docs/deployment/`; the working code is ground truth when docs d
 | Webapp (`webapp/`) | React, Vite | Telegram Mini App |
 | Mobile (`mobile/`) | Expo | iOS app |
 | Showcase (`showcase/`) | Next.js | Public homepage, docs, status page |
-| `packages/shared` | TypeScript | Types shared by api-ts, webapp, mobile |
 | `packages/design-tokens` | TypeScript | Tokens, Tailwind preset, CSS vars, RN mapping |
-| `packages/sdk`, `packages/sdk-python`, `packages/openclaw` | TS / Python | Client SDKs kept in sync with the API |
+| `packages/sdk`, `packages/sdk-python`, `packages/openclaw` | TS / Python | Client SDKs kept in sync with the API; `packages/sdk/src/types.ts` is the shared-types home for api-ts, webapp, mobile |
 
 Deploy target is **Railway** (`main` → prod, `dev` → dev). The `infra/` AWS CDK tree is
 legacy and unused for app deploys.

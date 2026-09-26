@@ -459,7 +459,7 @@ class DCAFlow(BaseWhatsAppFlow):
             from database.db import get_session
             from bot.models.user import User
 
-            ws = WalletService()
+            ws = WalletService()  # noqa: F841
             with get_session() as session:
                 user = session.query(User).filter(User.id == db_uid).first()
                 wallet = next((w for w in user.wallets if w.is_active), None) if user else None

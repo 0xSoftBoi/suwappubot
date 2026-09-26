@@ -28,7 +28,7 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote
+from bot.services.swap_engine import SwapEngine, SwapError, SwapQuote  # noqa: E402
 
 ADDR = "0x1111111111111111111111111111111111111111"
 

@@ -21,13 +21,13 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # chain config
 # ---------------------------------------------------------------------------
 
-from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name
+from bot.config.chains import CHAINS, ChainType, get_chain_by_id, get_chain_by_name  # noqa: E402
 
 
 class TestGoatChainConfig:
@@ -74,7 +74,7 @@ class TestGoatSettingsAndRpc:
 # tokens
 # ---------------------------------------------------------------------------
 
-from bot.config.tokens import get_token_address, get_token_decimals
+from bot.config.tokens import get_token_address, get_token_decimals  # noqa: E402
 
 
 class TestGoatTokens:
@@ -104,7 +104,7 @@ class TestGoatTokens:
 # goatswap_api
 # ---------------------------------------------------------------------------
 
-from bot.services.goatswap_api import (
+from bot.services.goatswap_api import (  # noqa: E402
     FEE_TIERS,
     GOATSWAP_QUOTER_V2,
     GOATSWAP_SWAP_ROUTER02,

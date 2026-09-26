@@ -23,9 +23,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-from bot.handlers import quickswap as qs_module
-from bot.services.swap_engine import SwapEngine, SwapQuote
-from bot.utils.exceptions import SwapError
+from bot.handlers import quickswap as qs_module  # noqa: E402
+from bot.services.swap_engine import SwapEngine, SwapQuote  # noqa: E402
+from bot.utils.exceptions import SwapError  # noqa: E402
 
 
 def _quote(from_amount_human: float, to_amount_min: str = "1") -> SwapQuote:

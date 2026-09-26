@@ -1,0 +1,34 @@
+[
+  {
+    "report": "known-misses.json",
+    "expect": {
+      "cases": {
+        "Propose a trade with a written rationale": { "firstCallPass": false, "trajectoryPass": true },
+        "Propose a price alert": { "firstCallPass": false, "trajectoryPass": true },
+        "Propose amending the envelope itself, with evidence": { "firstCallPass": false, "trajectoryPass": true }
+      }
+    }
+  },
+  {
+    "report": "wrong-terminal.json",
+    "expect": {
+      "cases": {
+        "Spot price lookup": { "firstCallPass": false, "trajectoryPass": false }
+      }
+    }
+  },
+  {
+    "report": "disallowed-precursor.json",
+    "expect": {
+      "cases": {
+        "Propose a trade with a written rationale": { "firstCallPass": false, "trajectoryPass": false }
+      }
+    }
+  },
+  {
+    "report": "cup-violation.json",
+    "expect": {
+      "cupViolations": 1
+    }
+  }
+]

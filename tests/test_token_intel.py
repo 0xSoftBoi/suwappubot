@@ -15,7 +15,6 @@ import pytest
 
 from bot.services.token_intel import evm_source
 from bot.services.token_intel.intel_service import (
-    HolderInfo,
     TokenIntelReport,
     TokenIntelService,
 )

@@ -14,7 +14,7 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from bot.config.tokens import (
+from bot.config.tokens import (  # noqa: E402
     get_token_address,
     get_token_decimals,
     get_decimals_by_address,

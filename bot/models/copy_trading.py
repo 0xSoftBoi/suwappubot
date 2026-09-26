@@ -15,8 +15,6 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
-    Text,
-    JSON,
     Index,
     UniqueConstraint,
 )

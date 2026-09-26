@@ -10,9 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Text,
-    Enum as SQLEnum,
 )
-from sqlalchemy.orm import relationship
 import enum
 
 from database.db import Base

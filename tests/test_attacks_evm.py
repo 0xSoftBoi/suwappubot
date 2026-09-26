@@ -52,8 +52,10 @@ def pos_env():
 
     usdg = wire_payments(w3, art, pos, owner, owner, alice, deploy)
     now = w3.eth.get_block("latest").timestamp
-    # wallet cap 2 — the attacker's goal is to exceed it
-    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 2, 0, now - 1, 0).transact(
+    # wallet cap 2 — the attacker's goal is to exceed it. allocation 4_444
+    # (== MAX_SUPPLY), not 0: an open (no-merkle-root) priced phase now
+    # requires both bounds — see OpenPhaseUnbounded in configurePhase.
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 2, 4_444, now - 1, 0).transact(
         {"from": owner}
     )
     return w3, pos, feed, owner, alice, art, usdg
@@ -77,7 +79,7 @@ def test_the_submitter_cannot_redirect_a_paid_card_to_itself(pos_env):
     the card, the whole gasless design would be a theft primitive."""
     from eth_account import Account
 
-    from positions_helpers import authorized_mint, wire_payments
+    from positions_helpers import authorized_mint
 
     w3, pos, feed, owner, alice, art, usdg = pos_env
     payer = Account.create()
@@ -94,7 +96,7 @@ def test_an_authorization_cannot_be_settled_twice(pos_env):
     signature, settle again."""
     from eth_account import Account
 
-    from positions_helpers import authorized_mint, sign_authorization
+    from positions_helpers import sign_authorization
 
     w3, pos, feed, owner, alice, art, usdg = pos_env
     payer = Account.create()

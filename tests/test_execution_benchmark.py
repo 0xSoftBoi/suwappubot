@@ -8,7 +8,7 @@ that floor cannot be removed or bypassed by accident.
 """
 
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 import sqlalchemy as sa

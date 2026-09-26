@@ -10,7 +10,6 @@ Covers:
     while checking one transaction and still applies the update for the next.
 """
 
-import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -20,12 +19,12 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-import pytest
+import pytest  # noqa: E402
 
-from database.db import get_session, init_db
-from bot.models.swap import SwapStatus, SwapTransaction
-from bot.models.user import User
-from bot.services.tx_poller import TransactionPoller
+from database.db import get_session, init_db  # noqa: E402
+from bot.models.swap import SwapStatus, SwapTransaction  # noqa: E402
+from bot.models.user import User  # noqa: E402
+from bot.services.tx_poller import TransactionPoller  # noqa: E402
 
 
 @pytest.fixture()

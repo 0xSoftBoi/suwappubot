@@ -105,7 +105,7 @@ class TaxFlow(BaseWhatsAppFlow):
         """Generate CSV and return a URL to download it."""
         import csv
         import io
-        from datetime import datetime, timezone
+        from datetime import datetime
         from database.db import get_session
         from bot.models.swap import SwapTransaction
 
@@ -165,7 +165,7 @@ class TaxFlow(BaseWhatsAppFlow):
                     ]
                 )
 
-            csv_content = output.getvalue()
+            csv_content = output.getvalue()  # noqa: F841
 
             # In production, upload to S3/cloud storage and return signed URL
             # For now, we'll use a data URL approach or temp file
@@ -174,7 +174,6 @@ class TaxFlow(BaseWhatsAppFlow):
 
             # Placeholder: In real implementation, upload csv_content to S3
             # and return the signed URL
-            import base64
 
             # Note: WhatsApp document API requires a real URL, not a data URI
             # This is a placeholder that would need S3 integration

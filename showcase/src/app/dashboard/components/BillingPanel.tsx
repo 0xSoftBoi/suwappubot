@@ -81,7 +81,11 @@ const UPGRADE_TIERS = [
   { id: 'premium', label: 'Premium', usd: 29.99, blurb: '0.3% swap fee · priority routing' },
 ] as const;
 
-function fmtUsd(n: number): string {
+function fmtUsd(n: number | null | undefined): string {
+  // Tolerate a partial payload: one missing number must render as a dash,
+  // not throw and take the entire dashboard down with a blank
+  // "Application error" screen.
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
   return n.toLocaleString(undefined, {
     style: 'currency',
     currency: 'USD',
@@ -247,7 +251,9 @@ export default function BillingPanel({
           <div className={styles.billingPlan}>
             <span className={styles.tierBadge}>{tier.toUpperCase()}</span>
             <span className={styles.billingPlanName}>
-              {status ? `${status.fee_rate_percent}% swap fee` : '—'}
+              {typeof status?.fee_rate_percent === 'number'
+                ? `${status.fee_rate_percent}% swap fee`
+                : '—'}
             </span>
           </div>
           {(status?.expires_at || renewsAt) && (
@@ -408,7 +414,7 @@ export default function BillingPanel({
           )}
         </div>
 
-        {invoices && invoices.invoices.length > 0 ? (
+        {(invoices?.invoices?.length ?? 0) > 0 ? (
           <table className={styles.table}>
             <thead>
               <tr>
@@ -420,7 +426,7 @@ export default function BillingPanel({
               </tr>
             </thead>
             <tbody>
-              {invoices.invoices.map((inv) => (
+              {(invoices?.invoices ?? []).map((inv) => (
                 <tr key={inv.id}>
                   <td className={styles.mono}>{inv.number ?? inv.id}</td>
                   <td>{fmtDate(inv.createdAt)}</td>

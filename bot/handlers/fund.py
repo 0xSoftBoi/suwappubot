@@ -191,7 +191,7 @@ async def fund_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for a in USDC_AMOUNTS
         ]
         # 3 amounts per row.
-        rows = [amt_buttons[i : i + 3] for i in range(0, len(amt_buttons), 3)]
+        rows = [amt_buttons[i : i + 3] for i in range(0, len(amt_buttons), 3)]  # noqa: E203
         rows.append([InlineKeyboardButton("🔙 Back", callback_data="fund_usdc")])
         return await _edit(
             update,
@@ -246,7 +246,7 @@ async def fund_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(f"${a}", callback_data=f"fund_camt_{chain}_{a}")
             for a in USDC_AMOUNTS
         ]
-        rows = [amt_buttons[i : i + 3] for i in range(0, len(amt_buttons), 3)]
+        rows = [amt_buttons[i : i + 3] for i in range(0, len(amt_buttons), 3)]  # noqa: E203
         rows.append([InlineKeyboardButton("🔙 Back", callback_data="fund_cctp")])
         return await _edit(
             update,

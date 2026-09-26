@@ -503,7 +503,11 @@
 .terminal-app-viewport {
   box-sizing: border-box;
   width: 100%;
-  height: var(--terminal-visual-height, 100vh);
+  /* Clamped to the unit height as a second guard against an over-reporting
+     --terminal-visual-height (wallet in-app webviews under viewport-fit=cover
+     span beneath the app's native bottom bar); in normal browsers the var and
+     the unit agree, so min() is the identity. */
+  height: min(var(--terminal-visual-height, 100vh), 100vh);
   min-height: 0;
   padding-top: max(0.375rem, env(safe-area-inset-top));
   padding-right: max(0.375rem, env(safe-area-inset-right));
@@ -513,7 +517,7 @@
 
 @supports (height: 100dvh) {
   .terminal-app-viewport {
-    height: var(--terminal-visual-height, 100dvh);
+    height: min(var(--terminal-visual-height, 100dvh), 100dvh);
   }
 }
 
@@ -569,6 +573,14 @@
   .terminal-mobile-header button,
   .terminal-mobile-header a {
     touch-action: manipulation;
+  }
+
+  /* Third guard for the bottom nav in viewport-fit=cover webviews: keep its
+     buttons above the home indicator / native bottom chrome wherever the
+     browser reports a bottom safe-area inset. Browsers that report 0 (all
+     desktop, most Android) get no extra padding. */
+  .terminal-mobile-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
 

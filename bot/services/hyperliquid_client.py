@@ -301,6 +301,7 @@ class HyperLiquidClient:
         sl_price: Optional[float] = None,
         builder_address: Optional[str] = None,
         builder_fee_tenths_bps: Optional[int] = None,
+        is_cross: bool = True,
     ) -> Optional[HLOrderResult]:
         """Place an order on HyperLiquid.
 
@@ -379,8 +380,12 @@ class HyperLiquidClient:
                     )
                     protective.append(kind)
 
-            # Set leverage
-            await self._set_leverage(client, address, api_key, api_secret, asset, leverage)
+            # Margin mode/leverage is an entry setting. A reduce-only close or
+            # TP/SL must never mutate account leverage as a side effect.
+            if not reduce_only and order_type in ("market", "limit"):
+                await self._set_leverage(
+                    client, address, api_key, api_secret, asset, leverage, is_cross=is_cross
+                )
 
             # Build and sign the action
             action = {
@@ -1346,19 +1351,18 @@ class HyperLiquidClient:
         api_secret: str,
         asset: str,
         leverage: int,
-    ):
-        """Set leverage for an asset."""
+        is_cross: bool = True,
+    ) -> None:
+        """Set entry leverage + margin mode, failing closed on rejection."""
+        action = {
+            "type": "updateLeverage",
+            "asset": await self._resolve_asset_index(asset),
+            "isCross": bool(is_cross),
+            "leverage": leverage,
+        }
+        nonce = int(time.time() * 1000)
         try:
-            action = {
-                "type": "updateLeverage",
-                "asset": await self._resolve_asset_index(asset),
-                "isCross": True,
-                "leverage": leverage,
-            }
-
-            nonce = int(time.time() * 1000)
-
-            await client.post(
+            response = await client.post(
                 self.EXCHANGE_URL,
                 json={
                     "action": action,
@@ -1368,8 +1372,23 @@ class HyperLiquidClient:
                 },
                 headers={"Authorization": f"Bearer {api_key}"},
             )
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"HyperLiquid leverage update failed: HTTP {response.status_code} "
+                    f"{getattr(response, 'text', '')[:200]}"
+                )
+            data = response.json()
+            if data.get("status") != "ok":
+                raise RuntimeError(f"HyperLiquid rejected leverage/margin mode update: {data}")
         except Exception as e:
-            logger.warning(f"Failed to set leverage: {e}")
+            logger.error(
+                "Failed to set %s %sx leverage for %s: %s",
+                "cross" if is_cross else "isolated",
+                leverage,
+                asset,
+                e,
+            )
+            raise
 
     # Fallback indices used only if the /info metadata fetch fails. The
     # authoritative mapping is the position of each asset in meta.universe.

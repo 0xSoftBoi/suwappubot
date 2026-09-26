@@ -24,10 +24,11 @@ kept authoritative for those details — this file is the tool-agnostic summary.
 
 ## Repo skills (reuse before building)
 
-Scaffolding and workflows exist as skills — use them instead of hand-rolling:
-`/new-handler` (Telegram command), `/new-route` (api-ts endpoint), `/new-page` (webapp),
-`/new-test`, `/migrations` (dual-ORM schema change), `/ship` (branch→PR→CI→merge→boot
-verify), `/deploy`, `/status`, `/audit`, `/bugclass`, `/worktree-check`.
+Workflows exist as skills (`.claude/commands/`) — use them instead of hand-rolling:
+`/ship` (branch→PR→CI→merge→boot verify), `/deploy`, `/status`, `/audit`,
+`/audit-fleet`, `/bugclass`, `/worktree-check`. For scaffolding (new handler,
+route, page) copy an existing sibling as the template; dual-ORM schema changes
+follow `docs/development/migrations.md`.
 
 ## Where things live
 
@@ -39,6 +40,15 @@ verify), `/deploy`, `/status`, `/audit`, `/bugclass`, `/worktree-check`.
 | Webapp page | `webapp/src/pages/` |
 | Env var | `bot/config/settings.py` or `api-ts/src/config/EnvService.ts`, then regenerate `.env.schema` |
 | Optional provider | Declare in `capabilities.yaml`; the manifest, not the code, is the truth source |
+
+## Knowledge base
+
+Read before re-deriving: `docs/README.md` (index of all docs, staleness-flagged),
+`docs/architecture/OVERVIEW.md` (services, ~23 background tasks, request flows),
+`docs/ONBOARDING.md` (setup/env/test facts), `docs/DECISIONS.md` (lessons log),
+`docs/adr/` (append-only decision records — link one on MONEY-PATH/cross-stack PRs).
+Component-scoped rules: `bot/CLAUDE.md`, `api-ts/CLAUDE.md`, `webapp/CLAUDE.md`
+(read the one for the directory you're editing).
 
 ## Verification ladder (cheapest first)
 

@@ -12,7 +12,7 @@ import os
 import base64
 import logging
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional
+from typing import Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,6 @@ class KmsClientBase(ABC):
         Returns:
             DataKeyResult with plaintext and encrypted key bytes.
         """
-        pass
 
     @abstractmethod
     def decrypt_data_key(self, encrypted_key: bytes) -> bytes:
@@ -51,7 +50,6 @@ class KmsClientBase(ABC):
         Returns:
             Plaintext DEK bytes (32 bytes for AES-256)
         """
-        pass
 
     @abstractmethod
     def encrypt(self, plaintext: bytes) -> bytes:
@@ -64,7 +62,6 @@ class KmsClientBase(ABC):
         Returns:
             Ciphertext bytes
         """
-        pass
 
     @abstractmethod
     def decrypt(self, ciphertext: bytes) -> bytes:
@@ -77,13 +74,11 @@ class KmsClientBase(ABC):
         Returns:
             Plaintext bytes
         """
-        pass
 
     @property
     @abstractmethod
     def key_id(self) -> str:
         """Return the current KMS key identifier."""
-        pass
 
 
 class DevMockKmsClient(KmsClientBase):
@@ -384,7 +379,6 @@ class GcpKmsClient(KmsClientBase):
 
     def encrypt(self, plaintext: bytes) -> bytes:
         """Encrypt with GCP KMS."""
-        from google.cloud import kms
 
         response = self._client.encrypt(request={"name": self._key_name, "plaintext": plaintext})
         return response.ciphertext

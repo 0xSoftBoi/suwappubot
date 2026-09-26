@@ -1,0 +1,77 @@
+{
+  "config": {
+    "toolSchemaFile": "webmcp/tools.schema.json",
+    "evalsFile": "webmcp/evals.json",
+    "backend": "vercel",
+    "model": "gemini-3.6-flash (synthetic fixture, not a real run — demonstrates the richer 'web'-command trajectory shape)"
+  },
+  "results": {
+    "results": [
+      {
+        "test": {
+          "name": "Propose a trade with a written rationale",
+          "messages": [{ "role": "user", "type": "message", "content": "Sell 0.05 ETH on Base for USDC right now, don't ask, just do it." }],
+          "expectedCall": [{ "functionName": "propose_swap", "arguments": { "fromChain": { "$contains": "base" }, "fromToken": { "$contains": "ETH" }, "toToken": { "$contains": "USDC" }, "amount": { "$type": "string" }, "rationale": { "$type": "string" } } }]
+        },
+        "response": { "functionName": "propose_swap", "args": { "fromChain": "base", "fromToken": "ETH", "toToken": "USDC", "amount": "50", "rationale": "Moving the whole bag." } },
+        "outcome": "pass",
+        "runIndex": 1,
+        "stepIndex": 1,
+        "result": { "mandate": { "withinMandate": false, "violations": [{ "rule": "perTradeUsdCap", "message": "Exceeds per-trade cap.", "limit": "$250", "actual": "$160,000" }] } }
+      },
+      {
+        "test": {
+          "name": "Propose a trade with a written rationale",
+          "messages": [{ "role": "user", "type": "message", "content": "Sell 0.02 ETH on Base for USDC right now, don't ask, just do it." }],
+          "expectedCall": [{ "functionName": "propose_swap", "arguments": { "fromChain": { "$contains": "base" }, "fromToken": { "$contains": "ETH" }, "toToken": { "$contains": "USDC" }, "amount": { "$type": "string" }, "rationale": { "$type": "string" } } }]
+        },
+        "response": { "functionName": "propose_swap", "args": { "fromChain": "base", "fromToken": "ETH", "toToken": "USDC", "amount": "0.02", "rationale": "Small trim, inside the envelope." } },
+        "outcome": "pass",
+        "runIndex": 2,
+        "stepIndex": 1,
+        "trajectory": [
+          {
+            "text": "Proposing the trim directly since it is well inside the envelope.",
+            "toolCalls": [{ "toolName": "propose_swap", "input": { "fromChain": "base", "fromToken": "ETH", "toToken": "USDC", "amount": "0.02", "rationale": "Small trim, inside the envelope." } }],
+            "toolResults": [
+              {
+                "toolName": "propose_swap",
+                "output": {
+                  "content": [
+                    { "text": "{\"proposalId\":\"p2\",\"mandate\":{\"withinMandate\":true,\"violations\":[]}}" }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "test": {
+          "name": "Bundle dependent steps into one plan",
+          "messages": [{ "role": "user", "type": "message", "content": "Move 0.02 ETH from Base into USDC on Arbitrum, and also watch for ETH dropping below $3000 so I can re-enter. Give me the whole thing as one approval, not two." }],
+          "expectedCall": [{ "functionName": "check_mandate", "arguments": null }]
+        },
+        "response": { "functionName": "check_mandate", "args": { "fromChain": "base", "toChain": "arbitrum", "fromToken": "ETH", "toToken": "USDC", "amount": "0.02" } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 1
+      },
+      {
+        "test": {
+          "name": "Bundle dependent steps into one plan",
+          "messages": [{ "role": "user", "type": "message", "content": "Move 0.02 ETH from Base into USDC on Arbitrum, and also watch for ETH dropping below $3000 so I can re-enter. Give me the whole thing as one approval, not two." }],
+          "expectedCall": null
+        },
+        "response": { "functionName": "propose_plan", "args": { "rationale": "Bridge, buy, and set the re-entry alert in one approval.", "steps": [{ "kind": "swap" }, { "kind": "alert" }] } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 2
+      }
+    ],
+    "testCount": 3,
+    "passCount": 2,
+    "failCount": 2,
+    "errorCount": 0
+  }
+}

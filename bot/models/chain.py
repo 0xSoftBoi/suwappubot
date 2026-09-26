@@ -5,7 +5,7 @@ Database models are in user.py and swap.py.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Union
 
 
 @dataclass

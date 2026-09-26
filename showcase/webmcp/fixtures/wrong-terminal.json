@@ -1,0 +1,38 @@
+{
+  "config": {
+    "toolSchemaFile": "webmcp/tools.schema.json",
+    "evalsFile": "webmcp/evals.json",
+    "backend": "gemini",
+    "model": "gemini-3.5-flash (synthetic fixture, not a real run)"
+  },
+  "results": {
+    "results": [
+      {
+        "test": {
+          "name": "Spot price lookup",
+          "messages": [{ "role": "user", "type": "message", "content": "What is ETH worth right now?" }],
+          "expectedCall": [{ "functionName": "get_prices", "arguments": null }]
+        },
+        "response": { "functionName": "list_chains", "args": {} },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 1
+      },
+      {
+        "test": {
+          "name": "Spot price lookup",
+          "messages": [{ "role": "user", "type": "message", "content": "What is ETH worth right now?" }],
+          "expectedCall": null
+        },
+        "response": { "functionName": "find_token", "args": { "query": "ETH", "chain": "ethereum" } },
+        "outcome": "fail",
+        "runIndex": 1,
+        "stepIndex": 2
+      }
+    ],
+    "testCount": 1,
+    "passCount": 0,
+    "failCount": 2,
+    "errorCount": 0
+  }
+}

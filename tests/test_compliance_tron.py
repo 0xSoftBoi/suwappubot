@@ -28,13 +28,20 @@ os.environ.setdefault("KMS_PROVIDER", "dev")
 # `from bot.services.compliance import compliance_service` and
 # `import bot.services.compliance.compliance_service as cs` hand back the
 # INSTANCE. Go through importlib to get the actual module.
-import importlib
+import importlib  # noqa: E402
 
-import pytest
+import pytest  # noqa: E402
 
 cs = importlib.import_module("bot.services.compliance.compliance_service")
-from bot.services.compliance.ofac_list import _normalize, _tron_canonical, load_ofac_addresses
-from bot.services.hot_wallet import ComplianceBlockedError, _assert_recipient_compliant
+from bot.services.compliance.ofac_list import (  # noqa: E402
+    _normalize,
+    _tron_canonical,
+    load_ofac_addresses,
+)  # noqa: E402
+from bot.services.hot_wallet import (  # noqa: E402
+    ComplianceBlockedError,
+    _assert_recipient_compliant,
+)  # noqa: E402
 
 # Real-shaped TRON addresses (base58check, 34 chars, leading T). Used as test
 # fixtures only — not known sanctioned addresses.

@@ -9,7 +9,6 @@ All transfers use the custodial hot-wallet ledger (no on-chain tx).
 """
 
 import logging
-import re
 from decimal import Decimal, InvalidOperation
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,8 +16,6 @@ from telegram.ext import CommandHandler, ContextTypes
 
 from bot.services.community_service import DEFAULT_CHAIN, DEFAULT_TOKEN, send_tip
 from bot.utils.tos_utils import enforce_tos
-from database.db import get_session
-from bot.models.user import User
 
 logger = logging.getLogger(__name__)
 

@@ -1,20 +1,28 @@
+export { stopDataUsageFlusher } from '../lib/dataUsage'
 export { a2aRoutes } from './a2a'
-export { enterpriseRoutes } from './enterprise'
-export { billingRoutes } from './billing'
 export { adminRoutes } from './admin'
 export { agentRoutes } from './agent'
+export { autopilotAdminRoutes, autopilotRoutes } from './autopilot'
+export { billingRoutes } from './billing'
 export { dataRoutes, stopDataLiveTicker } from './data'
-export { stopDataUsageFlusher } from '../lib/dataUsage'
+export { enterpriseRoutes } from './enterprise'
+// HACKATHON (Tokyo 2026): trust-layer demo routes. Mounted in app.ts only
+// when HACKATHON_TRUST_LAYER=true.
+export { hackathonRoutes } from './hackathon'
 export { healthRoutes } from './health'
 export { internalRoutes } from './internal'
 export { lendRoutes } from './lend'
 export { mcpRoutes, TOOLS as MCP_TOOLS } from './mcp'
 export { p2pRoutes } from './p2p'
-export { rewardsRoutes } from './rewards'
 export { perpsRoutes } from './perps'
 export { predictRoutes } from './predict'
-export { createPythonProxyRoutes, createTerminalSwapProxyRoutes } from './pythonProxy'
-export { publicSwapRoutes } from './publicSwap'
+export { guardedPublicSwapRoutes as publicSwapRoutes } from './publicSwapGuard'
+export {
+	createPythonProxyRoutes,
+	createTerminalSwapProxyRoutes,
+	createTerminalWebappProxyRoutes,
+} from './pythonProxy'
+export { rewardsRoutes } from './rewards'
 export { smartAccountRoutes } from './smartAccount'
 export { stakingRoutes } from './staking'
 export { swapRoutes } from './swap'

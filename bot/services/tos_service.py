@@ -2,8 +2,6 @@
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
-from sqlalchemy.orm import Session
 
 from bot.models.user import User
 from database.db import get_session

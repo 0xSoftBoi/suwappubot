@@ -23,7 +23,7 @@ import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
-import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf } from './agent'
+import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf, quoteBoundToWallet } from './agent'
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
@@ -418,12 +418,8 @@ function isTempoChain(chain: string): boolean {
 const TEMPO_CHAIN_ID = 4217
 const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
 	pathUSD: 'Tempo native stablecoin',
-	AlphaUSD: 'Alpha yield-bearing stablecoin',
-	BetaUSD: 'Beta yield-bearing stablecoin',
-	ThetaUSD: 'Theta yield-bearing stablecoin',
 }
-// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService) — the authoritative source
-// is bot/config/tokens.py, which declares decimals=18 for all Tempo TIP-20 stablecoins.
+// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService); TIP-20s are 6dp on-chain.
 
 // Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
 // isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
@@ -439,7 +435,7 @@ function buildTempoTokens() {
 		symbol,
 		name: symbol,
 		address,
-		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 18,
+		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 6,
 		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
 		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
 		currency: TEMPO_TIP20_CURRENCY,
@@ -940,6 +936,15 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		}) }] }
 	}
 
+	// The unsigned tx must have been built for wallet_address as sender AND
+	// recipient — a quote made without a wallet targets the placeholder 0x...0001,
+	// so signing it would send the output to an unrecoverable address.
+	if (!quoteBoundToWallet(quote, wallet_address)) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: 'This quote was not built for wallet_address. Get a new quote with wallet_address set, then call execute_swap with the new quote_id.' }],
+		}
+	}
 	return { content: [{ type: 'text', text: JSON.stringify({
 		status: 'ready', chain_type: 'evm',
 		transaction: {
@@ -1581,7 +1586,7 @@ mcpRoutes.post('/', async (c) => {
 				// Read from the raw (possibly-undefined) `agent`, not the `callAgent` cast —
 				// a PUBLIC_READ_TOOLS call reaches here with agent undefined, and
 				// chargeAgentForCall treats a missing agent as 'skip: no_agent' safely.
-				agent: agent ? { id: agent.id, rateLimitTier: agent.rateLimitTier } : undefined,
+				agent: agent ? { id: agent.id, rateLimitTier: agent.rateLimitTier, uuid: agent.uuid } : undefined,
 				cost: costForTool(name),
 				resource: `mcp://tools/${name}`,
 				description: `Suwappu MCP tool: ${name} (${costForTool(name)} credit${costForTool(name) === 1 ? '' : 's'})`,

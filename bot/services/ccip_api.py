@@ -3,15 +3,12 @@
 import logging
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
-from decimal import Decimal
 from web3 import Web3
 
-from bot.config.settings import settings
-from bot.config.chains import get_chain_by_name, ChainType
-from bot.config.tokens import get_token_address, get_token_decimals
-from bot.utils.http_client import get_session
+from bot.config.chains import get_chain_by_name
+from bot.config.tokens import get_token_decimals
 from bot.utils.rate_limiter import api_limiter
-from bot.utils.performance import track_time, MetricNames
+from bot.utils.performance import track_time
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +116,6 @@ class CCIPTransferData:
 
 class CCIPError(Exception):
     """Error from CCIP operations."""
-
-    pass
 
 
 class ChainlinkCCIPAPI:
@@ -327,7 +322,7 @@ class ChainlinkCCIPAPI:
                 # Estimate USD (LINK ~$15)
                 fee_usd = fee_human * 15
             else:
-                chain_config = get_chain_by_name(from_chain)
+                chain_config = get_chain_by_name(from_chain)  # noqa: F841
                 fee_decimals = 18
                 fee_human = fee / (10**fee_decimals)
                 # Estimate USD based on chain

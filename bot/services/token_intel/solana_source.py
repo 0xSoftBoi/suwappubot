@@ -6,7 +6,6 @@ single RPC failure only degrades one field, never the whole report.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from bot.services.rpc_manager import rpc_manager

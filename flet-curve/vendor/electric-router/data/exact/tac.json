@@ -1,0 +1,32 @@
+{
+ "chain_id": 239,
+ "fingerprint": "8105012d58ca2413",
+ "unquotable": {},
+ "verdicts": {
+  "0x52297f3e1f099da7f4fc0a66bc8732016ab3f9b1": {
+   "family": "twocrypto",
+   "legacy_fee": true,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": false,
+   "v21": true
+  },
+  "0xaad47973427b39be737c1154f50dd6595083fa88": {
+   "family": "twocrypto",
+   "legacy_fee": true,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": false,
+   "v21": true
+  },
+  "0xe5948a817d7a061a0ef40128e91379046da1009e": {
+   "family": "twocrypto",
+   "legacy_fee": true,
+   "legacy_mul2": false,
+   "legacy_pool": false,
+   "stable": false,
+   "v21": true
+  }
+ },
+ "version": 1
+}

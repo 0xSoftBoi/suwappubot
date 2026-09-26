@@ -13,6 +13,9 @@
     "healthcheckPath": "/robots.txt",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
-    "numReplicas": 1
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1,
+    "overlapSeconds": 30,
+    "drainingSeconds": 30
   }
 }

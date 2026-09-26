@@ -65,22 +65,14 @@ class SwapError(Exception):
 class ValidationError(Exception):
     """Error during validation."""
 
-    pass
-
 
 class WalletError(Exception):
     """Error during wallet operations."""
-
-    pass
 
 
 class APIError(Exception):
     """Error from external API."""
 
-    pass
-
 
 class RateLimitError(Exception):
     """Rate limit exceeded."""
-
-    pass

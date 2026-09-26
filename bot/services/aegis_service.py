@@ -82,7 +82,7 @@ def _iter_chunks(text: str):
     text = text[:_MAX_TOTAL_SCAN_CHARS]
     step = _CHUNK_CHARS - _CHUNK_OVERLAP
     for start in range(0, len(text), step):
-        yield text[start : start + _CHUNK_CHARS]
+        yield text[start : start + _CHUNK_CHARS]  # noqa: E203
         if start + _CHUNK_CHARS >= len(text):
             break
 

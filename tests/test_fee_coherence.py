@@ -13,8 +13,8 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from bot.services.fee_service import TIER_FEE_RATES
-from bot.services.x402_service import TIER_LIMITS
+from bot.services.fee_service import TIER_FEE_RATES  # noqa: E402
+from bot.services.x402_service import TIER_LIMITS  # noqa: E402
 
 
 def test_x402_fee_rate_derives_from_canonical_table():

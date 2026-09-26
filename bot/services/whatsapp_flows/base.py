@@ -1,7 +1,7 @@
 """Base class for WhatsApp conversation flows."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from bot.services.whatsapp_conversation import ConversationState, conversation_manager
 

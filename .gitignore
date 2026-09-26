@@ -64,3 +64,7 @@ contracts-hackathon/*/lib/
 contracts-hackathon/*/out/
 contracts-hackathon/*/cache/
 contracts-hackathon/*/broadcast/*/dry-run/
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/

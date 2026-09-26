@@ -139,3 +139,115 @@ SUWP_CONTRACT_ADDRESS=0x...       # After deployment
 STAKING_CONTRACT_ADDRESS=0x...    # After deployment
 PROTOCOL_WALLET_PRIVATE_KEY=...   # Signs distribution txs (use KMS in prod)
 ```
+
+## Core Primitives (`primitives/`)
+
+Immutable, oracle-free, governance-free "deploy-once-run-forever" building blocks
+in the spirit of Uniswap v1 / Ajna. No owner, no pause, no upgrade path.
+
+**Zero dependencies.** Each primitive is a single self-contained `.sol` file with
+**no imports** — the ERC-20 (for the curve token), reentrancy guard, safe-transfer
+(handles non-standard tokens), 512-bit `mulDiv`, and `wadExp` are all inlined. Each
+compiles standalone with `solc` alone (no OpenZeppelin, no remappings, no libs), so
+there is no transitive supply-chain surface and the deployed bytecode is fully
+auditable from one file.
+
+**Gas.** The reentrancy guard uses EIP-1153 transient storage (`tstore`/`tload`,
+Base is on Cancun), replacing an SSTORE pair with ~200 gas on every state-changing
+call. `SuwappuMutualCredit` does not store the `(a, b, token)` triple — it's a pure
+function of the call arguments, recomputed on the fly, cutting three cold SSTOREs
+from line creation (`proposeLine` ~189k → ~103k). Hot paths also cache repeated
+SLOADs and use `unchecked` loop counters. Approximate measured cost (median):
+`buy` ~109k, `sell` ~70k, `supply` ~130k, `openPosition` ~217k, `pay` ~53k,
+`settle` ~65k, `netCycle` (3-cycle) ~39k.
+
+**MEV posture.** These primitives are oracle-free, so there is no price feed to
+manipulate, and they hold no LP positions to grief. Per contract:
+- **TimeCurve** — price is a pure function `p(s,t)`. Because the `m(t)` term moves
+  purely with *time*, a validator could withhold a tx and execute it later at a
+  worse deterministic price; every trade takes a **`deadline`** to bound that
+  window. The only same-block extraction is a CFMM-style sandwich on the `slope`
+  term, bounded by the caller's **slippage** limit (`maxReserveIn`/`minReserveOut`)
+  and taxed by `sinkRate` on the exit. No commit-reveal or batch auction is needed
+  because there is no discrete auction or oracle tick to snipe.
+- **AmortizingVault** — interest is *linear in time* and cash is tracked internally,
+  so there is no intra-block state (share price, debt) an adversary can move to
+  mint cheap shares or force a liquidation; the donation / first-depositor vector
+  is already closed. LTV still reads the 4626 share price, so the health-sensitive
+  entrypoints (`openPosition`, `withdrawCollateral`, `liquidate`) also take a
+  **`deadline`** to reject execution against a stale/manipulated price.
+- **MutualCredit** — a pure bilateral ledger with permissionless netting. `pay`,
+  `netCycle`, and `markDefault` move no value to the caller, so there is nothing to
+  front-run for profit, and `netCycle`'s outcome is order-independent (it reduces
+  every leg by the cycle minimum regardless of who calls it or when).
+
+### `SuwappuTimeCurve.sol` — Time-Locked Continuous Bonding Curve
+The contract is itself the curve token (mint on buy, burn on sell) against one
+ERC-20 reserve. Price is a pure function of time and supply:
+`p(s,t) = e^(rate·t) · (basePrice + slope·s)`. Continuous two-way liquidity, no
+auctions, no feeds. Optional immutable `sinkRate` burns a fraction of every sell
+without refund, permanently shrinking supply and building a reserve surplus.
+Decay/flat schedules are provably solvent; growth schedules are protected by a
+hard `refund ≤ reserve` guard and should pair with a non-zero sink.
+
+### `SuwappuAmortizingVault.sol` — Self-Repaying Collateralized Position
+Deposit ERC-4626 shares as collateral, borrow the vault's *underlying* asset
+from a pooled lender side. Debt and collateral share the same denomination, so
+LTV needs **no oracle** (`convertToAssets`). Permissionless `amortize()` redeems
+exactly the yield the collateral earned and applies it to the position's debt;
+at zero debt the collateral unlocks. Liquidation only if undercollateralized
+before self-repayment finishes, always after amortizing first.
+
+### `SuwappuMutualCredit.sol` — Mutual Credit Clearing Network
+Bilateral credit lines (propose → accept, terms fixed at opening) in any ERC-20
+unit of account. `pay()` moves value as credit within the limit each party
+extended; `netCycle()` lets anyone submit a debt cycle A→B→…→A and net every leg
+by the cycle minimum; `settle()` clears residuals with real tokens. Creditors can
+`demandSettlement()`, and after the line's grace period `markDefault()` freezes
+the line and records the default on-chain for reputation layers to build on.
+
+### Security hardening
+An adversarial money-path review (with executable PoCs) shaped these designs:
+- **TimeCurve** forbids time-based growth (`rate > 0`) at deploy — a self-contained
+  reserve cannot honor appreciating quotes without becoming a bank run; use a
+  positive `slope` for an upward path. The sink is a flat haircut on sell *value*
+  (split-invariant), `buy` reverts rather than minting for zero reserve, the
+  multiplier floors above zero, and `_integral` uses `mulDiv` (no supply ceiling).
+- **AmortizingVault** uses *simple* interest via a time-only index (accrual is
+  independent of how often it is poked), tracks lendable cash internally plus a
+  virtual-share offset (donation / first-depositor-proof), caps `amortize()` at the
+  4626's `maxWithdraw` (liquidation can't be bricked by an illiquid collateral
+  vault), supports partial liquidation, `addCollateral`, and writes off bad debt
+  against the pool instead of leaving phantom assets. LTV still trusts the 4626
+  share price — this is *not* oracle-free, it inherits that vault's price surface.
+- **MutualCredit** rejects duplicate nodes in `netCycle` and re-checks each leg
+  (no repeated-cycle debt fabrication), bounds `pay` amounts below `int256` max
+  (no sign-flip limit bypass), lets proposals be cancelled/rejected (no permanent
+  key-squatting DoS), and keeps defaulted lines settleable and readable so a debtor
+  can cure and reputation layers can read the outstanding amount.
+
+### Tests
+- **Unit** (`test/PrimitivesTest.t.sol`, 37): solvency after decay, split-invariant
+  sink, no-free-mint at vanishing multiplier, fuzzed round-trip non-profitability,
+  LTV/liquidation paths, illiquid-collateral liquidation, donation resistance,
+  bad-debt writeoff, poke-independent interest, self-repayment, lender interest,
+  cycle netting + repeated-leg rejection, int-overflow guard, proposal cancel,
+  curable defaults, deadline expiry, curve-token ERC-20 conformance.
+- **Invariant / stateful fuzz** (`test/PrimitivesInvariant.t.sol`, 256 runs ×
+  64 depth): curve reserve always covers a full-supply buy-back and never hits
+  InsufficientReserve; vault debt-accounting consistency, `totalCash == real
+  balance`, no phantom debt (bad debt always written off); credit balances stay
+  within agreed limits and net-position is conserved under `netCycle`.
+- **Mainnet fork** (`test/PrimitivesFork.t.sol`): full round-trips against real
+  Base USDC (6-decimal, exercises `reserveScale != 1`) and a real Morpho ERC-4626.
+  Skips gracefully when `BASE_MAINNET_RPC_URL` is unset.
+
+```bash
+forge test --match-path "test/PrimitivesTest.t.sol"
+forge test --match-path "test/PrimitivesInvariant.t.sol"
+BASE_MAINNET_RPC_URL=<rpc> forge test --match-path "test/PrimitivesFork.t.sol" -vvv
+```
+
+**Mainnet readiness:** see [`MAINNET_READINESS.md`](./MAINNET_READINESS.md) — the
+engineering is hardened, but real funds still require an independent audit, a
+testnet soak, and a bug bounty. Deploy with `deploy/DeployPrimitives.s.sol`.

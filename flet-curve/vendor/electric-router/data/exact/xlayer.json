@@ -1,0 +1,18 @@
+{
+ "chain_id": 196,
+ "fingerprint": "8105012d58ca2413",
+ "unquotable": {},
+ "verdicts": {
+  "0x31f066aa0a687d4f383f96a514984af727eb8e38": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  },
+  "0x5b3f7f05b79f3ccbe8f33374a578e14dbbb28478": {
+   "family": "stable",
+   "fee_on_xp": true,
+   "rates": "reported"
+  }
+ },
+ "version": 1
+}

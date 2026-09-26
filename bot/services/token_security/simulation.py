@@ -1,8 +1,8 @@
 """Deep State Simulation for Solana honeypot detection."""
 
 import logging
-import asyncio
 import base64
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction, AccountMeta
@@ -10,10 +10,8 @@ from solders.message import MessageV0
 from solders.transaction import VersionedTransaction
 from solana.rpc.async_api import AsyncClient as SolanaClient
 
-from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.jupiter_api import JupiterAPI
-from bot.utils.http_client import get_session
 
 logger = logging.getLogger(__name__)
 

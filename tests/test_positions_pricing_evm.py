@@ -55,7 +55,9 @@ def env():
     pos.functions.sealRegistry().transact({"from": owner})
     usdg = wire_payments(w3, art, pos, owner, owner, alice, deploy)
     now = w3.eth.get_block("latest").timestamp
-    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 50, 0, now - 1, 0).transact(
+    # allocation 4_444 (== MAX_SUPPLY), not 0: an open (no-merkle-root) priced
+    # phase now requires both bounds — see OpenPhaseUnbounded in configurePhase.
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 50, 4_444, now - 1, 0).transact(
         {"from": owner}
     )
     return w3, pos, feed, owner, alice, usdg
@@ -76,7 +78,7 @@ def test_mint_end_is_a_promise_the_contract_keeps(env):
 
 
 def test_close_forever_stops_the_owner_too(env):
-    """'10,000 max' is a claim; a one-way close is proof."""
+    """'4,444 max' is a claim; a one-way close is proof."""
     w3, pos, feed, owner, alice, usdg = env
     pos.functions.closeMintingForever().transact({"from": owner})
     assert pos.functions.mintingClosedForever().call() is True
@@ -144,7 +146,7 @@ def test_mint_state_is_one_call(env):
     assert price_cents == CENTS
     assert price_usdg == pos.functions.quote(PUBLIC, 1).call()
     assert wallet_cap == 50 and wallet_minted == 0 and wallet_remaining == 50
-    assert ticker_remaining > 0 and minted == 0 and supply_remaining == 10_000
+    assert ticker_remaining > 0 and minted == 0 and supply_remaining == 4_444
     assert (is_paused, ended, closed) == (False, False, False)
 
     # it tracks reality after a mint
@@ -153,7 +155,7 @@ def test_mint_state_is_one_call(env):
     # Indices shifted down by one when `pricedByFeed` left the struct with the
     # ETH feed it described.
     assert st2[9] == 2 and st2[10] == 48  # walletMinted / walletRemaining
-    assert st2[12] == 2 and st2[13] == 9_998  # minted / supplyRemaining
+    assert st2[12] == 2 and st2[13] == 4_442  # minted / supplyRemaining
     assert st2[11] == ticker_remaining - 2
 
     # and reflects lifecycle without extra calls
@@ -209,8 +211,14 @@ def test_max_per_wallet_is_actually_enforced(env):
     cap", so a misconfigured phase was unbounded per wallet."""
     w3, pos, feed, owner, alice, usdg = env
     now = w3.eth.get_block("latest").timestamp
-    # a phase with NO wallet cap and no allowlist: previously unbounded
-    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 0, 0, now - 1, 0).transact(
+    # A phase whose OWN wallet cap/allocation are set well above MAX_PER_WALLET
+    # so neither constrains this test — the point is that the GLOBAL
+    # MAX_PER_WALLET still bites even though the phase itself barely limits.
+    # walletCap/allocation can no longer both be 0 here: configurePhase now
+    # rejects an open (no-merkle-root) phase with either bound unset (see
+    # OpenPhaseUnbounded), which is exactly the "previously unbounded"
+    # configuration this test used to construct on purpose.
+    pos.functions.configurePhase(PUBLIC, ZERO_ROOT, CENTS, 999, 4_444, now - 1, 0).transact(
         {"from": owner}
     )
     cap = pos.functions.MAX_PER_WALLET().call()

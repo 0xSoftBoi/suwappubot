@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Navigation from '@/components/Navigation';
+import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import StatusBoard from './StatusBoard';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
@@ -44,7 +44,7 @@ const SURFACES = [
 export default function StatusPage() {
   return (
     <div className="summer-page docs-shell institutional-page">
-      <Navigation />
+      <SummerNav />
       <main id="main-content">
         <div className="summer-shell mkt-page">
           <header className="mkt-hero mkt-hero--center">

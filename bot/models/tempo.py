@@ -4,9 +4,9 @@ Persists fee-sponsorship bookkeeping so per-user sponsored-tx limits and the
 daily budget hold across restarts/replicas (Railway wipes in-memory state).
 """
 
-from datetime import datetime, date
+from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Index
+from sqlalchemy import Column, Integer, Float, Date, DateTime, Index
 
 from database.db import Base
 

@@ -26,9 +26,35 @@
     "usdt0",
     "Wormhole"
   ],
+  "mcpToolCount": 22,
+  "mcpTools": [
+    "get_quote",
+    "get_portfolio",
+    "get_prices",
+    "list_chains",
+    "list_tokens",
+    "execute_swap",
+    "simulate_swap",
+    "get_tempo_tokens",
+    "browse_mpp_directory",
+    "predict_markets",
+    "predict_market",
+    "perps_markets",
+    "perps_quote",
+    "perps_positions",
+    "lend_markets",
+    "lend_market",
+    "get_swap_status",
+    "get_swap_history",
+    "predict_book",
+    "predict_price",
+    "predict_trades",
+    "list_wallet_policies"
+  ],
   "notes": {
     "platformChains": "bot/config/chains.py CHAINS, excluding testnets. Bot + terminal surface.",
     "agentApiChains": "Mirrors GET /v1/agent/chains. Do NOT use the platform number on agent-API pages.",
-    "routers": "Providers raced for quotes. CHAIN-GATED — never claim every swap races all of them."
+    "routers": "Providers raced for quotes. CHAIN-GATED — never claim every swap races all of them.",
+    "mcpTools": "The TOOLS registry served by the MCP server (api-ts/src/routes/mcpTools.ts)."
   }
 }

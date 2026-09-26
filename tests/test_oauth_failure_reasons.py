@@ -34,7 +34,7 @@ def test_each_failure_has_a_distinct_reason(reason):
 
 def test_login_failures_redirect_rather_than_raise():
     """The login path must not dead-end the browser on JSON."""
-    body = SRC[SRC.index("async def oauth_callback") :]
+    body = SRC[SRC.index("async def oauth_callback") :]  # noqa: E203
     # Cut at the token-exchange block; everything above is state/nonce checks.
     head = body[: body.index("oauth_service = get_oauth_service()")]
     assert (

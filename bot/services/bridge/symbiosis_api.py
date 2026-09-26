@@ -5,10 +5,12 @@ aggregator using numeric EVM chain IDs, which we source from
 bot.config.chains.get_chain_by_name (chain_id field) rather than
 hardcoding a second chain-name -> chain-id map. No API key required.
 
-Guess/assumption flag: the POST /v1/swap request/response shape below
-follows the publicly documented Symbiosis REST conventions as of the
-code-review date, but was NOT verified against a live call in this
-session (no live network calls were made).
+Request/response shape verified against a live call (2026-08-23):
+POST /v1/swap requires token `address` and `decimals` on both sides
+(422 without them); a 250 USDC ethereum->base probe returned
+tokenAmountOut 249.27 USDC with executable `tx` calldata in 18s
+estimated settlement. Token addresses/decimals come from the same
+bot.config.tokens registry the swap engines use.
 """
 
 import logging
@@ -16,6 +18,7 @@ from typing import Any, Dict, Optional
 
 from bot.config.chains import get_chain_by_name
 from bot.config.settings import settings
+from bot.config.tokens import get_token_by_symbol, get_token_decimals
 from bot.services.bridge.base import (
     BridgeError,
     BridgeProvider,
@@ -118,14 +121,39 @@ class SymbiosisBridge(BridgeProvider):
         await api_limiter.wait_and_acquire("symbiosis")
         session = await get_session()
 
+        # The API 422s without token address + decimals on both sides; symbols
+        # alone are not enough. Resolve via the registry entry's OWN per-chain
+        # address map — never get_token_address, whose raw-address passthrough
+        # would echo one address onto both chains and fabricate the pair
+        # (money-path review finding). Unknown symbols, raw addresses, and
+        # chains the registry has no verified deployment for all decline.
+        token_cfg = get_token_by_symbol(from_token)
+        if token_cfg is None:
+            logger.debug(f"Symbiosis quote rejected: unknown token symbol {from_token!r}")
+            return None
+        address_in = token_cfg.addresses.get(from_chain.lower())
+        address_out = token_cfg.addresses.get(to_chain.lower())
+        if not address_in or not address_out:
+            logger.debug(
+                f"Symbiosis quote rejected: no registry address for {from_token} "
+                f"on {from_chain if not address_in else to_chain}"
+            )
+            return None
+
         body: Dict[str, Any] = {
             "tokenAmountIn": {
                 "chainId": chain_id_in,
+                "address": address_in,
+                "decimals": get_token_decimals(from_token, from_chain),
+                "symbol": token_cfg.symbol,
                 "amount": from_amount,
-                "symbol": from_token.upper(),
             },
-            "chainIdOut": chain_id_out,
-            "tokenOut": {"symbol": from_token.upper(), "chainId": chain_id_out},
+            "tokenOut": {
+                "chainId": chain_id_out,
+                "address": address_out,
+                "decimals": get_token_decimals(from_token, to_chain),
+                "symbol": token_cfg.symbol,
+            },
             "from": from_address,
             "to": recipient,
             "slippage": slippage_bps,  # already bps
@@ -153,10 +181,16 @@ class SymbiosisBridge(BridgeProvider):
             logger.debug(f"Symbiosis quote has unparseable amount: {e}")
             return None
 
-        if amount_out < int(from_amount) // 2:
+        # Sanity band in HUMAN units: raw units are not comparable when the
+        # two chains disagree on decimals (USDT/USDC are 18dp on bsc, 6dp
+        # elsewhere), which made the raw comparison drop every bsc-source
+        # route and wave through dust on bsc-destination routes.
+        decimals_in = get_token_decimals(from_token, from_chain)
+        decimals_out = get_token_decimals(from_token, to_chain)
+        if amount_out / (10**decimals_out) < (int(from_amount) / (10**decimals_in)) / 2:
             logger.warning(
-                f"Symbiosis quote rejected: amountOut {amount_out} is less than half "
-                f"from_amount {from_amount}"
+                f"Symbiosis quote rejected: out {amount_out} (10^{decimals_out}) is less "
+                f"than half of in {from_amount} (10^{decimals_in})"
             )
             return None
 

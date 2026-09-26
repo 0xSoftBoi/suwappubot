@@ -301,7 +301,7 @@ class TurnkeyPolicyService:
             if not user_settings:
                 return
 
-            per_swap = user_settings.per_swap_limit_usd
+            per_swap = user_settings.per_swap_limit_usd  # noqa: F841
             daily = user_settings.daily_limit_usd
 
             wallets = (
@@ -309,7 +309,7 @@ class TurnkeyPolicyService:
                 .filter(
                     Wallet.user_id == user_id,
                     Wallet.wallet_provider == "turnkey",
-                    Wallet.is_active == True,
+                    Wallet.is_active == True,  # noqa: E712
                 )
                 .all()
             )

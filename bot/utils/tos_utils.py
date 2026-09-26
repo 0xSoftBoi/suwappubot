@@ -18,7 +18,7 @@ def enforce_tos(func):
             return await func(update, context, *args, **kwargs)
 
         if not tos_service.is_accepted_telegram(user.id):
-            message_text = (
+            message_text = (  # noqa: F841
                 "⚠️ *Terms of Service Required*\n\n"
                 "Before using Suwappu Bot, you must read and accept our Terms of Service\\.\n\n"
                 "Please use /start to review and accept the terms\\."

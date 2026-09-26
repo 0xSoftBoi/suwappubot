@@ -7,7 +7,6 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Text,
-    Enum,
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
@@ -84,6 +83,12 @@ class SwapTransaction(Base):
     # Idempotency (prevents duplicate submits on double-click/retry)
     # Enforced via a unique index created in `database/db.py` migrations helper.
     idempotency_key = Column(String(128), nullable=True, index=True)
+
+    # Agent linkage (columns added by database/db.py _add_swap_agent_columns).
+    # api-ts GET /v1/agent/swap/status/:id filters on agent_id, so agent swaps
+    # that leave these NULL are invisible to the agent that placed them.
+    agent_id = Column(Integer, nullable=True, index=True)
+    agent_uuid = Column(String(36), nullable=True)
 
     # Route info
     route_provider = Column(String(50), nullable=True)  # "lifi" or "jupiter"

@@ -24,16 +24,19 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32byteslong!!")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.compliance import (
+from bot.services.compliance import (  # noqa: E402
     ComplianceError,
     ComplianceResult,
     ComplianceMode,
     ScreeningPolicy,
 )
-from bot.services.token_security.address_gate import AddressGateResult, check_address_gate
-from bot.services.token_security.blacklist_service import BlacklistCheckResult
+from bot.services.token_security.address_gate import (  # noqa: E402
+    AddressGateResult,
+    check_address_gate,
+)  # noqa: E402
+from bot.services.token_security.blacklist_service import BlacklistCheckResult  # noqa: E402
 
 ADDR_EVM = "0x1234567890123456789012345678901234567890"
 ADDR_SOL = "So11111111111111111111111111111111111111112"
@@ -367,7 +370,7 @@ async def test_snipe_receive_contract_blacklist_error_fails_open(monkeypatch):
     context = MagicMock()
     context.user_data = {"snipe": {}}
 
-    result = await snipe.receive_contract(update, context)
+    result = await snipe.receive_contract(update, context)  # noqa: F841
 
     assert context.user_data["snipe"]["token_mint"] == ADDR_SOL
     show_amount_mock.assert_awaited_once()

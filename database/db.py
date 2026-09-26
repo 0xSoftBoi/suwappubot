@@ -426,6 +426,41 @@ def _ensure_schema(db_engine) -> None:
                     )
                 )
 
+    # --- per-user deposit addresses + the watcher's scan cursor ---
+    # A shared omnibus deposit address cannot be attributed: EVM has no memo
+    # field, so an inbound transfer carries nothing tying it to a user. Each
+    # user gets their own address instead (docs/operations/deposit-crediting.md).
+    if "hot_wallets" in tables:
+        hw_cols = {c["name"] for c in inspector.get_columns("hot_wallets")}
+        if "deposit_user_id" not in hw_cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE hot_wallets ADD COLUMN deposit_user_id INTEGER"
+            else:
+                ddl = "ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS deposit_user_id INTEGER"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+        with db_engine.begin() as conn:
+            # One deposit address per (user, chain family). UNIQUE so a race
+            # between two concurrent first-loads cannot mint two addresses for
+            # the same user — the loser retries and reads the winner's row.
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_hot_wallets_deposit_user_chain "
+                    "ON hot_wallets(deposit_user_id, chain_type)"
+                )
+            )
+
+    # Per-chain high-water mark for the deposit watcher. Separate table rather
+    # than a config blob so an operator can inspect and rewind a single chain.
+    with db_engine.begin() as conn:
+        conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS deposit_scan_cursors (
+                    chain VARCHAR(50) PRIMARY KEY,
+                    last_scanned_block BIGINT NOT NULL,
+                    updated_at TIMESTAMP
+                )
+                """))
+
     # --- wallets: envelope encryption columns ---
     if "wallets" in tables:
         _add_encryption_columns(db_engine, inspector, "wallets", is_sqlite)
@@ -737,6 +772,7 @@ def _ensure_schema(db_engine) -> None:
     # --- referrals: verified_at + perps_volume_14d_usd columns ---
     if "referrals" in tables:
         _add_referral_stream_columns(db_engine, inspector, is_sqlite)
+        _backfill_referral_verified_at(db_engine, inspector, is_sqlite)
 
     # --- Bucket 2: community payment tools ---
     _create_tips_table(db_engine, inspector, is_sqlite)
@@ -785,10 +821,16 @@ def _ensure_schema(db_engine) -> None:
     _create_perp_metrics_table(db_engine, inspector, is_sqlite)
     _create_prediction_snapshots_table(db_engine, inspector, is_sqlite)
     _create_lend_metrics_table(db_engine, inspector, is_sqlite)
+    _create_autopilot_tables(db_engine, inspector, is_sqlite)
 
     # --- swap_transactions: execution-savings receipts (best-vs-runner-up) ---
     if "swap_transactions" in tables:
         _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite)
+
+    # --- savings_events: venue column for /earn (ERC-4626) vault attribution,
+    # so `action` can stay a short deposit/withdraw enum that fits its column ---
+    if "savings_events" in tables:
+        _add_savings_events_venue_column(db_engine, inspector, is_sqlite)
 
 
 def _widen_swap_token_columns(db_engine, inspector, is_sqlite: bool) -> None:
@@ -1382,6 +1424,25 @@ def _add_savings_tables(db_engine, inspector, is_sqlite: bool) -> None:
         logger.warning(f"Failed to create savings_events table: {e}")
 
 
+def _add_savings_events_venue_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add savings_events.venue (nullable) so /earn can log a short, fixed
+    action ("deposit"/"withdraw") that fits the existing action VARCHAR(16)
+    while still carrying vault attribution. See bot/handlers/earn.py._log_event.
+    """
+    try:
+        cols = [c["name"] for c in inspector.get_columns("savings_events")]
+        if "venue" not in cols:
+            if is_sqlite:
+                ddl = "ALTER TABLE savings_events ADD COLUMN venue VARCHAR(32)"
+            else:
+                ddl = "ALTER TABLE savings_events ADD COLUMN IF NOT EXISTS venue VARCHAR(32)"
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info("Added savings_events.venue")
+    except Exception as e:
+        logger.warning(f"Could not add savings_events.venue: {e}")
+
+
 def _add_btc_swap_tables(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the btc_swaps table (Atomiq BTC bridge swaps) idempotently."""
     try:
@@ -1758,6 +1819,20 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
     Idempotent — already-encrypted rows decrypt cleanly and are skipped. This
     remediates the historical plaintext exposure for users who never re-trigger
     a 2FA read. Best-effort: failures are logged, never fatal to startup.
+
+    Fast path (Postgres): a cheap regex EXISTS check runs first. Every row's
+    decrypt attempt below pays a real PBKDF2 key derivation (native C++ if the
+    compiled core loaded, a much slower pure-Python fallback otherwise)
+    regardless of whether it succeeds — so once a deployment's legacy-plaintext
+    rows are all healed, the unconditional per-row loop still re-derives a key
+    for every totp_secret on every single boot, inside one open transaction,
+    with no per-row logging and no timeout. At enough rows (or on the slow
+    fallback path) that made this step — and therefore DATABASE_AVAILABLE,
+    which gates /health readiness — take minutes, well past Railway's 5-minute
+    healthcheck window, with zero log output the whole time it was stuck. The
+    EXISTS check below is the exact shape _is_legacy_plaintext_secret tests,
+    in SQL: once nothing matches, every remaining row is either already
+    correctly encrypted or corrupted, and the loop would do no work either way.
     """
     try:
         from bot.config.settings import settings
@@ -1782,6 +1857,25 @@ def _encrypt_plaintext_totp_secrets(db_engine, is_sqlite: bool) -> None:
         except Exception:
             return False
         return True
+
+    if not is_sqlite:
+        try:
+            with db_engine.connect() as probe:
+                any_candidate = probe.execute(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM users " "WHERE totp_secret ~ '^[A-Z2-7]+=*$')"
+                    )
+                ).scalar()
+            if not any_candidate:
+                return
+        except Exception as e:
+            # Never let the fast path itself block the real migration --
+            # fall through to the full (slower but correct) loop below. This
+            # is the one path that can silently regress to the exact stall
+            # this fix exists to prevent (e.g. a `users` table too large for
+            # the probe's own seq scan to finish inside statement_timeout),
+            # so it must be visible at prod's default log level, not DEBUG.
+            logger.warning(f"TOTP backfill fast-path check failed, running full scan: {e}")
 
     key = settings.encryption_key
     try:
@@ -3162,6 +3256,52 @@ def _add_referral_stream_columns(db_engine, inspector, is_sqlite: bool) -> None:
             logger.warning(f"Failed to add referrals.{col_name}: {e}")
 
 
+def _backfill_referral_verified_at(db_engine, inspector, is_sqlite: bool) -> None:
+    """One-time backfill of referrals.verified_at for already-active referees.
+
+    verified_at was added but nothing in the codebase ever set it, so every
+    referral stayed unverified and the milestone bonus stream (5/10/20/50/100
+    verified referrals) was permanently unreachable. record_reward() now calls
+    verify_referral() on each recorded swap commission, but that only fixes
+    referrals going forward — a referee who already swapped would stay
+    unverified until their next swap.
+
+    This stamps verified_at on any active referral whose referee already has at
+    least one recorded referral reward, i.e. a real fee-paying swap that already
+    cleared the min-volume guard. Uses the reward's created_at as the timestamp
+    so the verification date reflects when the activity actually happened.
+
+    Idempotent: only touches rows where verified_at IS NULL, so re-running is a
+    no-op. Milestone bonuses for backfilled referrals are credited by
+    _check_and_award_milestones on the referrer's next referral event.
+    """
+    cols = {c["name"] for c in inspector.get_columns("referrals")}
+    if "verified_at" not in cols:
+        return
+    tables = set(inspector.get_table_names())
+    if "referral_rewards" not in tables:
+        return
+
+    try:
+        with db_engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    "UPDATE referrals SET verified_at = ("
+                    "  SELECT MIN(rr.created_at) FROM referral_rewards rr"
+                    "  WHERE rr.referral_id = referrals.id"
+                    ") "
+                    "WHERE verified_at IS NULL "
+                    "AND EXISTS ("
+                    "  SELECT 1 FROM referral_rewards rr2 WHERE rr2.referral_id = referrals.id"
+                    ")"
+                )
+            )
+        if result.rowcount:
+            logger.info(f"Backfilled referrals.verified_at for {result.rowcount} referral(s)")
+    except Exception as e:
+        logger.warning(f"Failed to backfill referrals.verified_at: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Bucket 2 — community payment tools
 # ---------------------------------------------------------------------------
@@ -4200,6 +4340,50 @@ def _create_agent_link_codes_table(db_engine, inspector, is_sqlite: bool) -> Non
 # ---------------------------------------------------------------------------
 
 
+def _ensure_index_lock_safe(db_engine, is_sqlite: bool, index_name: str, create_sql: str) -> None:
+    """Create an index on a hot ingestion table without risking the whole boot.
+
+    `CREATE INDEX IF NOT EXISTS` takes a SHARE lock on the table *before* the
+    existence check, so on tables under continuous write load (market_candles,
+    perp_metrics, ...) it queues behind writers until statement_timeout — and
+    because _ensure_schema failures abort all of DB init, one slow lock put the
+    API in degraded mode and failed the Railway healthcheck on every deploy.
+
+    So: check the catalog first (lock-free), and only when the index is truly
+    missing attempt the build under a short lock_timeout in its own
+    transaction. A build that can't get the lock is logged and skipped — the
+    operator should run CREATE INDEX CONCURRENTLY instead of blocking boots.
+    """
+    try:
+        with db_engine.connect() as conn:
+            if is_sqlite:
+                row = conn.execute(
+                    text("SELECT 1 FROM sqlite_master WHERE type='index' AND name=:n"),
+                    {"n": index_name},
+                ).first()
+            else:
+                row = conn.execute(
+                    text("SELECT 1 FROM pg_indexes WHERE indexname=:n"),
+                    {"n": index_name},
+                ).first()
+        if row is not None:
+            return
+    except Exception as e:
+        logger.warning(f"Index existence check failed for {index_name}: {e}")
+
+    try:
+        with db_engine.begin() as conn:
+            if not is_sqlite:
+                conn.execute(text("SET LOCAL lock_timeout = '10s'"))
+            conn.execute(text(create_sql))
+        logger.info(f"Created index {index_name}")
+    except Exception as e:
+        logger.warning(
+            f"Skipped index {index_name} (table busy or build too slow — "
+            f"create it manually with CREATE INDEX CONCURRENTLY): {e}"
+        )
+
+
 def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
     """Create the market_candles table idempotently.
 
@@ -4257,18 +4441,20 @@ def _create_market_candles_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created market_candles table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
-                "ON market_candles(symbol, chain, timeframe, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
-                "ON market_candles(symbol, chain, timeframe, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_market_candles_symbol_chain_timeframe_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_market_candles_symbol_chain_timeframe_ts "
+        "ON market_candles(symbol, chain, timeframe, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_market_candles_symbol_chain_timeframe_ts",
+        "CREATE INDEX IF NOT EXISTS ix_market_candles_symbol_chain_timeframe_ts "
+        "ON market_candles(symbol, chain, timeframe, ts DESC)",
+    )
 
 
 def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -4312,18 +4498,20 @@ def _create_api_usage_daily_table(db_engine, inspector, is_sqlite: bool) -> None
                 """))
             logger.info("Created api_usage_daily table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
-                "ON api_usage_daily(api_key_id, route, day)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
-                "ON api_usage_daily(api_key_id, day)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_api_usage_daily_key_route_day",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_api_usage_daily_key_route_day "
+        "ON api_usage_daily(api_key_id, route, day)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_api_usage_daily_key_day",
+        "CREATE INDEX IF NOT EXISTS ix_api_usage_daily_key_day "
+        "ON api_usage_daily(api_key_id, day)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4381,18 +4569,20 @@ def _create_perp_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created perp_metrics table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_perp_metrics_venue_symbol_ts "
-                "ON perp_metrics(venue, symbol, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_perp_metrics_venue_symbol_ts "
-                "ON perp_metrics(venue, symbol, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_perp_metrics_venue_symbol_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_perp_metrics_venue_symbol_ts "
+        "ON perp_metrics(venue, symbol, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_perp_metrics_venue_symbol_ts",
+        "CREATE INDEX IF NOT EXISTS ix_perp_metrics_venue_symbol_ts "
+        "ON perp_metrics(venue, symbol, ts DESC)",
+    )
 
 
 def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -4448,19 +4638,21 @@ def _create_prediction_snapshots_table(db_engine, inspector, is_sqlite: bool) ->
                 """))
             logger.info("Created prediction_snapshots table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS "
-                "uq_prediction_snapshots_venue_market_id_outcome_ts "
-                "ON prediction_snapshots(venue, market_id, outcome, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_prediction_snapshots_venue_market_id_ts "
-                "ON prediction_snapshots(venue, market_id, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_prediction_snapshots_venue_market_id_outcome_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS "
+        "uq_prediction_snapshots_venue_market_id_outcome_ts "
+        "ON prediction_snapshots(venue, market_id, outcome, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_prediction_snapshots_venue_market_id_ts",
+        "CREATE INDEX IF NOT EXISTS ix_prediction_snapshots_venue_market_id_ts "
+        "ON prediction_snapshots(venue, market_id, ts DESC)",
+    )
 
 
 def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
@@ -4516,15 +4708,169 @@ def _create_lend_metrics_table(db_engine, inspector, is_sqlite: bool) -> None:
                 """))
             logger.info("Created lend_metrics table")
 
-        conn.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_lend_metrics_venue_market_id_ts "
-                "ON lend_metrics(venue, market_id, ts)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
-                "ON lend_metrics(venue, market_id, ts DESC)"
-            )
-        )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "uq_lend_metrics_venue_market_id_ts",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_lend_metrics_venue_market_id_ts "
+        "ON lend_metrics(venue, market_id, ts)",
+    )
+    _ensure_index_lock_safe(
+        db_engine,
+        is_sqlite,
+        "ix_lend_metrics_venue_market_id_ts",
+        "CREATE INDEX IF NOT EXISTS ix_lend_metrics_venue_market_id_ts "
+        "ON lend_metrics(venue, market_id, ts DESC)",
+    )
+
+
+def _create_autopilot_tables(db_engine, inspector, is_sqlite: bool) -> None:
+    """Create the autopilot tables idempotently.
+
+    Mirrors api-ts's Drizzle schema (db/schema/autopilot.ts) per ADR 0003 — the
+    two stacks share one database and either may be the first to reach a fresh
+    one. Columns that Drizzle declares as Postgres enums are plain VARCHARs
+    here: the values are identical strings on the wire, and whichever service
+    creates the table first wins (both sides guard on existence). Python does
+    not read these tables today; this exists so a Python-first deploy does not
+    leave the autopilot without a schema.
+    """
+    try:
+        tables = set(inspector.get_table_names())
+    except Exception:
+        return
+
+    if "autopilot_agents" in tables:
+        return
+
+    ts = "DATETIME DEFAULT CURRENT_TIMESTAMP" if is_sqlite else "TIMESTAMP DEFAULT NOW()"
+    pk = "INTEGER PRIMARY KEY AUTOINCREMENT" if is_sqlite else "SERIAL PRIMARY KEY"
+    json_type = "TEXT" if is_sqlite else "JSONB"
+    dt = "DATETIME" if is_sqlite else "TIMESTAMP"
+    real = "REAL" if is_sqlite else "REAL"
+
+    with db_engine.begin() as conn:
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS autopilot_agents (
+                    id {pk},
+                    slug VARCHAR(64) NOT NULL UNIQUE,
+                    name VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    mode VARCHAR(16) NOT NULL DEFAULT 'paper',
+                    status VARCHAR(16) NOT NULL DEFAULT 'paused',
+                    chain VARCHAR(32) NOT NULL,
+                    base_token VARCHAR(64) NOT NULL,
+                    base_token_symbol VARCHAR(20) NOT NULL DEFAULT 'USDC',
+                    wallet_address VARCHAR(64),
+                    executor_agent_id INTEGER,
+                    starting_equity_usd {real} NOT NULL DEFAULT 0,
+                    thesis_engine VARCHAR(32) NOT NULL DEFAULT 'rules',
+                    rules {json_type} NOT NULL DEFAULT '{{}}',
+                    last_cycle_at {dt},
+                    created_at {ts} NOT NULL,
+                    updated_at {ts} NOT NULL
+                )
+            """))
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS autopilot_cycles (
+                    id {pk},
+                    agent_id INTEGER NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'running',
+                    stage VARCHAR(24) NOT NULL DEFAULT 'read',
+                    candidates_scanned INTEGER NOT NULL DEFAULT 0,
+                    theses_formed INTEGER NOT NULL DEFAULT 0,
+                    decisions_sealed INTEGER NOT NULL DEFAULT 0,
+                    decisions_executed INTEGER NOT NULL DEFAULT 0,
+                    equity_usd {real},
+                    error TEXT,
+                    started_at {ts} NOT NULL,
+                    finished_at {dt}
+                )
+            """))
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS autopilot_decisions (
+                    id {pk},
+                    agent_id INTEGER NOT NULL,
+                    cycle_id INTEGER,
+                    action VARCHAR(8) NOT NULL,
+                    chain VARCHAR(32) NOT NULL,
+                    token_address VARCHAR(64) NOT NULL,
+                    token_symbol VARCHAR(32) NOT NULL,
+                    size_usd {real} NOT NULL DEFAULT 0,
+                    confidence {real},
+                    headline TEXT,
+                    thesis {json_type},
+                    seal_algo VARCHAR(32) NOT NULL,
+                    commitment VARCHAR(64) NOT NULL,
+                    nonce VARCHAR(64) NOT NULL,
+                    sealed_at {ts} NOT NULL,
+                    seal_tx_hash VARCHAR(128),
+                    seal_chain VARCHAR(32),
+                    gate_passed BOOLEAN NOT NULL DEFAULT FALSE,
+                    gates {json_type} NOT NULL DEFAULT '[]',
+                    rejection_reason TEXT,
+                    status VARCHAR(16) NOT NULL DEFAULT 'sealed',
+                    tx_hash VARCHAR(128),
+                    quote_id VARCHAR(128),
+                    executed_at {dt},
+                    fill_price_usd {real},
+                    fill_amount VARCHAR(78),
+                    realized_slippage_bps INTEGER,
+                    execution_error TEXT,
+                    revealed_at {dt},
+                    created_at {ts} NOT NULL
+                )
+            """))
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS autopilot_positions (
+                    id {pk},
+                    agent_id INTEGER NOT NULL,
+                    chain VARCHAR(32) NOT NULL,
+                    token_address VARCHAR(64) NOT NULL,
+                    token_symbol VARCHAR(32) NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'open',
+                    amount VARCHAR(78) NOT NULL DEFAULT '0',
+                    cost_basis_usd {real} NOT NULL DEFAULT 0,
+                    avg_entry_price_usd {real},
+                    last_price_usd {real},
+                    unrealized_pnl_usd {real},
+                    realized_pnl_usd {real} NOT NULL DEFAULT 0,
+                    take_profit_pct {real},
+                    stop_loss_pct {real},
+                    invalidation TEXT,
+                    entry_decision_id INTEGER,
+                    exit_decision_id INTEGER,
+                    opened_at {ts} NOT NULL,
+                    closed_at {dt},
+                    updated_at {ts} NOT NULL
+                )
+            """))
+        conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS autopilot_journal (
+                    id {pk},
+                    agent_id INTEGER NOT NULL,
+                    cycle_id INTEGER,
+                    decision_id INTEGER,
+                    stage VARCHAR(24) NOT NULL,
+                    level VARCHAR(16) NOT NULL DEFAULT 'info',
+                    message TEXT NOT NULL,
+                    data {json_type},
+                    created_at {ts} NOT NULL
+                )
+            """))
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS autopilot_agents_status_idx ON autopilot_agents(status)",
+            "CREATE INDEX IF NOT EXISTS autopilot_cycles_agent_idx "
+            "ON autopilot_cycles(agent_id, started_at)",
+            "CREATE INDEX IF NOT EXISTS autopilot_decisions_agent_idx "
+            "ON autopilot_decisions(agent_id, sealed_at)",
+            "CREATE INDEX IF NOT EXISTS autopilot_decisions_commitment_idx "
+            "ON autopilot_decisions(commitment)",
+            "CREATE INDEX IF NOT EXISTS autopilot_decisions_status_idx "
+            "ON autopilot_decisions(status)",
+            "CREATE INDEX IF NOT EXISTS autopilot_positions_agent_idx "
+            "ON autopilot_positions(agent_id, status)",
+            "CREATE INDEX IF NOT EXISTS autopilot_journal_agent_idx "
+            "ON autopilot_journal(agent_id, created_at)",
+        ):
+            conn.execute(text(stmt))

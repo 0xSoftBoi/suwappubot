@@ -39,7 +39,7 @@ from bot.handlers.swap import swap_conversation_handler, check_swap_status, swap
 from bot.handlers.bulk_swap import bulk_swap_conversation_handler
 from bot.handlers.bulk_pay import bulk_pay_conversation_handler
 from bot.handlers.battle import battle_conversation_handler, battle_menu_callback_handler
-from bot.handlers.rewards import rewards_handler, rewards_claim_handler
+from bot.handlers.rewards import rewards_claim_handler
 from bot.handlers.tip import tip_handler
 from bot.handlers.luckybox import luckybox_handler, luckybox_claim_handler
 from bot.handlers.split import split_handler, split_pay_handler
@@ -99,7 +99,6 @@ from bot.handlers.favorites import (
 )
 from bot.handlers.settings import (
     settings_handler,
-    settings_callback,
     toggle_notify_handler,
     slippage_conversation,
     toggle_panic_handler,
@@ -170,6 +169,7 @@ from bot.handlers.alerts import (
 )
 from bot.handlers.referral import (
     referral_handler,
+    ref_review_handler,
     ref_menu_callback_handler,
     ref_list_callback_handler,
     ref_claim_callback_handler,
@@ -277,6 +277,7 @@ from bot.handlers.copy import (
 from bot.handlers.snipe import snipe_conversation_handler
 from bot.handlers.predict import predict_conversation_handler
 from bot.handlers.savings import savings_conversation_handler
+from bot.handlers.earn import earn_conversation_handler
 from bot.handlers.borrow import borrow_conversation_handler
 from bot.handlers.btc import btc_conversation_handler
 from bot.handlers.perps import perps_conversation_handler, perps_menu_callback_handler
@@ -345,7 +346,7 @@ from bot.utils.errors import handle_swap_error
 from bot.utils.http_client import close_session as close_http_session
 from bot.utils.preload import preload_config
 from bot.utils.db_monitor import setup_db_monitoring
-from database.db import init_db, DATABASE_AVAILABLE
+from database.db import init_db
 
 # Try to import C++ core for high-performance operations
 try:
@@ -357,24 +358,12 @@ except ImportError:
     CPP_CORE_AVAILABLE = False
 
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=getattr(logging, settings.log_level.upper()),
-)
+# Configure logging. Lives in bot/utils/logging_setup.py (format + the
+# httpx/urllib3 token-leak silencing) because api/main.py no longer imports
+# this module in worker mode and must apply the same setup itself.
+from bot.utils.logging_setup import configure_logging  # noqa: E402
 
-# SECRET LEAK: httpx logs every request URL at INFO, and the Telegram Bot API
-# puts the bot token IN the path — so a plain INFO log level published the full
-# token to Railway logs on every API call:
-#
-#   httpx - INFO - HTTP Request: POST https://api.telegram.org/bot<TOKEN>/sendMessage
-#
-# Anyone who can read the logs can then read every message and post as the bot.
-# The same applies to any other client whose credentials ride in a URL, so pin
-# the HTTP libraries to WARNING regardless of LOG_LEVEL rather than relying on
-# the deploy never being set to INFO/DEBUG.
-for _noisy in ("httpx", "httpcore", "urllib3", "telegram.request"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +425,7 @@ def add_handlers(application: Application) -> None:
     application.add_handler(referral_handler)  # /ref
     application.add_handler(fees_command_handler)  # /fees
     application.add_handler(rewards_command_handler)  # /rewards
+    application.add_handler(ref_review_handler)  # /refreview (admin)
     application.add_handler(orders_handler)  # /o (limit orders)
     application.add_handler(dca_handler)  # /dca
     application.add_handler(tax_handler)  # /tax
@@ -530,6 +520,9 @@ def add_handlers(application: Application) -> None:
     application.add_handler(battle_conversation_handler)  # MONEY-PATH: gamified /battle
     application.add_handler(predict_conversation_handler)  # Prediction markets /predict
     application.add_handler(savings_conversation_handler)  # USDC savings /save (Aave V3 Base)
+    application.add_handler(
+        earn_conversation_handler
+    )  # Cross-protocol ERC-4626 earn /earn (Ethena, Sky, Morpho, ...)
     application.add_handler(borrow_conversation_handler)  # Borrow USDC vs cbBTC /borrow (Morpho)
     application.add_handler(btc_conversation_handler)  # BTC bridge /btc (Atomiq, Starknet)
     application.add_handler(p2p_conversation_handler)  # P2P marketplace /p2p
@@ -855,6 +848,7 @@ async def post_init(application) -> None:
             BotCommand("pos", "💼 Positions & PnL"),
             BotCommand("w", "👛 Wallets"),
             BotCommand("save", "🏦 Earn yield on idle USDC"),
+            BotCommand("earn", "🌾 Cross-protocol yield (Ethena, Sky, Morpho...)"),
             BotCommand("a", "🔔 Price alerts"),
             BotCommand("check", "🛡️ Token safety check"),
             BotCommand("chart", "📈 Candlestick chart"),

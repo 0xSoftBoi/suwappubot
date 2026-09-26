@@ -34,6 +34,9 @@ export function useBridgeRoutes(
       request.token,
       request.amount,
       request.slippageBps,
+      // Quotes are per-sender (gas estimates, provider allowances), so a
+      // wallet connect/disconnect must refetch rather than serve stale routes.
+      request.fromAddress,
     ];
   }, [request]);
 

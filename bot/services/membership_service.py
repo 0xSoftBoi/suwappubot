@@ -677,7 +677,7 @@ class MembershipService:
         if not self.enabled:
             return None
         try:
-            from eth_account import Account
+            pass
 
             from bot.services.rpc_manager import rpc_manager
 

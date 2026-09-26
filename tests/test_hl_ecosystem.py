@@ -11,7 +11,11 @@ os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 os.environ.setdefault("KMS_PROVIDER", "dev")
 
-from bot.services.hyperliquid_client import HyperLiquidClient, hype_to_wei, HLP_VAULT_ADDRESS
+from bot.services.hyperliquid_client import (  # noqa: E402
+    HyperLiquidClient,
+    hype_to_wei,
+    HLP_VAULT_ADDRESS,
+)  # noqa: E402
 
 
 def _stub_info(hl, payload):

@@ -38,13 +38,11 @@ MONEY-PATH note (for reviewer)
 
 import asyncio
 import logging
-import secrets
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from eth_account import Account
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
@@ -361,7 +359,6 @@ async def _execute_solana_sequential(
     recipients: list[Recipient],
 ) -> list[Recipient]:
     """Sequential SOL / SPL-token sends."""
-    import aiohttp
     import base58 as _base58
     from solders.keypair import Keypair
     from solders.pubkey import Pubkey
@@ -683,7 +680,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
         wallets = (
             session.query(Wallet)
-            .filter(Wallet.user_id == db_user.id, Wallet.is_active == True)
+            .filter(Wallet.user_id == db_user.id, Wallet.is_active == True)  # noqa: E712
             .all()
         )
         if not wallets:
@@ -784,7 +781,7 @@ async def _pay_select_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def _pay_select_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle both EVM chain selection (callback) and token text entry."""
-    chain_type = context.user_data.get(_UD_CHAIN_TYPE, "evm")
+    chain_type = context.user_data.get(_UD_CHAIN_TYPE, "evm")  # noqa: F841
 
     # --- EVM chain callback ---
     if update.callback_query:
@@ -970,9 +967,9 @@ async def _pay_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not allowed:
         return ConversationHandler.END
 
-    chain_type = context.user_data.get(_UD_CHAIN_TYPE, "evm")
+    chain_type = context.user_data.get(_UD_CHAIN_TYPE, "evm")  # noqa: F841
     chain_name = context.user_data.get(_UD_CHAIN, "")
-    token = context.user_data.get(_UD_TOKEN, NATIVE_SYMBOL)
+    token = context.user_data.get(_UD_TOKEN, NATIVE_SYMBOL)  # noqa: F841
     wallet_id = context.user_data.get(_UD_WALLET_ID)
     raw_recipients = context.user_data.get(_UD_RECIPIENTS, [])
     db_user_id = _get_caller_db_user_id(context)

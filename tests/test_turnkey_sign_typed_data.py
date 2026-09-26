@@ -5,9 +5,9 @@ os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///test.db")
 
-import pytest
+import pytest  # noqa: E402
 
-from bot.services.turnkey_client import TurnkeyClient
+from bot.services.turnkey_client import TurnkeyClient  # noqa: E402
 
 # A typed-data message we can sign deterministically.
 TYPED_DATA = {
