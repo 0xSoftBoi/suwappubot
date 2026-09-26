@@ -318,9 +318,7 @@ async def lifespan(app: FastAPI):
                             )
                         )
             else:
-                logger.warning(
-                    "⚠️ Placeholder or missing Telegram token. Skipping polling/webhook."
-                )
+                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
         except Exception as e:
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")
@@ -1204,7 +1202,7 @@ async def admin_activation_funnel(_: str = Depends(get_admin_key)):
         return activation_funnel.compute()
     except Exception as e:
         logger.error(f"activation funnel failed: {e}", exc_info=True)
-        raise HTTPException(status_code=503, detail="Funnel unavailable")
+        raise HTTPException(status_code=503, detail="Funnel unavailable") from e
 
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")

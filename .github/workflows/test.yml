@@ -304,6 +304,18 @@ jobs:
               -f /workspace/api-ts/drizzle/0017_condemned_clea.sql
           done
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps for schema drift check
+        run: pip install sqlalchemy psycopg2-binary
+
+      - name: Schema drift check (Python runtime migration vs Drizzle schema)
+        env:
+          SCHEMA_DRIFT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/suwappu_ci
+        run: python3 scripts/schema_drift_check.py
+
   # ---------------------------------------------------------------------------
   # Builder docs — generated artifacts + executable-source contracts
   # ---------------------------------------------------------------------------
