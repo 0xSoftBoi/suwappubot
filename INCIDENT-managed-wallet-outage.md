@@ -54,7 +54,9 @@ What that allowed:
 
 It is the only agent in prod with any of these keys. The IDs it used were not logged. No `Executing swap for agent` or `Swap executed` line exists, so **no transaction was signed**. Anything older than log retention is unchecked.
 
-**Open question:** was `xiaoan-audit` an internal security test? If not, treat it as a hostile probe. The fixes in #1017 (sanitized `/register` + `PATCH`, and the `execute-swap` ownership guard) close this path.
+**Resolved (2026-09-26):** `xiaoan-audit` is the operator's own "muse" auditing agent. This was an **internal security test**, not a hostile probe. It found a real, exploitable path: a forged-ID custodial signing request reached python-api, and only an unrelated import bug stopped it. The fixes in #1017 (sanitized `/register` and `PATCH`, and the `execute-swap` ownership guard) close that path.
+
+**Live verification (2026-09-26):** agent `589749bb` swapped 0.0002 ETH → 0.532305 USDC on Base through its own Turnkey wallet: tx `0xd6f6bad6f15f56bb74c03ecd83b92e6d2874774fea5bc1205a6fb2aa90d8ba1d`, block 51809241, status 1. Getting there also required #1018 (api-ts build context), #1019 (null-key wallet claim), #1020 (RPC failover and strict balance), #1021 (chain normalization) and #1022 (execute sent `from_chain: 'ethereum'` for **every** LI.FI agent swap, which would have run Base quotes on mainnet for wallets funded on both chains).
 
 ## Fixes (PR #1017, each commit tagged `[MONEY-PATH]` and money-path reviewed)
 | Commit | Fix |
