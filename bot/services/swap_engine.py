@@ -4087,6 +4087,8 @@ class SwapEngine:
         user_id: int,
         idempotency_key: Optional[str] = None,
         automated: bool = False,
+        agent_id: Optional[int] = None,
+        agent_uuid: Optional[str] = None,
     ) -> SwapTransaction:
         """
         Execute a swap based on a quote.
@@ -4306,6 +4308,8 @@ class SwapEngine:
                         gas_fee=quote.gas_cost_usd,
                         bridge_fee=quote.fee_cost_usd,
                         idempotency_key=idempotency_key,
+                        agent_id=agent_id,
+                        agent_uuid=agent_uuid,
                         # Execution-savings receipt, carried on the winning
                         # SwapQuote from get_best_quote's race resolution.
                         # Consume-once: a SwapQuote object is reused across

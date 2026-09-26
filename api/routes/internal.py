@@ -455,6 +455,8 @@ async def execute_agent_swap(
             wallet_id=request.internal_wallet_id,
             user_id=request.internal_user_id,
             idempotency_key=request.idempotency_key,
+            agent_id=request.agent_id,
+            agent_uuid=request.agent_uuid,
         )
 
         logger.info(
