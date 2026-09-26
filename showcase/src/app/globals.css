@@ -432,6 +432,15 @@ h2 {
   padding: 0 12px;
 }
 
+/* Mid-width desktops: the full link row plus both CTAs doesn't fit at 12px
+   padding, so the CTAs used to wrap or overlap the last link. */
+@media (max-width: 1400px) {
+  .summer-nav nav a,
+  .summer-nav nav .summer-nav__trigger {
+    padding: 0 8px;
+  }
+}
+
 .summer-nav nav a:hover {
   color: var(--summer-ink);
   background: rgba(237, 248, 251, 0.92);
@@ -5792,6 +5801,34 @@ button:focus:not(:focus-visible) {
   color: #f1efff;
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(180, 200, 255, 0.42);
+}
+
+/* ── Calm AI-product canvas (Passport page) ──────────────────────────
+   Deliberately NOT cosmic: no starfield, no neon, no foil. A single
+   near-black neutral ground (the --sw-soil ramp) with one accent used
+   sparingly. Reuses the institutional dark tokens rather than inventing
+   a new palette. */
+.summer-page--passport {
+  background:
+    radial-gradient(90% 60% at 50% -10%, color-mix(in srgb, var(--sw-accent) 7%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--sw-soil-0) 0%, var(--sw-soil-1) 100%);
+  color: rgba(244, 244, 246, 0.92);
+}
+.summer-page--passport .summer-nav {
+  background: rgba(13, 15, 18, 0.6);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.summer-page--passport .summer-brand { color: rgba(244, 244, 246, 0.95); }
+.summer-page--passport .summer-nav nav {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.summer-page--passport .summer-nav nav a { color: rgba(244, 244, 246, 0.72); }
+.summer-page--passport .summer-nav nav a:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.summer-page--passport .summer-nav__cta--ghost {
+  color: rgba(244, 244, 246, 0.92);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .journey {

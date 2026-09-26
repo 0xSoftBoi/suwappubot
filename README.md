@@ -57,6 +57,19 @@
 
 ---
 
+## ETHGlobal Tokyo 2026 — Agent Swap Passport
+
+**Live demo → [suwappu.bot/passport](https://suwappu.bot/passport)**
+
+One agent identity, three sponsors. A human proves personhood with **World ID**, the agent gets an
+**ENSv2** subname under `suwappu-agents.eth` on Sepolia, and its swaps route through a
+**World-ID-gated Uniswap v4 `beforeSwap` hook**
+([`0xc72ab4dF…c080`](https://sepolia.etherscan.io/address/0xc72ab4dFd3d6B2C1b3af51816EA8331599e6c080)).
+The page reads live state from `api.suwappu.bot/hackathon/*` (`api-ts/src/routes/hackathon.ts`).
+Plan and on-chain evidence: [`docs/plans/ethglobal-tokyo2026-agent-passport.md`](docs/plans/ethglobal-tokyo2026-agent-passport.md).
+
+---
+
 ## What can I build?
 
 | Goal | Start here |

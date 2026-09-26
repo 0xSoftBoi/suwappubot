@@ -26,9 +26,9 @@ export default function SummerNav() {
 
       <nav aria-label="Primary navigation" className="summer-nav__menu">
         <ProductMenu triggerClassName="summer-nav__trigger" />
-        <a href="/products"><strong>Explore</strong></a>
         <a href="/dashboard/signals">Signals <span aria-hidden="true">↗</span></a>
         <a href="/research">Research</a>
+        <a href="/passport">{nav('passport')}</a>
         <a href="/pricing">{nav('pricing')}</a>
         <a href="/docs">{nav('docs')}</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">{hero('telegramNav')}</a>
@@ -57,6 +57,7 @@ export default function SummerNav() {
             { href: '/products', label: 'Explore all products' },
             { href: '/dashboard/signals', label: 'Signal Intelligence' },
             { href: '/research', label: 'Research' },
+            { href: '/passport', label: nav('passport') },
             { href: '/pricing', label: nav('pricing') },
             { href: '/docs', label: nav('docs') },
             { href: TELEGRAM_URL, label: hero('telegramNav'), external: true },
