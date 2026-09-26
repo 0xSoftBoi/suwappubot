@@ -30,14 +30,17 @@
   padding-top: 0;
 }
 
-.heroCopy { max-width: 44ch; margin-bottom: 36px; }
+.heroCopy { max-width: none; margin-bottom: 36px; }
 
 .h1 {
   font-family: var(--font-serif);
-  font-size: clamp(1.9rem, 6vw, 3rem);
-  line-height: 1.12;
-  letter-spacing: -0.01em;
-  margin: 0 0 14px;
+  font-size: clamp(2.2rem, 1.1rem + 3.6vw, 4.25rem);
+  font-weight: 500;
+  line-height: 1.03;
+  letter-spacing: -0.025em;
+  max-width: 15ch;
+  margin: 0 auto 18px;
+  text-wrap: balance;
   color: #fff;
 }
 
