@@ -757,15 +757,13 @@ class RPCManager:
         ep = self._find_endpoint(chain_name, url)
         if ep:
             ep.record_failure(error)
-            # Only drop the cached client once the circuit actually opens.
-            # get_web3 re-checks circuit state on every call, so dropping it on
-            # *every* failure just rebuilt a Web3 per failed request. Each web3
-            # v7 HTTPProvider owns an HTTPSessionManager that caches a
-            # requests.Session PER THREAD (pool + SSL context each, native
-            # memory tracemalloc never sees) and a 5-thread pool. With 32
-            # multicall threads that is ~32 sessions per provider per rebuild.
-            if ep.is_circuit_open:
-                self._drop_web3(chain_name, url)
+            # Drop the cached client so the next call re-selects an endpoint
+            # (immediate failover). This is cheap now that every provider
+            # shares _HTTP_SESSION: before, each rebuilt web3 v7 HTTPProvider
+            # owned an HTTPSessionManager caching a requests.Session PER THREAD
+            # (pool + SSL context each, native memory tracemalloc never sees),
+            # ~32 sessions per rebuild under the multicall executor.
+            self._drop_web3(chain_name, url)
 
     def invalidate(self, chain_name: str):
         """Force re-selection of endpoint for a chain."""
