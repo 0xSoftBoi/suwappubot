@@ -44,7 +44,17 @@ What that allowed:
 - **On `/swap/execute` (high impact):** forged `internal_*` IDs are forwarded to Python, which signs with that wallet's custodial key. The only ownership check was `wallet.user_id == user_id`, and both values came from the forged metadata. So in principle an agent could trigger swaps from another user's custodial wallet, bot users included.
 - **Why it was very likely unexploitable in prod:** execution failed before signing (section 2).
 
-**[prod]** No `execute-swap` call reached `execute_swap` in the retained logs (see section 2), so there is no evidence that forged IDs were ever used to sign. Before the logs' start, it is unproven. The backfill dry run lists every agent whose stored wallet doesn't match its Turnkey wallet; review that list for anomalies.
+**[prod] Attempted exploitation, blocked before signing.** Agent 23 (`xiaoan-audit`, uuid `c5264690…`, every request from `curl`) ran the exact sequence on 2026-09-19 (UTC). From api-ts HTTP logs:
+- **09:03** `POST /register` → 201.
+- **09:04, 09:25, 10:26** `POST /wallets` → 400 (Turnkey not configured).
+- **10:29–10:30** `PATCH /me` → 200, then `POST /swap/execute` → 400.
+- **10:37:53** `PATCH /me` → 200.
+- **10:37:55** `POST /swap/execute` → 400. python-api logged `Agent swap execution failed: cannot import name 'swap_engine'` at 10:37:54. The forged request reached the custodial signing endpoint and was stopped only by the import bug, before signing.
+- **10:38:53** `PATCH /me` → 200. The agent's `wallet_address`, `internal_user_id` and `internal_wallet_id` are now all JSON `null`.
+
+It is the only agent in prod with any of these keys. The IDs it used were not logged. No `Executing swap for agent` or `Swap executed` line exists, so **no transaction was signed**. Anything older than log retention is unchecked.
+
+**Open question:** was `xiaoan-audit` an internal security test? If not, treat it as a hostile probe. The fixes in #1017 (sanitized `/register` + `PATCH`, and the `execute-swap` ownership guard) close this path.
 
 ## Fixes (PR #1017, each commit tagged `[MONEY-PATH]` and money-path reviewed)
 | Commit | Fix |
