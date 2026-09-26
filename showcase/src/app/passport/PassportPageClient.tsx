@@ -242,6 +242,7 @@ export default function PassportPageClient() {
           <button
             type="button"
             className={styles.cta}
+            aria-label="Get your agent a passport — back to the top"
             onClick={() => {
               document.getElementById('passport-cta')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }}
