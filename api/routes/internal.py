@@ -349,6 +349,24 @@ class AgentSwapRequest(BaseModel):
     quote_data: Dict[str, Any]
 
 
+def _normalize_chain(value) -> str:
+    """Canonical chain name for a quote chain field.
+
+    api-ts sends LI.FI's chain key or, when absent, the numeric chain id as a
+    string ("8453"). The swap engine only understands names ("base"): an
+    unresolved chain read the balance as 0 and rejected every managed swap.
+    """
+    from bot.config.chains import get_chain_by_id, get_chain_by_name
+
+    raw = str(value or "").strip()
+    chain = get_chain_by_name(raw) if raw else None
+    if chain is None and raw.isdigit():
+        chain = get_chain_by_id(int(raw))
+    if chain is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported chain: {raw or '(missing)'}")
+    return chain.name
+
+
 def _verify_agent_owns_wallet(request: "AgentSwapRequest") -> None:
     """Reject internal IDs that weren't provisioned for this agent.
 
@@ -398,6 +416,8 @@ async def execute_agent_swap(
         from datetime import datetime, timezone
 
         qd = request.quote_data
+        from_chain = _normalize_chain(qd.get("from_chain"))
+        to_chain = _normalize_chain(qd.get("to_chain"))
 
         # Carry the platform fee onto the rehydrated quote so EVM execution
         # re-fetches the swap tx WITH the fee param (agent/webapp swaps were
@@ -406,8 +426,8 @@ async def execute_agent_swap(
         # collection stays gated per-provider on a configured collector.
         quote = SwapQuote(
             provider=qd.get("provider", "lifi"),
-            from_chain=str(qd.get("from_chain", "base")),
-            to_chain=str(qd.get("to_chain", "base")),
+            from_chain=from_chain,
+            to_chain=to_chain,
             from_token=str(qd.get("from_token", "")),
             to_token=str(qd.get("to_token", "")),
             from_amount=str(qd.get("from_amount", "0")),
@@ -447,6 +467,8 @@ async def execute_agent_swap(
             "status": swap_tx.status,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Agent swap execution failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
