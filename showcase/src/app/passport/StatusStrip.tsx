@@ -1,6 +1,6 @@
 'use client';
 
-import { HackathonStatus, ProviderState } from './api';
+import { Evidence, HackathonStatus, ProviderState } from './api';
 import styles from './passport.module.css';
 
 function isOk(v: ProviderState | boolean | string | undefined): boolean | null {
@@ -12,6 +12,12 @@ function isOk(v: ProviderState | boolean | string | undefined): boolean | null {
   return null;
 }
 
+function receiptOk(receipts: Record<string, { status?: string }> | undefined, hash?: string) {
+  if (!receipts || !hash) return false;
+  const r = receipts[hash];
+  return !!r && /success|1|confirmed|ok/i.test(String(r.status ?? ''));
+}
+
 const LABELS: Record<string, string> = {
   worldId: 'World ID',
   intercepta: 'Intercepta',
@@ -19,14 +25,18 @@ const LABELS: Record<string, string> = {
   ensv2: 'ENSv2',
 };
 
+const ORDER = ['worldId', 'uniswap', 'ensv2', 'intercepta'];
+
 export default function StatusStrip({
   status,
   error,
   loading,
+  evidence,
 }: {
   status: HackathonStatus | null;
   error: string | null;
   loading: boolean;
+  evidence?: Evidence | null;
 }) {
   if (loading && !status && !error) {
     return <div className={styles.statusStrip} aria-live="polite">Checking live trust layer…</div>;
@@ -42,19 +52,34 @@ export default function StatusStrip({
   }
 
   const providers = status?.providers || {};
-  const entries = Object.entries(providers);
+
+  // The hook and the ENS names are live-or-not based on their own deploy/
+  // registration receipts, not on unrelated provider wiring (the Trading API
+  // key for Uniswap quoting, or the policy-gate RPC for ENSv2) — those can be
+  // unconfigured on this deploy while the on-chain artifacts are still real.
+  const uniswapLive = receiptOk(evidence?.receipts, evidence?.uniswap?.deployTx);
+  const ensLive = receiptOk(evidence?.receipts, evidence?.ens?.sample?.txHash);
+
+  const states: Record<string, 'up' | 'down' | 'unknown' | 'neutral'> = {
+    worldId: (() => {
+      const ok = isOk(providers.worldId as ProviderState);
+      return ok === true ? 'up' : ok === false ? 'down' : 'unknown';
+    })(),
+    uniswap: uniswapLive ? 'up' : 'down',
+    ensv2: ensLive ? 'up' : 'down',
+    intercepta: 'neutral',
+  };
 
   return (
     <div className={styles.statusStrip} role="status" aria-live="polite">
       {status?.trustLayer && <span className={styles.statusTrustLayer}>{status.trustLayer}</span>}
       <ul className={styles.statusList}>
-        {(entries.length ? entries : Object.entries(LABELS)).map(([key, value]) => {
-          const ok = isOk(value as ProviderState);
-          const state = ok === true ? 'up' : ok === false ? 'down' : 'unknown';
+        {ORDER.map((key) => {
+          const state = states[key] ?? 'unknown';
           return (
             <li key={key} className={styles.statusItem}>
               <span className={styles.dot} data-state={state} aria-hidden="true" />
-              {LABELS[key] || key}
+              {key === 'intercepta' ? `${LABELS[key]} — coming soon` : LABELS[key]}
             </li>
           );
         })}
