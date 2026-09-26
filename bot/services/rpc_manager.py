@@ -20,6 +20,8 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse, urlsplit
 
 import aiohttp
+import requests
+from requests.adapters import HTTPAdapter
 from web3 import Web3
 
 try:
@@ -458,6 +460,13 @@ class RPCEndpoint:
             self.total_latency_ms /= 2
 
 
+# Shared by every Web3 HTTPProvider this manager creates. requests.Session is
+# safe for concurrent use; the multicall executor runs up to 32 threads.
+_HTTP_SESSION = requests.Session()
+_HTTP_SESSION.mount("https://", HTTPAdapter(pool_connections=64, pool_maxsize=64))
+_HTTP_SESSION.mount("http://", HTTPAdapter(pool_connections=16, pool_maxsize=16))
+
+
 class RPCManager:
     """Centralized RPC manager with health tracking and smart selection."""
 
@@ -748,13 +757,29 @@ class RPCManager:
         ep = self._find_endpoint(chain_name, url)
         if ep:
             ep.record_failure(error)
-            cached = self._web3_cache.get(chain_name)
-            if cached and cached[1] == url:
-                self._web3_cache.pop(chain_name, None)
+            # Drop the cached client so the next call re-selects an endpoint
+            # (immediate failover). This is cheap now that every provider
+            # shares _HTTP_SESSION: before, each rebuilt web3 v7 HTTPProvider
+            # owned an HTTPSessionManager caching a requests.Session PER THREAD
+            # (pool + SSL context each, native memory tracemalloc never sees),
+            # ~32 sessions per rebuild under the multicall executor.
+            self._drop_web3(chain_name, url)
 
     def invalidate(self, chain_name: str):
         """Force re-selection of endpoint for a chain."""
-        self._web3_cache.pop(chain_name.lower(), None)
+        self._drop_web3(chain_name.lower())
+
+    def _drop_web3(self, chain_name: str, url: Optional[str] = None) -> None:
+        cached = self._web3_cache.get(chain_name)
+        if not cached or (url is not None and cached[1] != url):
+            return
+        self._web3_cache.pop(chain_name, None)
+        # Best-effort release of the provider's private session manager so its
+        # thread pool doesn't outlive the dropped client.
+        try:
+            cached[0].provider._request_session_manager.session_pool.shutdown(wait=False)
+        except Exception:
+            pass
 
     def get_health_report(self) -> Dict:
         """Health report for admin status."""
@@ -791,6 +816,10 @@ class RPCManager:
             Web3.HTTPProvider(
                 rpc_url,
                 request_kwargs={"timeout": 3, "headers": {"Content-Type": "application/json"}},
+                # One process-wide session. With an explicit session the
+                # provider's manager never builds its own per-thread sessions,
+                # pools or SSL contexts (see report_failure).
+                session=_HTTP_SESSION,
             )
         )
         if chain_name in POA_CHAINS:
