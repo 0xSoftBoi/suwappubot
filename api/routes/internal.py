@@ -203,6 +203,15 @@ async def verify_x402_payment(
                 token_address = addr
                 break
 
+    if not token_address:
+        # Unknown/unlisted token: refuse. Passing an empty address through made
+        # _verify_transaction_on_chain treat it as a *native* transfer. Listed
+        # native coins map to the zero address and still verify as native.
+        return VerifyPaymentResponse(
+            verified=False,
+            error=f"Unsupported payment token {request.expected_token!r} on {request.chain}",
+        )
+
     try:
         amount = float(request.expected_amount)
     except (ValueError, TypeError):
