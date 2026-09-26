@@ -2764,6 +2764,26 @@ agentRoutes.post('/swap/execute', async (c) => {
 		)
 	}
 
+	// Chain ids for the Python endpoint. The cached quote is a normalized
+	// SwapQuote: fromChain is a display string and action lives on _rawQuote, so
+	// the old `quote.fromChain?.key || quote.action?.fromChainId || 'ethereum'`
+	// ALWAYS fell through to 'ethereum' — a Base quote was balance-checked (and
+	// would have been executed) on Ethereum mainnet. Take the id of the tx being
+	// signed; never default a chain.
+	const evmFromChainId = isSolana
+		? undefined
+		: (quote.transactionRequest?.chainId ?? quote._rawQuote?.action?.fromChainId ?? quote.action?.fromChainId)
+	const evmToChainId = isSolana
+		? undefined
+		: (quote._rawQuote?.action?.toChainId ?? quote.action?.toChainId ?? evmFromChainId)
+	if (!isSolana && (!evmFromChainId || !evmToChainId)) {
+		await refundSwapExecuteCharge(c, agent, 'unresolvable quote chain')
+		if (approvalToFinalize) await releaseApprovalReserve(approvalToFinalize.reserve)
+		return agentError(c, 422, 'QUOTE_NOT_FOUND', 'Unable to resolve the chain for this quote; request a fresh quote', {
+			hint: 'Request a new quote using POST /v1/agent/quote',
+		})
+	}
+
 	// Build quote_data for the Python endpoint
 	const quoteData: Record<string, unknown> = isSolana
 		? {
@@ -2787,8 +2807,8 @@ agentRoutes.post('/swap/execute', async (c) => {
 			}
 		: {
 				provider: 'lifi',
-				from_chain: quote.fromChain?.key || quote.action?.fromChainId?.toString() || 'ethereum',
-				to_chain: quote.toChain?.key || quote.action?.toChainId?.toString() || 'ethereum',
+				from_chain: String(evmFromChainId),
+				to_chain: String(evmToChainId),
 				from_token: quote.fromToken?.symbol || '',
 				to_token: quote.toToken?.symbol || '',
 				from_amount: quote.fromAmount || '',
