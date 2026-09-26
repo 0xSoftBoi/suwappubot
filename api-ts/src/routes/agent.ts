@@ -2459,6 +2459,7 @@ agentRoutes.post('/wallets', async (c) => {
 								chain_type: 'evm',
 								turnkey_wallet_id: wallet.walletId,
 								turnkey_sub_org_id: wallet.subOrgId,
+								address: wallet.address,
 							}),
 							signal: AbortSignal.timeout(15_000),
 						})

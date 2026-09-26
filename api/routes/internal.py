@@ -4,6 +4,7 @@ Internal API routes for cross-service communication.
 Authenticated via INTERNAL_API_KEY (shared secret between Python and TS services).
 """
 
+import hashlib
 import hmac
 import logging
 from fastapi import APIRouter, HTTPException, Header
@@ -237,6 +238,22 @@ async def verify_x402_payment(
 class AgentProvisionRequest(BaseModel):
     agent_uuid: str
     chain_type: str = "evm"
+    # The Turnkey wallet api-ts already created for this agent. The agent is
+    # shown (and funds) this address, so it is the one we must sign with.
+    turnkey_wallet_id: str
+    turnkey_sub_org_id: str
+    address: str
+
+
+def _agent_telegram_id(agent_uuid: str) -> int:
+    """Stable synthetic telegram_id for an agent's User row.
+
+    Derived from sha256 (Python's hash() is salted per process, which made every
+    restart provision a fresh User). Negative so it can never collide with a real
+    Telegram user id, which are always positive.
+    """
+    digest = hashlib.sha256(agent_uuid.encode()).digest()
+    return -(int.from_bytes(digest[:7], "big") + 1)
 
 
 @router.post("/agent/provision-wallet")
@@ -244,41 +261,62 @@ async def provision_agent_wallet(
     request: AgentProvisionRequest,
     x_internal_key: str = Header(None, alias="X-Internal-Key"),
 ):
-    """Create a User + Wallet row for an agent. Called by TS API after Turnkey wallet creation."""
+    """Register an agent's api-ts-created Turnkey wallet for swap execution.
+
+    Idempotent per Turnkey wallet. Does not create a new key: the Python signer
+    uses the same Turnkey sub-org/address the agent sees, which requires
+    python-api and api-ts to share the Turnkey API keypair (the sub-org root user).
+    """
     _verify_internal_key(x_internal_key)
 
     try:
         from bot.models.user import User
 
-        agent_int_id = abs(hash(request.agent_uuid)) % (2**31 - 1)
+        agent_tg_id = _agent_telegram_id(request.agent_uuid)
+        name = f"agent_{request.agent_uuid[:8]}"
 
         with get_session() as session:
-            user = session.query(User).filter(User.telegram_id == agent_int_id).first()
+            user = session.query(User).filter(User.telegram_id == agent_tg_id).first()
             if not user:
-                user = User(
-                    telegram_id=agent_int_id,
-                    username=f"agent_{request.agent_uuid[:8]}",
-                    first_name="Agent",
-                )
+                user = User(telegram_id=agent_tg_id, username=name, first_name="Agent")
                 session.add(user)
                 session.flush()
-                logger.info(f"Created agent user: id={user.id}, telegram_id={agent_int_id}")
+                logger.info(f"Created agent user: id={user.id}, telegram_id={agent_tg_id}")
             user_id = user.id
 
-        wallet = await wallet_service.create_wallet(
-            user_id=user_id,
-            name=f"agent_{request.agent_uuid[:8]}",
-            chain_type=request.chain_type,
-        )
+            wallet = (
+                session.query(Wallet)
+                .filter(
+                    Wallet.user_id == user_id,
+                    Wallet.turnkey_wallet_id == request.turnkey_wallet_id,
+                )
+                .first()
+            )
+            if not wallet:
+                wallet = Wallet(
+                    user_id=user_id,
+                    address=request.address,
+                    encrypted_private_key="turnkey_managed",
+                    encryption_scheme="turnkey",
+                    wallet_provider="turnkey",
+                    turnkey_sub_org_id=request.turnkey_sub_org_id,
+                    turnkey_wallet_id=request.turnkey_wallet_id,
+                    chain_type=request.chain_type,
+                    name=name,
+                    is_default=False,
+                )
+                session.add(wallet)
+                session.flush()
+            wallet_id, address = wallet.id, wallet.address
 
         logger.info(
-            f"Provisioned wallet for agent {request.agent_uuid[:8]}: user_id={user_id}, wallet_id={wallet.id}"
+            f"Provisioned wallet for agent {request.agent_uuid[:8]}: user_id={user_id}, wallet_id={wallet_id}"
         )
 
         return {
             "internal_user_id": user_id,
-            "internal_wallet_id": wallet.id,
-            "address": wallet.address,
+            "internal_wallet_id": wallet_id,
+            "address": address,
         }
 
     except Exception as e:
@@ -319,6 +357,7 @@ def _verify_agent_owns_wallet(request: "AgentSwapRequest") -> None:
             and wallet.user_id == user.id
             and wallet.name == expected
             and user.username == expected
+            and (wallet.address or "").lower() == request.wallet_address.lower()
         )
     if not owned:
         logger.warning(
@@ -338,9 +377,11 @@ async def execute_agent_swap(
     _verify_agent_owns_wallet(request)
 
     try:
-        from bot.services.swap_engine import swap_engine, SwapQuote
+        # There is no module-level swap_engine instance; importing one raised
+        # ImportError, so every managed-wallet /swap/execute failed with 400.
+        from bot.services.swap_engine import SwapEngine, SwapQuote
         from bot.services.fee_service import fee_service
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         qd = request.quote_data
 
@@ -367,7 +408,7 @@ async def execute_agent_swap(
             price_impact=float(qd.get("price_impact", 0)),
             exchange_rate=float(qd.get("exchange_rate", 0)),
             raw_quote=qd.get("raw_quote", {}),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),  # engine compares against aware UTC
             platform_fee_bps=qd.get("platform_fee_bps") or fee_service.get_fee_bps(),
         )
 
@@ -375,7 +416,7 @@ async def execute_agent_swap(
             f"Executing swap for agent {request.agent_uuid[:8]}: {quote.from_amount} {quote.from_token} → {quote.to_token}"
         )
 
-        swap_tx = await swap_engine.execute_swap(
+        swap_tx = await SwapEngine().execute_swap(
             quote=quote,
             wallet_id=request.internal_wallet_id,
             user_id=request.internal_user_id,
