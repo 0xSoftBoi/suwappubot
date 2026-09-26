@@ -22,6 +22,7 @@ import {
 } from './tokyo2026/world-id/config'
 import {
 	MemoryNullifierStore,
+	REPLAY_REJECTED_REASON,
 	awaitAndVerifyTradeApproval,
 	startTradeVerification,
 	type NullifierStore,
@@ -67,6 +68,9 @@ function nullifierStore(): Promise<NullifierStore> {
 type GateResult =
 	| { status: 'pending' }
 	| { status: 'verified'; ok: true; nullifier: string }
+	// Verifier accepted a fresh proof but this human already used the action.
+	// ok stays false: display-only, it must never authorize anything.
+	| { status: 'already_verified'; ok: false; reason: string }
 	| { status: 'failed'; ok: false; reason: string }
 
 interface GateEntry {
@@ -126,7 +130,9 @@ export async function startWorldIdGate(
 			const res = await awaitAndVerifyTradeApproval(cfg, p, store, action)
 			const result: GateResult = res.ok
 				? { status: 'verified', ok: true, nullifier: res.nullifier ?? '' }
-				: { status: 'failed', ok: false, reason: res.reason ?? 'verification failed' }
+				: res.reason === REPLAY_REJECTED_REASON
+					? { status: 'already_verified', ok: false, reason: res.reason }
+					: { status: 'failed', ok: false, reason: res.reason ?? 'verification failed' }
 			results.set(p.signal, { result, expiresAt: Date.now() + RESULT_TTL_MS })
 		} catch (e) {
 			logger.warn('[world-id] background verification failed for signal %s: %s', p.signal, String(e))

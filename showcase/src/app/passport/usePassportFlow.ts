@@ -14,7 +14,14 @@ import {
   verifyWorldId,
 } from './api';
 
-export type WorldPhase = 'idle' | 'starting' | 'awaiting' | 'verified' | 'failed' | 'error';
+export type WorldPhase =
+  | 'idle'
+  | 'starting'
+  | 'awaiting'
+  | 'verified'
+  | 'returning'
+  | 'failed'
+  | 'error';
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_ERROR_BACKOFF_MS = 3500;
@@ -116,6 +123,11 @@ export function usePassportFlow() {
           if (v.status === 'verified') {
             setWorldPhase('verified');
             setNullifier(v.nullifier);
+            loadEvidence();
+            return;
+          }
+          if (v.status === 'already_verified') {
+            setWorldPhase('returning');
             loadEvidence();
             return;
           }

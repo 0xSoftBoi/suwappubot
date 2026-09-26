@@ -73,6 +73,14 @@ export function normalizeNullifier(nullifier: string): string {
  * durable store with a UNIQUE (nullifier, action) constraint over
  * NUMERIC(78,0) (see api-ts/src/hackathon/worldIdNullifiers.ts).
  */
+/**
+ * Reason returned when World's verifier accepted a fresh proof (signal and
+ * action matched this request's server-issued nonce) but this human's
+ * nullifier was already consumed under the action. Exported so callers can
+ * tell "returning human" apart from an invalid proof without string drift.
+ */
+export const REPLAY_REJECTED_REASON = 'proof already used (replay rejected)'
+
 export interface NullifierStore {
 	consume(action: string, nullifier: string): Promise<boolean>
 }
@@ -275,7 +283,7 @@ export async function verifyTradeProof(
 		return { ok: false, reason: `nullifier rejected: ${(e as Error).message}` }
 	}
 	if (!consumed) {
-		return { ok: false, reason: 'proof already used (replay rejected)' }
+		return { ok: false, reason: REPLAY_REJECTED_REASON }
 	}
 	return { ok: true, nullifier: data.nullifier }
 }
