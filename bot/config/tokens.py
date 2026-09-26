@@ -104,7 +104,7 @@ TOKENS: dict[str, TokenConfig] = {
         name="Dai Stablecoin",
         decimals=18,
         addresses={
-            "ethereum": "0x6B175474E89094C44Da98b954EedeA397C5daBE9",
+            "ethereum": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
             "bsc": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
             "polygon": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
             "arbitrum": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
@@ -588,8 +588,8 @@ TOKENS: dict[str, TokenConfig] = {
         name="Optimism",
         decimals=18,
         addresses={
+            # OP exists only on Optimism (predeploy); 0x42..42 has no code on L1.
             "optimism": "0x4200000000000000000000000000000000000042",
-            "ethereum": "0x4200000000000000000000000000000000000042",
         },
         logo_emoji="🔴",
         is_stablecoin=False,
@@ -804,7 +804,8 @@ TOKENS: dict[str, TokenConfig] = {
         name="zkSync",
         decimals=18,
         addresses={
-            "ethereum": "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",
+            # ZK lives on zkSync Era; this address has no code on Ethereum L1.
+            "zksync": "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",
         },
         logo_emoji="⚡",
         is_stablecoin=False,

@@ -819,18 +819,29 @@ class WalletService:
             if native_balance > 0:
                 chain_balances[chain.native_token] = native_balance
 
+        reverted: list[str] = []
         for token_addr in token_addrs:
             symbol, decimals = addr_meta[token_addr]
             raw_balance = raw.get(token_addr)
             if raw_balance is None:
-                # Inner call reverted — fall back per-token for just this one
-                fallback = await self.get_evm_token_balance(chain_name, symbol, address)
-                if fallback and fallback > 0:
-                    chain_balances[symbol] = fallback
+                reverted.append(symbol)
                 continue
             balance = raw_balance / (10**decimals)
             if balance > 0:
                 chain_balances[symbol] = balance
+
+        # Inner calls that reverted fall back per-token — concurrently. These ran
+        # sequentially inside the caller's 4s multicall budget, so a chain with a
+        # few reverting tokens (ethereum had 3 misconfigured addresses) timed out
+        # on every wallet whenever one fallback hit a slow endpoint.
+        if reverted:
+            fallbacks = await asyncio.gather(
+                *(self.get_evm_token_balance(chain_name, sym, address) for sym in reverted),
+                return_exceptions=True,
+            )
+            for sym, fallback in zip(reverted, fallbacks):
+                if isinstance(fallback, (int, float)) and fallback > 0:
+                    chain_balances[sym] = fallback
 
         return chain_name, chain_balances
 
