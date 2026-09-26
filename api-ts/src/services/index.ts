@@ -190,6 +190,7 @@ export {
 	type ChainInfo,
 	COMMON_TOKENS,
 	TEMPO_TOKEN_DECIMALS,
+	commonTokenDecimals,
 	type TokenInfo,
 	TokenService,
 	TokenServiceLive,

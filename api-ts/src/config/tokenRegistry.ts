@@ -119,6 +119,56 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 // match resolveToken's symbol normalization.
 export const GATED_TOKEN_SYMBOLS: ReadonlySet<string> = new Set(['USTB', 'USCC'])
 
+// On-chain decimals for every COMMON_TOKENS entry, read via decimals() on each
+// chain (2026-09-26). Symbol-based guessing ("USDC/USDT -> 6, else 18") was wrong
+// for BSC's Binance-Peg USDC/USDT/BUSD (18dp), WBTC (8dp), and 6dp tokens like
+// pathUSD/USDG/USDT0/USTB/USCC. Keep this in sync when adding a registry token.
+export const COMMON_TOKEN_DECIMALS: Record<number, Record<string, number>> = {
+	// Ethereum
+	1: {
+		ETH: 18,
+		WETH: 18,
+		USDC: 6,
+		USDT: 6,
+		DAI: 18,
+		WBTC: 8,
+		SUSDE: 18,
+		ENA: 18,
+		PENDLE: 18,
+		MORPHO: 18,
+		USTB: 6,
+		USCC: 6,
+	},
+	// Optimism
+	10: { ETH: 18, WETH: 18, USDC: 6, 'USDC.e': 6, USDT: 6, DAI: 18 },
+	// BSC — Binance-Peg stables are 18dp
+	56: { BNB: 18, WBNB: 18, USDC: 18, USDT: 18, BUSD: 18 },
+	// Polygon
+	137: { MATIC: 18, WMATIC: 18, USDC: 6, 'USDC.e': 6, USDT: 6, DAI: 18 },
+	// Tempo
+	4217: { pathUSD: 6 },
+	// Robinhood Chain
+	4663: { ETH: 18, WETH: 18, USDG: 6, USDe: 18 },
+	// Base
+	8453: { ETH: 18, WETH: 18, USDC: 6, DAI: 18 },
+	// Plasma
+	9745: { XPL: 18, USDT0: 6 },
+	// Arbitrum
+	42161: { ETH: 18, WETH: 18, USDC: 6, 'USDC.e': 6, USDT: 6, DAI: 18 },
+	// Avalanche
+	43114: { AVAX: 18, WAVAX: 18, USDC: 6, 'USDC.e': 6, USDT: 6 },
+}
+
+/** Decimals for a COMMON_TOKENS symbol on a chain (case-insensitive), or undefined. */
+export function commonTokenDecimals(chainId: number, symbol: string): number | undefined {
+	const m = COMMON_TOKEN_DECIMALS[chainId]
+	if (!m) return undefined
+	if (m[symbol] !== undefined) return m[symbol]
+	const up = symbol.toUpperCase()
+	for (const [k, v] of Object.entries(m)) if (k.toUpperCase() === up) return v
+	return undefined
+}
+
 // Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
 // into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.
 // TIP-20 stablecoins are 6 decimals on-chain (decimals() on 4217 and 42431). This map
