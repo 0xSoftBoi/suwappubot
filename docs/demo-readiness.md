@@ -67,6 +67,11 @@ Judge flow on https://suwappu.bot/passport: (1) try a swap for an unverified wal
 `setWorldIdVerified(wallet,true)` on the hook (two real Sepolia txs by relayer 0x2386…); (3) swap again → executed through the hook, tx link.
 Passport state is read from chain (`GET /hackathon/passport/:wallet`), so it survives restarts; only pending polls and tx hashes are in memory
 (single replica). Same human re-scanning gets `status: existing` (one human, one passport).
+**PROVEN on prod 2026-09-26 23:2x UTC** (wallet `0x62cd260f30c9040cfcb5b9be64d0817777159e02`): swap → blocked `SwapperNotVerified`;
+scan (simulator) → `ready` with ENS mint `0x7d0b28260e353728561d8716454fc5f378f74f485179506c607fe630fcb43627` and allowlist
+`0x57947f5bb5d77e3de3ba7b68cee307bf2d086113fcde453577cf1fa0538cf6ab`; swap → executed `0xce3a015c5446a7cb808258053837845445cdd17be7c6aea47bbfb72cbc4e1ff0`
+(block 11789404). All three receipts status 0x1. Found on the way: the ENS name did not resolve to the wallet because the resolver in use
+(PublicResolverV2) authorizes records via the ENSv1 NameWrapper; replaced by a minter-owned PassportResolver (see below).
 **Rollback**: set `HACKATHON_TRUST_LAYER=false` on api-ts (page degrades to "not enabled"), or redeploy api-ts `9c623226` / showcase previous green.
 **Relayer gas**: 0.0237 Sepolia ETH at 22:50 UTC ≈ 20 passports; top up before demo day.
 **Open question for the operator**: prod is `WORLD_ENV=staging` and the actions are registered on staging — real phones produce production
