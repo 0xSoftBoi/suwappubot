@@ -23,7 +23,7 @@ import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
-import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf } from './agent'
+import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf, quoteBoundToWallet } from './agent'
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
@@ -934,6 +934,15 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		}) }] }
 	}
 
+	// The unsigned tx must have been built for wallet_address as sender AND
+	// recipient — a quote made without a wallet targets the placeholder 0x...0001,
+	// so signing it would send the output to an unrecoverable address.
+	if (!quoteBoundToWallet(quote, wallet_address)) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: 'This quote was not built for wallet_address. Get a new quote with wallet_address set, then call execute_swap with the new quote_id.' }],
+		}
+	}
 	return { content: [{ type: 'text', text: JSON.stringify({
 		status: 'ready', chain_type: 'evm',
 		transaction: {
