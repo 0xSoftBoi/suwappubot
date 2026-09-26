@@ -301,13 +301,20 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 			// USTB/USCC (Superstate fund tokens) are 6dp on-chain like USDC.
 			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDT0', 'USDC.E', 'BUSD', 'PATHUSD', 'USDG', 'USTB', 'USCC'])
 
-			if (chainTokens && chainTokens[normalized]) {
+			// Case-insensitive: `normalized` is uppercased, but registry keys like
+			// 'USDC.e' / 'pathUSD' / 'USDe' are mixed-case and never matched a direct
+			// lookup — those tokens silently fell through to Li.Fi instead of the
+			// on-chain-verified registry entry.
+			const registryKey = chainTokens
+				? Object.keys(chainTokens).find((k) => k.toUpperCase() === normalized)
+				: undefined
+			if (chainTokens && registryKey) {
 				return {
-					address: chainTokens[normalized],
-					symbol: normalized,
+					address: chainTokens[registryKey],
+					symbol: registryKey,
 					// On-chain table first; the symbol guess is only a fallback.
-					decimals: commonTokenDecimals(chainId, normalized) ?? (DECIMALS_6.has(normalized) ? 6 : 18),
-					name: normalized,
+					decimals: commonTokenDecimals(chainId, registryKey) ?? (DECIMALS_6.has(normalized) ? 6 : 18),
+					name: registryKey,
 					chainId,
 				}
 			}
