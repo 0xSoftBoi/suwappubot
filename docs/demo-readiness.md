@@ -22,7 +22,21 @@ Gotcha found on the way: the local `api-ts/.env` names the key `WORLD_ID_RP_SIGN
 ENS subname minting uses `ENS_SEPOLIA_RPC_URL`, which has a default. B1 below is therefore resolved; B3/B4 still stand.
 Rollback: unset `HACKATHON_TRUST_LAYER` (or redeploy `df2c79a6`).
 
-### Live proof attempt against prod (2026-09-26 17:03 UTC) — FAILED at the verifier
+### Live proof against prod — PASSED (2026-09-26 18:45 UTC, after PR #1043)
+
+`POST /hackathon/world-id/start` → simulator (real Orb credential, staging) → `POST /hackathon/world-id/verify` →
+`{"status":"verified","ok":true,"nullifier":"0x2dc3a033b3996f954bfd828029326a61b6324ef5f126e3b7e8d8168256854927"}`; `GET /hackathon/evidence`
+returns the ENS subname + Uniswap hook receipts with `status: success`. Serving deployment `c8a64bb8` (commit `12f269c0`).
+Two fixes were needed (both in PR #1043): the gate posted IDKit's `{success,result}` envelope instead of the bare v4 result, and it
+checked a `signal` field World's response never contains. Staging verification also needs `WORLD_STAGING_VERIFICATION_TOKEN`
+(header `x-staging-verification-token`), now set on prod; **it expires 2026-09-27 17:14 UTC** — re-open the staging window in the World
+developer portal within 24 h of the demo and set the new token (`bunx @railway/cli variables --service api-ts --environment production --set WORLD_STAGING_VERIFICATION_TOKEN=...`).
+
+**Demo-day caveat — nullifiers are consumed in Postgres.** Same human + same action = same nullifier, and the prod store rejects a second
+use as a replay. Do NOT rehearse the on-stage World App against prod under `agent-swap-passport-verify` before the demo, or the live
+verification will fail with "proof already used". Rehearse with the simulator identity (already consumed) or a different action.
+
+### Earlier attempt (17:03 UTC) — FAILED at the verifier (kept for the record)
 
 Headless run (Playwright + simulator.worldcoin.org, same method as the earlier local proof): `POST /hackathon/world-id/start` → 200,
 simulator presented a real Orb/"Human" credential, then `POST /hackathon/world-id/verify` returned
