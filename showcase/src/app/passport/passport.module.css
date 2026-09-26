@@ -313,6 +313,11 @@
 .qrImageWrap img { display: block; border-radius: 10px; width: 200px; height: 200px; }
 .qrPlaceholder { width: 200px; height: 200px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); }
 
+/* Demoted secondary QR when the primary action is the deep-link button. */
+.qrImageWrap[data-secondary='true'] { opacity: 0.7; transform: scale(0.72); margin: -12px 0 -12px; }
+.qrImageWrap[data-secondary='true'] img,
+.qrImageWrap[data-secondary='true'] .qrPlaceholder { width: 120px; height: 120px; }
+
 .modalHint {
   margin: 0;
   font-size: 0.82rem;

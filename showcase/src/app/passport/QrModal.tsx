@@ -24,6 +24,18 @@ export default function QrModal({
   const reduceMotion = useReducedMotion();
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Coarse pointer (touch) or a narrow viewport means the user is almost
+  // certainly on the same phone that would have to scan the QR — show a
+  // deep-link button as the primary action instead, with the QR demoted.
+  const [preferDeepLink, setPreferDeepLink] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(pointer: coarse), (max-width: 640px)');
+    const update = () => setPreferDeepLink(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   useEffect(() => {
     if (!connectorURI) {
@@ -101,7 +113,14 @@ export default function QrModal({
               ×
             </button>
             <p className={styles.modalKicker}>Scan with World App</p>
-            <div className={styles.qrImageWrap}>
+
+            {preferDeepLink && (
+              <a className={styles.cta} href={connectorURI}>
+                Open World App
+              </a>
+            )}
+
+            <div className={styles.qrImageWrap} data-secondary={preferDeepLink ? 'true' : undefined}>
               {dataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={dataUrl} alt="Verification QR code" width={220} height={220} />
