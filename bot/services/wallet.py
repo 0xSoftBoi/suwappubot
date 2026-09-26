@@ -40,6 +40,11 @@ logger = logging.getLogger(__name__)
 # breaker must be shared, or every instance re-discovers the same dead endpoint.
 _STARKNET_COOLDOWN: dict[str, float] = {}
 _STARKNET_QUOTA_COOLDOWN_SECONDS = 120.0  # HTTP 429: the provider told us to back off
+# HTTP 503 from Alchemy Starknet is -32001 "Unable to complete request": the
+# network is not enabled on the API key's app. That is a configuration fault,
+# not a blip — 30 s cooldowns just burned a failed first hop on every call
+# (165 warnings in 40 min) and pushed the ZAN fallback into 429s.
+_STARKNET_UNAVAILABLE_COOLDOWN_SECONDS = 900
 _STARKNET_FAILURE_COOLDOWN_SECONDS = 30.0
 # A cancellation counts as "this endpoint is slow" only if the request had been
 # in flight at least this long (the balance path's per-call budget is 4 s).
@@ -1194,11 +1199,12 @@ class WalletService:
             except Exception as e:
                 last_error = e
                 reason = str(e)[:80]
-                cooldown = (
-                    _STARKNET_QUOTA_COOLDOWN_SECONDS
-                    if "http_429" in reason
-                    else _STARKNET_FAILURE_COOLDOWN_SECONDS
-                )
+                if "http_429" in reason:
+                    cooldown = _STARKNET_QUOTA_COOLDOWN_SECONDS
+                elif "http_503" in reason:
+                    cooldown = _STARKNET_UNAVAILABLE_COOLDOWN_SECONDS
+                else:
+                    cooldown = _STARKNET_FAILURE_COOLDOWN_SECONDS
                 _STARKNET_COOLDOWN[label] = max(
                     _STARKNET_COOLDOWN.get(label, 0.0), time.monotonic() + cooldown
                 )
