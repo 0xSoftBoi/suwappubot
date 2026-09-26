@@ -91,50 +91,62 @@ void main() {
   float radius = 0.30 * uScale * pulse;
 
   float d = length(uv);
-  float sphereMask = smoothstep(radius, radius - 0.015, d);
-
-  // Halo: soft, wide falloff with no hard edge, extends well past the sphere.
-  float halo = smoothstep(radius * 3.6, radius * 0.7, d);
-  halo = pow(halo, 1.6);
-
-  if (d > radius * 3.6) {
+  if (d > radius * 4.2) {
     outColor = vec4(0.0);
     return;
   }
 
-  // Fake a hemisphere normal for lighting inside the sphere mask.
-  float nz = sqrt(max(0.0, radius * radius - d * d)) / max(radius, 0.0001);
+  // Wide, soft transition band (not a thin AA edge) so the body dissolves
+  // into the halo with no visible ring.
+  float sphereAlpha = smoothstep(radius * 1.22, radius * 0.7, d);
+
+  // Halo: very wide, low falloff — a glow, not a second circle.
+  float halo = pow(smoothstep(radius * 4.2, radius * 0.5, d), 2.2);
+
+  float totalAlpha = clamp(max(sphereAlpha, halo * 0.75), 0.0, 1.0);
+  if (totalAlpha < 0.004) {
+    outColor = vec4(0.0);
+    return;
+  }
+
+  // Fake a hemisphere normal for lighting, clamped so it still shades
+  // smoothly past the nominal radius (no crease at the sphereAlpha edge).
+  float rc = min(d, radius * 0.985);
+  float nz = sqrt(max(0.0, radius * radius - rc * rc)) / max(radius, 0.0001);
   vec3 normal = normalize(vec3(uv, nz * 0.9));
   vec3 lightDir = normalize(vec3(uLight * 0.6 + vec2(-0.35, 0.42), 0.82));
   float lambert = max(0.0, dot(normal, lightDir));
 
-  float fres = pow(1.0 - max(0.0, nz), 2.2) * uRim;
+  float fres = pow(1.0 - max(0.0, nz), 2.4) * uRim;
 
-  vec2 flowUv = uv * 3.1 + vec2(0.5, 0.3);
+  vec2 flowUv = uv * 2.4 + vec2(0.5, 0.3);
   float n = warped(flowUv, uTime * uFlow);
+  float n2 = fbm(flowUv * 1.8 - uTime * uFlow * 0.35);
 
-  vec3 base = mix(uAccentDeep, uAccent, lambert);
-  base = mix(base, uAccentBright, smoothstep(0.55, 0.95, n) * (0.35 + 0.5 * lambert));
-  // Warm rose + cream highlights threaded through the noise field.
-  vec3 rose = vec3(0.94, 0.55, 0.52);
-  vec3 cream = vec3(1.0, 0.96, 0.88);
-  base = mix(base, rose, smoothstep(0.75, 0.92, n) * 0.22);
-  float hi = smoothstep(0.6, 0.68, lambert) * smoothstep(0.82, 0.97, n);
-  base += cream * hi * 0.5;
+  vec3 base = mix(uAccentDeep, uAccent, clamp(lambert * 1.15, 0.0, 1.0));
+  base = mix(base, uAccentBright, smoothstep(0.42, 0.88, n) * (0.4 + 0.55 * lambert));
+  // Warm rose + cream highlights threaded through the noise field, visibly
+  // banded rather than a flat wash.
+  vec3 rose = vec3(0.95, 0.5, 0.48);
+  vec3 cream = vec3(1.0, 0.97, 0.9);
+  base = mix(base, rose, smoothstep(0.5, 0.7, n2) * smoothstep(0.7, 0.35, n2) * 0.4);
+  float hi = smoothstep(0.55, 0.7, lambert) * smoothstep(0.7, 0.92, n);
+  base += cream * hi * 0.65;
+  base += cream * pow(max(0.0, n - n2), 2.0) * 0.35 * (0.3 + lambert);
 
   // Inner glow: brightens toward the core, independent of the noise field.
-  float innerGlow = smoothstep(radius, 0.0, d) * 0.35;
+  float innerGlow = smoothstep(radius * 0.9, 0.0, d) * 0.4;
   base += uAccentBright * innerGlow;
-
   base += uAccentBright * fres;
   base *= uBrightness;
   base = saturate3(base, uSaturation);
 
-  vec3 haloColor = saturate3(uAccent, uSaturation) * uBrightness;
-  vec3 color = mix(haloColor * 0.5, base, sphereMask);
-  float alpha = max(sphereMask, halo * 0.5);
+  // Halo color: warm and dim, fed by the same flow so it doesn't read as a
+  // separate flat wash from the body.
+  vec3 haloColor = saturate3(mix(uAccentDeep, uAccent, 0.5 + 0.5 * n), uSaturation) * uBrightness * 0.65;
+  vec3 color = mix(haloColor, base, sphereAlpha);
 
-  outColor = vec4(color * alpha, alpha);
+  outColor = vec4(color * totalAlpha, totalAlpha);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
