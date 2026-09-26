@@ -47,6 +47,15 @@ export default function QrModal({
     };
   }, [connectorURI]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   const copyLink = async () => {
     if (!connectorURI) return;
     try {
@@ -56,6 +65,14 @@ export default function QrModal({
     } catch {
       // clipboard API unavailable — link stays visible/selectable via the anchor.
     }
+  };
+
+  // The simulator ignores ?uri=, so the only path that works is its "Paste
+  // code" sheet: copy the link first, then let the anchor open the simulator.
+  const [simHint, setSimHint] = useState(false);
+  const openSimulator = () => {
+    void copyLink();
+    setSimHint(true);
   };
 
   return (
@@ -93,7 +110,9 @@ export default function QrModal({
               )}
             </div>
             <p className={styles.modalHint} aria-live="polite">
-              Waiting for confirmation on your phone…
+              {simHint
+                ? 'Link copied — tap “Paste code” in the simulator.'
+                : 'Waiting for confirmation on your phone…'}
             </p>
             <div className={styles.modalActions}>
               <a
@@ -101,6 +120,7 @@ export default function QrModal({
                 href={simulatorUrl(connectorURI)}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={openSimulator}
               >
                 Use the simulator instead
               </a>

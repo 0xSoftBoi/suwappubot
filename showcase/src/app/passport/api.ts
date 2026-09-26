@@ -44,6 +44,8 @@ export type WorldIdStartResponse = {
 export type WorldIdVerifyResponse =
   | { status: 'pending' }
   | { status: 'verified'; ok: true; nullifier: string }
+  // Fresh, valid proof from a human who already verified under this action.
+  | { status: 'already_verified'; ok: false; reason?: string }
   | { status: 'failed'; ok: false; reason?: string };
 
 export type Receipt = { status?: string; blockNumber?: number };

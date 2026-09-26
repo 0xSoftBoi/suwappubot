@@ -39,12 +39,19 @@ export default function PassportPageClient() {
   } = usePassportFlow();
 
   const started = worldPhase !== 'idle';
-  const humanDone = worldPhase === 'verified';
+  // 'returning' = World accepted a fresh proof from someone who already
+  // verified; for this page that is still a proven human.
+  const returning = worldPhase === 'returning';
+  const humanDone = worldPhase === 'verified' || returning;
   const humanFailed = worldPhase === 'failed' || worldPhase === 'error';
   const evidenceUnavailable = evidenceError === 'not-deployed';
 
   const ensName = evidence?.ens?.sample?.name;
-  const ensLanded = !!evidence?.ens?.sample?.resolvedAddress;
+  // The mint receipt is the proof the name exists; the sample name carries no
+  // addr record, so resolvedAddress is legitimately null.
+  const ensLanded =
+    !!evidence?.ens?.sample?.resolvedAddress ||
+    receiptOk(evidence?.receipts, evidence?.ens?.sample?.txHash);
   const swapHash = evidence?.uniswap?.swapTx;
   const swapLanded = receiptOk(evidence?.receipts, swapHash) || (!!swapHash && !evidence?.receipts);
 
@@ -58,6 +65,8 @@ export default function PassportPageClient() {
 
     if (worldPhase === 'starting' || worldPhase === 'awaiting') {
       out.push({ id: 'human', text: "Asking you to prove you're a real person…", state: 'active' });
+    } else if (returning) {
+      out.push({ id: 'human', text: "Welcome back — you're already verified", state: 'done' });
     } else if (humanDone) {
       out.push({ id: 'human', text: "Verified — you're human", state: 'done' });
     } else if (humanFailed) {
@@ -99,6 +108,7 @@ export default function PassportPageClient() {
   }, [
     started,
     worldPhase,
+    returning,
     humanDone,
     humanFailed,
     worldError,
@@ -152,7 +162,7 @@ export default function PassportPageClient() {
             transition={{ duration: 0.5, ease: EASE }}
           >
             {resultReady ? (
-              <ResultCard agentName={agentDisplayName} />
+              <ResultCard agentName={agentDisplayName} returning={returning} />
             ) : (
               <>
                 <motion.button

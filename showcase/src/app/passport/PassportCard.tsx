@@ -10,7 +10,13 @@ import styles from './passport.module.css';
  * about — a human owns it, and its trades are protected. No stamps, no
  * foil, no MRZ line.
  */
-export default function ResultCard({ agentName }: { agentName: string }) {
+export default function ResultCard({
+  agentName,
+  returning = false,
+}: {
+  agentName: string;
+  returning?: boolean;
+}) {
   const reduceMotion = useReducedMotion();
 
   return (
@@ -21,7 +27,9 @@ export default function ResultCard({ agentName }: { agentName: string }) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
     >
-      <span className={styles.resultKicker}>Your agent&rsquo;s passport</span>
+      <span className={styles.resultKicker}>
+        {returning ? 'Welcome back — your passport is active' : 'Your agent’s passport'}
+      </span>
       <h2 className={styles.resultName}>{agentName}</h2>
       <ul className={styles.resultChecks}>
         <li>
