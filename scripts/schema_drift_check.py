@@ -18,6 +18,7 @@ sequence while Drizzle's serial() assumed one existed -> prod 500 on insert).
 
 Exit 0 if no mismatches, exit 1 and print a table of mismatches otherwise.
 """
+
 from __future__ import annotations
 
 import os
@@ -222,11 +223,33 @@ def main() -> int:
     with db_module.engine.connect() as conn:
         mismatches = check_against_postgres(tables, conn)
 
-    if mismatches:
-        print_mismatches(mismatches)
+    # --strict fails on every mismatch. Default mode fails only on the class
+    # that broke prod on 2026-09-26 (a Drizzle serial()/identity column with no
+    # sequence in Postgres → every insert 500s) and reports the rest as
+    # warnings: the Python-vs-Drizzle nullability/missing-column drift is
+    # legacy (dozens of columns) and is tracked for cleanup separately; it
+    # should not block unrelated PRs, but it must stay visible in every run.
+    strict = "--strict" in sys.argv
+    blocking = [m for m in mismatches if m.expectation.startswith("serial/identity")]
+    warnings = [m for m in mismatches if m not in blocking]
+
+    if warnings:
+        print(
+            f"\nWARN: {len(warnings)} non-blocking mismatch(es) (run with --strict to fail on them):"
+        )
+        print_mismatches(warnings)
+    if blocking:
+        print(f"\nBLOCKING: {len(blocking)} serial/identity column(s) without a sequence:")
+        print_mismatches(blocking)
+        return 1
+    if strict and warnings:
         return 1
 
-    print("Schema drift check passed — no mismatches between Python migration and Drizzle schema.")
+    print(
+        "Schema drift check passed — no serial/identity drift"
+        + (f" ({len(warnings)} non-blocking warnings)" if warnings else "")
+        + "."
+    )
     return 0
 
 

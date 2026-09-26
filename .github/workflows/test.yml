@@ -309,11 +309,31 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python deps for schema drift check
-        run: pip install sqlalchemy "psycopg[binary]"
+        run: pip install sqlalchemy "psycopg[binary]" pydantic pydantic-settings
 
-      - name: Schema drift check (Python runtime migration vs Drizzle schema)
+      # Fresh database, then the same order prod sees: every Drizzle SQL
+      # migration first (api-ts owns its tables), then the Python runtime
+      # migration (_ensure_schema) on top. Only then compare against the
+      # Drizzle schema declarations.
+      - name: Apply all Drizzle migrations to a fresh drift database
+        run: |
+          docker run --rm --network host -e PGPASSWORD=postgres postgres:18 \
+            psql -h 127.0.0.1 -U postgres -d suwappu_ci -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE suwappu_drift;'
+          for f in $(ls "$GITHUB_WORKSPACE"/api-ts/drizzle/*.sql | sort); do
+            echo "== $(basename "$f")"
+            docker run --rm --network host \
+              -e PGPASSWORD=postgres \
+              -v "$GITHUB_WORKSPACE:/workspace:ro" \
+              postgres:18 \
+              psql -h 127.0.0.1 -U postgres -d suwappu_drift \
+              -v ON_ERROR_STOP=1 \
+              -f "/workspace/api-ts/drizzle/$(basename "$f")"
+          done
+
+      - name: Schema drift check (Drizzle migrations + Python runtime migration vs Drizzle schema)
         env:
-          SCHEMA_DRIFT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/suwappu_ci?sslmode=disable
+          SCHEMA_DRIFT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/suwappu_drift?sslmode=disable
         run: python3 scripts/schema_drift_check.py
 
   # ---------------------------------------------------------------------------
