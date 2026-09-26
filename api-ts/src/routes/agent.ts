@@ -1046,10 +1046,29 @@ async function buildSwapTxResponse(
 	}
 
 	const evmQuote = quote as SwapQuote
-	if (!checkEvmWalletOwnership(agent, walletAddress)) {
-		return c.json(
-			{ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' },
-			403,
+	// Self-signed swaps: any wallet may receive UNSIGNED tx data — nothing moves
+	// without that wallet's own key, and POST /quote already returns the same tx
+	// for any wallet_address. Managed (server-signed) execution stays behind
+	// POST /swap/execute's ownership + policy gates.
+	//
+	// The tx must have been built for THIS wallet as sender and recipient. A quote
+	// requested without wallet_address is built for a placeholder
+	// (0x...0001) and Li.Fi's recipient defaults to it — signing that would send
+	// the swap output to an unrecoverable address.
+	if (!isEvmAddress(walletAddress)) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'wallet_address must be a valid EVM address')
+	}
+	const want = walletAddress.toLowerCase()
+	const action = evmQuote._rawQuote?.action
+	const txFrom = (evmQuote.transactionRequest?.from || action?.fromAddress || '').toLowerCase()
+	const txTo = (action?.toAddress || action?.fromAddress || '').toLowerCase()
+	if (txFrom !== want || txTo !== want) {
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			'This quote was not built for wallet_address; request a new quote with wallet_address set',
+			{ hint: 'POST /v1/agent/quote with "wallet_address": "<your wallet>", then POST /v1/agent/swap with the new quote_id' },
 		)
 	}
 
