@@ -54,3 +54,13 @@ contracts/lib/openzeppelin-contracts/package-lock.json
 
 # MCP registry publish tokens (were committed once — never again)
 .mcpregistry_*
+
+# Session handoff scratch
+.claude/handoff.md
+scripts/.ens_sepolia_key
+
+# Hackathon Foundry projects — vendored deps and build artifacts, not source
+contracts-hackathon/*/lib/
+contracts-hackathon/*/out/
+contracts-hackathon/*/cache/
+contracts-hackathon/*/broadcast/*/dry-run/

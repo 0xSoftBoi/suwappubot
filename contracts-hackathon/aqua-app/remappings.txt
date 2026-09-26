@@ -1,0 +1,4 @@
+@1inch/aqua/=lib/aqua/src/
+@1inch/solidity-utils/=lib/solidity-utils/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+forge-std/=lib/forge-std/src/
