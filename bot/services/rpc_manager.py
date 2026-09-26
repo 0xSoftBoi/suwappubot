@@ -764,7 +764,9 @@ class RPCManager:
             for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True):
                 eps.append(
                     {
-                        "url": ep.url[:60] + ("..." if len(ep.url) > 60 else ""),
+                        # _safe_url, not truncation: keys can sit in the path
+                        # (Alchemy) or query string (dRPC ?dkey=).
+                        "url": _safe_url(ep.url),
                         "tier": ep.tier.name,
                         "score": round(ep.health_score, 3),
                         "success_rate": round(ep.success_rate, 2),
