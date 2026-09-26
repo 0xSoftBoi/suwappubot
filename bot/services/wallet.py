@@ -1622,7 +1622,10 @@ class WalletService:
         async def _safe_call(coro, default=0.0):
             """Wrap an RPC call with a timeout. Returns None on RPC errors (not 0.0)."""
             try:
-                return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
+                # Bounded: the timeout starts once a slot is held, so queueing
+                # behind other wallets' calls isn't counted as an RPC timeout.
+                async with _balance_rpc_semaphore():
+                    return await asyncio.wait_for(coro, timeout=CALL_TIMEOUT)
             except asyncio.TimeoutError:
                 logger.warning("RPC call timed out")
                 return None  # Distinguish timeout from zero balance
@@ -1685,10 +1688,17 @@ class WalletService:
             """Fetch all balances for a single EVM chain — Multicall3 batch first,
             per-token RPC calls as fallback."""
             try:
-                return await asyncio.wait_for(
-                    self._fetch_evm_chain_multicall(chain_name, chain, address),
-                    timeout=CALL_TIMEOUT,
-                )
+                async with _balance_rpc_semaphore():
+                    return await asyncio.wait_for(
+                        self._fetch_evm_chain_multicall(chain_name, chain, address),
+                        timeout=CALL_TIMEOUT,
+                    )
+            except asyncio.TimeoutError:
+                # The chain's endpoint is slow: fanning out one call per token to
+                # it only multiplies load (this is what saturated the worker —
+                # ~94 concurrent calls per wallet). Report nothing for this chain.
+                logger.debug(f"Multicall3 timed out for {chain_name}; skipping per-token fan-out")
+                return chain_name, {}
             except Exception as e:
                 logger.debug(
                     f"Multicall3 fetch failed for {chain_name}, "
@@ -2134,6 +2144,21 @@ class WalletService:
         tx.sign([keypair])
 
         return bytes(tx)
+
+
+# Cap on concurrent balance RPC calls across all wallets in this process. The
+# balance refresher runs batches of wallets x every EVM chain x every token;
+# unbounded, that was ~470 in-flight calls for 5 wallets, which saturated the
+# worker so every provider "timed out" and passes never completed.
+_BALANCE_RPC_CONCURRENCY = 24
+_balance_rpc_sem: asyncio.Semaphore | None = None
+
+
+def _balance_rpc_semaphore() -> asyncio.Semaphore:
+    global _balance_rpc_sem
+    if _balance_rpc_sem is None:
+        _balance_rpc_sem = asyncio.Semaphore(_BALANCE_RPC_CONCURRENCY)
+    return _balance_rpc_sem
 
 
 class BalanceUnavailableError(Exception):
