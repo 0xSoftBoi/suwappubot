@@ -333,18 +333,20 @@ export const AgentServiceLive = Layer.succeed(AgentService, {
 			// Metadata writes below are single-statement jsonb expressions: the row lock
 			// taken by UPDATE serializes them, and each reads the latest committed row,
 			// so PATCH /me and POST /wallets can't lose each other's keys.
+			// Reads cast ::jsonb: the shared DB's agents.metadata may be TEXT (created by
+			// python's _ensure_schema) or json/jsonb (drizzle); a jsonb value assigns to all three.
 			if (params.replaceMetadataPreserving !== undefined) {
 				const { data, preserveKeys } = params.replaceMetadataPreserving
 				const keys = JSON.stringify(preserveKeys)
 				// Preserved keys come only from the stored row, never from `data`.
 				updates.metadata = sql`(${JSON.stringify(data)}::jsonb - array(select jsonb_array_elements_text(${keys}::jsonb))) || coalesce((
 					select jsonb_object_agg(e.key, e.value)
-					from jsonb_each(coalesce(${agents.metadata}, '{}'::jsonb)) e
+					from jsonb_each(coalesce(${agents.metadata}::jsonb, '{}'::jsonb)) e
 					where e.key in (select jsonb_array_elements_text(${keys}::jsonb))
 				), '{}'::jsonb)`
 			}
 			if (params.mergeMetadata !== undefined) {
-				updates.metadata = sql`coalesce(${agents.metadata}, '{}'::jsonb) || ${JSON.stringify(params.mergeMetadata)}::jsonb`
+				updates.metadata = sql`coalesce(${agents.metadata}::jsonb, '{}'::jsonb) || ${JSON.stringify(params.mergeMetadata)}::jsonb`
 			}
 
 			const result = yield* Effect.tryPromise({

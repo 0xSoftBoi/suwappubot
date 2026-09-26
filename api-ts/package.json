@@ -18,7 +18,8 @@
 		"db:push": "drizzle-kit push",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
-		"check:mcp": "bun run scripts/check-mcp-schemas.ts"
+		"check:mcp": "bun run scripts/check-mcp-schemas.ts",
+		"backfill:agent-wallets": "bun run scripts/backfill-agent-wallets.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.120.0",
