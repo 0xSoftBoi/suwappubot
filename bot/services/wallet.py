@@ -218,13 +218,14 @@ class WalletService:
         method: str,
         params: list,
         timeout: float = 3.5,
-        max_attempts: int = 3,
+        max_attempts: int = 1,
     ):
         """Make a JSON-RPC call via aiohttp — fully async, no thread pool blocking.
 
-        Fails over across up to ``max_attempts`` distinct endpoints: a single
-        rate-limited (429) or dead endpoint must not make the call fail when
-        other healthy endpoints exist for the chain.
+        With ``max_attempts`` > 1, fails over across distinct endpoints so a single
+        rate-limited (429) or dead endpoint can't fail a call that matters (e.g. a
+        pre-trade balance check). Default 1 keeps high-volume background callers
+        from multiplying load when RPCs are timing out.
         """
         # Skip the network entirely when every endpoint for this chain is
         # circuit-open: firing a doomed request just opens a socket against a
@@ -863,6 +864,7 @@ class WalletService:
                 chain_name,
                 "eth_call",
                 [{"to": checksum_contract, "data": data}, "latest"],
+                max_attempts=3 if strict else 1,
             )
             if not result or not str(result).startswith("0x"):
                 if strict:
@@ -899,10 +901,14 @@ class WalletService:
 
         checksum = Web3.to_checksum_address(address)
         try:
+            # Failover only for strict (pre-trade) reads: background refreshers
+            # fan out hundreds of lenient calls, and retrying each timeout 3x
+            # amplifies load on an already-saturated worker.
             result = await self._evm_rpc_call(
                 chain_name,
                 "eth_getBalance",
                 [checksum, "latest"],
+                max_attempts=3 if strict else 1,
             )
             if not result or not str(result).startswith("0x"):
                 if strict:
