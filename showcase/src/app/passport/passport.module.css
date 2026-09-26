@@ -79,19 +79,19 @@
 
 .orbLayer {
   position: absolute;
-  inset: -30%;
+  inset: -45%;
   border-radius: 50%;
   background:
     radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--sw-accent-bright) 55%, transparent), transparent 60%),
     radial-gradient(circle at 65% 70%, color-mix(in srgb, var(--sw-accent) 40%, transparent), transparent 65%);
-  filter: blur(28px);
-  opacity: 0.55;
+  filter: blur(44px);
+  opacity: 0.38;
   animation: orbBreathe 7s ease-in-out infinite;
 }
 .orbLayer:nth-child(2) {
   animation-duration: 9s;
   animation-delay: -3s;
-  opacity: 0.35;
+  opacity: 0.22;
 }
 
 /* Liquid core: a conic gradient that slowly rotates inside a shape whose
@@ -112,11 +112,27 @@
       var(--sw-accent-deep),
       var(--sw-accent-bright)
     );
-  filter: blur(14px) saturate(1.1);
+  filter: blur(5px) saturate(1.15);
   opacity: 0.92;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 10px 12px 28px rgba(255, 244, 228, 0.45),
+    inset -14px -18px 36px rgba(110, 36, 0, 0.45);
   animation:
-    orbMorph 11s ease-in-out infinite,
-    orbSpin 18s linear infinite;
+    orbMorph 7s ease-in-out infinite,
+    orbSpin 10s linear infinite;
+}
+
+/* Counter-rotating sheen so the core surface visibly moves. */
+.orbSheen {
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  background: conic-gradient(from 90deg, transparent 0 30%, rgba(255, 236, 210, 0.7) 40%, transparent 55%);
+  filter: blur(8px);
+  animation: orbSpin 13s linear infinite reverse;
 }
 
 @keyframes orbMorph {
@@ -150,7 +166,8 @@
 .orb[data-state='error'] .orbCore { filter: blur(16px) grayscale(0.85); opacity: 0.55; animation-duration: 22s, 40s; }
 
 .orb[data-static='true'] .orbLayer,
-.orb[data-static='true'] .orbCore { animation: none; }
+.orb[data-static='true'] .orbCore,
+.orb[data-static='true'] .orbSheen { animation: none; }
 .orb[data-static='true'][data-state='success'] .orbLayer { opacity: 0.6; transform: scale(1.05); }
 
 /* ── Flow stage (button → narration → result card) ── */
