@@ -165,8 +165,10 @@ class WalletService:
         """
         if self._http_connector is None or self._http_connector.closed:
             self._http_connector = aiohttp.TCPConnector(
-                limit=50,
-                limit_per_host=10,
+                limit=100,
+                # Keyed dRPC serves ~10 chains from one host (lb.drpc.org);
+                # 10/host queued calls past their RPC timeout.
+                limit_per_host=32,
                 ttl_dns_cache=300,
                 enable_cleanup_closed=True,
             )
@@ -1689,24 +1691,18 @@ class WalletService:
             """Fetch all balances for a single EVM chain — Multicall3 batch first,
             per-token RPC calls as fallback. Returns (chain_name, None) when this
             read timed out, so the caller doesn't cache the partial result."""
-            if _slow_chain_skipped(chain_name):
-                # Known-broken chain on cooldown: omit it without marking the
-                # result partial, or a chronically dead long-tail chain would
-                # stop every balance result from ever being cached.
-                return chain_name, {}
             try:
                 async with _balance_rpc_semaphore():
                     result = await asyncio.wait_for(
                         self._fetch_evm_chain_multicall(chain_name, chain, address),
                         timeout=CALL_TIMEOUT,
                     )
-                _slow_chain_ok(chain_name)
                 return result
             except asyncio.TimeoutError:
                 # The chain's endpoint is slow: fanning out one call per token to
                 # it only multiplies load (this is what saturated the worker —
                 # ~94 concurrent calls per wallet). Report nothing for this chain.
-                _slow_chain_timed_out(chain_name)
+                logger.info(f"Balance multicall timed out on {chain_name}")
                 return chain_name, None
             except Exception as e:
                 logger.debug(
@@ -2174,39 +2170,6 @@ class WalletService:
 # worker so every provider "timed out" and passes never completed.
 _BALANCE_RPC_CONCURRENCY = 24
 _balance_rpc_sem: asyncio.Semaphore | None = None
-
-
-# Per-chain cooldown for balance reads: a chain whose Multicall3 read keeps
-# timing out (typically a long-tail chain whose only endpoints are slow free
-# RPCs) is skipped for a while instead of holding a concurrency slot for
-# CALL_TIMEOUT on every wallet, which starved the healthy chains and blew the
-# per-wallet budget.
-_SLOW_CHAIN_THRESHOLD = 3
-_SLOW_CHAIN_COOLDOWN_S = 300.0
-_slow_chain_state: dict[str, list[float]] = {}  # chain -> [consecutive_timeouts, skip_until]
-
-
-def _slow_chain_skipped(chain_name: str) -> bool:
-    state = _slow_chain_state.get(chain_name)
-    return bool(state) and time.monotonic() < state[1]
-
-
-def _slow_chain_ok(chain_name: str) -> None:
-    _slow_chain_state.pop(chain_name, None)
-
-
-def _slow_chain_timed_out(chain_name: str) -> None:
-    state = _slow_chain_state.setdefault(chain_name, [0, 0.0])
-    state[0] += 1
-    if state[0] >= _SLOW_CHAIN_THRESHOLD:
-        state[0] = 0
-        state[1] = time.monotonic() + _SLOW_CHAIN_COOLDOWN_S
-        logger.warning(
-            f"Balance reads on {chain_name} timed out {_SLOW_CHAIN_THRESHOLD}x in a row; "
-            f"skipping it for {int(_SLOW_CHAIN_COOLDOWN_S)}s"
-        )
-    else:
-        logger.info(f"Balance multicall timed out on {chain_name} ({int(state[0])} in a row)")
 
 
 def _balance_rpc_semaphore() -> asyncio.Semaphore:
