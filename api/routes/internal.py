@@ -113,7 +113,7 @@ async def sign_transaction(
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             logger.error(f"Internal signing failed for wallet {request.wallet_id}: {e}")
-            raise HTTPException(status_code=500, detail="Signing failed")
+            raise HTTPException(status_code=500, detail="Signing failed") from e
 
 
 # ─── Tempo TIP-20 metadata ─────────────────────────────────
@@ -146,7 +146,7 @@ async def tempo_tip20_info(
         info = await tempo_tip20.get_tip20_info(token_address)
     except Exception as e:
         logger.warning(f"TIP-20 info fetch failed for {token_address}: {e}")
-        raise HTTPException(status_code=502, detail="TIP-20 info unavailable")
+        raise HTTPException(status_code=502, detail="TIP-20 info unavailable") from e
 
     return TIP20InfoResponse(
         address=info.address,
@@ -341,7 +341,7 @@ async def provision_agent_wallet(
 
     except Exception as e:
         logger.error(f"Agent provision failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # ─── Agent Swap Execution ─────────────────────────────
@@ -482,7 +482,7 @@ async def execute_agent_swap(
         raise
     except Exception as e:
         logger.error(f"Agent swap execution failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # ─── Internal Wallet Provisioning ─────────────────────────────
@@ -550,7 +550,7 @@ async def provision_internal_wallet(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Internal wallet provision failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/retire-internal-wallet")
@@ -578,7 +578,7 @@ async def retire_internal_wallet(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Internal wallet retire failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/internal-wallets")
@@ -594,7 +594,7 @@ async def audit_internal_wallets(
         return await hot_wallet_service.audit_internal_wallets()
     except Exception as e:
         logger.error(f"Internal wallet audit failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class TokenSecurityRequest(BaseModel):

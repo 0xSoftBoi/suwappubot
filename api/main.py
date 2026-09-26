@@ -1204,7 +1204,7 @@ async def admin_activation_funnel(_: str = Depends(get_admin_key)):
         return activation_funnel.compute()
     except Exception as e:
         logger.error(f"activation funnel failed: {e}", exc_info=True)
-        raise HTTPException(status_code=503, detail="Funnel unavailable")
+        raise HTTPException(status_code=503, detail="Funnel unavailable") from e
 
 
 @app.get("/health/live", tags=["Health"], summary="Liveness probe")

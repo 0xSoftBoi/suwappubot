@@ -305,7 +305,7 @@ class VaultService:
             logger.error(f"vault {label} failed: {e}", exc_info=True)
             raise VaultError(
                 f"{label.capitalize()} failed. Your funds were not moved. Try again shortly."
-            )
+            ) from e
 
     # ── reads ─────────────────────────────────────────────────────────────────
 
@@ -335,7 +335,7 @@ class VaultService:
             raise
         except Exception as e:
             logger.warning(f"vault get_position failed for {vault_key}/{address[:8]}: {e}")
-            raise VaultError("Could not fetch your vault position. Try again shortly.")
+            raise VaultError("Could not fetch your vault position. Try again shortly.") from e
 
     def get_asset_balance(self, vault_key: str, address: str) -> Dict[str, Any]:
         """Wallet's idle (un-deposited) balance of a vault's underlying asset."""
@@ -359,7 +359,9 @@ class VaultService:
             raise
         except Exception as e:
             logger.warning(f"vault get_asset_balance failed for {vault_key}/{address[:8]}: {e}")
-            raise VaultError(f"Could not fetch your {cfg.asset_symbol} balance. Try again shortly.")
+            raise VaultError(
+                f"Could not fetch your {cfg.asset_symbol} balance. Try again shortly."
+            ) from e
 
     def preview_deposit(self, vault_key: str, assets_raw: int) -> int:
         """Shares a deposit of `assets_raw` would mint (previewDeposit)."""
@@ -376,7 +378,7 @@ class VaultService:
             raise
         except Exception as e:
             logger.warning(f"vault preview_deposit failed for {vault_key}: {e}")
-            raise VaultError("Could not preview this deposit. Try again shortly.")
+            raise VaultError("Could not preview this deposit. Try again shortly.") from e
 
     def preview_redeem(self, vault_key: str, shares_raw: int) -> int:
         """Assets a redeem of `shares_raw` would return (previewRedeem)."""
@@ -393,7 +395,7 @@ class VaultService:
             raise
         except Exception as e:
             logger.warning(f"vault preview_redeem failed for {vault_key}: {e}")
-            raise VaultError("Could not preview this withdrawal. Try again shortly.")
+            raise VaultError("Could not preview this withdrawal. Try again shortly.") from e
 
     @staticmethod
     def annualize_share_price_growth(
@@ -524,7 +526,7 @@ class VaultService:
             raise
         except Exception as e:
             logger.warning(f"vault get_vault_stats failed for {vault_key}: {e}")
-            raise VaultError("Could not fetch vault stats. Try again shortly.")
+            raise VaultError("Could not fetch vault stats. Try again shortly.") from e
 
         stats["apy"] = self._get_cached_apy(cfg)
         return stats
@@ -662,7 +664,7 @@ class VaultService:
             raise
         except Exception as e:
             logger.warning(f"vault preview_withdrawal failed for {vault_key}: {e}")
-            raise VaultError("Could not preview this withdrawal. Try again shortly.")
+            raise VaultError("Could not preview this withdrawal. Try again shortly.") from e
 
     def withdraw_assets(self, wallet, vault_key: str, assets_raw: int) -> Dict[str, Any]:
         """Withdraw a TARGET ASSET amount (not a share count). Reads

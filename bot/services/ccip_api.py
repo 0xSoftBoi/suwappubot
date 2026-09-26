@@ -373,7 +373,7 @@ class ChainlinkCCIPAPI:
 
         except Exception as e:
             logger.error(f"CCIP quote error: {e}")
-            raise CCIPError(f"Failed to get CCIP quote: {str(e)}")
+            raise CCIPError(f"Failed to get CCIP quote: {str(e)}") from e
 
     async def build_transfer_tx(
         self,
