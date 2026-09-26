@@ -363,6 +363,11 @@ class RPCEndpoint:
         return time.monotonic() < self.circuit_open_until
 
     @property
+    def is_parked(self) -> bool:
+        """Circuit open on a long (quota / unrecoverable) cooldown, not a short backoff."""
+        return self.circuit_open_until - time.monotonic() > 600
+
+    @property
     def health_score(self) -> float:
         """Score 0..~1.5 combining success rate, latency, and tier."""
         if self.is_circuit_open:
@@ -854,6 +859,14 @@ class RPCManager:
             if chain_name in ("solana", "tron"):
                 continue
             for ep in endpoints:
+                # Parked endpoints sit out their full cooldown. Probing them
+                # anyway let one lucky 200 from a load-balanced provider
+                # (drpc.org answers eth_blockNumber on unsupported chains only
+                # some of the time) call record_success() and clear a 6h park,
+                # so the endpoint flapped back into rotation and re-logged
+                # "circuit OPEN (endpoint gone or gated)" every few minutes.
+                if ep.is_parked:
+                    continue
                 tasks.append(self._health_check_one(sem, ep))
 
         await asyncio.gather(*tasks, return_exceptions=True)
