@@ -199,3 +199,25 @@ ADRs 0001–0005.
   cairosvg/librsvg (marketplace indexers) drop the filter — the whole
   collection rasterized as black rectangles until the art-director pass
   caught it. Always rasterize through cairosvg before shipping card art.
+
+### Demo hardening 2026-09-26: eight prod bugs, one root cause each (see docs/demo-readiness.md)
+- **What**: On the World ID → ENS passport path alone, prod had: trust layer never
+  enabled; secret set under the wrong env name; verifier sent the IDKit envelope
+  instead of the bare proof; response checked for a field World never returns;
+  staging token header missing; link signal derived from data created in the same
+  request; `agent_link_codes.id` with no Postgres sequence (Python-created table,
+  Drizzle-inserted); free-tier RPCs exhausted. Every one was invisible to CI.
+- **Why**: "verified" in docs pointed at since-replaced code and a laptop, not prod;
+  integrations were coded from assumed API shapes with mocked tests; two ORMs own one
+  schema and the contract job compares columns, not defaults/sequences; env names
+  are not checked against Railway; upstream error bodies (verifier 400, pg error)
+  were dropped before logging; several sessions edit one `main` checkout in parallel.
+- **Rules from now on**: (1) a claim is "verified" only with an artifact — URL/tx
+  hash/request id + timestamp — and it goes stale when the file it names changes.
+  (2) Every external integration gets a committed smoke script that hits the real
+  sandbox and is re-run after deploy (`scripts/smoke/`). (3) One migration owner per
+  table; the shared-DB CI job must diff `information_schema.columns` incl. defaults
+  and identity. (4) Env parity: variable NAMES in Railway must match the env schema
+  before a deploy (`.env.schema` vs `railway variables`). (5) Never drop an upstream
+  error body; wrap with cause (`raise ... from e`, keep `res.text()`). (6) Parallel
+  sessions use separate worktrees; `main` is PR-only.
