@@ -2483,8 +2483,10 @@ agentRoutes.post('/wallets', async (c) => {
 				mergeMetadata: {
 					wallet_address: wallet.address,
 					wallet_sub_org_id: wallet.subOrgId,
-					...(internalUserId !== undefined && { internal_user_id: internalUserId }),
-					...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
+					// Always overwrite: if provisioning failed, a stale internal_* pair from
+					// an earlier wallet would sign with a different wallet than wallet_address.
+					internal_user_id: internalUserId ?? null,
+					internal_wallet_id: internalWalletId ?? null,
 				},
 			})
 

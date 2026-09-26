@@ -300,6 +300,34 @@ class AgentSwapRequest(BaseModel):
     quote_data: Dict[str, Any]
 
 
+def _verify_agent_owns_wallet(request: "AgentSwapRequest") -> None:
+    """Reject internal IDs that weren't provisioned for this agent.
+
+    The IDs come from agent metadata on the TS side; don't let a metadata bug
+    there turn into signing with someone else's custodial wallet. Binds on the
+    rows /agent/provision-wallet creates (user + wallet named agent_<uuid8>).
+    """
+    from bot.models.user import User
+
+    expected = f"agent_{request.agent_uuid[:8]}"
+    with get_session() as session:
+        wallet = session.get(Wallet, request.internal_wallet_id)
+        user = session.get(User, request.internal_user_id)
+        owned = (
+            wallet is not None
+            and user is not None
+            and wallet.user_id == user.id
+            and wallet.name == expected
+            and user.username == expected
+        )
+    if not owned:
+        logger.warning(
+            f"execute-swap ownership mismatch: agent {request.agent_uuid[:8]} "
+            f"user_id={request.internal_user_id} wallet_id={request.internal_wallet_id}"
+        )
+        raise HTTPException(status_code=403, detail="Wallet not provisioned for this agent")
+
+
 @router.post("/agent/execute-swap")
 async def execute_agent_swap(
     request: AgentSwapRequest,
@@ -307,6 +335,7 @@ async def execute_agent_swap(
 ):
     """Execute a swap using the full Python swap pipeline. Called by TS API."""
     _verify_internal_key(x_internal_key)
+    _verify_agent_owns_wallet(request)
 
     try:
         from bot.services.swap_engine import swap_engine, SwapQuote
