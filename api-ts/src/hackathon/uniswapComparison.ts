@@ -12,8 +12,8 @@
  */
 
 import { Effect } from 'effect'
-import { UniswapTradingProvider } from '../../../hackathon/tokyo2026/src/uniswap/routeAdapter'
-import { isTradingApiConfigured } from '../../../hackathon/tokyo2026/src/uniswap/tradingApi'
+import { UniswapTradingProvider } from './tokyo2026/uniswap/routeAdapter'
+import { isTradingApiConfigured } from './tokyo2026/uniswap/tradingApi'
 import { uniswapComparisonEnabled } from './env'
 import type { Env } from '../config/EnvService'
 

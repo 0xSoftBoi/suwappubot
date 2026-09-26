@@ -19,7 +19,7 @@
 import {
 	isWorldIdConfigured,
 	loadWorldIdConfig,
-} from '../../../hackathon/tokyo2026/src/world-id/config'
+} from './tokyo2026/world-id/config'
 import {
 	MemoryNullifierStore,
 	awaitAndVerifyTradeApproval,
@@ -27,7 +27,7 @@ import {
 	type NullifierStore,
 	type PendingVerification,
 	type TradeIntent,
-} from '../../../hackathon/tokyo2026/src/world-id/guardianGate'
+} from './tokyo2026/world-id/guardianGate'
 import { worldIdEnabled, hackathonEnv } from './env'
 import { PostgresNullifierStore } from './worldIdNullifiers'
 import { logger } from '../lib/logger'

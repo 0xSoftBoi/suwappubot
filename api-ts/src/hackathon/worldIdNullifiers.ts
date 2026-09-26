@@ -19,7 +19,7 @@
 import {
 	normalizeNullifier,
 	type NullifierStore,
-} from '../../../hackathon/tokyo2026/src/world-id/guardianGate'
+} from './tokyo2026/world-id/guardianGate'
 import { type DbClient } from '../db/client'
 import { worldIdNullifiers } from '../db/schema/worldIdNullifiers'
 import { logger } from '../lib/logger'
