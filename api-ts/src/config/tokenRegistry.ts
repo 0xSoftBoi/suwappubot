@@ -105,8 +105,10 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 	// Plasma (zero-fee stablecoin L1)
 	9745: {
 		XPL: '0x0000000000000000000000000000000000000000',
-		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+		// USDT0 is Plasma's USD stablecoin (symbol "USDT0", 6dp — verified on-chain).
+		// The USDT/USDC entries here were the ETHEREUM mainnet addresses (no code on
+		// Plasma); bot/config/tokens.py already dropped them for the same reason.
+		USDT0: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
 	},
 }
 
