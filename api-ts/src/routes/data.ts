@@ -22,6 +22,7 @@ import type { WSContext } from 'hono/ws'
 import { CHAINS } from '../services'
 import {
 	COMMON_TOKENS,
+	commonTokenDecimals,
 	ROBINHOOD_TOKEN_DECIMALS,
 	SOLANA_TOKENS,
 	TEMPO_TOKEN_DECIMALS,
@@ -161,6 +162,9 @@ dataRoutes.get('/reference/chains', (c) => {
 })
 
 function decimalsFor(chainId: number, symbol: string): number {
+	// On-chain table first (same source as TokenService and /v1/agent/tokens).
+	const onChain = commonTokenDecimals(chainId, symbol)
+	if (onChain !== undefined) return onChain
 	if (chainId === 4217 && TEMPO_TOKEN_DECIMALS[symbol] !== undefined) return TEMPO_TOKEN_DECIMALS[symbol]
 	if (chainId === 4663 && ROBINHOOD_TOKEN_DECIMALS[symbol] !== undefined) return ROBINHOOD_TOKEN_DECIMALS[symbol]
 	return symbol === 'USDC' || symbol === 'USDT' || symbol.includes('USDC') ? 6 : 18
