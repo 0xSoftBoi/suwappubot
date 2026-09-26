@@ -881,7 +881,36 @@ class RPCManager:
                             ep.record_failure("rate_limited_429")
                             return
                         if resp.status != 200:
-                            ep.record_failure(f"http_{resp.status}")
+                            # Some gateways (drpc.org) answer an unsupported
+                            # chain/method with HTTP 400 and the JSON-RPC error
+                            # in the body rather than HTTP 200 — e.g.
+                            # apechain/soneium/abstract/klaytn on drpc.org all
+                            # 400 eth_blockNumber with -32601 "method ... does
+                            # not exist". Reading the body here lets that reach
+                            # the same permanent-unsupported classification as
+                            # a 200 response would, instead of being logged as
+                            # a generic transient http_400 and retried in
+                            # seconds forever.
+                            try:
+                                body = await resp.json()
+                            except (aiohttp.ContentTypeError, ValueError):
+                                body = None
+                            error = body.get("error") if isinstance(body, dict) else None
+                            if error and _is_method_unsupported(error):
+                                # The literal phrase "method not supported" must
+                                # come before any truncation so it survives into
+                                # _UNRECOVERABLE_ERROR's regex match — the raw
+                                # error dict (e.g. drpc's "does not exist/is not
+                                # available") doesn't itself contain a phrase the
+                                # regex recognizes, and str(error)[:60] can cut
+                                # off the -32601 code before it appears.
+                                ep.record_failure(
+                                    f"method not supported (http_{resp.status}): "
+                                    f"{str(error)[:60]}",
+                                    fatal=True,
+                                )
+                            else:
+                                ep.record_failure(f"http_{resp.status}")
                             return
                         data = await resp.json()
                         if "error" in data:
