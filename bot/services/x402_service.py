@@ -417,7 +417,11 @@ class X402Service:
         """Create an x402 payment request."""
         payment_id = f"x402_{secrets.token_hex(16)}"
 
-        token_address = self.payment_tokens.get(chain, {}).get(token_symbol, "")
+        token_address = self.payment_tokens.get(chain, {}).get(token_symbol)
+        if not token_address:
+            # An empty address would later verify as a *native* transfer. Refuse
+            # tokens not listed for this chain instead of issuing that request.
+            raise ValueError(f"Unsupported payment token {token_symbol!r} on {chain}")
 
         return X402PaymentRequest(
             payment_id=payment_id,
@@ -568,8 +572,9 @@ class X402Service:
                     # Resolve token decimals from the canonical token config so
                     # non-6dp tokens are scaled correctly (Tempo TIP-20 pathUSD
                     # is 6dp — it was misconfigured as 18dp, which read every real
-                    # payment as 1e-12 of its value). Falls back to 6 (USDC
-                    # standard) when the address is unknown.
+                    # payment as 1e-12 of its value). get_decimals_by_address
+                    # returns 18 for an unknown address (under-credits: safe); the
+                    # except below falls back to 6 only if the lookup itself fails.
                     try:
                         from bot.config.tokens import get_decimals_by_address
 

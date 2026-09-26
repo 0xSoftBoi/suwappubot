@@ -112,6 +112,8 @@ class TempoDexAPI:
 
     def is_supported_pair(self, token_in: str, token_out: str) -> bool:
         """Check if both tokens are stablecoins available on Tempo."""
+        if token_in.upper() == token_out.upper():
+            return False  # a token can't be swapped for itself
         in_cfg = TOKENS.get(token_in.upper())
         out_cfg = TOKENS.get(token_out.upper())
         if not (in_cfg and in_cfg.is_stablecoin and out_cfg and out_cfg.is_stablecoin):
