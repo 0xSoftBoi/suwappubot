@@ -1,0 +1,548 @@
+/* Agent Swap Passport — ETHGlobal Tokyo 2026 demo page.
+   Sits on `.summer-page.summer-page--cosmic` for the deep-space gradient;
+   everything below is page-specific, built mobile-first (390px baseline). */
+
+.shell {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 28px 18px 80px;
+  box-sizing: border-box;
+  color: #f4f1ff;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f5b25c;
+  margin-bottom: 12px;
+}
+
+.h1 {
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 7vw, 3.4rem);
+  line-height: 1.05;
+  margin: 0 0 16px;
+  color: #fff;
+}
+
+.lede {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: rgba(244, 241, 255, 0.82);
+  max-width: 52ch;
+  margin: 0 0 20px;
+}
+.lede strong { color: #fff; }
+
+/* ── Hero layout ── */
+.hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+  align-items: center;
+  padding-top: 8px;
+}
+@media (min-width: 900px) {
+  .hero {
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 48px;
+  }
+}
+
+.heroCopy { min-width: 0; }
+
+/* ── Status strip ── */
+.statusStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(200, 195, 240, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: rgba(244, 241, 255, 0.8);
+}
+.statusStripError { border-color: rgba(240, 120, 120, 0.4); }
+.statusTrustLayer {
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.statusList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.statusItem { display: inline-flex; align-items: center; gap: 6px; }
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #7d7597;
+  flex: 0 0 auto;
+}
+.dot[data-state='up'] {
+  background: #4ade80;
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+  animation: pulse 2s ease-out infinite;
+}
+.dot[data-state='down'] { background: #f87171; }
+.dot[data-state='unknown'] { background: #f5b25c; }
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot[data-state='up'] { animation: none; }
+}
+
+/* ── Passport card ── */
+.cardStage {
+  display: flex;
+  justify-content: center;
+  perspective: 1200px;
+}
+
+.card {
+  position: relative;
+  width: min(100%, 360px);
+  aspect-ratio: 5 / 7;
+  border-radius: 20px;
+  padding: 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 40%),
+    linear-gradient(200deg, #2c1b52 0%, #4a2a64 38%, #7a3f68 68%, #b9639b 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 30px 60px rgba(10, 4, 30, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transform-style: preserve-3d;
+}
+
+.cardShine {
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+.cardFoil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.14) 0px,
+    rgba(255, 255, 255, 0) 2px,
+    rgba(255, 200, 255, 0.08) 4px,
+    rgba(120, 220, 255, 0.08) 6px,
+    rgba(255, 255, 255, 0) 8px
+  );
+  mix-blend-mode: color-dodge;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+}
+.cardKicker {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.86);
+}
+.cardChip {
+  width: 30px;
+  height: 22px;
+  border-radius: 4px;
+  background: linear-gradient(140deg, #f6c96a, #c98a2e);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.cardBody { position: relative; z-index: 1; margin-top: 18px; }
+.cardEyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 10px 0 2px;
+}
+.cardAgentId {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  color: #fff;
+  margin: 0;
+  word-break: break-word;
+}
+.cardTrustLine {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+}
+
+.stampField {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.stamp {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 132px;
+  padding: 8px 6px;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 10px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.02);
+  transform: translate(-50%, -50%) rotate(var(--stamp-rotate, 0deg));
+  mix-blend-mode: screen;
+}
+.stampLanded {
+  color: #fff;
+  border-color: #f5b25c;
+  background: rgba(245, 178, 92, 0.1);
+  box-shadow: 0 0 22px rgba(245, 178, 92, 0.35);
+  mix-blend-mode: normal;
+}
+.stampLabel {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.86rem;
+  letter-spacing: 0.05em;
+}
+.stampSub {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+
+.cardFooter {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 16px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cardSerial {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+.cardMrz {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.85);
+  overflow-wrap: anywhere;
+}
+
+/* ── Connector between hero and steps ── */
+.connector {
+  position: relative;
+  height: 46px;
+  margin: 24px auto;
+  width: min(100%, 4px);
+}
+.connectorLine {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(245, 178, 92, 0), rgba(245, 178, 92, 0.7), rgba(245, 178, 92, 0));
+}
+.connectorDot {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #f5b25c;
+  transform: translate(-50%, -50%);
+  animation: flowDown 3.3s var(--d, 0s) linear infinite;
+  box-shadow: 0 0 8px rgba(245, 178, 92, 0.8);
+}
+@keyframes flowDown {
+  0% { top: 0; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* ── Step cards ── */
+.step {
+  margin-top: 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(200, 195, 240, 0.18);
+  background: rgba(20, 14, 40, 0.55);
+  backdrop-filter: blur(14px);
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.stepHead {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px 14px;
+  align-items: start;
+}
+.stepNum {
+  font-family: var(--font-serif);
+  font-size: 1.8rem;
+  color: rgba(245, 178, 92, 0.55);
+  line-height: 1;
+}
+.stepHead h2 {
+  font-family: var(--font-serif);
+  font-size: 1.3rem;
+  margin: 0 0 4px;
+  color: #fff;
+}
+.stepHead p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(244, 241, 255, 0.72);
+}
+.stepBadge {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(200, 195, 240, 0.3);
+  color: rgba(244, 241, 255, 0.75);
+}
+.stepBadge[data-state='success'] { color: #4ade80; border-color: rgba(74, 222, 128, 0.5); background: rgba(74, 222, 128, 0.08); }
+.stepBadge[data-state='error'] { color: #f87171; border-color: rgba(248, 113, 113, 0.5); background: rgba(248, 113, 113, 0.08); }
+.stepBadge[data-state='loading'] { color: #f5b25c; border-color: rgba(245, 178, 92, 0.5); background: rgba(245, 178, 92, 0.08); }
+@media (min-width: 700px) {
+  .stepBadge { grid-column: 2; justify-self: end; align-self: center; margin-left: auto; }
+  .stepHead { grid-template-columns: auto 1fr auto; }
+}
+
+.stepBody { margin-top: 16px; }
+@media (min-width: 760px) {
+  .stepBody { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 24px; }
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: rgba(244, 241, 255, 0.72);
+  margin: 0;
+}
+
+/* ── Trade form (step 1) ── */
+.tradeForm {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(244, 241, 255, 0.65);
+}
+.field select,
+.field input {
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(200, 195, 240, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.field select:disabled,
+.field input:disabled { opacity: 0.5; }
+
+.tradeActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.btnPrimary {
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid #d17a1e;
+  background: linear-gradient(180deg, #f6a93c, #e58d2b);
+  color: #17102b;
+  font-weight: 800;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.btnPrimary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btnGhost {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.inlineToggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #f5b25c;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.verifyPanel {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+@media (min-width: 760px) { .verifyPanel { margin-top: 0; } }
+
+.verifiedPanel { display: flex; flex-direction: column; gap: 8px; }
+.errorPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.08);
+  color: #ffd7d7;
+  font-size: 0.85rem;
+}
+
+/* ── QR panel ── */
+.qrPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(200, 195, 240, 0.2);
+}
+.qrImageWrap img { display: block; border-radius: 8px; width: 180px; height: 180px; }
+.qrPlaceholder { width: 180px; height: 180px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); }
+.qrHint { margin: 0; font-size: 0.78rem; text-align: center; color: rgba(244, 241, 255, 0.65); }
+.qrActions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.qrOpenLink {
+  font-size: 0.8rem;
+  color: #f5b25c;
+  text-decoration: none;
+  font-weight: 700;
+}
+.qrOpenLink:hover { text-decoration: underline; }
+.qrCopyBtn {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  cursor: pointer;
+}
+
+/* ── Copy field ── */
+.copyField { display: inline-flex; align-items: center; gap: 6px; }
+.copyFieldCode,
+.copyFieldLink {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: #cdd0ff;
+}
+.copyFieldLink { text-decoration: none; }
+.copyFieldLink:hover { text-decoration: underline; }
+.copyFieldBtn {
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-radius: 5px;
+  width: 22px;
+  height: 22px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.receiptBadge {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.receiptBadge[data-state='success'] { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.receiptBadge[data-state='pending'] { color: #f5b25c; background: rgba(245, 178, 92, 0.1); }
+
+/* ── Evidence grid (steps 2 + 3) ── */
+.evidenceGrid {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.evidenceGrid dt {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(244, 241, 255, 0.55);
+  margin: 0 0 3px;
+}
+.evidenceGrid dd {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #fff;
+  word-break: break-word;
+}
