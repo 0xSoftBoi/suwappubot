@@ -9,6 +9,7 @@ import hmac
 import logging
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 
 from typing import Optional, Dict, Any
 
@@ -275,14 +276,24 @@ async def provision_agent_wallet(
         agent_tg_id = _agent_telegram_id(request.agent_uuid)
         name = f"agent_{request.agent_uuid[:8]}"
 
+        # Concurrent calls for one agent race on the unique telegram_id: the loser
+        # gets IntegrityError, so re-read the winner's row instead of 500ing.
+        try:
+            with get_session() as session:
+                user = session.query(User).filter(User.telegram_id == agent_tg_id).first()
+                if not user:
+                    user = User(telegram_id=agent_tg_id, username=name, first_name="Agent")
+                    session.add(user)
+                    session.flush()
+                    logger.info(f"Created agent user: id={user.id}, telegram_id={agent_tg_id}")
+                user_id = user.id
+        except IntegrityError:
+            with get_session() as session:
+                user_id = session.query(User.id).filter(User.telegram_id == agent_tg_id).scalar()
+            if user_id is None:
+                raise
+
         with get_session() as session:
-            user = session.query(User).filter(User.telegram_id == agent_tg_id).first()
-            if not user:
-                user = User(telegram_id=agent_tg_id, username=name, first_name="Agent")
-                session.add(user)
-                session.flush()
-                logger.info(f"Created agent user: id={user.id}, telegram_id={agent_tg_id}")
-            user_id = user.id
 
             wallet = (
                 session.query(Wallet)
@@ -357,6 +368,9 @@ def _verify_agent_owns_wallet(request: "AgentSwapRequest") -> None:
             and wallet.user_id == user.id
             and wallet.name == expected
             and user.username == expected
+            # username is only a 32-bit uuid prefix; bind on the full uuid too.
+            and user.telegram_id == _agent_telegram_id(request.agent_uuid)
+            and wallet.wallet_provider == "turnkey"
             and (wallet.address or "").lower() == request.wallet_address.lower()
         )
     if not owned:
