@@ -32,6 +32,12 @@
   --sw-accent-faint: rgba(229, 141, 43, 0.11);
   --sw-accent-fainter: rgba(229, 141, 43, 0.045);
 
+  /* Semantic status colors — error/success states on dark surfaces (e.g.
+     the passport narration/status dots). Not part of the accent ramp. */
+  --sw-danger: #e2726b;
+  --sw-danger-bright: #f2a5a0;
+  --sw-success: #4ade80;
+
   /* ================================================================
      PERSIMMON ORCHARD — brand-colour identity layer.
      One job per colour, enforced everywhere it is used:
@@ -438,6 +444,30 @@ h2 {
   .summer-nav nav a,
   .summer-nav nav .summer-nav__trigger {
     padding: 0 8px;
+  }
+}
+
+/* 1180–1360px: link row + both CTAs still don't fit even at 8px link
+   padding. Shrink the CTAs themselves (padding/gap/font) and force their
+   text onto one line so the actions column can't grow taller than the
+   nav row — a previous fix used nowrap alone here, which kept the CTA
+   from wrapping but let it overflow into the last nav link instead. */
+@media (max-width: 1360px) {
+  .summer-nav {
+    gap: 10px;
+  }
+  .summer-nav__actions {
+    gap: 6px;
+  }
+  .summer-nav nav a,
+  .summer-nav nav .summer-nav__trigger {
+    padding: 0 6px;
+    font-size: 0.8rem;
+  }
+  .summer-nav__cta {
+    padding: 0 10px 0 9px;
+    font-size: 0.8rem;
+    white-space: nowrap;
   }
 }
 
@@ -5829,6 +5859,35 @@ button:focus:not(:focus-visible) {
   color: rgba(244, 244, 246, 0.92);
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* The shared SummerFooter defaults to a light cream band, which clashes
+   with this page's dark soil canvas. Scoped here only — every other page
+   keeps the light footer. */
+.summer-page--passport .summer-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, var(--sw-soil-1) 0%, var(--sw-soil-0) 100%);
+}
+.summer-page--passport .summer-footer__logo span,
+.summer-page--passport .summer-footer__col h3 {
+  color: rgba(244, 244, 246, 0.95);
+}
+.summer-page--passport .summer-footer__brand p,
+.summer-page--passport .summer-footer__social a,
+.summer-page--passport .summer-footer__col a,
+.summer-page--passport .summer-footer__legal,
+.summer-page--passport .summer-footer__legal a,
+.summer-page--passport .summer-footer__bottom {
+  color: rgba(244, 244, 246, 0.62);
+}
+.summer-page--passport .summer-footer__legal,
+.summer-page--passport .summer-footer__bottom {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+.summer-page--passport .summer-footer__social a:hover,
+.summer-page--passport .summer-footer__col a:hover,
+.summer-page--passport .summer-footer__legal a:hover {
+  color: var(--sw-accent-bright);
 }
 
 .journey {
