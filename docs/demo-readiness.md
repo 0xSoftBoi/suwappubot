@@ -82,6 +82,11 @@ all 0x1; `readPassport` → `ensResolvesToWallet: true`; independent `eth_call a
 Re-scans return `existing` with the bound wallet (binding persisted in `world_id_nullifiers.subject` since PR #1055; earlier bindings
 predate the column and answer `failed: … wallet could not be recovered`, proven on prod 2026-09-27 00:4x UTC). The simulator identity is
 spent; a real phone is needed for a fresh live mint on stage.
+**Page proven in a real browser 2026-09-27 01:xx UTC** (Playwright, 1280×900 and 390×844): load → blocked banner (one-sentence hook
+rejection, truncated addresses, Etherscan link) → QR + simulator link → simulator credential → readable failed state (spent identity).
+Zero console/network errors on suwappu.bot; no horizontal overflow on mobile. Status strip shows only the World ID verifier (PR #1059).
+World ID actions `suwappu-passport`, `suwappu-agent-link`, `agent-swap-passport-verify` are now registered in BOTH staging and production.
+Agent-claim path (`/v1/agent/link/code`) also sets the ENS address record now (PR #1059).
 **Rollback**: set `HACKATHON_TRUST_LAYER=false` on api-ts (page degrades to "not enabled"), or redeploy api-ts `9c623226` / showcase previous green.
 **Relayer gas**: 0.0237 Sepolia ETH at 22:50 UTC ≈ 20 passports; top up before demo day.
 **Open question for the operator**: prod is `WORLD_ENV=staging` and the actions are registered on staging — real phones produce production
