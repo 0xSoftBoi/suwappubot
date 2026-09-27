@@ -13,6 +13,8 @@
  * One socket per coin, reference-counted across hooks; capped backoff reconnect.
  */
 
+import { FEED_STALE_MS, FEED_WATCHDOG_MS, onFeedResume } from './feedLiveness'
+
 export interface HlTrade {
   id: string
   price: number
@@ -47,6 +49,7 @@ const MAX_CVD_POINTS = 150
 const DEPTH_LEVELS = 10
 const BACKOFF_BASE_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
+const HL_PING_MS = 15_000
 
 interface RawLevel {
   px: string
@@ -68,8 +71,46 @@ class CoinFeed {
   private reconnectAttempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private closed = false
+  private lastMessageAt = 0
+  private lastPingAt = 0
+  private watchdog: ReturnType<typeof setInterval> | null = null
+  private offResume: () => void = () => {}
 
   constructor(private readonly coin: string) {
+    this.connect()
+    this.watchdog = setInterval(() => {
+      const ws = this.ws
+      if (ws?.readyState !== WebSocket.OPEN) return
+      const now = Date.now()
+      if (now - this.lastMessageAt > FEED_STALE_MS) {
+        this.reconnectNow()
+        return
+      }
+      // HL drops connections idle for 60s; an app-level ping keeps quiet
+      // coins alive and its `pong` feeds the staleness check above.
+      if (now - this.lastPingAt >= HL_PING_MS) {
+        this.lastPingAt = now
+        try {
+          ws.send(JSON.stringify({ method: 'ping' }))
+        } catch {
+          /* close handler reconnects */
+        }
+      }
+    }, FEED_WATCHDOG_MS)
+    this.offResume = onFeedResume(() => {
+      if (this.status !== 'live' || Date.now() - this.lastMessageAt > FEED_WATCHDOG_MS) {
+        this.reconnectNow()
+      }
+    })
+  }
+
+  /** Drop the current socket (dead or backing off) and reconnect immediately. */
+  private reconnectNow(): void {
+    if (this.closed) return
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.reconnectAttempts = 0
+    this.teardownSocket()
     this.connect()
   }
 
@@ -89,6 +130,9 @@ class CoinFeed {
     this.closed = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
+    if (this.watchdog) clearInterval(this.watchdog)
+    this.watchdog = null
+    this.offResume()
     this.listeners.clear()
     this.teardownSocket()
   }
@@ -123,6 +167,8 @@ class CoinFeed {
     ws.onopen = () => {
       if (this.ws !== ws) return
       this.reconnectAttempts = 0
+      this.lastMessageAt = Date.now()
+      this.lastPingAt = Date.now()
       for (const type of ['trades', 'l2Book']) {
         ws.send(JSON.stringify({ method: 'subscribe', subscription: { type, coin: this.coin } }))
       }
@@ -130,6 +176,7 @@ class CoinFeed {
 
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return
+      this.lastMessageAt = Date.now()
       let msg: { channel?: string; data?: unknown }
       try {
         msg = JSON.parse(ev.data as string)
