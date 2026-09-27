@@ -26,18 +26,21 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 28px;
-  padding-top: 12px;
+  gap: 16px;
+  padding-top: 8px;
 }
 
-.heroCopy { max-width: 44ch; }
+.heroCopy { max-width: none; }
 
 .h1 {
   font-family: var(--font-serif);
-  font-size: clamp(1.9rem, 6vw, 3rem);
-  line-height: 1.12;
-  letter-spacing: -0.01em;
-  margin: 0 0 14px;
+  font-size: clamp(2rem, 1.2rem + 3vw, 3.25rem);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  max-width: 18ch;
+  margin: 0 auto 14px;
+  text-wrap: balance;
   color: #fff;
 }
 
@@ -45,7 +48,9 @@
   font-size: 1.02rem;
   line-height: 1.6;
   color: rgba(244, 244, 246, 0.72);
-  margin: 0;
+  margin: 0 auto;
+  max-width: 42ch;
+  text-wrap: balance;
 }
 
 .poweredBy {
@@ -61,7 +66,9 @@
 .orbStage {
   position: relative;
   width: 100%;
-  max-width: 280px;
+  /* A flow page, not a splash: the orb must leave room for Beat 1 on screen. */
+  max-width: clamp(88px, 11vh, 160px);
+  margin-bottom: 0;
   aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
@@ -78,19 +85,19 @@
 
 .orbLayer {
   position: absolute;
-  inset: -30%;
+  inset: -45%;
   border-radius: 50%;
   background:
     radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--sw-accent-bright) 55%, transparent), transparent 60%),
     radial-gradient(circle at 65% 70%, color-mix(in srgb, var(--sw-accent) 40%, transparent), transparent 65%);
-  filter: blur(28px);
-  opacity: 0.55;
+  filter: blur(44px);
+  opacity: 0.38;
   animation: orbBreathe 7s ease-in-out infinite;
 }
 .orbLayer:nth-child(2) {
   animation-duration: 9s;
   animation-delay: -3s;
-  opacity: 0.35;
+  opacity: 0.22;
 }
 
 /* Liquid core: a conic gradient that slowly rotates inside a shape whose
@@ -111,11 +118,27 @@
       var(--sw-accent-deep),
       var(--sw-accent-bright)
     );
-  filter: blur(14px) saturate(1.1);
+  filter: blur(5px) saturate(1.15);
   opacity: 0.92;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 10px 12px 28px rgba(255, 244, 228, 0.45),
+    inset -14px -18px 36px rgba(110, 36, 0, 0.45);
   animation:
-    orbMorph 11s ease-in-out infinite,
-    orbSpin 18s linear infinite;
+    orbMorph 7s ease-in-out infinite,
+    orbSpin 10s linear infinite;
+}
+
+/* Counter-rotating sheen so the core surface visibly moves. */
+.orbSheen {
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  background: conic-gradient(from 90deg, transparent 0 30%, rgba(255, 236, 210, 0.7) 40%, transparent 55%);
+  filter: blur(8px);
+  animation: orbSpin 13s linear infinite reverse;
 }
 
 @keyframes orbMorph {
@@ -149,7 +172,8 @@
 .orb[data-state='error'] .orbCore { filter: blur(16px) grayscale(0.85); opacity: 0.55; animation-duration: 22s, 40s; }
 
 .orb[data-static='true'] .orbLayer,
-.orb[data-static='true'] .orbCore { animation: none; }
+.orb[data-static='true'] .orbCore,
+.orb[data-static='true'] .orbSheen { animation: none; }
 .orb[data-static='true'][data-state='success'] .orbLayer { opacity: 0.6; transform: scale(1.05); }
 
 /* ── Flow stage (button → narration → result card) ── */
@@ -163,6 +187,12 @@
 }
 
 .cta {
+  /* Also used on an <a> (the QR sheet's "Open World App"), so center the
+     label and drop the link underline explicitly. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   min-height: 52px;
   padding: 0 30px;
   border-radius: 999px;
@@ -199,7 +229,7 @@
 }
 .narrationLine[data-state='done'] { color: rgba(244, 244, 246, 0.94); }
 .narrationLine[data-state='active'] { color: rgba(244, 244, 246, 0.85); }
-.narrationLine[data-state='error'] { color: #f2a5a0; }
+.narrationLine[data-state='error'] { color: var(--sw-danger-bright); }
 .narrationLine[data-state='unavailable'] { color: rgba(244, 244, 246, 0.5); }
 
 .narrationMark {
@@ -233,7 +263,7 @@
   height: 8px;
   border-radius: 50%;
 }
-.narrationDotError { background: #e2726b; }
+.narrationDotError { background: var(--sw-danger); }
 .narrationDotMuted { background: rgba(244, 244, 246, 0.3); }
 
 .narrationText { line-height: 1.45; }
@@ -291,6 +321,11 @@
 
 .qrImageWrap img { display: block; border-radius: 10px; width: 200px; height: 200px; }
 .qrPlaceholder { width: 200px; height: 200px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); }
+
+/* Demoted secondary QR when the primary action is the deep-link button. */
+.qrImageWrap[data-secondary='true'] { opacity: 0.7; transform: scale(0.72); margin: -12px 0 -12px; }
+.qrImageWrap[data-secondary='true'] img,
+.qrImageWrap[data-secondary='true'] .qrPlaceholder { width: 120px; height: 120px; }
 
 .modalHint {
   margin: 0;
@@ -473,11 +508,11 @@
   flex: 0 0 auto;
 }
 .dot[data-state='up'] {
-  background: #4ade80;
+  background: var(--sw-success);
   box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
   animation: pulse 2s ease-out infinite;
 }
-.dot[data-state='down'] { background: #f87171; }
+.dot[data-state='down'] { background: var(--sw-danger-bright); }
 .dot[data-state='unknown'] { background: var(--sw-accent-bright); }
 
 @keyframes pulse {
@@ -603,10 +638,11 @@
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.receiptBadge[data-state='success'] { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.receiptBadge[data-state='success'] { color: var(--sw-success); background: color-mix(in srgb, var(--sw-success) 10%, transparent); }
 .receiptBadge[data-state='pending'] { color: var(--sw-accent-bright); background: color-mix(in srgb, var(--sw-accent) 15%, transparent); }
 
 @media (prefers-reduced-motion: reduce) {
   .dot[data-state='up'] { animation: none; }
   .cta:hover:not(:disabled) { transform: none; }
+  .orbSheen { animation: none !important; opacity: 0.3; }
 }

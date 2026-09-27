@@ -45,6 +45,10 @@ export default function StatusStrip({
     );
   }
 
+  // /hackathon/status's `uniswap` and `ensv2` flags describe unrelated optional
+  // config (the Trading API key, the policy-gate RPC), not whether the hook or
+  // the ENS names are live — showing them red sat right above the working hook.
+  // Only World ID is a real liveness signal here; Intercepta is not integrated.
   const providers = status?.providers || {};
   const entries = Object.entries(providers).filter(([key]) => SHOWN.has(key));
 

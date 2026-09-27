@@ -195,6 +195,9 @@ hackathonRoutes.post('/passport/swap', async (c) => {
 	if (!wallet) return c.json({ error: 'missing or invalid field: wallet (0x + 40 hex chars)' }, 400)
 	try {
 		const result = await startPassportSwap(wallet)
+		if (result.status === 'rejected') {
+			return c.json({ error: result.error }, 429)
+		}
 		return c.json(result, result.status === 'blocked' ? 200 : 202)
 	} catch (e) {
 		logger.warn('[hackathon] passport swap failed: %s', String(e))
