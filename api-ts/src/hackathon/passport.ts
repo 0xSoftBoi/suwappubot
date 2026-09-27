@@ -162,6 +162,18 @@ export async function startPassportGate(wallet: string): Promise<{ connectorURI:
 					(await store.lookup?.(PASSPORT_ACTION, res.nullifier).catch(() => null)) ??
 					findWalletByNullifier(res.nullifier)
 				if (!boundWallet) {
+					// A row consumed before subjects were recorded (pre-#1055)
+					// carries no wallet. World has just verified a fresh proof
+					// for this wallet, so bind the legacy row to it — once,
+					// atomically — and provision as a first-time passport.
+					const claimed = await store
+						.claimUnbound?.(PASSPORT_ACTION, res.nullifier, wallet.toLowerCase())
+						.catch(() => false)
+					if (claimed) {
+						logger.info('[passport] bound legacy nullifier to %s', wallet)
+						void runProvisioning(signal, wallet, res.nullifier)
+						return
+					}
 					setGate(signal, {
 						status: 'failed',
 						reason: 'this World ID already holds a passport but its wallet could not be recovered',
