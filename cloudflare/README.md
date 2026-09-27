@@ -85,7 +85,7 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 | `api.suwappu.bot` | ✅ live (python-api + api-ts) | bound |
 | `www.suwappu.bot` / `suwappu.bot` | ✅ live (showcase) | bound |
 | `terminal.suwappu.bot` | ✅ live (terminal) | bound; 502 fixed in PR #349 ($PORT) |
-| `app.suwappu.bot` | ✅ live (→ terminal) | bound; old Mini App source is gone so `app` mirrors terminal |
+| `app.suwappu.bot` | ✅ live (→ webapp) | bound; routed to the `webapp` Mini App service since d5c69b0f (2026-07-25) |
 | `devapi.suwappu.bot` | 🔶 dev python-api exposed at `python-api-dev-456d.up.railway.app`; Worker branch + route added — **needs `wrangler deploy` to bind the Custom Domain** | run `bunx wrangler login && bunx wrangler deploy` |
 
 Five hostnames (`api`, `www`, apex, `terminal`, `app`) are **live** and serving through the

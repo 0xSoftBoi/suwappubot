@@ -6,7 +6,7 @@ description: "Deploy Suwappu services on Railway. Usage: /deploy [prod|dev] [pyt
 
 **Suwappu runs entirely on Railway — there is NO AWS/ECS/EC2 anymore.** The old
 AWS-ECS Telegram Mini App was abandoned on 2026-06-08 (commit `e262711`); `app.suwappu.bot`
-now mirrors the **terminal** service. Ignore any older AWS/SSM/ECS instructions.
+now serves the `webapp` Railway service (edge router, commit `d5c69b0f`, 2026-07-25). Ignore any older AWS/SSM/ECS instructions.
 
 ## How deploys actually happen: auto on push to main
 
@@ -18,12 +18,13 @@ You usually do NOT need to run anything — merge the PR and Railway rebuilds.
 |---|---|---|---|
 | `python-api` (bot + FastAPI) | `railway.python-api.json` | `api/Dockerfile.railway` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
 | `python-worker` (background tasks) | `railway.python-worker.json` | `api/Dockerfile.railway` | `api/**`, `bot/**`, `database/**`, `requirements.txt` |
-| `terminal` (live Telegram Mini App — `app.suwappu.bot` + `terminal.suwappu.bot`) | `railway.terminal.json` | `terminal/Dockerfile` | `terminal/**`, `packages/design-tokens/**` |
+| `terminal` (trading UI — `terminal.suwappu.bot`) | `railway.terminal.json` | `terminal/Dockerfile` | `terminal/**`, `packages/design-tokens/**` |
+| `webapp` (Telegram Mini App — `app.suwappu.bot`) | `railway.webapp.json` | `webapp/Dockerfile` | `webapp/**`, `packages/design-tokens/**` |
 | `api-ts` | `api-ts/railway.json` | `api-ts/Dockerfile` | (root) |
 | `showcase` (`www.suwappu.bot`) | `showcase/railway.json` | `showcase/Dockerfile` | (root) |
 
 Other services in the project: `suwappu-bridge`, `suwappu-relayer`, `Postgres`, `Redis`.
-**`webapp/` is DEAD** — no Railway config, deployed nowhere. The live Mini App is `terminal/`.
+`app.suwappu.bot` (webapp) and `terminal.suwappu.bot` (terminal) are different apps with different builds — that is expected. Routing lives in `cloudflare/suwappu-router.worker.js`.
 
 Project: `suwappu` (id `428680a3-dd24-4f7c-8349-e66d791b5104`), workspace "Eric Manganaro's Projects",
 env `production`. python-api service id `fed701e4-8fd9-47ec-9e1d-56bcceea1d90`.
@@ -59,8 +60,8 @@ timeout 35 railway logs --service python-api 2>&1 | tail -120 | \
 # A NEW endpoint should return its real status (e.g. 401 for auth-gated), NOT 404 — proves the new build is live:
 curl -s -o /dev/null -w "%{http_code}\n" https://api.suwappu.bot/<new-endpoint>
 
-# terminal (Mini App): both hostnames serve the terminal build
-curl -s https://app.suwappu.bot/ | grep -oiE "<title>[^<]*</title>"       # expect "Suwappu Terminal"
+# terminal + webapp Mini App (separate services)
+curl -s -o /dev/null -w "%{http_code}\n" https://app.suwappu.bot/health
 curl -s -o /dev/null -w "%{http_code}\n" https://terminal.suwappu.bot/
 
 # api-ts / showcase
@@ -73,7 +74,8 @@ curl -s -o /dev/null -w "%{http_code}\n" https://www.suwappu.bot/
 | Service | URL |
 |---|---|
 | python-api | https://api.suwappu.bot/health · https://python-api-production-8526.up.railway.app |
-| terminal (Mini App) | https://app.suwappu.bot · https://terminal.suwappu.bot |
+| terminal | https://terminal.suwappu.bot |
+| webapp (Mini App) | https://app.suwappu.bot · https://webapp-production-897e.up.railway.app |
 | api-ts | https://api-ts-production.up.railway.app/health |
 | showcase | https://www.suwappu.bot |
 | suwappu-bridge | https://suwappu-bridge-production.up.railway.app |
