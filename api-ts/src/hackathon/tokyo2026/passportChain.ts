@@ -258,6 +258,42 @@ export async function readPassport(wallet: string): Promise<PassportReadResult> 
 	}
 }
 
+/**
+ * Idempotent: sets `addr(namehash(ensName))` on the minter-owned
+ * PassportResolver (ENS_RESOLVER_ADDRESS) to `wallet`, skipping the write if
+ * it already resolves there. Never throws — a setAddr failure is a
+ * nice-to-have identity-resolution miss, never a gate on the caller's flow.
+ * Returns the tx hash on a fresh write, or null if skipped/unconfigured/failed.
+ */
+export async function setPassportAddr(ensName: string, wallet: string): Promise<string | null> {
+	const env = hackathonEnv()
+	const resolverAddress = env.ENS_RESOLVER_ADDRESS
+	if (!resolverAddress || !isAddress(resolverAddress)) return null
+	try {
+		const node = namehash(ensName)
+		const client = publicClient()
+		const current = await client
+			.readContract({ address: resolverAddress as Hex, abi: RESOLVER_ABI, functionName: 'addr', args: [node] })
+			.catch(() => '0x0000000000000000000000000000000000000000' as Hex)
+		if (current.toLowerCase() === wallet.toLowerCase()) return null
+		const wc = walletClient()
+		const account = minterAccount()
+		const { request } = await client.simulateContract({
+			address: resolverAddress as Hex,
+			abi: RESOLVER_ABI,
+			functionName: 'setAddr',
+			args: [node, wallet as Hex],
+			account,
+		})
+		const txHash = await wc.writeContract(request)
+		await client.waitForTransactionReceipt({ hash: txHash })
+		return txHash
+	} catch (e) {
+		logger.warn('[hackathon] passport setAddr failed for %s (%s): %s', wallet, ensName, String(e))
+		return null
+	}
+}
+
 export interface ProvisionResult {
 	ens: { name: string; txHash: string | null; existing: boolean; addrTx: string | null }
 	hook: { allowlistTx: string | null; existing: boolean }
@@ -292,38 +328,11 @@ export async function provisionPassport(wallet: string): Promise<ProvisionResult
 		ensTxHash = res.txHash ?? null
 	}
 
-	let addrTx: string | null = null
 	const env = hackathonEnv()
 	const resolverAddress = env.ENS_RESOLVER_ADDRESS
 	const usesOwnedResolver =
 		!ensExisting || (before.resolver && before.resolver.toLowerCase() === resolverAddress?.toLowerCase())
-	if (usesOwnedResolver && resolverAddress && isAddress(resolverAddress)) {
-		try {
-			const node = namehash(ensName)
-			const client = publicClient()
-			const current = await client
-				.readContract({ address: resolverAddress as Hex, abi: RESOLVER_ABI, functionName: 'addr', args: [node] })
-				.catch(() => '0x0000000000000000000000000000000000000000' as Hex)
-			if (current.toLowerCase() !== wallet.toLowerCase()) {
-				const wc = walletClient()
-				const account = minterAccount()
-				const { request } = await client.simulateContract({
-					address: resolverAddress as Hex,
-					abi: RESOLVER_ABI,
-					functionName: 'setAddr',
-					args: [node, wallet as Hex],
-					account,
-				})
-				const txHash = await wc.writeContract(request)
-				await client.waitForTransactionReceipt({ hash: txHash })
-				addrTx = txHash
-			}
-		} catch (e) {
-			// setAddr is a nice-to-have identity-resolution fix, never a gate —
-			// mirrors the module's fail-open-on-non-critical-writes stance.
-			logger.warn('[hackathon] passport setAddr failed for %s (%s): %s', wallet, ensName, String(e))
-		}
-	}
+	const addrTx = usesOwnedResolver ? await setPassportAddr(ensName, wallet) : null
 
 	let allowlistTx: string | null = null
 	const hookExisting = before.hookAllowlisted

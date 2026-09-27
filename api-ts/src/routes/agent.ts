@@ -21,6 +21,7 @@ import { verifyTradeProof } from '../hackathon/tokyo2026/world-id/guardianGate'
 import { loadWorldIdConfig, isWorldIdConfigured } from '../hackathon/tokyo2026/world-id/config'
 import { PostgresNullifierStore } from '../hackathon/worldIdNullifiers'
 import { mintAgentSubname } from '../lib/ensSubname'
+import { setPassportAddr } from '../hackathon/tokyo2026/passportChain'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
 import { describeError } from '../lib/errors'
@@ -4579,6 +4580,26 @@ agentRoutes.post('/link/code', async (c) => {
 						walletAddress,
 					)
 					if (mintResult.minted) {
+						// Point the freshly minted name at the agent's wallet: mint alone
+						// only claims the name, it doesn't make it resolve. Never throws —
+						// setAddr failure is logged/audited but never fails link/code.
+						let addrTx: string | null = null
+						try {
+							addrTx = await setPassportAddr(mintResult.ensName ?? `${label}.suwappu-agents.eth`, walletAddress)
+							writeAuditLog({
+								userId: 0,
+								agentId: agentIdentifierOf(agent),
+								eventType: addrTx ? 'agent.ens_addr_set' : 'agent.ens_addr_skipped',
+								details: { ensName: mintResult.ensName, txHash: addrTx },
+							})
+						} catch (e) {
+							writeAuditLog({
+								userId: 0,
+								agentId: agentIdentifierOf(agent),
+								eventType: 'agent.ens_addr_failed',
+								details: { ensName: mintResult.ensName, reason: describeError(e) },
+							})
+						}
 						await runEffectEither(
 							Effect.gen(function* () {
 								const db = yield* requireDb
@@ -4591,6 +4612,7 @@ agentRoutes.post('/link/code', async (c) => {
 													ensName: {
 														name: mintResult.ensName,
 														txHash: mintResult.txHash,
+														addrTx,
 														mintedAt: new Date().toISOString(),
 													},
 												})}::jsonb`,
