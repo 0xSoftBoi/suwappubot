@@ -37,10 +37,17 @@ export function MarketCard({ market }: Props) {
         <span className="text-[10px] text-terminal-text-muted ml-auto">{market.chain}</span>
       </div>
 
+      {!market.listed && (
+        <div className="mb-2 rounded border border-terminal-warn/40 bg-terminal-warn/10 px-2 py-1 text-[10px] text-terminal-warn">
+          Unverified market
+          {market.warnings.length > 0 && ` · ${market.warnings.map(w => w.replace(/_/g, ' ')).join(', ')}`}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mb-2 text-xs">
         <div>
           <span className="text-terminal-text-muted">Supply APY</span>
-          <div className="font-mono tnum font-semibold text-bull">
+          <div className={`font-mono tnum font-semibold ${market.listed ? 'text-bull' : 'text-terminal-text-muted'}`}>
             {(market.supplyAPY * 100).toFixed(2)}%
           </div>
         </div>
