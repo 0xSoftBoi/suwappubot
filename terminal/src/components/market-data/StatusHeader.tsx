@@ -30,6 +30,17 @@ export function StatusHeader({ status, isLoading, error }: Props) {
   }
 
   if (error || !status) {
+    // A 401 is an auth state, not an outage. api.ts already words it for the
+    // case (signed out -> sign in; had a token -> session expired).
+    const authErr = error as { status?: number; detail?: string } | null
+    if (authErr?.status === 401) {
+      return (
+        <div className="flex items-center gap-2 text-xs text-terminal-text-muted">
+          <TerminalStatusPill tone="neutral">Sign in</TerminalStatusPill>
+          {authErr.detail || 'Sign in to view market-data coverage.'}
+        </div>
+      )
+    }
     return (
       <div className="flex items-center gap-2 text-xs text-terminal-text-muted">
         <TerminalStatusPill tone="down">Status unavailable</TerminalStatusPill>

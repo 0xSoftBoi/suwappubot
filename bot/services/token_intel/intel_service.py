@@ -16,12 +16,27 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from bot.config.chains import CHAINS
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
 
 DEXSCREENER_URL = "https://api.dexscreener.com/latest/dex/tokens/{address}"
+
+# Placeholder addresses used for a chain's native asset (not ERC-20 contracts).
+_NATIVE_SENTINELS = {
+    "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "0x0000000000000000000000000000000000000000",
+}
+
+
+def _native_asset(chain: str) -> Tuple[str, str]:
+    """(name, symbol) of a chain's native asset, from the chain registry."""
+    cfg = CHAINS.get(chain)
+    symbol = cfg.native_token if cfg else "ETH"
+    return ("Ether" if symbol == "ETH" else symbol, symbol)
+
 
 CACHE_TTL_SECONDS = 120
 
@@ -155,6 +170,15 @@ class TokenIntelService:
 
         report = TokenIntelReport(token_address=token_address, chain=chain)
 
+        # Native-asset sentinels aren't contracts: no deployer, holders or
+        # pairs of their own, and a DexScreener lookup returns other tokens'
+        # pairs. Report the native asset itself.
+        if chain != "solana" and token_address.lower() in _NATIVE_SENTINELS:
+            report.name, report.symbol = _native_asset(chain)
+            report.notes.append("native_asset")
+            await self._cache.set(cache_key, report)
+            return report
+
         await self._enrich_dexscreener(report)
 
         try:
@@ -202,10 +226,34 @@ class TokenIntelService:
             report.notes.append("dexscreener_no_pairs")
             return
 
-        pair = pairs[0]
-        base = pair.get("baseToken") or {}
-        report.name = report.name or base.get("name")
-        report.symbol = report.symbol or base.get("symbol")
+        # DexScreener returns every pair containing the address on EITHER side.
+        # Label from the side that matches the requested token: blindly using
+        # pairs[0].baseToken named native ETH (0xEeee…, quote of stETH/ETH)
+        # "stETH". Prefer a pair where the token is the base.
+        addr = report.token_address.lower()
+
+        def _side(p: dict) -> Optional[dict]:
+            for key in ("baseToken", "quoteToken"):
+                tok = p.get(key) or {}
+                if (tok.get("address") or "").lower() == addr:
+                    return tok
+            return None
+
+        matched = [p for p in pairs if _side(p)]
+        if not matched:
+            report.notes.append("dexscreener_no_matching_pair")
+            return
+        pair = next(
+            (
+                p
+                for p in matched
+                if ((p.get("baseToken") or {}).get("address") or "").lower() == addr
+            ),
+            matched[0],
+        )
+        token = _side(pair) or {}
+        report.name = report.name or token.get("name")
+        report.symbol = report.symbol or token.get("symbol")
         report.pair_created_at = pair.get("pairCreatedAt")
 
     def _derive_flags(self, report: TokenIntelReport) -> None:
