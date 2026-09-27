@@ -526,7 +526,11 @@ class Settings(BaseSettings):
     sei_rpc_url: str = Field(default="https://evm-rpc.sei-apis.com", description="Sei RPC")
     soneium_rpc_url: str = Field(default="https://rpc.soneium.org", description="Soneium RPC")
     swellchain_rpc_url: str = Field(
-        default="https://swell.drpc.org,https://rpc.ankr.com/swell", description="Swellchain RPC"
+        # rpc.ankr.com/swell answers 403 "API key is not allowed" since at least
+        # 2026-09-27 (issue #1062) and was being parked for 6h on every probe;
+        # 1923.rpc.thirdweb.com verified (eth_chainId → 0x783) as the fallback.
+        default="https://swell.drpc.org,https://1923.rpc.thirdweb.com",
+        description="Swellchain RPC",
     )
     abstract_rpc_url: str = Field(default="https://api.mainnet.abs.xyz", description="Abstract RPC")
     kaia_rpc_url: str = Field(default="https://public-en.node.kaia.io", description="Kaia RPC")
