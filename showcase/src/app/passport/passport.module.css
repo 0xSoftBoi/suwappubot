@@ -26,8 +26,8 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 28px;
-  padding-top: 12px;
+  gap: 16px;
+  padding-top: 8px;
 }
 
 .heroCopy { max-width: none; }
@@ -66,8 +66,9 @@
 .orbStage {
   position: relative;
   width: 100%;
-  max-width: clamp(180px, 24vh, 280px);
-  margin-bottom: clamp(4px, 1vh, 16px);
+  /* A flow page, not a splash: the orb must leave room for Beat 1 on screen. */
+  max-width: clamp(88px, 11vh, 160px);
+  margin-bottom: 0;
   aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
