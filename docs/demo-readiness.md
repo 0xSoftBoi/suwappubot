@@ -79,7 +79,9 @@ wallet `0x80bf42273b4ff7928720ea02f4243b61badb6482` → mint `0xbe928ebbf09c37ab
 all 0x1; `readPassport` → `ensResolvesToWallet: true`; independent `eth_call addr(namehash)` on PassportResolver
 `0x553E898DBee7e9490947c3CD58d086ffE7490F80` returns the wallet.
 **Demo-day identity rule**: each judge's World App is one identity; the FIRST wallet they scan for is their passport forever (under this action).
-Re-scans return `existing` with the bound wallet. The simulator identity is spent; a real phone is needed for a fresh live mint on stage.
+Re-scans return `existing` with the bound wallet (binding persisted in `world_id_nullifiers.subject` since PR #1055; earlier bindings
+predate the column and answer `failed: … wallet could not be recovered`, proven on prod 2026-09-27 00:4x UTC). The simulator identity is
+spent; a real phone is needed for a fresh live mint on stage.
 **Rollback**: set `HACKATHON_TRUST_LAYER=false` on api-ts (page degrades to "not enabled"), or redeploy api-ts `9c623226` / showcase previous green.
 **Relayer gas**: 0.0237 Sepolia ETH at 22:50 UTC ≈ 20 passports; top up before demo day.
 **Open question for the operator**: prod is `WORLD_ENV=staging` and the actions are registered on staging — real phones produce production
