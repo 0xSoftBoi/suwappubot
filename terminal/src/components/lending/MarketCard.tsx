@@ -53,7 +53,7 @@ export function MarketCard({ market }: Props) {
         </div>
         <div>
           <span className="text-terminal-text-muted">Borrow APY</span>
-          <div className="font-mono tnum font-semibold text-terminal-text">
+          <div className={`font-mono tnum font-semibold ${market.listed ? 'text-terminal-text' : 'text-terminal-text-muted'}`}>
             {(market.borrowAPY * 100).toFixed(2)}%
           </div>
         </div>

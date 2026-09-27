@@ -79,7 +79,7 @@ All three reaching the right backend = the ALB path-routing is restored, for $0.
 - If a railway URL ever changes, update the matching entry in `ORIGINS` and redeploy. Current:
   python-api `python-api-production-8526`, api-ts `api-ts-production`, showcase `showcase-production-6f89`.
 
-## Per-hostname status (June 2026)
+## Per-hostname status (updated Sep 2026)
 | Hostname | Status | Action |
 |----------|--------|--------|
 | `api.suwappu.bot` | ✅ live (python-api + api-ts) | bound |

@@ -188,7 +188,8 @@ export function toLendingMarket(m: ApiLendMarket): LendingMarket {
     totalSupplied: Number.isFinite(m.totalSupplyUsd) ? (m.totalSupplyUsd as number) : null,
     totalBorrowed: Number.isFinite(m.totalBorrowUsd) ? (m.totalBorrowUsd as number) : null,
     lltv: num(m.lltv),
-    listed: m.listed !== false,
+    // Fail closed: only an explicit listed=true counts as verified.
+    listed: m.listed === true,
     warnings: (m.warnings ?? [])
       .map((w) => (typeof w === 'string' ? w : w?.type ?? ''))
       .filter(Boolean),

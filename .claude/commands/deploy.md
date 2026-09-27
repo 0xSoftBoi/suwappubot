@@ -1,5 +1,5 @@
 ---
-description: "Deploy Suwappu services on Railway. Usage: /deploy [prod|dev] [python-api|python-worker|terminal|api-ts|showcase|all]"
+description: "Deploy Suwappu services on Railway. Usage: /deploy [prod|dev] [python-api|python-worker|terminal|webapp|api-ts|showcase|all]"
 ---
 
 # Suwappu Deployment Skill (Railway)
@@ -48,7 +48,7 @@ cd "$WT"
 railway link -p 428680a3-dd24-4f7c-8349-e66d791b5104 -e production -s <SERVICE>
 railway up --service <SERVICE> --detach     # uploads source, builds server-side
 ```
-`<SERVICE>` = `python-api` | `python-worker` | `terminal` | `api-ts` | `showcase`.
+`<SERVICE>` = `python-api` | `python-worker` | `terminal` | `webapp` | `api-ts` | `showcase`.
 
 ## Verify
 
@@ -61,7 +61,8 @@ timeout 35 railway logs --service python-api 2>&1 | tail -120 | \
 curl -s -o /dev/null -w "%{http_code}\n" https://api.suwappu.bot/<new-endpoint>
 
 # terminal + webapp Mini App (separate services)
-curl -s -o /dev/null -w "%{http_code}\n" https://app.suwappu.bot/health
+curl -s https://app.suwappu.bot/health        # expect "service":"suwappu-webapp" (not suwappu-terminal)
+curl -s https://terminal.suwappu.bot/health   # expect "service":"suwappu-terminal"
 curl -s -o /dev/null -w "%{http_code}\n" https://terminal.suwappu.bot/
 
 # api-ts / showcase
