@@ -85,6 +85,19 @@ const results = new Map<string, GateEntry>()
 const RESULT_TTL_MS = 10 * 60 * 1000
 const MAX_ENTRIES = 5_000
 
+/**
+ * Global cap on concurrently-running background pollers (each one holds a
+ * live IDKit request open for up to 5 min, polling World's bridge every 2s).
+ * Above this, /start refuses new work rather than piling up thousands of
+ * detached pollers hammering World's bridge from the shared api-ts egress IP.
+ */
+const MAX_IN_FLIGHT_POLLERS = 50
+let inFlightPollers = 0
+
+/** AbortController per signal, so pruneResults() eviction can cancel the
+ * matching background poller instead of leaving it running to no purpose. */
+const abortControllers = new Map<string, AbortController>()
+
 function pruneResults(): void {
 	if (results.size <= MAX_ENTRIES) return
 	const now = Date.now()
@@ -113,21 +126,43 @@ export function worldIdReady(env: Env = hackathonEnv()): boolean {
  * blocks this call or the eventual /verify poll past Cloudflare's ~100s
  * proxy timeout. The result lands in `results` keyed by signal once settled.
  */
+export class WorldIdBusyError extends Error {
+	constructor() {
+		super('verification busy, try again shortly')
+	}
+}
+
 export async function startWorldIdGate(
 	intent: TradeIntent,
 	stepUp = false,
 ): Promise<{ connectorURI: string; signal: string }> {
+	if (inFlightPollers >= MAX_IN_FLIGHT_POLLERS) {
+		throw new WorldIdBusyError()
+	}
+	pruneResults()
+
 	const cfg = loadWorldIdConfig()
 	const action = stepUp ? cfg.stepUpAction : cfg.action
 	const p = await startTradeVerification(cfg, intent, action)
 
-	pruneResults()
 	results.set(p.signal, { result: { status: 'pending' }, expiresAt: Date.now() + RESULT_TTL_MS })
+	const controller = new AbortController()
+	abortControllers.set(p.signal, controller)
+	inFlightPollers++
 
 	void (async () => {
 		try {
 			const store = await nullifierStore()
-			const res = await awaitAndVerifyTradeApproval(cfg, p, store, action)
+			const res = await awaitAndVerifyTradeApproval(
+				cfg,
+				p,
+				store,
+				action,
+				undefined,
+				controller.signal,
+			)
+			// Eviction/expiry already cleared this entry — don't resurrect it.
+			if (!results.has(p.signal) && controller.signal.aborted) return
 			const result: GateResult = res.ok
 				? { status: 'verified', ok: true, nullifier: res.nullifier ?? '' }
 				: res.reason === REPLAY_REJECTED_REASON
@@ -135,11 +170,15 @@ export async function startWorldIdGate(
 					: { status: 'failed', ok: false, reason: res.reason ?? 'verification failed' }
 			results.set(p.signal, { result, expiresAt: Date.now() + RESULT_TTL_MS })
 		} catch (e) {
+			if (controller.signal.aborted) return
 			logger.warn('[world-id] background verification failed for signal %s: %s', p.signal, String(e))
 			results.set(p.signal, {
 				result: { status: 'failed', ok: false, reason: 'verification error' },
 				expiresAt: Date.now() + RESULT_TTL_MS,
 			})
+		} finally {
+			inFlightPollers--
+			abortControllers.delete(p.signal)
 		}
 	})()
 

@@ -15,6 +15,7 @@ import {
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
+import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -171,6 +172,21 @@ export function createApp(config: AppConfig) {
 	// public API. The spec generator only derives from src/routes/validators.ts,
 	// so exclusion holds by construction — do not add hackathon schemas there.
 	if (config.hackathonTrustLayer) {
+		// Demo-only surface, but it shares the process with money routes —
+		// same defense pattern as /mcp: a loose floor on the whole router plus
+		// a tight budget on the one endpoint that spawns background work.
+		app.use('/hackathon/*', bodyLimit({ maxSize: 4 * 1024 }))
+		// Per-IP limits here are a coarse floor, NOT the gas guard: judges at the
+		// venue share one NAT'd IP, and without CF_PROVENANCE_SECRET the key is
+		// a proxy hop, so tight per-IP caps would lock out the whole room. The
+		// page also polls (/status every 20s, /passport/verify and swap jobs
+		// every 2s), so the floor must clear a normal session comfortably.
+		// Relayer gas is protected by relayerGuard (per-wallet cooldown + global
+		// in-flight cap) and World ID itself (one passport per human).
+		app.use('/hackathon/*', ipRateLimit(240))
+		app.use('/hackathon/world-id/start', ipRateLimit(30))
+		app.use('/hackathon/passport/start', ipRateLimit(30))
+		app.use('/hackathon/passport/swap', ipRateLimit(30))
 		app.route('/hackathon', hackathonRoutes)
 	}
 
