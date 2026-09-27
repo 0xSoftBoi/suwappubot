@@ -88,7 +88,8 @@ Zero console/network errors on suwappu.bot; no horizontal overflow on mobile. St
 World ID actions `suwappu-passport`, `suwappu-agent-link`, `agent-swap-passport-verify` are now registered in BOTH staging and production.
 Agent-claim path (`/v1/agent/link/code`) also sets the ENS address record now (PR #1059).
 **Rollback**: set `HACKATHON_TRUST_LAYER=false` on api-ts (page degrades to "not enabled"), or redeploy api-ts `9c623226` / showcase previous green.
-**Relayer gas**: 0.0237 Sepolia ETH at 22:50 UTC ≈ 20 passports; top up before demo day.
+**Relayer gas**: a full passport (mint + addr + allowlist + swap) measured at ~0.0004 ETH on 2026-09-27 (wallet `0xe28c…0af1`, txs
+`0x16db5da7…`, `0x4001005a…`, `0xaaa091bb…`, `0x76753bcf…`, all 0x1). Balance 0.0234 ETH ≈ 50 passports; no top-up required.
 **Open question for the operator**: prod is `WORLD_ENV=staging` and the actions are registered on staging — real phones produce production
 proofs. If judges scan with their own World App, register `suwappu-passport` in production, set `WORLD_ENV=production`, and re-prove with a phone.
 
