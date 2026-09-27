@@ -401,8 +401,15 @@ async function simulateSwap(
 		// error message doesn't decode that inner layer (it's opaque bytes to
 		// the ABI), so match on the selector rather than the error name.
 		if (message.includes('SwapperNotVerified') || message.includes('0x87042740')) {
+			// Human sentence for the UI; the raw viem message is a wall of hex
+			// (WrappedError(...) tuples) that judges should not have to read.
+			const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 			return {
-				blocked: { status: 'blocked', reason: 'SwapperNotVerified', detail: message.slice(0, 300) },
+				blocked: {
+					status: 'blocked',
+					reason: 'SwapperNotVerified',
+					detail: `The WorldIdGateHook (${short(HOOK_ADDRESS)}) rejected swapper ${short(wallet)}: no World ID passport on file. Rejected during simulation — no transaction was sent and no gas was spent.`,
+				},
 				request: null,
 			}
 		}
