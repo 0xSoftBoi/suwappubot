@@ -178,6 +178,12 @@ export function createApp(config: AppConfig) {
 		app.use('/hackathon/*', bodyLimit({ maxSize: 4 * 1024 }))
 		app.use('/hackathon/*', ipRateLimit(30))
 		app.use('/hackathon/world-id/start', ipRateLimit(5))
+		// Passport routes: same floor as the rest of /hackathon/*, plus a tighter
+		// per-IP budget on the two endpoints that can lead to a real relayer tx
+		// (ENS mint via /verify's background provisioning, and /swap's send) —
+		// the relayer's fixed Sepolia gas only covers ~20 passports total.
+		app.use('/hackathon/passport/verify', ipRateLimit(3))
+		app.use('/hackathon/passport/swap', ipRateLimit(3))
 		app.route('/hackathon', hackathonRoutes)
 	}
 

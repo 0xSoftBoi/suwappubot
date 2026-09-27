@@ -32,6 +32,7 @@ import {
 	type ProvisionResult,
 } from './tokyo2026/passportChain'
 import { logger } from '../lib/logger'
+import { reserveRelayerSlot } from './relayerGuard'
 
 export const PASSPORT_ACTION = 'suwappu-passport'
 
@@ -100,6 +101,14 @@ async function nullifierStore(): Promise<NullifierStore> {
 
 async function runProvisioning(signal: string, wallet: string, nullifier: string): Promise<void> {
 	setGate(signal, { status: 'provisioning', wallet, nullifier })
+	// Provisioning mints an ENS name + allowlists the hook — a real relayer tx.
+	// Reserve a slot before dispatching so a burst/loop can't drain the gas budget.
+	const reserved = reserveRelayerSlot(wallet)
+	if (!reserved.ok) {
+		logger.warn('[passport] provisioning refused for %s: %s', wallet, reserved.error)
+		setGate(signal, { status: 'failed', reason: reserved.error })
+		return
+	}
 	try {
 		const provisioned = await provisionPassport(wallet)
 		nullifierToWallet.set(normalizeNullifier(nullifier), wallet)
@@ -107,6 +116,8 @@ async function runProvisioning(signal: string, wallet: string, nullifier: string
 	} catch (e) {
 		logger.warn('[passport] provisioning failed for %s: %s', wallet, String(e))
 		setGate(signal, { status: 'failed', reason: e instanceof Error ? e.message : String(e) })
+	} finally {
+		reserved.reservation.release()
 	}
 }
 
@@ -183,6 +194,7 @@ function setSwapJob(jobId: string, job: SwapJob): void {
 export type SwapStart =
 	| { status: 'blocked'; reason: 'SwapperNotVerified'; detail: string }
 	| { status: 'submitted'; jobId: string }
+	| { status: 'rejected'; error: string }
 
 /**
  * Simulates synchronously (free, ~1 Sepolia RPC round trip) so a blocked
@@ -194,6 +206,13 @@ export async function startPassportSwap(wallet: string): Promise<SwapStart> {
 	const sim = await simulateSwapThroughHook(wallet)
 	if ('status' in sim && sim.status === 'blocked') {
 		return sim
+	}
+
+	// The send is a real relayer tx — reserve a slot before dispatching so a
+	// burst/loop of swap requests can't drain the fixed gas budget.
+	const reserved = reserveRelayerSlot(wallet)
+	if (!reserved.ok) {
+		return { status: 'rejected', error: reserved.error }
 	}
 
 	const jobId = randomUUID()
@@ -215,6 +234,8 @@ export async function startPassportSwap(wallet: string): Promise<SwapStart> {
 		} catch (e) {
 			logger.warn('[passport] swap job %s failed: %s', jobId, String(e))
 			setSwapJob(jobId, { status: 'failed', reason: e instanceof Error ? e.message : String(e) })
+		} finally {
+			reserved.reservation.release()
 		}
 	})()
 	return { status: 'submitted', jobId }

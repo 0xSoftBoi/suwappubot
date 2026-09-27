@@ -139,9 +139,7 @@ export async function startWorldIdGate(
 	if (inFlightPollers >= MAX_IN_FLIGHT_POLLERS) {
 		throw new WorldIdBusyError()
 	}
-	if (!pruneResults()) {
-		throw new WorldIdBusyError()
-	}
+	pruneResults()
 
 	const cfg = loadWorldIdConfig()
 	const action = stepUp ? cfg.stepUpAction : cfg.action

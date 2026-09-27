@@ -125,7 +125,7 @@ export interface PendingProof {
 	connectorURI: string
 	signal: string
 	startedAt: Date
-	_poll: () => Promise<unknown>
+	_poll: (signal?: AbortSignal) => Promise<unknown>
 }
 
 export function buildRequest(cfg: WorldIdConfig, signal: string, action: string) {
