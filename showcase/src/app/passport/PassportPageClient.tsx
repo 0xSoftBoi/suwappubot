@@ -33,6 +33,7 @@ export default function PassportPageClient() {
     beginVerification,
     cancelVerification,
     passportRecord,
+    walletSwitchedFrom,
     evidence,
     evidenceError,
   } = usePassportFlow();
@@ -163,7 +164,16 @@ export default function PassportPageClient() {
                   (verified.status === 'ready' || verified.status === 'existing') && (
                     <div className={styles.banner} data-tone="success">
                       {verifyPhase === 'existing' && (
-                        <span className={styles.bannerTitle}>This human already holds a passport.</span>
+                        <span className={styles.bannerTitle}>Welcome back — you already hold a passport.</span>
+                      )}
+                      {verifyPhase === 'existing' && walletSwitchedFrom && (
+                        <span>
+                          One human, one passport: yours is bound to{' '}
+                          <code>{walletSwitchedFrom === wallet ? wallet : `${wallet.slice(0, 6)}…${wallet.slice(-4)}`}</code>,
+                          so the agent now uses that wallet. The fresh wallet{' '}
+                          <code>{`${walletSwitchedFrom.slice(0, 6)}…${walletSwitchedFrom.slice(-4)}`}</code> stays
+                          blocked.
+                        </span>
                       )}
                       <span>
                         ENS name:{' '}
@@ -235,7 +245,7 @@ export default function PassportPageClient() {
 
                   <SwapOutcome view={swaps.post} wallet={wallet} beat="post" />
 
-                  {swaps.pre.phase === 'blocked' && swaps.post.phase === 'executed' && (
+                  {swaps.pre.phase === 'blocked' && swaps.post.phase === 'executed' && !walletSwitchedFrom && (
                     <p className={styles.hint} style={{ margin: 0 }}>
                       Same wallet, same pool, same hook. Beat 1 was refused; this one went through
                       because a verified human now stands behind the wallet.

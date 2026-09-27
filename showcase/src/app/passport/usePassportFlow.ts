@@ -62,6 +62,9 @@ export function usePassportFlow() {
   const [verified, setVerified] = useState<PassportVerifyResponse | null>(null);
 
   const [passportRecord, setPassportRecord] = useState<PassportRecord | null>(null);
+  // Set when a returning human's passport lived on another wallet and the
+  // agent was moved onto it (see the 'existing' branch of verify polling).
+  const [walletSwitchedFrom, setWalletSwitchedFrom] = useState<string | null>(null);
 
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
@@ -108,6 +111,7 @@ export function usePassportFlow() {
     setStart(null);
     setVerified(null);
     setPassportRecord(null);
+    setWalletSwitchedFrom(null);
   }, []);
 
   const stopSwapPolling = useCallback(() => {
@@ -214,8 +218,18 @@ export function usePassportFlow() {
             return;
           }
           if (v.status === 'existing') {
+            // One human, one passport: a returning human's passport lives on
+            // the wallet it was first bound to. Swapping with the fresh wallet
+            // would just be blocked again, so move the agent onto the
+            // passport's wallet (and say so) — Beat 3 then works for them.
+            const bound = v.wallet;
+            if (bound && bound.toLowerCase() !== wallet.toLowerCase()) {
+              setWalletSwitchedFrom(wallet);
+              setWallet(bound);
+              setSwaps((s) => ({ ...s, post: EMPTY_SWAP }));
+            }
             setVerifyPhase('existing');
-            getPassport(wallet).then(setPassportRecord).catch(() => {});
+            getPassport(bound || wallet).then(setPassportRecord).catch(() => {});
             return;
           }
           if (v.status === 'failed') {
@@ -265,6 +279,7 @@ export function usePassportFlow() {
     beginVerification,
     cancelVerification,
     passportRecord,
+    walletSwitchedFrom,
     evidence,
     evidenceError,
   };
