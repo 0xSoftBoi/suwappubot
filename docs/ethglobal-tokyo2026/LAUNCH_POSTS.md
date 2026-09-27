@@ -6,30 +6,32 @@ grep-verified file:line — see `docs/ethglobal-tokyo2026/SUBMISSION.md` for sou
 ## X / Twitter (3 drafts, ≤280 chars)
 
 **Draft 1 — the identity story**
-> An AI trading agent is usually just a wallet address. We gave ours a real identity: World ID
-> proves the human behind it, ENSv2 gives it a name, and a Uniswap v4 hook only lets it swap once
-> that's checked. One verification, three sponsors, real Sepolia txs. Built for @ETHGlobal Tokyo.
+> An AI trading agent is usually just a wallet address. We made ours prove it: try to swap unverified
+> and a Uniswap v4 hook reverts, zero gas. Scan World ID, the server mints an ENSv2 name and flips
+> the hook. Swap again — it executes. Same wallet, blocked then unblocked, on Sepolia. @ETHGlobal Tokyo
 
 **Draft 2 — the technical hook**
 > Shipped a beforeSwap hook on Uniswap v4 that reverts unless the swapper has a verified World ID
-> on file. Not a compliance mockup — deployed on Sepolia, one real swap through it, tx on-chain.
-> Part of our Agent Swap Passport for ETHGlobal Tokyo. suwappu.bot/passport
+> on file. Watched one wallet get blocked, verified, and swap through the same hook — three real
+> Sepolia txs, one run. Part of our Agent Swap Passport for ETHGlobal Tokyo. suwappu.bot/passport
 
 **Draft 3 — the ENS angle**
-> Every verified agent in our ETHGlobal Tokyo build gets a real ENSv2 subname —
-> agent-id.suwappu-agents.eth — minted on-chain via PermissionedRegistry, not a display string.
-> Resolve it yourself on Sepolia. suwappu.bot/passport
+> Every verified wallet in our ETHGlobal Tokyo build gets a real ENSv2 subname —
+> 0x62cd26f0.suwappu-agents.eth — minted on-chain via PermissionedRegistry and resolving to the
+> wallet (we had to ship our own resolver to make that true). Check it yourself on Sepolia.
+> suwappu.bot/passport
 
 ## Farcaster (1 post)
 
-> Gave an AI trading agent a real identity for ETHGlobal Tokyo: World ID proves the human, ENSv2
-> mints the agent a name on Sepolia, and a Uniswap v4 hook gates its swaps on that verification.
-> One proof, reused across three sponsor integrations, all with real on-chain receipts.
-> suwappu.bot/passport
+> Gave an AI trading agent's wallet a real identity for ETHGlobal Tokyo: unverified, a Uniswap v4
+> hook reverts its swap at zero gas. Scan World ID, the server mints an ENSv2 subname and allowlists
+> the wallet on the hook. Swap again — it executes. One human, one passport, three real Sepolia
+> transactions in one run. suwappu.bot/passport
 
 ## ETHGlobal showcase form description (2 sentences)
 
-Agent Swap Passport binds a human's World ID verification to an AI trading agent's wallet, mints
-the agent a real ENSv2 subname on Sepolia, and enforces that same verification on-chain via a
-Uniswap v4 `beforeSwap` hook that reverts unverified swaps. Every step is a live Sepolia
-transaction — not a mock — with exact contract/file pointers documented for judges.
+Agent Swap Passport gates a wallet's swaps behind a Uniswap v4 `beforeSwap` hook that reverts
+unverified swappers; scanning World ID mints the wallet a real ENSv2 subname on Sepolia and
+allowlists it on the hook, so the same wallet that was blocked can now swap through the same pool.
+Every step — the block, the mint, the allowlist, the executed swap — is a live Sepolia transaction
+from one recorded run, not a mock, with exact contract/file pointers documented for judges.

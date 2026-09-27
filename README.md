@@ -61,12 +61,12 @@
 
 **Live demo → [suwappu.bot/passport](https://suwappu.bot/passport)**
 
-One agent identity, reused across three sponsor integrations. A human proves personhood with
-**World ID**, that binds to the agent's wallet, the agent gets an **ENSv2** subname under
-`suwappu-agents.eth` on Sepolia, and its swaps route through a **World-ID-gated Uniswap v4
-`beforeSwap` hook**
-([`0xc72ab4dF…c080`](https://sepolia.etherscan.io/address/0xc72ab4dFd3d6B2C1b3af51816EA8331599e6c080)).
-Every claim is backed by a real Sepolia transaction, not a mock — see
+One wallet, checked live: try to swap unverified and a **Uniswap v4 `beforeSwap` hook**
+([`0xc72ab4dF…c080`](https://sepolia.etherscan.io/address/0xc72ab4dFd3d6B2C1b3af51816EA8331599e6c080))
+reverts at zero gas. Scan **World ID** and the server mints the wallet a real **ENSv2** subname under
+`suwappu-agents.eth` on Sepolia and allowlists it on the same hook. Swap again — it executes through
+the same pool. One verification, three sponsor integrations, all proven in one recorded per-wallet
+run. Every claim is backed by a real Sepolia transaction, not a mock — see
 [`docs/ethglobal-tokyo2026/SUBMISSION.md`](docs/ethglobal-tokyo2026/SUBMISSION.md) for exact
 `file:line` pointers, tx hashes, and a 2-minute self-verification path per sponsor track
 (World ID/IDKit, ENSv2, Uniswap v4). Intercepta was explored but is explicitly out of scope for
