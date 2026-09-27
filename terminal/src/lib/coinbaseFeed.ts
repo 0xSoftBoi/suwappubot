@@ -20,7 +20,12 @@
  * exponential backoff; rebuilds the book from the next `snapshot` on reconnect.
  */
 
-import { FEED_STALE_MS, FEED_WATCHDOG_MS, onFeedResume } from './feedLiveness'
+import {
+  FEED_STALE_MS,
+  FEED_WATCHDOG_MS,
+  onFeedResume,
+  shouldReconnectOnResume,
+} from './feedLiveness'
 
 export interface BookLevel {
   price: number
@@ -114,9 +119,7 @@ class ProductFeed {
       }
     }, FEED_WATCHDOG_MS)
     this.offResume = onFeedResume(() => {
-      if (this.status !== 'live' || Date.now() - this.lastMessageAt > FEED_WATCHDOG_MS) {
-        this.reconnectNow()
-      }
+      if (shouldReconnectOnResume(this.ws, this.lastMessageAt)) this.reconnectNow()
     })
   }
 
@@ -130,6 +133,7 @@ class ProductFeed {
     this.bids.clear()
     this.asks.clear()
     this.connect()
+    this.emitNow()
   }
 
   subscribe(fn: Listener): () => void {

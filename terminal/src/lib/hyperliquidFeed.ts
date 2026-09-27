@@ -13,7 +13,12 @@
  * One socket per coin, reference-counted across hooks; capped backoff reconnect.
  */
 
-import { FEED_STALE_MS, FEED_WATCHDOG_MS, onFeedResume } from './feedLiveness'
+import {
+  FEED_STALE_MS,
+  FEED_WATCHDOG_MS,
+  onFeedResume,
+  shouldReconnectOnResume,
+} from './feedLiveness'
 
 export interface HlTrade {
   id: string
@@ -98,9 +103,7 @@ class CoinFeed {
       }
     }, FEED_WATCHDOG_MS)
     this.offResume = onFeedResume(() => {
-      if (this.status !== 'live' || Date.now() - this.lastMessageAt > FEED_WATCHDOG_MS) {
-        this.reconnectNow()
-      }
+      if (shouldReconnectOnResume(this.ws, this.lastMessageAt)) this.reconnectNow()
     })
   }
 
@@ -112,6 +115,7 @@ class CoinFeed {
     this.reconnectAttempts = 0
     this.teardownSocket()
     this.connect()
+    this.emit()
   }
 
   subscribe(fn: Listener): () => void {

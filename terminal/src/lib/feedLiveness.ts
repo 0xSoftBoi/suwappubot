@@ -21,15 +21,42 @@ export const FEED_WATCHDOG_MS = 5_000
  */
 export function onFeedResume(cb: () => void): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {}
+  // One resume (e.g. a BFCache restore) can fire visibilitychange, online and
+  // pageshow together; coalesce them into a single callback.
+  let pending: ReturnType<typeof setTimeout> | null = null
+  const fire = () => {
+    if (pending) return
+    pending = setTimeout(() => {
+      pending = null
+      cb()
+    }, 250)
+  }
   const onVisible = () => {
-    if (document.visibilityState === 'visible') cb()
+    if (document.visibilityState === 'visible') fire()
+  }
+  // pageshow also fires on the initial load; only a BFCache restore matters.
+  const onPageShow = (e: PageTransitionEvent) => {
+    if (e.persisted) fire()
   }
   document.addEventListener('visibilitychange', onVisible)
-  window.addEventListener('online', cb)
-  window.addEventListener('pageshow', cb)
+  window.addEventListener('online', fire)
+  window.addEventListener('pageshow', onPageShow)
   return () => {
+    if (pending) clearTimeout(pending)
     document.removeEventListener('visibilitychange', onVisible)
-    window.removeEventListener('online', cb)
-    window.removeEventListener('pageshow', cb)
+    window.removeEventListener('online', fire)
+    window.removeEventListener('pageshow', onPageShow)
   }
+}
+
+/**
+ * Whether a resume should force a reconnect: yes if there's no socket (dead or
+ * waiting out backoff) or an open socket has gone quiet; no if a connect is
+ * already in flight or the socket is still delivering.
+ */
+export function shouldReconnectOnResume(ws: WebSocket | null, lastMessageAt: number): boolean {
+  if (!ws) return true
+  if (ws.readyState === WebSocket.CONNECTING) return false
+  if (ws.readyState !== WebSocket.OPEN) return true
+  return Date.now() - lastMessageAt > FEED_WATCHDOG_MS
 }
