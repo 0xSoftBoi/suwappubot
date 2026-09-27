@@ -852,16 +852,38 @@ export interface CreateLimitOrderParams {
 
 // === Lending ===
 
+/** UI shape for a lending market. APYs and utilization are fractions (0.05 = 5%). */
 export interface LendingMarket {
   id: string
   asset: string
+  /** Collateral token for isolated (Morpho-style) markets. */
+  collateral?: string
   chain: string
   supplyAPY: number
   borrowAPY: number
   utilization: number
-  totalSupplied: number
-  totalBorrowed: number
+  /** USD; null when upstream pricing is unavailable (render as unavailable, not $0). */
+  totalSupplied: number | null
+  totalBorrowed: number | null
   lltv: number
+}
+
+/**
+ * Wire shape of GET /v1/agent/lend/markets (list) and GET /v1/agent/lend/market/:id
+ * (detail), api-ts since f81a05f2.
+ * APYs and utilization are PERCENT (4.35 = 4.35%), not fractions.
+ */
+export interface ApiLendMarket {
+  id: string
+  loanToken?: string | null
+  collateralToken?: string | null
+  lltv?: number | null
+  supplyApy?: number | null
+  borrowApy?: number | null
+  totalSupplyUsd?: number | null
+  totalBorrowUsd?: number | null
+  utilization?: number | null
+  chainId?: number | null
 }
 
 // === Wallet Tracker ===
