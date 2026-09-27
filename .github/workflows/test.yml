@@ -334,7 +334,7 @@ jobs:
       - name: Schema drift check (Drizzle migrations + Python runtime migration vs Drizzle schema)
         env:
           SCHEMA_DRIFT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/suwappu_drift?sslmode=disable
-        run: python3 scripts/schema_drift_check.py
+        run: python3 scripts/schema_drift_check.py --strict
 
   # ---------------------------------------------------------------------------
   # Builder docs — generated artifacts + executable-source contracts
