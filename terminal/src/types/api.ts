@@ -866,6 +866,10 @@ export interface LendingMarket {
   totalSupplied: number | null
   totalBorrowed: number | null
   lltv: number
+  /** False for markets the API flags as not whitelisted / unsafe. */
+  listed: boolean
+  /** API risk flags, e.g. bad_debt_unrealized, not_whitelisted. */
+  warnings: string[]
 }
 
 /**
@@ -884,6 +888,8 @@ export interface ApiLendMarket {
   totalBorrowUsd?: number | null
   utilization?: number | null
   chainId?: number | null
+  listed?: boolean | null
+  warnings?: Array<string | { type?: string }> | null
 }
 
 // === Wallet Tracker ===
