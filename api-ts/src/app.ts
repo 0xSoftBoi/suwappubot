@@ -176,14 +176,17 @@ export function createApp(config: AppConfig) {
 		// same defense pattern as /mcp: a loose floor on the whole router plus
 		// a tight budget on the one endpoint that spawns background work.
 		app.use('/hackathon/*', bodyLimit({ maxSize: 4 * 1024 }))
-		app.use('/hackathon/*', ipRateLimit(30))
-		app.use('/hackathon/world-id/start', ipRateLimit(5))
-		// Passport routes: same floor as the rest of /hackathon/*, plus a tighter
-		// per-IP budget on the two endpoints that can lead to a real relayer tx
-		// (ENS mint via /verify's background provisioning, and /swap's send) —
-		// the relayer's fixed Sepolia gas only covers ~20 passports total.
-		app.use('/hackathon/passport/verify', ipRateLimit(3))
-		app.use('/hackathon/passport/swap', ipRateLimit(3))
+		// Per-IP limits here are a coarse floor, NOT the gas guard: judges at the
+		// venue share one NAT'd IP, and without CF_PROVENANCE_SECRET the key is
+		// a proxy hop, so tight per-IP caps would lock out the whole room. The
+		// page also polls (/status every 20s, /passport/verify and swap jobs
+		// every 2s), so the floor must clear a normal session comfortably.
+		// Relayer gas is protected by relayerGuard (per-wallet cooldown + global
+		// in-flight cap) and World ID itself (one passport per human).
+		app.use('/hackathon/*', ipRateLimit(240))
+		app.use('/hackathon/world-id/start', ipRateLimit(30))
+		app.use('/hackathon/passport/start', ipRateLimit(30))
+		app.use('/hackathon/passport/swap', ipRateLimit(30))
 		app.route('/hackathon', hackathonRoutes)
 	}
 

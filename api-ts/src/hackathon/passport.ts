@@ -103,7 +103,7 @@ async function runProvisioning(signal: string, wallet: string, nullifier: string
 	setGate(signal, { status: 'provisioning', wallet, nullifier })
 	// Provisioning mints an ENS name + allowlists the hook — a real relayer tx.
 	// Reserve a slot before dispatching so a burst/loop can't drain the gas budget.
-	const reserved = reserveRelayerSlot(wallet)
+	const reserved = reserveRelayerSlot(wallet, 'provision')
 	if (!reserved.ok) {
 		logger.warn('[passport] provisioning refused for %s: %s', wallet, reserved.error)
 		setGate(signal, { status: 'failed', reason: reserved.error })
@@ -210,7 +210,7 @@ export async function startPassportSwap(wallet: string): Promise<SwapStart> {
 
 	// The send is a real relayer tx — reserve a slot before dispatching so a
 	// burst/loop of swap requests can't drain the fixed gas budget.
-	const reserved = reserveRelayerSlot(wallet)
+	const reserved = reserveRelayerSlot(wallet, 'swap')
 	if (!reserved.ok) {
 		return { status: 'rejected', error: reserved.error }
 	}
