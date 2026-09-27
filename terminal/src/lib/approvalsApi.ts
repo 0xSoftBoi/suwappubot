@@ -64,6 +64,7 @@ async function agentRequest<T>(path: string, options: RequestInit = {}): Promise
       : res.status >= 500 ? 'Server hiccup — please retry in a few seconds.'
       : null
     const detail =
+      (res.status === 401 && friendly) ||
       (body as { error?: string; detail?: string; message?: string }).error ||
       (body as { detail?: string }).detail ||
       (body as { message?: string }).message ||

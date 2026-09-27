@@ -155,7 +155,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const retryAfterHeader = res.headers.get('Retry-After')
     const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined
     throw {
-      detail: body.detail || body.message || friendly || res.statusText,
+      // For 401 our copy (sign in vs. session expired) beats the API's generic
+      // "Not authenticated".
+      detail: (res.status === 401 && friendly) || body.detail || body.message || friendly || res.statusText,
       status: res.status,
       ...(Number.isFinite(retryAfter) ? { retryAfter } : {}),
     }

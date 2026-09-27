@@ -30,13 +30,14 @@ export function StatusHeader({ status, isLoading, error }: Props) {
   }
 
   if (error || !status) {
-    // A 401 is "not signed in", not an outage — don't tell a signed-out
-    // visitor the endpoint is unreachable.
-    if ((error as { status?: number } | null)?.status === 401) {
+    // A 401 is an auth state, not an outage. api.ts already words it for the
+    // case (signed out -> sign in; had a token -> session expired).
+    const authErr = error as { status?: number; detail?: string } | null
+    if (authErr?.status === 401) {
       return (
         <div className="flex items-center gap-2 text-xs text-terminal-text-muted">
           <TerminalStatusPill tone="neutral">Sign in</TerminalStatusPill>
-          Connect a wallet, Google or passkey to view market-data coverage.
+          {authErr.detail || 'Sign in to view market-data coverage.'}
         </div>
       )
     }

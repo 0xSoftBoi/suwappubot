@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from bot.config.chains import CHAINS
 from bot.utils.http_client import get_session
 from bot.utils.rate_limiter import api_limiter
 
@@ -28,11 +29,14 @@ _NATIVE_SENTINELS = {
     "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "0x0000000000000000000000000000000000000000",
 }
-_NATIVE_ASSETS: Dict[str, Tuple[str, str]] = {
-    "bsc": ("BNB", "BNB"),
-    "polygon": ("POL", "POL"),
-    "avalanche": ("Avalanche", "AVAX"),
-}  # every other EVM chain we support settles in ETH
+
+
+def _native_asset(chain: str) -> Tuple[str, str]:
+    """(name, symbol) of a chain's native asset, from the chain registry."""
+    cfg = CHAINS.get(chain)
+    symbol = cfg.native_token if cfg else "ETH"
+    return ("Ether" if symbol == "ETH" else symbol, symbol)
+
 
 CACHE_TTL_SECONDS = 120
 
@@ -170,7 +174,7 @@ class TokenIntelService:
         # pairs of their own, and a DexScreener lookup returns other tokens'
         # pairs. Report the native asset itself.
         if chain != "solana" and token_address.lower() in _NATIVE_SENTINELS:
-            report.name, report.symbol = _NATIVE_ASSETS.get(chain, ("Ether", "ETH"))
+            report.name, report.symbol = _native_asset(chain)
             report.notes.append("native_asset")
             await self._cache.set(cache_key, report)
             return report
