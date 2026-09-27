@@ -12,12 +12,16 @@ function isOk(v: ProviderState | boolean | string | undefined): boolean | null {
   return null;
 }
 
+// Only the provider whose liveness the page actually depends on is shown from
+// the status payload. `intercepta` is out of scope for the demo, and the
+// `uniswap` / `ensv2` flags in /hackathon/status refer to the optional
+// Trading-API comparison and the on-chain policy gate — not to the hook and
+// ENS subnames this page exercises live in beats 1–3 — so listing them as
+// "down" would be misleading.
 const LABELS: Record<string, string> = {
-  worldId: 'World ID',
-  intercepta: 'Intercepta — coming soon',
-  uniswap: 'Uniswap v4 hook',
-  ensv2: 'ENSv2',
+  worldId: 'World ID verifier',
 };
+const SHOWN = new Set(Object.keys(LABELS));
 
 export default function StatusStrip({
   status,
@@ -46,10 +50,7 @@ export default function StatusStrip({
   // the ENS names are live — showing them red sat right above the working hook.
   // Only World ID is a real liveness signal here; Intercepta is not integrated.
   const providers = status?.providers || {};
-  const entries: [string, unknown][] = [
-    ...Object.entries(providers).filter(([k]) => k === 'worldId'),
-    ['intercepta', undefined],
-  ];
+  const entries = Object.entries(providers).filter(([key]) => SHOWN.has(key));
 
   return (
     <div className={styles.statusStrip} role="status" aria-live="polite">
