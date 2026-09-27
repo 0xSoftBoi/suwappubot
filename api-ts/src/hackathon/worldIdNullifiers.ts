@@ -16,7 +16,7 @@
  * must not pass.
  */
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import {
 	normalizeNullifier,
 	type NullifierStore,
@@ -72,6 +72,30 @@ export class PostgresNullifierStore implements NullifierStore {
 		} catch (e) {
 			logger.warn('[world-id] nullifier lookup failed: %s', String(e))
 			return null
+		}
+	}
+
+	/** Bind a legacy row (consumed before `subject` existed) to `subject`.
+	 * Single UPDATE ... WHERE subject IS NULL: exactly one concurrent caller
+	 * wins; rows that already carry a subject are never rebound. */
+	async claimUnbound(action: string, nullifier: string, subject: string): Promise<boolean> {
+		const decimal = normalizeNullifier(nullifier)
+		try {
+			const rows = await this.db
+				.update(worldIdNullifiers)
+				.set({ subject })
+				.where(
+					and(
+						eq(worldIdNullifiers.action, action),
+						eq(worldIdNullifiers.nullifier, decimal),
+						isNull(worldIdNullifiers.subject),
+					),
+				)
+				.returning({ id: worldIdNullifiers.id })
+			return rows.length === 1
+		} catch (e) {
+			logger.warn('[world-id] nullifier claim failed (fail closed): %s', String(e))
+			return false
 		}
 	}
 }

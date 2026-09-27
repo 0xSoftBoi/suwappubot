@@ -90,6 +90,10 @@ export interface NullifierStore {
 	 * don't support durable subject recovery (e.g. MemoryNullifierStore)
 	 * omit it; callers must treat a missing method the same as null. */
 	lookup?(action: string, nullifier: string): Promise<string | null>
+	/** Atomically record `subject` on an already-consumed (action, nullifier)
+	 * whose subject is still NULL (rows consumed before subjects were
+	 * recorded). Returns true only for the single caller that set it. */
+	claimUnbound?(action: string, nullifier: string, subject: string): Promise<boolean>
 }
 
 /**
@@ -111,6 +115,13 @@ export class MemoryNullifierStore implements NullifierStore {
 	async lookup(action: string, nullifier: string): Promise<string | null> {
 		const key = `${action}:${normalizeNullifier(nullifier)}`
 		return this.seen.get(key) ?? null
+	}
+
+	async claimUnbound(action: string, nullifier: string, subject: string): Promise<boolean> {
+		const key = `${action}:${normalizeNullifier(nullifier)}`
+		if (!this.seen.has(key) || this.seen.get(key) != null) return false
+		this.seen.set(key, subject)
+		return true
 	}
 }
 
