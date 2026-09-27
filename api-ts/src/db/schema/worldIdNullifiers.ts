@@ -38,6 +38,14 @@ export const worldIdNullifiers = pgTable(
 		nullifier: numeric('nullifier', { precision: 78, scale: 0 }).notNull(),
 		/** When the proof was consumed (first verified). */
 		consumedAt: timestamp('consumed_at').defaultNow().notNull(),
+		/**
+		 * What this nullifier was consumed for, e.g. the lowercased wallet
+		 * address for the `suwappu-passport` action. NULL for actions that
+		 * don't need durable subject recovery. Lets a replayed proof resolve
+		 * back to its bound subject even after an in-memory map is lost to a
+		 * redeploy.
+		 */
+		subject: text('subject'),
 	},
 	(table) => ({
 		nullifierActionUnique: uniqueIndex('world_id_nullifiers_nullifier_action_unique').on(

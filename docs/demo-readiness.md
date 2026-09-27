@@ -72,6 +72,14 @@ scan (simulator) → `ready` with ENS mint `0x7d0b28260e353728561d8716454fc5f378
 `0x57947f5bb5d77e3de3ba7b68cee307bf2d086113fcde453577cf1fa0538cf6ab`; swap → executed `0xce3a015c5446a7cb808258053837845445cdd17be7c6aea47bbfb72cbc4e1ff0`
 (block 11789404). All three receipts status 0x1. Found on the way: the ENS name did not resolve to the wallet because the resolver in use
 (PublicResolverV2) authorizes records via the ENSv1 NameWrapper; replaced by a minter-owned PassportResolver (see below).
+**Resolver fix proven 2026-09-27 00:1x UTC** through `provisionPassport` with the minter key (the staging simulator has a single World ID
+identity, already consumed under `suwappu-passport`, so a second gated mint is impossible; that is correct one-human-one-passport behavior):
+wallet `0x80bf42273b4ff7928720ea02f4243b61badb6482` → mint `0xbe928ebbf09c37ab04d02381a7e0e17a32a85dcdba7580beb072de633fddceb2`, setAddr
+`0x2a86e55f42a32fd1c806d2dd822d3d2a650a567716509ba8f5d13d4c9982ec88`, allowlist `0xc5e5e7816d819d6b4dd8f4e747c3dfbe6622dd6f9ae100d1a8c30419a52ad99a`,
+all 0x1; `readPassport` → `ensResolvesToWallet: true`; independent `eth_call addr(namehash)` on PassportResolver
+`0x553E898DBee7e9490947c3CD58d086ffE7490F80` returns the wallet.
+**Demo-day identity rule**: each judge's World App is one identity; the FIRST wallet they scan for is their passport forever (under this action).
+Re-scans return `existing` with the bound wallet. The simulator identity is spent; a real phone is needed for a fresh live mint on stage.
 **Rollback**: set `HACKATHON_TRUST_LAYER=false` on api-ts (page degrades to "not enabled"), or redeploy api-ts `9c623226` / showcase previous green.
 **Relayer gas**: 0.0237 Sepolia ETH at 22:50 UTC ≈ 20 passports; top up before demo day.
 **Open question for the operator**: prod is `WORLD_ENV=staging` and the actions are registered on staging — real phones produce production

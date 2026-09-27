@@ -16,6 +16,7 @@
  * must not pass.
  */
 
+import { and, eq } from 'drizzle-orm'
 import {
 	normalizeNullifier,
 	type NullifierStore,
@@ -33,14 +34,14 @@ export class PostgresNullifierStore implements NullifierStore {
 	 * malformed nullifiers — callers fail the verification, they don't
 	 * treat it as a replay.
 	 */
-	async consume(action: string, nullifier: string): Promise<boolean> {
+	async consume(action: string, nullifier: string, subject?: string): Promise<boolean> {
 		// Canonical decimal form; throws on malformed input (outside the
 		// try so it propagates instead of being swallowed as "replay").
 		const decimal = normalizeNullifier(nullifier)
 		try {
 			const rows = await this.db
 				.insert(worldIdNullifiers)
-				.values({ action, nullifier: decimal })
+				.values({ action, nullifier: decimal, subject: subject ?? null })
 				.onConflictDoNothing({
 					target: [worldIdNullifiers.nullifier, worldIdNullifiers.action],
 				})
@@ -51,6 +52,26 @@ export class PostgresNullifierStore implements NullifierStore {
 		} catch (e) {
 			logger.warn('[world-id] nullifier consume failed (fail closed): %s', String(e))
 			return false
+		}
+	}
+
+	/** Recover the subject a nullifier was consumed for, e.g. the wallet bound
+	 * to a `suwappu-passport` proof. Returns null on any DB error or if this
+	 * (action, nullifier) was never consumed / has no recorded subject. */
+	async lookup(action: string, nullifier: string): Promise<string | null> {
+		const decimal = normalizeNullifier(nullifier)
+		try {
+			const rows = await this.db
+				.select({ subject: worldIdNullifiers.subject })
+				.from(worldIdNullifiers)
+				.where(
+					and(eq(worldIdNullifiers.action, action), eq(worldIdNullifiers.nullifier, decimal)),
+				)
+				.limit(1)
+			return rows[0]?.subject ?? null
+		} catch (e) {
+			logger.warn('[world-id] nullifier lookup failed: %s', String(e))
+			return null
 		}
 	}
 }
