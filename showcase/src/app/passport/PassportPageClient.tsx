@@ -8,7 +8,7 @@ import QrModal from './QrModal';
 import StatusStrip from './StatusStrip';
 import CopyField from './CopyField';
 import { HOOK_ADDRESS, ensAppUrl, etherscanAddress, etherscanTx } from './api';
-import { usePassportFlow } from './usePassportFlow';
+import { usePassportFlow, type SwapView } from './usePassportFlow';
 import styles from './passport.module.css';
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -22,10 +22,8 @@ export default function PassportPageClient() {
     wallet,
     setWallet,
     newWallet,
-    swapPhase,
-    swapResult,
-    swapJob,
-    swapError,
+    swaps,
+    swapBeat,
     attemptSwap,
     verifyPhase,
     verifyError,
@@ -35,12 +33,16 @@ export default function PassportPageClient() {
     beginVerification,
     cancelVerification,
     passportRecord,
+    walletSwitchedFrom,
     evidence,
     evidenceError,
   } = usePassportFlow();
 
   const enabled = status?.trustLayer !== undefined || !statusError;
   const notEnabled = !statusLoading && !!statusError && !status;
+
+  const swapPhase = swaps[swapBeat].phase;
+  const swapBusy = (b: 'pre' | 'post') => swaps[b].phase === 'checking' || swaps[b].phase === 'submitted';
 
   const orbState: OrbState =
     swapPhase === 'checking' || swapPhase === 'submitted' || verifyPhase === 'starting' || verifyPhase === 'pending' || verifyPhase === 'provisioning'
@@ -113,46 +115,17 @@ export default function PassportPageClient() {
                 <button
                   type="button"
                   className={styles.cta}
-                  onClick={attemptSwap}
-                  disabled={swapPhase === 'checking' || swapPhase === 'submitted'}
+                  onClick={() => attemptSwap('pre')}
+                  disabled={swapBusy('pre') || swapBusy('post')}
                 >
-                  {swapPhase === 'checking'
+                  {swapBusy('pre')
                     ? 'Checking…'
-                    : swapPhase === 'submitted'
-                      ? 'Submitted…'
+                    : swaps.pre.phase === 'blocked'
+                      ? 'Try again'
                       : 'Attempt swap'}
                 </button>
 
-                {swapPhase === 'blocked' && swapResult?.status === 'blocked' && (
-                  <div className={styles.banner} data-tone="blocked">
-                    <span className={styles.bannerTitle} data-tone="blocked">
-                      Reverted: {swapResult.reason}
-                    </span>
-                    <span>
-                      0 gas spent — rejected by the hook before execution.
-                      {swapResult.detail ? ` ${swapResult.detail}` : ''}
-                    </span>
-                    <a
-                      href={etherscanAddress(HOOK_ADDRESS)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.copyFieldLink}
-                    >
-                      View the hook on Etherscan →
-                    </a>
-                  </div>
-                )}
-
-                {swapPhase === 'executed' && swapJob?.status === 'executed' && (
-                  <SwapExecutedBanner wallet={wallet} txHash={swapJob.txHash} executedBy={swapJob.executedBy} swapper={swapJob.swapper} />
-                )}
-
-                {swapPhase === 'failed' && (
-                  <div className={styles.banner} data-tone="blocked">
-                    <span className={styles.bannerTitle} data-tone="blocked">Swap failed</span>
-                    <span>{swapError}</span>
-                  </div>
-                )}
+                <SwapOutcome view={swaps.pre} wallet={wallet} beat="pre" />
               </div>
 
               {/* Beat 2 — prove human */}
@@ -191,7 +164,16 @@ export default function PassportPageClient() {
                   (verified.status === 'ready' || verified.status === 'existing') && (
                     <div className={styles.banner} data-tone="success">
                       {verifyPhase === 'existing' && (
-                        <span className={styles.bannerTitle}>This human already holds a passport.</span>
+                        <span className={styles.bannerTitle}>Welcome back — you already hold a passport.</span>
+                      )}
+                      {verifyPhase === 'existing' && walletSwitchedFrom && (
+                        <span>
+                          One human, one passport: yours is bound to{' '}
+                          <code>{walletSwitchedFrom === wallet ? wallet : `${wallet.slice(0, 6)}…${wallet.slice(-4)}`}</code>,
+                          so the agent now uses that wallet. The fresh wallet{' '}
+                          <code>{`${walletSwitchedFrom.slice(0, 6)}…${walletSwitchedFrom.slice(-4)}`}</code> stays
+                          blocked.
+                        </span>
                       )}
                       <span>
                         ENS name:{' '}
@@ -249,38 +231,25 @@ export default function PassportPageClient() {
                   <button
                     type="button"
                     className={styles.cta}
-                    onClick={attemptSwap}
-                    disabled={swapPhase === 'checking' || swapPhase === 'submitted'}
+                    onClick={() => attemptSwap('post')}
+                    disabled={swapBusy('pre') || swapBusy('post')}
                   >
-                    {swapPhase === 'checking'
+                    {swaps.post.phase === 'checking'
                       ? 'Checking…'
-                      : swapPhase === 'submitted'
+                      : swaps.post.phase === 'submitted'
                         ? 'Submitted…'
-                        : 'Swap with passport'}
+                        : swaps.post.phase === 'executed'
+                          ? 'Swap again'
+                          : 'Swap with passport'}
                   </button>
 
-                  {swapPhase === 'submitted' && (
-                    <div className={styles.banner} data-tone="pending">Job submitted — waiting for the relayer…</div>
-                  )}
+                  <SwapOutcome view={swaps.post} wallet={wallet} beat="post" />
 
-                  {swapPhase === 'executed' && swapJob?.status === 'executed' && (
-                    <SwapExecutedBanner wallet={wallet} txHash={swapJob.txHash} executedBy={swapJob.executedBy} swapper={swapJob.swapper} />
-                  )}
-
-                  {swapPhase === 'blocked' && swapResult?.status === 'blocked' && (
-                    <div className={styles.banner} data-tone="blocked">
-                      <span className={styles.bannerTitle} data-tone="blocked">
-                        Still blocked: {swapResult.reason}
-                      </span>
-                      <span>{swapResult.detail}</span>
-                    </div>
-                  )}
-
-                  {swapPhase === 'failed' && (
-                    <div className={styles.banner} data-tone="blocked">
-                      <span className={styles.bannerTitle} data-tone="blocked">Swap failed</span>
-                      <span>{swapError}</span>
-                    </div>
+                  {swaps.pre.phase === 'blocked' && swaps.post.phase === 'executed' && !walletSwitchedFrom && (
+                    <p className={styles.hint} style={{ margin: 0 }}>
+                      Same wallet, same pool, same hook. Beat 1 was refused; this one went through
+                      because a verified human now stands behind the wallet.
+                    </p>
                   )}
 
                   {passportRecord?.swaps && passportRecord.swaps.length > 0 && (
@@ -334,25 +303,79 @@ export default function PassportPageClient() {
   );
 }
 
-function SwapExecutedBanner({
-  wallet,
-  txHash,
-  executedBy,
-  swapper,
-}: {
-  wallet: string;
-  txHash?: string;
-  executedBy?: string;
-  swapper?: string;
-}) {
-  return (
-    <div className={styles.banner} data-tone="success">
-      <span className={styles.bannerTitle}>Executed</span>
-      {txHash && <CopyField value={txHash} href={etherscanTx(txHash)} display="view transaction" />}
-      <span>
-        Executed by relayer <code>{executedBy || 'the relayer'}</code> on behalf of{' '}
-        <code>{swapper || wallet}</code>; the hook verified <code>{wallet}</code>.
-      </span>
-    </div>
-  );
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+/** One beat's swap outcome. Each beat owns its own SwapView, so a later beat
+ * can never overwrite an earlier one's result. */
+function SwapOutcome({ view, wallet, beat }: { view: SwapView; wallet: string; beat: 'pre' | 'post' }) {
+  const { phase, result, job, error } = view;
+
+  if (phase === 'submitted') {
+    return (
+      <div className={styles.banner} data-tone="pending">
+        Allowed by the hook — the relayer is sending the swap…
+      </div>
+    );
+  }
+
+  if (phase === 'blocked' && result?.status === 'blocked') {
+    return (
+      <div className={styles.banner} data-tone="blocked">
+        <span className={styles.bannerTitle} data-tone="blocked">
+          {beat === 'pre' ? 'Blocked by the hook' : 'Still blocked'} — {result.reason}
+        </span>
+        <span>
+          Rejected during simulation, so no transaction was sent and no gas was spent.
+        </span>
+        <a
+          href={etherscanAddress(HOOK_ADDRESS)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.copyFieldLink}
+        >
+          View the hook on Etherscan →
+        </a>
+      </div>
+    );
+  }
+
+  if (phase === 'executed' && job?.status === 'executed') {
+    const swapper = job.swapper || wallet;
+    return (
+      <div className={styles.banner} data-tone="success">
+        <span className={styles.bannerTitle}>
+          Swap executed{job.blockNumber ? ` in block ${job.blockNumber.toLocaleString()}` : ''}
+        </span>
+        {job.txHash && <CopyField value={job.txHash} href={etherscanTx(job.txHash)} display="view transaction" />}
+        <span>
+          The hook checked <code>{short(swapper)}</code> and let it through.
+          {job.executedBy && (
+            <>
+              {' '}Sent by the demo relayer{' '}
+              <a
+                href={etherscanAddress(job.executedBy)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.copyFieldLink}
+              >
+                {short(job.executedBy)}
+              </a>{' '}
+              on the agent&rsquo;s behalf.
+            </>
+          )}
+        </span>
+      </div>
+    );
+  }
+
+  if (phase === 'failed') {
+    return (
+      <div className={styles.banner} data-tone="blocked">
+        <span className={styles.bannerTitle} data-tone="blocked">Swap failed</span>
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  return null;
 }
