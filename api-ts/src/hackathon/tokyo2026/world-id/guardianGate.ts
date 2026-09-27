@@ -82,7 +82,14 @@ export function normalizeNullifier(nullifier: string): string {
 export const REPLAY_REJECTED_REASON = 'proof already used (replay rejected)'
 
 export interface NullifierStore {
-	consume(action: string, nullifier: string): Promise<boolean>
+	/** `subject` (e.g. a lowercased wallet) is recorded durably on first
+	 * consume so a later replay can recover what the proof was bound to. */
+	consume(action: string, nullifier: string, subject?: string): Promise<boolean>
+	/** Recover the subject recorded for an already-consumed (action,
+	 * nullifier), or null if unknown/never recorded. Optional — stores that
+	 * don't support durable subject recovery (e.g. MemoryNullifierStore)
+	 * omit it; callers must treat a missing method the same as null. */
+	lookup?(action: string, nullifier: string): Promise<string | null>
 }
 
 /**
@@ -92,13 +99,18 @@ export interface NullifierStore {
  * a single Node/Bun process (no awaits between check and insert).
  */
 export class MemoryNullifierStore implements NullifierStore {
-	private seen = new Set<string>()
+	private seen = new Map<string, string | undefined>()
 	/** Returns false when this (action, nullifier) was already consumed. */
-	async consume(action: string, nullifier: string): Promise<boolean> {
+	async consume(action: string, nullifier: string, subject?: string): Promise<boolean> {
 		const key = `${action}:${normalizeNullifier(nullifier)}`
 		if (this.seen.has(key)) return false
-		this.seen.add(key)
+		this.seen.set(key, subject)
 		return true
+	}
+
+	async lookup(action: string, nullifier: string): Promise<string | null> {
+		const key = `${action}:${normalizeNullifier(nullifier)}`
+		return this.seen.get(key) ?? null
 	}
 }
 
@@ -206,6 +218,7 @@ export async function awaitAndVerifyTradeApproval(
 	pending: PendingProof,
 	store: NullifierStore,
 	action: string = cfg.action,
+	subject?: string,
 	abortSignal?: AbortSignal,
 ): Promise<VerifyResult> {
 	let completed: unknown
@@ -226,7 +239,7 @@ export async function awaitAndVerifyTradeApproval(
 	if (env.success !== true || !env.result) {
 		return { ok: false, reason: `verification not completed: ${env.error ?? 'unknown_error'}` }
 	}
-	return verifyTradeProof(cfg, env.result, pending.signal, action, store)
+	return verifyTradeProof(cfg, env.result, pending.signal, action, store, subject)
 }
 
 /**
@@ -239,6 +252,7 @@ export async function verifyTradeProof(
 	expectedSignal: string,
 	expectedAction: string,
 	store: NullifierStore,
+	subject?: string,
 ): Promise<VerifyResult> {
 	// Accept either the bare v4 result or (defensively) the IDKit completion
 	// envelope, so HTTP callers that forward `pollUntilCompletion()` verbatim
@@ -305,7 +319,7 @@ export async function verifyTradeProof(
 	// strictly "already consumed". Distinguish the two for the user.
 	let consumed: boolean
 	try {
-		consumed = await store.consume(expectedAction, data.nullifier)
+		consumed = await store.consume(expectedAction, data.nullifier, subject)
 	} catch (e) {
 		return { ok: false, reason: `nullifier rejected: ${(e as Error).message}` }
 	}

@@ -153,7 +153,14 @@ export async function startWorldIdGate(
 	void (async () => {
 		try {
 			const store = await nullifierStore()
-			const res = await awaitAndVerifyTradeApproval(cfg, p, store, action, controller.signal)
+			const res = await awaitAndVerifyTradeApproval(
+				cfg,
+				p,
+				store,
+				action,
+				undefined,
+				controller.signal,
+			)
 			// Eviction/expiry already cleared this entry — don't resurrect it.
 			if (!results.has(p.signal) && controller.signal.aborted) return
 			const result: GateResult = res.ok
