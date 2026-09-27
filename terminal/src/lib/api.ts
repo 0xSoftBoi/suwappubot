@@ -180,8 +180,8 @@ export function toLendingMarket(m: ApiLendMarket): LendingMarket {
     supplyAPY: pct(m.supplyApy),
     borrowAPY: pct(m.borrowApy),
     utilization: pct(m.utilization),
-    totalSupplied: num(m.totalSupplyUsd),
-    totalBorrowed: num(m.totalBorrowUsd),
+    totalSupplied: Number.isFinite(m.totalSupplyUsd) ? (m.totalSupplyUsd as number) : null,
+    totalBorrowed: Number.isFinite(m.totalBorrowUsd) ? (m.totalBorrowUsd as number) : null,
     lltv: num(m.lltv),
   }
 }

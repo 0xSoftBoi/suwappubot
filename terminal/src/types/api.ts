@@ -862,13 +862,15 @@ export interface LendingMarket {
   supplyAPY: number
   borrowAPY: number
   utilization: number
-  totalSupplied: number
-  totalBorrowed: number
+  /** USD; null when upstream pricing is unavailable (render as unavailable, not $0). */
+  totalSupplied: number | null
+  totalBorrowed: number | null
   lltv: number
 }
 
 /**
- * Wire shape of GET /v1/agent/lend/markets[/:id] (api-ts, since f81a05f2).
+ * Wire shape of GET /v1/agent/lend/markets (list) and GET /v1/agent/lend/market/:id
+ * (detail), api-ts since f81a05f2.
  * APYs and utilization are PERCENT (4.35 = 4.35%), not fractions.
  */
 export interface ApiLendMarket {
