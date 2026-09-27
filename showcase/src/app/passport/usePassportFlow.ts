@@ -21,6 +21,14 @@ import {
 } from './api';
 
 export type SwapPhase = 'idle' | 'checking' | 'blocked' | 'submitted' | 'executed' | 'failed';
+export type SwapBeat = 'pre' | 'post';
+export type SwapView = {
+  phase: SwapPhase;
+  result: SwapStartResponse | null;
+  job: SwapJob | null;
+  error: string | null;
+};
+const EMPTY_SWAP: SwapView = { phase: 'idle', result: null, job: null, error: null };
 export type VerifyPhase = 'idle' | 'starting' | 'pending' | 'provisioning' | 'ready' | 'existing' | 'failed' | 'error';
 
 const POLL_INTERVAL_MS = 2000;
@@ -36,11 +44,16 @@ export function usePassportFlow() {
     typeof window !== 'undefined' ? randomWallet() : '0x0000000000000000000000000000000000000000',
   );
 
-  // Beat 1 / 3 — swap attempt
-  const [swapPhase, setSwapPhase] = useState<SwapPhase>('idle');
-  const [swapResult, setSwapResult] = useState<SwapStartResponse | null>(null);
-  const [swapJob, setSwapJob] = useState<SwapJob | null>(null);
-  const [swapError, setSwapError] = useState<string | null>(null);
+  // Beat 1 (before the passport) and Beat 3 (after) are the same API call but
+  // separate stories: each keeps its own outcome, so Beat 3 executing never
+  // overwrites Beat 1's "blocked" — the contrast is the whole demo.
+  const [swapBeat, setSwapBeat] = useState<SwapBeat>('pre');
+  const [swaps, setSwaps] = useState<Record<SwapBeat, SwapView>>({ pre: EMPTY_SWAP, post: EMPTY_SWAP });
+  const patchSwap = useCallback(
+    (beat: SwapBeat, patch: Partial<SwapView>) =>
+      setSwaps((s) => ({ ...s, [beat]: { ...s[beat], ...patch } })),
+    [],
+  );
 
   // Beat 2 — proof of human
   const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>('idle');
@@ -88,10 +101,8 @@ export function usePassportFlow() {
 
   const newWallet = useCallback(() => {
     setWallet(randomWallet());
-    setSwapPhase('idle');
-    setSwapResult(null);
-    setSwapJob(null);
-    setSwapError(null);
+    setSwaps({ pre: EMPTY_SWAP, post: EMPTY_SWAP });
+    setSwapBeat('pre');
     setVerifyPhase('idle');
     setVerifyError(null);
     setStart(null);
@@ -107,14 +118,16 @@ export function usePassportFlow() {
   }, []);
 
   // Beat 1 / Beat 3 — same action, called before and after the passport exists.
-  const attemptSwap = useCallback(async () => {
+  const attemptSwap = useCallback(async (beat: SwapBeat = 'pre') => {
     stopSwapPolling();
-    setSwapError(null);
-    setSwapJob(null);
-    setSwapPhase('checking');
+    setSwapBeat(beat);
+    patchSwap(beat, { phase: 'checking', result: null, job: null, error: null });
+    const setSwapPhase = (phase: SwapPhase) => patchSwap(beat, { phase });
+    const setSwapJob = (job: SwapJob) => patchSwap(beat, { job });
+    const setSwapError = (error: string) => patchSwap(beat, { error });
     try {
       const res = await passportSwap(wallet);
-      setSwapResult(res);
+      patchSwap(beat, { result: res });
       if (res.status === 'blocked') {
         setSwapPhase('blocked');
         return;
@@ -156,7 +169,7 @@ export function usePassportFlow() {
       setSwapPhase('failed');
       setSwapError(e instanceof Error ? e.message : 'Could not reach the swap endpoint.');
     }
-  }, [wallet, stopSwapPolling]);
+  }, [wallet, stopSwapPolling, patchSwap]);
 
   // Beat 2 — proof of human
   const beginVerification = useCallback(async () => {
@@ -241,10 +254,8 @@ export function usePassportFlow() {
     wallet,
     setWallet,
     newWallet,
-    swapPhase,
-    swapResult,
-    swapJob,
-    swapError,
+    swaps,
+    swapBeat,
     attemptSwap,
     verifyPhase,
     verifyError,
