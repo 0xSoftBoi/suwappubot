@@ -9,7 +9,7 @@ import { passkeyCredentials, pointRedemptions, rewards, swapTransactions, users,
 import { walletTrackAlerts } from '../db/schema/walletTrackAlerts'
 import { logger } from '../lib/logger'
 import { mapErrorToResponse } from '../errors'
-import { requireTier, telegramAuth } from '../middleware'
+import { regionGate, requireTier, telegramAuth } from '../middleware'
 import { runEffect, runEffectEither } from '../runtime'
 import { getVipStatusRaw } from '../services/VipService'
 import {
@@ -1381,6 +1381,13 @@ protectedWebapp.put('/copy/follow/:traderId', async (c) => {
 
 // === Prediction Market Routes ===
 import { PolymarketService } from '../services/PolymarketService'
+
+// Compliance: block restricted regions (default US) from the Mini App's
+// prediction-market surface too — mounted after the blanket telegramAuth()
+// above (line 177) so regionGate() sees c.get('telegramUser') for the
+// sticky-region check. Scoped to /predict/* only; other /webapp/me/* routes
+// are untouched.
+protectedWebapp.use('/predict/*', regionGate())
 
 // GET /webapp/me/predict/markets — search/browse markets
 protectedWebapp.get('/predict/markets', async (c) => {
