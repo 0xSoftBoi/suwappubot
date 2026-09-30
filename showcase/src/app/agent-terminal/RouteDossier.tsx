@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
-import type { SwapPreview } from './deskApi';
-import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, num } from './format';
+import { useMemo } from 'react';
+import { previewHops, type SwapPreview } from './deskApi';
+import { fmtAmount, fmtDuration, fmtUsd, hopChainLabel, hopVerb, num } from './format';
 import { RULE_META, type MandateVerdict } from './mandate';
 import styles from './route-dossier.module.css';
 
@@ -36,43 +36,15 @@ interface FlowHop {
 export interface FlowSpec {
   source: FlowEndpoint;
   out: FlowEndpoint;
+  /** Never empty: the main-path edges carry what each leg sells, then what the last delivers. */
   hops: FlowHop[];
-  /** Labels riding the main-path edges, one per edge (hops.length + 1). */
-  edgeLabels: Array<string | null>;
 }
 
-const verb = (t: string) => (t === 'cross' ? 'RELAY' : t === 'swap' ? 'SWAP' : t.toUpperCase());
+const verb = (t: string) => hopVerb(t).toUpperCase();
 
-/** Labels riding the main path: what enters, what each later leg sells, what arrives. */
-const mainEdgeLabels = (
-  hops: FlowHop[],
-  first: string | null,
-  last: string | null,
-): Array<string | null> => [first, ...hops.slice(1).map((h) => h.inAmount), last];
-
-/** A priced single trade → flow spec. Falls back to one honest hop. */
+/** A priced single trade → flow spec. */
 export function specFromPreview(p: SwapPreview): FlowSpec {
-  const rawHops =
-    Array.isArray(p.hops) && p.hops.length > 0
-      ? p.hops
-      : [
-          {
-            index: 0,
-            type: p.fromChain === p.toChain ? 'swap' : 'cross',
-            tool: p.route,
-            toolName: p.route,
-            fromChain: p.fromChain,
-            toChain: p.toChain,
-            fromToken: p.fromToken.symbol,
-            toToken: p.toToken.symbol,
-            fromAmount: p.fromAmount,
-            toAmount: p.toAmount,
-            estimatedGasUsd: p.estimatedGasUsd,
-            feeUsd: p.bridgeFeeUsd,
-            estimatedDurationSeconds: p.estimatedDurationSeconds,
-          },
-        ];
-  const hops: FlowHop[] = rawHops.map((h) => ({
+  const hops: FlowHop[] = previewHops(p).map((h) => ({
     key: `hop-${h.index}`,
     type: h.type,
     tool: h.toolName || h.tool,
@@ -95,56 +67,6 @@ export function specFromPreview(p: SwapPreview): FlowSpec {
       sub: `on ${p.toChain} · floor ≥ ${fmtAmount(p.toAmountMin)}`,
     },
     hops,
-    edgeLabels: mainEdgeLabels(
-      hops,
-      `${fmtAmount(p.fromAmount)} ${p.fromToken.symbol}`,
-      `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
-    ),
-  };
-}
-
-/**
- * A chained plan sequence (leg N sells leg N-1's estimated output) → flow
- * spec: each leg is a node, the connecting edges carry what the previous
- * leg delivers.
- */
-export function specFromPlanLegs(
-  legs: Array<{
-    fromChain: string;
-    toChain: string;
-    fromToken: string;
-    toToken: string;
-    amount: string;
-    preview: SwapPreview | null;
-  }>,
-): FlowSpec | null {
-  if (legs.length === 0) return null;
-  const first = legs[0];
-  const last = legs[legs.length - 1];
-  const hops: FlowHop[] = legs.map((l, i) => ({
-    key: `leg-${i}`,
-    type: l.fromChain === l.toChain ? 'swap' : 'cross',
-    tool: l.preview?.route ?? 'unpriced',
-    chains: hopChainLabel(l.fromChain, l.toChain),
-    inAmount: `${fmtAmount(l.amount)} ${l.fromToken}`,
-    outAmount: l.preview ? `${fmtAmount(l.preview.toAmount)} ${l.toToken}` : null,
-    feeUsd: num(l.preview?.bridgeFeeUsd) ?? 0,
-    gasUsd: num(l.preview?.estimatedGasUsd) ?? 0,
-    durationSeconds: l.preview?.estimatedDurationSeconds ?? null,
-  }));
-  return {
-    source: {
-      label: 'NEW MONEY IN',
-      amount: `${fmtAmount(first.amount)} ${first.fromToken}`,
-      sub: `on ${first.fromChain}${first.preview ? ` · ${fmtUsd(first.preview.fromAmountUsd)}` : ''}`,
-    },
-    out: {
-      label: 'SEQUENCE ENDS',
-      amount: last.preview ? `${fmtAmount(last.preview.toAmount)} ${last.toToken}` : last.toToken,
-      sub: `on ${last.toChain}${last.preview ? ` · ${fmtUsd(last.preview.toAmountUsd)}` : ''}`,
-    },
-    hops,
-    edgeLabels: mainEdgeLabels(hops, hops[0].inAmount, hops[hops.length - 1].outAmount),
   };
 }
 
@@ -215,7 +137,8 @@ export function RouteFlowSvg({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: s
         {Array.from({ length: k + 1 }, (_, e) => {
           const x1 = e === 0 ? xs.sourceX + END_W : xs.hopX(e - 1) + HOP_W;
           const x2 = e === k ? xs.outX : xs.hopX(e);
-          const label = spec.edgeLabels[e];
+          // What rides this edge: the leg ahead's input, or the last leg's output.
+          const label = e < k ? spec.hops[e].inAmount : spec.hops[k - 1].outAmount;
           return (
             <g key={`e-${e}`}>
               <path d={mainEdge(x1, x2)} className={styles.mainEdge} />
@@ -310,22 +233,10 @@ export function RouteFlowSvg({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: s
   );
 }
 
-/**
- * A flow embedded in a light proposal card: the dark instrument inset, with
- * an optional lane header (e.g. "RELAY 01") above the graph.
- */
-export function CompactFlow({
-  spec,
-  ariaLabel,
-  laneHeader,
-}: {
-  spec: FlowSpec;
-  ariaLabel: string;
-  laneHeader?: ReactNode;
-}) {
+/** A flow embedded in a light proposal card: the dark instrument, inset. */
+export function CompactFlow({ spec, ariaLabel }: { spec: FlowSpec; ariaLabel: string }) {
   return (
     <div className={styles.compact}>
-      {laneHeader && <p className={styles.laneBar}>{laneHeader}</p>}
       <RouteFlowSvg spec={spec} ariaLabel={ariaLabel} />
     </div>
   );
@@ -371,8 +282,7 @@ export default function RouteDossier({
           {crossChain
             ? `${preview.fromChain.toUpperCase()} → ${preview.toChain.toUpperCase()}`
             : `ON ${preview.fromChain.toUpperCase()}`}{' '}
-          · {spec.hops.length} {spec.hops.length === 1 ? 'LEG' : 'LEGS'}, {spec.hops.length + 1}{' '}
-          TRANSFERS
+          · {spec.hops.length} {spec.hops.length === 1 ? 'LEG' : 'LEGS'}
         </span>
         <span className={styles.headId}>INDICATIVE · NOT EXECUTABLE</span>
       </p>
@@ -431,8 +341,7 @@ export default function RouteDossier({
       </div>
 
       <p className={styles.sectionBar}>
-        <span className={styles.sectionNum}>01</span> VALUE FLOW · {spec.hops.length + 2} NODES,{' '}
-        {spec.hops.length + 1} TRANSFERS
+        <span className={styles.sectionNum}>01</span> VALUE FLOW
       </p>
       <RouteFlowSvg
         spec={spec}

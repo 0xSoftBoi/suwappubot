@@ -12,7 +12,7 @@ import Reveal from '@/components/Reveal';
 import FaqAccordion from '@/components/FaqAccordion';
 import productStats from '@/data/stats.generated.json';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
-import './hero-d/hero-d.css';
+import './hero.css';
 import './site.css';
 
 export const metadata: Metadata = {
