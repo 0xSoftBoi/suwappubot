@@ -179,6 +179,11 @@ export const CreatePolicySchema = z.object({
 	}),
 })
 
+/** POST /v1/agent/wallets body. Defaults to 'evm' so bodyless calls keep working. */
+export const CreateWalletSchema = z.object({
+	chain_type: z.enum(['evm', 'solana']).optional().default('evm'),
+})
+
 /** Format Zod errors into a flat field map */
 export const ExecuteSwapSchema = z.object({
 	quote_id: z.string().min(1).optional(),
