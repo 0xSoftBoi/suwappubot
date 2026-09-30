@@ -248,6 +248,67 @@ function isSolanaChain(chain: string): boolean {
 	return normalized === 'solana' || normalized === 'sol'
 }
 
+/**
+ * Route a quote request to the right provider.
+ * - solana -> solana: Jupiter (same-chain Solana only)
+ * - anything else (EVM<->EVM, EVM<->Solana): Li.Fi, which natively supports
+ *   Solana as chain 1151111081099710 in both directions.
+ *
+ * Exported for unit tests.
+ */
+export function classifyQuoteRoute(
+	fromChain: string | undefined,
+	toChain: string | undefined,
+): 'jupiter' | 'lifi' {
+	const fromKey = fromChain || 'ethereum'
+	const fromIsSolana = isSolanaChain(fromKey)
+	// No explicit destination: preserve the legacy behavior of routing on the
+	// source chain alone (pure-Solana -> Jupiter, everything else -> Li.Fi).
+	const toIsSolana = toChain ? isSolanaChain(toChain) : fromIsSolana
+	return fromIsSolana && toIsSolana ? 'jupiter' : 'lifi'
+}
+
+// Quote-only address placeholders: Li.Fi validates the address format per
+// chain, so each leg needs a well-formed address for its own chain. The real
+// wallet addresses replace these at execution time.
+const EVM_QUOTE_PLACEHOLDER = '0x0000000000000000000000000000000000000001'
+const SOLANA_QUOTE_PLACEHOLDER = '11111111111111111111111111111111' // system program: valid base58, never a real user
+
+/**
+ * Resolve the fromAddress/toAddress pair for a Li.Fi quote.
+ *
+ * - walletAddress: explicit sender (EVM or Solana — the schema accepts both).
+ * - toWalletAddress: explicit destination override.
+ * - agentMetadata: consulted for a managed wallet on the destination chain
+ *   when the legs live on different address families — one wallet_address
+ *   cannot serve both EVM and Solana.
+ *
+ * Exported for unit tests.
+ */
+export function resolveQuoteAddresses(opts: {
+	fromIsSolana: boolean
+	toIsSolana: boolean
+	walletAddress: string | undefined
+	toWalletAddress: string | undefined
+	agentMetadata: Record<string, unknown> | null
+}): { fromAddress: string; toAddress: string } {
+	const fromAddress =
+		opts.walletAddress || (opts.fromIsSolana ? SOLANA_QUOTE_PLACEHOLDER : EVM_QUOTE_PLACEHOLDER)
+	if (opts.toWalletAddress) return { fromAddress, toAddress: opts.toWalletAddress }
+	// Same address family: legacy same-address default.
+	if (opts.fromIsSolana === opts.toIsSolana) return { fromAddress, toAddress: fromAddress }
+	const managed = opts.toIsSolana
+		? opts.agentMetadata?.wallet_address_solana
+		: opts.agentMetadata?.wallet_address
+	const toAddress =
+		typeof managed === 'string' && managed
+			? managed
+			: opts.toIsSolana
+				? SOLANA_QUOTE_PLACEHOLDER
+				: EVM_QUOTE_PLACEHOLDER
+	return { fromAddress, toAddress }
+}
+
 // ===========================================
 // PUBLIC ENDPOINTS (no auth required)
 // ===========================================
@@ -749,8 +810,17 @@ agentRoutes.post('/quote', async (c) => {
 		)
 	}
 
-	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } =
-		parsed.data
+	const {
+		from_token,
+		to_token,
+		amount,
+		chain,
+		from_chain,
+		to_chain,
+		wallet_address,
+		to_wallet_address,
+		slippage,
+	} = parsed.data
 
 	// Track request
 	await runEffectEither(
@@ -775,7 +845,7 @@ agentRoutes.post('/quote', async (c) => {
 	}
 
 	// Check if this is a Solana swap
-	if (isSolanaChain(chainKey)) {
+	if (classifyQuoteRoute(chainKey, to_chain) === 'jupiter') {
 		// Use Jupiter for Solana
 		const result = await runEffectEither(
 			Effect.gen(function* () {
@@ -939,8 +1009,13 @@ agentRoutes.post('/quote', async (c) => {
 			}
 			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
 
-			// Use a placeholder address if none provided
-			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
+			const { fromAddress, toAddress } = resolveQuoteAddresses({
+				fromIsSolana: sourceChainInfo.key === 'solana',
+				toIsSolana: destChainInfo.key === 'solana',
+				walletAddress: wallet_address,
+				toWalletAddress: to_wallet_address,
+				agentMetadata: (agent.metadata as Record<string, unknown> | null) ?? null,
+			})
 
 			// Build quote params
 			const quoteParams: QuoteParams = {
@@ -950,6 +1025,7 @@ agentRoutes.post('/quote', async (c) => {
 				toToken: toTokenInfo.address,
 				fromAmount: fromAmountWei,
 				fromAddress,
+				toAddress,
 				slippage: slippage || 0.03,
 				order: 'RECOMMENDED',
 				integrator: 'suwappu-agent',
@@ -1999,7 +2075,10 @@ agentRoutes.post('/swap/simulate', async (c) => {
 		)
 	}
 
-	if (isSolanaChain(chainKey)) {
+	// Mirror the /quote routing: solana->solana simulates via Jupiter, every
+	// other combination (including EVM<->Solana) via Li.Fi. Routing on the
+	// source chain alone would silently simulate the wrong leg.
+	if (classifyQuoteRoute(chainKey, to_chain) === 'jupiter') {
 		const result = await runEffectEither(
 			Effect.gen(function* () {
 				const jupiterService = yield* JupiterService
@@ -2108,7 +2187,13 @@ agentRoutes.post('/swap/simulate', async (c) => {
 			// A placeholder sender when none is given keeps Li.Fi routing working (as
 			// /quote does); the simulation checks below only run against a REAL
 			// fromAddress (wallet_address), never the placeholder.
-			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
+			const { fromAddress, toAddress } = resolveQuoteAddresses({
+				fromIsSolana: sourceChainInfo.key === 'solana',
+				toIsSolana: destChainInfo.key === 'solana',
+				walletAddress: wallet_address,
+				toWalletAddress: undefined,
+				agentMetadata: (agent.metadata as Record<string, unknown> | null) ?? null,
+			})
 
 			const quoteParams: QuoteParams = {
 				fromChain: sourceChainInfo.id,
@@ -2117,6 +2202,7 @@ agentRoutes.post('/swap/simulate', async (c) => {
 				toToken: toTokenInfo.address,
 				fromAmount: fromAmountWei,
 				fromAddress,
+				toAddress,
 				slippage: slippage || 0.03,
 				order: 'RECOMMENDED',
 				integrator: 'suwappu-agent',
