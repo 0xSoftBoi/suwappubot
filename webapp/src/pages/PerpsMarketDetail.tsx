@@ -1,7 +1,8 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
-import { SkeletonCard } from '../components/ui'
+import { SkeletonCard, RegionRestrictedNotice } from '../components/ui'
 import { usePerpsMarkets } from '../hooks/usePerpsMarkets'
+import { isRegionRestrictedError } from '../lib/api'
 
 function formatPrice(v: number): string {
   if (v >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 2 })
@@ -17,7 +18,8 @@ function formatFunding(rate: number): string {
 export function PerpsMarketDetail() {
   const { symbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
-  const { data: markets, isLoading } = usePerpsMarkets()
+  const { data: markets, isLoading, error } = usePerpsMarkets()
+  const regionRestricted = isRegionRestrictedError(error)
 
   const market = markets?.find((m) => m.name === symbol)
 
@@ -27,13 +29,15 @@ export function PerpsMarketDetail() {
       activeNav="earn"
     >
       <div className="p-3 pb-20 space-y-3">
-        {isLoading && (
+        {regionRestricted && <RegionRestrictedNotice feature="Futures" />}
+
+        {!regionRestricted && isLoading && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
             <SkeletonCard rows={4} variant="token" />
           </div>
         )}
 
-        {!isLoading && !market && (
+        {!regionRestricted && !isLoading && !market && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">
             <span className="text-4xl block mb-2">❌</span>
             <p className="font-heading font-semibold text-suwappu-text">Market not found</p>
