@@ -189,6 +189,8 @@ export {
 	CHAINS,
 	type ChainInfo,
 	COMMON_TOKENS,
+	SOLANA_CHAIN_INFO,
+	SOLANA_LIFI_CHAIN_ID,
 	TEMPO_TOKEN_DECIMALS,
 	commonTokenDecimals,
 	type TokenInfo,

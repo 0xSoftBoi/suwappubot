@@ -40,7 +40,9 @@ const solanaAddressSchema = z
 	.regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address format')
 
 /** Either an EVM or a Solana wallet address — simulate/quote requests are agnostic to chain_type at the schema level. */
-const walletAddressSchema = z.union([evmAddressSchema, solanaAddressSchema])
+const walletAddressSchema = z.union([evmAddressSchema, solanaAddressSchema], {
+	error: 'Invalid wallet address: expected a 0x EVM address or a base58 Solana address',
+})
 
 /** Positive token amount with an upper cap to prevent accidental whole-portfolio swaps. */
 const tokenAmountSchema = z
@@ -104,7 +106,12 @@ export const QuoteRequestSchema = z.object({
 	chain: z.string().optional(),
 	from_chain: z.string().optional(),
 	to_chain: z.string().optional(),
-	wallet_address: evmAddressSchema.optional(),
+	wallet_address: walletAddressSchema.optional(),
+	// Destination address for cross-chain quotes. Required in practice for
+	// EVM<->Solana (one address cannot serve both address families); when
+	// omitted, the agent's managed wallet for the destination chain is used,
+	// falling back to a chain-appropriate quote-only placeholder.
+	to_wallet_address: walletAddressSchema.optional(),
 	slippage: z.number().min(0).max(0.5).optional(),
 })
 
