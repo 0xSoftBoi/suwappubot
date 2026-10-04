@@ -96,9 +96,12 @@ class ApiClient {
       ...(options.headers as Record<string, string>),
     }
 
+    // Casino-grade: no request hangs forever. 15s is generous for API calls;
+    // React Query retries (see main.tsx) handle transient failures.
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers,
+      signal: options.signal ?? AbortSignal.timeout(15000),
     })
 
     if (!response.ok) {

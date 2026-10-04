@@ -20,7 +20,21 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: false,
+    // Casino-grade: split the 950KB+ main bundle so the first paint isn't
+    // blocked on code the user may never touch. Vendor chunks are cached
+    // independently and change rarely.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-ui': ['framer-motion', 'react-hot-toast', 'qrcode.react'],
+          'vendor-charts': ['lightweight-charts'],
+          'vendor-i18n': ['i18next', 'react-i18next'],
+        },
+      },
+    },
   },
   test: {
     globals: true,
