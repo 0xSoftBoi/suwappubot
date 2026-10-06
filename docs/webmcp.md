@@ -77,16 +77,13 @@ says so, and so does `read_mandate`'s own payload.
    *proposal*. `propose_swap` / `propose_plan` return
    `awaiting_human_approval` (or `blocked_by_mandate_awaiting_human`) and a
    `proposalId`. Nothing else happens.
-2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — bridge,
-   buy, set an alert — prices every leg, rolls them into one combined notional,
-   and asks for one approval. Agents think in plans; the desk lets them.
-   Steps **chain**: a swap leg with `amount: "@prev"` sells the previous swap
-   leg's estimated output, inheriting its landing chain and token — the shape
-   of a real multi-hop relay, where later legs trade what earlier legs deliver
-   rather than new money. A chained leg that doesn't pick up where the last
-   one lands (wrong token, wrong chain) is refused at proposal time, and the
-   combined notional counts new money once instead of re-billing the daily
-   cap for every re-trade of it.
+2. **Plans, not clicks.** `propose_plan` takes up to five ordered steps — a
+   cross-chain swap, then an alert on what it bought — prices every leg, rolls
+   them into one combined notional, and asks for one approval. Agents think in
+   plans; the desk lets them. A cross-chain trade is one swap step, not a
+   bridge step plus a buy step: the aggregator already routes it as a single
+   multi-hop quote (see `hops` below), priced together and signed as one
+   handoff.
 3. **The agent waits for a person, not a poll.** `check_approval(proposalId,
    waitSeconds)` blocks up to 120s and resolves the instant the human clicks,
    carrying back any note they typed. Proposals expire after 10 minutes.
@@ -159,7 +156,7 @@ instruction-injection-shaped description is now gone.
 | `compare_routes` | read | The same swap as RECOMMENDED / FASTEST / CHEAPEST / SAFEST |
 | `read_desk` | read | Ticket, quote, mandate headroom, proposals, activity |
 | `propose_swap` | propose | One trade + rationale in front of the human |
-| `propose_plan` | propose | An ordered multi-step plan as one approval; `amount: "@prev"` chains a leg onto the previous leg's output |
+| `propose_plan` | propose | An ordered multi-step plan as one approval |
 | `propose_price_alert` | propose | An alert to arm in the bot |
 | `check_approval` | read | Block on / poll the human's decision, with their note |
 | `request_override` | unlocked | Only while blocked: argue for bending one rule |
@@ -185,14 +182,14 @@ step detail.
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 98 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 92 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **98 assertions**, among them: that the ticket
+drives the real page through **92 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is
@@ -215,14 +212,9 @@ own earlier persuasion for instruction (Spotlighting, arXiv:2403.14720); and a
 WASP-style decoy DOM element plus instruction-bearing form values cannot
 redirect the declarative ticket. The multi-hop assertions: a cross-chain
 preview reports each route leg with its tool and chains while a same-chain
-one is honestly one hop; a plan leg with `amount: "@prev"` inherits the
-previous leg's output token, chain and estimated amount and is flagged as
-chained everywhere it is echoed; the combined notional counts new money once
-rather than re-billing each re-trade; a chain with nothing to chain
-from, or one that doesn't pick up where the last leg lands, is refused
-rather than guessed; and the human-facing surfaces match what the agent is
-told — the proposal card renders a cross-chain trade's legs in the DOM, and
-the route comparison table carries a Legs column.
+one is honestly one hop; and the human-facing surfaces match what the agent
+is told — the proposal card renders a cross-chain trade's legs in the DOM,
+and the route comparison table carries a Legs column.
 
 `scripts/evals-adversarial-smoke.mjs` (**49 assertions**) drives six
 injection-shaped strings through agent-supplied arguments — a token query, a

@@ -652,81 +652,6 @@ check(
   JSON.stringify(planReplay),
 );
 
-// ── 7c. chained legs: a plan can be a true multi-hop relay ─────────
-// `amount: "@prev"` makes a leg sell the previous leg's estimated output —
-// the shape of a real relay (bridge, then trade what arrived) instead of
-// N unrelated tickets. New money is counted once, not per re-trade.
-const chainedPlan = await call('propose_plan', {
-  rationale: 'Bridge a slice to Arbitrum, then rotate whatever arrives back into ETH there.',
-  steps: [
-    {
-      kind: 'swap',
-      fromChain: 'base',
-      toChain: 'arbitrum',
-      fromToken: 'ETH',
-      toToken: 'USDC',
-      amount: '0.004',
-      note: 'bridge leg',
-    },
-    {
-      kind: 'swap',
-      toToken: 'ETH',
-      amount: '@prev',
-      note: 'sell what the bridge delivers',
-    },
-  ],
-});
-show('propose_plan (chained)', chainedPlan);
-check(
-  'the chained leg inherited the previous leg\'s output token and chain',
-  chainedPlan.shownToHuman?.legs?.[1]?.startsWith('↳') &&
-    chainedPlan.shownToHuman.legs[1].includes('USDC → ETH'),
-  JSON.stringify(chainedPlan.shownToHuman?.legs),
-);
-check(
-  'a chained plan says so, and says amounts are indicative',
-  typeof chainedPlan.chaining === 'string' && chainedPlan.chaining.includes('indicative'),
-);
-// Leg 1 puts ~$12.80 in; leg 2 re-trades it. The combined notional must be
-// the new money only — the old sum-of-legs would double-count the relay.
-check(
-  'combined notional counts new money once, not each re-trade of it',
-  typeof chainedPlan.shownToHuman?.combinedUsd === 'number' &&
-    chainedPlan.shownToHuman.combinedUsd < 100,
-  String(chainedPlan.shownToHuman?.combinedUsd),
-);
-const deskWithChainedPlan = await call('read_desk');
-const chainedAtDesk = deskWithChainedPlan.proposals.find(
-  (p) => p.proposalId === chainedPlan.proposalId,
-);
-check(
-  'read_desk flags which leg is chained',
-  chainedAtDesk?.plan?.steps?.[0]?.chainedFromPrevious === false &&
-    chainedAtDesk?.plan?.steps?.[1]?.chainedFromPrevious === true,
-  JSON.stringify(chainedAtDesk?.plan?.steps),
-);
-const chainlessPrev = await call('propose_plan', {
-  rationale: 'A chain with nothing to chain from.',
-  steps: [{ kind: 'swap', fromChain: 'base', toToken: 'USDC', amount: '@prev' }],
-}).catch((e) => ({ error: String(e?.message ?? e) }));
-check(
-  '"@prev" on the first step is refused, not guessed',
-  Boolean(chainlessPrev.error) && String(chainlessPrev.error).includes('earlier swap step'),
-  JSON.stringify(chainlessPrev),
-);
-const mismatchedChain = await call('propose_plan', {
-  rationale: 'A chained leg that does not pick up where the last one landed.',
-  steps: [
-    { kind: 'swap', fromChain: 'base', toChain: 'arbitrum', fromToken: 'ETH', toToken: 'USDC', amount: '0.004' },
-    { kind: 'swap', fromToken: 'ETH', toToken: 'USDC', amount: '@prev' },
-  ],
-}).catch((e) => ({ error: String(e?.message ?? e) }));
-check(
-  'a chained leg selling a token the previous leg does not deliver is refused',
-  Boolean(mismatchedChain.error) && String(mismatchedChain.error).includes('delivers'),
-  JSON.stringify(mismatchedChain),
-);
-
 // ── 8. the completion loop: the envelope really changes ────────────
 // This is the one thing on the desk that finishes in place. Everything else
 // ends in a handoff; an approved amendment rewrites the human's rules here.
@@ -802,8 +727,8 @@ check(
 // ── 10. the receipt (default shape, now with wrapped agent text) ───
 const receipt = await call('export_receipt', {});
 check(
-  'receipt lists both swaps, both plans and the amendment',
-  receipt.proposals.length === 5,
+  'receipt lists both swaps, the plan and the amendment',
+  receipt.proposals.length === 4,
   String(receipt.proposals.length),
 );
 const overridden = receipt.proposals.find((p) => p.id === blocked.proposalId);
