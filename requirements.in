@@ -39,7 +39,7 @@ urllib3>=2.7.0
 
 # ---- LLM (natural-language trade intent parsing, NL_TRADING_ENABLED) ----
 anthropic
-openai==2.53.0
+openai==3.24.0
 
 # ---- Agent immune system (AEGIS scanner, observe mode — docs/plans/aegis-fork-extend.md) ----
 # Pinned to an immutable upstream commit; repoint to the 0xsoftboi/aegis fork once created.
