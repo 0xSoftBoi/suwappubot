@@ -24,7 +24,7 @@ annotated-doc==0.0.4
     # via fastapi
 annotated-types==0.7.0
     # via pydantic
-anthropic==0.120.2
+anthropic==1.11.0
     # via -r requirements.in
 anyio==4.14.2
     # via
@@ -76,9 +76,7 @@ cytoolz==1.1.0
 discord-py==2.7.1
     # via -r requirements.in
 distro==1.9.0
-    # via
-    #   anthropic
-    #   openai
+    # via openai
 dnspython==2.8.0
     # via -r requirements.in
 docstring-parser==0.18.0
@@ -172,7 +170,6 @@ httpx[http2]==0.28.1
     # via
     #   -r requirements.in
     #   aegis-shield
-    #   anthropic
     #   openai
     #   py-clob-client
     #   python-telegram-bot
@@ -180,6 +177,7 @@ httpx[http2]==0.28.1
 httpx2[http2]==2.12.0
     # via
     #   -r requirements.in
+    #   anthropic
     #   solana
 hyperframe==6.1.0
     # via h2
