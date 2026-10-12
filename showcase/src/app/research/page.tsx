@@ -45,6 +45,12 @@ const decisionLenses = [
     href: '/research/airdrop-concentration',
     label: 'Model validation',
   },
+  {
+    seat: 'Onboarding / funding',
+    question: 'When a bot routes native deposits through a third-party MPC bridge, which trust decisions does the bot actually enforce and which stay with the user?',
+    href: '/research/hyperliquid-egress',
+    label: 'HyperUnit integration',
+  },
 ] as const;
 
 export const metadata: Metadata = {
