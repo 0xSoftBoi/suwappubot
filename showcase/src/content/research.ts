@@ -883,10 +883,14 @@ const HYPERUNIT_BODY = `# Building HyperLiquid into a bot: HyperUnit, region gat
 | **DATE** | 12 October 2026 |
 | **RE** | What a bot's HyperLiquid integration teaches about bridge trust, geo-blocking, and settlement finality |
 
+## Why now
+
+Three things happened in the last year that make this memo timely rather than timeless. The FSB's October 2025 thematic peer review found "significant gaps and inconsistencies" in crypto-asset supervision, with global stablecoin arrangements lagging — the venues at HyperLiquid's scale are growing inside that gap. ESMA's October 2026 opinion gave crypto platforms three months to strip out non-MiCA stablecoins — the compliance perimeter is moving under live products. And HyperLiquid itself blocked HTX-linked wallets in June 2026 after UK sanctions — a venue enforcing sanctions at the application layer, in real time, against real users. The questions below are operational, not theoretical.
+
 ## Executive summary
 
 1. **Bridges were the dominant crypto-theft surface, and keys — not code — caused the largest losses.** Chainalysis counted $2 billion stolen across 13 bridge hacks in 2022, 69% of all stolen crypto funds that year. The three largest key-compromise cases (Ronin, Multichain, Harmony Horizon) were all attributed to North-Korea-linked actors. Any institution touching a bridge is underwriting a key-management story first and a smart-contract story second.
-2. **HyperUnit's trust model is materially stronger than the multisigs that failed — but it is unaudited, and its integrators verify less than it provides.** A 2-of-3 guardian threshold with enclaved key shares and circuit-breaker pause policies compares favorably with the 2-of-4 multisig behind the $100M Harmony Horizon theft. No public audits of HyperUnit were found. The bot studied here checks that two guardian signatures are *present* on a deposit address; it does not verify they are *authentic*. Signature count is not authentication.
+2. **HyperUnit's trust model is materially stronger than the multisigs that failed — but it is unaudited, its integrators verify less than it provides, and its parameters have already drifted.** A 2-of-3 guardian threshold with enclaved key shares and circuit-breaker pause policies compares favorably with the 2-of-4 multisig behind the $100M Harmony Horizon theft. No public audits of HyperUnit were found. The bot studied here checks that two guardian signatures are *present* on a deposit address; it does not verify they are *authentic* — even though the bridge publishes the guardian keys and reference verification code and asks integrators to use them. And the bot's hardcoded deposit minimums have already drifted from the bridge's published schedule: its SOL floor now sits *below* the bridge's. Signature count is not authentication, and a hardcoded table is not a control.
 3. **Geo-blocking's real guarantee is "blocked when positively known."** OFAC's enforcement record shows the failure mode is always the ongoing/unknown case: Bittrex paid $24.3M after failing to screen IP addresses at all; Kraken paid $362K for applying geolocation at onboarding only, despite holding IP data on subsequent transactions. No FATF, OFAC, or EU publication squarely evaluates geo-blocking effectiveness — the control is required but unmeasured.
 4. **Settlement is not finality, and a warning is not a control.** A completed first leg without the second is value in limbo — Herstatt's shape, unchanged since 1974. The bot's CCTP rail documents exactly this stranding risk in prose while nothing in code prevents it.
 5. **Ingress without disclosed egress is a consumer-protection pattern worth naming.** Three deposit rails run in; zero bot-mediated withdrawals run out. The venue's exit exists, but the intermediary that engineered the entrance says nothing about it.
@@ -922,6 +926,8 @@ That is a serious design — threshold signatures in enclaves with a pause butto
 
 - **No public audits were found.** The documentation was last updated around January 2026. Do not represent HyperUnit as audited; we do not.
 - **Guardian identities beyond the three named organizations are not publicly disclosed**, and no threshold change has been announced.
+
+![Three bridge guardian configurations: Ronin 5-of-9 and Harmony Horizon 2-of-4 both failed through key compromise; HyperUnit 2-of-3 uses threshold signatures in secure enclaves and remains operating.](/research/guardian-thresholds.svg "A 5-of-9 failed and a 2-of-3 holds: quorum size never was the security variable. HyperUnit is unaudited; operating is absence of incident, not proof of security.")
 - **The FSB's October 2025 thematic peer review** found "significant gaps and inconsistencies" in jurisdictions' implementation of its crypto-asset recommendations, with global stablecoin arrangements lagging in particular — the supervisory perimeter around venues like this is still being built.
 
 ## 3. A signature count is not an authentication
@@ -933,6 +939,22 @@ The threshold is the honest control; its limit is the memo's second takeaway. Th
 This is the exact shape of risk the US banking agencies' interagency third-party guidance (OCC Bulletin 2023-17, June 2023) addresses: a bank's use of a third party does not diminish its obligations — the third party is treated as an extension of the bank, managed across the relationship lifecycle by risk, substitutability, and failure mode. We cite it as the supervisory vocabulary for the question, not as a claim that it governs this bot. The question it frames is the right one: **what does the intermediary verify itself, and what does it take on faith?** Here the answer is documented: presence, not authenticity; and the documentation — not the marketing — is where that answer lives.
 
 The remaining non-enforcements, stated plainly: nothing reconciles the minted amount against what was sent; the region check lives in the Telegram handler, so any future caller of the bridge client bypasses it silently; and mint-status polling is manual only — past the ETA the user just keeps tapping "check status."
+
+### Measured October 12, 2026: the drift is real
+
+The memo's warnings about hardcoded tables and unverified signatures were checked against the bridge's live documentation today. Both proved out.
+
+**Minimums.** The bot hardcodes deposit floors of 0.002 BTC, 0.05 ETH, and 0.1 SOL. HyperUnit's published schedule today reads 0.0003 BTC, 0.007 ETH, and **0.12 SOL** — and notes that the guardians "may adopt changes to minimums." The BTC and ETH drift is conservative (the bot demands more than the bridge), which fails safe. The SOL drift is not: a 0.1–0.119 SOL deposit passes the bot's guardrail and falls into the bridge's unprocessable range ("transactions below the minimum amounts cannot be processed"). The guardrail no longer guards. There is a documented revert process for eligible cases; "eligible" and "automatic" are doing work in that sentence that the bot does not do for the user.
+
+| Asset | Bot's hardcoded floor | Bridge's published floor (Oct 12, 2026) | Direction |
+|---|---|---|---|
+| BTC | 0.002 | 0.0003 | Conservative (safe) |
+| ETH | 0.05 | 0.007 | Conservative (safe) |
+| SOL | 0.1 | 0.12 | **Below bridge floor (unsafe)** |
+
+**Key-pinning.** The bridge's documentation publishes the mainnet guardian public keys, ships reference verification code, and states that developers "are encouraged to incorporate address verification in their interfaces." The bot does not. This moves the finding from "the bridge doesn't support verification" to the sharper true statement: **the bridge hands integrators the keys, the code, and the request — and the integrator declines.** That is a diligence question for any bank evaluating a bridge integration: not "does the bridge support verification" but "does your vendor perform it."
+
+*Sources: HyperUnit "Supported Assets" (docs.hyperunit.xyz) and "Guardian Signatures" (docs.hyperunit.xyz), read October 12, 2026; bot source as cited in the Evidence ledger.*
 
 ## 4. What happens on unknown: geo-blocking's real guarantee
 
@@ -1006,6 +1028,7 @@ A final detail for the diligence file: sub-minimum deposits on federated bridges
 - OFAC, Kraken enforcement release (Nov 28, 2022). https://ofac.treasury.gov/media/929541/download
 - U.S. Treasury, Garantex/Grinex designations (Aug 14, 2025). https://home.treasury.gov/news/press-releases/sb0225
 - GAO-24-106178, "Economic Sanctions: Agency Efforts Help Mitigate Some of the Risks Posed by Digital Assets" (Dec 13, 2023).
+- HyperUnit, "Supported Assets" and "Guardian Signatures" documentation (docs.hyperunit.xyz) — read live Oct 12, 2026 for the minimums and key-publication measurements.
 - Implementation claims: current Suwappu main (bot/services, bot/handlers, api-ts middleware), source-verified Oct 12, 2026; production provisioning unverified.
 
 ---
