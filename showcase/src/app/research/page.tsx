@@ -148,7 +148,7 @@ export default function ResearchPage() {
         <section className={styles.decisionMap} aria-labelledby="decision-map">
           <div className={styles.sectionLabel}>
             <span id="decision-map">Read by decision</span>
-            <span>Five institutional lenses · one evidence standard</span>
+            <span>{decisionLenses.length} institutional lenses · one evidence standard</span>
           </div>
           <div className={styles.decisionList}>
             {decisionLenses.map((lens, index) => (
