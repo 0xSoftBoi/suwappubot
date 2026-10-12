@@ -908,6 +908,8 @@ Before the integration detail, the loss data — because it sets the stakes for 
 
 *Sources: Chainalysis, "Cross-Chain Bridge Hacks Emerge as Top Security Risk" (Aug 2, 2022) — $2B across 13 bridge hacks in 2022, 69% of stolen funds; CertiK, The Register, FBI attributions as cited in Sources.*
 
+![Bar chart of the six largest bridge exploits: key-compromise losses (Ronin $624M, Multichain $126M, Harmony $100M) exceed smart-contract-bug losses, and the key-compromise cases were attributed to North-Korean actors.](/research/bridge-exploits.svg "Keys lost more than code did. Chainalysis: $2B across 13 bridge hacks in 2022 — 69% of all stolen crypto funds that year.")
+
 Two patterns matter for what follows. First, the key-compromise losses (Ronin, Multichain, Harmony) exceed the smart-contract-bug losses, and the former were state-actor operations. Second, Wormhole's failure mode — a *forged guardian signature* that bypassed verification — is the precise attack that a "two signatures present" check does not defend against. Keep that in mind for section 3.
 
 The venue at the center of this memo operates at a scale where these are not theoretical risks. HyperLiquid's TVL was reported around $5.9B in mid-2026 and $7.5B by September 2026, with 2025 trading volume near $2.9T. It also geo-blocks at the interface layer — US persons, Ontario residents, and sanctioned jurisdictions are excluded in its Terms, and in June 2026 it blocked HTX-linked wallets after UK sanctions on Huobi. The bridge this memo studies serves that venue.
@@ -952,9 +954,13 @@ The most important compliance question about any geo-restriction is the one nobo
 
 *Sources: U.S. Treasury/OFAC releases (treasury.gov, ofac.treasury.gov).*
 
+![Log-scale chart of OFAC crypto penalties 2022–2025, from Kraken's $362K to Binance's $4.3B+, with OFAC's Kraken finding quoted: geolocation applied at onboarding only, despite IP data on subsequent transactions.](/research/ofac-enforcement.svg "The failure mode is the ongoing case. Bittrex total includes the parallel $29.3M FinCEN action.")
+
 The Kraken finding is the one to memorize: the violation was not the absence of a geo-block but its **temporal scope** — onboarding-only in a world where IP data existed for every subsequent transaction. Every geo-compliance claim decomposes into an identification step and a default step. Vendors will show you the first and bury the second. The question to ask is always the second one — and then the third: what is the *ongoing* scope?
 
 Two further findings for the diligence file. First, the venue geo-blocking stack, per Binance's own 2023 account: KYC nationality, IP including known VPN endpoints, mobile carrier, device fingerprints, banking and blockchain deposit data, card BINs — defense in depth, because any single signal (IP especially) is spoofable; the CFTC separately alleged Binance coached US users to use VPNs. Second, an honest gap: **no FATF, OFAC, or EU publication squarely evaluates geo-blocking effectiveness for virtual-asset providers.** OFAC enforcement treats ongoing geolocation screening as expected; FATF treats IP tracing as a CDD input. The control is required but unmeasured — which means every effectiveness claim about it is currently an assertion, not a finding.
+
+![Diagram of three independent geo-blocking layers — the bot's user-facing gate, the bot's non-US infrastructure egress, and the bridge's own enforcement — each able to hold while another gives.](/research/geo-blocking-layers.svg "Three layers, three independent failures. The Kraken lesson applies at every layer: controls must cover ongoing activity, not onboarding only.")
 
 For the record, this memo's own stack does not speak with one voice: the sticky region is written by the API middleware and read by the Python bot, but the Python derivatives gate fails open — so a user with an empty stored region passes the Telegram perps handlers while the API layer would 451 the same user on an observed restricted IP. And the trusted IP-country header is honored only with a configured provenance secret; without one, any caller can spoof it. Whether that secret is set in production is unverified — which is itself the lesson: a control whose precondition is a deployment setting is only as strong as the setting.
 
