@@ -926,6 +926,8 @@ That is a serious design — threshold signatures in enclaves with a pause butto
 
 - **No public audits were found.** The documentation was last updated around January 2026. Do not represent HyperUnit as audited; we do not.
 - **Guardian identities beyond the three named organizations are not publicly disclosed**, and no threshold change has been announced.
+- **Sanctions screening lives at the guardian, not the protocol.** Unit Labs states that its guardian screens wallet addresses against the OFAC SDN list and will not propose or sign transactions that fail screening — but "each Guardian validator operates independently and may apply its own compliance standards." Screening is per-guardian policy, not a protocol guarantee: with a 2-of-3 threshold, one guardian's refusal does not stop the other two. IP geofencing and VPN detection, meanwhile, are explicitly frontend-only: "Unit Labs makes no representations about other sites or platforms." The bridge's real sanctions control is address screening at consensus; its geography control stops at its own website. An integrator's region gate is therefore a *terms* control, not a *sanctions* control — a distinction a bank's counsel should insist on.
+- **The "no public audit" finding is corroborated independently.** An October 2026 third-party explainer likewise notes that Unit's documentation cites no completed third-party security audit. Operational history is also public: when one guardian went offline on April 15, 2025, Bitcoin withdrawals and address generation were delayed — a live demonstration that 2-of-3 means the system *degrades* gracefully but the user still waits.
 
 ![Three bridge guardian configurations: Ronin 5-of-9 and Harmony Horizon 2-of-4 both failed through key compromise; HyperUnit 2-of-3 uses threshold signatures in secure enclaves and remains operating.](/research/guardian-thresholds.svg "A 5-of-9 failed and a 2-of-3 holds: quorum size never was the security variable. HyperUnit is unaudited; operating is absence of incident, not proof of security.")
 - **The FSB's October 2025 thematic peer review** found "significant gaps and inconsistencies" in jurisdictions' implementation of its crypto-asset recommendations, with global stablecoin arrangements lagging in particular — the supervisory perimeter around venues like this is still being built.
@@ -944,13 +946,17 @@ The remaining non-enforcements, stated plainly: nothing reconciles the minted am
 
 The memo's warnings about hardcoded tables and unverified signatures were checked against the bridge's live documentation today. Both proved out.
 
-**Minimums.** The bot hardcodes deposit floors of 0.002 BTC, 0.05 ETH, and 0.1 SOL. HyperUnit's published schedule today reads 0.0003 BTC, 0.007 ETH, and **0.12 SOL** — and notes that the guardians "may adopt changes to minimums." The BTC and ETH drift is conservative (the bot demands more than the bridge), which fails safe. The SOL drift is not: a 0.1–0.119 SOL deposit passes the bot's guardrail and falls into the bridge's unprocessable range ("transactions below the minimum amounts cannot be processed"). The guardrail no longer guards. There is a documented revert process for eligible cases; "eligible" and "automatic" are doing work in that sentence that the bot does not do for the user.
+**Minimums.** The bot hardcodes deposit floors of 0.002 BTC, 0.05 ETH, and 0.1 SOL — written once on June 18, 2026 and never touched since (git-verified; ~4 months of drift). Checked against the bridge's documentation today, the numbers disagree in *both* directions:
 
-| Asset | Bot's hardcoded floor | Bridge's published floor (Oct 12, 2026) | Direction |
+| Asset | Bot's hardcoded floor | Bridge docs: deposit-lifecycle page | Bridge docs: supported-assets page |
 |---|---|---|---|
-| BTC | 0.002 | 0.0003 | Conservative (safe) |
-| ETH | 0.05 | 0.007 | Conservative (safe) |
-| SOL | 0.1 | 0.12 | **Below bridge floor (unsafe)** |
+| BTC | 0.002 | 0.002 | 0.0003 |
+| ETH | 0.05 | 0.05 | 0.007 |
+| SOL | 0.1 | 0.2 | 0.12 |
+
+Three findings in one table. First, the bridge's own documentation is internally inconsistent: two official pages state different minimums for every asset. Second, the bot's table matches one page for BTC/ETH and *neither* page for SOL — it is a snapshot of a moving target, pinned to no version. Third, the unsafe direction is real: a 0.1–0.119 SOL deposit passes the bot's guardrail and falls below both of the bridge's stated floors ("transactions below the minimum amounts cannot be processed"). The guardrail no longer guards. There is a documented revert process for eligible cases; "eligible" and "automatic" are doing work in that sentence that the bot does not do for the user.
+
+The general lesson is sharper than "sync your tables": **when the upstream cannot keep its own numbers consistent across two pages, any hardcoded copy is fragile by construction.** The control is not a table; it is a refresh policy — read the schedule at decision time, or fail closed when you cannot.
 
 **Key-pinning.** The bridge's documentation publishes the mainnet guardian public keys, ships reference verification code, and states that developers "are encouraged to incorporate address verification in their interfaces." The bot does not. This moves the finding from "the bridge doesn't support verification" to the sharper true statement: **the bridge hands integrators the keys, the code, and the request — and the integrator declines.** That is a diligence question for any bank evaluating a bridge integration: not "does the bridge support verification" but "does your vendor perform it."
 
@@ -996,6 +1002,12 @@ CPMI-IOSCO's July 2022 guidance applying the PFMI to stablecoin arrangements is 
 
 A final detail for the diligence file: sub-minimum deposits on federated bridges are not returned — they are destroyed. Hyperliquid's own bridge documentation states the 5 USDC minimum with "lost forever" below it; the same dust rule appears across orchestration providers. The bot's hard-minimum table is therefore not UX polish; it is the only thing standing between the user and irreversible loss.
 
+## The objection, answered
+
+The fair objection to this memo: HyperUnit is among the better bridge designs operating today — threshold signatures, enclaved key shares, circuit breakers, published guardian keys, guardian-level sanctions screening. The integrator studied here is a Telegram bot. Why should a bank care about the bot's mistakes rather than the bridge's design?
+
+Because banks never buy the bridge. They buy the integrator — the wallet, the API, the white-label frontend. Every institutional bridge exposure is mediated by someone's client code, and the client code is where this memo's findings live: the pinned table, the unchecked signatures, the region gate in the wrong layer. The bridge can be excellent and the integration can still fail the user. Diligence that stops at the bridge's architecture doc is diligence of the wrong object.
+
 ## 6. Implications
 
 | Seat | Implication |
@@ -1005,6 +1017,17 @@ A final detail for the diligence file: sub-minimum deposits on federated bridges
 | FMI oversight | Treat two-leg bridge flows as settlement risk until both legs are final by a defined rule. A documented warning without a code-level interlock is a disclosure, not a control. |
 | Consumer protection | Require intermediaries that engineer ingress to disclose the egress path and its operator. "You can deposit here" without "here is how you leave, and who operates it" is an incomplete disclosure. |
 | Central banks | The FSB's October 2025 peer review says stablecoin-arrangement supervision is lagging with "significant gaps" — the venues at HyperLiquid's scale are growing inside that gap. BIS work (Bulletin 108, AER 2025 Ch. III) is converging on the same point: stablecoin transfers do not settle on central-bank balance sheets and cannot ensure par across issuers and chains under all conditions. |
+
+## What Suwappu is changing
+
+This memo studies our own product, so it should say what changes. These are commitments, not aspirations:
+
+1. **Minimums move from hardcoded table to read-at-decision-time**, with fail-closed behavior when the schedule cannot be fetched. The SOL floor is corrected immediately.
+2. **Guardian signature verification gets implemented** — the bridge publishes the keys and the reference code; there is no remaining excuse.
+3. **The region check moves into the bridge client**, so every caller inherits it instead of only the Telegram handler.
+4. **Deposit status gets a real poller** backed by the operations API, replacing manual "tap to check."
+
+Each ships as its own change with its own review; this memo will be updated with links when they land.
 
 ## Risks — what would change our view
 
@@ -1030,7 +1053,9 @@ A final detail for the diligence file: sub-minimum deposits on federated bridges
 - OFAC, Binance enforcement (Nov 21, 2023): $968,618,825 settlement for 1,667,153 apparent violations, 2017–2022. https://ofac.treasury.gov/recent-actions/20231121
 - DefiLlama (via datawallet.com Hyperliquid statistics, late Sept 2026): Hyperliquid TVL $7.49B; ASXN Data: 2025 trading volume $2.95T. https://www.datawallet.com/crypto/hyperliquid-statistics
 - GAO-24-106178, "Economic Sanctions: Agency Efforts Help Mitigate Some of the Risks Posed by Digital Assets" (Dec 13, 2023).
-- HyperUnit, "Supported Assets" and "Guardian Signatures" documentation (docs.hyperunit.xyz) — read live Oct 12, 2026 for the minimums and key-publication measurements.
+- HyperUnit documentation, read live Oct 12, 2026: "Supported Assets," "Deposit Lifecycle" (internally inconsistent minimums), "Guardian Signatures" (published keys + reference code), "Regulatory Compliance" (per-guardian sanctions screening; frontend-only geofencing), "Security" (TSS/enclave architecture).
+- Datawallet, "Hyperunit Explained" (Oct 2026) — independent corroboration of no published audit; April 15, 2025 guardian outage.
+- Git history: bot minimums table introduced 2026-06-18 (dfb51845), unmodified since.
 - Implementation claims: current Suwappu main (bot/services, bot/handlers, api-ts middleware), source-verified Oct 12, 2026; production provisioning unverified.
 
 ---
