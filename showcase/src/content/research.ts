@@ -874,73 +874,77 @@ ERC-8056's design is interesting precisely because it tries to preserve the raw 
 
 const HYPERUNIT_BODY = `# Building HyperLiquid into a bot: HyperUnit, region gating, and egress
 
-*Engineering control note. Source-verified against current main on 12 October 2026. This describes how the bot moves native assets onto HyperLiquid, where the compliance gates sit, and where the bot's responsibility ends. It is not a claim about production provisioning, and it does not assert that any geo-restriction regime is satisfied.*
+*Engineering control note. Source-verified against current main on 12 October 2026. Written for the compliance, risk, and oversight reader: what a bank, a central bank, or a regulator can learn from where one bot draws its responsibility boundaries. This is not a claim about production provisioning, and it does not assert that any geo-restriction regime is satisfied.*
 
-Three separate problems arrive under one integration. A bot that touches HyperLiquid needs a way to get **native** assets (not just USDC) onto HyperCore, a defensible answer to **who may use which path**, and a clear statement of **where funds can leave**. The current source answers all three, but not with the same posture — and the differences are the point.
+The most important compliance question about any geo-restriction is the one nobody puts in the brochure: **what happens when the region is unknown?**
 
-| Thread | What the bot does | The control question |
+This note answers it twice, differently, from a single codebase — and that is the honest version. A bot that touches HyperLiquid has to move native assets onto HyperCore, decide who may use which path, and say where funds can leave. The current source does all three. The interesting part is not the feature list. It is where the guarantees degrade, and the fact that the degradation is documented in code rather than discovered in an incident.
+
+Viewed from the user, this is a deposit feature. Viewed from a bank or a regulator, it is three case studies in where an intermediary's responsibility actually ends.
+
+| Seat | Decision question | What this note can actually say |
 |---|---|---|
-| HyperUnit deposits | Generates a per-(asset, destination) deposit address; watches the mint | Can a bot hand a user a third-party bridge address without becoming the custodian of the trust decision? |
-| Region gating | Two postures: derivatives fail-open, HyperUnit fail-closed | What does "blocked in your region" actually guarantee when the region is unknown? |
-| Egress | Non-US egress for HyperUnit's own geo-block; no bot-mediated withdrawal | Where does the bot's responsibility end — at the API call, or at the user's funds? |
+| Bank compliance | When we rely on a vendor's geo-block, what is the guarantee on unknown? | "Blocked when positively known." Unknown resolves to a documented default that differs by surface — fail-open for derivatives, fail-closed for HyperUnit. Ask vendors for their default. |
+| FMI oversight / settlement risk | Where does settlement risk live in a two-leg bridge deposit? | Between the legs. A completed send without the mint is the limbo state; a documented warning is not a control. |
+| Consumer protection | Who tells the user how funds leave the venue? | In this implementation, nobody in the bot. Ingress is engineered; egress is the venue's frontend. Name the pattern. |
+| Third-party risk | What does the intermediary actually verify about the bridge? | Signature *count* (two present), not signer *authenticity* (no key-pinning yet). The boundary is explicit rather than laundered. |
 
-## 1. HyperUnit: someone else's bridge, our guardrails
+We borrow two institutional lenses and classify nothing with them. [CPMI-IOSCO's PFMI Principle 8](https://www.bis.org/pfmi/help/principleid.htm) calls for clear and certain final settlement — we use it as vocabulary for separating a completed first leg from settled funds. The [US banking agencies' third-party guidance](https://www.occ.treas.gov/news-issuances/bulletins/2023/bulletin-2023-17.html) manages relationships by order-level role, substitutability, and failure mode — we use it to ask what the intermediary verifies versus assumes about the bridge. Neither is asserted to apply to Suwappu or HyperUnit.
 
-HyperUnit is the canonical bridge for native BTC, ETH, and SOL onto HyperLiquid's HyperCore as spot balances. A user sends the real asset to a deterministic deposit address; HyperUnit's 2-of-3 MPC guardian set (Unit, Hyperliquid Labs, Infinite Field) mints the spot equivalent — UBTC, UETH, and so on — directly into the user's HyperCore account.
+## 1. What happens on unknown: two documented defaults
 
-The bot's client only *generates the address and watches the mint*. It never holds keys and never signs; the user funds the returned address through the bot's existing per-chain send path. That is a deliberate custody boundary: the bot is an introducer to the bridge, not a party to the MPC.
+**Derivatives: fail-open.** The api-ts middleware answers futures and prediction-market requests with HTTP 451 only when the region is *positively known* to be restricted. Country resolution runs from a trusted \`cf-ipcountry\` header — honored only when it matches a configured provenance secret — falling back to an offline GeoIP lookup, skipping private IPs. A sticky stored region means a once-flagged user stays blocked even behind a VPN. But any error — GeoIP failure, missing GeoIP module, database failure — resolves to *unknown*, and unknown is allowed. The docstring states it plainly: fails open on any error. The Python Telegram side mirrors this posture for perps.
 
-The handler flow is: \`/fund\` → region gate → \`fund_native_{asset}\` callback **re-checks the gate** → \`generate_deposit_address\` → the user sees the address, the hard minimum, an ETA, and a "check deposit status" button → manual polling of the mint operation until it reports done. Status polling is manual only — there is no background watcher.
+**HyperUnit: fail-closed.** The native-deposit path is offered only to users whose stored region is known *and* not in the restricted set (default: US). Unknown region means not offered; a region-lookup exception means not offered. The gate is applied twice: the menu hides the option, and the callback re-checks before any address is generated. The xstocks integration uses the same fail-closed posture.
+
+The point for the oversight reader is not which default is "right." It is that **the default is the guarantee**. "We block restricted regions" is true only inside the identification perimeter — it means "we block regions we positively know." Every geo-compliance claim decomposes into an identification step and a default step. Vendors will show you the first and bury the second. The question to ask is always the second one.
+
+Two sharp edges in this implementation deserve daylight, because they are the kind of thing incident reports are made of:
+
+- **The stack does not speak with one voice.** The sticky region is written by the api-ts middleware and read by the Python bot, but the Python derivatives gate fails open — so a user with an empty stored region passes the Telegram perps handlers while api-ts would 451 the same user on an observed restricted IP. Two layers, same user, different answers.
+- **The trusted header is conditional.** With no provenance secret configured, any caller can spoof \`cf-ipcountry\`. Whether the secret is set in production is unverified in this note — which is itself the lesson: a control whose precondition is a deployment setting is only as strong as the setting.
+
+## 2. A signature count is not an authentication
+
+HyperUnit is the canonical bridge for native BTC, ETH, and SOL onto HyperCore as spot balances: the user sends the real asset to a deterministic deposit address, and HyperUnit's 2-of-3 MPC guardian set (Unit, Hyperliquid Labs, Infinite Field) mints the spot equivalent into the user's HyperCore account. The bot's client only *generates the address and watches the mint*. It never holds keys and never signs. That is a deliberate custody boundary: the bot is an introducer to the bridge, not a party to the MPC.
+
+Three client-side guardrails stand between the user and loss: an asset allowlist (only \`btc\`, \`eth\`, \`sol\` plus aliases — anything else raises before any network call); hard minimums of 0.002 BTC, 0.05 ETH, 0.1 SOL, because below the loss threshold the bridge silently eats the deposit as sweep dust (a hardcoded table is the only guardrail, and hardcoded tables drift from upstream); and a guardian-attestation threshold — the \`/gen\` response is refused unless at least two non-empty guardian signatures are present and the status is OK.
+
+The distinction that matters for third-party risk is what the threshold does *not* do. The code verifies signature **presence**, not signer **authenticity**. The signatures are surfaced so a caller could pin them against the published guardian keys; the pinning itself is recorded as a follow-up. Until then, two plausible-looking signatures pass the check without being verified against anything. That is documented in the module, not hidden — but it is exactly the shape of risk the banking agencies' guidance addresses: the accountable party must manage the bridge by its failure mode, and "we checked that two signatures were attached" is a different control from "we verified the guardians signed." Conflating the two launders the bridge's trust assumptions into the intermediary's own.
+
+The remaining non-enforcements, stated plainly: nothing reconciles the minted amount against what was sent; the region check lives in the Telegram handler, so any future caller of the HyperUnit client bypasses it silently; and mint-status polling is manual only — there is no background watcher, so past the ETA (about 30 minutes for BTC, 5 for ETH, 60 seconds for SOL) the user just keeps tapping "check status."
 
 ![Deposit flow showing the fail-closed region gate, the /gen attestation check, the hard-minimum funding step, and the 2-of-3 MPC mint into the HyperCore account, with the enforced/not-enforced control boundary.](/research/hyperunit-deposit-flow.svg "The bot gates, attests, and watches. It does not custody, pin guardian keys, reconcile minted amounts, or withdraw.")
 
-Three client-side guardrails stand between the user and loss:
+## 3. The one-way door
 
-1. **Asset allowlist.** Only \`btc\`, \`eth\`, and \`sol\` (plus a few aliases) are accepted; anything else raises before any network call.
-2. **Hard minimums.** 0.002 BTC, 0.05 ETH, 0.1 SOL in native units. Below the loss threshold HyperUnit silently eats the deposit as network sweep dust — the bot's hardcoded table is the only guardrail, and a hardcoded table can drift from upstream.
-3. **Guardian attestation threshold.** The \`/gen\` response is refused unless at least two non-empty guardian signatures are present (the 2-of-3 threshold) and the status is OK. An unattested address is treated as unusable.
+There is no bot-mediated path for funds to leave HyperLiquid. No \`withdraw3\`, no withdraw route, no withdraw handler anywhere in the codebase. Internal moves exist — spot↔perp transfers, HYPE staking in and out, vault deposits — but nothing exits the venue. Three rails run in (Across, CCTP, HyperUnit) and zero run out. A user who deposits through the bot exits through HyperLiquid's own frontend or API, outside the bot's controls, logging, and region gating.
 
-What the source does **not** enforce is equally explicit:
+For consumer protection, name the pattern: **ingress is engineered; egress is someone else's problem.** The user-facing flow that takes the deposit should disclose the exit path and its operator. Here the exit exists — the venue's — but the bot that engineered the entrance says nothing about it. That asymmetry is worth stating plainly rather than discovering.
 
-- **No guardian key-pinning.** The signatures are surfaced so a caller *could* pin them against the published guardian keys, but the verification itself is recorded as a follow-up. A \`/gen\` response carrying two plausible-looking signatures passes the threshold check without being verified against anything.
-- **No mint reconciliation.** Nothing checks that the amount minted into HyperCore matches what the user sent.
-- **No region check at the service layer.** The gate lives in the Telegram fund handler; any future caller of the HyperUnit client bypasses it silently.
-- **No automatic status tracking.** If the mint runs past the ETA (about 30 minutes for BTC, 5 for ETH, 60 seconds for SOL), the user just keeps tapping "check status." There is no timeout or escalation.
+The CCTP rail carries the sharper settlement lesson. It is deposit-direction only and explicitly unfinished: the burn half is user-signable, but the destination half (receiving on HyperEVM and crediting HyperCore) costs HYPE gas and must be performed by a funded relayer. A completed burn without the destination credit leaves funds minted on HyperEVM but never credited to HyperCore spot — the oldest settlement risk in the book wearing new clothes. Herstatt was 1974; the shape (first leg complete, second leg pending, value in limbo) has not changed. The module docstring warns against exactly this outcome and names Across the zero-friction default for that reason. **A warning is not a control**: nothing in code prevents the burn without a relayer. PFMI Principle 8's "clear and certain final settlement" is the right vocabulary for what is missing — used here as a measuring stick, not a classification.
 
-## 2. Region gating: two postures, one shared column
+Two constants in that module are marked **VERIFY** and load-bearing: the HyperEVM native-USDC address and USDC's HyperCore token index (0), both used to derive the system-address credit transaction. If either is wrong, the credit goes to a dead address. Whether they have been confirmed on-chain is outside this note.
 
-The region story is really two stories with opposite defaults.
+## 4. Egress, the other meaning
 
-**Derivatives: fail-open.** The api-ts middleware blocks futures and prediction markets with HTTP 451 only when the region is *positively known* to be restricted. Country resolution runs from a trusted \`cf-ipcountry\` header (only when it matches a configured provenance secret), falling back to an offline GeoIP lookup, skipping private IPs. A sticky \`users.region\` column means a once-flagged restricted user stays blocked even behind a VPN. But any error — GeoIP failure, missing GeoIP module, database failure — resolves to *unknown*, and unknown is allowed. The docstring states it plainly: fails open on any error. The Python Telegram side mirrors this posture for perps.
+HyperUnit geo-blocks the US, so the bot's own API calls need non-US egress: a configurable reverse-proxy base URL or forward proxy, documented as provisioned in a non-US region and "only ever reached for region-allowed users," because the handler gates first.
 
-**HyperUnit and similar: fail-closed.** The native-deposit path is offered only to users whose stored region is known *and* not in the restricted set (default: US). Unknown region means not offered; a region-lookup exception means not offered. The gate is applied twice: the menu hides the option, and the callback re-checks before generating an address. The xstocks integration uses the same fail-closed posture.
+Note the coexistence, because it is how geo-compliance actually works in distributed systems: the user-facing gate, the infrastructure egress path, and the bridge's own enforcement are three separate layers that fail independently. Each can hold while another gives. Whether the proxy is provisioned in production is unverified — which returns to the theme of this note: the code documents the design; runtime evidence is a separate audit, and a control claim should say which one it is.
 
-The sharp edge an institutional reader should carry away: **"restricted users are blocked" is true only when the region is positively known.** A user whose region cannot be determined can trade perps (fail-open) while never seeing the HyperUnit deposit option (fail-closed). The two layers can also disagree about the same user: the sticky region is written by the api-ts middleware and read by the Python bot, but the Python derivatives gate fails open, so an empty region sails through Telegram perps handlers that api-ts would 451 on an observed restricted IP.
+## What would change the conclusion
 
-Two further conditions deserve daylight:
-
-- The \`cf-ipcountry\` header is trusted whenever *no* provenance secret is configured — in that state any caller can spoof the header. Whether the secret is set in production is unverified in this note.
-- An admin override (\`/setregion\`) exists. There is no documented review flow for clearing a sticky restricted flag.
-
-## 3. Egress: the proxy and the one-way door
-
-HyperUnit geo-blocks the US, so the bot's own API calls need non-US egress: a configurable reverse-proxy base URL or forward proxy, documented as "must be provisioned in a non-US region." The code comments are careful about the ordering — those settings are "only ever reached for region-allowed users," because the fund handler gates first. Whether the proxy is actually provisioned in production is unverified.
-
-Then the dog that didn't bark: **there is no bot-mediated path for funds to leave HyperLiquid.** No HyperCore-to-external-chain withdrawal exists anywhere in the codebase — no \`withdraw3\`, no withdraw route, no withdraw handler. Internal moves exist (spot↔perp transfers, HYPE staking in and out, vault deposits), but nothing exits the venue. Three rails run in — Across, CCTP, and HyperUnit — and zero run out. A user who deposits through the bot exits through HyperLiquid's own frontend or API, outside the bot's controls, logging, and region gating. That asymmetry should be stated plainly rather than discovered.
-
-The CCTP rail carries the sharpest adjacent warning. It is deposit-direction only and explicitly unfinished: the burn-and-attest half is user-signable, but the destination half (receiving on HyperEVM and crediting HyperCore) costs HYPE gas and must be performed by a funded relayer. Until that relayer is wired and funded, a user who burns USDC without the destination half completing ends with funds minted on HyperEVM but never credited to HyperCore spot — stranded by a completed first step. The module docstring says exactly this and names Across the zero-friction default for that reason. A docstring is not a control: nothing in code *prevents* the burn without a relayer.
-
-Two constants in that module are marked **VERIFY** and load-bearing: the HyperEVM native-USDC address and USDC's HyperCore token index (0), both used to derive the system-address credit transaction. If either is wrong, the credit transaction sends funds to a dead address. Whether they have been confirmed on-chain is outside this note.
+If guardian key-pinning lands, section 2's "count is not authentication" retires. If a withdrawal path ships, the one-way door becomes history. If the Python derivatives gate goes fail-closed, the two-voice problem closes. And production evidence — proxy provisioned, relayer funded, provenance secret configured, VERIFY constants confirmed on-chain — would move each claim from "written to do" to "observed doing." The questions are designed to be re-asked on every revision; a control note that cannot be invalidated is marketing.
 
 ## Evidence ledger
 
-The HyperUnit claims come from the API client and its call sites: the funding service's instruction/status methods, the fund handler's region gate and callback flow, and the settings declarations for the egress proxy. The region claims come from the api-ts region middleware (post-PR #981 state), the Python region utilities, and the fund/perps handlers. The egress claims come from a repository-wide search for withdrawal paths and the CCTP module's own documentation of its unfinished destination half.
+The HyperUnit claims come from the API client and its call sites: the funding service's instruction and status methods, the fund handler's region gate and callback flow, and the settings declarations for the egress proxy. The region claims come from the api-ts region middleware in its post-PR #981 state, the Python region utilities, and the fund and perps handlers. The egress claims come from a repository-wide search for withdrawal paths and the CCTP module's own documentation of its unfinished destination half.
 
 The boundary is equally explicit. Repository state establishes what the software is written to do. It does not establish whether the non-US egress proxy is provisioned, whether the CCTP relayer is funded and running, whether the provenance secret is configured, whether the VERIFY-marked constants have been confirmed on-chain, or whether any geo-restriction regime is satisfied in production. Those remain outside this note until runtime evidence is collected.
 
-## Control conclusion
+---
 
-The integration is notable for what it refuses to do: it does not custody native deposits, does not assert guardian-key authenticity it has not checked, does not reconcile mints it did not perform, and does not offer a withdrawal path it has not built. The region design is honest in a different way — it states both postures plainly instead of pretending one guarantee covers everything. **Fail-open for derivatives means availability is preferred over certainty; fail-closed for HyperUnit means the bridge path is preferred to be unavailable rather than misused.** An institution consuming this bot should decide which of those defaults matches its own risk appetite, because the code will not decide it for them.
+*Disclosures: Suwappu builds the infrastructure this note inspects — including the gaps it names. That commercial and authorship interest is why the gaps are published rather than softened. No bridge operator or venue named here reviewed the note. This is research, not investment, legal, or prudential advice, and it does not claim that any conventional market regulation applies to the systems described.*
 `;
 
 export const researchPosts: ResearchPost[] = [
@@ -1161,8 +1165,8 @@ export const researchPosts: ResearchPost[] = [
     date: '2026-10-12',
     category: 'Architecture',
     kind: 'engineering',
-    excerpt: 'Native BTC/ETH/SOL deposits ride HyperUnit\u2019s 2-of-3 MPC bridge behind a fail-closed region gate and non-US egress; derivatives stay fail-open; and there is no bot-mediated withdrawal. Three postures, stated plainly.',
-    readMins: 10,
+    excerpt: 'What happens when the region is unknown? One codebase answers twice — fail-open for derivatives, fail-closed for HyperUnit — plus a signature count that is not an authentication and a one-way door with no bot-mediated withdrawal. Three lessons for the oversight reader.',
+    readMins: 12,
     status: 'published',
     evidence: {
       status: 'SOURCE-VERIFIED',
@@ -1177,8 +1181,9 @@ export const researchPosts: ResearchPost[] = [
     },
     keywords: [
       'HyperLiquid', 'HyperUnit', 'native deposits', 'MPC bridge',
-      'region gating', 'geo-restrictions', 'fail-closed', 'fail-open',
-      'HyperCore', 'CCTP',
+      'region gating', 'geo-compliance', 'fail-closed', 'fail-open',
+      'HyperCore', 'CCTP', 'settlement finality', 'third-party risk',
+      'PFMI',
     ],
     body: HYPERUNIT_BODY,
   },
