@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" role="img" aria-labelledby="title desc">
+  <title id="title">OFAC crypto enforcement actions, log scale</title>
+  <desc id="desc">Horizontal bar chart on a log scale of OFAC penalties against crypto firms from 2022 to 2025, from Kraken's $362K to Binance's $968M. Garantex/Grinex were designations without a monetary penalty.</desc>
+  <rect width="960" height="680" fill="#fbfaf5"/>
+  <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">EXHIBIT 2 / SANCTIONS ENFORCEMENT</text>
+  <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">The failure mode is the ongoing case.</text>
+  <text x="54" y="110" fill="#667b87" font-family="Arial, sans-serif" font-size="14">OFAC crypto penalties, 2022–2025 · log scale, USD</text>
+
+  <g font-family="Arial, sans-serif" font-size="12" fill="#9db0b6">
+    <line x1="306" y1="150" x2="306" y2="470" stroke="#d8e0e2"/>
+    <text x="298" y="140" fill="#9db0b6">$1M</text>
+    <line x1="459" y1="150" x2="459" y2="470" stroke="#d8e0e2"/>
+    <text x="448" y="140" fill="#9db0b6">$10M</text>
+    <line x1="611" y1="150" x2="611" y2="470" stroke="#d8e0e2"/>
+    <text x="597" y="140" fill="#9db0b6">$100M</text>
+    <line x1="764" y1="150" x2="764" y2="470" stroke="#d8e0e2"/>
+    <text x="758" y="140" fill="#9db0b6">$1B</text>
+  </g>
+
+  <g font-family="Arial, sans-serif">
+    <!-- Binance -->
+    <text x="54" y="192" fill="#17324a" font-size="15" font-weight="700">Binance</text>
+    <text x="54" y="212" fill="#667b87" font-size="12">Nov 2023 · $968M OFAC settlement</text>
+    <rect x="230" y="178" width="533" height="28" fill="#17324a"/>
+    <text x="771" y="198" fill="#17324a" font-size="14" font-weight="700">$968M</text>
+    <!-- Bittrex -->
+    <text x="54" y="256" fill="#17324a" font-size="15" font-weight="700">Bittrex</text>
+    <text x="54" y="276" fill="#667b87" font-size="12">Oct 2022 · no IP screening</text>
+    <rect x="230" y="242" width="287" height="28" fill="#b75e12"/>
+    <text x="525" y="262" fill="#17324a" font-size="14" font-weight="700">$24.3M</text>
+    <!-- Poloniex -->
+    <text x="54" y="320" fill="#17324a" font-size="15" font-weight="700">Poloniex</text>
+    <text x="54" y="340" fill="#667b87" font-size="12">May 2023 · KYC + IP "reason to know"</text>
+    <rect x="230" y="306" width="210" height="28" fill="#b75e12"/>
+    <text x="448" y="326" fill="#17324a" font-size="14" font-weight="700">$7.6M</text>
+    <!-- Kraken -->
+    <text x="54" y="384" fill="#17324a" font-size="15" font-weight="700">Kraken</text>
+    <text x="54" y="404" fill="#667b87" font-size="12">Nov 2022 · geolocation at onboarding only</text>
+    <rect x="230" y="370" width="9" height="28" fill="#b75e12"/>
+    <text x="247" y="390" fill="#17324a" font-size="14" font-weight="700">$362K</text>
+    <!-- Garantex -->
+    <text x="54" y="448" fill="#17324a" font-size="15" font-weight="700">Garantex / Grinex</text>
+    <text x="54" y="468" fill="#667b87" font-size="12">Aug 2025 · designations, no monetary penalty</text>
+    <text x="230" y="452" fill="#667b87" font-size="13" font-style="italic">Designated entities + A7A5 network</text>
+  </g>
+
+  <line x1="54" y1="496" x2="906" y2="496" stroke="#b9c8cc"/>
+  <rect x="54" y="516" width="852" height="118" rx="3" fill="#ffffff" stroke="#ccd6d8"/>
+  <text x="76" y="544" fill="#b75e12" font-size="11" font-weight="700" letter-spacing=".8">THE KRAKEN FINDING — OFAC'S WORDS</text>
+  <text x="76" y="572" fill="#17324a" font-size="14">"applied its geolocation controls only at the time of onboarding</text>
+  <text x="76" y="594" fill="#17324a" font-size="14">and not with respect to subsequent transactional activity, despite having</text>
+  <text x="76" y="616" fill="#17324a" font-size="14">reason to know based on available IP address information."</text>
+  <text x="54" y="656" fill="#667b87" font-size="12">Sources: U.S. Treasury / OFAC releases. Bittrex total includes parallel $29.3M FinCEN action.</text>
+</svg>
