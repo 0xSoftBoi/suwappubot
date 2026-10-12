@@ -916,7 +916,7 @@ Before the integration detail, the loss data — because it sets the stakes for 
 
 Two patterns matter for what follows. First, the key-compromise losses (Ronin, Multichain, Harmony) exceed the smart-contract-bug losses, and the former were state-actor operations. Second, Wormhole's failure mode — a *forged guardian signature* that bypassed verification — is the precise attack that a "two signatures present" check does not defend against. Keep that in mind for section 3.
 
-The venue at the center of this memo operates at a scale where these are not theoretical risks. HyperLiquid's TVL was reported around $5.9B in mid-2026 and $7.5B by September 2026, with 2025 trading volume near $2.9T. It also geo-blocks at the interface layer — US persons, Ontario residents, and sanctioned jurisdictions are excluded in its Terms, and in June 2026 it blocked HTX-linked wallets after UK sanctions on Huobi. The bridge this memo studies serves that venue.
+The venue at the center of this memo operates at a scale where these are not theoretical risks. HyperLiquid's TVL was near $7.5B in late September 2026 (DefiLlama), with 2025 trading volume around $2.9T (ASXN Data). It also geo-blocks at the interface layer — US persons, Ontario residents, and sanctioned jurisdictions are excluded in its Terms, and in June 2026 it blocked HTX-linked wallets after UK sanctions on Huobi. The bridge this memo studies serves that venue.
 
 ## 2. The trust model, stated plainly
 
@@ -971,12 +971,12 @@ The most important compliance question about any geo-restriction is the one nobo
 | Bittrex, Oct 2022 | $24.3M (OFAC) + $29.3M (FinCEN) | ~$263M in sanctioned-jurisdiction transactions; root cause was failure to screen IP-address information |
 | Kraken, Nov 2022 | $362K | Applied geolocation "only at the time of onboarding and not with respect to subsequent transactional activity, despite having reason to know based on available IP address information" |
 | Poloniex, May 2023 | $7.6M | 65,942 apparent violations; "reason to know" via KYC plus IP data |
-| Binance, Nov 2023 | $4.3B+ coordinated resolution | >$898M in trades between US users and Iran-resident users |
+| Binance, Nov 2023 | $968M (OFAC's share of the $4.3B coordinated resolution) | 1.67M apparent violations across Iran, Syria, North Korea, Cuba, and Ukraine/Russia programs, 2017–2022 |
 | Garantex/Grinex, Aug 2025 | Designations | $100M+ illicit flows; successor entities and ruble stablecoin network sanctioned |
 
 *Sources: U.S. Treasury/OFAC releases (treasury.gov, ofac.treasury.gov).*
 
-![Log-scale chart of OFAC crypto penalties 2022–2025, from Kraken's $362K to Binance's $4.3B+, with OFAC's Kraken finding quoted: geolocation applied at onboarding only, despite IP data on subsequent transactions.](/research/ofac-enforcement.svg "The failure mode is the ongoing case. Bittrex total includes the parallel $29.3M FinCEN action.")
+![Log-scale chart of OFAC crypto penalties 2022–2025, from Kraken's $362K to Binance's $968M, with OFAC's Kraken finding quoted: geolocation applied at onboarding only, despite IP data on subsequent transactions.](/research/ofac-enforcement.svg "The failure mode is the ongoing case. Bittrex total includes the parallel $29.3M FinCEN action.")
 
 The Kraken finding is the one to memorize: the violation was not the absence of a geo-block but its **temporal scope** — onboarding-only in a world where IP data existed for every subsequent transaction. Every geo-compliance claim decomposes into an identification step and a default step. Vendors will show you the first and bury the second. The question to ask is always the second one — and then the third: what is the *ongoing* scope?
 
@@ -1027,6 +1027,8 @@ A final detail for the diligence file: sub-minimum deposits on federated bridges
 - U.S. Treasury, Bittrex enforcement (Oct 11, 2022). https://home.treasury.gov/news/press-releases/jy1006
 - OFAC, Kraken enforcement release (Nov 28, 2022). https://ofac.treasury.gov/media/929541/download
 - U.S. Treasury, Garantex/Grinex designations (Aug 14, 2025). https://home.treasury.gov/news/press-releases/sb0225
+- OFAC, Binance enforcement (Nov 21, 2023): $968,618,825 settlement for 1,667,153 apparent violations, 2017–2022. https://ofac.treasury.gov/recent-actions/20231121
+- DefiLlama (via datawallet.com Hyperliquid statistics, late Sept 2026): Hyperliquid TVL $7.49B; ASXN Data: 2025 trading volume $2.95T. https://www.datawallet.com/crypto/hyperliquid-statistics
 - GAO-24-106178, "Economic Sanctions: Agency Efforts Help Mitigate Some of the Risks Posed by Digital Assets" (Dec 13, 2023).
 - HyperUnit, "Supported Assets" and "Guardian Signatures" documentation (docs.hyperunit.xyz) — read live Oct 12, 2026 for the minimums and key-publication measurements.
 - Implementation claims: current Suwappu main (bot/services, bot/handlers, api-ts middleware), source-verified Oct 12, 2026; production provisioning unverified.

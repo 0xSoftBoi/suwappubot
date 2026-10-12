@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" role="img" aria-labelledby="title desc">
   <title id="title">OFAC crypto enforcement actions, log scale</title>
-  <desc id="desc">Horizontal bar chart on a log scale of OFAC penalties against crypto firms from 2022 to 2025, from Kraken's $362K to Binance's $4.3B. Garantex/Grinex were designations without a monetary penalty.</desc>
+  <desc id="desc">Horizontal bar chart on a log scale of OFAC penalties against crypto firms from 2022 to 2025, from Kraken's $362K to Binance's $968M. Garantex/Grinex were designations without a monetary penalty.</desc>
   <rect width="960" height="680" fill="#fbfaf5"/>
   <text x="54" y="48" fill="#b75e12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.2">EXHIBIT 2 / SANCTIONS ENFORCEMENT</text>
   <text x="54" y="84" fill="#17324a" font-family="Georgia, 'Times New Roman', serif" font-size="28">The failure mode is the ongoing case.</text>
@@ -20,9 +20,9 @@
   <g font-family="Arial, sans-serif">
     <!-- Binance -->
     <text x="54" y="192" fill="#17324a" font-size="15" font-weight="700">Binance</text>
-    <text x="54" y="212" fill="#667b87" font-size="12">Nov 2023 · &gt;$898M US–Iran trades</text>
-    <rect x="230" y="178" width="630" height="28" fill="#17324a"/>
-    <text x="868" y="198" fill="#17324a" font-size="14" font-weight="700">$4.3B+</text>
+    <text x="54" y="212" fill="#667b87" font-size="12">Nov 2023 · $968M OFAC settlement</text>
+    <rect x="230" y="178" width="533" height="28" fill="#17324a"/>
+    <text x="771" y="198" fill="#17324a" font-size="14" font-weight="700">$968M</text>
     <!-- Bittrex -->
     <text x="54" y="256" fill="#17324a" font-size="15" font-weight="700">Bittrex</text>
     <text x="54" y="276" fill="#667b87" font-size="12">Oct 2022 · no IP screening</text>
