@@ -49,7 +49,7 @@ const decisionLenses = [
 
 export const metadata: Metadata = {
   alternates: { canonical: '/research' },
-  title: 'Research | Suwappu',
+  title: 'Research',
   description:
     'Institutional research from Suwappu on stablecoin backing, treasury controls, execution governance, tokenized-asset interfaces, incentive economics, and model validation. Methods, limitations, corrections, and source data are public.',
 };

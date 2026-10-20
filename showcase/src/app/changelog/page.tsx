@@ -4,7 +4,7 @@ import SummerFooter from '@/components/SummerFooter';
 import styles from './changelog.module.css';
 
 export const metadata: Metadata = {
-  title: 'Changelog | Suwappu',
+  title: 'Changelog',
   description: 'What shipped, and when. New chains, features, and improvements to the Suwappu bot, terminal, and agent API.',
 };
 

@@ -5,7 +5,7 @@ import stats from '@/data/stats.generated.json';
 import { ENTERPRISE_CONTACT_PATH, GITHUB_URL } from '@/lib/links';
 
 export const metadata: Metadata = {
-  title: 'Enterprise execution infrastructure | Suwappu',
+  title: 'Enterprise execution infrastructure',
   description:
     `Evaluate Suwappu for trading, treasury and agent systems: ${stats.platformChains} platform chains, ` +
     `${stats.routerCount} integrated routing venues, explicit custody boundaries, policy controls, live status and public implementation evidence.`,

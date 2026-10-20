@@ -4,7 +4,7 @@ import SummerFooter from '@/components/SummerFooter';
 import { GITHUB_URL, TELEGRAM_URL, TERMINAL_URL, MINI_APP_URL } from '@/lib/links';
 
 export const metadata: Metadata = {
-  title: 'Products | Suwappu',
+  title: 'Products',
   description: 'Explore every Suwappu product, market, developer surface, and research tool in one place.',
 };
 

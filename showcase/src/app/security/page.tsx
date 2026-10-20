@@ -6,7 +6,7 @@ import { TELEGRAM_URL } from '@/lib/links';
 import styles from './security.module.css';
 
 export const metadata: Metadata = {
-  title: 'Security | Suwappu',
+  title: 'Security',
   description:
     'How Suwappu protects keys and funds: KMS envelope encryption, TEE-backed signing, self-custody options, spending limits, MEV-shielded routing, and responsible disclosure.',
 };
