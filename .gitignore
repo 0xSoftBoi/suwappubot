@@ -59,6 +59,10 @@ contracts/lib/openzeppelin-contracts/package-lock.json
 .claude/handoff.md
 scripts/.ens_sepolia_key
 
+# Local World ID demo proof pages (staging-only tooling, tied to a session RP context)
+scripts/.world_id_test_page.html
+scripts/.world_id_v4_test_page.html
+
 # Hackathon Foundry projects — vendored deps and build artifacts, not source
 contracts-hackathon/*/lib/
 contracts-hackathon/*/out/
