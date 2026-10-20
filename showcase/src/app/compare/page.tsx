@@ -9,7 +9,7 @@ import styles from './compare.module.css';
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 
 export const metadata: Metadata = {
-  title: 'Compare | Suwappu vs Telegram bots, terminals & cross-chain infra',
+  title: { absolute: 'Compare: Suwappu vs Telegram bots, terminals & cross-chain infra | Suwappu' },
   description:
     'How Suwappu compares to Telegram trading bots, trading terminals, and cross-chain infrastructure. Cross-chain spot, HyperLiquid perps, and gasless swaps: unified in one bot, terminal, and SDK.',
 };

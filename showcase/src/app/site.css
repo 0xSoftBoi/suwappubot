@@ -60,11 +60,11 @@
   margin: 0;
   /* ~28ch/line over two lines. The reference band is 20-35ch; 12ch was the bug. */
   max-width: 30ch;
-  font-family: var(--font-serif);
-  font-size: clamp(2.75rem, 5vw, 4.25rem);
-  font-weight: 500;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d1);
+  font-weight: var(--type-display-weight);
   line-height: 1.04;
-  letter-spacing: -0.028em;
+  letter-spacing: var(--type-display-tracking);
   text-wrap: balance;
   color: var(--fg);
 }
@@ -281,11 +281,11 @@
 .home-security h2,
 .home-close h2 {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(2.35rem, 4.5vw, 3.75rem);
-  font-weight: 500;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
   line-height: 1.06;
-  letter-spacing: -0.012em;
+  letter-spacing: var(--type-display-tracking);
   text-wrap: balance;
   color: var(--fg);
 }
@@ -865,10 +865,6 @@
     gap: 2.5rem;
   }
 
-  .home-hero h1 {
-    font-size: clamp(3rem, 6.7vw, 4.9rem);
-  }
-
   .home-proofbar {
     grid-template-columns: 1fr;
   }
@@ -1032,10 +1028,6 @@
   .home-hero {
     padding-top: 3.25rem;
     padding-bottom: 4rem;
-  }
-
-  .home-hero h1 {
-    font-size: clamp(2.8rem, 13vw, 4rem);
   }
 
   .home-actions {

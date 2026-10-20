@@ -1,0 +1,195 @@
+/* /products — the directory of everything Suwappu ships.
+
+   Rewritten from a page of ~40 inline styles (a private palette of
+   #090b0f / #0f1218 / #222834, 16px rounded cards, a sans-bold h1) that
+   read as a different site from every other page. Now it uses the shared
+   dark register (--sw-soil-*) and the display ramp (--type-d2/d3/d4), so it
+   inherits the same ink, hairlines and editorial voice as the homepage. */
+
+.page {
+  min-height: 100vh;
+  background: var(--sw-soil-0);
+  color: #fafafa;
+}
+
+.hero {
+  max-width: 20ch;
+  padding: clamp(6.5rem, 12vw, 9.5rem) 0 clamp(2.75rem, 5vw, 4rem);
+  border-bottom: 1px solid var(--sw-hairline);
+  margin-bottom: clamp(3rem, 6vw, 5rem);
+}
+
+.hero h1 {
+  margin: 1.1rem 0 0;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d2);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1;
+  color: #fafafa;
+  text-wrap: balance;
+}
+
+.kicker {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sw-accent);
+}
+
+.lead {
+  max-width: 58ch;
+  margin: 1.6rem 0 0;
+  font-size: clamp(1rem, 1.4vw, 1.12rem);
+  line-height: 1.65;
+  color: var(--sw-muted);
+  text-wrap: pretty;
+}
+
+.group {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.72fr) minmax(0, 2.28fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: start;
+  padding-top: clamp(2.25rem, 4vw, 3.25rem);
+  border-top: 1px solid var(--sw-hairline);
+}
+
+.group + .group {
+  margin-top: clamp(2.25rem, 4vw, 3.25rem);
+}
+
+.group:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.groupHead {
+  position: sticky;
+  top: 6.5rem;
+}
+
+.groupEyebrow {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sw-accent-muted);
+}
+
+.groupTitle {
+  margin: 0;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d4);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.15;
+  color: #fafafa;
+}
+
+/* A hairline grid instead of rounded cards: 1px gaps over a hairline ground
+   give the tiles a shared edge, which reads as one table rather than a pile
+   of floating boxes. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(228px, 100%), 1fr));
+  gap: 1px;
+  background: var(--sw-hairline);
+  border: 1px solid var(--sw-hairline);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  min-height: 11.5rem;
+  padding: 1.3rem 1.35rem 1.4rem;
+  background: var(--sw-soil-0);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.18s ease;
+}
+
+.tile:hover,
+.tile:focus-visible {
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.tileHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.tileTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: #fafafa;
+}
+
+.badge {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--sw-hairline-strong);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sw-muted);
+  white-space: nowrap;
+}
+
+.badgeNew {
+  border-color: rgba(229, 141, 43, 0.42);
+  color: var(--sw-accent-bright);
+}
+
+.badgeAccount {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #c9d2da;
+}
+
+.tileDesc {
+  margin: 0.85rem 0 1.15rem;
+  font-size: 0.875rem;
+  line-height: 1.58;
+  color: var(--sw-muted);
+}
+
+.tileCta {
+  margin-top: auto;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sw-accent);
+  transition: color 0.18s ease;
+}
+
+.tile:hover .tileCta,
+.tile:focus-visible .tileCta {
+  color: var(--sw-accent-bright);
+}
+
+@media (max-width: 860px) {
+  .group {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  .groupHead {
+    position: static;
+  }
+
+  .hero {
+    max-width: none;
+  }
+}

@@ -9,7 +9,7 @@ import stats from '@/data/stats.generated.json';
 import styles from './agents.module.css';
 
 export const metadata: Metadata = {
-  title: 'Agents | Suwappu API, MCP & A2A for AI agents',
+  title: { absolute: 'Agents: API, MCP & A2A for AI agents | Suwappu' },
   description:
     `Onchain execution for AI agents: a REST API, an MCP server, and the A2A protocol for quotes, swaps, managed wallets, and portfolio across ${stats.agentApiChains} chains. Self-serve registration, pay-per-call with x402, no signup required.`,
 };
