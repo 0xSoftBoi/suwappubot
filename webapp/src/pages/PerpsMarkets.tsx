@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
-import { SkeletonCard } from '../components/ui'
+import { SkeletonCard, RegionRestrictedNotice } from '../components/ui'
 import { usePerpsMarkets } from '../hooks/usePerpsMarkets'
+import { isRegionRestrictedError } from '../lib/api'
 import { useNavigate } from 'react-router-dom'
 
 function formatPrice(v: number): string {
@@ -18,7 +19,8 @@ function formatFunding(rate: number): string {
 export function PerpsMarkets() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
-  const { data: markets, isLoading } = usePerpsMarkets()
+  const { data: markets, isLoading, error } = usePerpsMarkets()
+  const regionRestricted = isRegionRestrictedError(error)
 
   const filtered = markets?.filter((m) =>
     !search || m.name.toLowerCase().includes(search.toLowerCase()) || m.asset.toLowerCase().includes(search.toLowerCase())
@@ -30,6 +32,10 @@ export function PerpsMarkets() {
       activeNav="earn"
     >
       <div className="p-3 pb-20 space-y-3">
+        {regionRestricted && <RegionRestrictedNotice feature="Futures" />}
+
+        {!regionRestricted && (
+          <>
         {/* Search */}
         <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-3">
           <input
@@ -99,6 +105,8 @@ export function PerpsMarkets() {
             leverage on major crypto assets.
           </p>
         </div>
+          </>
+        )}
       </div>
     </AppLayout>
   )

@@ -4,7 +4,8 @@ interface Props {
   market: LendingMarket
 }
 
-function formatCompact(value: number): string {
+function formatCompact(value: number | null): string {
+  if (value == null) return '—'
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`
@@ -27,22 +28,32 @@ export function MarketCard({ market }: Props) {
     >
       <div className="flex items-center gap-2 mb-2">
         <div className="w-6 h-6 rounded-full bg-terminal-bg-tertiary flex items-center justify-center text-[10px] font-semibold text-terminal-text-muted">
-          {market.asset.slice(0, 2)}
+          {(market.asset ?? '?').slice(0, 2)}
         </div>
         <span className="text-sm font-semibold text-terminal-text">{market.asset}</span>
+        {market.collateral && (
+          <span className="text-[10px] text-terminal-text-muted">/ {market.collateral}</span>
+        )}
         <span className="text-[10px] text-terminal-text-muted ml-auto">{market.chain}</span>
       </div>
+
+      {!market.listed && (
+        <div className="mb-2 rounded border border-terminal-warn/40 bg-terminal-warn/10 px-2 py-1 text-[10px] text-terminal-warn">
+          Unverified market
+          {market.warnings.length > 0 && ` · ${market.warnings.map(w => w.replace(/_/g, ' ')).join(', ')}`}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 mb-2 text-xs">
         <div>
           <span className="text-terminal-text-muted">Supply APY</span>
-          <div className="font-mono tnum font-semibold text-bull">
+          <div className={`font-mono tnum font-semibold ${market.listed ? 'text-bull' : 'text-terminal-text-muted'}`}>
             {(market.supplyAPY * 100).toFixed(2)}%
           </div>
         </div>
         <div>
           <span className="text-terminal-text-muted">Borrow APY</span>
-          <div className="font-mono tnum font-semibold text-terminal-text">
+          <div className={`font-mono tnum font-semibold ${market.listed ? 'text-terminal-text' : 'text-terminal-text-muted'}`}>
             {(market.borrowAPY * 100).toFixed(2)}%
           </div>
         </div>

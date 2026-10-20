@@ -34,6 +34,12 @@ DRIZZLE_SCHEMA_DIR = REPO_ROOT / "api-ts" / "src" / "db" / "schema"
 # "not null" for our purposes.
 SERIAL_FNS = {"serial", "bigserial"}
 
+# Owned by bot/models/advanced.py; Drizzle declares an incompatible design
+# for the same table names (different columns entirely, not just drift).
+# See issue #1065. The Drizzle comparison is skipped for these until the
+# collision is resolved.
+PYTHON_OWNED_TABLES = {"dca_orders", "limit_orders"}
+
 
 @dataclass
 class DrizzleColumn:
@@ -126,6 +132,13 @@ def check_against_postgres(tables: dict[str, DrizzleTable], conn) -> list[Mismat
     mismatches: list[Mismatch] = []
 
     for table in tables.values():
+        if table.name in PYTHON_OWNED_TABLES:
+            print(
+                f"INFO: skipping {table.name} — owned by bot/models/advanced.py, "
+                "Drizzle declares an incompatible design for this table name (see issue #1065)"
+            )
+            continue
+
         rows = conn.execute(
             text(
                 "select column_name, column_default, is_nullable, is_identity "

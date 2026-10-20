@@ -223,7 +223,14 @@ export function pollPassportGate(signal: string): PassportGateResult {
 
 type SwapJob =
 	| { status: 'submitted' }
-	| { status: 'executed'; txHash: string; blockNumber: number }
+	| {
+			status: 'executed'
+			txHash: string
+			blockNumber: number
+			/** Relayer EOA that sent the tx, and the swapper the hook checked. */
+			executedBy?: string
+			swapper?: string
+	  }
 	| { status: 'failed'; reason: string }
 
 const swapJobs = new Map<string, { job: SwapJob; expiresAt: number }>()
@@ -269,7 +276,13 @@ export async function startPassportSwap(wallet: string): Promise<SwapStart> {
 				setSwapJob(jobId, { status: 'failed', reason: `${result.reason}: ${result.detail}` })
 				return
 			}
-			setSwapJob(jobId, { status: 'executed', txHash: result.txHash, blockNumber: result.blockNumber })
+			setSwapJob(jobId, {
+				status: 'executed',
+				txHash: result.txHash,
+				blockNumber: result.blockNumber,
+				executedBy: result.executedBy,
+				swapper: result.swapper,
+			})
 			const history = swapHistory.get(wallet.toLowerCase()) ?? []
 			history.push({ txHash: result.txHash, blockNumber: result.blockNumber })
 			swapHistory.set(wallet.toLowerCase(), history)

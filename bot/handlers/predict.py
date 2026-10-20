@@ -41,6 +41,7 @@ from bot.models.predict import PredictionOrder, PredictionPosition
 from bot.services.polymarket_api import polymarket_client, MarketInfo
 from bot.services.wallet import WalletService
 from bot.utils.rate_limiter import UserRateLimiter
+from bot.utils.region_gate import derivatives_region_allowed, derivatives_blocked_message
 from bot.utils.telegram_safe import safe_md
 from bot.utils.tos_utils import enforce_tos
 from database.db import get_session
@@ -182,6 +183,10 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user = update.effective_user
     if update.callback_query:
         await update.callback_query.answer()
+
+    if not derivatives_region_allowed(user.id):
+        await update.effective_message.reply_text(derivatives_blocked_message())
+        return ConversationHandler.END
 
     if not await predict_limiter.check(str(user.id)):
         await update.effective_message.reply_text("Please wait before using this command again.")

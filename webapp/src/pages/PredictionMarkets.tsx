@@ -2,9 +2,10 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AppLayout, AppHeader } from '../components/layout'
 import { MarketCard, MarketSearch } from '../components/prediction'
-import { SkeletonCard } from '../components/ui'
+import { SkeletonCard, RegionRestrictedNotice } from '../components/ui'
 import { usePredictionMarkets } from '../hooks/usePredictionMarkets'
 import { usePredictionPositions } from '../hooks/usePredictionPositions'
+import { isRegionRestrictedError } from '../lib/api'
 
 function formatUsd(v: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -26,8 +27,9 @@ export function PredictionMarkets() {
     limit: 30,
   }), [searchQuery, category])
 
-  const { data: markets, isLoading } = usePredictionMarkets(params)
+  const { data: markets, isLoading, error } = usePredictionMarkets(params)
   const { data: positions } = usePredictionPositions()
+  const regionRestricted = isRegionRestrictedError(error)
 
   const totalPositionValue = positions?.reduce((sum, p) => sum + p.currentValue, 0) ?? 0
 
@@ -43,8 +45,10 @@ export function PredictionMarkets() {
           activeCategory={category}
         />
 
+        {regionRestricted && <RegionRestrictedNotice feature="Prediction markets" />}
+
         {/* Active positions banner */}
-        {positions && positions.length > 0 && (
+        {!regionRestricted && positions && positions.length > 0 && (
           <button
             onClick={() => {/* scroll to positions or navigate */}}
             className="w-full bg-gradient-suwappu rounded-suwappu-xl p-3 text-white text-left"
@@ -63,14 +67,14 @@ export function PredictionMarkets() {
         )}
 
         {/* Loading state */}
-        {isLoading && (
+        {!regionRestricted && isLoading && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 overflow-hidden">
             <SkeletonCard rows={5} variant="token" />
           </div>
         )}
 
         {/* Market cards */}
-        {!isLoading && markets && markets.length > 0 && (
+        {!regionRestricted && !isLoading && markets && markets.length > 0 && (
           <div className="space-y-3">
             {markets.map((market) => (
               <MarketCard key={market.conditionId} market={market} />
@@ -79,7 +83,7 @@ export function PredictionMarkets() {
         )}
 
         {/* Empty state */}
-        {!isLoading && (!markets || markets.length === 0) && (
+        {!regionRestricted && !isLoading && (!markets || markets.length === 0) && (
           <div className="bg-white rounded-suwappu-xl shadow-suwappu-1 p-8 text-center">
             <span className="text-4xl block mb-2">🔮</span>
             <p className="font-heading font-semibold text-suwappu-text mb-1">
@@ -94,13 +98,15 @@ export function PredictionMarkets() {
         )}
 
         {/* Info card */}
-        <div className="bg-suwappu-sakura-light/30 rounded-suwappu-lg p-3">
-          <p className="text-xs text-suwappu-text-secondary">
-            Powered by Polymarket. Prediction markets let you trade on the
-            outcome of real-world events. Prices reflect the market's estimated
-            probability of each outcome.
-          </p>
-        </div>
+        {!regionRestricted && (
+          <div className="bg-suwappu-sakura-light/30 rounded-suwappu-lg p-3">
+            <p className="text-xs text-suwappu-text-secondary">
+              Powered by Polymarket. Prediction markets let you trade on the
+              outcome of real-world events. Prices reflect the market's estimated
+              probability of each outcome.
+            </p>
+          </div>
+        )}
       </div>
     </AppLayout>
   )

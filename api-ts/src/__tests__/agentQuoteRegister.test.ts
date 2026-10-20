@@ -127,7 +127,7 @@ describe('POST /v1/agent/register + /v1/agent/quote — current builder contract
 		expect(res.status).toBe(400)
 		const body = (await res.json()) as any
 		expect(body.error_code).toBe('VALIDATION_ERROR')
-		expect(body.fields.wallet_address).toContain('Invalid EVM address')
+		expect(body.fields.wallet_address).toContain('Invalid wallet address')
 	})
 
 	it('fails closed for Starknet instead of invoking an unsupported provider', async () => {

@@ -49,6 +49,8 @@ export interface User {
 export interface ApiError {
   detail: string
   status: number
+  /** Machine-readable error code from the API body, e.g. 'REGION_RESTRICTED' */
+  code?: string
 }
 
 export interface HealthStatus {
