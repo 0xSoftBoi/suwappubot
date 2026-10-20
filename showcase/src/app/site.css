@@ -540,6 +540,33 @@
   color: var(--fg-dim);
 }
 
+/* QuoteRaceGL — one lane per routing venue races the same quote in parallel,
+   and one wins. Ambient background for the engine section: sits behind the
+   steps copy at low opacity so the steps stay the thing being read. */
+.home-steps-wrap {
+  position: relative;
+  z-index: 0;              /* stacking context: keeps the -2 race above the page ground */
+}
+.home-quoterace {
+  position: absolute;
+  inset: 0;                /* exactly the steps block, whatever language/width */
+  z-index: -2;             /* behind the steps copy and the section's glow */
+  pointer-events: none;
+  overflow: hidden;
+}
+.home-quoterace canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.55;
+}
+
+@media (max-width: 1023px) {
+  .home-quoterace {
+    display: none;           /* decorative only — keep mobile lightweight */
+  }
+}
+
 /* Real product screenshots get the depth; the surrounding marketing copy
    deliberately does not pretend to be a dashboard. */
 .proof {
