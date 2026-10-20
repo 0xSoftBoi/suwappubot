@@ -7658,8 +7658,12 @@ a.summer-button:active,
     margin-left: 4px;
   }
   /* .summer-nav collapses to 2 columns at this width; the actions cell holds
-     the burger, so it must not be pushed off the edge. */
+     the burger, so it must not be pushed off the edge. The locale switcher
+     lives behind the burger from here down — the drawer is the mobile home. */
   .summer-nav__actions { gap: 8px; }
+  .summer-nav__actions .switcher {
+    display: none;
+  }
 }
 
 /* Cosmic header: the hamburger bars need to read against the dark glass. */
