@@ -15,6 +15,29 @@
      the existing var(--font-display) references need no edits. */
   --font-display: var(--font-sans);
 
+  /* ================================================================
+     DISPLAY RAMP — one editorial scale for every marketing surface.
+     Before this, h1 ran from 42px to 109px across pages, section h2s
+     from 16px to 83px, and half the pages set their headline in sans-bold
+     while the rest used the Newsreader serif. Four steps, fluid, each
+     with a real job:
+       d1  home hero ......... the loudest type on the site
+       d2  interior page hero  a step below, still editorial
+       d3  section heading .... the workhorse
+       d4  sub-heading ........ card / row titles
+     Sizes verified at 390 / 768 / 1440. Never hard-code a display size
+     again — use these. */
+  --type-d1: clamp(2.75rem, 1.9rem + 3.3vw, 4.25rem);   /* 44   / 56   / 68 */
+  --type-d2: clamp(2.4rem, 1.5rem + 3.1vw, 4rem);       /* 38.4 / 48   / 64 */
+  --type-d3: clamp(1.9rem, 1.3rem + 2vw, 3rem);         /* 30.4 / 36   / 48 */
+  --type-d4: clamp(1.35rem, 1.15rem + 0.8vw, 1.75rem);  /* 21.6 / 28   / 28 */
+
+  /* The display face is ALWAYS Newsreader at medium weight with tight
+     tracking. Declared once so a page cannot drift from it. */
+  --type-display-font: var(--font-serif);
+  --type-display-weight: 500;
+  --type-display-tracking: -0.028em;
+
   /* Accent — persimmon is the ONLY interactive accent */
   --sw-accent: #E58D2B;
   --sw-accent-bright: #F6A93C;
@@ -2876,6 +2899,88 @@ body {
   overflow-x: hidden;
 }
 
+/* ================================================================
+   BASE NORMALIZE — the rest of what Preflight would have emitted.
+
+   Because the reset never lands, the UA defaults are live on every
+   route and they are the cheapest tell that a page is unstyled:
+     · button/input/select/textarea do NOT inherit type — the UA gives
+       them a 13.3px Arial. Every unstyled <button> (the FAQ questions,
+       the newsletter submit) rendered in the wrong face at the wrong
+       size.
+     · <code> got the generic `monospace` stack, not JetBrains Mono.
+     · bare <a> got #0000EE + underline, so prose links ("Agents page",
+       "risk disclosures") rendered in default link blue.
+   Only the pieces we actually need are restored; box-sizing and heading
+   margins stay as they are, because thousands of existing rules are
+   written against the current behaviour.
+   ================================================================ */
+button,
+input,
+optgroup,
+select,
+textarea {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 1em;
+}
+
+/* Anchors inherit. Styled links (every classed link) keep their own
+   treatment; bare prose links get the brand's link colour plus an underline,
+   instead of UA blue. --sw-link is remapped by the dark register below, so a
+   prose link stays legible on both grounds. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+:root {
+  --sw-link: var(--sw-accent-dark);
+}
+
+:is(p, li, dd, blockquote, figcaption, td) > a:not([class]) {
+  color: var(--sw-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--sw-link) 50%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition: text-decoration-color 0.15s ease;
+}
+
+:is(p, li, dd, blockquote, figcaption, td) > a:not([class]):hover {
+  text-decoration-color: var(--sw-accent);
+}
+
+/* Tables: UA gives `border-collapse: separate` + 2px border-spacing, which
+   frames every data table in invisible gutters. Collapse is what the design
+   assumes; spacing, where wanted, is set explicitly per table. */
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* The UA shows a disclosure triangle only for <summary>; our accordions are
+   <button>-based, so nothing to do here — summary is left native on purpose. */
+
 /* Skip to content link */
 .skip-to-content {
   position: absolute;
@@ -3207,13 +3312,14 @@ button:focus:not(:focus-visible) {
 }
 
 .section__heading {
-  font-family: var(--font-display);
-  font-size: clamp(2rem, 5vw, 3.25rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.05;
   color: #1a1a1a;
   margin-bottom: 1rem;
+  text-wrap: balance;
 }
 
 .section__body {
@@ -4887,7 +4993,7 @@ button:focus:not(:focus-visible) {
   letter-spacing: -0.01em;
 }
 .mkt-hero__lead { max-width: 620px; margin: 18px auto 0; color: #345069; font-size: 1.1rem; line-height: 1.65; }
-.mkt-h2 { margin: 0 0 1.25rem; color: var(--summer-ink); font-size: 2rem; line-height: 1.1; }
+.mkt-h2 { margin: 0 0 1.25rem; color: var(--summer-ink); font-family: var(--type-display-font); font-size: var(--type-d3); font-weight: var(--type-display-weight); letter-spacing: var(--type-display-tracking); line-height: 1.06; text-wrap: balance; }
 .mkt-cta {
   margin-top: 3rem;
   padding: 2.5rem;
@@ -5434,11 +5540,11 @@ button:focus:not(:focus-visible) {
   background: rgba(255, 255, 255, 0.86);
   box-shadow: 0 16px 32px rgba(33, 88, 110, 0.07);
 }
-.legal-page h1 { margin: 8px 0 0; color: var(--summer-ink); font-family: var(--font-display); font-size: 2.6rem; }
+.legal-page h1 { margin: 8px 0 0; color: var(--summer-ink); font-family: var(--type-display-font); font-size: 2.6rem; font-weight: var(--type-display-weight); letter-spacing: var(--type-display-tracking); line-height: 1.06; }
 .legal-page__updated { margin: 8px 0 2rem; color: var(--summer-muted); font-family: var(--font-mono); font-size: 0.8rem; }
 .legal-page h2 { margin: 2rem 0 0; color: var(--summer-ink); font-size: 1.2rem; }
 .legal-page p { margin: 10px 0 0; color: #345069; line-height: 1.7; }
-.legal-page a { color: var(--suwappu-summer-accent); }
+.legal-page a { color: var(--sw-link); }
 @media (max-width: 640px) { .legal-page__card { padding: 1.75rem 1.5rem; } }
 
 /* Footer — inverted-cream band (backlog item 6). Derives from the same
@@ -5723,7 +5829,9 @@ button:focus:not(:focus-visible) {
 .changelog-tag--platform { background: rgba(124, 92, 191, 0.14); color: #7c5cbf; }
 .changelog-tag--docs { background: rgba(79, 111, 127, 0.14); color: var(--summer-muted); }
 .changelog-entry__body h2 { margin: 0; color: var(--summer-ink); font-size: 1.3rem; }
-.changelog-entry__body ul { display: grid; gap: 8px; margin: 12px 0 0; padding-left: 18px; color: #345069; line-height: 1.55; }
+.changelog-entry__body ul { display: grid; gap: 8px; margin: 12px 0 0; padding-left: 0; color: #345069; line-height: 1.55; list-style: none; }
+.changelog-entry__body li { position: relative; padding-left: 17px; }
+.changelog-entry__body li::before { content: ''; position: absolute; left: 0; top: 0.66em; width: 8px; height: 1px; background: var(--sw-accent); }
 .changelog-entry__body code { padding: 1px 5px; border-radius: 4px; background: rgba(14, 165, 233, 0.1); color: #0b789a; font-family: var(--font-mono); font-size: 0.86em; }
 
 /* Careers */
@@ -5760,7 +5868,9 @@ button:focus:not(:focus-visible) {
 .careers-extra { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--summer-line); }
 .careers-extra__col h3 { margin: 0 0 8px; color: var(--summer-ink); font-size: 1.05rem; }
 .careers-extra__col p { margin: 0; color: var(--summer-muted); font-size: 0.9rem; line-height: 1.6; }
-.careers-extra__col ul { display: grid; gap: 7px; margin: 0; padding-left: 18px; color: var(--summer-muted); font-size: 0.9rem; line-height: 1.5; }
+.careers-extra__col ul { display: grid; gap: 7px; margin: 0; padding-left: 0; color: var(--summer-muted); font-size: 0.9rem; line-height: 1.5; list-style: none; }
+.careers-extra__col li { position: relative; padding-left: 15px; }
+.careers-extra__col li::before { content: ''; position: absolute; left: 0; top: 0.62em; width: 7px; height: 1px; background: var(--sw-accent); }
 
 @media (max-width: 720px) {
   .research-row, .changelog-entry { grid-template-columns: 1fr; gap: 10px; }
@@ -7857,6 +7967,7 @@ a.summer-button:active,
   --sw-hairline-strong: rgba(255, 255, 255, 0.14);
   --sw-ink: #FAFAFA;
   --sw-muted: #A1A1A1;
+  --sw-link: var(--sw-accent-bright);
   /* The light register is a set of four (canvas/ink/muted/panel). Remapping
      only ink and muted left --sw-canvas and --sw-panel at their light values,
      so any surface built on them rendered as a near-opaque white slab behind
@@ -8190,26 +8301,9 @@ body:has(.sw-dark) .nav__hamburger-line { background: #FAFAFA; }
   text-decoration: none;
 }
 
-/* Products directory grids. These were inline styles whose track minimums
-   (180px sidebar + 250px cards) could not collapse on a phone: the cards were
-   250px inside a 134px cell, which widened the layout viewport to 482px and
-   pushed the fixed nav drawer — and its close button — off the right edge. */
-.products-group {
-  display: grid;
-  grid-template-columns: minmax(180px, .8fr) minmax(0, 2.2fr);
-  gap: 28px;
-  align-items: start;
-}
-
-.products-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 720px) {
-  .products-group { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-}
+/* Products directory grids moved into products.module.css when the page was
+   rebuilt on the dark register — the global versions were inline-style
+   workarounds and are gone with them. */
 
 /* Wide comparison tables carry a deliberate min-width (680px / 34rem) but sat
    in a container that clips rather than scrolls, so their right-hand columns

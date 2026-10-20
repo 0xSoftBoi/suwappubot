@@ -29,7 +29,7 @@ export function FirstRunChecklist() {
     isWalletAuthAvailable,
   } = useAuth()
   const { setTradingMode } = useTrading()
-  const { setActiveTab } = useBottomTab()
+  const { activeTab, setActiveTab } = useBottomTab()
   const isMobile = useIsMobile()
   const [dismissed, setDismissed] = usePersistentState('onboarding-checklist-dismissed', false)
   const [completed, setCompleted] = useState<Set<Step['id']>>(new Set())
@@ -37,7 +37,15 @@ export function FirstRunChecklist() {
   // The desktop checklist is a fixed overlay; on phones it obscures the
   // persistent trading navigation and the swap CTA. Mobile already exposes a
   // wallet-first header and dedicated Swap tab, so keep the trading surface clear.
+  //
+  // It is also hidden whenever a non-default bottom panel is open. The card sits
+  // in the bottom-right corner, which is exactly where those panels put their
+  // action buttons (Copy Trading's "Trade <token>", Wallet Tracker's row
+  // actions), so leaving it up put a live button underneath the card and
+  // swallowed the click. The nudge belongs to the default trading surface it
+  // describes.
   if ((isAuthenticated && !needsTradingProof) || dismissed || isMobile) return null
+  if (activeTab !== 'portfolio') return null
 
   const markDone = (id: Step['id']) => setCompleted((prev) => new Set(prev).add(id))
 
@@ -90,7 +98,7 @@ export function FirstRunChecklist() {
   ]
 
   return (
-    <div className="terminal-theme-overlay pointer-events-auto fixed bottom-3 right-3 z-40 w-[276px] max-w-[calc(100vw-24px)] p-3">
+    <div className="terminal-theme-overlay pointer-events-none fixed bottom-3 right-3 z-40 w-[276px] max-w-[calc(100vw-24px)] p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="terminal-theme-caption text-[10px] uppercase text-terminal-accent">Get started</div>
@@ -101,7 +109,7 @@ export function FirstRunChecklist() {
           onClick={() => setDismissed(true)}
           aria-label="Dismiss the getting-started checklist"
           title="Dismiss"
-          className="text-terminal-text-muted transition-colors hover:text-terminal-text"
+          className="pointer-events-auto text-terminal-text-muted transition-colors hover:text-terminal-text"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -119,7 +127,7 @@ export function FirstRunChecklist() {
                 onClick={step.run}
                 disabled={step.disabled}
                 title={step.disabled ? step.disabledHint : step.hint}
-                className="terminal-theme-control flex w-full items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                className="terminal-theme-control pointer-events-auto flex w-full items-center gap-2.5 rounded-[7px] px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span
                   className={`tnum flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${

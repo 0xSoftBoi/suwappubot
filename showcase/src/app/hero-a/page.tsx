@@ -2,7 +2,7 @@ import LiveQuote from '@/components/LiveQuote';
 import SummerNav from '@/components/SummerNav';
 import './hero-a.css';
 
-export const metadata = { title: 'Hero A - dark institutional' };
+export const metadata = { title: 'Hero A - dark institutional', robots: { index: false, follow: false } };
 
 export default function HeroA() {
   return (
