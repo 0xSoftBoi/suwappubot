@@ -42,14 +42,15 @@
 }
 
 .hero h1 {
-  max-width: 9.5ch;
+  max-width: 16ch;
   margin: 0;
   color: var(--sw-ink);
-  font-family: var(--font-serif);
-  font-size: clamp(3.5rem, 7.6vw, 7rem);
-  font-weight: 400;
-  letter-spacing: -0.045em;
-  line-height: 0.88;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d2);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.0;
+  text-wrap: balance;
 }
 
 .heroIntro {
@@ -210,14 +211,14 @@
 }
 
 .reportTitle {
-  max-width: 11ch;
+  max-width: 16ch;
   margin: 1.4rem 0 0;
   color: var(--sw-ink);
-  font-family: var(--font-serif);
-  font-size: clamp(3rem, 5.8vw, 5.4rem);
-  font-weight: 400;
-  letter-spacing: -0.045em;
-  line-height: 0.92;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.06;
   text-wrap: balance;
 }
 
@@ -456,11 +457,11 @@
 .featureTitle {
   margin: 1.25rem 0 0;
   color: var(--sw-ink);
-  font-family: var(--font-display);
-  font-size: clamp(2rem, 3.6vw, 3.15rem);
-  font-weight: 500;
-  letter-spacing: -0.04em;
-  line-height: 1.02;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d4);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.12;
 }
 
 .featureTitle a,
@@ -637,14 +638,14 @@
 }
 
 .standardIntro h2 {
-  max-width: 9ch;
+  max-width: 14ch;
   margin: 0.8rem 0 0;
   color: var(--sw-ink);
-  font-family: var(--font-serif);
-  font-size: clamp(2.4rem, 5vw, 4.4rem);
-  font-weight: 400;
-  letter-spacing: -0.035em;
-  line-height: 0.96;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.05;
 }
 
 .standardIntro > p:not(:first-child) {
@@ -830,7 +831,7 @@
   }
 
   .hero h1 {
-    font-size: clamp(3.3rem, 15vw, 5rem);
+    max-width: 16ch;
   }
 
   .stats {
@@ -932,7 +933,7 @@
   }
 
   .reportTitle {
-    font-size: clamp(2.8rem, 14vw, 4rem);
+    max-width: 16ch;
   }
 
   .reportCover {
