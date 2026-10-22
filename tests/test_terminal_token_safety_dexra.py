@@ -28,8 +28,14 @@ def rugcheck(monkeypatch):
     monkeypatch.setattr(terminal, "_get_json", fake_get_json)
 
 
-def run(monkeypatch, api_key, dexra):
-    calls = []
+@pytest.fixture(autouse=True)
+def fresh_dexra_state(monkeypatch):
+    monkeypatch.setattr(terminal, "_dexra_cache", {})
+    monkeypatch.setattr(terminal, "_dexra_limiter", None)
+
+
+def run(monkeypatch, api_key, dexra, calls=None):
+    calls = [] if calls is None else calls
 
     async def fake_dexra(client, address, key):
         calls.append((address, key))
@@ -74,3 +80,42 @@ def test_dexra_failure_fails_open(monkeypatch, rugcheck):
     report, _ = run(monkeypatch, "dxr_test", httpx.ConnectError("down"))
     assert report["sources"] == ["rugcheck"]
     assert report["riskLevel"] == "safe"
+
+
+@pytest.mark.parametrize("reasons", [None, [], "", {"a": 1}, [None, "  "]])
+def test_avoid_without_usable_reasons_still_danger(monkeypatch, rugcheck, reasons):
+    report, _ = run(monkeypatch, "dxr_test", {"verdict": "avoid", "reasons": reasons})
+    assert report["sources"] == ["dexra", "rugcheck"]
+    assert {"label": "Dexra verdict: avoid", "level": "danger"} in report["flags"]
+    assert report["riskLevel"] == "danger"
+
+
+def test_caution_with_string_reasons_does_not_split_characters(monkeypatch, rugcheck):
+    report, _ = run(monkeypatch, "dxr_test", {"verdict": "caution", "reasons": "thin pool"})
+    assert report["flags"] == [{"label": "Dexra verdict: caution", "level": "warn"}]
+    assert report["riskLevel"] == "caution"
+
+
+def test_verdict_is_cached_per_mint(monkeypatch, rugcheck):
+    calls = []
+    result = {"verdict": "ok", "reasons": []}
+    run(monkeypatch, "dxr_test", result, calls)
+    report, _ = run(monkeypatch, "dxr_test", result, calls)
+    assert len(calls) == 1
+    assert "dexra" in report["sources"]
+
+
+def test_failure_is_not_cached(monkeypatch, rugcheck):
+    calls = []
+    run(monkeypatch, "dxr_test", httpx.ConnectError("down"), calls)
+    run(monkeypatch, "dxr_test", httpx.ConnectError("down"), calls)
+    assert len(calls) == 2
+
+
+def test_cache_misses_are_throttled_per_ip(monkeypatch, rugcheck):
+    monkeypatch.setattr(terminal, "_DEXRA_MAX_CHECKS_PER_MINUTE", 1)
+    calls = []
+    run(monkeypatch, "dxr_test", httpx.ConnectError("down"), calls)
+    report, _ = run(monkeypatch, "dxr_test", {"verdict": "avoid", "reasons": ["x"]}, calls)
+    assert len(calls) == 1
+    assert report["sources"] == ["rugcheck"]

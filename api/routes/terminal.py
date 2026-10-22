@@ -1101,6 +1101,29 @@ async def _evm_safety(chain: str, address: str) -> dict:
 
 
 DEXRA_TOKEN_CHECK_URL = "https://api.dexra.dev/token_deep_check"
+# Dexra is billed per call and this route is unauthenticated, so verdicts are
+# cached per mint and cache misses are throttled per client IP. A throttled or
+# failed check just leaves Dexra out of the report.
+_DEXRA_CACHE_TTL_SECONDS = 300
+_DEXRA_CACHE_MAX_ENTRIES = 2000
+_DEXRA_MAX_CHECKS_PER_MINUTE = 10
+_dexra_cache: dict[str, tuple[float, dict]] = {}
+_dexra_limiter = None
+
+
+async def _dexra_allowed(client_ip: str) -> bool:
+    global _dexra_limiter
+    from bot.utils.rate_limiter import RateLimitExceeded, UserRateLimiter
+
+    if _dexra_limiter is None:
+        _dexra_limiter = UserRateLimiter(
+            max_requests=_DEXRA_MAX_CHECKS_PER_MINUTE, window_seconds=60
+        )
+    try:
+        await _dexra_limiter.check(client_ip)
+    except RateLimitExceeded:
+        return False
+    return True
 
 
 async def _dexra_token_check(client: httpx.AsyncClient, address: str, api_key: str):
@@ -1121,27 +1144,44 @@ def _apply_dexra(report: dict, flags: list[dict], result) -> None:
     if not isinstance(result, dict) or result.get("verdict") not in ("ok", "caution", "avoid"):
         return
     report["sources"].append("dexra")
-    level = {"avoid": "danger", "caution": "warn"}.get(result["verdict"])
-    if level:
-        for reason in (result.get("reasons") or [])[:3]:
-            flags.append(_flag(f"Dexra: {reason}", level))
+    verdict = result["verdict"]
+    level = {"avoid": "danger", "caution": "warn"}.get(verdict)
+    if not level:
+        return
+    reasons = result.get("reasons")
+    if not isinstance(reasons, list):
+        reasons = []
+    labels = [f"Dexra: {r}" for r in reasons if isinstance(r, str) and r.strip()][:3]
+    # Without a usable reason the verdict itself must still raise the risk level.
+    for label in labels or [f"Dexra verdict: {verdict}"]:
+        flags.append(_flag(label, level))
 
 
-async def _solana_safety(chain: str, address: str) -> dict:
+async def _solana_safety(chain: str, address: str, client_ip: str = "unknown") -> dict:
     """RugCheck report summary for a Solana mint, plus Dexra's verdict when
     DEXRA_API_KEY is set."""
     from bot.config.settings import settings
 
     report = _empty_report(chain, address)
+    dexra = None
+    if settings.dexra_api_key:
+        cached = _cache_get(_dexra_cache, address)
+        if cached is not _CACHE_MISS:
+            dexra = cached
     async with httpx.AsyncClient(timeout=8.0) as client:
         calls = [_get_json(client, f"https://api.rugcheck.xyz/v1/tokens/{address}/report/summary")]
-        if settings.dexra_api_key:
+        if settings.dexra_api_key and dexra is None and await _dexra_allowed(client_ip):
             calls.append(_dexra_token_check(client, address, settings.dexra_api_key))
         results = await asyncio.gather(*calls, return_exceptions=True)
     rc = results[0] if isinstance(results[0], dict) else None
-    dexra = results[1] if len(results) > 1 else None
-    if isinstance(dexra, Exception):
-        logger.warning("Dexra token check failed for %s: %r", address, dexra)
+    if len(results) > 1:
+        dexra = results[1]
+        if isinstance(dexra, Exception):
+            logger.warning("Dexra token check failed for %s: %r", address, dexra)
+        elif isinstance(dexra, dict):
+            _cache_set(
+                _dexra_cache, address, dexra, _DEXRA_CACHE_MAX_ENTRIES, _DEXRA_CACHE_TTL_SECONDS
+            )
     flags: list[dict] = []
     _apply_dexra(report, flags, dexra)
     if isinstance(rc, dict):
@@ -1208,11 +1248,13 @@ def _derive_risk(report: dict) -> tuple[Optional[int], str]:
 
 @router.get("/token/safety")
 async def get_terminal_token_safety(
+    request: Request,
     chain: str = Query(...),
     address: str = Query(...),
 ):
     """Aggregated token-safety report from free providers — GoPlus + Honeypot.is
-    (EVM) or RugCheck (Solana; plus Dexra's verdict when DEXRA_API_KEY is set):
+    (EVM) or RugCheck (Solana) — plus, when DEXRA_API_KEY is set, the verdict of
+    Dexra, an optional paid (per-call credits) provider:
     honeypot/can-sell, buy/sell tax, mint/freeze
     authority, LP-locked, top-holder concentration, plus human-readable risk
     flags and a 0–100 trust score. Degrades to ``riskLevel: unknown`` rather
@@ -1220,7 +1262,8 @@ async def get_terminal_token_safety(
     chain_l = chain.lower()
     try:
         if chain_l in ("solana", "sol"):
-            return await _solana_safety(chain, address)
+            client_ip = request.client.host if request.client else "unknown"
+            return await _solana_safety(chain, address, client_ip)
         if chain_l in GOPLUS_CHAIN_IDS:
             return await _evm_safety(chain, address)
     except Exception:
