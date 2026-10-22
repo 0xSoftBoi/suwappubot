@@ -1100,17 +1100,50 @@ async def _evm_safety(chain: str, address: str) -> dict:
     return report
 
 
+DEXRA_TOKEN_CHECK_URL = "https://api.dexra.dev/token_deep_check"
+
+
+async def _dexra_token_check(client: httpx.AsyncClient, address: str, api_key: str):
+    resp = await client.get(
+        DEXRA_TOKEN_CHECK_URL,
+        params={"mint": address},
+        headers={
+            "User-Agent": "suwappu-terminal/1.0",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    resp.raise_for_status()
+    return resp.json().get("result")
+
+
+def _apply_dexra(report: dict, flags: list[dict], result) -> None:
+    if not isinstance(result, dict) or result.get("verdict") not in ("ok", "caution", "avoid"):
+        return
+    report["sources"].append("dexra")
+    level = {"avoid": "danger", "caution": "warn"}.get(result["verdict"])
+    if level:
+        for reason in (result.get("reasons") or [])[:3]:
+            flags.append(_flag(f"Dexra: {reason}", level))
+
+
 async def _solana_safety(chain: str, address: str) -> dict:
-    """RugCheck report summary for a Solana mint."""
+    """RugCheck report summary for a Solana mint, plus Dexra's verdict when
+    DEXRA_API_KEY is set."""
+    from bot.config.settings import settings
+
     report = _empty_report(chain, address)
     async with httpx.AsyncClient(timeout=8.0) as client:
-        try:
-            rc = await _get_json(
-                client, f"https://api.rugcheck.xyz/v1/tokens/{address}/report/summary"
-            )
-        except Exception:
-            rc = None
+        calls = [_get_json(client, f"https://api.rugcheck.xyz/v1/tokens/{address}/report/summary")]
+        if settings.dexra_api_key:
+            calls.append(_dexra_token_check(client, address, settings.dexra_api_key))
+        results = await asyncio.gather(*calls, return_exceptions=True)
+    rc = results[0] if isinstance(results[0], dict) else None
+    dexra = results[1] if len(results) > 1 else None
+    if isinstance(dexra, Exception):
+        logger.warning("Dexra token check failed for %s: %r", address, dexra)
     flags: list[dict] = []
+    _apply_dexra(report, flags, dexra)
     if isinstance(rc, dict):
         report["sources"].append("rugcheck")
         for r in rc.get("risks") or []:
@@ -1179,7 +1212,8 @@ async def get_terminal_token_safety(
     address: str = Query(...),
 ):
     """Aggregated token-safety report from free providers — GoPlus + Honeypot.is
-    (EVM) or RugCheck (Solana): honeypot/can-sell, buy/sell tax, mint/freeze
+    (EVM) or RugCheck (Solana; plus Dexra's verdict when DEXRA_API_KEY is set):
+    honeypot/can-sell, buy/sell tax, mint/freeze
     authority, LP-locked, top-holder concentration, plus human-readable risk
     flags and a 0–100 trust score. Degrades to ``riskLevel: unknown`` rather
     than failing if upstreams are down."""
