@@ -24,6 +24,10 @@ use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
+// Public demo secret for context "github_pr_demo" only. Same value used by the checked-in
+// fixtures/, the Node WASI runner, and everything else demo-side — deliberately public.
+const DEMO_SECRET: &str = "arbiter-demo-secret";
+
 #[derive(Deserialize)]
 struct Input {
     context: String,
@@ -89,7 +93,18 @@ fn main() {
     };
     let evidence_hash = hex(Sha256::digest(&payload).as_ref());
 
-    let secret = match std::env::var("GITHUB_WEBHOOK_SECRET") {
+    // Secret policy:
+    //   context "github_pr"      — production rubric; secret MUST come from the enclave env
+    //                              (OutLayer secrets, injected at execution time).
+    //   context "github_pr_demo" — public demo rubric; secret is a fixed, public constant
+    //                              (DEMO_SECRET) deliberately published so anyone can replay
+    //                              the fixture. Never use for real escrows.
+    let is_demo = input.context == "github_pr_demo";
+    let secret: String = match if is_demo {
+        Ok(DEMO_SECRET.to_string())
+    } else {
+        std::env::var("GITHUB_WEBHOOK_SECRET")
+    } {
         Ok(s) => s,
         Err(_) => {
             println!(
@@ -100,7 +115,7 @@ fn main() {
         }
     };
 
-    if input.context != "github_pr" {
+    if input.context != "github_pr" && input.context != "github_pr_demo" {
         println!(
             "{}",
             serde_json::to_string(&out("fail", "unknown_context", &payload)).unwrap()

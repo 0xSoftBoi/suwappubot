@@ -36,7 +36,7 @@ const deadline = kind === 'fail-deadline'
   : Math.floor(new Date('2026-11-30T00:00:00Z').getTime() / 1000);
 
 const input = {
-  context: 'github_pr',
+  context: process.argv[3] || 'github_pr',
   repo: 'arbiter-demo/shop',
   pr_number: 7,
   author: 'octocat',
