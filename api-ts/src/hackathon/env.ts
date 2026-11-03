@@ -71,6 +71,11 @@ export function worldIdEnabled(env: Env = hackathonEnv()): boolean {
 	return on(env.HACKATHON_WORLD_ID, true)
 }
 
+/** NEAR Arbiter demo routes (/hackathon/arbiter/*). Explicit opt-in, default OFF. */
+export function arbiterEnabled(env: Env = hackathonEnv()): boolean {
+	return on(env.HACKATHON_ARBITER, false)
+}
+
 /**
  * Uniswap Trading API comparison quote in the SwapService route race.
  * Explicit opt-in ONLY (default off) — unlike the KyberSwap race, this is

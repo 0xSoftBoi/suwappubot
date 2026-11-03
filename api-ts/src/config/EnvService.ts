@@ -257,6 +257,12 @@ export const EnvSchema = Schema.Struct({
 	// master and can be toggled independently. Uniswap comparison is an
 	// explicit opt-in even when the master flag is on.
 	HACKATHON_TRUST_LAYER: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// NEAR Arbiter (NEAR HACKATHON 2026) — additive, default OFF.
+	HACKATHON_ARBITER: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// NEAR testnet wiring for the Arbiter demo. Empty = fixture-replay-only mode.
+	NEAR_ARBITER_CONTRACT: Schema.optionalWith(Schema.String, { default: () => '' }),
+	NEAR_ARBITER_WASM_URL: Schema.optionalWith(Schema.String, { default: () => '' }),
+	NEAR_ARBITER_WASM_HASH: Schema.optionalWith(Schema.String, { default: () => '' }),
 	HACKATHON_INTERCEPTA: Schema.optionalWith(Schema.String, { default: () => 'true' }),
 	HACKATHON_ENSV2: Schema.optionalWith(Schema.String, { default: () => 'true' }),
 	HACKATHON_WORLD_ID: Schema.optionalWith(Schema.String, { default: () => 'true' }),

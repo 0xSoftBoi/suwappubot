@@ -72,3 +72,7 @@ contracts-hackathon/*/broadcast/*/dry-run/
 # Foundry build artifacts
 contracts/out/
 contracts/cache/
+# NEAR Arbiter (hackathon) build outputs
+near/arbiter-wasm/target/
+near/arbiter-contract/target/
+near/**/target/

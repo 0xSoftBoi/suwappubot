@@ -28,6 +28,7 @@ import {
 	dataRoutes,
 	enterpriseRoutes,
 	hackathonRoutes,
+	arbiterRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -78,6 +79,7 @@ export interface AppConfig {
 	// ETHGlobal Tokyo 2026 trust-layer demo routes. When true, /hackathon/*
 	// is mounted (see index.ts — decoded from EnvService at boot).
 	hackathonTrustLayer?: boolean | undefined
+	hackathonArbiter?: boolean | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -188,6 +190,17 @@ export function createApp(config: AppConfig) {
 		app.use('/hackathon/passport/start', ipRateLimit(30))
 		app.use('/hackathon/passport/swap', ipRateLimit(30))
 		app.route('/hackathon', hackathonRoutes)
+	}
+
+	// HACKATHON (NEAR 2026): Arbiter demo routes. Flag-gated — unmounted by
+	// default (surface doesn't exist unless HACKATHON_ARBITER=true).
+	// Evidence size can exceed 4 KB (webhook blobs), so a larger body limit
+	// and no background work on these routes; rate floor still applies.
+	// OPENAPI TREATMENT: excluded from the public spec, same as /hackathon/*.
+	if (config.hackathonArbiter) {
+		app.use('/hackathon/arbiter/*', bodyLimit({ maxSize: 64 * 1024 }))
+		app.use('/hackathon/arbiter/*', ipRateLimit(120))
+		app.route('/hackathon/arbiter', arbiterRoutes)
 	}
 
 	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
