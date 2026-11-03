@@ -2,7 +2,7 @@ import LiveQuote from '@/components/LiveQuote';
 import SummerNav from '@/components/SummerNav';
 import './hero-c.css';
 
-export const metadata = { title: 'Hero C - the number is the hero' };
+export const metadata = { title: 'Hero C - the number is the hero', robots: { index: false, follow: false } };
 
 export default function HeroC() {
   return (

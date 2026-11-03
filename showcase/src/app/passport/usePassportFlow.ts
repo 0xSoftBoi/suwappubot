@@ -29,6 +29,7 @@ export type SwapView = {
   error: string | null;
 };
 const EMPTY_SWAP: SwapView = { phase: 'idle', result: null, job: null, error: null };
+const DEFAULT_WALLET = '0x0000000000000000000000000000000000000000';
 export type VerifyPhase = 'idle' | 'starting' | 'pending' | 'provisioning' | 'ready' | 'existing' | 'failed' | 'error';
 
 const POLL_INTERVAL_MS = 2000;
@@ -40,9 +41,16 @@ export function usePassportFlow() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
 
-  const [wallet, setWallet] = useState<string>(() =>
-    typeof window !== 'undefined' ? randomWallet() : '0x0000000000000000000000000000000000000000',
-  );
+  // Deterministic on server AND client so SSR and hydration agree (#418).
+  // The wallet is randomized once in an effect after mount — see below.
+  const [wallet, setWallet] = useState<string>(DEFAULT_WALLET);
+
+  useEffect(() => {
+    // Home is the demo flow's entry point; the first paint should already
+    // show a wallet. Randomize once, post-hydration, so server and client
+    // never disagree on the initial value.
+    setWallet(randomWallet());
+  }, []);
 
   // Beat 1 (before the passport) and Beat 3 (after) are the same API call but
   // separate stories: each keeps its own outcome, so Beat 3 executing never

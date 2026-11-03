@@ -14,7 +14,7 @@ import type {
 import styles from './autopilot.module.css';
 
 export const metadata: Metadata = {
-  title: 'Autopilot | Suwappu autonomous trading agent',
+  title: { absolute: 'Autopilot: the Suwappu autonomous trading agent | Suwappu' },
   description:
     'A trading agent that commits to its thesis before it trades, publishes every refusal alongside every fill, and lets anyone recompute the hash it published in advance.',
 };

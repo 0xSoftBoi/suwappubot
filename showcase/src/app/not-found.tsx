@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import styles from './not-found.module.css';
 
 export const metadata: Metadata = {
-  title: 'Page not found | Suwappu',
+  title: 'Page not found',
   description: 'That route does not exist. Head back to the homepage, the docs, or the status page.',
   // A 404 must never be indexed, but its outbound links should still be followed.
   robots: { index: false, follow: true },

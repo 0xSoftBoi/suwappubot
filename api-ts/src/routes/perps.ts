@@ -2,7 +2,7 @@ import { Effect, Either } from 'effect'
 import { Hono, type Context, type Next } from 'hono'
 import type { Agent } from '../db'
 import { mapErrorToResponse } from '../errors'
-import { agentBearerAuth, flexAuth } from '../middleware'
+import { agentBearerAuth, flexAuth, regionGate } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { HyperliquidService } from '../services/HyperliquidService'
 import { PerpsQuoteSchema } from './validators'
@@ -14,6 +14,9 @@ type AgentContext = {
 }
 
 const perpsRoutes = new Hono<AgentContext>()
+
+// Compliance: block restricted regions (default US) from all perps endpoints.
+perpsRoutes.use('*', regionGate())
 
 // The perps positions path serves two existing callers with different credential
 // classes: SDK/A2A clients use a suwappu_sk_* agent key, while the first-party
@@ -50,7 +53,10 @@ perpsRoutes.get('/markets', async (c) => {
 })
 
 // POST /v1/agent/perps/quote — get perp position quote
-perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
+// regionGate() runs a second time here, AFTER agentBearerAuth() resolves
+// c.get('agent') — the blanket pass above runs before any auth and so can
+// only ever see the caller's IP, not their sticky region. See regionGate.ts.
+perpsRoutes.post('/quote', agentBearerAuth(), regionGate(), async (c) => {
 	const body = await c.req.json()
 	const parsed = PerpsQuoteSchema.safeParse(body)
 	if (!parsed.success) {
@@ -75,7 +81,9 @@ perpsRoutes.post('/quote', agentBearerAuth(), async (c) => {
 })
 
 // GET /v1/agent/perps/positions — list open positions
-perpsRoutes.get('/positions', perpsPositionsAuth(), async (c) => {
+// regionGate() re-run after auth resolves the caller (agent or user) for the
+// sticky-region check — see comment on POST /quote above.
+perpsRoutes.get('/positions', perpsPositionsAuth(), regionGate(), async (c) => {
 	const address = c.req.query('address')
 	if (!address) {
 		return c.json({ error: 'address query parameter required' }, 400)

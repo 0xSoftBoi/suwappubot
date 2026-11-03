@@ -37,7 +37,7 @@ import {
 	type Timeframe,
 } from '../lib/marketDataQueries'
 import { logger } from '../lib/logger'
-import { flexAuth } from '../middleware'
+import { flexAuth, regionGate } from '../middleware'
 
 const webappDataRoutes = new Hono()
 
@@ -45,6 +45,13 @@ const webappDataRoutes = new Hono()
 // <jwt> / suwappu_auth cookie (Terminal dashboard, showcase) — see
 // middleware/flexAuth.ts. Applies to every /webapp/data/* route.
 webappDataRoutes.use('*', flexAuth())
+
+// Compliance: block restricted regions (default US) from the derivatives-
+// adjacent market-data subpaths only — mounted after flexAuth() above so
+// regionGate() sees c.get('authUser') for the sticky-region check. Every
+// other /webapp/data/* route (status, ohlcv, lend/*) is untouched.
+webappDataRoutes.use('/perps/*', regionGate())
+webappDataRoutes.use('/predictions/*', regionGate())
 
 function badRequest(message: string, extra?: Record<string, unknown>) {
 	return { body: { error: message, ...(extra ?? {}) }, status: 400 as const }

@@ -1,10 +1,11 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
 import ProductMenu from './ProductMenu';
 import NavDrawer from './NavDrawer';
+import LanguageSwitcher from './LanguageSwitcher';
 
 /**
  * SummerNav: the homepage header.
@@ -16,6 +17,7 @@ import NavDrawer from './NavDrawer';
 export default function SummerNav() {
   const nav = useTranslations('nav');
   const hero = useTranslations('home.hero');
+  const locale = useLocale();
 
   return (
     <header className="summer-nav">
@@ -35,6 +37,7 @@ export default function SummerNav() {
       </nav>
 
       <div className="summer-nav__actions">
+        <LanguageSwitcher current={locale} />
         <a
           className="summer-nav__cta"
           href={TERMINAL_URL}

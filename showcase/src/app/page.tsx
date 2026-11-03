@@ -6,6 +6,7 @@ import SummerFooter from '@/components/SummerFooter';
 import LiveQuote from '@/components/LiveQuote';
 import OceanAtmosphere from '@/components/OceanAtmosphere';
 import DepthSurfaceGL from '@/components/DepthSurfaceGL';
+import QuoteRaceGL from '@/components/QuoteRaceGL';
 import ToolConstellationGL from '@/components/ToolConstellationGL';
 import ProofShot from '@/components/ProofShot';
 import Reveal from '@/components/Reveal';
@@ -281,15 +282,25 @@ export default async function Home() {
                 <p>{h('execution.lead')}</p>
               </div>
 
-              <ol className="home-steps">
-                {executionSteps.map((step) => (
-                  <li key={step.number}>
-                    <span className="home-step__number">{step.number}</span>
-                    <h3>{step.title}</h3>
-                    <p>{step.body}</p>
-                  </li>
-                ))}
-              </ol>
+              <div className="home-steps-wrap">
+                <ol className="home-steps">
+                  {executionSteps.map((step) => (
+                    <li key={step.number}>
+                      <span className="home-step__number">{step.number}</span>
+                      <h3>{step.title}</h3>
+                      <p>{step.body}</p>
+                    </li>
+                  ))}
+                </ol>
+
+                {/* QuoteRaceGL: one lane per routing venue races the same quote
+                    in parallel and one wins — the visual of what this section
+                    describes. Ambient, behind the copy: opacity low, palette
+                    quiet, so the steps stay the thing being read. */}
+                <div className="home-quoterace" aria-hidden="true">
+                  <QuoteRaceGL venues={productStats.routerCount} />
+                </div>
+              </div>
 
               <div className="home-execution-extra">
                 {executionFacts.map((fact) => (

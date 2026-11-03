@@ -5,7 +5,7 @@ import stats from '@/data/stats.generated.json';
 import { GITHUB_URL } from '@/lib/links';
 
 export const metadata: Metadata = {
-  title: 'Architecture & execution boundaries | Suwappu',
+  title: 'Architecture & execution boundaries',
   description:
     'How Suwappu separates intent, routing, simulation, authorization and settlement across human, API, MCP and A2A interfaces.',
   alternates: { canonical: '/architecture' },

@@ -12,7 +12,6 @@ from typing import Optional
 from web3 import Web3
 from eth_account import Account
 from solders.keypair import Keypair
-from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient as SolanaClient
 import base58
 import aiohttp

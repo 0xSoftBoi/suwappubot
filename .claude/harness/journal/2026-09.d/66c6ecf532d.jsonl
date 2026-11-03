@@ -1,0 +1,1 @@
+{"ts": "2026-09-27T02:44:13Z", "session": "66c6ecf5-32d", "turns": 412, "tool_calls": 187, "tool_errors": 6, "denials": 1, "top_errors": ["The hidden tabs_context_mcp lookup did not respond within", "Exit code 1 // it the same as", "Exit code 1 M api-ts/src/hackathon/tokyo2026/passportChain.ts M api-ts/src/routes/agent.ts M"], "prompt": "the terminal is broken fix it"}

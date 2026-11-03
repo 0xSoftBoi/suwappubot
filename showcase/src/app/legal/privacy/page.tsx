@@ -3,7 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy | Suwappu',
+  title: 'Privacy Policy',
   description: 'What data Suwappu collects, how it is used, and how it is protected.',
 };
 

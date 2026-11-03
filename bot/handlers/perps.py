@@ -13,6 +13,7 @@ from telegram.ext import (
 
 from bot.services.perps_service import perps_service
 from bot.services.hyperliquid_client import hyperliquid_client
+from bot.utils.region_gate import derivatives_region_allowed, derivatives_blocked_message
 from bot.utils.telegram_safe import safe_md, send_md_safe
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,9 @@ async def perps_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /perps command or the 'perps_open' menu button — show perps menu."""
     if update.callback_query:
         await update.callback_query.answer()
+    if not derivatives_region_allowed(update.effective_user.id):
+        await update.effective_message.reply_text(derivatives_blocked_message())
+        return ConversationHandler.END
     account = perps_service.get_account(update.effective_user.id)
 
     if not account:
@@ -118,6 +122,9 @@ async def perps_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Handle perps menu callbacks."""
     query = update.callback_query
     await query.answer()
+    if not derivatives_region_allowed(update.effective_user.id):
+        await query.edit_message_text(derivatives_blocked_message())
+        return ConversationHandler.END
     data = query.data
 
     if data == "perps_setup":

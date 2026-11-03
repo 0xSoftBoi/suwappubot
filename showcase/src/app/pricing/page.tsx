@@ -11,7 +11,7 @@ import FeeCalculator from '@/components/FeeCalculator';
 import styles from './pricing.module.css';
 
 export const metadata: Metadata = {
-  title: 'Pricing | Suwappu',
+  title: 'Pricing',
   description:
     'Account trading plans for Suwappu, plus separate Agent API credit, rate-limit, and route-fee pricing for developers.',
 };

@@ -3,6 +3,7 @@ pragma solidity 0.8.27;
 
 import { L1Read } from "./L1Read.sol";
 import { CoreWriterLib } from "./CoreWriterLib.sol";
+import { ImmutableBoundUser } from "./ImmutableBoundUser.sol";
 
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
@@ -11,48 +12,57 @@ interface IERC20 {
 }
 
 /**
- * @title SuwappuCoreRouter — native spot swaps against the HyperCore orderbook
+ * @title SuwappuCoreRouterBoundUserImpl — per-user-clone native spot swaps
  *
- * One router instance per spot market (base/quote), parameters immutable, no
- * owner/pause/upgrade. Swaps execute on HyperCore itself: no AMM, no
- * aggregator, no external oracle — the book is the price.
+ * Logic contract for SuwappuCoreRouterBoundUserFactory: one EIP-1167-with-immutable-args
+ * clone per user `delegatecall`s into a single deployed instance of this
+ * contract per market (see PROPOSAL_PER_USER_ROUTER_ISOLATION_2026-09-01.md).
+ * Market config (this file's constructor immutables) is correctly shared by
+ * every clone — it's the same for every user of one market. The ONE thing
+ * that must differ per clone is WHICH user it moves funds for, and that
+ * can't be a Solidity `immutable` here (those bake into this shared LOGIC
+ * contract's own bytecode, identical for every clone) — it's read via
+ * ImmutableBoundUser.user(), which decodes the address baked into the
+ * CALLING clone's own bytecode at deploy time (delegatecall keeps
+ * `address(this)` == the clone, not this logic contract).
  *
- * CoreWriter actions are ASYNC (executed on HyperCore seconds later; a rejected
- * action does NOT revert the EVM tx), so a swap is a four-step lifecycle any
- * caller may drive:
+ * IMPORTANT — fund-direction gating, PLUS one narrow caller check.
+ * `initiate()` no longer takes `msg.sender` as the swap's beneficiary/payer
+ * — it always uses `user()`, the address fixed into THIS clone at deploy
+ * time — so tokens only ever leave from and land on that one fixed address,
+ * regardless of who calls anything. execute()/settle()/claim()/retry()/
+ * forceRelease() stay exactly as permissionless as the original
+ * SuwappuCoreRouterMultiUser (any caller may drive them — keepers, the user,
+ * doesn't matter), because none of them can move MORE of the user's money
+ * than initiate() already committed to: they all operate on amounts already
+ * fixed in swap storage or actual on-chain balance deltas, never on fresh
+ * caller-supplied numbers.
  *
- *  1. initiate — pull tokenIn, bridge EVM->Core, snapshot BOTH Core balances.
- *  2. execute  — once the deposit is OBSERVED on Core (free balance grew by
- *     coreIn), place the IOC (cloid = id) and re-snapshot the out-token. The
- *     order can never race its own funding: it is only ever placed against a
- *     confirmed balance, and IOCs resolve the moment HyperCore processes them.
- *  3. settle   — SETTLE_DELAY_L1 HyperCore blocks past execute, once the
- *     in-token hold has cleared (order resolved): reconcile BOTH legs from free
- *     (total - hold) balance deltas, fee on proceeds, bridge unconsumed input
- *     and proceeds back Core->EVM, snapshot EVM balances.
- *  4. claim    — pay the user both legs once THIS swap's bridge credits landed
- *     (measured against the settle-time EVM snapshots, not aggregate balance).
+ * initiate() is different, and is the one place this file gates on
+ * msg.sender: it pulls a caller-CHOSEN amount at a caller-CHOSEN price from
+ * `user()` via a standing ERC-20 approval to this clone (the whole intended
+ * UX — approve once, swap many times). If initiate() stayed permissionless,
+ * any third party could force `user()` into an unwanted swap at any moment,
+ * using that approval — the approval alone isn't consent to a SPECIFIC
+ * swap. So initiate() requires `msg.sender == user() || msg.sender ==
+ * factory()`. The factory branch exists only for deployAndInitiate()'s
+ * atomic deploy-then-swap UX for a user whose clone doesn't exist yet to
+ * call initiate() themselves — and it is spent exactly once per clone: see
+ * SuwappuCoreRouterBoundUserFactory.deployAndInitiate(), which reverts
+ * RouterAlreadyDeployed rather than ever calling initiate() as itself on a
+ * clone that already existed before that call.
  *
- * Liveness: retry() re-issues a bridge send that was silently rejected;
- * forceRelease() reconciles the stuck swap in place (under the lock, where
- * attribution is sound) to Bridging and then, like settle, holds the lock until
- * claim() confirms the bridge credits — so a recovered swap's async debit never
- * races a next swap's snapshot. It abandons (Aborted) only when nothing is
- * recoverable: a deposit HyperCore never credited (funds at the token system
- * address, unrecoverable by any contract), or — accepted pathological loss — an
- * order still held 100k+ L1 blocks past execute, where terminalizing preserves
- * router liveness at the cost of that held balance.
- *
- * Concurrency: ONE in-flight swap (global lock) keeps balance-delta attribution
- * sound; every reconciliation (settle AND forceRelease) runs while inFlight==id.
- * Scale throughput with more instances. Known residual (documented for
- * reviewers): an attacker can complete claim() early by donating the owed
- * amount on the EVM side, leaving a stale Core send that may under-credit a
- * later swap's delta; the donation is unrecoverable, so the grief costs the
- * attacker the full donated amount. retry() is blocked while another swap is
- * in flight so it cannot perturb a live delta window.
+ * Everything below this point is otherwise IDENTICAL in spirit to
+ * SuwappuCoreRouter.sol — see that file's header for the full four-step
+ * lifecycle (initiate/execute/settle/claim), liveness (retry/forceRelease),
+ * and concurrency (inFlight lock) documentation, and
+ * AUDIT_COREROUTER_2026-08-31.md for F1-F11. Isolation removes the
+ * CROSS-USER dimension of F1/F2/F3 structurally (no other user's swap can
+ * ever share this clone's balance to misattribute against) — the same-user
+ * residual within one clone (documented in that audit as surviving
+ * isolation) is unchanged by this file and not addressed here.
  */
-contract SuwappuCoreRouter {
+contract SuwappuCoreRouterBoundUserImpl is ImmutableBoundUser {
     // ── immutable market config ─────────────────────────────────────────────
     IERC20 public immutable baseErc20;
     IERC20 public immutable quoteErc20;
@@ -102,7 +112,7 @@ contract SuwappuCoreRouter {
     struct Swap {
         // slot 0 — status lives with initiate fields so every status flip
         // (execute/settle/claim) hits an already-non-zero slot.
-        address user; // 20 bytes
+        address user; // 20 bytes — always this clone's user(), never msg.sender
         bool baseForQuote; // true: sell base for quote (1)
         Status status; // (1)
         uint64 coreIn; // in-token deposited, Core wei (8) => 30/32
@@ -127,7 +137,11 @@ contract SuwappuCoreRouter {
         uint256 evmInSnapshot;
     }
 
-    uint128 public nextSwapId = 1;
+    // No `= 1` initializer here on purpose: state variable initializers only
+    // run in a constructor, and clones never run one — every clone's storage
+    // starts zeroed regardless of what this declaration says. nextSwapId
+    // relies only on that zero default (see the pre-increment at initiate()).
+    uint128 public nextSwapId;
     uint128 public inFlight; // 0 = free; else the active swap id
     mapping(uint128 => Swap) internal swaps;
 
@@ -154,6 +168,7 @@ contract SuwappuCoreRouter {
     error ZeroAmount();
     error BadTreasury();
     error SzTooSmall();
+    error NotAuthorized();
 
     constructor(
         IERC20 baseErc20_,
@@ -247,6 +262,13 @@ contract SuwappuCoreRouter {
         if (inFlight != 0) revert Locked();
         if (evmAmountIn == 0 || minCoreOut == 0 || limitPx == 0) revert ZeroAmount();
 
+        address boundUser = user();
+        // Standing approval isn't consent to any specific swap — only the
+        // user themselves, or the factory (exactly once, at this clone's
+        // creation — see SuwappuCoreRouterBoundUserFactory.deployAndInitiate),
+        // may choose this swap's amount/price and spend that approval.
+        if (msg.sender != boundUser && msg.sender != factory()) revert NotAuthorized();
+
         (IERC20 tokenIn, uint64 coreTokenIn, uint8 extraIn) = baseForQuote
             ? (baseErc20, baseToken, baseExtraEvmDecimals)
             : (quoteErc20, quoteToken, quoteExtraEvmDecimals);
@@ -255,12 +277,14 @@ contract SuwappuCoreRouter {
         uint64 coreIn = _evmToCore(evmAmountIn, extraIn);
         _orderSz(baseForQuote, coreIn, limitPx); // reject unfillable sizes up front
 
-        id = nextSwapId++;
+        // Pre-increment: first id must be 1, never 0 — 0 collides with
+        // inFlight's "free" sentinel (see nextSwapId's declaration above).
+        id = ++nextSwapId;
         inFlight = id;
 
         // Snapshots BEFORE any bridging lands (async ⇒ same-tx reads are pre-deposit).
         swaps[id] = Swap({
-            user: msg.sender,
+            user: boundUser,
             baseForQuote: baseForQuote,
             coreIn: coreIn,
             minCoreOut: minCoreOut,
@@ -281,9 +305,12 @@ contract SuwappuCoreRouter {
 
         // EVM -> Core: transfer to the token's system address credits this
         // contract's Core spot balance once HyperCore processes the block.
-        require(tokenIn.transferFrom(msg.sender, address(this), evmAmountIn), "pull");
+        // Pulled from boundUser regardless of who called initiate() — whoever
+        // triggers the tx, funds only ever move for the user this clone is
+        // fixed to (requires boundUser's own ERC-20 approval to this clone).
+        require(tokenIn.transferFrom(boundUser, address(this), evmAmountIn), "pull");
         require(tokenIn.transfer(systemAddress(coreTokenIn), evmAmountIn), "bridge");
-        emit SwapInitiated(id, msg.sender, baseForQuote, coreIn, minCoreOut);
+        emit SwapInitiated(id, boundUser, baseForQuote, coreIn, minCoreOut);
     }
 
     /// Place the IOC once the deposit is observable on Core. Anyone may call.
