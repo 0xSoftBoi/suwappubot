@@ -3,7 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import Reveal from '@/components/Reveal';
 import './hero-d.css';
 
-export const metadata = { title: 'Hero D - AI-product register' };
+export const metadata = { title: 'Hero D - AI-product register', robots: { index: false, follow: false } };
 
 /** Verified product facts. Numerals render tabular. */
 const RAIL = [

@@ -3,7 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 
 export const metadata: Metadata = {
-  title: 'Risk Disclosure | Suwappu',
+  title: 'Risk Disclosure',
   description:
     'A plain-language disclosure of the risks involved in using Suwappu to trade and swap digital assets across chains.',
 };

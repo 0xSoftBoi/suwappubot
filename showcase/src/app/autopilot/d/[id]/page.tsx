@@ -30,10 +30,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const d = await getDecision(id);
-  if (!d) return { title: 'Decision | Suwappu Autopilot' };
+  if (!d) return { title: { absolute: 'Decision | Suwappu Autopilot' } };
   const verb = !d.gate_passed ? 'Refused' : d.action === 'sell' ? 'Sold' : 'Bought';
   return {
-    title: `${verb} ${d.symbol} | Suwappu Autopilot`,
+    title: { absolute: `${verb} ${d.symbol} | Suwappu Autopilot` },
     description: d.headline ?? `Autopilot decision #${d.id} on ${d.chain}.`,
   };
 }

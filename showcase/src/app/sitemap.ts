@@ -12,7 +12,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '', priority: 1, freq: 'weekly' },
     { path: '/docs', priority: 0.9, freq: 'weekly' },
     { path: '/pricing', priority: 0.8, freq: 'monthly' },
+    { path: '/products', priority: 0.75, freq: 'monthly' },
     { path: '/agents', priority: 0.85, freq: 'monthly' },
+    { path: '/agent-terminal', priority: 0.7, freq: 'monthly' },
     { path: '/passport', priority: 0.6, freq: 'weekly' },
     { path: '/enterprise', priority: 0.85, freq: 'monthly' },
     { path: '/government', priority: 0.7, freq: 'monthly' },
@@ -26,10 +28,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // so it should be crawlable in its own right and not only via the posts.
     { path: '/research/replication', priority: 0.6, freq: 'monthly' },
     { path: '/about', priority: 0.6, freq: 'monthly' },
+    { path: '/contact', priority: 0.5, freq: 'monthly' },
     { path: '/careers', priority: 0.5, freq: 'weekly' },
     { path: '/status', priority: 0.4, freq: 'daily' },
     { path: '/legal/terms', priority: 0.3, freq: 'yearly' },
     { path: '/legal/privacy', priority: 0.3, freq: 'yearly' },
+    { path: '/legal/risk', priority: 0.3, freq: 'yearly' },
   ];
 
   const staticPages: MetadataRoute.Sitemap = staticRoutes.map((r) => ({
