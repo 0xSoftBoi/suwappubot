@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import type { Agent } from '../db'
 import { ExternalServiceError, mapErrorToResponse, ValidationError } from '../errors'
 import { buildClobAuthMessage, buildOrderTypedData, hashEip712Order, resolveBuilderCode, ZERO_BYTES32, type ClobOrderData } from '../lib/polymarket-eip712'
-import { agentBearerAuth } from '../middleware'
+import { agentBearerAuth, regionGate } from '../middleware'
 import { runEffectEither } from '../runtime'
 import { PolymarketService } from '../services/PolymarketService'
 import { PolymarketCredentialService } from '../services/PolymarketCredentialService'
@@ -18,6 +18,9 @@ type AgentContext = {
 }
 
 const predictRoutes = new Hono<AgentContext>()
+
+// Compliance: block restricted regions (default US) from all predict endpoints.
+predictRoutes.use('*', regionGate())
 
 // GET /v1/agent/predict/markets — list active prediction markets
 predictRoutes.get('/markets', async (c) => {
@@ -193,7 +196,10 @@ predictRoutes.get('/market/:id/trades', async (c) => {
 // ---------- Trade execution endpoints (require agentBearerAuth) ----------
 
 // POST /v1/agent/predict/order — place a prediction market order
-predictRoutes.post('/order', agentBearerAuth(), async (c) => {
+// regionGate() runs a second time here, AFTER agentBearerAuth() resolves
+// c.get('agent') — the blanket pass above runs before any auth and so can
+// only ever see the caller's IP, not their sticky region. See regionGate.ts.
+predictRoutes.post('/order', agentBearerAuth(), regionGate(), async (c) => {
 	const agent = c.get('agent')
 
 	const body = await c.req.json().catch(() => null)
@@ -362,7 +368,9 @@ predictRoutes.post('/order', agentBearerAuth(), async (c) => {
 })
 
 // DELETE /v1/agent/predict/order/:id — cancel a prediction market order
-predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
+// regionGate() re-run after auth for the sticky-region check — see comment
+// on POST /order above.
+predictRoutes.delete('/order/:id', agentBearerAuth(), regionGate(), async (c) => {
 	const agent = c.get('agent')
 	const orderId = c.req.param('id')
 	if (!orderId) {
@@ -401,7 +409,9 @@ predictRoutes.delete('/order/:id', agentBearerAuth(), async (c) => {
 })
 
 // GET /v1/agent/predict/positions — list positions with market enrichment + PnL
-predictRoutes.get('/positions', agentBearerAuth(), async (c) => {
+// regionGate() re-run after auth for the sticky-region check — see comment
+// on POST /order above.
+predictRoutes.get('/positions', agentBearerAuth(), regionGate(), async (c) => {
 	const agent = c.get('agent')
 	const agentId = String(agent.id)
 	const walletAddress = (agent.metadata as Record<string, string> | null)?.walletAddress || ''
@@ -462,7 +472,9 @@ predictRoutes.get('/positions', agentBearerAuth(), async (c) => {
 })
 
 // GET /v1/agent/predict/orders — list open/matched orders
-predictRoutes.get('/orders', agentBearerAuth(), async (c) => {
+// regionGate() re-run after auth for the sticky-region check — see comment
+// on POST /order above.
+predictRoutes.get('/orders', agentBearerAuth(), regionGate(), async (c) => {
 	const agent = c.get('agent')
 	const agentId = String(agent.id)
 	const status = c.req.query('status')

@@ -26,7 +26,7 @@ import asyncio
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -250,7 +250,8 @@ class DepositWatcher:
         credited = 0
 
         for i in range(0, len(addresses), ADDRESS_CHUNK):
-            chunk = addresses[i : i + ADDRESS_CHUNK]
+            chunk_end = i + ADDRESS_CHUNK
+            chunk = addresses[i:chunk_end]
             topics = [TRANSFER_TOPIC0, None, [_topic_for_address(a) for a in chunk]]
             try:
                 logs = await asyncio.to_thread(

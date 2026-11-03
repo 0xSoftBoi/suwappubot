@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import Image from 'next/image';
+import type { Metadata } from 'next';
 import StructuredData from '@/components/StructuredData';
 import AgentHandoff from '@/components/AgentHandoff';
 import SummerNav from '@/components/SummerNav';
@@ -18,6 +19,14 @@ import styles from '../home.module.css';
 
 // Revalidate the homepage every 60s so MarketProof's live prices stay fresh (ISR).
 export const revalidate = 60;
+
+// /classic is the archived previous homepage, kept only as a design reference.
+// It is not linked from anywhere and must not be indexed: leaving it crawlable
+// put a second, contradicting homepage in search results.
+export const metadata: Metadata = {
+  title: 'Classic (archived homepage)',
+  robots: { index: false, follow: false },
+};
 
 const TERMINAL_URL = 'https://terminal.suwappu.bot';
 

@@ -45,6 +45,13 @@ export const users = pgTable('users', {
 	// Enterprise org membership
 	organizationId: uuid('organization_id'),
 
+	// Region-gated features (derivatives/prediction-market compliance). ISO-3166
+	// alpha-2 (e.g. 'US'), sticky once observed so a VPN can't unblock a user
+	// already flagged restricted. Column added by Python's
+	// _add_user_region_column() (database/db.py) — declared here only, no
+	// migration to run (shared DB, ADR 0003).
+	region: varchar('region', { length: 8 }),
+
 	// Account recovery (passkey recovery flow). unique() so two accounts can
 	// never claim the same recovery email — without it, an attacker who sets
 	// their own recovery_email to a victim's address could receive the

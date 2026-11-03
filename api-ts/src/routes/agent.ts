@@ -71,6 +71,7 @@ import {
 import { assertUrlSafeForFetch, safeFetch } from './ssrfGuard'
 import {
 	CreatePolicySchema,
+	CreateWalletSchema,
 	ExecuteCommandSchema,
 	ExecuteSwapSchema,
 	formatZodErrors,
@@ -123,6 +124,13 @@ const RESERVED_METADATA_KEYS = new Set([
 	'internal_wallet_id',
 	'turnkey_wallet_id',
 	'turnkey_sub_org_id',
+	// Solana managed-wallet keys (POST /v1/agent/wallets, chain_type=solana)
+	'wallet_address_solana',
+	'wallet_sub_org_id_solana',
+	'internal_user_id_solana',
+	'internal_wallet_id_solana',
+	'turnkey_wallet_id_solana',
+	'turnkey_sub_org_id_solana',
 ])
 /** Strip server-reserved keys from user-supplied metadata. Returns a new object. */
 function sanitizeUserMetadata(
@@ -163,6 +171,29 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	if (!isEvmAddress(addr)) return false
 	const owned = getAgentWalletAddress(agent)
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
+}
+
+const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+function isSolanaAddress(addr: unknown): addr is string {
+	return typeof addr === 'string' && SOLANA_ADDRESS_RE.test(addr)
+}
+function getAgentSolanaWalletAddress(agent: Agent): string | undefined {
+	const addr = ((agent.metadata || {}) as Record<string, unknown>).wallet_address_solana
+	return typeof addr === 'string' ? addr : undefined
+}
+/** True only if `addr` is a valid Solana address matching the agent's managed Solana wallet. */
+export function checkSolanaWalletOwnership(agent: Agent, addr: unknown): boolean {
+	if (!isSolanaAddress(addr)) return false
+	const owned = getAgentSolanaWalletAddress(agent)
+	return isSolanaAddress(owned) && owned === addr
+}
+/**
+ * True if `addr` matches the agent's managed wallet on either chain.
+ * Use at gates where the address family is caller-chosen (e.g. portfolio);
+ * EVM-only execution paths keep checkEvmWalletOwnership.
+ */
+export function checkWalletOwnership(agent: Agent, addr: unknown): boolean {
+	return checkEvmWalletOwnership(agent, addr) || checkSolanaWalletOwnership(agent, addr)
 }
 
 /**
@@ -2514,9 +2545,11 @@ agentRoutes.get('/portfolio', async (c) => {
 		})
 	}
 
-	// Only allow an agent to read its own managed wallet's balances — otherwise the
+	// Only allow an agent to read its own managed wallets' balances — otherwise the
 	// endpoint discloses live balances for any address and enables wallet enumeration (H9).
-	if (!checkEvmWalletOwnership(agent, walletAddress)) {
+	// Either managed wallet (EVM or Solana) is accepted; the portfolio service
+	// already routes Solana addresses to its Solana path.
+	if (!checkWalletOwnership(agent, walletAddress)) {
 		return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 	}
 
@@ -2587,12 +2620,36 @@ agentRoutes.get('/portfolio', async (c) => {
 
 // POST /v1/agent/wallets - Create agent wallet via Turnkey + internal provision
 const SUPPORTED_WALLET_CHAINS = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
+const SUPPORTED_SOLANA_WALLET_CHAINS = ['solana']
 
-function existingWalletResponse(c: Context<AgentContext>, address: string) {
+type WalletChainType = 'evm' | 'solana'
+
+/** Per-chain metadata keys + response shape. EVM keys are unchanged for compatibility. */
+const WALLET_CHAIN_CONFIG = {
+	evm: {
+		addressKey: 'wallet_address',
+		subOrgKey: 'wallet_sub_org_id',
+		turnkeyWalletKey: 'turnkey_wallet_id',
+		internalUserKey: 'internal_user_id',
+		internalWalletKey: 'internal_wallet_id',
+		supportedChains: SUPPORTED_WALLET_CHAINS,
+	},
+	solana: {
+		addressKey: 'wallet_address_solana',
+		subOrgKey: 'wallet_sub_org_id_solana',
+		turnkeyWalletKey: 'turnkey_wallet_id_solana',
+		internalUserKey: 'internal_user_id_solana',
+		internalWalletKey: 'internal_wallet_id_solana',
+		supportedChains: SUPPORTED_SOLANA_WALLET_CHAINS,
+	},
+} as const
+
+function existingWalletResponse(c: Context<AgentContext>, address: string, chainType: WalletChainType) {
+	const cfg = WALLET_CHAIN_CONFIG[chainType]
 	return c.json(
 		{
 			success: true,
-			wallet: { address, chain_type: 'evm', supported_chains: SUPPORTED_WALLET_CHAINS },
+			wallet: { address, chain_type: chainType, supported_chains: cfg.supportedChains },
 			message: 'Agent already has a managed wallet.',
 		},
 		200,
@@ -2605,6 +2662,7 @@ function provisionInternalWallet(
 	env: { INTERNAL_API_KEY?: string | undefined; INTERNAL_API_URL?: string | undefined },
 	agentUuid: string,
 	wallet: { walletId: string; subOrgId: string; address: string },
+	chainType: WalletChainType,
 ) {
 	if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) return Effect.succeed(null)
 	return Effect.tryPromise({
@@ -2617,7 +2675,7 @@ function provisionInternalWallet(
 				},
 				body: JSON.stringify({
 					agent_uuid: agentUuid,
-					chain_type: 'evm',
+					chain_type: chainType,
 					turnkey_wallet_id: wallet.walletId,
 					turnkey_sub_org_id: wallet.subOrgId,
 					address: wallet.address,
@@ -2633,40 +2691,49 @@ function provisionInternalWallet(
 	}).pipe(Effect.catchAll(() => Effect.succeed(null)))
 }
 
-agentRoutes.post('/wallets', async (c) => {
-	const agent = c.get('agent')
+async function createManagedWallet(
+	c: Context<AgentContext>,
+	agent: Agent,
+	chainType: WalletChainType,
+) {
+	const cfg = WALLET_CHAIN_CONFIG[chainType]
 
-	// Idempotent: a second call must not mint a new wallet and overwrite
-	// wallet_address — that strands any funds sent to the first one.
+	// Idempotent per chain: a second call must not mint a new wallet and
+	// overwrite the address — that strands any funds sent to the first one.
 	const md = (agent.metadata as Record<string, unknown> | null) ?? {}
-	if (typeof md.wallet_address === 'string') {
-		const address = md.wallet_address
+	if (typeof md[cfg.addressKey] === 'string') {
+		const address = md[cfg.addressKey] as string
 		// Repair: if python provisioning failed when the wallet was created, the
 		// internal_* ids are null and /swap/execute can't sign. Re-provision the
 		// same Turnkey wallet (idempotent) instead of leaving the agent stuck.
 		if (
-			(md.internal_user_id == null || md.internal_wallet_id == null) &&
-			typeof md.turnkey_wallet_id === 'string' &&
-			typeof md.wallet_sub_org_id === 'string'
+			(md[cfg.internalUserKey] == null || md[cfg.internalWalletKey] == null) &&
+			typeof md[cfg.turnkeyWalletKey] === 'string' &&
+			typeof md[cfg.subOrgKey] === 'string'
 		) {
-			const walletId = md.turnkey_wallet_id
-			const subOrgId = md.wallet_sub_org_id
+			const walletId = md[cfg.turnkeyWalletKey] as string
+			const subOrgId = md[cfg.subOrgKey] as string
 			await runEffectEither(
 				Effect.gen(function* () {
 					const env = yield* EnvService
-					const provisioned = yield* provisionInternalWallet(env, agent.uuid, { walletId, subOrgId, address })
+					const provisioned = yield* provisionInternalWallet(
+						env,
+						agent.uuid,
+						{ walletId, subOrgId, address },
+						chainType,
+					)
 					if (!provisioned) return
 					const agentService = yield* AgentService
 					yield* agentService.updateAgent(agent.id, {
 						mergeMetadata: {
-							internal_user_id: provisioned.internal_user_id,
-							internal_wallet_id: provisioned.internal_wallet_id,
+							[cfg.internalUserKey]: provisioned.internal_user_id,
+							[cfg.internalWalletKey]: provisioned.internal_wallet_id,
 						},
 					})
 				}),
 			)
 		}
-		return existingWalletResponse(c, address)
+		return existingWalletResponse(c, address, chainType)
 	}
 
 	const result = await runEffectEither(
@@ -2675,7 +2742,7 @@ agentRoutes.post('/wallets', async (c) => {
 
 			// Create wallet for agent
 			const wallet = yield* turnkeyService
-				.createAgentWallet(agent.id, 'evm')
+				.createAgentWallet(agent.id, chainType)
 				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			// Call internal Python API to provision a User + Wallet row for swap execution
@@ -2683,7 +2750,7 @@ agentRoutes.post('/wallets', async (c) => {
 			let internalUserId: number | undefined
 			let internalWalletId: number | undefined
 
-			const provisioned = yield* provisionInternalWallet(env, agent.uuid, wallet)
+			const provisioned = yield* provisionInternalWallet(env, agent.uuid, wallet, chainType)
 			if (provisioned) {
 				internalUserId = provisioned.internal_user_id
 				internalWalletId = provisioned.internal_wallet_id
@@ -2692,23 +2759,26 @@ agentRoutes.post('/wallets', async (c) => {
 			// Store wallet address in agent metadata
 			const agentService = yield* AgentService
 			// Atomic jsonb merge (a snapshot-spread could drop a concurrent PATCH /me),
-			// and only while wallet_address is unset: if a concurrent call won, keep its
-			// wallet (ours stays unfunded and unused) and return that one.
-			const claimed = yield* agentService.mergeMetadataIfAbsent(agent.id, 'wallet_address', {
-				wallet_address: wallet.address,
-				wallet_sub_org_id: wallet.subOrgId,
-				turnkey_wallet_id: wallet.walletId,
+			// and only while this chain's address key is unset: if a concurrent call
+			// won, keep its wallet (ours stays unfunded and unused) and return that one.
+			const claimed = yield* agentService.mergeMetadataIfAbsent(agent.id, cfg.addressKey, {
+				[cfg.addressKey]: wallet.address,
+				[cfg.subOrgKey]: wallet.subOrgId,
+				[cfg.turnkeyWalletKey]: wallet.walletId,
 				// Always write: if provisioning failed, a stale internal_* pair from an
-				// earlier wallet would sign with a different wallet than wallet_address.
-				internal_user_id: internalUserId ?? null,
-				internal_wallet_id: internalWalletId ?? null,
+				// earlier wallet would sign with a different wallet than the address.
+				[cfg.internalUserKey]: internalUserId ?? null,
+				[cfg.internalWalletKey]: internalWalletId ?? null,
 			})
 
 			let winnerAddress: string | null = null
 			if (!claimed) {
 				const current = yield* agentService.getAgentById(agent.id)
-				const md = Option.isSome(current) ? (current.value.metadata as Record<string, unknown> | null) : null
-				winnerAddress = typeof md?.wallet_address === 'string' ? md.wallet_address : null
+				const curMd = Option.isSome(current)
+					? (current.value.metadata as Record<string, unknown> | null)
+					: null
+				winnerAddress =
+					typeof curMd?.[cfg.addressKey] === 'string' ? (curMd[cfg.addressKey] as string) : null
 			}
 
 			return { wallet, claimed, winnerAddress }
@@ -2722,7 +2792,7 @@ agentRoutes.post('/wallets', async (c) => {
 
 	const { wallet, claimed, winnerAddress } = result.right
 	if (!claimed) {
-		if (winnerAddress !== null) return existingWalletResponse(c, winnerAddress)
+		if (winnerAddress !== null) return existingWalletResponse(c, winnerAddress, chainType)
 		return agentError(c, 500, 'INTERNAL', 'Wallet creation raced another request; retry')
 	}
 
@@ -2731,13 +2801,41 @@ agentRoutes.post('/wallets', async (c) => {
 			success: true,
 			wallet: {
 				address: wallet.address,
-				chain_type: 'evm',
-				supported_chains: SUPPORTED_WALLET_CHAINS,
+				chain_type: chainType,
+				supported_chains: cfg.supportedChains,
 			},
 			message: 'Wallet created. Fund it to start swapping.',
 		},
 		201,
 	)
+}
+
+agentRoutes.post('/wallets', async (c) => {
+	const agent = c.get('agent')
+
+	// Optional body: { chain_type }. Existing clients POST with no body, which
+	// keeps the historical EVM default.
+	let chainType: WalletChainType = 'evm'
+	try {
+		const body = (await c.req.json()) ?? {}
+		const parsed = CreateWalletSchema.safeParse(body)
+		if (!parsed.success) {
+			return c.json(
+				{
+					success: false,
+					error: 'Validation error',
+					error_code: 'VALIDATION_ERROR',
+					fields: formatZodErrors(parsed.error),
+				},
+				400,
+			)
+		}
+		chainType = parsed.data.chain_type
+	} catch {
+		// No/empty body: default EVM behavior (backward compatible).
+	}
+
+	return createManagedWallet(c, agent, chainType)
 })
 
 // Refund a pay-per-call charge for POST /v1/agent/swap/execute when the request
@@ -3428,9 +3526,34 @@ agentRoutes.get('/tokens', async (c) => {
 agentRoutes.get('/wallets', async (c) => {
 	const agent = c.get('agent')
 	const metadata = (agent.metadata as Record<string, unknown>) || {}
-	const walletAddress = metadata.wallet_address as string | undefined
 
-	if (!walletAddress) {
+	const wallets: Array<{ address: string; chain_type: WalletChainType; supported_chains: string[] }> = []
+	const evmAddress = metadata[WALLET_CHAIN_CONFIG.evm.addressKey]
+	if (typeof evmAddress === 'string' && evmAddress) {
+		wallets.push({
+			address: evmAddress,
+			chain_type: 'evm',
+			supported_chains: [
+				'ethereum',
+				'polygon',
+				'arbitrum',
+				'optimism',
+				'base',
+				'bsc',
+				'avalanche',
+			],
+		})
+	}
+	const solanaAddress = metadata[WALLET_CHAIN_CONFIG.solana.addressKey]
+	if (typeof solanaAddress === 'string' && solanaAddress) {
+		wallets.push({
+			address: solanaAddress,
+			chain_type: 'solana',
+			supported_chains: [...SUPPORTED_SOLANA_WALLET_CHAINS],
+		})
+	}
+
+	if (wallets.length === 0) {
 		return c.json({
 			success: true,
 			wallets: [],
@@ -3440,21 +3563,7 @@ agentRoutes.get('/wallets', async (c) => {
 
 	return c.json({
 		success: true,
-		wallets: [
-			{
-				address: walletAddress,
-				chain_type: 'evm',
-				supported_chains: [
-					'ethereum',
-					'polygon',
-					'arbitrum',
-					'optimism',
-					'base',
-					'bsc',
-					'avalanche',
-				],
-			},
-		],
+		wallets,
 	})
 })
 
