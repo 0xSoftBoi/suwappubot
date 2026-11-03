@@ -872,6 +872,199 @@ ERC-8056's design is interesting precisely because it tries to preserve the raw 
 
 *Disclosures and limits: ERC-8056 is Draft. The nine-repository audit is purposive, identifier-based public-code search and is not runtime conformance testing. We did not establish a live non-1x multiplier incident or a user-visible failure in any named product. Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions; this research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
 
+const HYPERUNIT_BODY = `# Building HyperLiquid into a bot: HyperUnit, region gating, and egress
+
+*Engineering control note. Source-verified against current main on 12 October 2026; industry figures sourced as cited below. Written for the compliance, risk, and oversight reader.*
+
+| | |
+|---|---|
+| **TO** | Bank compliance, risk, and oversight functions; central-bank and regulatory readers |
+| **FROM** | Suwappu Research |
+| **DATE** | 12 October 2026 |
+| **RE** | What a bot's HyperLiquid integration teaches about bridge trust, geo-blocking, and settlement finality |
+
+## Why now
+
+Three things happened in the last year that make this memo timely rather than timeless. The FSB's October 2025 thematic peer review found "significant gaps and inconsistencies" in crypto-asset supervision, with global stablecoin arrangements lagging — the venues at HyperLiquid's scale are growing inside that gap. ESMA's October 2026 opinion gave crypto platforms three months to strip out non-MiCA stablecoins — the compliance perimeter is moving under live products. And HyperLiquid itself blocked HTX-linked wallets in June 2026 after UK sanctions — a venue enforcing sanctions at the application layer, in real time, against real users. The questions below are operational, not theoretical.
+
+## Executive summary
+
+1. **Bridges were the dominant crypto-theft surface, and keys — not code — caused the largest losses.** Chainalysis counted $2 billion stolen across 13 bridge hacks in 2022, 69% of all stolen crypto funds that year. The three largest key-compromise cases (Ronin, Multichain, Harmony Horizon) were all attributed to North-Korea-linked actors. Any institution touching a bridge is underwriting a key-management story first and a smart-contract story second.
+2. **HyperUnit's trust model is materially stronger than the multisigs that failed — but it is unaudited, its integrators verify less than it provides, and its parameters have already drifted.** A 2-of-3 guardian threshold with enclaved key shares and circuit-breaker pause policies compares favorably with the 2-of-4 multisig behind the $100M Harmony Horizon theft. No public audits of HyperUnit were found. The bot studied here checks that two guardian signatures are *present* on a deposit address; it does not verify they are *authentic* — even though the bridge publishes the guardian keys and reference verification code and asks integrators to use them. And the bot's hardcoded deposit minimums have already drifted from the bridge's published schedule: its SOL floor now sits *below* the bridge's. Signature count is not authentication, and a hardcoded table is not a control.
+3. **Geo-blocking's real guarantee is "blocked when positively known."** OFAC's enforcement record shows the failure mode is always the ongoing/unknown case: Bittrex paid $24.3M after failing to screen IP addresses at all; Kraken paid $362K for applying geolocation at onboarding only, despite holding IP data on subsequent transactions. No FATF, OFAC, or EU publication squarely evaluates geo-blocking effectiveness — the control is required but unmeasured.
+4. **Settlement is not finality, and a warning is not a control.** A completed first leg without the second is value in limbo — Herstatt's shape, unchanged since 1974. The bot's CCTP rail documents exactly this stranding risk in prose while nothing in code prevents it.
+5. **Ingress without disclosed egress is a consumer-protection pattern worth naming.** Three deposit rails run in; zero bot-mediated withdrawals run out. The venue's exit exists, but the intermediary that engineered the entrance says nothing about it.
+
+## 1. Why bridges are the memo, not the footnote
+
+Before the integration detail, the loss data — because it sets the stakes for every trust claim that follows.
+
+**Exhibit 1 — Largest cross-chain bridge exploits**
+
+| Exploit | Amount | Date | Cause |
+|---|---|---|---|
+| Ronin | ~$624M | Mar 2022 | 5-of-9 validator keys compromised (Lazarus) |
+| BNB Chain (BSC Token Hub) | ~$566M notional minted | Oct 2022 | Proof-verification bug; forged mint |
+| Wormhole | ~$321–326M | Feb 2022 | Forged guardian signature bypassed verification |
+| Nomad | ~$190M | Aug 2022 | Replica initialisation bug; 300+ copycats |
+| Multichain | ~$125–126M | Jul 2023 | MPC private-key compromise; suspected insider |
+| Harmony Horizon | ~$97–100M | Jun 2022 | 2-of-4 multisig key compromise (Lazarus/APT38) |
+
+*Sources: Chainalysis, "Cross-Chain Bridge Hacks Emerge as Top Security Risk" (Aug 2, 2022) — $2B across 13 bridge hacks in 2022, 69% of stolen funds; CertiK, The Register, FBI attributions as cited in Sources.*
+
+![Bar chart of the six largest bridge exploits: key-compromise losses (Ronin $624M, Multichain $126M, Harmony $100M) exceed smart-contract-bug losses, and the key-compromise cases were attributed to North-Korean actors.](/research/bridge-exploits.svg "Keys lost more than code did. Chainalysis: $2B across 13 bridge hacks in 2022 — 69% of all stolen crypto funds that year.")
+
+Two patterns matter for what follows. First, the key-compromise losses (Ronin, Multichain, Harmony) exceed the smart-contract-bug losses, and the former were state-actor operations. Second, Wormhole's failure mode — a *forged guardian signature* that bypassed verification — is the precise attack that a "two signatures present" check does not defend against. Keep that in mind for section 3.
+
+The venue at the center of this memo operates at a scale where these are not theoretical risks. HyperLiquid's TVL was near $7.5B in late September 2026 (DefiLlama), with 2025 trading volume around $2.9T (ASXN Data). It also geo-blocks at the interface layer — US persons, Ontario residents, and sanctioned jurisdictions are excluded in its Terms, and in June 2026 it blocked HTX-linked wallets after UK sanctions on Huobi. The bridge this memo studies serves that venue.
+
+## 2. The trust model, stated plainly
+
+HyperUnit (hyperunit.xyz) is the canonical bridge for native BTC, ETH, SOL, and eleven other native assets onto HyperLiquid's HyperCore as spot tokens. It is operated by Unit, an independent research collective working closely with Hyperliquid Labs. Its security design, read live on its documentation site for this memo: an initial guardian set led by Unit, Hyperliquid Labs, and Infinite Field; consensus on critical events via a **2-of-3 MPC threshold signature scheme**, with key shares generated distributively, encrypted at rest, and combined only inside secure enclaves; and collective circuit-breaker policies allowing the guardians to pause operations on detected malicious activity.
+
+That is a serious design — threshold signatures in enclaves with a pause button is a different universe from a 2-of-4 multisig whose keys lived wherever Harmony's did. Three caveats belong beside it:
+
+- **No public audits were found.** The documentation was last updated around January 2026. Do not represent HyperUnit as audited; we do not.
+- **Guardian identities beyond the three named organizations are not publicly disclosed**, and no threshold change has been announced.
+- **Sanctions screening lives at the guardian, not the protocol.** Unit Labs states that its guardian screens wallet addresses against the OFAC SDN list and will not propose or sign transactions that fail screening — but "each Guardian validator operates independently and may apply its own compliance standards." Screening is per-guardian policy, not a protocol guarantee: with a 2-of-3 threshold, one guardian's refusal does not stop the other two. IP geofencing and VPN detection, meanwhile, are explicitly frontend-only: "Unit Labs makes no representations about other sites or platforms." The bridge's real sanctions control is address screening at consensus; its geography control stops at its own website. An integrator's region gate is therefore a *terms* control, not a *sanctions* control — a distinction a bank's counsel should insist on.
+- **The "no public audit" finding is corroborated independently.** An October 2026 third-party explainer likewise notes that Unit's documentation cites no completed third-party security audit. Operational history is also public: when one guardian went offline on April 15, 2025, Bitcoin withdrawals and address generation were delayed — a live demonstration that 2-of-3 means the system *degrades* gracefully but the user still waits.
+
+![Three bridge guardian configurations: Ronin 5-of-9 and Harmony Horizon 2-of-4 both failed through key compromise; HyperUnit 2-of-3 uses threshold signatures in secure enclaves and remains operating.](/research/guardian-thresholds.svg "A 5-of-9 failed and a 2-of-3 holds: quorum size never was the security variable. HyperUnit is unaudited; operating is absence of incident, not proof of security.")
+- **The FSB's October 2025 thematic peer review** found "significant gaps and inconsistencies" in jurisdictions' implementation of its crypto-asset recommendations, with global stablecoin arrangements lagging in particular — the supervisory perimeter around venues like this is still being built.
+
+## 3. A signature count is not an authentication
+
+The bot's HyperUnit client only *generates the deposit address and watches the mint*. It never holds keys and never signs — a deliberate custody boundary: the bot is an introducer to the bridge, not a party to the MPC. Three client-side guardrails stand between the user and loss: an asset allowlist; hard minimums (0.002 BTC, 0.05 ETH, 0.1 SOL) below which the bridge silently eats deposits as sweep dust — a hardcoded table that can drift from upstream; and a guardian-attestation threshold that refuses any \`/gen\` response without at least two non-empty guardian signatures.
+
+The threshold is the honest control; its limit is the memo's second takeaway. The code verifies signature **presence**, not signer **authenticity** — the signatures are surfaced so a caller *could* pin them against the published guardian keys, but the pinning is a recorded follow-up, not an implemented check. Wormhole lost $321M to a forged guardian signature that bypassed verification. "Two signatures were attached" and "the guardians signed" are different claims, and an intermediary that conflates them launders the bridge's trust assumptions into its own.
+
+This is the exact shape of risk the US banking agencies' interagency third-party guidance (OCC Bulletin 2023-17, June 2023) addresses: a bank's use of a third party does not diminish its obligations — the third party is treated as an extension of the bank, managed across the relationship lifecycle by risk, substitutability, and failure mode. We cite it as the supervisory vocabulary for the question, not as a claim that it governs this bot. The question it frames is the right one: **what does the intermediary verify itself, and what does it take on faith?** Here the answer is documented: presence, not authenticity; and the documentation — not the marketing — is where that answer lives.
+
+The remaining non-enforcements, stated plainly: nothing reconciles the minted amount against what was sent; the region check lives in the Telegram handler, so any future caller of the bridge client bypasses it silently; and mint-status polling is manual only — past the ETA the user just keeps tapping "check status."
+
+### Measured October 12, 2026: the drift is real
+
+The memo's warnings about hardcoded tables and unverified signatures were checked against the bridge's live documentation today. Both proved out.
+
+**Minimums.** The bot hardcodes deposit floors of 0.002 BTC, 0.05 ETH, and 0.1 SOL — written once on June 18, 2026 and never touched since (git-verified; ~4 months of drift). Checked against the bridge's documentation today, the numbers disagree in *both* directions:
+
+| Asset | Bot's hardcoded floor | Bridge docs: deposit-lifecycle page | Bridge docs: supported-assets page |
+|---|---|---|---|
+| BTC | 0.002 | 0.002 | 0.0003 |
+| ETH | 0.05 | 0.05 | 0.007 |
+| SOL | 0.1 | 0.2 | 0.12 |
+
+Three findings in one table. First, the bridge's own documentation is internally inconsistent: two official pages state different minimums for every asset. Second, the bot's table matches one page for BTC/ETH and *neither* page for SOL — it is a snapshot of a moving target, pinned to no version. Third, the unsafe direction is real: a 0.1–0.119 SOL deposit passes the bot's guardrail and falls below both of the bridge's stated floors ("transactions below the minimum amounts cannot be processed"). The guardrail no longer guards. There is a documented revert process for eligible cases; "eligible" and "automatic" are doing work in that sentence that the bot does not do for the user.
+
+The general lesson is sharper than "sync your tables": **when the upstream cannot keep its own numbers consistent across two pages, any hardcoded copy is fragile by construction.** The control is not a table; it is a refresh policy — read the schedule at decision time, or fail closed when you cannot.
+
+**Key-pinning.** The bridge's documentation publishes the mainnet guardian public keys, ships reference verification code, and states that developers "are encouraged to incorporate address verification in their interfaces." The bot does not. This moves the finding from "the bridge doesn't support verification" to the sharper true statement: **the bridge hands integrators the keys, the code, and the request — and the integrator declines.** That is a diligence question for any bank evaluating a bridge integration: not "does the bridge support verification" but "does your vendor perform it."
+
+*Sources: HyperUnit "Supported Assets" (docs.hyperunit.xyz) and "Guardian Signatures" (docs.hyperunit.xyz), read October 12, 2026; bot source as cited in the Evidence ledger.*
+
+## 4. What happens on unknown: geo-blocking's real guarantee
+
+The most important compliance question about any geo-restriction is the one nobody puts in the brochure: **what happens when the region is unknown?** This codebase answers it twice, differently — and that is the honest version.
+
+**Derivatives: fail-open.** The API middleware returns HTTP 451 only when the region is *positively known* to be restricted — resolved from a trusted header (honored only with a matching provenance secret), falling back to offline GeoIP, with a sticky stored region that survives VPN changes. Any error — GeoIP failure, missing module, database failure — resolves to *unknown*, and unknown is allowed. The docstring states it plainly.
+
+**HyperUnit: fail-closed.** The native-deposit path is offered only when the stored region is known *and* not restricted. Unknown means not offered; a lookup exception means not offered. The gate is applied twice — the menu hides the option and the callback re-checks before generating an address.
+
+**Exhibit 2 — OFAC crypto enforcement: the failure mode is always the ongoing/unknown case**
+
+| Action | Penalty | Finding |
+|---|---|---|
+| Bittrex, Oct 2022 | $24.3M (OFAC) + $29.3M (FinCEN) | ~$263M in sanctioned-jurisdiction transactions; root cause was failure to screen IP-address information |
+| Kraken, Nov 2022 | $362K | Applied geolocation "only at the time of onboarding and not with respect to subsequent transactional activity, despite having reason to know based on available IP address information" |
+| Poloniex, May 2023 | $7.6M | 65,942 apparent violations; "reason to know" via KYC plus IP data |
+| Binance, Nov 2023 | $968M (OFAC's share of the $4.3B coordinated resolution) | 1.67M apparent violations across Iran, Syria, North Korea, Cuba, and Ukraine/Russia programs, 2017–2022 |
+| Garantex/Grinex, Aug 2025 | Designations | $100M+ illicit flows; successor entities and ruble stablecoin network sanctioned |
+
+*Sources: U.S. Treasury/OFAC releases (treasury.gov, ofac.treasury.gov).*
+
+![Log-scale chart of OFAC crypto penalties 2022–2025, from Kraken's $362K to Binance's $968M, with OFAC's Kraken finding quoted: geolocation applied at onboarding only, despite IP data on subsequent transactions.](/research/ofac-enforcement.svg "The failure mode is the ongoing case. Bittrex total includes the parallel $29.3M FinCEN action.")
+
+The Kraken finding is the one to memorize: the violation was not the absence of a geo-block but its **temporal scope** — onboarding-only in a world where IP data existed for every subsequent transaction. Every geo-compliance claim decomposes into an identification step and a default step. Vendors will show you the first and bury the second. The question to ask is always the second one — and then the third: what is the *ongoing* scope?
+
+Two further findings for the diligence file. First, the venue geo-blocking stack, per Binance's own 2023 account: KYC nationality, IP including known VPN endpoints, mobile carrier, device fingerprints, banking and blockchain deposit data, card BINs — defense in depth, because any single signal (IP especially) is spoofable; the CFTC separately alleged Binance coached US users to use VPNs. Second, an honest gap: **no FATF, OFAC, or EU publication squarely evaluates geo-blocking effectiveness for virtual-asset providers.** OFAC enforcement treats ongoing geolocation screening as expected; FATF treats IP tracing as a CDD input. The control is required but unmeasured — which means every effectiveness claim about it is currently an assertion, not a finding.
+
+![Diagram of three independent geo-blocking layers — the bot's user-facing gate, the bot's non-US infrastructure egress, and the bridge's own enforcement — each able to hold while another gives.](/research/geo-blocking-layers.svg "Three layers, three independent failures. The Kraken lesson applies at every layer: controls must cover ongoing activity, not onboarding only.")
+
+For the record, this memo's own stack does not speak with one voice: the sticky region is written by the API middleware and read by the Python bot, but the Python derivatives gate fails open — so a user with an empty stored region passes the Telegram perps handlers while the API layer would 451 the same user on an observed restricted IP. And the trusted IP-country header is honored only with a configured provenance secret; without one, any caller can spoof it. Whether that secret is set in production is unverified — which is itself the lesson: a control whose precondition is a deployment setting is only as strong as the setting.
+
+## 5. Settlement is not finality: the one-way door and the limbo leg
+
+There is no bot-mediated path for funds to leave HyperLiquid — no withdrawal action, route, or handler anywhere in the codebase. Internal moves exist (spot↔perp, staking, vaults); nothing exits the venue. Three rails run in (Across, CCTP, HyperUnit); zero run out. A depositor exits through HyperLiquid's own frontend or API, outside the bot's controls, logging, and region gating. Name the pattern for the consumer-protection reader: **ingress is engineered; egress is someone else's problem.** The exit exists — the venue's — but the intermediary that engineered the entrance says nothing about it.
+
+The CCTP rail carries the sharper settlement lesson. It is deposit-direction only and explicitly unfinished: the burn half is user-signable, but the destination half needs a funded relayer. A completed burn without the destination credit leaves funds minted on HyperEVM but never credited to HyperCore — the oldest settlement risk in the book wearing new clothes. Herstatt was 1974; the shape (first leg complete, second leg pending, value in limbo) has not changed. The module docstring warns against exactly this and names Across the default for that reason. **A warning is not a control**: nothing in code prevents the burn without a relayer.
+
+CPMI-IOSCO's July 2022 guidance applying the PFMI to stablecoin arrangements is the right vocabulary here — "same risk, same regulation," with settlement finality as a defined legal moment, and an explicit flag that probabilistic DLT settlement is inconsistent with it. We use it as a measuring stick, not a classification. The BIS's Project Rialto (2026) makes the positive case from the other side: settling payment-versus-payment obligations in tokenised central-bank money *enhances* finality — finality is a property you engineer, not a word you assert.
+
+A final detail for the diligence file: sub-minimum deposits on federated bridges are not returned — they are destroyed. Hyperliquid's own bridge documentation states the 5 USDC minimum with "lost forever" below it; the same dust rule appears across orchestration providers. The bot's hard-minimum table is therefore not UX polish; it is the only thing standing between the user and irreversible loss.
+
+## The objection, answered
+
+The fair objection to this memo: HyperUnit is among the better bridge designs operating today — threshold signatures, enclaved key shares, circuit breakers, published guardian keys, guardian-level sanctions screening. The integrator studied here is a Telegram bot. Why should a bank care about the bot's mistakes rather than the bridge's design?
+
+Because banks never buy the bridge. They buy the integrator — the wallet, the API, the white-label frontend. Every institutional bridge exposure is mediated by someone's client code, and the client code is where this memo's findings live: the pinned table, the unchecked signatures, the region gate in the wrong layer. The bridge can be excellent and the integration can still fail the user. Diligence that stops at the bridge's architecture doc is diligence of the wrong object.
+
+## 6. Implications
+
+| Seat | Implication |
+|---|---|
+| Bank compliance | Ask every crypto vendor two questions: what is the default on *unknown*, and what is the *ongoing* (not onboarding-only) scope of geolocation? Then ask for the evidence. The Kraken and Bittrex actions are the template for what examiners already expect. |
+| Third-party risk | Apply the OCC 2023-17 frame: map what the intermediary verifies itself (signature presence, minimums, allowlists) versus what it takes on faith (guardian authenticity, bridge solvency, upstream minimum tables). Price and govern the gap. |
+| FMI oversight | Treat two-leg bridge flows as settlement risk until both legs are final by a defined rule. A documented warning without a code-level interlock is a disclosure, not a control. |
+| Consumer protection | Require intermediaries that engineer ingress to disclose the egress path and its operator. "You can deposit here" without "here is how you leave, and who operates it" is an incomplete disclosure. |
+| Central banks | The FSB's October 2025 peer review says stablecoin-arrangement supervision is lagging with "significant gaps" — the venues at HyperLiquid's scale are growing inside that gap. BIS work (Bulletin 108, AER 2025 Ch. III) is converging on the same point: stablecoin transfers do not settle on central-bank balance sheets and cannot ensure par across issuers and chains under all conditions. |
+
+## What Suwappu is changing
+
+This memo studies our own product, so it should say what changes. These are commitments, not aspirations:
+
+1. **Minimums move from hardcoded table to read-at-decision-time**, with fail-closed behavior when the schedule cannot be fetched. The SOL floor is corrected immediately.
+2. **Guardian signature verification gets implemented** — the bridge publishes the keys and the reference code; there is no remaining excuse.
+3. **The region check moves into the bridge client**, so every caller inherits it instead of only the Telegram handler.
+4. **Deposit status gets a real poller** backed by the operations API, replacing manual "tap to check."
+
+Each ships as its own change with its own review; this memo will be updated with links when they land.
+
+## Risks — what would change our view
+
+- If guardian key-pinning is implemented, section 3's "count is not authentication" retires; if a public audit appears, the unaudited caveat falls.
+- If a withdrawal path ships, the one-way door becomes history; if the Python derivatives gate goes fail-closed, the two-voice problem closes.
+- Production evidence — egress proxy provisioned, CCTP relayer funded, provenance secret configured, VERIFY-marked constants confirmed on-chain — would move each implementation claim from "written to do" to "observed doing."
+- If an official-sector body publishes an effectiveness evaluation of geo-blocking controls, section 4's "required but unmeasured" assessment changes.
+
+## Sources
+
+- Chainalysis, "Cross-Chain Bridge Hacks Emerge as Top Security Risk" (Aug 2, 2022). https://www.chainalysis.com/blog/cross-chain-bridge-hacks-2022/
+- Unit documentation: Security architecture (https://docs.hyperunit.xyz/architecture/security) and Team (https://docs.hyperunit.xyz/unit/about-unit/team); hyperunit.xyz — read live Oct 12, 2026.
+- CPMI-IOSCO, "Application of the Principles for Financial Market Infrastructures to stablecoin arrangements" (Jul 13, 2022). https://www.bis.org/press/p220713.htm
+- FSB, High-level Recommendations for crypto-asset activities and global stablecoin arrangements (Jul 17, 2023). https://www.fsb.org/2023/07/high-level-recommendations-for-the-regulation-supervision-and-oversight-of-crypto-asset-activities-and-markets-final-report/
+- FSB, Thematic Peer Review on the FSB Global Regulatory Framework for Crypto-asset Activities (Oct 2025). https://www.fsb.org/2025/10/thematic-review-on-fsb-global-regulatory-framework-for-crypto-asset-activities/
+- IOSCO, "Policy Recommendations for Decentralized Finance," Final Report FR11/23 (Dec 19, 2023).
+- OCC Bulletin 2023-17 / Interagency Guidance, "Third-Party Relationships: Risk Management" (Jun 6, 2023).
+- OCC News Release 2025-16 / Interpretive Letter 1183 (Mar 7, 2025). https://www.occ.gov/news-issuances/news-releases/2025/nr-occ-2025-16.html
+- BIS Bulletin No. 108, "Stablecoin growth – policy challenges and approaches" (Jul 11, 2025). https://www.bis.org/publ/bisbull108.htm
+- U.S. Treasury, Bittrex enforcement (Oct 11, 2022). https://home.treasury.gov/news/press-releases/jy1006
+- OFAC, Kraken enforcement release (Nov 28, 2022). https://ofac.treasury.gov/media/929541/download
+- U.S. Treasury, Garantex/Grinex designations (Aug 14, 2025). https://home.treasury.gov/news/press-releases/sb0225
+- OFAC, Binance enforcement (Nov 21, 2023): $968,618,825 settlement for 1,667,153 apparent violations, 2017–2022. https://ofac.treasury.gov/recent-actions/20231121
+- DefiLlama (via datawallet.com Hyperliquid statistics, late Sept 2026): Hyperliquid TVL $7.49B; ASXN Data: 2025 trading volume $2.95T. https://www.datawallet.com/crypto/hyperliquid-statistics
+- GAO-24-106178, "Economic Sanctions: Agency Efforts Help Mitigate Some of the Risks Posed by Digital Assets" (Dec 13, 2023).
+- HyperUnit documentation, read live Oct 12, 2026: "Supported Assets," "Deposit Lifecycle" (internally inconsistent minimums), "Guardian Signatures" (published keys + reference code), "Regulatory Compliance" (per-guardian sanctions screening; frontend-only geofencing), "Security" (TSS/enclave architecture).
+- Datawallet, "Hyperunit Explained" (Oct 2026) — independent corroboration of no published audit; April 15, 2025 guardian outage.
+- Git history: bot minimums table introduced 2026-06-18 (dfb51845), unmodified since.
+- Implementation claims: current Suwappu main (bot/services, bot/handlers, api-ts middleware), source-verified Oct 12, 2026; production provisioning unverified.
+
+---
+
+*Disclosures: Suwappu builds the infrastructure this memo inspects — including the gaps it names. That commercial and authorship interest is why the gaps are published rather than softened. No bridge operator, venue, or official-sector body named here reviewed the memo. Official-sector publications are cited as analytical lenses; nothing in this memo classifies Suwappu, HyperUnit, or HyperLiquid under any cited framework. This is research, not investment, legal, or prudential advice.*
+
+![Deposit flow showing the fail-closed region gate, the /gen attestation check, the hard-minimum funding step, and the 2-of-3 MPC mint into the HyperCore account, with the enforced/not-enforced control boundary.](/research/hyperunit-deposit-flow.svg "The bot gates, attests, and watches. It does not custody, pin guardian keys, reconcile minted amounts, or withdraw.")
+`;
+
 export const researchPosts: ResearchPost[] = [
   {
     slug: 'erc8056-stock-split-interface-risk',
@@ -943,7 +1136,7 @@ export const researchPosts: ResearchPost[] = [
     category: 'Execution governance',
     kind: 'research',
     excerpt: 'At 3.65% SOFR, a 10bp speed concession equals 9.86 days of simple ACT/360 carry—not minutes. The paper turns that gap into a falsifiable calibration framework for cross-chain execution, while keeping provider ETA separate from settlement finality.',
-    readMins: 12,
+    readMins: 18,
     status: 'published',
     evidence: {
       status: 'RESEARCH — SOURCE-VERIFIED',
@@ -1085,13 +1278,32 @@ export const researchPosts: ResearchPost[] = [
     body: ROUTING_BODY,
   },
   {
-    kind: 'engineering' as const,
     slug: 'hyperliquid-egress',
     title: 'Building HyperLiquid into a bot: HyperUnit, region gating, and egress',
-    date: '',
+    date: '2026-10-12',
     category: 'Architecture',
-    excerpt: 'An engineering story on integrating an on-chain order-book DEX and routing native deposits through HyperUnit without tripping region restrictions.',
-    status: 'planned',
+    kind: 'engineering',
+    excerpt: 'What happens when the region is unknown? One codebase answers twice — fail-open for derivatives, fail-closed for HyperUnit — plus a signature count that is not an authentication and a one-way door with no bot-mediated withdrawal. Three lessons for the oversight reader.',
+    readMins: 12,
+    status: 'published',
+    evidence: {
+      status: 'SOURCE-VERIFIED',
+      asOf: '2026-10-12',
+      basis: 'Current main source (bot/services, bot/handlers, api-ts middleware)',
+      boundary: 'Implementation verified; production provisioning, relayer funding, and on-chain confirmation of VERIFY-marked constants unverified.',
+    },
+    indexFigure: {
+      src: '/research/hyperunit-deposit-flow.svg',
+      alt: 'Deposit flow showing the fail-closed region gate, the /gen attestation check, the hard-minimum funding step, and the 2-of-3 MPC mint into the HyperCore account.',
+      caption: 'The bot gates, attests, and watches. It does not custody, pin guardian keys, reconcile minted amounts, or withdraw.',
+    },
+    keywords: [
+      'HyperLiquid', 'HyperUnit', 'native deposits', 'MPC bridge',
+      'region gating', 'geo-compliance', 'fail-closed', 'fail-open',
+      'HyperCore', 'CCTP', 'settlement finality', 'third-party risk',
+      'PFMI',
+    ],
+    body: HYPERUNIT_BODY,
   },
   {
     kind: 'engineering' as const,
