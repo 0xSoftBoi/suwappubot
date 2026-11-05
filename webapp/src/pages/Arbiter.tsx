@@ -10,6 +10,14 @@ const SCENARIOS: { key: ScenarioKey; title: string; blurb: string; tone: string 
   { key: 'fail-unmerged', title: 'Unmerged PR (fail)', blurb: 'Pull request sits open. Merge never happens; rubric fails; funds stay refundable.', tone: 'fail' },
 ]
 
+const LIVE_TXS = [
+  { label: 'pass · create escrow (0.1 NEAR)', hash: 'G4m5Y2oVAZgzqxm829QgfydcWtPwXq2SkyWbSGQZhQT3' },
+  { label: 'pass · resolve → worker paid + attestation log', hash: 'oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE' },
+  { label: 'fail · create escrow (0.05 NEAR)', hash: 'DcuTtNNjYT5ejQBxhApMoZzdLKnscMXLBMtszccgAq3' },
+  { label: 'fail · resolve → no transfer + attestation log', hash: 'DbVioHm1Khqeev9ACaaCq2E146kebTW5fycKvQTiRNJo' },
+  { label: 'fail · buyer refund', hash: 'CiKQwXex9q3xNTveHiu5XT2rEtFkvJUWT4BJQuQft6ok' },
+]
+
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }
 
 function useSteps(scenario: ArbiterFixtureOutput | null) {
@@ -76,7 +84,7 @@ export function Arbiter() {
           <p className="text-sm text-white/85 mt-1.5 max-w-md">
             Buyers lock funds against a machine-checkable rubric. An arbiter WASM in an Intel TDX enclave verifies the evidence. Pass pays; fail refunds. Nobody — not us, not the worker, not the buyer — can argue with the verdict.
           </p>
-          <p className="text-[11px] text-white/60 mt-2">Demo replays recorded mainnet-path fixtures; dry-run by default. Live testnet path wires the same WASM to <code className="text-white/80">outlayer.testnet</code>.</p>
+          <p className="text-[11px] text-white/60 mt-2">The picker replays recorded arbiter-wasm outputs (no funds). The same WASM has also run live on NEAR testnet via <code className="text-white/80">outlayer.testnet</code> — see the evidence below.</p>
         </section>
 
         {/* Scenario picker */}
@@ -163,23 +171,37 @@ export function Arbiter() {
                 {'\n'}  "reason": "{verdict.reason}",
                 {'\n'}  "evidence_hash": "{verdict.evidence_hash}",
                 {'\n'}  "arbiter_code": "sha256-pinned arbiter-wasm.wasm",
-                {'\n'}  "enclave": "Intel TDX · OutLayer attestation"
+                {'\n'}  "executor": "OutLayer (outlayer.testnet)"
                 {'\n'}{'}'}
               </div>
               <p className="text-[11px] text-suwappu-text-secondary mt-2">
-                The contract only moves funds after the enclave returns this exact JSON over yield/resume. Verdict, evidence hash and worker are logged on-chain in the settlement tx — that's the attestation.
+                The contract only moves funds after the enclave returns this exact JSON from OutLayer via a cross-contract callback. Verdict, evidence hash and worker are logged on-chain in the settlement tx — that's the attestation.
               </p>
             </div>
           </section>
         )}
+
+        {/* Live testnet evidence */}
+        <section className="mt-4 rounded-suwappu-lg bg-white border border-suwappu-sakura-mid/20 p-4">
+          <p className="text-[10px] uppercase tracking-wider text-suwappu-text-secondary font-semibold">Live on NEAR testnet — real OutLayer executions</p>
+          <p className="text-[11px] text-suwappu-text-secondary mt-1">Contract <code>suwappu-arbiter.testnet</code>. Testnet funds only (0.1 / 0.05 NEAR).</p>
+          <ul className="mt-2 text-[11px] space-y-1" style={mono}>
+            {LIVE_TXS.map((t) => (
+              <li key={t.hash} className="flex items-center justify-between gap-2">
+                <span className="text-suwappu-text">{t.label}</span>
+                <a className="text-suwappu-purple-deep underline truncate" href={`https://testnet.nearblocks.io/txns/${t.hash}`} target="_blank" rel="noreferrer">{t.hash.slice(0, 10)}…</a>
+              </li>
+            ))}
+          </ul>
+        </section>
 
         {/* Verify yourself */}
         <section className="mt-4 rounded-suwappu-lg bg-white border border-suwappu-sakura-mid/20 p-4">
           <p className="text-[10px] uppercase tracking-wider text-suwappu-text-secondary font-semibold">Verify it yourself (no trust in Suwappu required)</p>
           <ol className="mt-2 text-[11px] space-y-1.5 text-suwappu-text-secondary" style={mono}>
             <li>1. <span className="text-suwappu-purple-deep">sha256sum</span> arbiter_wasm.wasm <span className="text-suwappu-text-secondary"># compare against escrow.arbiter_wasm_hash</span></li>
-            <li>2. <span className="text-suwappu-purple-deep">near view</span> &lt;arbiter.testnet&gt; get_escrow '{'{'}"id":0{'}'}' <span className="text-suwappu-text-secondary"># terms, worker, amount, status</span></li>
-            <li>3. <span className="text-suwappu-purple-deep">near tx</span> &lt;attestation-tx&gt; --networkId testnet <span className="text-suwappu-text-secondary"># logs arbiter_attestation line</span></li>
+            <li>2. <span className="text-suwappu-purple-deep">near view</span> suwappu-arbiter.testnet get_escrow '{'{'}"id":0{'}'}' <span className="text-suwappu-text-secondary"># terms, worker, amount, status</span></li>
+            <li>3. <span className="text-suwappu-purple-deep">near tx</span> oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE --networkId testnet <span className="text-suwappu-text-secondary"># logs arbiter_attestation line</span></li>
           </ol>
           <p className="text-[10px] text-suwappu-text-secondary mt-2">Attestation schema: <code>docs/arbiter-attestation-v1.md</code> · Roadmap (Suwappu Arbiter product line): <code>ARBITER.md</code></p>
         </section>
