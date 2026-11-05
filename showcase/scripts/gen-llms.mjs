@@ -41,6 +41,14 @@ const INSTRUCTIONS = `## Instructions for LLM Agents
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending \`.md\` to its URL (or sending \`Accept: text/markdown\`).`;
 
+const ARBITER = `## Suwappu Arbiter (Proof of Done)
+
+- Page: https://suwappu.bot/arbiter — machine-readable evidence: https://suwappu.bot/arbiter.json
+- Escrow for agent work: release-or-refund is decided by a hash-pinned arbiter WASM run on NEAR OutLayer (Intel TDX), not by either party. Each verdict emits a portable work attestation (spec \`suwappu.arbiter/v1\`).
+- Live on NEAR TESTNET only: contract \`suwappu-arbiter.testnet\`, arbiter wasm sha256 \`2e4f74d47e770b252dec155e909329e220f5f731ef8b3563d8246f3bc197534e\`, public demo rubric, no real funds. Verify with \`sha256sum\`, \`near view\`, \`near tx\` (commands in /arbiter.json).
+- v1 verifies deterministic, machine-checkable rubrics (GitHub PR merge); it proves "done as specified", not "good".
+- Roadmap, NOT shipped: mainnet, production rubric secrets, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.`;
+
 // Sections kept in the curated index vs moved to the droppable "Optional" group.
 const OPTIONAL_IDS = new Set(['chains-reference', 'guides']);
 
@@ -70,6 +78,8 @@ const llms = [
   '',
   INSTRUCTIONS,
   '',
+  ARBITER,
+  '',
   ...main.map(sectionBlock).flatMap((b) => [b, '']),
   '## Optional',
   optionalLines.join('\n'),
@@ -77,7 +87,7 @@ const llms = [
 ].join('\n');
 
 // ---- llms-full.txt (full corpus) ----
-const fullParts = [H1, '', SUMMARY, '', PREAMBLE, ''];
+const fullParts = [H1, '', SUMMARY, '', PREAMBLE, '', ARBITER, ''];
 for (const section of docs.sections) {
   fullParts.push(`\n\n# ${section.title}\n`);
   for (const page of section.pages) {

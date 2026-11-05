@@ -16,6 +16,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: '/agents', priority: 0.85, freq: 'monthly' },
     { path: '/agent-terminal', priority: 0.7, freq: 'monthly' },
     { path: '/passport', priority: 0.6, freq: 'weekly' },
+    { path: '/arbiter', priority: 0.7, freq: 'weekly' },
+    { path: '/arbiter.json', priority: 0.4, freq: 'weekly' },
     { path: '/enterprise', priority: 0.85, freq: 'monthly' },
     { path: '/government', priority: 0.7, freq: 'monthly' },
     { path: '/architecture', priority: 0.8, freq: 'monthly' },

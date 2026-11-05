@@ -463,11 +463,12 @@ h2 {
 
 /* Mid-width desktops: the full link row plus both CTAs doesn't fit at 12px
    padding, so the CTAs used to wrap or overlap the last link. */
-@media (max-width: 1400px) {
+@media (max-width: 1520px) {
   .summer-nav nav a,
   .summer-nav nav .summer-nav__trigger {
     padding: 0 8px;
   }
+  .summer-nav__cta { white-space: nowrap; }
 }
 
 /* 1180–1360px: link row + both CTAs still don't fit even at 8px link
