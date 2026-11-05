@@ -5,7 +5,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 echo "== 1. arbiter WASM is prebuilt; verifying it matches the recorded fixtures"
 if command -v sha256sum >/dev/null; then
-  sha256sum near/arbiter-wasm/target/wasm32-wasip1/release/arbiter-wasm.wasm 2>/dev/null || \
+  sha256sum near/arbiter-wasm/artifacts/arbiter-wasm.wasm 2>/dev/null || \
     echo "arbiter-wasm.wasm not built yet — build with: cd near/arbiter-wasm && cargo build --target wasm32-wasip1 --release"
 fi
 

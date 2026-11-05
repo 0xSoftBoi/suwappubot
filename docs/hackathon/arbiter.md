@@ -41,7 +41,7 @@ Testnet end-to-end (public RPC, no keys needed for views):
 ```sh
 near view arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
 near tx <settlement-tx> --networkId testnet    # logs arbiter_attestation
-sha256sum near/arbiter-wasm/target/wasm32-wasip1/release/arbiter-wasm.wasm
+sha256sum near/arbiter-wasm/artifacts/arbiter-wasm.wasm
 ```
 
 ## What's in the diff (pre-hackathon → hackathon/arbiter)
