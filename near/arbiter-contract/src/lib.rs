@@ -67,6 +67,7 @@ impl Default for ArbiterEscrow {
 #[near]
 impl ArbiterEscrow {
     /// Create and fund an escrow. Attached deposit = the escrowed amount.
+    #[payable]
     pub fn create_escrow(
         &mut self,
         worker: AccountId,
@@ -109,6 +110,7 @@ impl ArbiterEscrow {
     }
 
     /// Resolve an escrow: verify evidence in the TEE and settle. Attach 1 yocto for the outcall.
+    #[payable]
     pub fn resolve(&mut self, id: u64, webhook_payload_b64: String, webhook_signature_hex: String) -> Promise {
         let deposit = env::attached_deposit();
         assert!(deposit >= ONE_YOCTO, "attach >= 1 yoctoNEAR for OutLayer");

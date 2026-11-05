@@ -12,7 +12,7 @@ Every verified milestone emits one attestation. Anyone can check it with three c
   "fmt": "suwappu.arbiter/v1",
   "subject": {
     "kind": "milestone",
-    "contract": "arbiter.testnet",
+    "contract": "suwappu-arbiter.testnet",
     "escrow_id": 0
   },
   "parties": {
@@ -69,7 +69,7 @@ the portable form (reconstruct from contract view + tx logs, or from any Arbiter
 sha256sum arbiter_wasm.wasm   # must equal escrow.arbiter_wasm_hash and attestation.arbiter_wasm_hash
 
 # 2. read the escrow terms + status
-near view arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
+near view suwappu-arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
 
 # 3. read the attestation log from the settlement tx
 near tx <settlement-tx> --networkId testnet

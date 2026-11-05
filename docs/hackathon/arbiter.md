@@ -39,10 +39,32 @@ Everything on the page is a recorded replay of the actual `arbiter-wasm` (checke
 Testnet end-to-end (public RPC, no keys needed for views):
 
 ```sh
-near view arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
-near tx <settlement-tx> --networkId testnet    # logs arbiter_attestation
+near view suwappu-arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
+near tx oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE suwappu-arbiter.testnet --networkId testnet   # logs arbiter_attestation (pass)
 sha256sum near/arbiter-wasm/artifacts/arbiter-wasm.wasm
 ```
+
+## Live testnet evidence (real OutLayer execution, 2026-11-05)
+
+Contract: `suwappu-arbiter.testnet` (code sha256 `c4bf9a45…bff0`, source `near/arbiter-contract`). Arbiter WASM
+sha256 `2e4f74d4…534e`, fetched by `outlayer.testnet` from this repo's raw URL. Rubric context `github_pr_demo`
+(public demo HMAC secret). Testnet only; amounts 0.1 / 0.05 NEAR.
+
+| Case | Step | Tx |
+|---|---|---|
+| Pass (merged, right author) | create_escrow (id 0, 0.1 NEAR) | `G4m5Y2oVAZgzqxm829QgfydcWtPwXq2SkyWbSGQZhQT3` |
+| | resolve → OutLayer → `pass`, worker paid, `arbiter_attestation` logged | `oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE` |
+| Fail (wrong author) | create_escrow (id 1, 0.05 NEAR) | `DcuTtNNjYT5ejQBxhApMoZzdLKnscMXLBMtszccgAq3` |
+| | resolve → `fail`, no transfer, `arbiter_attestation` logged | `DbVioHm1Khqeev9ACaaCq2E146kebTW5fycKvQTiRNJo` |
+| | cancel_expired (buyer refund after fail) | `CiKQwXex9q3xNTveHiu5XT2rEtFkvJUWT4BJQuQft6ok` |
+
+Evidence hashes match the recorded fixtures byte for byte (`415f1d32…` pass, `0bd6a474…` fail).
+
+Honest notes: `resolve` must attach ≥ ~0.0041 NEAR (OutLayer compute fee; the unused remainder is refunded to
+the contract by OutLayer). The contract calls OutLayer with a plain cross-contract promise + callback (not
+yield/resume). In this demo the buyer is the contract account itself, so the fail-case refund is a
+self-transfer. The attestation here is the contract's on-chain log of the OutLayer result; a TDX quote
+check is not yet wired into the contract.
 
 ## What's in the diff (pre-hackathon → hackathon/arbiter)
 
