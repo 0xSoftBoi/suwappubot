@@ -21,7 +21,23 @@ use near_sdk::{env, near, AccountId, Gas, NearToken, Promise};
 const RESOLVER: &str = "outlayer.testnet";
 const RESOLVE_GAS: Gas = Gas::from_tgas(200);
 const CALLBACK_GAS: Gas = Gas::from_tgas(15);
-const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
+
+// --- Hardening (money-path review) -------------------------------------------------------
+// The verdict source is pinned at compile time: callers cannot supply their own arbiter WASM
+// or rubric context. Demo build: only the public demo rubric is allowed, so this contract is
+// TESTNET-ONLY and must not hold real funds (the demo HMAC secret is public).
+const ALLOWED_WASM_HASH: &str = "2e4f74d47e770b252dec155e909329e220f5f731ef8b3563d8246f3bc197534e";
+const ALLOWED_WASM_URL: &str = "https://raw.githubusercontent.com/0xSoftBoi/suwappubot/hackathon/arbiter/near/arbiter-wasm/artifacts/arbiter-wasm.wasm";
+const ALLOWED_CONTEXT: &str = "github_pr_demo";
+/// Buyer cannot refund until deadline + grace, so a worker who merged just before the deadline can still resolve.
+const REFUND_GRACE_SECS: u64 = 3600;
+/// Covers storage for the escrow record and keeps spam uneconomic.
+const MIN_ESCROW: NearToken = NearToken::from_millinear(10);
+/// OutLayer needs ~0.0041 NEAR; cap the forward so unused fee is not stranded in large amounts.
+const MIN_RESOLVE_FEE: NearToken = NearToken::from_millinear(5);
+const MAX_RESOLVE_FEE: NearToken = NearToken::from_millinear(20);
+const MAX_TERMS_LEN: usize = 1024;
+const MAX_FIELD_LEN: usize = 256;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(crate = "near_sdk::serde")]
@@ -29,7 +45,8 @@ pub enum EscrowStatus {
     Created,
     Resolving,
     Paid,
-    Failed,
+    /// Payout transfer to the worker failed; buyer may recover funds immediately.
+    PayoutFailed,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone)]
@@ -76,13 +93,16 @@ impl ArbiterEscrow {
         arbiter_wasm_hash: String,
     ) -> u64 {
         let deposit = env::attached_deposit();
-        assert!(deposit > NearToken::from_yoctonear(0), "attach escrow amount");
+        assert!(deposit >= MIN_ESCROW, "attach at least 0.01 NEAR");
+        assert!(terms.len() <= MAX_TERMS_LEN, "terms too long");
+        assert!(arbiter_wasm_url.len() <= MAX_FIELD_LEN && arbiter_wasm_hash.len() <= MAX_FIELD_LEN, "field too long");
+        assert!(arbiter_wasm_hash == ALLOWED_WASM_HASH && arbiter_wasm_url == ALLOWED_WASM_URL, "arbiter not allowlisted");
 
         // terms is stored verbatim; cheap structural sanity checks only.
         let t: near_sdk::serde_json::Value =
             near_sdk::serde_json::from_str(&terms).expect("terms must be JSON");
         let context = t["context"].as_str().unwrap_or("");
-        assert!(!context.is_empty(), "terms.context required");
+        assert!(context == ALLOWED_CONTEXT, "context not allowlisted (demo build)");
         let deadline_unix = t["deadline_unix"].as_u64().unwrap_or(0);
         assert!(deadline_unix > 0, "terms.deadline_unix required");
 
@@ -113,7 +133,7 @@ impl ArbiterEscrow {
     #[payable]
     pub fn resolve(&mut self, id: u64, webhook_payload_b64: String, webhook_signature_hex: String) -> Promise {
         let deposit = env::attached_deposit();
-        assert!(deposit >= ONE_YOCTO, "attach >= 1 yoctoNEAR for OutLayer");
+        assert!(deposit >= MIN_RESOLVE_FEE && deposit <= MAX_RESOLVE_FEE, "attach 0.005-0.02 NEAR for OutLayer");
 
         let mut escrow = self.escrows.get(&id).expect("escrow not found");
         assert!(escrow.status == EscrowStatus::Created, "not resolvable");
@@ -181,9 +201,15 @@ impl ArbiterEscrow {
                     escrow.status = EscrowStatus::Paid;
                     self.escrows.insert(&id, &escrow);
                     env::log_str(&format!("arbiter_attestation id={} worker={} verdict=pass evidence_hash={}", id, escrow.worker, evidence_hash));
-                    let _ = Promise::new(escrow.worker).transfer(amount);
+                    let _ = Promise::new(escrow.worker).transfer(amount).then(
+                        Self::ext(env::current_account_id())
+                            .with_static_gas(CALLBACK_GAS)
+                            .on_payout(id),
+                    );
                 } else {
-                    escrow.status = EscrowStatus::Failed;
+                    // A non-pass verdict (including junk evidence from anyone) never ends the
+                    // escrow: it is recorded and the escrow stays open for a valid resolve.
+                    escrow.status = EscrowStatus::Created;
                     self.escrows.insert(&id, &escrow);
                     env::log_str(&format!("arbiter_attestation id={} worker={} verdict=fail evidence_hash={}", id, escrow.worker, evidence_hash));
                 }
@@ -196,8 +222,19 @@ impl ArbiterEscrow {
         }
     }
 
-    /// Buyer recovers funds. Immediate after a `fail` verdict; otherwise only after the deadline
-    /// passes without a successful resolution.
+    #[private]
+    pub fn on_payout(&mut self, id: u64) {
+        if env::promise_result_checked(0, 0).is_err() {
+            if let Some(mut e) = self.escrows.get(&id) {
+                e.status = EscrowStatus::PayoutFailed;
+                self.escrows.insert(&id, &e);
+                env::log_str(&format!("arbiter_payout_failed id={}", id));
+            }
+        }
+    }
+
+    /// Buyer recovers funds: only after deadline + grace without a pass (or immediately if the
+    /// worker payout failed). A fail verdict alone never releases funds.
     pub fn cancel_expired(&mut self, id: u64) {
         let now = env::block_timestamp() / 1_000_000_000;
         let escrow = self
@@ -208,8 +245,9 @@ impl ArbiterEscrow {
             env::predecessor_account_id() == escrow.buyer,
             "buyer only"
         );
-        let immediate = escrow.status == EscrowStatus::Failed;
-        assert!(immediate || now >= escrow.deadline_unix, "deadline not passed");
+        assert!(escrow.status != EscrowStatus::Resolving, "resolution in flight");
+        let immediate = escrow.status == EscrowStatus::PayoutFailed;
+        assert!(immediate || now >= escrow.deadline_unix + REFUND_GRACE_SECS, "deadline + grace not passed");
         assert!(escrow.status != EscrowStatus::Paid, "already paid");
         let amount = NearToken::from_yoctonear(escrow.amount.0);
         self.escrows.remove(&id);

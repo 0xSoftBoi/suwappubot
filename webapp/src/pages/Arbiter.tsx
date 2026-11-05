@@ -11,11 +11,10 @@ const SCENARIOS: { key: ScenarioKey; title: string; blurb: string; tone: string 
 ]
 
 const LIVE_TXS = [
-  { label: 'pass · create escrow (0.1 NEAR)', hash: 'G4m5Y2oVAZgzqxm829QgfydcWtPwXq2SkyWbSGQZhQT3' },
-  { label: 'pass · resolve → worker paid + attestation log', hash: 'oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE' },
-  { label: 'fail · create escrow (0.05 NEAR)', hash: 'DcuTtNNjYT5ejQBxhApMoZzdLKnscMXLBMtszccgAq3' },
-  { label: 'fail · resolve → no transfer + attestation log', hash: 'DbVioHm1Khqeev9ACaaCq2E146kebTW5fycKvQTiRNJo' },
-  { label: 'fail · buyer refund', hash: 'CiKQwXex9q3xNTveHiu5XT2rEtFkvJUWT4BJQuQft6ok' },
+  { label: 'pass · create escrow (0.1 NEAR)', hash: '8shZnhjyTZxJSobr6WzyofjbcqBMtiJ5WjtVAcMmgG3H' },
+  { label: 'pass · resolve → worker paid + attestation log', hash: '12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC' },
+  { label: 'fail · create escrow (0.05 NEAR)', hash: 'Cap3AaABKEAEG1XaLsJMV4GnpL41KitVinKYVNXLC3Yf' },
+  { label: 'fail · resolve → no transfer + attestation log', hash: '2zBdABZcCorZX8TKcQJGrwYzwiYUpK3Xsw6bBrzMaBfn' },
 ]
 
 const mono: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }
@@ -184,7 +183,7 @@ export function Arbiter() {
         {/* Live testnet evidence */}
         <section className="mt-4 rounded-suwappu-lg bg-white border border-suwappu-sakura-mid/20 p-4">
           <p className="text-[10px] uppercase tracking-wider text-suwappu-text-secondary font-semibold">Live on NEAR testnet — real OutLayer executions</p>
-          <p className="text-[11px] text-suwappu-text-secondary mt-1">Contract <code>suwappu-arbiter.testnet</code>. Testnet funds only (0.1 / 0.05 NEAR).</p>
+          <p className="text-[11px] text-suwappu-text-secondary mt-1">Contract <code>suwappu-arbiter.testnet</code>. Testnet demo contract — do not send real funds. Demo rubric only.</p>
           <ul className="mt-2 text-[11px] space-y-1" style={mono}>
             {LIVE_TXS.map((t) => (
               <li key={t.hash} className="flex items-center justify-between gap-2">
@@ -201,7 +200,7 @@ export function Arbiter() {
           <ol className="mt-2 text-[11px] space-y-1.5 text-suwappu-text-secondary" style={mono}>
             <li>1. <span className="text-suwappu-purple-deep">sha256sum</span> arbiter_wasm.wasm <span className="text-suwappu-text-secondary"># compare against escrow.arbiter_wasm_hash</span></li>
             <li>2. <span className="text-suwappu-purple-deep">near view</span> suwappu-arbiter.testnet get_escrow '{'{'}"id":0{'}'}' <span className="text-suwappu-text-secondary"># terms, worker, amount, status</span></li>
-            <li>3. <span className="text-suwappu-purple-deep">near tx</span> oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE --networkId testnet <span className="text-suwappu-text-secondary"># logs arbiter_attestation line</span></li>
+            <li>3. <span className="text-suwappu-purple-deep">near tx</span> 12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC --networkId testnet <span className="text-suwappu-text-secondary"># logs arbiter_attestation line</span></li>
           </ol>
           <p className="text-[10px] text-suwappu-text-secondary mt-2">Attestation schema: <code>docs/arbiter-attestation-v1.md</code> · Roadmap (Suwappu Arbiter product line): <code>ARBITER.md</code></p>
         </section>

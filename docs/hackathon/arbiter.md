@@ -40,31 +40,43 @@ Testnet end-to-end (public RPC, no keys needed for views):
 
 ```sh
 near view suwappu-arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
-near tx oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE suwappu-arbiter.testnet --networkId testnet   # logs arbiter_attestation (pass)
+near tx 12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC suwappu-arbiter.testnet --networkId testnet   # logs arbiter_attestation (pass)
 sha256sum near/arbiter-wasm/artifacts/arbiter-wasm.wasm
 ```
 
-## Live testnet evidence (real OutLayer execution, 2026-11-05)
+## Live testnet evidence (real OutLayer execution, 2026-11-05, hardened contract)
 
-Contract: `suwappu-arbiter.testnet` (code sha256 `c4bf9a45…bff0`, source `near/arbiter-contract`). Arbiter WASM
+Contract: `suwappu-arbiter.testnet` (code sha256 `c9559550…f685`, source `near/arbiter-contract`). Arbiter WASM
 sha256 `2e4f74d4…534e`, fetched by `outlayer.testnet` from this repo's raw URL. Rubric context `github_pr_demo`
 (public demo HMAC secret). Testnet only; amounts 0.1 / 0.05 NEAR.
 
 | Case | Step | Tx |
 |---|---|---|
-| Pass (merged, right author) | create_escrow (id 0, 0.1 NEAR) | `G4m5Y2oVAZgzqxm829QgfydcWtPwXq2SkyWbSGQZhQT3` |
-| | resolve → OutLayer → `pass`, worker paid, `arbiter_attestation` logged | `oEgUKBZhM8YuzUZDVzWaTTwhqetYmELguSKwskkVdSE` |
-| Fail (wrong author) | create_escrow (id 1, 0.05 NEAR) | `DcuTtNNjYT5ejQBxhApMoZzdLKnscMXLBMtszccgAq3` |
-| | resolve → `fail`, no transfer, `arbiter_attestation` logged | `DbVioHm1Khqeev9ACaaCq2E146kebTW5fycKvQTiRNJo` |
-| | cancel_expired (buyer refund after fail) | `CiKQwXex9q3xNTveHiu5XT2rEtFkvJUWT4BJQuQft6ok` |
+| Pass (merged, right author) | create_escrow (id 2, 0.1 NEAR) | `8shZnhjyTZxJSobr6WzyofjbcqBMtiJ5WjtVAcMmgG3H` |
+| | resolve → OutLayer → `pass`, worker paid, `arbiter_attestation` logged | `12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC` |
+| Fail (wrong author) | create_escrow (id 3, 0.05 NEAR) | `Cap3AaABKEAEG1XaLsJMV4GnpL41KitVinKYVNXLC3Yf` |
+| | resolve → `fail`, no transfer, `arbiter_attestation` logged, escrow stays `Created` | `2zBdABZcCorZX8TKcQJGrwYzwiYUpK3Xsw6bBrzMaBfn` |
 
+Earlier run on the first (pre-hardening) build: pass `12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC`, fail
+`DbVioHm1Khqeev9ACaaCq2E146kebTW5fycKvQTiRNJo`, buyer refund `CiKQwXex9q3xNTveHiu5XT2rEtFkvJUWT4BJQuQft6ok`.
 Evidence hashes match the recorded fixtures byte for byte (`415f1d32…` pass, `0bd6a474…` fail).
 
-Honest notes: `resolve` must attach ≥ ~0.0041 NEAR (OutLayer compute fee; the unused remainder is refunded to
-the contract by OutLayer). The contract calls OutLayer with a plain cross-contract promise + callback (not
-yield/resume). In this demo the buyer is the contract account itself, so the fail-case refund is a
-self-transfer. The attestation here is the contract's on-chain log of the OutLayer result; a TDX quote
-check is not yet wired into the contract.
+### Hardening after an adversarial money-path review
+Fixed and verified live (each attack rejected on testnet): a `fail` verdict (including junk evidence from anyone)
+no longer ends the escrow or enables a refund; the buyer can refund only after `deadline + 1h` (or if the worker
+payout failed); the arbiter WASM hash/url and rubric context are compile-time allowlisted (callers cannot supply
+their own verdict source); minimum deposit 0.01 NEAR and capped field lengths; resolve fee bounded to
+0.005–0.02 NEAR; payout failure is recoverable. Consequence: the fail-case refund can no longer be shown live
+before the demo deadline (2026-11-30) — the first-build refund tx above shows the mechanism.
+
+### Known limits (not fixed — do not claim otherwise)
+- **Testnet/demo only; must not hold real funds.** Only the public demo rubric (`github_pr_demo`, public HMAC
+  secret) is allowed, so anyone could forge "merged" evidence for a demo escrow. A production rubric needs the
+  OutLayer secrets flow wired and verified.
+- Evidence is not bound to the escrow id (one signed payload satisfies any escrow with the same repo/PR).
+- `resolve` is callable by anyone; the attestation is the contract's log of the OutLayer result, with no TDX
+  quote verification in-contract yet. Contract uses a cross-contract promise + callback, not yield/resume.
+- Panic messages are not surfaced by this build (rejections show as `unreachable`).
 
 ## What's in the diff (pre-hackathon → hackathon/arbiter)
 
