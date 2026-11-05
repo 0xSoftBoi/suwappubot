@@ -471,6 +471,55 @@ h2 {
   .summer-nav__cta { white-space: nowrap; }
 }
 
+/* Header fit (all widths): a centred `auto` link row between two `1fr` columns
+   overflows into the actions column whenever the row is wider than the
+   leftover space (it did at 1440px with Passport + Arbiter + Docs + Telegram).
+   Size the outer columns to their content and let the link row take the
+   flexible middle, so nothing can overlap. "Explore all" is dropped below
+   1560px — it duplicates the Products menu and is still in the mobile drawer. */
+@media (min-width: 981px) {
+  .summer-nav {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .summer-nav nav {
+    justify-self: center;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .summer-nav nav a,
+  .summer-nav nav .summer-nav__trigger {
+    white-space: nowrap;
+  }
+}
+@media (min-width: 981px) and (max-width: 1560px) {
+  .summer-nav__cta--ghost { display: none; }
+}
+/* Below ~1360px the row can't hold every link; hide the lowest-priority ones
+   (last = Telegram, second-last = Docs) rather than clip mid-link. Both remain
+   in the mobile drawer and the footer. */
+@media (min-width: 981px) and (max-width: 1360px) {
+  .summer-nav nav > a:last-child { display: none; }
+}
+@media (min-width: 981px) and (max-width: 1180px) {
+  .summer-nav nav > a:nth-last-child(2) { display: none; }
+}
+@media (min-width: 981px) and (max-width: 1060px) {
+  .summer-nav { gap: 8px; padding-inline: 12px; }
+  .summer-nav nav { gap: 0; padding: 3px; }
+  .summer-nav nav a,
+  .summer-nav nav .summer-nav__trigger { padding: 0 5px; font-size: 0.76rem; }
+  .summer-brand span { display: none; }
+}
+
+/* Phones: brand + language switcher + CTA + burger don't fit in one row.
+   The drawer already carries both CTAs, so drop the bar CTA on narrow screens
+   and let the brand truncate instead of being overlapped. */
+@media (max-width: 560px) {
+  .summer-nav .summer-nav__cta { display: none; }
+  .summer-brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
 /* 1180–1360px: link row + both CTAs still don't fit even at 8px link
    padding. Shrink the CTAs themselves (padding/gap/font) and force their
    text onto one line so the actions column can't grow taller than the
