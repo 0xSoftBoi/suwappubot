@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 import { websocket } from 'hono/bun'
 import { createApp } from './app'
 import { EnvService } from './config/EnvService'
-import { initHackathonEnv, trustLayerEnabled, worldIdEnabled } from './hackathon/env'
+import { arbiterEnabled, initHackathonEnv, trustLayerEnabled, worldIdEnabled } from './hackathon/env'
 import { isWorldIdConfigured } from './hackathon/tokyo2026/world-id/config'
 import { flushDataUsage, stopDataUsageFlusher } from './lib/dataUsage'
 import { logger } from './lib/logger'
@@ -66,6 +66,7 @@ async function main() {
 		internalApiUrl: env.INTERNAL_API_URL,
 		otelEnabled: env.OTEL_ENABLED,
 		hackathonTrustLayer: trustLayerEnabled(env),
+		hackathonArbiter: arbiterEnabled(env),
 	})
 
 	// Start server. `websocket` (from hono/bun) wires the Bun-native WS upgrade

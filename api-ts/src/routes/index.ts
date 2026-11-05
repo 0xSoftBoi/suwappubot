@@ -1,6 +1,7 @@
 export { stopDataUsageFlusher } from '../lib/dataUsage'
 export { a2aRoutes } from './a2a'
 export { adminRoutes } from './admin'
+export { arbiterRoutes } from './arbiter'
 export { agentRoutes } from './agent'
 export { autopilotAdminRoutes, autopilotRoutes } from './autopilot'
 export { billingRoutes } from './billing'
