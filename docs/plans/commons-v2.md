@@ -107,7 +107,15 @@ The result is a circulation: every participant's net position is unchanged, and 
 
 - **Why `CLEARABLE` consent exists:** legs can carry different fee rates, so netting changes who earns interest. Parties agree to that once, at line acceptance.
 - **Incentive:** debtors save interest, and clearing is cheap on an L2. v2 core pays no solver tip (a tip pool is shared pro-rata state, see §1.2). Suwappu runs the reference solver as a service.
-- **Gas target:** benchmark E = 10/50/100. Acceptance requires E=50 under ~1.5M gas on Base.
+- **Gas (measured, cold storage via `vm.cool`, P1 build):**
+
+  | Edges | First-ever clear | Steady state (standing slots already set) |
+  |---|---|---|
+  | 10 | 453k | 248k |
+  | 50 | 2.08M | 1.23M |
+  | 100 | 3.66M | 2.45M |
+
+  Steady state is ~24.5k gas/edge, and a regression past 27k/edge fails the suite. First-ever clears pay the 0→non-zero `standing` SSTOREs. Even E=100 is a small fraction of a Base block.
 
 ### 2.4 Signed intents (agent/relayer-native)
 
