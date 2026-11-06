@@ -105,6 +105,9 @@ pub struct Escrow {
     /// Storage cost of this record, paid by the buyer on top of `amount`; returned only on refund.
     pub storage_deposit: U128,
     pub resolving_since_block: u64,
+    /// Incremented on every `resolve`. The callback must echo the nonce it was created with, so a late
+    /// callback from a superseded resolution (after `reset_stuck`) can never pay or reopen the escrow.
+    pub resolve_nonce: u64,
     pub terms: String,
     /// Pinned rubric name for this escrow (`github_pr_v1` | `http_json_v1`), fixed at creation.
     pub rubric: String,
@@ -182,6 +185,9 @@ impl ArbiterEscrow {
             assert!(self.pr_index.get(&key).is_none(), "you already have an escrow for this PR");
             index_key = Some(key);
         } else {
+            // `escrow_id` is injected by the contract at resolve time; a buyer-supplied one would only mislead
+            // anyone reading the stored terms (terms.rs permits the key because the enclave input carries it).
+            assert!(t.get("escrow_id").is_none(), "escrow_id is set by the contract");
             // http_json_v1: the SAME validator the enclave runs (shared file), so unpayable terms never lock funds.
             if let Err(reason) = terms::validate_value(&t) {
                 env::panic_str(reason);
@@ -202,6 +208,7 @@ impl ArbiterEscrow {
                 amount: U128(0),
                 storage_deposit: U128(0),
                 resolving_since_block: 0,
+                resolve_nonce: 0,
                 terms,
                 rubric: rubric.clone(),
                 arbiter_wasm_hash: def.wasm_hash.to_string(),
@@ -250,6 +257,8 @@ impl ArbiterEscrow {
         }
         escrow.status = EscrowStatus::Resolving;
         escrow.resolving_since_block = env::block_height();
+        escrow.resolve_nonce += 1;
+        let nonce = escrow.resolve_nonce;
         self.escrows.insert(&id, &escrow);
 
         let t: Value = serde_json::from_str(&escrow.terms).expect("stored terms must be JSON");
@@ -296,13 +305,28 @@ impl ArbiterEscrow {
                 deposit,
                 RESOLVE_GAS,
             )
-            .then(Self::ext(env::current_account_id()).with_static_gas(CALLBACK_GAS).on_arbiter_result(id))
+            .then(Self::ext(env::current_account_id()).with_static_gas(CALLBACK_GAS).on_arbiter_result(id, nonce))
     }
 
     #[private]
-    pub fn on_arbiter_result(&mut self, id: u64) {
+    pub fn on_arbiter_result(&mut self, id: u64, nonce: u64) {
         let data_result = env::promise_result_checked(0, 16 * 1024);
-        let mut escrow = self.escrows.get(&id).expect("escrow not found");
+        // The escrow may be gone (refunded after reset_stuck) or may belong to a newer resolution. Never panic and
+        // never act on a stale callback: acting twice is how a paid escrow would be paid again or reopened.
+        let mut escrow = match self.escrows.get(&id) {
+            Some(e) => e,
+            None => {
+                env::log_str(&format!("arbiter_stale_callback id={} nonce={} reason=escrow_gone", id, nonce));
+                return;
+            }
+        };
+        if escrow.status != EscrowStatus::Resolving || escrow.resolve_nonce != nonce {
+            env::log_str(&format!(
+                "arbiter_stale_callback id={} nonce={} current_nonce={} status={:?}",
+                id, nonce, escrow.resolve_nonce, escrow.status
+            ));
+            return;
+        }
         let parsed: Option<Value> = data_result.ok().and_then(|d| serde_json::from_slice(&d).ok());
         // Accept the output only if it echoes this escrow's id and the pinned rubric.
         let valid = parsed
@@ -349,7 +373,7 @@ impl ArbiterEscrow {
     #[private]
     pub fn on_payout(&mut self, id: u64) {
         if env::promise_result_checked(0, 0).is_err() {
-            if let Some(mut e) = self.escrows.get(&id) {
+            if let Some(mut e) = self.escrows.get(&id).filter(|e| e.status == EscrowStatus::Paid) {
                 e.status = EscrowStatus::PayoutFailed;
                 self.escrows.insert(&id, &e);
                 env::log_str(&format!("arbiter_payout_failed id={}", id));
@@ -396,7 +420,17 @@ impl ArbiterEscrow {
             .iter()
             .map(|r| json!({ "rubric": r.name, "wasm_hash": r.wasm_hash, "wasm_url": r.wasm_url }))
             .collect();
-        json!({ "rubrics": rubrics, "build_target": ARBITER_BUILD_TARGET, "resolver": RESOLVER, "contract": "v3" })
+        // Top-level rubric/wasm_hash/wasm_url keep the v2 shape and describe github_pr_v1 ONLY; v3 consumers must
+        // read `rubrics` (all pinned rubrics) and each escrow's own `rubric`.
+        json!({
+            "rubric": RUBRICS[0].name,
+            "wasm_hash": RUBRICS[0].wasm_hash,
+            "wasm_url": RUBRICS[0].wasm_url,
+            "rubrics": rubrics,
+            "build_target": ARBITER_BUILD_TARGET,
+            "resolver": RESOLVER,
+            "contract": "v3",
+        })
     }
 }
 

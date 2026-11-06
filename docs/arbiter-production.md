@@ -70,3 +70,22 @@ rejected condition, not a verified reason. Superseded earlier builds: `arb.suwap
 5. Mainnet accounts/funding, a timelocked governance or a documented immutability stance, and a caps policy
    (per-escrow and total) for the first deployment.
 6. Mainnet deploy and every mainnet transaction require explicit human approval.
+
+## Contract v3 (`near/arbiter-contract-v3`) — review status (2026-11-05)
+
+Adds the `http_json_v1` rubric via a compile-time rubric table. Not deployed. One Opus money-path review found no way
+for a stranger to take funds. Fixes were applied and checked in a scratch harness (12 checks, including a negative
+control: disabling the guard makes the double-callback check fail):
+
+- **Fixed:** a late callback after `reset_stuck` could pay twice or reopen a paid escrow (a v2 bug, still present in
+  `arb2`). The callback now carries a per-resolve nonce and is ignored unless the escrow is `Resolving` with that nonce.
+  `on_payout` only acts on a `Paid` escrow. A callback for a removed escrow no longer panics.
+- **Fixed:** a buyer-supplied `escrow_id` in HTTP terms is rejected; `arbiter()` keeps the v2 top-level shape; the
+  storage reserve is raised to cover resolve-time fields.
+- **Open (design):** a predicate already true at creation resolves immediately (the reviewer suggests an "armed" flag;
+  not built, needs a product decision). Anyone can re-resolve, so a briefly-true state pays out.
+- **Open (outside the contract):** hostnames like `127.0.0.1.sslip.io` pass host validation. Whether OutLayer's
+  `wasi:http` host filters private IPs, pins DNS or follows redirects is undocumented. Do not announce `http_json_v1`
+  before asking OutLayer.
+- **Open (verify on testnet):** whether OutLayer accepts a ~2 KB `input_data`.
+- **Not verified:** that artifact `2acc016a…` is a reproducible build of its commit.
