@@ -1,17 +1,19 @@
 /**
  * Arbiter page data — single source for the UI, JSON-LD and /arbiter.json.
- * Fixtures are copied byte-for-byte from webapp/src/data/arbiterFixtures.ts
- * (recorded arbiter-wasm outputs). Do not hand-edit hashes.
+ * Production design v2.1 (docs/arbiter-production.md). Verdicts below are the
+ * real live testnet outputs; the enclave fetched each PR from the GitHub API.
+ * Do not hand-edit hashes.
  */
 
-export const CONTRACT = 'suwappu-arbiter.testnet';
-export const ARBITER_WASM_HASH = '2e4f74d47e770b252dec155e909329e220f5f731ef8b3563d8246f3bc197534e';
-export const CONTRACT_CODE_HASH_PREFIX = 'c9559550…f685';
+export const CONTRACT = 'arb2.suwappu-arbiter.testnet';
+export const ARBITER_WASM_HASH = 'f1818167768f6b2b84b2031071760395d3e4a88cf319de3539d0d2068ad6412b';
+export const REPO_URL = 'https://github.com/0xSoftBoi/suwappubot';
+export const DOC_URL = `${REPO_URL}/blob/main/docs/arbiter-production.md`;
 export const NEARBLOCKS_TX = (h: string) => `https://testnet.nearblocks.io/txns/${h}`;
 export const NEARBLOCKS_ACCOUNT = `https://testnet.nearblocks.io/address/${CONTRACT}`;
 export const SPEC_ID = 'suwappu.arbiter/v1';
 
-export type ScenarioKey = 'pass' | 'fail-author' | 'fail-unmerged';
+export type ScenarioKey = 'pass' | 'fail-self-merged';
 
 export interface Scenario {
   key: ScenarioKey;
@@ -23,12 +25,9 @@ export interface Scenario {
     repo: string;
     pr_number: number;
     author: string;
-    deadline_unix: number;
-    payload_b64: string;
-    signature_hex: string;
   };
   output: { verdict: 'pass' | 'fail'; reason: string; evidence_hash: string };
-  /** What the evidence actually says, in one line (decoded from payload_b64). */
+  /** What the enclave found in the GitHub API response, in one line. */
   evidenceNote: string;
   payout: string;
 }
@@ -36,71 +35,30 @@ export interface Scenario {
 export const SCENARIOS: Scenario[] = [
   {
     key: 'pass',
-    title: 'Merged PR',
-    blurb: 'octocat’s PR #7 is merged. The rubric holds.',
+    title: 'Merged by someone else',
+    blurb: 'PR #993 by nanofaxcopy was merged by another account. The rubric holds.',
     tone: 'pass',
-    evidenceNote: 'merged: true · author octocat · merged_by hubot',
-    payout: 'Released to worker',
-    input: {
-      context: 'github_pr',
-      repo: 'arbiter-demo/shop',
-      pr_number: 7,
-      author: 'octocat',
-      deadline_unix: 1795996800,
-      payload_b64:
-        'eyJhY3Rpb24iOiJjbG9zZWQiLCJwdWxsX3JlcXVlc3QiOnsibnVtYmVyIjo3LCJtZXJnZWQiOnRydWUsIm1lcmdlZF9hdCI6IjIwMjYtMTEtMDVUMTI6MDA6MDAuMDAwWiIsInVzZXIiOnsibG9naW4iOiJvY3RvY2F0In0sIm1lcmdlZF9ieSI6eyJsb2dpbiI6Imh1Ym90In0sImhlYWQiOnsicmVmIjoiZmVhdHVyZS9taWxlc3RvbmUifX0sInJlcG9zaXRvcnkiOnsiZnVsbF9uYW1lIjoiYXJiaXRlci1kZW1vL3Nob3AiLCJodG1sX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hcmJpdGVyLWRlbW8vc2hvcCJ9LCJzZW5kZXIiOnsibG9naW4iOiJodWJvdCJ9fQ==',
-      signature_hex: 'f413f89c83760860c48d1ebfa1af2be54661b0e07707378c4241e3cfa97fc37f',
-    },
+    evidenceNote: 'merged: true · author nanofaxcopy · merged by a different account',
+    payout: 'Released to worker (minus storage deposit)',
+    input: { context: 'github_pr_v1', repo: '0xSoftBoi/suwappubot', pr_number: 993, author: 'nanofaxcopy' },
     output: {
       verdict: 'pass',
       reason: 'merged_as_required',
-      evidence_hash: '415f1d325da78e0df60e2cf2b3a0bb6edca06df74ddac994ee1741732ccd7ae5',
+      evidence_hash: '72f9abbd262913d08f251fa51ab53bedbb1f024c9cf1a53d3cba2b24a4f8760e',
     },
   },
   {
-    key: 'fail-author',
-    title: 'Wrong author',
-    blurb: 'PR #7 was merged, but authored by mallory, not the hired agent.',
+    key: 'fail-self-merged',
+    title: 'Self-merged',
+    blurb: 'PR #1096 was authored and merged by the same account. Not independent delivery.',
     tone: 'fail',
-    evidenceNote: 'merged: true · author mallory (rubric requires octocat)',
+    evidenceNote: 'merged: true · author 0xSoftBoi · merged by 0xSoftBoi (merger must differ from author)',
     payout: 'No transfer · escrow stays open',
-    input: {
-      context: 'github_pr',
-      repo: 'arbiter-demo/shop',
-      pr_number: 7,
-      author: 'octocat',
-      deadline_unix: 1795996800,
-      payload_b64:
-        'eyJhY3Rpb24iOiJjbG9zZWQiLCJwdWxsX3JlcXVlc3QiOnsibnVtYmVyIjo3LCJtZXJnZWQiOnRydWUsIm1lcmdlZF9hdCI6IjIwMjYtMTEtMDVUMTI6MDA6MDAuMDAwWiIsInVzZXIiOnsibG9naW4iOiJtYWxsb3J5In0sIm1lcmdlZF9ieSI6eyJsb2dpbiI6Imh1Ym90In0sImhlYWQiOnsicmVmIjoiZmVhdHVyZS9taWxlc3RvbmUifX0sInJlcG9zaXRvcnkiOnsiZnVsbF9uYW1lIjoiYXJiaXRlci1kZW1vL3Nob3AiLCJodG1sX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hcmJpdGVyLWRlbW8vc2hvcCJ9LCJzZW5kZXIiOnsibG9naW4iOiJodWJvdCJ9fQ==',
-      signature_hex: '1b89bf4eeaf046bc22e3ce107ee2a2cccd0115795bf331fce366b059a7867396',
-    },
+    input: { context: 'github_pr_v1', repo: '0xSoftBoi/suwappubot', pr_number: 1096, author: '0xSoftBoi' },
     output: {
       verdict: 'fail',
-      reason: 'author_mismatch',
-      evidence_hash: '0bd6a474799647ab89822f209ea9a0896309b97f75ab334d97a4229c29704ae0',
-    },
-  },
-  {
-    key: 'fail-unmerged',
-    title: 'Never merged',
-    blurb: 'The PR was closed without merging. Nothing was delivered.',
-    tone: 'fail',
-    evidenceNote: 'merged: false · merged_at: null',
-    payout: 'No transfer · escrow stays open',
-    input: {
-      context: 'github_pr',
-      repo: 'arbiter-demo/shop',
-      pr_number: 7,
-      author: 'octocat',
-      deadline_unix: 1795996800,
-      payload_b64:
-        'eyJhY3Rpb24iOiJjbG9zZWQiLCJwdWxsX3JlcXVlc3QiOnsibnVtYmVyIjo3LCJtZXJnZWQiOmZhbHNlLCJtZXJnZWRfYXQiOm51bGwsInVzZXIiOnsibG9naW4iOiJvY3RvY2F0In0sIm1lcmdlZF9ieSI6eyJsb2dpbiI6Imh1Ym90In0sImhlYWQiOnsicmVmIjoiZmVhdHVyZS9taWxlc3RvbmUifX0sInJlcG9zaXRvcnkiOnsiZnVsbF9uYW1lIjoiYXJiaXRlci1kZW1vL3Nob3AiLCJodG1sX3VybCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hcmJpdGVyLWRlbW8vc2hvcCJ9LCJzZW5kZXIiOnsibG9naW4iOiJodWJvdCJ9fQ==',
-      signature_hex: '2c43dfb88a9b49a1f859c78f9b811b555df433f55c0d4aca18ceb90de47a801a',
-    },
-    output: {
-      verdict: 'fail',
-      reason: 'not_merged',
-      evidence_hash: 'cd11b47af5b39dee2f195bbb36dc66e33f4d2a77de0335f75c4dff42ff930e83',
+      reason: 'self_merged',
+      evidence_hash: '54d01ef6c76fd4da378ed47a8833f6f54b3e6cc61622fa65aed1b900f3e92b55',
     },
   },
 ];
@@ -114,10 +72,10 @@ export interface LiveTx {
 }
 
 export const LIVE_TXS: LiveTx[] = [
-  { case: 'pass', kind: 'create', hash: '8shZnhjyTZxJSobr6WzyofjbcqBMtiJ5WjtVAcMmgG3H', step: 'create_escrow · id 2 · 0.1 NEAR', detail: 'Buyer locks funds; rubric and arbiter hash pinned on-chain.' },
-  { case: 'pass', kind: 'resolve', hash: '12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC', step: 'resolve → OutLayer → pass', detail: 'Worker paid. arbiter_attestation logged.' },
-  { case: 'fail', kind: 'create', hash: 'Cap3AaABKEAEG1XaLsJMV4GnpL41KitVinKYVNXLC3Yf', step: 'create_escrow · id 3 · 0.05 NEAR', detail: 'Second escrow, different evidence.' },
-  { case: 'fail', kind: 'resolve', hash: '2zBdABZcCorZX8TKcQJGrwYzwiYUpK3Xsw6bBrzMaBfn', step: 'resolve → OutLayer → fail', detail: 'No transfer. Escrow stays open. arbiter_attestation logged.' },
+  { case: 'pass', kind: 'create', hash: 'DtNk28WFznwZVXXQrLReeD8hC3czaAti1Wzm2vXF5img', step: 'create_escrow · PR #993 · 0.1 NEAR', detail: 'Buyer locks funds; arbiter hash and rubric are contract constants.' },
+  { case: 'pass', kind: 'resolve', hash: 'Ez3bwp3ZLrFVxeak53WaBgasqXFbf8jeyEBZDPv3vq3b', step: 'resolve → OutLayer → pass', detail: 'Worker paid. arbiter_attestation logged.' },
+  { case: 'fail', kind: 'create', hash: 'D7Wgn7AUCTDsyDcmJ19gXEtXh7XrGwum7cZvqHbWXe3H', step: 'create_escrow · PR #1096 · 0.05 NEAR', detail: 'Second escrow, different PR.' },
+  { case: 'fail', kind: 'resolve', hash: 'G1oidSEPmAKVBQVP1FSHzpLEi4Bi7KcJ6LT5tNv7jDLr', step: 'resolve → OutLayer → fail (self_merged)', detail: 'No transfer. Escrow stays open.' },
 ];
 
 /** Machine-readable evidence, served at /arbiter.json and mirrored on the page. */
@@ -131,28 +89,40 @@ export function evidenceDocument() {
       network: 'NEAR testnet',
       mainnet: false,
       real_funds: false,
-      rubric: 'public demo rubric (context github_pr_demo, public demo HMAC secret)',
-      verifies: 'deterministic, machine-checkable rubrics (v1: GitHub pull-request merge)',
-      proves: 'done as specified, not that the work was good',
+      design: 'v2.1: enclave fetches the PR from the GitHub API itself; no shared secret, neither party supplies evidence',
+      rubric: 'github_pr_v1',
+      verifies: 'deterministic, machine-checkable rubrics (GitHub pull-request merged as specified)',
+      proves: 'delivered as specified, not that the work was good',
+      audited_by_third_party: false,
+      internal_reviews: 'two internal adversarial reviews; findings fixed and re-verified live on testnet',
+      limits: [
+        'testnet only; mainnet not deployed',
+        'no independent third-party audit',
+        "GitHub's API response is trusted by the enclave over TLS, not independently proven",
+        'the contract does not verify TDX quotes on-chain; trust anchor is the OutLayer contract, third parties verify off-chain with OutLayer tooling',
+        'the buyer chooses the repo',
+        'unauthenticated GitHub rate limits can block a pass; buyer refund after deadline + 1h',
+      ],
       roadmap_not_shipped: [
         'NEAR mainnet',
-        'production rubric secrets',
-        'TDX quote verification inside the contract',
+        'independent third-party audit',
+        'in-contract TDX quote verification',
         'NEAR Intents funding',
         'Agent Market integration',
         'LLM-judged rubrics',
       ],
+      doc: DOC_URL,
     },
     contract: {
       account: CONTRACT,
       network: 'testnet',
       explorer: NEARBLOCKS_ACCOUNT,
-      code_sha256_prefix: CONTRACT_CODE_HASH_PREFIX,
     },
     arbiter_wasm: {
       sha256: ARBITER_WASM_HASH,
-      runtime: 'NEAR OutLayer (Intel TDX), fetched by outlayer.testnet',
-      source_path: 'near/arbiter-wasm',
+      runtime: 'NEAR OutLayer (Intel TDX); hash and URL pinned as contract constants',
+      source_path: 'near/arbiter-github',
+      artifact: `${REPO_URL}/tree/main/near/arbiter-github/artifacts/arbiter-github.wasm`,
     },
     live_transactions: LIVE_TXS.map((t) => ({
       case: t.case,
@@ -168,8 +138,9 @@ export function evidenceDocument() {
       evidence_hash: s.output.evidence_hash,
     })),
     verify: [
-      'sha256sum arbiter_wasm.wasm   # must equal arbiter_wasm.sha256',
-      `near view ${CONTRACT} get_escrow '{"id": 2}' --networkId testnet`,
+      'sha256sum near/arbiter-github/artifacts/arbiter-github.wasm   # in github.com/0xSoftBoi/suwappubot; must equal arbiter_wasm.sha256',
+      `near view ${CONTRACT} get_escrow '{"id":0}' --networkId testnet`,
+      `near view ${CONTRACT} arbiter '{}' --networkId testnet`,
       `near tx ${LIVE_TXS[1].hash} --networkId testnet   # logs arbiter_attestation`,
     ],
     anchor_log_format:

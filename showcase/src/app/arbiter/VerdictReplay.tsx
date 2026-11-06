@@ -8,8 +8,8 @@ import styles from './arbiter.module.css';
 
 const STEPS = [
   { title: 'Escrow funded', detail: (s: Scenario) => `Buyer locks funds against rubric { ${s.input.context}, ${s.input.repo}#${s.input.pr_number}, author ${s.input.author} }.` },
-  { title: 'Evidence submitted', detail: (s: Scenario) => `Signed GitHub webhook delivered: ${s.evidenceNote}.` },
-  { title: 'Arbiter verifies', detail: (s: Scenario) => `HMAC checked, then rubric evaluated in the enclave: ${s.output.reason}.` },
+  { title: 'Enclave fetches the PR', detail: (s: Scenario) => `The arbiter reads the PR from the GitHub API itself: ${s.evidenceNote}.` },
+  { title: 'Arbiter verifies', detail: (s: Scenario) => `Merged, author, repo, deadline and merger checked in the enclave: ${s.output.reason}.` },
   { title: 'Settlement', detail: (s: Scenario) => `${s.payout}. arbiter_attestation anchored on-chain.` },
 ];
 
@@ -67,9 +67,6 @@ export default function VerdictReplay() {
       repo: scenario.input.repo,
       pr_number: scenario.input.pr_number,
       author: scenario.input.author,
-      deadline_unix: scenario.input.deadline_unix,
-      signature_hex: scenario.input.signature_hex,
-      payload_b64: scenario.input.payload_b64.slice(0, 44) + '…',
     },
     null,
     2,
@@ -132,7 +129,7 @@ export default function VerdictReplay() {
             </div>
             <div>
               <div className={styles.rowBetween}>
-                <span className={styles.kicker}>Verdict out (recorded, byte-exact)</span>
+                <span className={styles.kicker}>Verdict out (recorded from live testnet)</span>
                 <CopyButton value={outJson} label="Copy verdict JSON" />
               </div>
               <pre className={styles.code} data-reveal={done || undefined}>{outJson}</pre>
@@ -140,7 +137,7 @@ export default function VerdictReplay() {
           </div>
         </div>
 
-        <figure className={styles.cred} data-ready={done} data-tone={scenario.tone} aria-label="Signed work attestation">
+        <figure className={styles.cred} data-ready={done} data-tone={scenario.tone} aria-label="Work attestation">
           <div className={styles.credSheen} aria-hidden="true" />
           <header className={styles.credHead}>
             <svg viewBox="0 0 40 40" width="38" height="38" aria-hidden="true">
@@ -171,7 +168,7 @@ export default function VerdictReplay() {
             <div><dt>Payout</dt><dd>{scenario.payout}</dd></div>
           </dl>
           <figcaption className={styles.credFoot}>
-            Replay of recorded arbiter-wasm output. The pass and wrong-author cases were also executed live on NEAR testnet; see the ledger below.
+            Replay of the real v2.1 outputs. Both cases were executed live on NEAR testnet (arb2.suwappu-arbiter.testnet); see the ledger below.
           </figcaption>
         </figure>
       </div>

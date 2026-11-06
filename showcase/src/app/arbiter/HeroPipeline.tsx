@@ -47,7 +47,7 @@ export default function HeroPipeline() {
       <div className={styles.link}>
         <span className={styles.linkTrack} />
         <span className={styles.linkDot} data-on={stage === 1} />
-        <span className={styles.linkLabel}>signed evidence</span>
+        <span className={styles.linkLabel}>GitHub API fetch</span>
       </div>
 
       <div className={`${styles.pipeNode} ${styles.enclave}`} data-active={stage === 1}>

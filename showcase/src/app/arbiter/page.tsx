@@ -29,20 +29,21 @@ export const metadata: Metadata = {
 };
 
 const VERIFY_CMDS = [
-  { n: '01', what: 'Pin the arbiter binary', cmd: 'sha256sum arbiter_wasm.wasm', note: `must equal ${ARBITER_WASM_HASH.slice(0, 12)}…` },
-  { n: '02', what: 'Read the escrow terms and status', cmd: `near view ${CONTRACT} get_escrow '{"id": 2}' --networkId testnet`, note: 'terms, worker, amount, status' },
-  { n: '03', what: 'Read the attestation from the settlement tx', cmd: `near tx ${LIVE_TXS[1].hash} --networkId testnet`, note: 'logs the arbiter_attestation line' },
+  { n: '01', what: 'Pin the arbiter binary', cmd: 'sha256sum near/arbiter-github/artifacts/arbiter-github.wasm', note: `must equal ${ARBITER_WASM_HASH.slice(0, 12)}…` },
+  { n: '02', what: 'Read the escrow terms and status', cmd: `near view ${CONTRACT} get_escrow '{"id":0}' --networkId testnet`, note: 'terms, worker, amount, status' },
+  { n: '03', what: 'Read the pinned arbiter', cmd: `near view ${CONTRACT} arbiter '{}' --networkId testnet`, note: 'code hash and URL are contract constants' },
+  { n: '04', what: 'Read the attestation from the settlement tx', cmd: `near tx ${LIVE_TXS[1].hash} --networkId testnet`, note: 'logs the arbiter_attestation line' },
 ];
 
 const FLOW = [
   { t: 'Lock', d: 'The buyer funds an escrow against a machine-checkable rubric. The rubric and the arbiter’s code hash are pinned at creation and cannot be swapped later.' },
-  { t: 'Deliver', d: 'The worker agent ships. Evidence is the raw signed payload, for example a GitHub webhook for a merged pull request.' },
-  { t: 'Judge', d: 'A sealed WASM runs inside an Intel TDX enclave on NEAR OutLayer. It checks the HMAC, evaluates the rubric, and returns pass or fail. No network I/O.' },
+  { t: 'Deliver', d: 'The worker agent ships and gets the pull request merged. Neither party submits evidence.' },
+  { t: 'Judge', d: 'A hash-pinned WASM runs inside an Intel TDX enclave on NEAR OutLayer. It fetches the PR from the GitHub API itself and checks merged, author, repo, merged_at <= deadline and merger != author. No shared secret.' },
   { t: 'Settle', d: 'The contract moves funds only on that verdict, and logs an arbiter_attestation anyone can read from the transaction.' },
 ];
 
 const CONTRAST = [
-  ['A platform employee reads screenshots and decides', 'A fixed, public program evaluates signed evidence'],
+  ['A platform employee reads screenshots and decides', 'A fixed, public program fetches and checks the evidence itself'],
   ['Disputes take days and depend on who argues better', 'Verdict returns in one call, same input gives same output'],
   ['The rules can change after the money is in', 'Rubric and arbiter hash are pinned on-chain at creation'],
   ['Nothing portable comes out of a settled job', 'Every verdict emits a hash-anchored attestation'],
@@ -67,11 +68,13 @@ const ROADMAP = [
 ];
 
 const LIMITS = [
-  { k: 'Network', v: 'NEAR testnet only. No mainnet deployment.' },
-  { k: 'Funds', v: 'Testnet tokens, 0.1 and 0.05 NEAR. No real money.' },
-  { k: 'Rubric', v: 'The public demo rubric with a public demo HMAC secret. Production rubric secrets are roadmap.' },
-  { k: 'Scope', v: 'v1 checks deterministic, machine-checkable rubrics (GitHub PR merge). It proves done as specified, not that the work was good.' },
-  { k: 'Not shipped', v: 'Mainnet, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.' },
+  { k: 'Network', v: 'NEAR testnet only. Mainnet is not deployed.' },
+  { k: 'Audit', v: 'Not audited by a third party. Two internal adversarial reviews were done; findings were fixed and re-verified live.' },
+  { k: 'GitHub trust', v: 'The enclave trusts GitHub’s API response over TLS; it is not independently proven. The buyer chooses the repo.' },
+  { k: 'Quotes', v: 'The contract does not verify TDX quotes on-chain. The trust anchor is OutLayer’s contract; third parties verify off-chain with OutLayer’s tooling.' },
+  { k: 'Rate limits', v: 'Unauthenticated GitHub rate limits can block a pass. The buyer can then refund after the deadline plus one hour.' },
+  { k: 'Scope', v: 'It proves delivered as specified, not that the work was good.' },
+  { k: 'Not shipped', v: 'Mainnet, third-party audit, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.' },
 ];
 
 function jsonLd() {
@@ -95,7 +98,7 @@ function jsonLd() {
       applicationCategory: 'DeveloperApplication',
       operatingSystem: 'NEAR testnet',
       description:
-        'Escrow for agent work where release or refund is decided by a hash-pinned arbiter WASM run on NEAR OutLayer. Each verdict emits a portable work attestation (suwappu.arbiter/v1). Currently NEAR testnet with a public demo rubric; no real funds.',
+        'Escrow for agent work where release or refund is decided by a hash-pinned arbiter WASM run on NEAR OutLayer. Each verdict emits a portable work attestation (suwappu.arbiter/v1). Currently NEAR testnet only, not third-party audited; the enclave fetches the PR from GitHub itself.',
       url: 'https://suwappu.bot/arbiter',
       creator: { '@type': 'Organization', name: 'Suwappu', url: 'https://suwappu.bot' },
       softwareHelp: { '@type': 'WebPage', url: 'https://suwappu.bot/arbiter.json' },
@@ -111,7 +114,7 @@ function jsonLd() {
           name: 'What does Suwappu Arbiter prove?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'That a specific arbiter binary (by sha256) ran on specific evidence bytes inside an Intel TDX enclave and the contract settled accordingly. It proves a deterministic rubric was met, i.e. done as specified, not that the work was good.',
+            text: 'That a specific arbiter binary (by sha256) fetched the PR from GitHub and evaluated it inside an Intel TDX enclave and the contract settled accordingly. It proves a deterministic rubric was met, i.e. done as specified, not that the work was good.',
           },
         },
         {
@@ -119,7 +122,7 @@ function jsonLd() {
           name: 'Is Suwappu Arbiter live on mainnet?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'No. It runs on NEAR testnet (contract suwappu-arbiter.testnet) with a public demo rubric and no real funds. Mainnet and production rubric secrets are roadmap.',
+            text: 'No. It runs on NEAR testnet only (contract arb2.suwappu-arbiter.testnet), has not had a third-party audit, and holds no real funds. Mainnet is not deployed.',
           },
         },
       ],
@@ -157,7 +160,7 @@ export default function ArbiterPage() {
           </div>
           <HeroPipeline />
           <ul className={styles.stats} aria-label="At a glance">
-            <li><b>3</b><span>rubric outcomes replayed</span></li>
+            <li><b>2</b><span>rubric outcomes replayed</span></li>
             <li><b>4</b><span>testnet transactions</span></li>
             <li><b>1</b><span>pinned arbiter hash</span></li>
             <li><b>0</b><span>humans in the verdict path</span></li>
@@ -169,7 +172,7 @@ export default function ArbiterPage() {
           <header className={styles.sectionHead}>
             <span className={styles.kicker}>Verdict replay</span>
             <h2>Watch a verdict get made.</h2>
-            <p>Three real outcomes recorded from the arbiter WASM. Pick one, run it, read the attestation it emits. Hashes below are copied byte for byte.</p>
+            <p>Two real outcomes recorded from the v2.1 arbiter on testnet. Pick one, run it, read the attestation it emits. Hashes below are copied byte for byte.</p>
           </header>
           <VerdictReplay />
         </section>
@@ -222,7 +225,7 @@ export default function ArbiterPage() {
             </ol>
 
             <aside className={styles.verify} aria-label="Verify it yourself">
-              <span className={styles.kicker}>3 commands to verify yourself</span>
+              <span className={styles.kicker}>4 commands to verify yourself</span>
               <p>No Suwappu infrastructure needed beyond a NEAR RPC endpoint.</p>
               <ol>
                 {VERIFY_CMDS.map((c) => (
@@ -279,7 +282,7 @@ export default function ArbiterPage() {
               <pre className={styles.code}>arbiter_attestation id=&lt;escrow_id&gt; worker=&lt;account&gt; verdict=&lt;pass|fail&gt; evidence_hash=&lt;hex&gt;</pre>
               <h3>Field rules</h3>
               <ul>
-                <li><code>evidence_hash</code> is the sha256 of the raw evidence bytes as the enclave received them.</li>
+                <li><code>evidence_hash</code> is the sha256 of the GitHub API response body the enclave fetched.</li>
                 <li><code>arbiter_wasm_hash</code> is pinned by the contract at creation and repeated in the attestation.</li>
                 <li>Any <code>verdict</code> other than <code>pass</code> or <code>fail</code> is not an attestation.</li>
               </ul>
