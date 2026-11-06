@@ -12,7 +12,9 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///      - UNLIKE FermiSwap (no bound at all) every push is bounded vs the price at the START of
 ///        the current block, so repeated pushes in one block/tx cannot compound; and the bound is
 ///        NEVER waived — after downtime or for a new feed the OWNER must `seed` a price.
-///      A compromised pusher can therefore move a feed at most `maxStepBps` per block.
+///      This RATE-LIMITS a compromised pusher to `maxStepBps` per block (it does not make the
+///      feed un-walkable: ~10% in 20 blocks at 50 bps, and it can flip +/-step within a block).
+///      The pool-side bound is the mandatory anchor band (maxAnchorDevBps) plus the stop-loss.
 ///      TODO(perf): Metric packs 4 feeds/slot and writes via a selector-less fallback (~8k gas/feed).
 ///      TODO(keys): Metric delegates hot keys by EIP-191 consent signature with a monotonic deadline.
 contract PropOracle is Ownable2Step {

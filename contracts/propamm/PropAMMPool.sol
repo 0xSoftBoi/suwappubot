@@ -93,7 +93,7 @@ contract PropAMMPool is Ownable2Step, ReentrancyGuard {
     uint64 public peakTs;
 
     // ------------------------------------------------------------------ events/errors
-    event Swap(address indexed caller, address indexed recipient, address tokenIn, uint256 amountIn, uint256 amountOut, uint256 price1e8, uint256 edge, int256 skew);
+    event Swap(address indexed caller, address indexed recipient, address tokenIn, uint256 amountIn, uint256 amountOut, uint256 oraclePrice1e18, uint256 edge, int256 skew);
     event Paused(bool paused);
     event RolesSet(address guardian, address strategist, address swapper);
     event RiskSet(Risk newRisk, address newAnchor);
@@ -156,15 +156,16 @@ contract PropAMMPool is Ownable2Step, ReentrancyGuard {
     function setRisk(Risk calldata r, IAnchorPrice anchor_) external onlyOwner {
         if (r.lo == 0 || r.hi == 0 || r.targetBps > 10_000) revert BadParam();
         if (r.drawdownE6 == 0 || r.drawdownE6 > 1e6) revert BadParam();
-        // decay <= 1e-5/s (~86%/day) so the stop-loss peak cannot be decayed away
-        if (r.decayPerSecE18 > 1e13) revert BadParam();
+        // decay <= 1.2e-7/s (~1%/day): a faster decay re-arms the stop-loss within minutes (review H1)
+        if (r.decayPerSecE18 > 1.2e11) revert BadParam();
         // min edge must be positive and dominate skew: otherwise skew round-trips are extractable
         // (taker overshoots inventory across the skew sign flip, then trades back).
         if (r.minEdge == 0 || r.maxSkew > r.minEdge || uint256(r.minEdge) >= BPS) revert BadParam();
-        if (r.maxAgeBlocks > 10) revert BadParam();
+        if (r.maxAgeBlocks > 2) revert BadParam(); // 0 = pushed this block (recommended)
         // anchor (independent second source) is MANDATORY: the oracle pusher is a hot key
         if (address(anchor_) == address(0)) revert BadParam();
-        if (r.maxAnchorDevBps == 0 || r.maxAnchorDevBps > 5000 || r.maxAnchorAge == 0) revert BadParam();
+        // dev band is the pool-side bound on a compromised pusher (the oracle only rate-limits it)
+        if (r.maxAnchorDevBps == 0 || r.maxAnchorDevBps > 300 || r.maxAnchorAge == 0) revert BadParam();
         risk = r;
         anchor = anchor_;
         emit RiskSet(r, address(anchor_));
@@ -239,9 +240,13 @@ contract PropAMMPool is Ownable2Step, ReentrancyGuard {
         // flow accounting BEFORE interactions (cum counts the quote leg)
         _bumpAcc(baseIn, baseIn ? _toQuote(amountIn, p) : amountIn);
 
-        uint256 vPre = _value(p); // stop-loss baseline = PRE-trade value (so the trade itself is checked)
+        // Stop-loss marks at min(oracle, anchor) — NOT the pusher's price alone, or a compromised
+        // pusher could hide losses inside its own mark (review H1). Baseline = PRE-trade value.
+        (uint256 ap,) = anchor.anchorPrice();
+        uint256 mp = p < ap ? p : ap;
+        uint256 vPre = _value(mp);
         _settle(baseIn, tokenIn, recipient, amountIn, amountOut, cbData);
-        _stopLoss(p, vPre);
+        _stopLoss(mp, vPre);
     }
 
     function _settle(
@@ -273,6 +278,8 @@ contract PropAMMPool is Ownable2Step, ReentrancyGuard {
         view
         returns (uint256 amountIn, uint256 amountOut)
     {
+        // mid-callback balances are inconsistent (payout sent, payment not yet received)
+        if (_reentrancyGuardEntered()) revert PoolPaused();
         (amountIn, amountOut,,,,) = _price(tokenIn, amountSpecified);
     }
 

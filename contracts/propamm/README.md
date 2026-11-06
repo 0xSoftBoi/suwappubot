@@ -44,8 +44,14 @@ First adversarial money-path review (read-only, no tests run) returned **BLOCK**
 6. Decimals passed by hand → read from tokens.
 7. Stop-loss baseline set post-trade → pre-trade value folded into peak first.
 9. `setRisk` validation tightened (hi != 0, decay cap, maxAgeBlocks ≤ 10, anchor params), SafeCast on narrowing casts.
+Second review ("ship with fixes") then fixed: H1 stop-loss marks at min(oracle, anchor) and decay capped at ~1%/day (was rearming in ~17 min, so a compromised pusher's loss had no real ceiling); M2 `maxAnchorDevBps <= 300`, `maxAgeBlocks <= 2`; L4 `quoteSwap` reverts mid-callback; L5 event field renamed `oraclePrice1e18`. Oracle is *rate-limited*, not un-walkable: pool-side bound = anchor band + stop-loss.
+Worst case (est., step 50bps, minEdge 1bp, drawdown 1%, dev band 50bps): compromised pusher ≈ drawdown + 2×dev ≈ 2–3% of inventory then ~1%/day until paused (guardian bot should pause on `StopLoss` reverts); compromised strategist cannot misprice beyond mid·(1±maxSkew²) but can cut edge to `minEdge` and DoS via bad curves.
+Known/open: L6 exact-in vs exact-out size accounting differ slightly (edge-on-edge); L7 `block.number` on Arbitrum is the L1 block (freshness/acc window stretch ~12s — decide per chain); L8 anyone can donate to raise the stop-loss peak (griefing; donor loses funds, owner can reset via withdraw).
 Accepted/documented: (8) stop-loss marks at oracle price so a plain market move also trips it (circuit breaker); curve coverage over [-1e18,1e18] is not validated on-chain (uncovered input reverts, losing nothing); router trusted for recipient/payer/amountCheck.
 **Not yet re-reviewed after these fixes, and no tests exist.**
+
+## Parity vs FermiSwap model (scratch harness, not committed)
+Differential run against `docs/research/fermi-engine/decomp2/final_model.py` with the live WETH/USDT curves: **4,431 successful swaps (two scenarios, 1–3 same-block swaps each, exact-in/out, both directions) bit-exact vs a Python port of the pool's own integer math, 0 mismatches**; reverts match. Exact-in max relative error vs the Fermi model 3.5e-10 (live curves, minEdge floor binding) / 8.7e-9 (scaled curves) — from 1e18-vs-1e8 price precision. Exact-out vs the model's algebraic inverse ≤ 8.5e-7 (≈1 raw unit on a ~$1 input; exact-out agreement INFERRED, the model has no exact-out). Same-block cumulative flow matches. Intended differences confirmed: revert instead of clamp (`InsufficientLiquidity`), revert above `hi` (`TooLarge`). Fermi's per-token inventory cap path was not exercised. Harness lives untracked in `docs/research/propamm-parity/` of the worktree (it contains a `.t.sol`; CLAUDE.md forbids committing tests unprompted).
 
 ## TODO before real money
 1. Foundry tests + fork parity harness vs `docs/research/fermi-engine/decomp2/final_model.py` (same inputs → same outputs, modulo the revert-vs-clamp differences).
