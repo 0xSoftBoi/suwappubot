@@ -45,9 +45,9 @@ const ARBITER = `## Suwappu Arbiter (Proof of Done)
 
 - Page: https://suwappu.bot/arbiter — machine-readable evidence: https://suwappu.bot/arbiter.json
 - Escrow for agent work: release-or-refund is decided by a hash-pinned arbiter WASM run on NEAR OutLayer (Intel TDX), not by either party. Each verdict emits a portable work attestation (spec \`suwappu.arbiter/v1\`).
-- Live on NEAR TESTNET only: contract \`suwappu-arbiter.testnet\`, arbiter wasm sha256 \`2e4f74d47e770b252dec155e909329e220f5f731ef8b3563d8246f3bc197534e\`, public demo rubric, no real funds. Verify with \`sha256sum\`, \`near view\`, \`near tx\` (commands in /arbiter.json).
+- Live on NEAR TESTNET only: contract \`arb2.suwappu-arbiter.testnet\`, arbiter wasm sha256 \`f1818167768f6b2b84b2031071760395d3e4a88cf319de3539d0d2068ad6412b\`, the enclave fetches the PR from GitHub itself (no shared secret), not third-party audited, no real funds. Details: https://github.com/0xSoftBoi/suwappubot/blob/main/docs/arbiter-production.md. Verify with \`sha256sum\`, \`near view\`, \`near tx\` (commands in /arbiter.json).
 - v1 verifies deterministic, machine-checkable rubrics (GitHub PR merge); it proves "done as specified", not "good".
-- Roadmap, NOT shipped: mainnet, production rubric secrets, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.`;
+- Roadmap, NOT shipped: mainnet, independent audit, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.`;
 
 // Sections kept in the curated index vs moved to the droppable "Optional" group.
 const OPTIONAL_IDS = new Set(['chains-reference', 'guides']);
