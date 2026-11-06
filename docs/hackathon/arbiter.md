@@ -23,7 +23,8 @@ pinned program decides — the contract moves funds only on its `pass`.
   merger ≠ author. No shared secret, no worker-supplied evidence. OutLayer refuses a binary whose sha256 differs
   from the pinned hash.
 - **Not shipped (do not read as claims):** NEAR Intents funding, Agent Market integration, mainnet, in-contract
-  TDX quote verification.
+  TDX quote verification, and **contract v3 / the `http_json_v1` rubric** (built and reviewed in this repo, compiles,
+  checked in a local harness, but NOT deployed: there are no live transactions for it).
 
 ## Do X → see Y (no funds, no keys)
 
@@ -67,6 +68,11 @@ this build, so rejections show as `unreachable` traps — each is a rejected con
 - `near/arbiter-github/` — production arbiter (rubric `github_pr_v1`) + committed wasm artifact
 - `near/arbiter-contract/` — escrow contract v2.1
 - `near/arbiter-wasm/` — the earlier webhook-evidence arbiter (demo rubric), kept for its recorded fixtures
+- **Built, not deployed:** `near/arbiter-contract-v3/` (compile-time rubric table, late-callback guard) and
+  `near/arbiter-http/` (rubric `http_json_v1`: the enclave fetches an HTTPS endpoint and checks JSON predicates; its
+  wasm rebuilds bit-for-bit from the pinned commit, see `docs/arbiter-production.md`)
+- Research, not product: `near/arbiter-reputation/` + `docs/research/arbiter-sybil-reputation.md` (Sybil-resistant
+  reputation over attestations; synthetic simulation, not market data); plans in `docs/plans/arbiter-*.md`
 - `showcase/src/app/arbiter/` + `/arbiter.json` — the public product page
 - `api-ts/src/hackathon/near2026/`, `webapp/src/pages/Arbiter.tsx` — flag-gated (off by default) earlier demo surfaces
 - `docs/arbiter-attestation-v1.md` (open attestation spec), `docs/arbiter-production.md`, `ARBITER.md` (roadmap)
@@ -81,7 +87,13 @@ this build, so rejections show as `unreachable` traps — each is a rejected con
 - **Not on-chain quote verification** — the trust anchor is the OutLayer contract's behaviour; third parties verify
   executions off-chain with OutLayer's tooling.
 - **Done, not good** — it proves a PR merged as specified, never that it was excellent.
-- **Not audited** by a third party. Two internal adversarial reviews were done and their findings fixed and re-verified.
+- **Not audited** by a third party. Two internal adversarial reviews of the deployed v2.1 contract were done and their
+  findings fixed and re-verified.
+- **Known bug in the deployed contract.** A third review (of v3) found that `on_arbiter_result` in v2.1 does not check
+  that the escrow is still `Resolving`: after `reset_stuck`, a late first callback plus a second resolve could pay the
+  worker twice or reopen a paid escrow. The contract is immutable, so the deployed `arb2` keeps this hazard; it is fixed
+  only in the undeployed v3 (per-resolve nonce). The sequence and the fix were exercised in a local mock harness (the
+  check fails with the guard disabled), not on testnet. Do not put real funds in `arb2`.
 
 ## Baseline disclosure
 
