@@ -29,6 +29,7 @@ import {
 	enterpriseRoutes,
 	hackathonRoutes,
 	arbiterRoutes,
+	nearRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -191,6 +192,13 @@ export function createApp(config: AppConfig) {
 		app.use('/hackathon/passport/swap', ipRateLimit(30))
 		app.route('/hackathon', hackathonRoutes)
 	}
+
+	// NEAR first-class surface: public, read-only (asset registry + OutLayer custody
+	// reads + NEAR Intents quote). Caller's wk_ key is passthrough-only. Not in the
+	// OpenAPI spec yet (unversioned until the shape settles).
+	app.use('/v1/near/*', bodyLimit({ maxSize: 8 * 1024 }))
+	app.use('/v1/near/*', ipRateLimit(120))
+	app.route('/v1/near', nearRoutes)
 
 	// HACKATHON (NEAR 2026): Arbiter demo routes. Flag-gated — unmounted by
 	// default (surface doesn't exist unless HACKATHON_ARBITER=true).
