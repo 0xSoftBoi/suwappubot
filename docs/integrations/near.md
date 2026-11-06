@@ -36,9 +36,27 @@ Spec for the custody layer: https://skills.outlayer.ai/agent-custody/SKILL.md
 - The registry is a curated subset from OutLayer's token-reference; the live
   catalog (`GET /tokens`) is authoritative.
 
+## Agent surfaces
+
+- **MCP** (`/mcp`): `near_resolve_asset`, `near_convert_amount` — free, public
+  read tools (no Bearer needed), pure functions of the registry.
+- **SDK** (`@suwappu/sdk`): `nearAssets`, `nearResolveAsset` (ambiguity returned,
+  not thrown), `nearAmount`, `nearBalance(walletKey)`, `nearSwapQuote(walletKey)`.
+
+## Verification status
+
+- Type-check (`api-ts`) clean; `mcp.test.ts` + `x402.test.ts` pass (44);
+  `check:mcp` exits 0; routes exercised in-process.
+- **Not verified live against OutLayer.** Minting even a testnet wallet was
+  not authorized in the session, so `/tokens`, `/address`, `/balance` and
+  `/swap/quote` pass-through are code-complete only. To verify: register on
+  `https://testnet-api.outlayer.ai/register`, then
+  `curl -H "Authorization: Bearer wk_…" localhost:PORT/v1/near/address?network=testnet`.
+- MCP tools were not called through the full `/mcp` route in isolation.
+- SDK type-check could not run standalone (package lacks `@types/node`).
+
 ## Not built yet (candidates)
 
-MCP tools (`near_resolve_asset`, `near_swap_quote`), OpenAPI inclusion, SDK
-client methods, and Arbiter payouts into an OutLayer wallet. Verified live
-against OutLayer: **not yet** — only in-process route behaviour was exercised
-(no `wk_` key was minted).
+OpenAPI inclusion, Python-bot `/near`, Arbiter payouts into an OutLayer wallet
+(needs a design decision: payee = hex implicit account vs bound `alice.near`),
+OutLayer account-binding and payment-check flows.
