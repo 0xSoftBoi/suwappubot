@@ -149,6 +149,12 @@ await intent(A, Action.Pay, "address,address,uint256", [B.address, MUSD, e18(30)
 await intent(B, Action.Pay, "address,address,uint256", [C.address, MUSD, e18(50)], "B pays C 50 on credit");
 await intent(C, Action.Pay, "address,address,uint256", [A.address, MUSD, e18(20)], "C pays A 20 on credit");
 
+if (process.env.E2E_SEED_ONLY === "1") {
+	// Leave the cycle open so the terminal's clearing desk has live work to find.
+	console.log(`\nSEEDED open cycle A->B->C->A (20 clearable). Inspect as A: ${A.address}`);
+	process.exit(0);
+}
+
 console.log("3. relayer clears the 20-unit cycle (nobody's net position moves)");
 await send(
 	"clear(A->B->C->A, 20)",

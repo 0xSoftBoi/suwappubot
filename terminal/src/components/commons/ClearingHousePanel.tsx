@@ -1,175 +1,158 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { useConfig, useReadContract, useReadContracts } from 'wagmi'
-import { signTypedData } from 'wagmi/actions'
-import { createPublicClient, http, type Abi, type Address, type Hex } from 'viem'
-import {
-  ClearingAction,
-  FLAG_CLEARABLE,
-  LineStatusV2,
-  buildIntent,
-  clearingHouseAbi,
-  clearingHouseDeployments,
-  feeRateFromApr,
-  intentTypedData,
-} from '@suwappu/primitives-client'
+import { useReadContract, useReadContracts } from 'wagmi'
+import type { Address } from 'viem'
+import { ClearingAction, FLAG_CLEARABLE, LineStatusV2, feeRateFromApr } from '@suwappu/primitives-client'
 import {
   TerminalButton,
-  TerminalEmptyState,
   TerminalInset,
   TerminalKeyValueRow,
   TerminalPanel,
   TerminalPanelHeader,
+  TerminalSegmentedTabs,
   TerminalStatusPill,
   TerminalTextField,
 } from '../foundation'
 import { usePersistentState } from '../../lib/persist'
+import { addressUrl, aprFromPerSecond, fmt, isAddress, parseAmount, short, toNum } from './contracts'
+import { approveIfNeeded, call } from './useCommonsTx'
+import { ActivityLog } from './clearing/ActivityLog'
+import { ClearingDesk } from './clearing/ClearingDesk'
+import { AlertsStrip, KpiStrip, alertsFor } from './clearing/Overview'
+import { PositionsTable } from './clearing/PositionsTable'
+import { CounterpartyStanding } from './clearing/Standing'
+import { useNetwork } from './clearing/useNetwork'
 import {
-  addressUrl,
-  aprFromPerSecond,
-  COMMONS,
-  COMMONS_CHAIN,
-  fmt,
-  isAddress,
-  parseAmount,
-  short,
-  toNum,
-} from './contracts'
-import { approveIfNeeded, call, useCommonsTx } from './useCommonsTx'
+  CH,
+  CHA,
+  STATUS_LABEL,
+  TOKEN,
+  ch,
+  statusTone,
+  useAct,
+  type Act,
+  type LineV2,
+  type Run,
+  type SignedIntent,
+} from './clearing/shared'
 
 /**
- * Commons v2 · CommonsClearingHouse (layer 1) front end.
- * Spec: docs/plans/commons-v2.md §2. Unit of account here: test mUSD.
+ * Commons v2 · Clearing House — treasury desk.
+ * Spec: docs/plans/commons-v2.md §2. Contract: CommonsClearingHouse (Base Sepolia).
  *
- * Every user action can either be sent as a tx, or — in relay mode — signed as
- * an EIP-712 intent that any relayer (chat bot, agent) can submit via execute().
- * Relay mode always shows the decoded params before signing (the contract signs
- * a params hash, so the UI is where the user sees what they authorise).
+ * Layout: exposure KPIs + deadline alerts on top; then Positions (sortable book
+ * + line detail with on-chain counterparty standing), Clearing (client-side
+ * cycle solver → one clear() batch), Activity (on-chain audit trail, CSV), and
+ * Payments (escrow, routing policy, routed payments). Every user action can be
+ * sent as a tx or, in relay mode, signed as an EIP-712 intent with decoded params.
  */
 
-const DEPLOYMENT = clearingHouseDeployments[COMMONS_CHAIN.id]
-const CH = DEPLOYMENT.address
-const TOKEN = COMMONS.reserveAsset
-const CHA = clearingHouseAbi as unknown as Abi
-const ch = { address: CH, abi: clearingHouseAbi, chainId: COMMONS_CHAIN.id } as const
-
-const STATUS_LABEL: Record<number, string> = {
-  [LineStatusV2.None]: 'No line',
-  [LineStatusV2.Proposed]: 'Proposed',
-  [LineStatusV2.Active]: 'Active',
-  [LineStatusV2.Closed]: 'Closed',
-  [LineStatusV2.Defaulted]: 'Defaulted',
-}
-
-type Run = ReturnType<typeof useCommonsTx>['run']
-type Step = Parameters<Run>[1][number]
-
-type LineV2 = {
-  limitLo: bigint
-  limitHi: bigint
-  balance: bigint
-  feeRate: bigint
-  grace: bigint
-  lastAccrual: bigint
-  demandTs: bigint
-  demandBy: Address
-  status: number
-  flags: number
-  nonce: number
-  proposer: Address
-  termsHash: Hex
-}
-
-type SignedIntent = { label: string; decoded: [string, string][]; json: string }
-
-/** Send as a tx, or (relay mode) sign the equivalent intent and surface it. */
-function useAct(relay: boolean, onSigned: (s: SignedIntent) => void) {
-  const { run, busy, address } = useCommonsTx()
-  const config = useConfig()
-  const act = async (
-    label: string,
-    action: ClearingAction,
-    values: readonly unknown[],
-    decoded: [string, string][],
-    steps: Step[],
-  ): Promise<boolean> => {
-    if (!relay) return run(label, steps)
-    if (!address) {
-      toast.error('Connect a wallet first')
-      return false
-    }
-    try {
-      const it = buildIntent(address, action, values)
-      const signature = await signTypedData(config, intentTypedData(it, COMMONS_CHAIN.id, CH) as never)
-      const json = JSON.stringify(
-        { chainId: COMMONS_CHAIN.id, clearingHouse: CH, intent: it, signature },
-        (_, v) => (typeof v === 'bigint' ? v.toString() : v),
-        2,
-      )
-      onSigned({ label, decoded, json })
-      toast.success(`${label}: intent signed — hand it to any relayer`)
-      return true
-    } catch (e) {
-      toast.error(`${label}: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`)
-      return false
-    }
-  }
-  return { act, run, busy, address }
-}
+type DeskTab = 'positions' | 'clearing' | 'activity' | 'payments'
 
 export function ClearingHousePanel() {
   const [relay, setRelay] = usePersistentState<boolean>('commons:v2:relay', false)
+  const [tab, setTab] = usePersistentState<DeskTab>('commons:v2:desk', 'positions')
   const [signed, setSigned] = useState<SignedIntent | null>(null)
   const { act, run, busy, address } = useAct(relay, setSigned)
   const [cpInput, setCpInput] = useState('')
   const cp = isAddress(cpInput) && cpInput.toLowerCase() !== address?.toLowerCase() ? (cpInput.trim() as Address) : undefined
 
+  const net = useNetwork(address)
+  const { data: claimableRaw } = useReadContract({ ...ch, functionName: 'claimable', args: [address!, TOKEN], query: { enabled: !!address, refetchInterval: 15_000 } })
+  const claimable = (claimableRaw as bigint | undefined) ?? 0n
+  const alerts = useMemo(() => (address ? alertsFor(address, net.positions) : []), [address, net.positions])
+  const counterparties = useMemo(() => net.positions.map((p) => p.counterparty), [net.positions])
+
+  const openLine = (a: Address) => {
+    setCpInput(a)
+    setTab('positions')
+  }
+
   return (
-    <div className="grid min-h-0 grid-cols-1 gap-1.5 md:gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
-      <div className="flex min-h-0 flex-col gap-1.5 md:gap-2 [&>*]:shrink-0">
-        <TerminalPanel className="flex flex-col gap-3 p-[var(--terminal-space-card)]">
-          <TerminalPanelHeader
-            eyebrow="Commons v2 · Layer 1"
-            title="Clearing House"
-            description="Credit lines bound to the exact terms you accept, payments routed through intermediaries who opt in, and permissionless clearing of debt cycles — every leg reduced, nobody's net position moved. Repayment goes to escrow you withdraw, so no one can block being paid and then claim default."
-            meta={<a href={addressUrl(CH)} target="_blank" rel="noreferrer" className="font-mono text-[11px] text-terminal-text-muted hover:text-terminal-accent">{short(CH)} ↗</a>}
-          />
-          <label className="flex cursor-pointer items-start gap-2 text-xs">
+    <div className="flex min-h-0 flex-col gap-1.5 md:gap-2 [&>*]:shrink-0">
+      <TerminalPanel className="flex flex-col gap-3 p-[var(--terminal-space-card)]">
+        <TerminalPanelHeader
+          eyebrow="Commons v2 · Layer 1"
+          title="Clearing House"
+          description="An ownerless credit-clearing network. Lines bind to the exact terms both sides accepted, payments route only through intermediaries who opted in, and anyone can clear debt cycles without moving a single net position. Repayment settles into escrow."
+          meta={
+            <a href={addressUrl(CH)} target="_blank" rel="noreferrer" className="font-mono text-[11px] text-terminal-text-muted hover:text-terminal-accent">
+              {short(CH)} · verified ↗
+            </a>
+          }
+        />
+        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <TerminalTextField label="Counterparty — open or propose a line" placeholder="0x…" mono value={cpInput} onChange={(e) => setCpInput(e.target.value)} />
+          <label className="flex cursor-pointer items-start gap-2 pb-1 text-xs md:max-w-sm">
             <input type="checkbox" className="mt-0.5" checked={relay} onChange={(e) => setRelay(e.target.checked)} />
             <span>
               <span className="font-semibold text-terminal-text">Relay mode</span>
-              <span className="text-terminal-text-muted"> — sign actions as EIP-712 intents instead of sending transactions. Anyone (the bot, an agent) can relay them; you pay no gas. The decoded parameters are shown before you sign.</span>
+              <span className="text-terminal-text-muted"> — sign actions as EIP-712 intents (decoded before signing) for a relayer to submit; you pay no gas.</span>
             </span>
           </label>
-          <TerminalTextField label="Counterparty address" placeholder="0x…" mono value={cpInput} onChange={(e) => setCpInput(e.target.value)} />
+        </div>
+      </TerminalPanel>
+
+      {address && <KpiStrip positions={net.positions} claimable={claimable} alerts={alerts} />}
+      {address && <AlertsStrip alerts={alerts} onOpen={openLine} />}
+      {signed && <SignedIntentCard s={signed} onClose={() => setSigned(null)} />}
+
+      <div className="-mx-1 overflow-x-auto px-1">
+        <div className="w-max">
+          <TerminalSegmentedTabs
+            activeId={tab}
+            options={[
+              { id: 'positions', label: `Positions${net.positions.length ? ` · ${net.positions.length}` : ''}` },
+              { id: 'clearing', label: 'Clearing desk' },
+              { id: 'activity', label: 'Activity' },
+              { id: 'payments', label: 'Payments & routing' },
+            ]}
+            onChange={(id) => setTab(id as DeskTab)}
+          />
+        </div>
+      </div>
+
+      {!address ? (
+        <TerminalPanel className="p-[var(--terminal-space-card)]">
+          <p className="text-sm text-terminal-text-secondary">Connect a wallet to see your book. The clearing desk can still scan the whole network.</p>
         </TerminalPanel>
+      ) : null}
 
-        {signed && <SignedIntentCard s={signed} onClose={() => setSigned(null)} />}
+      {tab === 'positions' && address && (
+        <div className="grid min-h-0 grid-cols-1 gap-1.5 md:gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+          <PositionsTable positions={net.positions} loading={net.loading} selected={cp} onSelect={(a) => setCpInput(a)} me={address} />
+          <div className="flex min-h-0 flex-col gap-1.5 md:gap-2 [&>*]:shrink-0">
+            {cp ? (
+              <>
+                <LineView me={address} cp={cp} act={act} run={run} busy={busy} relay={relay} />
+                <CounterpartyStanding who={cp} />
+              </>
+            ) : (
+              <TerminalPanel className="p-[var(--terminal-space-card)]">
+                <p className="text-sm text-terminal-text-secondary">Select a line in the book, or enter a counterparty above to propose one.</p>
+              </TerminalPanel>
+            )}
+          </div>
+        </div>
+      )}
 
-        {!address ? (
-          <TerminalPanel className="p-[var(--terminal-space-card)]">
-            <TerminalEmptyState title="Connect a wallet" description="Lines are between your address and a counterparty's." />
-          </TerminalPanel>
-        ) : (
-          <>
-            {cp && <LineView me={address} cp={cp} act={act} run={run} busy={busy} relay={relay} />}
-            <MyLines me={address} onPick={setCpInput} selected={cp} />
-          </>
-        )}
-      </div>
+      {tab === 'clearing' && <ClearingDesk me={address} edges={net.clearableEdges} loading={net.loading} run={run} busy={busy} />}
 
-      <div className="flex min-h-0 flex-col gap-1.5 md:gap-2 [&>*]:shrink-0">
-        <Escrow me={address} act={act} busy={busy} />
-        <Routing me={address} act={act} busy={busy} />
-        <PathPay me={address} act={act} busy={busy} />
-        <ClearCycle me={address} run={run} busy={busy} />
-      </div>
+      {tab === 'activity' && address && <ActivityLog me={address} counterparties={counterparties} />}
+
+      {tab === 'payments' && (
+        <div className="grid grid-cols-1 gap-1.5 md:gap-2 xl:grid-cols-3">
+          <Escrow me={address} act={act} busy={busy} />
+          <Routing me={address} act={act} busy={busy} />
+          <PathPay me={address} act={act} busy={busy} />
+        </div>
+      )}
+
+      {net.error && <p className="text-xs text-terminal-warn">Network scan failed: {net.error.message.slice(0, 120)}</p>}
+      {net.truncated && <p className="text-xs text-terminal-warn">Showing the first 300 lines — an indexer is needed beyond testnet scale.</p>}
     </div>
   )
 }
-
-type Act = ReturnType<typeof useAct>['act']
 
 function SignedIntentCard({ s, onClose }: { s: SignedIntent; onClose: () => void }) {
   return (
@@ -198,96 +181,6 @@ function SignedIntentCard({ s, onClose }: { s: SignedIntent; onClose: () => void
   )
 }
 
-/**
- * Log queries go to publicnode: sepolia.base.org caps eth_getLogs at a 200-block
- * range (measured), which can't cover the contract's history. publicnode serves
- * wide ranges with CORS; we still scan in windows so history keeps fitting.
- * Long-term this belongs in an indexer.
- */
-const logsClient = createPublicClient({ chain: COMMONS_CHAIN, transport: http('https://base-sepolia-rpc.publicnode.com') })
-const LOG_WINDOW = 45_000n
-
-async function getLogsWindowed(args: { proposer?: Address; counterparty?: Address }) {
-  const ev = clearingHouseAbi.find((x) => x.type === 'event' && x.name === 'LineProposed')!
-  const head = await logsClient.getBlockNumber()
-  const out: unknown[] = []
-  for (let from = DEPLOYMENT.block; from <= head; from += LOG_WINDOW) {
-    const to = from + LOG_WINDOW - 1n > head ? head : from + LOG_WINDOW - 1n
-    out.push(...(await logsClient.getLogs({ address: CH, event: ev as never, args, fromBlock: from, toBlock: to } as never)))
-  }
-  return out
-}
-
-/** Lines involving me, rebuilt from LineProposed events (proposer or counterparty). */
-function MyLines({ me, onPick, selected }: { me: Address; onPick: (a: string) => void; selected?: Address }) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['commons-v2-lines', me],
-    refetchInterval: 30_000,
-    queryFn: async () => {
-      const [asProposer, asCounterparty] = await Promise.all([
-        getLogsWindowed({ proposer: me }),
-        getLogsWindowed({ counterparty: me }),
-      ])
-      const set = new Map<string, Address>()
-      for (const l of [...asProposer, ...asCounterparty] as unknown as { args: { proposer: Address; counterparty: Address; token: Address } }[]) {
-        if (l.args.token.toLowerCase() !== TOKEN.toLowerCase()) continue
-        const other = l.args.proposer.toLowerCase() === me.toLowerCase() ? l.args.counterparty : l.args.proposer
-        set.set(other.toLowerCase(), other)
-      }
-      return [...set.values()]
-    },
-  })
-  const others = data ?? []
-  const { data: rows } = useReadContracts({
-    contracts: others.flatMap((o) => [
-      { ...ch, functionName: 'getLine', args: [me, o, TOKEN] },
-      { ...ch, functionName: 'owedBy', args: [me, o, TOKEN] },
-      { ...ch, functionName: 'owedBy', args: [o, me, TOKEN] },
-    ]),
-    query: { enabled: others.length > 0, refetchInterval: 15_000 },
-  })
-
-  return (
-    <TerminalPanel className="flex flex-col gap-2 p-[var(--terminal-space-card)]">
-      <TerminalPanelHeader eyebrow="Your lines" title={`${others.length} counterpart${others.length === 1 ? 'y' : 'ies'}`} />
-      {isLoading ? (
-        <div className="h-16 animate-pulse rounded bg-terminal-panel" />
-      ) : error ? (
-        <p className="text-xs text-terminal-warn">Couldn't load history from the RPC ({String((error as Error).message).slice(0, 80)}). Paste a counterparty above.</p>
-      ) : others.length === 0 ? (
-        <TerminalEmptyState title="No lines yet" description="Paste a counterparty's address above to propose one." />
-      ) : (
-        <div className="grid gap-1">
-          {others.map((o, i) => {
-            const line = rows?.[i * 3]?.result as LineV2 | undefined
-            const iOwe = (rows?.[i * 3 + 1]?.result as bigint | undefined) ?? 0n
-            const theyOwe = (rows?.[i * 3 + 2]?.result as bigint | undefined) ?? 0n
-            const isSel = selected?.toLowerCase() === o.toLowerCase()
-            return (
-              <button
-                key={o}
-                type="button"
-                onClick={() => onPick(o)}
-                className={`terminal-theme-control flex items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs ${isSel ? 'ring-1 ring-terminal-accent' : ''}`}
-              >
-                <span className="font-mono text-terminal-text">{short(o)}</span>
-                <span className="flex items-center gap-2 font-mono">
-                  {iOwe > 0n && <span className="text-terminal-down">−{fmt(iOwe, 2)}</span>}
-                  {theyOwe > 0n && <span className="text-terminal-up">+{fmt(theyOwe, 2)}</span>}
-                  <TerminalStatusPill tone={statusTone(line?.status)}>{STATUS_LABEL[line?.status ?? 0]}</TerminalStatusPill>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </TerminalPanel>
-  )
-}
-
-function statusTone(s?: number) {
-  return s === LineStatusV2.Active ? 'up' : s === LineStatusV2.Defaulted ? 'down' : s === LineStatusV2.Proposed ? 'warm' : 'neutral'
-}
 
 function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address; act: Act; run: Run; busy: string | null; relay: boolean }) {
   const { data } = useReadContracts({
@@ -714,69 +607,6 @@ function PathPay({ me, act, busy }: { me?: Address; act: Act; busy: string | nul
         }
       >
         Send routed payment
-      </TerminalButton>
-    </TerminalPanel>
-  )
-}
-
-/** Permissionless: verify each leg against live owedBy, clear the cycle minimum. */
-function ClearCycle({ me, run, busy }: { me?: Address; run: Run; busy: string | null }) {
-  const [nodes, setNodes] = useState<string[]>(() => [me ?? '', '', ''])
-  const valid = nodes.length >= 3 && nodes.every(isAddress) && new Set(nodes.map((n) => n.toLowerCase())).size === nodes.length
-  const legs = useMemo(() => (valid ? nodes.map((n, i) => [n, nodes[(i + 1) % nodes.length]] as [Address, Address]) : []), [nodes, valid])
-  const { data } = useReadContracts({
-    contracts: legs.map(([d, c]) => ({ ...ch, functionName: 'owedBy' as const, args: [d, c, TOKEN] as const })),
-    query: { enabled: legs.length > 0, refetchInterval: 10_000 },
-  })
-  const owed = legs.map((_, i) => data?.[i]?.result as bigint | undefined)
-  const min = owed.length && owed.every((o) => o !== undefined) ? owed.reduce((a, b) => (b! < a! ? b : a))! : undefined
-
-  return (
-    <TerminalPanel className="flex flex-col gap-2 p-[var(--terminal-space-card)]">
-      <TerminalPanelHeader
-        eyebrow="Clearing"
-        title="Clear a debt cycle"
-        description="Each address owes the next; the last owes the first. Every leg drops by the smallest debt in the loop and nobody's net position changes — so anyone may submit it. Lines must be clearable."
-      />
-      {nodes.map((n, i) => (
-        <div key={i} className="grid grid-cols-[1fr_auto] items-end gap-1.5">
-          <TerminalTextField
-            label={i === 0 ? 'Start' : 'Then'}
-            placeholder="0x…"
-            mono
-            value={n}
-            onChange={(e) => setNodes((ns) => ns.map((x, j) => (j === i ? e.target.value.trim() : x)))}
-            suffix={owed[i] !== undefined ? <span className="text-[10px] text-terminal-text-muted">owes next {fmt(owed[i], 2)}</span> : undefined}
-          />
-          {nodes.length > 3 && (
-            <TerminalButton size="sm" variant="ghost" onClick={() => setNodes((ns) => ns.filter((_, j) => j !== i))}>
-              ✕
-            </TerminalButton>
-          )}
-        </div>
-      ))}
-      <button type="button" className="justify-self-start text-[11px] text-terminal-accent" onClick={() => setNodes((ns) => [...ns, ''])}>
-        + add hop
-      </button>
-      {min !== undefined && (
-        <TerminalInset className="grid gap-1 p-3 text-xs">
-          {legs.map(([d, c], i) => (
-            <TerminalKeyValueRow key={i} label={`${short(d)} → ${short(c)}`} value={`${fmt(owed[i], 4)} → ${fmt(owed[i]! - min, 4)}`} />
-          ))}
-          <TerminalKeyValueRow label="Cleared on every leg" value={`${fmt(min, 4)} mUSD`} />
-        </TerminalInset>
-      )}
-      <TerminalButton
-        variant="primary"
-        disabled={!me || !valid || !min || !!busy}
-        onClick={() =>
-          min &&
-          run('Clear cycle', [
-            call('Clear', CH, CHA, 'clear', [TOKEN, legs.map(([debtor, creditor]) => ({ debtor, creditor, amount: min }))]),
-          ])
-        }
-      >
-        {min === 0n ? 'A leg owes nothing — nothing to clear' : 'Clear cycle'}
       </TerminalButton>
     </TerminalPanel>
   )
