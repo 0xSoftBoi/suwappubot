@@ -43,7 +43,11 @@ Build order: **L1 → L2 → L3 → L5 → L4.** L1 comes first because it is th
 
 ### 1.2 What the research says matters
 
-- **Clearing is the measured value.** Sardex data: multilateral set-off alone cut net internal debt ~25%; with mutual credit ~50% ([Fleischman, Dini & Littera 2020](https://mdpi.com/1911-8074/13/12/295/xml)). Slovenia has run national trade-credit clearing since 1991 ([CIAT](https://ciat.org/slovenian-model-for-liquidity/?lang=en)). Cycles (Informal Systems) deliberately does *only* clearing: no new debt, no CCP ([arXiv 2507.22309](https://arxiv.org/pdf/2507.22309)).
+- **Clearing is the measured value: roughly 10–25% of debt cleared with zero new money.**
+  - **Italy (Cycles):** in a simulation on anonymised Italian invoices (1.28M invoices, 760k firms, Dec 2020), "nearly 10% of the debt is in cycles and can still be cleared" with zero liquidity ([arXiv 2507.22309](https://arxiv.org/abs/2507.22309) §2.3, Fig. 10). This is the closest analogue to L1's pure clearing.
+  - **Sardex:** clearing alone cut *net internal debt* ~25% on 2019 B2B data (3,199 firms, 138k invoices, €31M). The "~50% with mutual credit" figure uses a *simulated* 2%-of-turnover credit line, and the data covers only the ~10% of trade done in Sardex credits ([Fleischman, Dini & Littera 2020](https://mdpi.com/1911-8074/13/12/295), abstract + p.6).
+  - **Slovenia:** annual cleared obligations were ~14–17% of reported obligations in 1992–94. This is derived from the same paper's Fig. 1; there is no per-round figure.
+  - **Cycles' solver:** Cycles deliberately does *only* clearing, and its default solver MTCS is **min-cost max-flow**, with non-unique optima. Design for multiple valid solver answers.
 - **Off-chain solver, on-chain verifier** is the production pattern. Circles v2 computes max-flow off-chain (pathfinder2) and the contract executes a verified flow matrix ([docs](https://aboutcircles.github.io/circles-contracts-v2/advanced-topics/path-based-transactions)).
 - **On one chain, multi-hop is atomic.** One tx updates every edge, so there are no HTLCs and no stuck payments (contrast Interledger/Lightning, [Blitz, USENIX'21](https://www.secpriv.tuwien.ac.at/fulltext/publik_295254.pdf)).
 - **Credit fails on concentration and unclear first loss.** Maple/Orthogonal ($36M, one pool ~80% hit) and Goldfinch (~$18M) failed this way. Make the loss waterfall explicit and write down immediately.
@@ -134,18 +138,37 @@ The productive-collateral layer. **Renamed honestly**: there is no schedule, so 
 
 ### 3.2 The guarded share price (fixes the v1 core risk)
 
-`GuardedPrice` library, shared by L2, L3 and L5:
+`GuardedPrice` library, shared by L2, L3 and L5. It is modelled on **Aave CAPO**, the production design for capping exchange-rate collateral ([README](https://raw.githubusercontent.com/bgd-labs/aave-capo/main/src/contracts/README.md)):
 
-- A checkpoint `(price, ts)` refreshes at most once per `lagWindow`. Increases are **rate-capped** (`maxGrowthPerSec`); excess growth is deferred, not dropped.
-- **Borrow / withdraw-collateral** value collateral at `min(spot, checkpoint)`, which is conservative for lenders.
-- **Liquidation trigger** uses the checkpoint, so it resists a transient spike or dip.
-- **Amortize** credits only yield visible in the *checkpoint* price, so a donation spike can never be swept into debt repayment.
+```
+maxPrice(t)  = snapshot.price + maxGrowthPerSec · (t − snapshot.ts)
+price(t)     = min(spot, maxPrice(t))
+```
 
-Honest limit: this hardens the read, but it is still only as good as the 4626's `totalAssets`. Market deployers must pick a sane collateral vault, and the UI should warn on thin or illiquid vaults.
+- **The snapshot must roll itself.** CAPO's lesson is that a cap only works if the snapshot is refreshed. Aave's sUSDe snapshot went 458 days stale and the cap drifted 52% above realised yield ([LlamaRisk, Apr 2026](https://governance.aave.com/t/direct-to-aip-capo-snapshotratio-update-across-aave-v3/24854)). With no governance here, the snapshot rolls permissionlessly: once `t − snapshot.ts ≥ MIN_SNAPSHOT_DELAY` (CAPO uses 7–14 days), any interaction sets `snapshot = (price(t), t)`. That is the *capped* value, never a raw spot spike, so the guard can never go stale and never ratchets up on a donation.
+- **Parameters:** `maxGrowthPerSec` is immutable per market. CAPO's real settings are 8–11%/yr for LSTs and sDAI. Pick conservatively, since a market can't be retuned and a new market is the only fix.
+- **Borrow / withdraw-collateral / liquidation** all use `price(t)`. Downward moves pass through immediately, which is conservative for lenders.
+- **Amortize** credits only yield visible in `price(t)`, so a donation spike can never be swept into debt repayment.
+
+The incidents this defends against, and the rule each one adds:
+
+| Incident | Mechanism | Defense adopted |
+|---|---|---|
+| Hundred Finance, Apr 2023, ~$7M ([Halborn](https://halborn.com/blog/post/explained-the-hundred-finance-hack-april-2023)) | Donation into an *empty* market inflated the exchange rate | **Factory seeds every market atomically at creation** (dead shares) |
+| Sonne, May 2024, ~$20M ([CertiK](https://www.certik.com/blog/sonne-finance-incident-analysis)) | Same bug; attacker front-ran a staged seeding | Seeding in the **same tx** as creation, never staged |
+| Raft, Nov 2023, ~$3.3M ([CoinDesk](https://www.coindesk.com/tech/2023/11/10/defi-platform-raft-suffers-33m-exploit-but-hacker-likely-takes-a-loss-on-the-attack)) | Donation + rounding manipulated an index rate | Rate growth cap + virtual offset |
+| Resupply, Jun 2025, ~$9.6M ([Ackee](https://ackee.xyz/blog/resupply-hack-analysis/)) | Lender read a just-inflated 4626 `pricePerShare` live | **This is exactly v1's read path.** The capped `price(t)` fixes it |
+| Euler, Mar 2023, ~$197M ([Zellic](https://www.zellic.io/blog/euler-finance-exploit-analysis)) | `donateToReserves` skipped the health check, so self-made bad debt | **Health check on every balance-reducing action** (a cap would not have helped) |
+
+Morpho's own oracle reads 4626 conversions live and warns that "vaults that can receive donations shouldn't be used" ([source](https://raw.githubusercontent.com/morpho-org/morpho-blue-oracles/main/src/morpho-chainlink/MorphoChainlinkOracleV2.sol)). v2 builds the guard in rather than relying on deployer care.
+
+Honest limit: the guard bounds how fast the read can *rise*, but a 4626 whose `totalAssets` can be made to *fall* or lie is still dangerous. The UI warns on thin, illiquid or unknown collateral vaults.
 
 ### 3.3 Rates, liquidation, keepers
 
 - **Kinked utilization IRM** with immutable constants and a **compounding index** (per-accrual linear, Compound-style). Rates spike near 100% utilization, which pulls lenders' cash back. This fixes v1's stuck-at-100% problem.
+  - Reference point from Morpho's deployed AdaptiveCurveIRM ([ConstantsLib](https://raw.githubusercontent.com/morpho-org/morpho-blue-irm/main/src/adaptive-curve-irm/libraries/ConstantsLib.sol)): 90% target utilization; rate-at-target bounded to 0.1%–200% APR; steepness 4, so the absolute ceiling is **800%** at 100% utilization.
+  - v2 starts with a *static* kink (no adaptive state, so no extra accumulator to audit). An adaptive curve is a v2.1 candidate.
 - **Dutch-auction liquidation**:
   - permissionless `flag(id)` records `unhealthySince` (and reverts if healthy);
   - `bonus(t) = min(maxBonus, minBonus + k·(t − unhealthySince))`;
@@ -157,7 +180,11 @@ Honest limit: this hardens the read, but it is still only as good as the 4626's 
 
 ### 3.4 Explicitly not built
 
-Alchemix-style synthetic debt + transmuter + earmarking. That is the audit-heaviest shared accounting in this space, and v2 lends the real underlying instead.
+Alchemix-style synthetic debt + transmuter + earmarking.
+
+Alchemix v3 charges **no ongoing borrow APR** because its debt is a self-minted synthetic whose peg is held by Transmuter redemptions (1:1 into MYT after a term, a 0.50% redemption fee, time-weighted earmarking). Its liquidation backstop is a 95% LTV ([ALEA](https://www.alearesearch.io/reports/deep-dives/alchemix-v3)). Its Immunefi competition logged many critical/high findings in exactly that earmark/redeem accounting ([reports](https://reports.immunefi.com/alchemix-v3)).
+
+v2 lends *real* lender money instead, so it must charge interest. That means yield below the rate makes debt grow. This is the honest trade: no synthetic peg to defend, but no free self-repayment either. The UI's payoff projection makes it visible.
 
 ---
 
@@ -207,6 +234,15 @@ Because `m(t)` decays, `obligation` shrinks continuously and surplus accrues. Th
 
 Unlike an augmented bonding curve's exit tribute, nobody is penalised for leaving, so there is no exit spiral. The cost is a known, published rate on holding.
 
+The evidence on exit tributes:
+- **Token Engineering Commons** wound down, and holders now claim pro-rata through an official shutdown contract ([CommonsBuild/tec-shutdown](https://github.com/CommonsBuild/tec-shutdown)).
+- A third-party post-mortem (secondary, not official) reports what happened on its ABC ([analysis](https://gitea.jeffemmett.com/jeffemmett/TEC-analysis/raw/branch/dev/docs/synthesis.md)):
+  - 2,217 sells vs 398 buys, and price down 88% by Dec 2023;
+  - ~330k xDAI of lifetime exit tribute, which "couldn't offset the drain";
+  - by Q1 2025, tribute of ~$3.6k a quarter against ~$42k of costs.
+
+An ABC used mainly as an exit, funded by taxing that exit, starves exactly when it is used.
+
 Also in v2: a factory, ERC-2612 `permit`, rate bounds at deploy (reject schedules that hit v1's `e^-41` floor within 100 years), and blocking transfers to the curve itself.
 
 **Honest priority: last.** Demand for a demurrage token is unproven outside community-currency settings. Its strongest role here is as a *funding source* for L5, or as a community unit of account for L1 lines. Build it only after L1–L3 show usage.
@@ -221,6 +257,19 @@ Also in v2: a factory, ERC-2612 `permit`, rate bounds at deploy (reject schedule
 - **Where public-goods money comes from:** L4 surplus, opt-in yield donation, and an optional per-market beneficiary chosen by the market deployer at creation. **Never a protocol fee to Suwappu.**
 
 Deliberately **not** built: quadratic funding or any identity-weighted vote. That is the sybil-capture trap, and Optimism's own data argues against it.
+- Even Gitcoin needed a collusion-resistant variant (COCM, [Miller, Weyl & Erichsen 2022](https://ethresear.ch/t/collusion-resistance-and-plurality-in-quadratic-mechanisms-paper-summary/14545)).
+- Gitcoin sunset Grants Stack in May 2025 because ~$3M/yr of spend outran ~$1M/yr of revenue ([gov.gitcoin.co](https://gov.gitcoin.co/t/focusing-gitcoins-future-sunsetting-grants-stack-eol-may-2025/20333)).
+- Fixed, mechanical splits have no operating cost to fund.
+
+Precedents for the splitter design:
+- **Drips** splits chain into networks with only a per-account receiver cap (200) and no depth limit ([Drips.sol](https://raw.githubusercontent.com/drips-network/contracts/07c39242edfe3c3ea6fad5808fd8f92b5e48a715/src/Drips.sol)). v2's Splitter keeps a receiver cap for gas.
+- **Protocol Guild** routes donations through irrevocable linear vesting into a split contract, but that split is DAO-mutable ([docs](https://protocol-guild.readthedocs.io/en/latest/02-onchain-architecture.html)). v2's splitters are immutable by design: new weights mean a new splitter.
+
+**Yield donation is not a deposit magnet. Use it as a layer, not a product.**
+- PoolTogether's no-loss TVL fell from a $236M peak to ~$5–8M once incentives ended ([DefiLlama](https://defillama.com/protocol/pooltogether), [OP analysis](https://gov.optimism.io/t/incentive-impact-analysis-pooltogether/6553)).
+- Glo Dollar (yield to GiveDirectly) remains small.
+- Octant v2's architecture is the model to copy: yield-donating 4626 strategies, with **unharvested yield absorbing losses first so principal is protected** ([Gitcoin proposal](https://gov.gitcoin.co/t/proposal-gitcoin-x-octant-yield-powered-matching-pilot/25065)). `YieldDonor4626` adopts that loss order.
+- So `YieldDonor4626` wraps deposits people make *for their own reasons* (L2 lending, L3 backing). It does not try to attract deposits on charity alone.
 
 ---
 
@@ -253,15 +302,32 @@ Each phase ships its contract, `@suwappu/primitives-client` ABIs, and a terminal
 ## 9. Decisions needed
 
 1. **Framing.** The docs call this "the credit layer of Hyperliquid"; you called them "public good contracts". Recommendation: they're the same thing. Ownerless credit infrastructure *is* the public good, and L5 makes the funding claim literal. Use "Commons" publicly.
-2. **Target chain for P1.** Base Sepolia (where v1 + UI live) or HyperEVM testnet (`docs/plans/hyperliquid-gateway.md` Phase 0)? The contracts need Cancun (EIP-1153 `tstore`); **HyperEVM support for this is unverified**. Recommendation: Base Sepolia first, HyperEVM once tstore is confirmed.
+2. **Target chain for P1.** Base Sepolia (where v1 + UI live) or HyperEVM testnet (`docs/plans/hyperliquid-gateway.md` Phase 0)?
+   - **HyperEVM's Cancun opcodes are now verified on-chain** (2026-11-06). A raw `eth_call` of creation code doing TSTORE→TLOAD and MCOPY returned `0x…2a` on both mainnet (`rpc.hyperliquid.xyz/evm`) and testnet. A control call errored with `StackUnderflow`, which shows real execution. Hyperliquid's docs state "Cancun hardfork without blobs".
+   - Both chains are viable. Recommendation: **Base Sepolia first** (existing UI and client), then HyperEVM testnet in the same phase. Pin `evm_version = "cancun"` and re-probe if HyperEVM announces a later fork.
 3. **v1 terms-swap bug.** Testnet only, no real funds. Recommendation: no v1.1 hotfix; fix in v2 P1, and add a UI warning on the v1 accept button now (it re-reads terms but can't prevent a front-run).
 4. **INSURED premium market in P3**, or pure backing first? Recommendation: pure backing first. Add premiums when there's interest flow to price.
 
-## 10. Evidence gaps (verify before relying on them)
+## 10. Evidence ledger (gap-verification pass, 2026-11-06)
 
-- Slovenia and Cycles clearing percentages (no primary figure found; check AJPES via the 2020 MDPI paper).
-- Exact MTCS algorithm (min-cost flow vs cycle cancelling).
-- TEC/augmented-bonding-curve failure: one secondary post-mortem only.
-- Alchemix v3 behaviour on yield shortfall and synthetic depeg.
-- Gitcoin QF/COCM results, Drips, Protocol Guild, PoolTogether and Glo were not searched (L5 rests on Octant + OP lessons only).
-- HyperEVM EIP-1153 support.
+| Claim | Verdict | Basis |
+|---|---|---|
+| HyperEVM supports TSTORE/TLOAD/MCOPY | **VERIFIED on-chain** | Our own `eth_call` probes on mainnet and testnet (§9.2) |
+| Sardex: clearing alone −25% net internal debt | **VERIFIED** (2019 data; the 50% figure is simulated) | JRFM 2020 abstract + p.6 |
+| Pure clearing removes ~10% of debt at zero liquidity | **VERIFIED** (simulation on real Italian data, not a live pilot) | arXiv 2507.22309 Fig. 10 |
+| Slovenia per-round clearing share | **NOT FOUND**. Only annual ratios ~14–17% (1992–94, derived) | JRFM 2020 Fig. 1 |
+| MTCS algorithm | **VERIFIED**: min-cost max-flow, non-unique optimum | arXiv 2507.22309 §2.3 |
+| Trustlines "failed on adoption" | **UNVERIFIED**. Repos simply went quiet ~2023; no post-mortem exists | GitHub org |
+| Circles stale-path handling | **NOT FOUND**. Our "stale path just reverts" is an inference to test | Circles SDK docs |
+| Alchemix v3: no borrow APR, transmuter peg, 95% LTV liquidation | **VERIFIED** (via ALEA paraphrase of the docs) | §3.4 |
+| Alchemix v3 bad-debt / insolvency handling | **NOT FOUND** | — |
+| 4626 / exchange-rate exploits (Hundred, Sonne, Raft, Resupply); Euler is a *different* bug class | **VERIFIED** (loss figures partly secondary) | §3.2 table |
+| Morpho IRM ceiling | **VERIFIED**: 200% at target, 800% absolute; "1200%" **REFUTED** | ConstantsLib.sol |
+| Aave CAPO growth cap + snapshot-staleness failure | **VERIFIED** | CAPO README + LlamaRisk |
+| TEC wind-down | **VERIFIED** (official shutdown contract). Sell-pressure figures are secondary | §5 |
+| Gitcoin Grants Stack sunset, COCM paper | **VERIFIED**. Quantified sybil-loss figures **NOT FOUND**; circulating "16k/44k" and "60%" figures are unreliable and must not be cited | §6 |
+| Drips mechanism / Protocol Guild mechanism | **VERIFIED**. Their funding totals are secondary only | §6 |
+| PoolTogether TVL collapse after incentives | **VERIFIED** | §6 |
+| Octant v2 loss-absorbing yield architecture | **VERIFIED** (secondary; official docs unreachable). Cumulative totals **NOT FOUND** | §6 |
+
+Still open, and none of them blocks P1: Circles `operateFlowMatrix` revert semantics (read the Hub source), official Octant v2 docs, and Euler v2 / Silo rate-provider caps.
