@@ -1,0 +1,21 @@
+[package]
+name = "arbiter-http"
+version = "0.1.0"
+edition = "2021"
+description = "Suwappu Arbiter rubric #2 (http_json_v1): the enclave fetches an HTTPS endpoint itself and checks buyer-committed predicates on the JSON response. No shared secret, no caller-supplied evidence."
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+# The guest HTTP client only exists on the wasm target. Native builds (fixture runs) never fetch.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasi-http-client = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -43,7 +43,7 @@ The bridge forwards tools, resources, and prompts. It also leaves authorization 
 
 ## Current hosted tool catalog
 
-The hosted endpoint currently exposes 22 tools. Call `tools/list` at runtime rather than hard-coding this table into clients.
+The hosted endpoint currently exposes 24 tools. Call `tools/list` at runtime rather than hard-coding this table into clients.
 
 | Area | Tools | Capability |
 | --- | --- | --- |
@@ -55,6 +55,7 @@ The hosted endpoint currently exposes 22 tools. Call `tools/list` at runtime rat
 | Lending | `lend_markets`, `lend_market` | Read-only |
 | Managed swap observability | `get_swap_status`, `get_swap_history` | Read-only managed records |
 | Wallet policy | `list_wallet_policies` | Read-only |
+| NEAR | `near_resolve_asset`, `near_convert_amount` | Read-only, free, public (no Bearer) |
 
 ### The `execute_swap` name is historical
 

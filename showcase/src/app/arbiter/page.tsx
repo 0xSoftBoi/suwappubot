@@ -8,9 +8,15 @@ import {
   ARBITER_WASM_HASH,
   ATTESTATION_LOG,
   CONTRACT,
+  CONTRACT_V3,
   LIVE_TXS,
+  V3_CODE_SHA256,
+  V3_DOC_URL,
+  V3_LIMITS,
+  V3_TXS,
   DOC_URL,
   NEARBLOCKS_ACCOUNT,
+  NEARBLOCKS_ACCOUNT_V3,
   NEARBLOCKS_TX,
   evidenceDocument,
 } from './data';
@@ -74,7 +80,7 @@ function jsonLd() {
           name: 'Is Suwappu Arbiter live on mainnet?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'No. It runs on NEAR testnet only (contract arb2.suwappu-arbiter.testnet), has not had a third-party audit, and holds no real funds. Mainnet is not deployed.',
+            text: 'No. It runs on NEAR testnet only (contracts arb2.suwappu-arbiter.testnet and suwappu-arb3.testnet), has not had a third-party audit, and holds no real funds. Mainnet is not deployed.',
           },
         },
       ],
@@ -154,6 +160,39 @@ export default function ArbiterPage() {
             The terms and the arbiter&rsquo;s code hash are fixed when the buyer funds the escrow. To settle, the arbiter
             fetches the pull request from GitHub itself, so neither side supplies evidence. The contract pays only on a pass.
             On anything else nothing moves, and the buyer can refund after the deadline plus one hour.
+          </p>
+        </section>
+
+        <section className={styles.how} aria-labelledby="v3-h">
+          <h2 id="v3-h" className={styles.h2}>A second rubric, on a second contract</h2>
+          <p className={styles.body}>
+            A newer testnet contract,{' '}
+            <a href={NEARBLOCKS_ACCOUNT_V3} target="_blank" rel="noopener noreferrer"><code>{CONTRACT_V3}</code></a>,
+            pins one program per rubric. The new rubric has the enclave fetch a web endpoint itself and check conditions on the
+            JSON it returns, for example that an account balance has reached a threshold. This contract also fixes a bug where a
+            late callback could pay twice. The contract above still has that bug. Code sha256{' '}
+            <code>{V3_CODE_SHA256.slice(0, 8)}…{V3_CODE_SHA256.slice(-4)}</code>.
+          </p>
+          <ul className={`${styles.txList} ${styles.v3List}`}>
+            {V3_TXS.map((t) => (
+              <li key={t.hash}>
+                <a href={NEARBLOCKS_TX(t.hash)} target="_blank" rel="noopener noreferrer">
+                  <span className={styles.txStep}>{t.step}</span>
+                  <code className={styles.txHash}>{t.rubric} · {t.hash.slice(0, 8)}…{t.hash.slice(-4)}</code>
+                  <span className={styles.srOnly}> (opens NearBlocks in a new tab)</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <h3 className={`${styles.h3} ${styles.v3Head}`}>Read this before trusting it</h3>
+          <ul className={styles.v3Limits}>
+            {V3_LIMITS.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+          <p className={styles.agents}>
+            Thirty-seven invalid calls were rejected on testnet and changed nothing. The details are in{' '}
+            <a href={V3_DOC_URL} target="_blank" rel="noopener noreferrer">the design doc</a>.
           </p>
         </section>
 

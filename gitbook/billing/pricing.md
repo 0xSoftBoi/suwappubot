@@ -73,6 +73,8 @@ Only applies to the `free` tier when server-side metering is enabled (`AGENT_MET
 | `predict_price` | 1 |
 | `predict_trades` | 1 |
 | `list_wallet_policies` | 1 |
+| `near_resolve_asset` | 0 |
+| `near_convert_amount` | 0 |
 
 A 402 response tells you exactly which tool/endpoint triggered the charge and its cost — see [Agentic Payments](agentic-payments.md#the-402-challenge).
 
