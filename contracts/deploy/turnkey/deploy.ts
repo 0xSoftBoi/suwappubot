@@ -35,6 +35,7 @@ import {
 	type Chain,
 	type Hex,
 } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia, sepolia } from "viem/chains";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -75,6 +76,20 @@ function turnkey() {
 	});
 }
 
+/**
+ * Signer for deploy/bridge: a LOCAL testnet key (RELAYER_PRIVATE_KEY) by
+ * default. Turnkey only via the explicit ALLOW_PROD_TURNKEY opt-in in turnkey().
+ */
+async function signer(): Promise<Account> {
+	const pk = process.env.RELAYER_PRIVATE_KEY as Hex | undefined;
+	if (pk) return privateKeyToAccount(pk);
+	return (await createAccount({
+		client: turnkey().apiClient(),
+		organizationId: env("TURNKEY_ORGANIZATION_ID"),
+		signWith: env("TURNKEY_SIGN_WITH"),
+	})) as Account;
+}
+
 async function createDeployerWallet() {
 	const tk = turnkey();
 	const { walletId, addresses } = await tk.apiClient().createWallet({
@@ -104,13 +119,7 @@ async function deploy(contractName: string) {
 	const bytecode = artifact.bytecode?.object as Hex | undefined;
 	if (!bytecode || bytecode === "0x") throw new Error(`no bytecode in ${artifactPath} — run forge build first`);
 
-	const signWith = env("TURNKEY_SIGN_WITH");
-	const tk = turnkey();
-	const account = (await createAccount({
-		client: tk.apiClient(),
-		organizationId: env("TURNKEY_ORGANIZATION_ID"),
-		signWith,
-	})) as Account;
+	const account = await signer();
 
 	const publicClient = createPublicClient({ chain, transport: http(rpc) });
 	const walletClient = createWalletClient({ account, chain, transport: http(rpc) });
@@ -163,14 +172,8 @@ async function deploy(contractName: string) {
 const BASE_SEPOLIA_L1_STANDARD_BRIDGE = "0xfd0Bf71F60660E2f608ed56e1659C450eB113120" as const;
 
 async function bridgeToBaseSepolia(etherArg: string | undefined) {
-	const signWith = env("TURNKEY_SIGN_WITH");
 	const l1Rpc = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
-	const tk = turnkey();
-	const account = (await createAccount({
-		client: tk.apiClient(),
-		organizationId: env("TURNKEY_ORGANIZATION_ID"),
-		signWith,
-	})) as Account;
+	const account = await signer();
 	const l1 = createPublicClient({ chain: sepolia, transport: http(l1Rpc) });
 	const l1Wallet = createWalletClient({ account, chain: sepolia, transport: http(l1Rpc) });
 	const l2 = createPublicClient({ chain: baseSepolia, transport: http("https://sepolia.base.org") });
