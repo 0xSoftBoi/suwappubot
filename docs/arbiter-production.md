@@ -117,13 +117,20 @@ NEAR **testnet only**. Nothing here is audited and nothing is on mainnet.
 | #4 | `http_json_v1`, every field at its cap (URL 300, body 512, 4 checks; terms 1,694 B) | enclave ran and returned `fail http_status_400` (the padded request, not an OutLayer rejection) | create `FWv8nUQoMz9TbLigDQgvpXo5wnvCzTMdoqp4kswcBgYh`, resolve `ASfp9kYvNgsZRznMbcrDth9BB1MSHrmSKGXmWxYuPAG9` |
 | #0, #1, #5 | `http_json_v1` observing the **worker account that calls `resolve`** | see caveat | #0 create `2X7qPCzi15915VLjpLsappKXxr55ahDwN5ZihS9n3zF7`, resolves `CoaqcF4iFaKxkgedX49RtGScw369S2DMv8pQ5nW82oHc` / `4AKsjZoU6NrnsLBJ5Vq3MpWHBXL146yVKbwfhZUUAN9j` / `5ysybF2HFQq1AckHWazeNdz7XTLfG1qGYCkRPdZZUvKn`; #1 create `8JtxvAKH2khLL4TbPbPUizcmPstp4eeMhx1bJ4JpQGBG`, resolve `EvPhBAGy4CUnCj2uL4pbVk5PNrrNQWDck9toFn58QA2V`; #5 create `GyxguNVm3jAtsid1x9UeoQ1gJQQbzpTAQKrVGz5SmmcR`, resolve `437b1hxni7Qprk4PmcUMG6Z33yQ77EWjnxoFHDQSFTSh` |
 
-**Unexplained caveat (observed, cause not established).** Escrows #0, #1 and #5 watched the balance of the same account
-that paid for `resolve`. The first #0 fail was correct (0.84 < 1 NEAR). After the account was funded to 1.14 NEAR, two
-more resolves still failed `check_failed_0`. A diagnostic with ordered checks (#1) showed the enclave received a valid
-JSON-RPC response containing the account, with only the threshold check failing. A threshold ladder (#5) showed it saw
-a balance at least 0.2 NEAR below the settled value, although the same wasm run locally against the same RPC passes.
-The attached deposit plus prepaid gas should lock only ~0.05 NEAR, so that does not fully explain it. Whatever the
-cause, **do not watch the caller's own balance**; the untouched-account test (#2) behaves correctly. Left unresolved.
+**Caveat: the caller's own balance is temporarily lower during `resolve` (explained 2026-11-06; an earlier version of
+this note called it unexplained and wrongly said the lock should be ~0.05 NEAR).** Escrows #0, #1 and #5 watched the
+balance of the account that signs `resolve`. They failed although it held more than the 1 NEAR threshold. Forensics, all
+read-only: the `evidence_hash` is sha256 of the raw RPC body, so re-fetching the account at nearby blocks and hashing
+matched all five on-chain hashes to exact blocks. The enclave read fresh state (resolve+3 to +7 blocks) and saw the
+caller **0.3151 NEAR below its settled balance every time**. A per-block timeline shows the cause: when the `resolve`
+transaction is included the caller drops by 0.3209 NEAR (the 0.02 deposit plus 300 Tgas of prepaid gas bought at the
+receipts' `gas_price` of 1e9 yocto/gas, 10x the 1e8 that the `gas_price` RPC reports), and about 0.313 NEAR returns as
+system refund transfers ~12 blocks later when the call chain completes (net cost 0.0022 NEAR). So the enclave, the RPC
+and the contract all behaved correctly. Consequences: (1) never use a predicate on the balance of an account that can be
+the `resolve` signer (caller, and by extension buyer or worker); (2) such a predicate is also **manipulable**: for an
+`lte_int` check on an account, its owner can make the state momentarily true by calling `resolve` itself, a ~0.3 NEAR
+swing with no real transfer. The untouched-account test (#2) is unaffected. Open: confirm the lock scales with prepaid
+gas (a 290 Tgas resolve should lock ~0.29 + deposit) and why the receipts' price is 10x the RPC's headline price.
 
 **Not tested on-chain:** `reset_stuck` and the stale-callback guard (covered only by the local mock harness),
 `cancel_expired`, payout failure, or any adversarial probe against `arb3`. The deployment tx hash was not captured.
