@@ -3,15 +3,15 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 import CopyButton from './CopyButton';
 
-import VerdictReplay from './VerdictReplay';
+import Ledger from './Ledger';
 import {
   ARBITER_WASM_HASH,
+  ATTESTATION_LOG,
   CONTRACT,
   LIVE_TXS,
   DOC_URL,
   NEARBLOCKS_ACCOUNT,
   NEARBLOCKS_TX,
-  SPEC_ID,
   evidenceDocument,
 } from './data';
 import styles from './arbiter.module.css';
@@ -83,162 +83,126 @@ function jsonLd() {
 }
 
 const VERIFY_CMDS = [
-  `sha256sum near/arbiter-github/artifacts/arbiter-github.wasm   # must equal ${ARBITER_WASM_HASH}`,
-  `near view ${CONTRACT} get_escrow '{"id":0}' --networkId testnet`,
+  `sha256sum near/arbiter-github/artifacts/arbiter-github.wasm   # must match wasm_hash below`,
   `near view ${CONTRACT} arbiter '{}' --networkId testnet`,
+  `near view ${CONTRACT} get_escrow '{"id":0}' --networkId testnet`,
   `near tx ${LIVE_TXS[1].hash} --networkId testnet   # logs arbiter_attestation`,
 ].join('\n');
 
-const HOW = [
-  { t: 'You set the terms and lock funds', d: 'The buyer funds an escrow against a rubric a program can check: a pull request in a named repo, by a named author, merged before a deadline by someone else. The rubric and the arbiter’s code hash are fixed when the escrow is created and cannot be swapped afterwards.' },
-  { t: 'The arbiter checks GitHub itself', d: 'A pinned WASM runs inside an Intel TDX enclave on NEAR OutLayer. It fetches the pull request from the GitHub API on its own, so neither the buyer nor the worker supplies evidence and there is no shared secret. It returns a verdict and a hash of what it saw.' },
-  { t: 'The contract pays only on pass', d: 'On pass, the contract releases funds to the worker and logs an arbiter_attestation line anyone can read from the transaction. On fail, nothing moves and the escrow stays open. If the deadline passes without a pass, the buyer can refund.' },
-];
-
-const LIMITS = [
-  { k: 'Testnet only', v: 'Arbiter runs on NEAR testnet. Mainnet is not deployed and no real funds are involved.' },
-  { k: 'Not third-party audited', v: 'Two internal adversarial reviews found and fixed real bugs, and we re-verified the fixes live on testnet. No independent audit has been done.' },
-  { k: 'GitHub is trusted', v: 'The enclave trusts GitHub’s API response over TLS. That response is not independently proven.' },
-  { k: 'Quotes are checked off-chain', v: 'The contract does not verify TDX quotes on-chain. The trust anchor is OutLayer’s contract, and third parties verify off-chain with OutLayer’s tooling.' },
-  { k: 'Rate limits can block a pass', v: 'Unauthenticated GitHub rate limits can stop a legitimate pass. The buyer can refund after the deadline plus one hour.' },
-  { k: 'Done as specified, not good', v: 'A pass means the rubric was met. It says nothing about the quality of the work.' },
-  { k: 'The buyer chooses the repo', v: 'The arbiter checks the repository named in the terms. A worker should read the terms, including the repo, before accepting.' },
-];
-
-const ROADMAP = [
-  ['Arbitration API', 'Any agent or marketplace submits terms and pays per verification over x402, and gets a signed attestation back.', 'Dec 2026'],
-  ['Reputation registry', 'An on-chain index of attestations: verified jobs, pass rate and rubrics served per agent.', 'Dec 2026 to Jan 2027'],
-  ['Outcome-priced services', 'Verified copy-trading revenue share, and DCA and alert delivery you can prove.', 'Jan to Feb 2027'],
-  ['Enterprise provenance', 'Signed logs of agent actions and arbitration outcomes for insurance and regulated buyers.', 'Q1 2027'],
-];
-
-const AGENT_SNIPPET = `{
-  "spec": "${SPEC_ID}",
-  "contract": "${CONTRACT}",
-  "arbiter_wasm": { "sha256": "${ARBITER_WASM_HASH.slice(0, 16)}…" },
-  "status": { "network": "NEAR testnet", "mainnet": false, "audited_by_third_party": false },
-  "live_transactions": [ … ],
-  "verify": [ … ]
-}`;
-
 export default function ArbiterPage() {
-  const evidenceJson = JSON.stringify(evidenceDocument(), null, 2);
-
   return (
     <div className={`summer-page ${styles.canvas}`}>
-      {jsonLd().map((s, i) => (
-        <script key={i} type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(s) }} />
-      ))}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd()) }} />
+      <a href="#main-content" className={styles.skip}>Skip to content</a>
       <SummerNav />
 
       <main id="main-content" className={styles.main}>
         <section className={styles.hero}>
           <h1 className={styles.h1}>Escrow for agent work that pays on verified delivery.</h1>
-          <p className={styles.lede}>
-            Suwappu Arbiter holds the buyer’s funds until a pinned program, running in an enclave, checks the
-            work on GitHub and says it was delivered as specified. Neither party decides. Currently on NEAR testnet.
-          </p>
-          <div className={styles.actions}>
-            <a className={styles.btnPrimary} href="#console">See a verified run</a>
-            <a className={styles.btnGhost} href={DOC_URL}>Read the spec</a>
-          </div>
-        </section>
-
-        <section id="console" className={styles.consoleWrap} aria-label="Arbiter run console">
-          <VerdictReplay />
-        </section>
-
-        <section className={styles.prose} aria-labelledby="how">
-          <h2 id="how" className={styles.h2}>How it works</h2>
-          <div className={styles.cols}>
-            {HOW.map((h) => (
-              <div key={h.t} className={styles.col}>
-                <h3>{h.t}</h3>
-                <p>{h.d}</p>
+          <div className={styles.heroText}>
+            <div className={styles.heroTop}>
+              <p className={styles.lede}>
+                Funds stay locked until a pinned program checks the work on GitHub. Neither the buyer nor the worker decides.
+              </p>
+              <div className={styles.actions}>
+                <a className={styles.btnPrimary} href="#run">See a checked run</a>
+                <a className={styles.btnGhost} href={DOC_URL}>Read the design doc</a>
               </div>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.prose} aria-labelledby="check">
-          <h2 id="check" className={styles.h2}>Check it yourself</h2>
-          <p className={styles.sub}>
-            Everything below runs against the public testnet contract. The first command confirms the arbiter binary
-            is the one the contract pins.
-          </p>
-          <div className={styles.codeBox}>
-            <div className={styles.codeBar}>
-              <span>shell</span>
-              <CopyButton value={VERIFY_CMDS} label="Copy verification commands" />
             </div>
-            <pre className={styles.code} tabIndex={0}>{VERIFY_CMDS}</pre>
+            <dl className={styles.facts}>
+              <div><dt>Network</dt><dd>NEAR testnet only</dd></div>
+              <div><dt>Contract</dt><dd><code>{CONTRACT}</code></dd></div>
+              <div><dt>Arbiter</dt><dd><code>sha256 {ARBITER_WASM_HASH.slice(0, 8)}…{ARBITER_WASM_HASH.slice(-4)}</code></dd></div>
+            </dl>
           </div>
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <caption className={styles.srOnly}>Live testnet transactions</caption>
-              <thead>
-                <tr><th scope="col">Transaction</th><th scope="col">Result</th><th scope="col">Explorer</th></tr>
-              </thead>
-              <tbody>
-                {LIVE_TXS.map((t) => (
-                  <tr key={t.hash}>
-                    <td>{t.step}</td>
-                    <td>{t.detail}</td>
-                    <td>
-                      <a href={NEARBLOCKS_TX(t.hash)} target="_blank" rel="noopener noreferrer" className={styles.mono}>
-                        {t.hash.slice(0, 8)}…{t.hash.slice(-4)}
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className={styles.small}>
-            Contract <a href={NEARBLOCKS_ACCOUNT} target="_blank" rel="noopener noreferrer" className={styles.mono}>{CONTRACT}</a>
+          <Ledger />
+        </section>
+
+        <section className={styles.trail} aria-labelledby="trail-h">
+          <h2 id="trail-h" className={styles.h2}>The result is a log line</h2>
+          <p className={styles.body}>
+            Every verdict writes one line into the settlement transaction. This is the line from the paid run above.
+            Anyone can read it on a block explorer.
           </p>
-        </section>
-
-        <section className={styles.prose} aria-labelledby="limits">
-          <h2 id="limits" className={styles.h2}>What this does not do</h2>
-          <p className={styles.sub}>We would rather you know the boundaries before you rely on it.</p>
-          <dl className={styles.limits}>
-            {LIMITS.map((l) => (
-              <div key={l.k} className={styles.limitRow}>
-                <dt>{l.k}</dt>
-                <dd>{l.v}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-
-        <section className={styles.prose} aria-labelledby="roadmap">
-          <h2 id="roadmap" className={styles.h2}>Roadmap</h2>
-          <p className={styles.sub}>None of this is built yet. Mainnet, a third-party audit and in-contract quote verification come first.</p>
-          <ul className={styles.roadmap}>
-            {ROADMAP.map(([t, d, when]) => (
-              <li key={t}>
-                <strong>{t}</strong>
-                <span>{d}</span>
-                <em>Planned · {when}</em>
+          <div className={styles.trailGrid}>
+            <figure className={styles.logFig}>
+              <pre className={styles.log} tabIndex={0}><code>{ATTESTATION_LOG}</code></pre>
+              <figcaption className={styles.logCap}>
+                The hash after <code>arbiter=</code> is the program that ran. The contract pins it, so it cannot be swapped after funding.
+              </figcaption>
+            </figure>
+            <ul className={styles.txList}>
+              {LIVE_TXS.map((t) => (
+                <li key={t.hash}>
+                  <a href={NEARBLOCKS_TX(t.hash)} target="_blank" rel="noopener noreferrer">
+                    <span className={styles.txStep}>{t.step}</span>
+                    <code className={styles.txHash}>{t.hash.slice(0, 8)}…{t.hash.slice(-4)}</code>
+                    <span className={styles.srOnly}> (opens NearBlocks in a new tab)</span>
+                  </a>
+                </li>
+              ))}
+              <li className={styles.txContract}>
+                Contract <a href={NEARBLOCKS_ACCOUNT} target="_blank" rel="noopener noreferrer"><code>{CONTRACT}</code></a>
               </li>
-            ))}
-          </ul>
+            </ul>
+          </div>
         </section>
 
-        <section id="for-agents" className={styles.prose} aria-labelledby="agents">
-          <h2 id="agents" className={styles.h2}>For agents</h2>
-          <p className={styles.sub}>
-            All of this page is available as JSON at <a href="/arbiter.json"><code>/arbiter.json</code></a>, and is
-            listed in <a href="/llms.txt"><code>/llms.txt</code></a>.
+        <section className={styles.how} aria-labelledby="how-h">
+          <h2 id="how-h" className={styles.h2}>Nobody can edit the result</h2>
+          <p className={styles.body}>
+            The terms and the arbiter&rsquo;s code hash are fixed when the buyer funds the escrow. To settle, the arbiter
+            fetches the pull request from GitHub itself, so neither side supplies evidence. The contract pays only on a pass.
+            On anything else nothing moves, and the buyer can refund after the deadline plus one hour.
           </p>
-          <div className={styles.codeBox}>
-            <div className={styles.codeBar}>
-              <span>GET /arbiter.json</span>
-              <CopyButton value={evidenceJson} label="Copy full evidence JSON" />
-            </div>
-            <pre className={styles.code} tabIndex={0}>{AGENT_SNIPPET}</pre>
+        </section>
+
+        <section className={styles.verify} aria-labelledby="verify-h">
+          <h2 id="verify-h" className={styles.h2}>Check it yourself</h2>
+          <p className={styles.body}>
+            These run against the public testnet contract and need no account. The first confirms the binary in the repository is the one the contract pins.
+          </p>
+          <div className={styles.codeWrap}>
+            <pre className={styles.code} tabIndex={0}><code>{VERIFY_CMDS}</code></pre>
+            <CopyButton value={VERIFY_CMDS} label="Copy the verification commands" />
           </div>
+        </section>
+
+        <section className={styles.limits} aria-labelledby="limits-h">
+          <h2 id="limits-h" className={styles.h2}>What this does not do</h2>
+          <div className={styles.limitCols}>
+            <div>
+              <h3 className={styles.h3}>Not done yet</h3>
+              <p>It runs on NEAR testnet only. Mainnet is not deployed and no real funds are involved.</p>
+              <p>
+                No independent audit has been done. Two internal adversarial reviews found and fixed real bugs
+                (an escrow that could be locked with too little gas, PR squatting, and storage paid from other users&rsquo; funds),
+                and we re-verified the fixes on testnet.
+              </p>
+              <p>In-contract quote verification, NEAR Intents funding and Agent Market integration are not built.</p>
+            </div>
+            <div>
+              <h3 className={styles.h3}>What you are trusting</h3>
+              <p>
+                GitHub&rsquo;s API response, read over TLS by the enclave, is not independently proven. The contract relies on
+                OutLayer&rsquo;s contract to report results. Third parties can check an execution off-chain with OutLayer&rsquo;s tools.
+              </p>
+              <p>The buyer picks the repository, so a worker should read the terms first.</p>
+              <p>Unauthenticated GitHub rate limits can block a valid pass. A pass means the rubric was met, not that the work is good.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.next} aria-labelledby="next-h">
+          <h2 id="next-h" className={styles.h2}>What comes next</h2>
+          <p className={styles.body}>
+            An arbitration API paid per verification, an on-chain index of attestations that gives agents a track record,
+            and outcome-priced services built on both. None of it is built yet.
+          </p>
+          <p className={styles.agents}>
+            Agents can read all of this as JSON at <a href="/arbiter.json"><code>/arbiter.json</code></a>, also listed in{' '}
+            <a href="/llms.txt"><code>/llms.txt</code></a>.
+          </p>
         </section>
       </main>
 
