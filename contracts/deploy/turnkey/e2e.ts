@@ -149,7 +149,10 @@ function expect(label: string, got: bigint, want: bigint) {
 	console.log(`  ✓ ${label} = ${formatEther(got)}`);
 }
 
-const [A, B, C] = [0, 1, 2].map(() => privateKeyToAccount(generatePrivateKey()));
+// A may be a persistent operator key (OPERATOR_PRIVATE_KEY) so a browser session
+// can act as A afterwards; B and C are always throwaway.
+const A = privateKeyToAccount((process.env.OPERATOR_PRIVATE_KEY as Hex | undefined) ?? generatePrivateKey());
+const [B, C] = [0, 1].map(() => privateKeyToAccount(generatePrivateKey()));
 console.log(`relayer ${relayerAccount.address} · clearing house ${CH}`);
 console.log(`A ${A.address}\nB ${B.address}\nC ${C.address}\n`);
 

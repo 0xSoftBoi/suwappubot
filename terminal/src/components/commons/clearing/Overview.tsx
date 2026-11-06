@@ -56,7 +56,7 @@ export function KpiStrip({ positions, claimable, alerts }: { positions: Position
       <TerminalMetricCard label="Net position" value={`${net >= 0n ? '+' : '−'}${fmt(net >= 0n ? net : -net, 2)}`} detail={`${active} active · ${defaulted} defaulted`} tone={net >= 0n ? 'accent' : 'warm'} />
       <TerminalMetricCard label="Credit extended" value={`${fmt(extended, 0)}`} detail={`${used.toFixed(1)}% drawn by counterparties`} tone="sky" />
       <TerminalMetricCard label="Credit received" value={`${fmt(received, 0)}`} detail="lines others extend you" />
-      <TerminalMetricCard label="Escrow · alerts" value={`${fmt(claimable, 2)}`} detail={alerts.length ? `${alerts.length} alert${alerts.length > 1 ? 's' : ''} need attention` : 'no deadlines pending'} tone={alerts.some((a) => a.tone === 'down') ? 'down' : 'neutral'} />
+      <TerminalMetricCard label="Escrow · alerts" value={`${fmt(claimable, 2)}`} detail={alerts.length ? `${alerts.length} alert${alerts.length > 1 ? 's need' : ' needs'} attention` : 'no deadlines pending'} tone={alerts.some((a) => a.tone === 'down') ? 'down' : 'neutral'} />
     </div>
   )
 }
