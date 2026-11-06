@@ -279,6 +279,29 @@ def validate_iac_transition(
             "would destroy them."
         )
 
+    # Dev is imported into its own authoring file (`railway config pull --environment dev`,
+    # planned with `--file`). Same omit-means-delete rule: it must name every dev instance.
+    dev_target = iac.get("devTargetFile")
+    if dev_target is not None:
+        dev_path = repo_root / str(dev_target)
+        if not dev_path.is_file():
+            errors.append(f"infrastructureAsCode.devTargetFile {dev_target} does not exist")
+        else:
+            dev_literals = _string_literals(dev_path.read_text())
+            dev_required = {
+                instance["name"]
+                for instance in data["instances"]
+                if isinstance(instance, dict)
+                and isinstance(instance.get("name"), str)
+                and instance.get("environment") == "dev"
+            }
+            dev_missing = sorted(dev_required - dev_literals)
+            if dev_missing:
+                errors.append(
+                    f"{dev_target} does not mention {len(dev_missing)} dev service(s) present in "
+                    f"this manifest: {', '.join(dev_missing)}. Railway IaC is omit-means-delete."
+                )
+
     # A Config-as-Code file is only "stale" if no non-production instance still reads it.
     stale = sorted(
         {

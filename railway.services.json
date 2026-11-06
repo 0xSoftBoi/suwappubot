@@ -12,7 +12,8 @@
   "infrastructureAsCode": {
     "status": "managed",
     "targetFile": ".railway/railway.ts",
-    "reason": "Production imported via `railway config pull --environment production --variables unmanaged`; api-ts and ghostcatcher-chain-export-v2 cut over from Config as Code. Dev still reads its railway.*.json files until its own IaC import lands."
+    "reason": "Production imported via `railway config pull --environment production --variables unmanaged`; api-ts and ghostcatcher-chain-export-v2 cut over from Config as Code. Dev still reads its railway.*.json files until its own IaC import lands.",
+    "devTargetFile": ".railway/railway.dev.ts"
   },
   "instances": [
     {
@@ -506,6 +507,22 @@
       "watchPatterns": [
         "/.manual-deploy-only/ghostcatcher-compact-export/**"
       ]
+    },
+    {
+      "name": "suwappu-holder-census",
+      "serviceId": "0756cdc7-835e-4bae-b02f-8cfcc0962615",
+      "environment": "dev",
+      "lifecycle": "manual",
+      "kind": "http",
+      "source": {
+        "type": "github",
+        "branch": "ops/suwappu-holder-census"
+      },
+      "watchPatterns": [
+        "/.manual-deploy-only/suwappu-holder-census/**"
+      ],
+      "waitForCi": false,
+      "restartPolicyType": "ALWAYS"
     }
   ],
   "knownGaps": [
