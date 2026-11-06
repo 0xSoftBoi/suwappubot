@@ -19,20 +19,31 @@ Status: **v2 verified live on NEAR testnet. Not deployed to mainnet. Do not hold
   - Min deposit 0.01 NEAR, capped field lengths, bounded resolve fee (0.005–0.02 NEAR), recoverable payout failure.
   - No admin keys, no upgrade path.
 
-## Live testnet evidence (v2, contract `arb.suwappu-arbiter.testnet`, 2026-11-06)
+## Review findings fixed (second adversarial review, all re-verified live)
 
-Arbiter sha256 `17ea8765…9167`. The enclave fetched the real PRs from GitHub.
+- **Escrow lock (critical):** `resolve` now requires >= 290 Tgas prepaid, the callback gets 40 Tgas, and anyone can
+  `reset_stuck` an escrow stuck in `Resolving` after 300 blocks. A low-gas resolve is rejected and leaves the escrow `Created`.
+- **PR squatting:** the one-escrow-per-PR index is now per buyer; deadlines are capped at 365 days (also removes the u64 wrap).
+- **Storage paid by others:** the buyer pays measured storage on top of the escrow amount; the worker receives exactly
+  `amount`; refunds return `amount + storage`.
+- **Self-merge:** the arbiter requires `merged_by != author`; optional `not_before_unix` rejects PRs merged before the escrow.
+
+## Live testnet evidence (v2.1, contract `arb2.suwappu-arbiter.testnet`, 2026-11-06)
+
+Arbiter sha256 `f1818167…412b`, pinned at a commit-specific raw URL. The enclave fetched the real PRs from GitHub.
 
 | Case | Result | Tx |
 |---|---|---|
-| Pass — PR #1096, author `0xSoftBoi` | create (0.1 NEAR) | `EAPH4YqSi4hWWpP9xqyLsNk4uotu62Wv5pmwS4E7SceQ` |
-| | resolve → `pass`, worker +0.1 NEAR, fee refund to caller | `3HWAUwqqK7NRse4BruM6ygYwdD1NzJHrpPFDicYrVueY` |
-| Fail — PR #1097, wrong author | create (0.05 NEAR) | `HNh21XDMKY3v3caD3t4skX32bqz9xTv3WAeEfy2kUUfe` |
-| | resolve → `fail author_mismatch`, no transfer, escrow stays open | `4KkAaHLSkvgfYiQ49QpZxjbYUg1BTJDVNfue8ZSJANYf` |
+| Pass — PR #993, author `nanofaxcopy`, merged by another account | create (0.1 NEAR) | `DtNk28WFznwZVXXQrLReeD8hC3czaAti1Wzm2vXF5img` |
+| | resolve → `pass`; worker received 0.1 NEAR minus the storage deposit | `Ez3bwp3ZLrFVxeak53WaBgasqXFbf8jeyEBZDPv3vq3b` |
+| Fail — PR #1096 authored and merged by the same account | create (0.05 NEAR) | `D7Wgn7AUCTDsyDcmJ19gXEtXh7XrGwum7cZvqHbWXe3H` |
+| | resolve → `fail self_merged`, no transfer, escrow stays open | `G1oidSEPmAKVBQVP1FSHzpLEi4Bi7KcJ6LT5tNv7jDLr` |
 
-11 attack probes rejected on-chain (duplicate PR open/paid, re-resolve paid, early/non-buyer refund,
-demo context, past deadline, path-traversal repo, dust deposit, 1-yocto and oversized resolve fee).
-Rejections surface as `unreachable` traps (panic messages are not surfaced by this build).
+13 attack probes rejected on-chain: low-gas resolve (escrow stays `Created`), deadline > 365 days, duplicate PR (open and
+paid, same buyer), re-resolve paid, early refund, non-buyer refund, reset_stuck while not stuck, dust deposit, 1-yocto
+and oversized resolve fee, demo context. A different account escrowing the same open PR succeeded (no squatting).
+Rejections surface as `unreachable` traps (this build does not surface panic messages), so each rejection is a
+rejected condition, not a verified reason. Superseded earlier builds: `arb.suwappu-arbiter.testnet`.
 
 ## Trust model (what v2 does and does not prove)
 
@@ -41,13 +52,15 @@ Rejections surface as `unreachable` traps (panic messages are not surfaced by th
 - Does **not** prove: that GitHub's API response is authentic (trusted by the enclave over TLS, not
   independently attested); that OutLayer's operator is honest or live (the trust anchor is the OutLayer
   contract's behaviour — it can refuse to run, which the buyer-refund path covers); that the work is *good*.
-- The buyer chooses `repo`. A worker must only accept escrows whose repo they do not control.
+- The buyer chooses `repo` and can merge, then make the repo private/renamed (GitHub 404) and refund after
+  deadline + 1h; GitHub's unauthenticated 60 req/h per IP limit can also cause 403s on OutLayer's shared IPs. A worker
+  should only accept escrows for repos they can verify and with a long deadline.
 - Third parties verify an execution off-chain with OutLayer's `outlayer-verify` (job/tx/call) and the TDX
   quote's task hash; the escrow contract does not verify quotes on-chain.
 
 ## Before mainnet (open — do not skip)
 
-1. Independent contract audit; resolve the review findings (see PR notes).
+1. Independent third-party audit (two internal adversarial reviews done; findings fixed and re-verified on testnet).
 2. Confirm with OutLayer: failure-refund behaviour (their docs disagree), yield timeout, GitHub HTTP
    allowlist/attestation, audit/maturity status, and `outlayer.near` args parity with testnet.
 3. Replace the testnet resolver constant with `outlayer.near` and re-pin the arbiter URL to a release

@@ -27,11 +27,18 @@ use near_sdk::{env, near, AccountId, Gas, NearToken, Promise};
 
 const RESOLVER: &str = "outlayer.testnet";
 const RESOLVE_GAS: Gas = Gas::from_tgas(200);
-const CALLBACK_GAS: Gas = Gas::from_tgas(15);
+const CALLBACK_GAS: Gas = Gas::from_tgas(40);
+/// resolve must carry enough gas for OutLayer + the pass callback + the payout callback, or a caller
+/// could starve the callback and leave the escrow stuck in Resolving.
+const MIN_RESOLVE_PREPAID: Gas = Gas::from_tgas(290);
+/// After this many blocks a stuck Resolving escrow can be reset to Created by anyone.
+const RESOLVING_TIMEOUT_BLOCKS: u64 = 300;
+/// Deadlines are capped so a PR cannot be squatted for years and the u64 math cannot wrap.
+const MAX_DEADLINE_SECS: u64 = 365 * 24 * 3600;
 
 /// Pinned arbiter. OutLayer refuses a file whose sha256 differs from this hash.
-const ARBITER_WASM_HASH: &str = "17ea8765f70cb2c6a2b87e2dc1dcca89ce9310bf41895d8c786cc198f8209167";
-const ARBITER_WASM_URL: &str = "https://raw.githubusercontent.com/0xSoftBoi/suwappubot/218f6aa2bf7cacb83177b1424320c1be41677fd2/near/arbiter-github/artifacts/arbiter-github.wasm";
+const ARBITER_WASM_HASH: &str = "f1818167768f6b2b84b2031071760395d3e4a88cf319de3539d0d2068ad6412b";
+const ARBITER_WASM_URL: &str = "https://raw.githubusercontent.com/0xSoftBoi/suwappubot/936382f249223fbc2cd0dad3ad99f32a66646e93/near/arbiter-github/artifacts/arbiter-github.wasm";
 const ARBITER_BUILD_TARGET: &str = "wasm32-wasip2";
 const RUBRIC: &str = "github_pr_v1";
 
@@ -60,6 +67,9 @@ pub struct Escrow {
     pub buyer: AccountId,
     pub worker: AccountId,
     pub amount: U128,
+    /// Storage cost of this record, paid by the buyer on top of `amount`; returned only on refund.
+    pub storage_deposit: U128,
+    pub resolving_since_block: u64,
     pub terms: String,
     pub arbiter_wasm_hash: String,
     pub status: EscrowStatus,
@@ -119,20 +129,28 @@ impl ArbiterEscrow {
         let deadline_unix = t["deadline_unix"].as_u64().expect("terms.deadline_unix required");
         let now = env::block_timestamp() / 1_000_000_000;
         assert!(deadline_unix > now, "deadline must be in the future");
+        assert!(deadline_unix <= now + MAX_DEADLINE_SECS, "deadline too far");
+        if let Some(nb) = t.get("not_before_unix") {
+            assert!(nb.as_u64().map(|n| n <= deadline_unix).unwrap_or(false), "invalid not_before_unix");
+        }
 
-        let key = format!("{}#{}", repo.to_ascii_lowercase(), pr);
-        assert!(self.pr_index.get(&key).is_none(), "an open escrow already exists for this PR");
+        // Index is per buyer so a stranger cannot squat someone else's PR.
+        let buyer = env::predecessor_account_id();
+        let key = format!("{}|{}#{}", buyer, repo.to_ascii_lowercase(), pr);
+        assert!(self.pr_index.get(&key).is_none(), "you already have an escrow for this PR");
+
+        let usage_before = env::storage_usage();
 
         let id = self.next_id;
         self.next_id += 1;
         self.pr_index.insert(&key, &id);
-        self.escrows.insert(
-            &id,
-            &Escrow {
+        let mut escrow = Escrow {
                 id,
-                buyer: env::predecessor_account_id(),
+                buyer,
                 worker,
-                amount: U128(deposit.as_yoctonear()),
+                amount: U128(0),
+                storage_deposit: U128(0),
+                resolving_since_block: 0,
                 terms,
                 arbiter_wasm_hash: ARBITER_WASM_HASH.to_string(),
                 status: EscrowStatus::Created,
@@ -141,8 +159,16 @@ impl ArbiterEscrow {
                 evidence_hash: None,
                 created_at_block: env::block_height(),
                 deadline_unix,
-            },
-        );
+        };
+        self.escrows.insert(&id, &escrow);
+        // Measure real storage growth (record + both map entries + index) and charge it to the buyer,
+        // so storage is never paid out of other users' escrowed funds. Fields set below are fixed-size.
+        let used = env::storage_usage().saturating_sub(usage_before) + 64;
+        let storage_cost = env::storage_byte_cost().saturating_mul(used as u128);
+        assert!(deposit >= storage_cost.saturating_add(MIN_ESCROW), "deposit too small to cover storage + 0.01 NEAR");
+        escrow.storage_deposit = U128(storage_cost.as_yoctonear());
+        escrow.amount = U128(deposit.as_yoctonear() - storage_cost.as_yoctonear());
+        self.escrows.insert(&id, &escrow);
         env::log_str(&format!("arbiter_escrow_created id={} pr_key={}", id, key));
         id
     }
@@ -154,9 +180,11 @@ impl ArbiterEscrow {
     pub fn resolve(&mut self, id: u64) -> Promise {
         let deposit = env::attached_deposit();
         assert!(deposit >= MIN_RESOLVE_FEE && deposit <= MAX_RESOLVE_FEE, "attach 0.005-0.02 NEAR for OutLayer");
+        assert!(env::prepaid_gas() >= MIN_RESOLVE_PREPAID, "attach at least 290 Tgas");
         let mut escrow = self.escrows.get(&id).expect("escrow not found");
         assert!(escrow.status == EscrowStatus::Created, "not resolvable");
         escrow.status = EscrowStatus::Resolving;
+        escrow.resolving_since_block = env::block_height();
         self.escrows.insert(&id, &escrow);
 
         let t: Value = serde_json::from_str(&escrow.terms).expect("stored terms must be JSON");
@@ -167,6 +195,7 @@ impl ArbiterEscrow {
             "pr_number": t["pr_number"],
             "author": t["author"],
             "deadline_unix": t["deadline_unix"],
+            "not_before_unix": t.get("not_before_unix").cloned().unwrap_or(json!(0)),
         })
         .to_string();
 
@@ -264,10 +293,20 @@ impl ArbiterEscrow {
         assert!(escrow.status != EscrowStatus::Resolving, "resolution in flight");
         let immediate = escrow.status == EscrowStatus::PayoutFailed;
         assert!(immediate || now >= escrow.deadline_unix + REFUND_GRACE_SECS, "deadline + grace not passed");
-        let amount = NearToken::from_yoctonear(escrow.amount.0);
+        let amount = NearToken::from_yoctonear(escrow.amount.0 + escrow.storage_deposit.0);
         self.escrows.remove(&id);
         self.drop_index(&escrow);
         let _ = Promise::new(escrow.buyer).transfer(amount);
+    }
+
+    /// Anyone may un-stick an escrow whose resolution never called back (e.g. out of gas).
+    pub fn reset_stuck(&mut self, id: u64) {
+        let mut e = self.escrows.get(&id).expect("escrow not found");
+        assert!(e.status == EscrowStatus::Resolving, "not resolving");
+        assert!(env::block_height() >= e.resolving_since_block + RESOLVING_TIMEOUT_BLOCKS, "resolution still in flight");
+        e.status = EscrowStatus::Created;
+        self.escrows.insert(&id, &e);
+        env::log_str(&format!("arbiter_reset_stuck id={}", id));
     }
 
     pub fn get_escrow(&self, id: u64) -> Option<Escrow> {
@@ -287,7 +326,7 @@ impl ArbiterEscrow {
     fn drop_index(&mut self, e: &Escrow) {
         if let Ok(t) = serde_json::from_str::<Value>(&e.terms) {
             if let (Some(repo), Some(pr)) = (t["repo"].as_str(), t["pr_number"].as_u64()) {
-                self.pr_index.remove(&format!("{}#{}", repo.to_ascii_lowercase(), pr));
+                self.pr_index.remove(&format!("{}|{}#{}", e.buyer, repo.to_ascii_lowercase(), pr));
             }
         }
     }
