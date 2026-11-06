@@ -1,94 +1,135 @@
-# Suwappu × Devcon: Alignment Strategy (Nov 2026)
+# Suwappu × Devcon: Alignment Strategy (v2, transcript-based, 2026-11-06)
 
-> Source: archive.devcon.org scan on 2026-11-06, covering Devcon 7 Bangkok '24, Devconnect Buenos Aires '25 and Devcon 8 Mumbai '26 (Nov 3–6, which ended today).
-> **Confidence caveat:** Devcon 8 archive pages exist, but they have no videos or transcripts yet. Devcon 8 themes below come from tracks, titles and which talks got keynote or staff-pick slots, not from the talks' arguments. Devcon 7 and Devconnect findings come from talk descriptions, not full transcripts. Re-run once the Devcon 8 videos land (see §6).
+**Evidence base**
+- **Devcon 7:** 410 transcripts from api.devcon.org, plus 5 broken ones re-transcribed locally.
+- **Devcon 8 and Devconnect Buenos Aires:** YouTube captions are IP-blocked, so 90 talks were downloaded as audio and transcribed with Whisper (ranked by relevance).
+- Read in depth by 4 researchers. Per-talk notes and quotes are in [`devcon-research/devcon7-transcripts.md`](devcon-research/devcon7-transcripts.md) and [`devcon-research/devcon8-devconnect-transcripts.md`](devcon-research/devcon8-devconnect-transcripts.md).
+- v1 of this doc was built from talk descriptions only. Several v1 calls were **wrong** and are reversed below (§5).
 
-## 1. What the Ethereum community is saying (ranked)
+---
 
-| # | Theme | Evidence |
+## 1. The thesis, in their words
+
+Across three events the message to app builders has converged.
+
+1. **Trustlessness is hygiene, not a feature.**
+   - Vitalik: *"Trustlessness is not something you should think about as a feature. Trustlessness is hygiene."*
+   - Trust leaks through server-hosted UIs, RPCs, relayers and custodians.
+   - EF co-ED Tomasz Stańczak called out *"very dishonest practices on the marketing side… not disclosing all the risks."*
+2. **Limits go on the wallet, not the prompt.**
+   - MetaMask: *"If the model is fooled, the wallet still says no."*
+   - Audrey Tang: hard caps, on-chain receipts, and a human above the caps; LLM-enforced rules are soft.
+   - Base shipped spend-only permissions because *"users are not informed enough"* to approve arbitrary-call session keys.
+3. **Validate execution; don't just protect keys.**
+   - The $7.5M JaredfromSubway hack: *"His keys were never really stolen. His bot signed exactly what the attacker wanted"*. That was 66 unlimited approvals to fake tokens.
+   - Blockaid: an allowlisted router can still send output to an attacker through its `to` parameter.
+   - Sourcify on Bybit: *"The signers trusted, but they didn't verify."*
+4. **Chain abstraction must not hide risk.**
+   - L2BEAT: a user lost 87% to slippage because the UI silently used an external bridge.
+   - Peanut: *"either you expose the risk… or you curate it for them and then don't get surprised if people… hunt you down."*
+   - L2BEAT will now publicly list every interop protocol, without being asked.
+5. **Agents: identity plus thresholded autonomy, not "give the AI your wallet".**
+   - ERC-8004 plus x402 plus MCP/A2A is the agreed stack, but the 8004 registry is noise: only 2.24% of 386k agents are healthy.
+   - The intents panel: *"If you tell me your entire wallet is now the property of an AI… oh my God, no."*
+   - LLM-only traders lost money; rule-bounded agents won.
+6. **Privacy by default is coming.** Kohaku SDK (Railgun, Privacy Pools, Helios, Tor) gets a broader release in about 2 months. Lefteris: *"A free product always hides a data tax."*
+7. **The clock is set.**
+   - PQ "Mission 2028": Glamsterdam around Jan 2027, Hegota around Aug 2027, full PQ by Dec 2028. 72% of ETH sits behind exposed pubkeys.
+   - "One Ethereum" same-block composability targets its first chain around Q1 2027.
+
+## 2. Where Suwappu actually stands (verified in code today)
+
+| Devcon expectation | Suwappu today | Verdict |
 |---|---|---|
-| 1 | **Privacy by default** | Devcon 8 keynotes: "End-to-End Privacy", "Kohaku: privacy for everyone, by default", "Private State, Public Network", and a Tor AMA (Dingledine). Devcon 8 also has a Privacy & Consent track. Privacy went from a side track at Bangkok to the center at Buenos Aires ("privacy and ZK everything"). |
-| 2 | **Trustlessness / walkaway test / minimal trust surface** | Vitalik's Devcon 8 keynote "The Open Secure and Verifiable Half to a Brighter Future". The keynote "Reducing the Trust Surface". The Open & Verifiable Stack track. At Buenos Aires: the Trustless Manifesto fireside and the trustless:// track; Vitalik cited FTX as "everything Ethereum is not". |
-| 3 | **AI agents that can be verified as safe** | Vitalik × Audrey Tang, "Can Agents Be Safe in the Open? Two Levels of Trust". The Users, Builders & Agents track. At Buenos Aires: the ERC-8004 "Trust Layer in the Agentic Stack" panel (MetaMask, EF dAI, Flashbots, Nethermind), whose message was "build agents, not agent platforms"; "x402scan" (discovery and reputation); "Privacy on x402" (Aztec). |
-| 4 | **One Ethereum: intents and chain abstraction** | Devcon 8: "One Ethereum: Same Block, Every Chain". Devcon 7: "Unifying Ethereum Through Intents and ERC-7683" and "Chain abstraction is risk abstraction". Buenos Aires: Jim Chang (LI.FI), "Chain abstraction with the OIF" (Resource Locks, Multichain Inputs). |
-| 5 | **Post-quantum transition** | Devcon 8 staff-pick keynote (Drake) plus a PQ Q&A. |
-| 6 | **Wallet security and clear signing** | Buenos Aires: "EIP-7702: Empowering EOAs, Expanding Attack Surfaces". ERC-7730 clear signing (EF working group, clearsigning.org, WalletConnect support). Off-archive: 7702 phishing-delegation research. |
-| 7 | **MEV as a protocol and ordering problem** | Devcon 7: Poon, "L2-specific MEV mitigation"; "Encrypted mempools". |
-| 8 | **Real-world rails in India and the global south** | Devcon 8: "Open Financial Rails for India", Digital Rights in DPIs, Bhutan DID. Buenos Aires: the fintech & payments panel and the Argentina-adoption talk. |
-
-**What the community values:** credible neutrality, self-custody, open standards, open source, usefulness over speculation.
-**What it criticizes:** custodial or single-operator dependence, casino or memecoin culture, opaque intermediaries, closed agent "platforms".
-
-## 2. Where Suwappu stands today (repo check, 2026-11-06)
-
-| Area | State | Read to a Devcon audience |
-|---|---|---|
-| x402 pay-per-call + MCP + A2A | Built; metering is on in prod | ✅ Aligned, and ahead of most teams |
-| Agent control plane (policy gate, approvals, hash-chain audit, PR #666) | Built | ✅ This is exactly the "trust layer" the ERC-8004 panel described |
-| Non-custodial wallets (MetaMask/WalletConnect/Ledger, client-signs) | Terminal only | ⚠️ Exists but is not the default story |
-| Custodial KMS wallets + omnibus deposit custody | Default on bot/webapp | ❌ Fails the walkaway test unless there is an exit path |
-| LI.FI routing | Core | ⚠️ A proprietary-aggregator dependency; LI.FI is itself an OIF contributor, though |
-| ERC-7683 / OIF intents | Not present | ❌ Gap |
-| ERC-8004 agent identity/reputation | Not present | ❌ Gap: cheapest high-signal win |
-| ERC-7730 clear-signing metadata | Not present | ❌ Gap |
-| EIP-7702 / ERC-7715 session keys | Only a mention in the policy schema | ⚠️ Gap |
-| Privacy (stealth receive, Kohaku/Railgun compatibility) | Not present | ❌ Gap: this is theme #1 |
-| MEV-protected submission | Settings exist (13 files) | ⚠️ Verify it is the default, then surface it |
-| Snipe / launch_detector / memecoin discovery | Prominent (/snipe, Pulse) | ❌ Misaligned *as the headline* |
-| Seasons points → SUWP | Built | ⚠️ Reads as farming unless it is fee-based and transparent |
+| Hard limits outside the agent | `PolicyService.ts`: chain/token/destination/contract allowlists, fail-closed; approvals service; hash-chained audit | ✅ **Real asset.** The "limits on the wallet" thesis, already built |
+| Outcome-based policy (simulate, check who gains) | Policy checks *targets* only, with no simulated-delta check | ❌ The exact gap Blockaid named |
+| No unlimited approvals | `approval_mode` **defaults to `"unlimited"`** (`bot/config/settings.py:1232`); CCIP/SunSwap/CoW paths hard-code max uint | ❌ **The same pattern as the $7.5M hack.** Fix first |
+| Route risk disclosure | LI.FI routes shown without the settlement trust model | ❌ |
+| ERC-8004 identity + published execution quality | Not present. We *do* have post-trade scoring and markouts | ❌ Cheapest high-signal win |
+| x402 / MCP / A2A | Built, metering on | ✅ Ahead of most teams |
+| Self-custody / walkaway | Custodial KMS by default, omnibus deposits; the non-custodial path is terminal-only | ❌ Fails "not your silicon, not your keys". Also a regulatory exposure (MiCA front-end test, money-transmitter framing) |
+| Clear signing (ERC-7730) | Absent | ❌ |
+| Snipe / memecoin | Headline features | ⚠️ Misaligned as the *headline*; FOCIL doesn't cover the ~47% private flow these depend on |
+| PQ readiness | Hot and omnibus keys have exposed pubkeys | ⚠️ "Bunker mode" applies to custodians, so it applies to us |
 
 ## 3. Positioning
 
-**From:** "a cross-chain DEX bot across 7+ chains" (casino-adjacent, custodial).
-**To:** **"The verifiable execution layer for humans and agents: intents in, best fill out, every hop disclosed, keys yours, agents on a leash."**
+**"The execution venue that says no for you."**
 
-Positioning pillars, each tied to a community theme:
-1. **Walk-away-able.** Default to non-custodial, give custodial users a one-tap key export and exit, and open-source the SDK and MCP server. (Theme 2)
-2. **Disclosed abstraction.** Every route shows its hops, its bridge/solver trust model, the fill guarantee and all fees. ("Chain abstraction is risk abstraction", theme 4)
-3. **Agents on a leash.** ERC-8004 identity, policy-gated spend, an audit chain, x402. (Theme 3)
-4. **Private when you want it.** Stealth receive, plus "what is hidden from whom" disclosure. (Theme 1)
+The verifiable execution layer for traders and AI agents:
+- hard limits enforced outside the agent;
+- every route's trust model disclosed;
+- every fill receipted and scored;
+- your keys, or a custody model you can walk away from.
 
-Keep sniping and memecoin discovery as power-user features in the terminal, and take them out of the hero and Devcon-facing copy. Do **not** cut them from the product; that is a scope decision for the founder (see the CLAUDE.md scope rule).
+Why this works:
+- The Devcon consensus is that *agents should never hold the keys or set the limits*. That is the gap nobody owns and the thing Suwappu already half-built (policy gate + approvals + audit chain + execution scoring).
+- Generic "cross-chain swap aggregator" is commoditising. Wallets will embed intent APIs (Goldfeder, ZeroDev, OIF), and CoW is building a cross-chain auction across Ethereum, Solana and Tron.
+- The defensible layer is **policy + verification + receipts**, sold to agents and institutions.
 
-## 4. Ranked build plan
+Disclosure won't convert retail: L2BEAT says LI.FI told them showing risk *"did not change the user's behavior"*. It *does* sell to institutions on liability grounds. So route disclosure is an **Enterprise/agent feature first**, and retail second.
 
-Ranked by alignment signal per unit of effort. Every item that touches keys, signing, custody or fees is **MONEY-PATH** and needs `money-path-reviewer`.
+## 4. Build plan (ranked; ⚠️ = MONEY-PATH, needs `money-path-reviewer`)
 
-| P | Item | Effort | Why |
-|---|---|---|---|
-| **P0** | **ERC-8004 registration** for the Suwappu agent and MCP server (identity + reputation registry), and list our x402 endpoints on x402scan | S | The most-discussed agent standard at Buenos Aires; we already have the control plane behind it. |
-| **P0** | **Route risk disclosure** on every quote: hops, bridge/solver trust type, fill guarantee, fee split. Reuse the existing `route_data` quote snapshot | S–M | A direct answer to "chain abstraction is risk abstraction"; also builds trust for TCA. |
-| **P0** | **Custodial exit path:** documented key export and withdraw-all for KMS wallets, plus a public "walkaway" page | M (MONEY-PATH) | Neutralizes the biggest misalignment without killing Telegram UX. |
-| **P1** | **ERC-7730 clear-signing metadata** for our router/approval calls on non-custodial flows; submit to the clearsigning.org registry | S | No blind signing; a cheap credibility win. |
-| **P1** | **MEV-protected submission on by default** for EVM swaps (private RPC), surfaced in the UI | S (MONEY-PATH) | Mostly wired already; make it visible. |
-| **P1** | **ERC-7683 / OIF intent adapter** behind the router (LI.FI already contributes to OIF), exposing a standard intent surface in the agent API | M–L (MONEY-PATH) | "One Ethereum" alignment; lowers lock-in to a single aggregator. |
-| **P2** | **EIP-7702 batching + ERC-7715 session keys** so approve-and-swap needs one signature, and agents get scoped, revocable permissions. Never delegate to unaudited contracts, and show the delegate address | L (MONEY-PATH) | Fits UX and agents; must follow the 7702 attack-surface lessons. |
-| **P2** | **Stealth-address receive** (ERC-5564) for swap outputs; track Kohaku SDK compatibility | M (MONEY-PATH) | The #1 Devcon 8 theme; a privacy story for the agent API too (per Kothari: be explicit about what is hidden from whom). |
-| **P3** | **India rails:** INR on/off-ramp partners, stablecoin remittance flow, Telegram Mini App distribution | M | Devcon 8 host-market focus; check tax/regulatory constraints first. |
-| **P3** | **PQ readiness note:** a statement on our dependency on the Suwappu-Labs PQ DAG work | S | Ties our existing PQ research to the Devcon 8 keynote theme. Don't overclaim. |
+### P0: close the holes Devcon speakers used as cautionary tales (this sprint)
+1. ⚠️ **Flip `approval_mode` default to `exact`.** Remove the hard-coded max approvals in `ccip_api.py:479`, `sunswap_api.py:300` and `cow_api.py:496`. Add an approval-revoke sweep for existing user allowances.
+   - Source: the $7.5M hack.
+   - Accept the extra approve tx; batch it with 7702 later.
+2. ⚠️ **Outcome-based policy check.** Simulate each agent tx and block if any address other than the user or allowlisted destination gains value, even when the router is allowlisted. Deny EIP-712 permits to unknown spenders by default.
+   - Sources: Blockaid, 1Claw.
+   - Acceptance: an allowlisted-router swap whose `to` is an attacker gets rejected.
+3. **Verify the "Railway env-var key breach" claim** (1Claw, unverified) and audit which secrets sit in Railway env vars. *Not your silicon* applies.
 
-## 5. Go-to-market
+### P1: become the credible agent venue (next 4–6 weeks)
+4. **ERC-8004 registration**: A2A agent card plus MCP endpoints, using the Agent0 SDK.
+   - **Publish our execution receipts** (post-trade scoring, markouts) to the validation and feedback registries, in 8004scan's 5-field metric format (property / numerator / denominator / time / limits).
+   - Registry noise is our opening: be the venue with *real* receipts.
+5. **Thresholded autonomy ladder** in the policy layer, following Base's spend-permission shape:
+   - spend-only scopes, amount per period, expiry, one-click revoke;
+   - human approval above a threshold, with the threshold rising as the agent's track record grows (Across/intents panel);
+   - arbitrary-call permissions off by default.
+6. ⚠️ **Route trust disclosure plus size bands.** Per quote, show:
+   - settlement path (canonical / CCTP / LZ DVN config / escrow+oracle / transfer-to-solver-EOA / HTLC);
+   - who can steal; who can freeze;
+   - refund path;
+   - destination chain's L2BEAT stage.
 
-- **Narrative:** publish "How Suwappu passes the walkaway test" (custody, exit, open-source, disclosure) and "Agents on a leash: ERC-8004 + policy + x402" as the two flagship posts. Use original data where possible, such as the execution-intelligence markouts (see the research-post-series bar: no generic synthesis).
-- **Devconnect 2027 / next Devcon:** submit a talk on *risk-disclosed cross-chain execution for agents*, with real fill/markout data. Apply to Trustless Agent Day–style side events (EF, Coinbase, Google Cloud, MetaMask).
-- **Grants:** EF ESP and PSE privacy grants for the stealth-receive and clear-signing work; this pairs with the Anthropic Startup Program for agent credits.
-- **Copy rule:** never call omnibus custody "self-custody". Lead with utility (stablecoins, cross-chain settlement, agents), not memecoins.
+   Above a size threshold, route only to CCTP/canonical/atomic rails. First step: **audit which settlement paths our LI.FI routes actually land on**. No single score (L2BEAT rejects scores).
+7. **MCP read provenance**: add block number, source and freshness fields on every quote and read tool (Envio).
+8. **Venue compatibility matrix**: smart-account wallets break on Polymarket (no 1271) and Hyperliquid (K1 only). Agent wallet type is chosen per venue (Clave).
 
-## 6. Follow-ups
+### P2: walkaway + privacy (quarter)
+9. ⚠️ **Custodial exit and transparency.** Key export, withdraw-all, a public "walkaway" page, published front-end hashes. Make the non-custodial path first-class beyond the terminal.
+   - Regulatory angle: non-custodial avoids money-transmitter framing (Williamson), and MiCA's front-end test reaches custodial bots (EUCI). Get counsel review before EU push.
+10. **ERC-7730 clear-signing descriptors** for our router and approval calls on non-custodial flows.
+11. **Privacy as a paid Pro feature (non-custodial only):** Privacy Pools / Railgun deposit toggle via Kohaku SDK when it releases (~2 months), Helios light client, Tor. Do **not** promise privacy for custodial wallets. Revenue model per Lefteris: explicit premium, no data monetisation.
+12. ⚠️ **PQ "bunker mode" for custodial keys.** Minimise pubkey exposure of omnibus and hot wallets (fresh receive addresses, rotation), and plan migration aligned with Hegota (Aug 2027) and the Dec 2028 target.
 
-- [ ] Re-scan archive.devcon.org/devcon8 in ~1–2 weeks, once videos and transcripts post. Priorities: Vitalik's keynote, "Can Agents Be Safe in the Open?", "One Ethereum: Same Block, Every Chain", "Kohaku", "Open Financial Rails for India". Update §1 confidence.
-- [ ] Transcript-level read of: Jim Chang OIF (Buenos Aires), Malhotra on 7702 (Buenos Aires), the ERC-8004 panel (Buenos Aires), Poon on MEV (Devcon 7).
-- [ ] Founder decision: how far to de-emphasize /snipe and launch_detector in public positioning.
+### P3: watch / adapters
+13. **Quote-source interface** that can slot in **EIL** (testnet; wallets self-execute) and OIF sources later. Do **not** make ERC-7683 our interface (see §5).
+14. **Track CoW's cross-chain auction** (a direct competitor including Solana and Tron) and "One Ethereum" (first chain ~Q1 2027).
+15. **India**: the Devcon 8 rails talk warns to avoid outbound flows, and Tether freezes are a real risk; x402 at scale needs cumulative vouchers.
 
-## Key sources
-- https://archive.devcon.org/devcon8/ (Devcon 8 talk shells)
-- https://archive.devcon.org/devconnect-arg/panel-the-trust-layer-in-the-agentic-stack-erc-8004
-- https://archive.devcon.org/devconnect-arg/x402scan-the-discovery-layer-for-x402
-- https://archive.devcon.org/devconnect-arg/privacy-on-x402-or-rahul-kothari-at-agentic-zero
-- https://archive.devcon.org/devconnect-arg/trustlessinteroplandscape-jim-chang-chain-abstraction-with-the-oif
-- https://archive.devcon.org/devconnect-arg/trustlesseil-fireside-chat-the-trustless-manifesto
-- https://archive.devcon.org/devconnect-arg/eip-7702-empowering-eoas-expanding-attack-surfaces
-- https://archive.devcon.org/devcon-7/chain-abstraction-is-risk-abstraction
-- https://archive.devcon.org/devcon-7/l2-specific-mev-mitigation-strategies
-- https://archive.devcon.org/devcon-7/better-privacy-defaults-for-your-users-with-stealth-addresses
-- https://archive.devcon.org/devcon-7/keynote-the-real-state-of-l2s/
+## 5. What v1 got wrong (corrected by transcripts)
+- **"Adopt ERC-7683" → don't.** Chellani (Socket) says it is broken as an interface: only 15–20 fillers, and it standardises the order but gives users no execution guarantee. Yoav Weiss says solver intents have structural griefing and oracle problems, and that EIL removes the solver. Correct posture: an adapter, not a foundation.
+- **"Disclosure builds trust with users" → only with institutions.** LI.FI/Socket data says retail ignores it.
+- **"MEV protection on by default" → still right, but the bigger hole is approvals and outcome checks.** Speakers agree MEV is unsolved at the protocol level, and that agent losses come from unvalidated execution.
+- **v1 treated agents as a marketing angle → it's the core.** Devcon's agent consensus is a near-perfect description of our control plane, minus simulation and receipts.
+
+## 6. Go-to-market
+- **Flagship post (original data):** "What our policy gate blocked." Publish blocked-tx stats, the approvals-exact migration and outcome-check catches, with execution receipts. That meets the research-post bar.
+- **Talk submissions** (Devconnect 2027 / Devcon 9): *"Limits on the wallet: receipts from an agent execution venue"*, using real fill and markout data plus 8004 validation results.
+- **Copy rules:**
+  - never call omnibus custody "self-custody";
+  - lead with agents, policy and receipts; keep snipe as a power-user feature, not the hero;
+  - always disclose route trust in docs.
+- **Grants/partners:** EF ESP for clear signing and Kohaku integration. 8004 ecosystem (MetaMask AI, EF dAI) for agent-card listing. **Lefteris's caution:** grants are not a revenue plan.
+
+## 7. Decisions needed (founder)
+1. Flip `approval_mode` to `exact` globally? It costs one extra approve tx per new token pair. **Recommend yes.**
+2. How far to de-emphasise snipe and launch features in public positioning. Recommend: keep in product, drop from hero copy.
+3. Is custody posture changing (exit path now; non-custodial-default in the Mini App later)?
+
+## 8. Follow-ups
+- Re-run ASR on the remaining ~90 Devcon 8 videos if a topic needs depth (pipeline: `$CLAUDE_JOB_DIR/tmp/scripts/pipeline.py`; the job dir is temporary).
+- The "End-to-End Privacy" keynote video was removed; check for a re-upload.
