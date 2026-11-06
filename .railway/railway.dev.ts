@@ -6,9 +6,12 @@ export default defineRailway(() => {
   const suwappubot3 = github("0xSoftBoi/suwappubot", { branch: "feat/pump-onchain-ingest", checkSuites: false });
 
   const Redis = redis("Redis", { region: "us-west2" });
-  Redis.deploy = { startCommand: "/bin/sh -c \"rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH\"" };
+  // Dev databases are deliberately cost-minimised (sleep, no auto-restart). `railway config pull` omitted
+  // these two settings; without them `config plan` would wake the databases and change their restart policy.
+  Redis.deploy = { startCommand: "/bin/sh -c \"rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH\"", restartPolicyType: "NEVER", sleepApplication: true };
   Redis.networking = { privateNetworkEndpoint: "redis", tcpProxies: { "6379": {} } };
   const Postgres = postgres("Postgres", { region: "us-west2" });
+  Postgres.deploy = { restartPolicyType: "NEVER", sleepApplication: true };
   Postgres.networking = { privateNetworkEndpoint: "postgres", tcpProxies: { "5432": {} } };
   const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "us-west2", sizeMB: 50000 });
   const redisVolume = volume("redis-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "us-west2", sizeMB: 50000 });
