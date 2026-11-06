@@ -135,7 +135,15 @@ def validate_manifest(data: dict[str, Any], repo_root: Path) -> list[str]:
                 errors.append(f"{label}: persistent GitHub services must wait for CI")
             if any(pattern.startswith("/.manual-deploy-only/") for pattern in watch_patterns):
                 errors.append(f"{label}: persistent service uses a manual-only watch path")
-            for field in ("rootDirectory", "configFile", "dockerfilePath"):
+            # Once the project is IaC-managed, production services are configured by
+            # .railway/railway.ts and must not carry a Config-as-Code file (Railway
+            # refuses to manage a service from both). Dev still reads its files until
+            # its own IaC import lands, so only production drops the requirement.
+            iac_managed = (data.get("infrastructureAsCode") or {}).get("status") == "managed"
+            fields = ("rootDirectory", "dockerfilePath")
+            if not (iac_managed and environment == "production"):
+                fields = ("rootDirectory", "configFile", "dockerfilePath")
+            for field in fields:
                 if not isinstance(instance.get(field), str) or not instance[field]:
                     errors.append(f"{label}: persistent service requires {field}")
             if kind in {"http", "worker"} and not instance.get("healthcheckPath"):
@@ -253,10 +261,15 @@ def validate_iac_transition(
         return errors, notices
 
     literals = _string_literals(iac_path.read_text())
+    # .railway/railway.ts is a production authoring file (`railway config pull
+    # --environment production`). Dev-only services can never appear in it, so only
+    # production instances are required; dev is covered by its own file later.
     required = {
         instance["name"]
         for instance in data["instances"]
-        if isinstance(instance, dict) and isinstance(instance.get("name"), str)
+        if isinstance(instance, dict)
+        and isinstance(instance.get("name"), str)
+        and instance.get("environment") == "production"
     }
     missing = sorted(required - literals)
     if missing:
@@ -266,11 +279,19 @@ def validate_iac_transition(
             "would destroy them."
         )
 
+    # A Config-as-Code file is only "stale" if no non-production instance still reads it.
     stale = sorted(
         {
             instance["configFile"]
             for instance in data["instances"]
             if isinstance(instance, dict) and isinstance(instance.get("configFile"), str)
+        }
+        - {
+            instance["configFile"]
+            for instance in data["instances"]
+            if isinstance(instance, dict)
+            and isinstance(instance.get("configFile"), str)
+            and instance.get("environment") != "production"
         }
     )
     still_present = [path for path in stale if (repo_root / path.lstrip("/")).is_file()]
