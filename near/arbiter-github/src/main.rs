@@ -7,7 +7,7 @@
 //!
 //! Input (stdin, JSON, built by the escrow contract from immutable terms):
 //!   { "context": "github_pr_v1", "escrow_id": 7, "repo": "owner/name", "pr_number": 123,
-//!     "author": "octocat", "deadline_unix": 1760000000 }
+//!     "author": "octocat", "deadline_unix": 1760000000, "not_before_unix": 0 }
 //!
 //! Output (stdout, JSON, < 900 bytes):
 //!   { "verdict": "pass"|"fail", "reason": "...", "evidence_hash": "<sha256 hex of GitHub body>",
@@ -33,6 +33,9 @@ struct Input {
     pr_number: u64,
     author: String,
     deadline_unix: i64,
+    /// Optional: the PR must have merged at or after this time (buyer-chosen; SDKs set it to escrow creation).
+    #[serde(default)]
+    not_before_unix: i64,
 }
 
 #[derive(Serialize)]
@@ -146,6 +149,17 @@ fn main() {
     };
     if merged_at > input.deadline_unix {
         return emit(&input, "fail", "merged_after_deadline", &body);
+    }
+    if merged_at < input.not_before_unix {
+        return emit(&input, "fail", "merged_before_escrow", &body);
+    }
+    // The worker must not be able to self-merge their own PR to get paid.
+    let merger = v["merged_by"]["login"].as_str().unwrap_or("");
+    if merger.is_empty() {
+        return emit(&input, "fail", "merger_missing", &body);
+    }
+    if merger.eq_ignore_ascii_case(&input.author) {
+        return emit(&input, "fail", "self_merged", &body);
     }
     emit(&input, "pass", "merged_as_required", &body)
 }
