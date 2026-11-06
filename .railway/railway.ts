@@ -122,7 +122,7 @@ export default defineRailway(() => {
     healthcheck: "/health",
     healthcheckTimeout: 300,
     replicas: { "us-east4-eqdc4a": 1 },
-    deploy: { restartPolicyMaxRetries: 10 },
+    // restartPolicyMaxRetries 10 is Railway's default and is normalised to null; omit it (see note at top).
   });
   const Redis2 = group("Redis", [Redis]);
   const PostgreSQL = group("PostgreSQL", [Postgres]);
