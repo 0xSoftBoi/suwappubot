@@ -85,7 +85,7 @@ and every verdict is anchored on-chain as a signed work attestation.
 **Live demo → [suwappu.bot/arbiter](https://www.suwappu.bot/arbiter)** (dry-run by default; no
 funds needed). Built as a product line — see [`ARBITER.md`](ARBITER.md) for the 12-month plan —
 with an open attestation spec at [`docs/arbiter-attestation-v1.md`](docs/arbiter-attestation-v1.md).
-Diff vs the pre-hackathon baseline: `pre-hackathon...hackathon/arbiter`.
+Hackathon work (baseline commit `99161598`, the last commit before the build window): pull requests [#1096](https://github.com/0xSoftBoi/suwappubot/pull/1096), [#1098](https://github.com/0xSoftBoi/suwappubot/pull/1098), [#1099](https://github.com/0xSoftBoi/suwappubot/pull/1099); everything under `near/`, `showcase/src/app/arbiter/` and the Arbiter docs.
 Judge steps (dry-run, then testnet commands) and honest scope notes are in
 [`docs/hackathon/arbiter.md`](docs/hackathon/arbiter.md).
 
