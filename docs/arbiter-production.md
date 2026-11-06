@@ -73,7 +73,8 @@ rejected condition, not a verified reason. Superseded earlier builds: `arb.suwap
 
 ## Contract v3 (`near/arbiter-contract-v3`) — review status (2026-11-05)
 
-Adds the `http_json_v1` rubric via a compile-time rubric table. Not deployed. One Opus money-path review found no way
+Adds the `http_json_v1` rubric via a compile-time rubric table. **Deployed to NEAR testnet 2026-11-05 as
+`suwappu-arb3.testnet`** (see "Live testnet evidence" below). One Opus money-path review found no way
 for a stranger to take funds. Fixes were applied and checked in a scratch harness (12 checks, including a negative
 control: disabling the guard makes the double-callback check fail):
 
@@ -87,7 +88,46 @@ control: disabling the guard makes the double-callback check fail):
 - **Open (outside the contract):** hostnames like `127.0.0.1.sslip.io` pass host validation. Whether OutLayer's
   `wasi:http` host filters private IPs, pins DNS or follows redirects is undocumented. Do not announce `http_json_v1`
   before asking OutLayer.
-- **Open (verify on testnet):** whether OutLayer accepts a ~2 KB `input_data`.
+- **Closed (tested on testnet):** OutLayer accepted the largest `http_json_v1` terms the field caps allow (1,694 bytes,
+  every field at its cap) and returned a verdict (escrow #4 below). Larger inputs are not possible: the per-field caps
+  sit below the 2,048-byte terms limit.
 - **Reproducible (one machine):** artifact `2acc016a…` rebuilds bit-for-bit from a clean `git archive` of commit
   `1f85a7ee` in a different directory with `cargo build --release --locked --target wasm32-wasip2`
   (rustc 1.96.0 ac68faa20, x86_64-unknown-linux-gnu). Not yet tried on a second machine or a pinned container image.
+
+## Live testnet evidence — `suwappu-arb3.testnet` (contract v3), 2026-11-05
+
+NEAR **testnet only**. Nothing here is audited and nothing is on mainnet.
+
+- **Account:** `suwappu-arb3.testnet`, a new top-level account created through the testnet faucet (tx
+  `4Zmi2AfbPYvh3JiRPPvQmXP2opV58RfsUjcgztgojaUT`, funded 10 NEAR). The planned subaccount
+  `arb3.suwappu-arbiter.testnet` was not possible: the parent holds 2.95 NEAR but ~1.44 NEAR of that is locked as storage
+  for its own contract, leaving ~1.5 spendable (the CLI refused the 1.85 NEAR transfer before broadcasting).
+- **Code:** sha256 `667f4c62a77bdb59442d74daf75d2bb6c093c8bb1fcf893e4bba6562cff9ba8a` (169,565 bytes), built from source
+  at commit `ec52c3d6` with plain `cargo build --release --target wasm32-unknown-unknown` (not `cargo near`; build
+  reproducibility of the contract is NOT verified). The on-chain account's code checksum equals this hash.
+- **Pinned arbiters** (from the `arbiter` view): `github_pr_v1` `f1818167…412b`, `http_json_v1` `2acc016a…60a7`.
+- **Transport:** every escrow below was resolved by the real OutLayer testnet enclave (`outlayer.testnet`). The
+  `arbiter_attestation` log lines carry `rubric=`, `buyer=` and `amount_yocto=`.
+
+| Escrow | Rubric / terms | Result | Txs |
+|---|---|---|---|
+| #3 | `github_pr_v1`, PR #993 (same PR as the `arb2` pass) | **pass**, `Paid` | create `HnNZvHf61sEYLEMLVeCN6BuenJidhX8bQS7f2nCY4Ugd`, resolve `E3TmuRYaLP8iYvhuTKdjFZs8uFDry9vpH1DnGbdXid7g` |
+| #2 | `http_json_v1`: RPC `view_account` of `arb.suwappu-arbiter.testnet` (an idle account nothing else touches), `/result/amount >= 3.1 NEAR`; balance 3.049 NEAR | **fail**, then after a 0.1 NEAR transfer to that account **pass**, `Paid` (`resolve_nonce` 2) | create `35ZeM5TadpYnXht9ixYwZ2qD9pJJrj5RTA9J2fo1QERs`, resolve (fail) `91Nhb6bEnoytMzrQGm59tzLj76f1q28JYXUxyhHVRt7r`, transfer `BLgtpL8fSgJjSkow1ggfPuLGh4sXzuo3NsSta1MdKZpi`; the pass resolve tx hash was not captured (find it in the account history) |
+| #4 | `http_json_v1`, every field at its cap (URL 300, body 512, 4 checks; terms 1,694 B) | enclave ran and returned `fail http_status_400` (the padded request, not an OutLayer rejection) | create `FWv8nUQoMz9TbLigDQgvpXo5wnvCzTMdoqp4kswcBgYh`, resolve `ASfp9kYvNgsZRznMbcrDth9BB1MSHrmSKGXmWxYuPAG9` |
+| #0, #1, #5 | `http_json_v1` observing the **worker account that calls `resolve`** | see caveat | #0 create `2X7qPCzi15915VLjpLsappKXxr55ahDwN5ZihS9n3zF7`, resolves `CoaqcF4iFaKxkgedX49RtGScw369S2DMv8pQ5nW82oHc` / `4AKsjZoU6NrnsLBJ5Vq3MpWHBXL146yVKbwfhZUUAN9j` / `5ysybF2HFQq1AckHWazeNdz7XTLfG1qGYCkRPdZZUvKn`; #1 create `8JtxvAKH2khLL4TbPbPUizcmPstp4eeMhx1bJ4JpQGBG`, resolve `EvPhBAGy4CUnCj2uL4pbVk5PNrrNQWDck9toFn58QA2V`; #5 create `GyxguNVm3jAtsid1x9UeoQ1gJQQbzpTAQKrVGz5SmmcR`, resolve `437b1hxni7Qprk4PmcUMG6Z33yQ77EWjnxoFHDQSFTSh` |
+
+**Unexplained caveat (observed, cause not established).** Escrows #0, #1 and #5 watched the balance of the same account
+that paid for `resolve`. The first #0 fail was correct (0.84 < 1 NEAR). After the account was funded to 1.14 NEAR, two
+more resolves still failed `check_failed_0`. A diagnostic with ordered checks (#1) showed the enclave received a valid
+JSON-RPC response containing the account, with only the threshold check failing. A threshold ladder (#5) showed it saw
+a balance at least 0.2 NEAR below the settled value, although the same wasm run locally against the same RPC passes.
+The attached deposit plus prepaid gas should lock only ~0.05 NEAR, so that does not fully explain it. Whatever the
+cause, **do not watch the caller's own balance**; the untouched-account test (#2) behaves correctly. Left unresolved.
+
+**Not tested on-chain:** `reset_stuck` and the stale-callback guard (covered only by the local mock harness),
+`cancel_expired`, payout failure, or any adversarial probe against `arb3`. The deployment tx hash was not captured.
+
+**Funds still held by `arb3`:** escrows #0, #1, #4 and #5 are open (`Created`). The buyer
+(`suwappu-arbiter.testnet`) can refund them with `cancel_expired` once `deadline + 1h` has passed (about 4 hours after
+creation).

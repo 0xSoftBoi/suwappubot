@@ -23,8 +23,9 @@ pinned program decides — the contract moves funds only on its `pass`.
   merger ≠ author. No shared secret, no worker-supplied evidence. OutLayer refuses a binary whose sha256 differs
   from the pinned hash.
 - **Not shipped (do not read as claims):** NEAR Intents funding, Agent Market integration, mainnet, in-contract
-  TDX quote verification, and **contract v3 / the `http_json_v1` rubric** (built and reviewed in this repo, compiles,
-  checked in a local harness, but NOT deployed: there are no live transactions for it).
+  TDX quote verification. **Contract v3 / the `http_json_v1` rubric** are deployed on testnet only
+  (`suwappu-arb3.testnet`, transactions in `docs/arbiter-production.md`), are not yet shown on the live page, and have
+  had no adversarial probing on-chain.
 
 ## Do X → see Y (no funds, no keys)
 
@@ -68,7 +69,7 @@ this build, so rejections show as `unreachable` traps — each is a rejected con
 - `near/arbiter-github/` — production arbiter (rubric `github_pr_v1`) + committed wasm artifact
 - `near/arbiter-contract/` — escrow contract v2.1
 - `near/arbiter-wasm/` — the earlier webhook-evidence arbiter (demo rubric), kept for its recorded fixtures
-- **Built, not deployed:** `near/arbiter-contract-v3/` (compile-time rubric table, late-callback guard) and
+- **Deployed on testnet (`suwappu-arb3.testnet`):** `near/arbiter-contract-v3/` (compile-time rubric table, late-callback guard) and
   `near/arbiter-http/` (rubric `http_json_v1`: the enclave fetches an HTTPS endpoint and checks JSON predicates; its
   wasm rebuilds bit-for-bit from the pinned commit, see `docs/arbiter-production.md`)
 - Research, not product: `near/arbiter-reputation/` + `docs/research/arbiter-sybil-reputation.md` (Sybil-resistant
@@ -91,9 +92,10 @@ this build, so rejections show as `unreachable` traps — each is a rejected con
   findings fixed and re-verified.
 - **Known bug in the deployed contract.** A third review (of v3) found that `on_arbiter_result` in v2.1 does not check
   that the escrow is still `Resolving`: after `reset_stuck`, a late first callback plus a second resolve could pay the
-  worker twice or reopen a paid escrow. The contract is immutable, so the deployed `arb2` keeps this hazard; it is fixed
-  only in the undeployed v3 (per-resolve nonce). The sequence and the fix were exercised in a local mock harness (the
-  check fails with the guard disabled), not on testnet. Do not put real funds in `arb2`.
+  worker twice or reopen a paid escrow. The contract is immutable, so `arb2` keeps this hazard; it is fixed only in v3
+  (per-resolve nonce), deployed separately as `suwappu-arb3.testnet`. The sequence and the fix were exercised in a local
+  mock harness (the check fails with the guard disabled); the stale-callback path has NOT been exercised on testnet.
+  Do not put real funds in `arb2`.
 
 ## Baseline disclosure
 

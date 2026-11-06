@@ -14,8 +14,9 @@ moves nothing and the buyer can refund only after the deadline. Every verdict lo
 (escrow id, evidence hash, arbiter code hash) described by an open spec. Live on NEAR testnet: a real pass and a
 real fail, plus 13 attack probes rejected on-chain; two adversarial reviews found real bugs (escrow lock via low
 gas, PR squatting, storage drain) which were fixed and re-verified. A third review found a late-callback
-double-pay hazard that the deployed contract still has (it is immutable); it is fixed only in contract v3, which is
-built and checked locally but NOT deployed, along with a second rubric (HTTP JSON predicates). Honest limits:
+double-pay hazard that the first contract still has (it is immutable); it is fixed in contract v3, deployed separately
+on testnet with a second rubric (HTTP JSON predicates; one live pass and fail), but that fix is only tested locally.
+Honest limits:
 testnet only, no third-party audit, no on-chain TDX quote verification, GitHub's response is trusted by the
 enclave, and it proves "done as specified", not "good". Mainnet, Intents funding and Agent Market are roadmap.
 Repo: github.com/0xSoftBoi/suwappubot · Live: www.suwappu.bot/arbiter
@@ -44,13 +45,18 @@ The payload is built and printed in full for confirmation before any POST to nea
 - Open before any real funds: third-party audit, OutLayer confirmations, GitHub rate-limit plan (see `docs/arbiter-production.md`).
 
 ## Contract v3 / `http_json_v1`: status and claim rules (read before editing the post, video or live page)
-- **State:** built, reviewed once (Opus money-path pass), fixes checked in a local mock harness, wasm reproducible from its
-  pinned commit. **NOT deployed.** No testnet transactions exist for it.
-- **Do not claim** in the post, video, `/arbiter` page or `arbiter.json`: that `http_json_v1` is live, "verified on
-  testnet", or that the late-callback bug is fixed in the deployed contract (it is not; `arb2` is immutable).
-- **To make it claimable** (needs the human): fund a testnet account and deploy `arb3`; run one pass and one fail
-  against the public RPC (`view_account` threshold); test a ~2 KB `input_data` resolve; ask OutLayer about redirect, DNS
-  and private-IP handling for `wasi:http`. Then add the txs to `docs/hackathon/arbiter.md` and `arbiter.json`.
-- **Open design call:** a condition already true at creation resolves immediately (possible "armed" flag).
-- **If time runs out:** ship the entry exactly as deployed; the v3 material is documented as built-not-deployed and costs
-  nothing to leave in the repo.
+- **State:** deployed on NEAR **testnet** as `suwappu-arb3.testnet` (2026-11-05). Live: `github_pr_v1` pass; `http_json_v1`
+  fail then pass on an untouched account; a maximum-size input accepted by OutLayer. Transactions are in
+  `docs/arbiter-production.md`. Reviewed once (Opus money-path pass).
+- **Claimable:** the three live results above, with the transaction hashes. That v3 pins both rubrics and carries
+  `rubric=`, `buyer=`, `amount_yocto=` in its attestation logs.
+- **Do not claim:** that the late-callback guard is verified on-chain (local mock harness only; `reset_stuck`,
+  `cancel_expired` and payout failure were never exercised on `arb3`); that `arb2` is fixed (it is immutable); that
+  `http_json_v1` is safe against hostile endpoints or SSRF (OutLayer's redirect/DNS/private-IP behavior is unverified);
+  or that it works when the caller's own balance is the observed value (three live runs failed unexpectedly, cause
+  unknown; see the caveat in `docs/arbiter-production.md`). Escrows #0, #1 and #5 are the evidence of that anomaly: do
+  not describe them as passing.
+- **Not yet reflected:** the `/arbiter` page and `arbiter.json` still describe v2.1 only. Updating them is separate work.
+- **Still needs the human:** the OutLayer questions (redirect, DNS, private IPs); the armed-flag design call (a condition
+  already true at creation resolves immediately); refunding the four open escrows after `deadline + 1h`.
+- **If time runs out:** ship the entry as it was; v3 is documented as testnet-only and costs nothing to leave in the repo.
