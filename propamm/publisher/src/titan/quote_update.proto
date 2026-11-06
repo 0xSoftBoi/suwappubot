@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+// Titan ACE maker quote-update schema, reconstructed from docs.titanbuilder.xyz.
+// The official .proto is NOT public yet; obtain it from Titan on onboarding and replace this file.
+// Message/field NAMES follow the docs; field NUMBERS and wire types are guesses.
+
+// TODO(titan): field numbers unverified until Titan supplies the .proto
+message PWebsocketQuoteUpdateV1Args {
+  bytes tx = 1; // RLP-encoded signed quote-update tx; EMPTY = cancel (TODO(titan): field number unverified)
+  uint64 block_number = 2; // single block the quote is valid for (TODO(titan): field number unverified)
+  bytes replacement_uuid = 3; // 16 bytes, required (TODO(titan): field number unverified)
+  uint64 replacement_seq_number = 4; // >0, strictly increasing per uuid (TODO(titan): field number unverified)
+  bool disable_cross_region_sharing = 5; // (TODO(titan): field number unverified)
+  repeated bytes asset_pairs = 6; // 40 bytes each: token0 || token1 (TODO(titan): field number unverified)
+  bytes quote_address = 7; // address a taker must touch to get the quote (TODO(titan): field number unverified)
+  repeated bytes pool_addresses = 8; // (TODO(titan): field number unverified)
+}
+
+// TODO(titan): field numbers unverified until Titan supplies the .proto
+message PWebsocketQuoteUpdateV1Response {
+  bytes replacement_uuid = 1; // (TODO(titan): field number unverified)
+  uint64 replacement_seq_number = 2; // (TODO(titan): field number unverified)
+  uint64 timestamp = 3; // ns (TODO(titan): field number unverified)
+  string error = 4; // (TODO(titan): field number unverified)
+  bytes bundle_hash = 5; // (TODO(titan): field number unverified)
+}

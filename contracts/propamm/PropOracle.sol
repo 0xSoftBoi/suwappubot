@@ -42,6 +42,7 @@ contract PropOracle is Ownable2Step {
     error ZeroPrice();
     error NotSeeded(uint256 feedId);
     error StepTooLarge(uint256 feedId, uint128 refPrice, uint128 newPrice);
+    error WrongBlock(uint64 validBlock, uint256 currentBlock);
     error LengthMismatch();
     error BadParam();
 
@@ -78,13 +79,18 @@ contract PropOracle is Ownable2Step {
     }
 
     // ---------------------------------------------------------------- hot path
-    function push(uint256 feedId, uint128 price) external {
+    /// @param validBlock the ONLY block this push may land in. Signed candidates are replacements
+    ///        that stay valid until their nonce is used; without an expiry an old candidate could
+    ///        land blocks later and make a stale price look fresh (publisher review H2).
+    function push(uint256 feedId, uint128 price, uint64 validBlock) external {
         if (!isPusher[msg.sender]) revert NotPusher();
+        if (block.number != validBlock) revert WrongBlock(validBlock, block.number);
         _push(feedId, price);
     }
 
-    function pushMany(uint256[] calldata feedIds, uint128[] calldata prices) external {
+    function pushMany(uint256[] calldata feedIds, uint128[] calldata prices, uint64 validBlock) external {
         if (!isPusher[msg.sender]) revert NotPusher();
+        if (block.number != validBlock) revert WrongBlock(validBlock, block.number);
         if (feedIds.length != prices.length) revert LengthMismatch();
         for (uint256 i; i < feedIds.length; ++i) _push(feedIds[i], prices[i]);
     }
