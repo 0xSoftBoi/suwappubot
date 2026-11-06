@@ -62,7 +62,7 @@ rejected on-chain (low-gas resolve leaves the escrow `Created`, duplicate PR, re
 refund, dust deposit, bad resolve fee, demo context, oversize deadline, …). Panic messages are not surfaced by
 this build, so rejections show as `unreachable` traps — each is a rejected condition, not a verified reason.
 
-## What's in the diff (pre-hackathon → main)
+## What's in the diff (baseline 99161598 → main; Arbiter PRs #1096, #1098, #1099)
 
 - `near/arbiter-github/` — production arbiter (rubric `github_pr_v1`) + committed wasm artifact
 - `near/arbiter-contract/` — escrow contract v2.1
