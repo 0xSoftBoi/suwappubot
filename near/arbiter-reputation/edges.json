@@ -1,0 +1,32 @@
+[
+ {
+  "id": 0,
+  "buyer": "suwappu-arbiter.testnet",
+  "worker": "worker.suwappu-arbiter.testnet",
+  "amount_yocto": "91850000000000000000000",
+  "storage_deposit_yocto": "8150000000000000000000",
+  "attested": true,
+  "rubric": "github_pr_v1",
+  "evidence_hash": "72f9abbd262913d08f251fa51ab53bedbb1f024c9cf1a53d3cba2b24a4f8760e"
+ },
+ {
+  "id": 1,
+  "buyer": "suwappu-arbiter.testnet",
+  "worker": "worker.suwappu-arbiter.testnet",
+  "amount_yocto": "41840000000000000000000",
+  "storage_deposit_yocto": "8160000000000000000000",
+  "attested": false,
+  "rubric": "github_pr_v1",
+  "evidence_hash": "54d01ef6c76fd4da378ed47a8833f6f54b3e6cc61622fa65aed1b900f3e92b55"
+ },
+ {
+  "id": 2,
+  "buyer": "worker.suwappu-arbiter.testnet",
+  "worker": "worker.suwappu-arbiter.testnet",
+  "amount_yocto": "41630000000000000000000",
+  "storage_deposit_yocto": "8370000000000000000000",
+  "attested": false,
+  "rubric": "github_pr_v1",
+  "evidence_hash": null
+ }
+]
