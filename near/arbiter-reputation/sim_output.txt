@@ -1,0 +1,17 @@
+honest graph: 300 buyers, 120 providers, 10 trusted seeds; 15 random graphs (medians)
+fake attestation cost = 0.0165 NEAR (storage 0.0082 measured + fee 0.0041 + gas ~0.004 est.)
+
+top-decile thresholds (medians): count=19 attestations, volume=33.1 NEAR, flow=22.91 NEAR
+cost to hit top-decile COUNT  = 0.314 NEAR (all wash fees)
+cost to hit top-decile VOLUME = 0.017 NEAR (one 1000-NEAR wash escrow; principal recycled)
+cost to hit top-decile FLOW   >= 22.91 NEAR of REAL payment to honest providers (bridge bound)
+
+attacker budget (NEAR) | percentile reached: count | volume | flow  | flow rating (NEAR)
+                  0.05 |                        37 |    100 |    10 | 0.050
+                   0.5 |                        98 |    100 |    13 | 0.500
+                     5 |                       100 |    100 |    42 | 5.000
+                    50 |                       100 |    100 |   100 | 36.340
+
+cost of the rule: 10% of HONEST providers get flow rating 0 (no path from the seeds) - the cold-start price of Sybil resistance
+pure island, 500 wash attestations of 1000 NEAR each, ZERO real bridge: flow rating = 0.000 NEAR (max over graphs)
+max (flow rating - bridge payment) over all trials = 0.0000 NEAR  (<= 0 means the bound held)

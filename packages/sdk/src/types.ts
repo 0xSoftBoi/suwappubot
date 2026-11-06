@@ -68,6 +68,28 @@ export interface Chain {
   type: string;
 }
 
+// --- NEAR (/v1/near/*) ---
+
+export interface NearAsset {
+  symbol: string;
+  /** Id on intents.near (nep141:/nep245:). Use for swap token_in/out. */
+  defuseAssetId: string;
+  contractId?: string;
+  decimals: number;
+  chain: string;
+}
+
+export type NearResolveResult =
+  | { status: "ok"; asset: NearAsset }
+  | { status: "ambiguous"; candidates: NearAsset[]; hint: string }
+  | { status: "not_found"; hint: string };
+
+export interface NearAmount {
+  asset: NearAsset;
+  human: string;
+  atomic: string;
+}
+
 export interface Token {
   symbol: string;
   address: string;

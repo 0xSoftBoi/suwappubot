@@ -8,6 +8,7 @@
  * Auth: Bearer token (same agent API key as /v1/agent/*)
  */
 
+import { fromAtomic, resolveNearAsset, toAtomic } from '../services/near/assets'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq } from 'drizzle-orm'
@@ -65,7 +66,14 @@ const PUBLIC_MCP_METHODS = new Set([
 // other tool — including cost-0 get_quote-adjacent reads like get_prices, which
 // still cache/scope data — keeps the Bearer requirement. Do NOT add a tool here
 // unless its handler takes no `agent` parameter and its MCP_TOOL_COSTS entry is 0.
-const PUBLIC_READ_TOOLS = new Set(['list_chains', 'list_tokens', 'get_tempo_tokens', 'browse_mpp_directory'])
+const PUBLIC_READ_TOOLS = new Set([
+	'list_chains',
+	'list_tokens',
+	'get_tempo_tokens',
+	'browse_mpp_directory',
+	'near_resolve_asset',
+	'near_convert_amount',
+])
 
 // ---------------------------------------------------------------
 // Protocol eras (MCP 2026-07-28 + legacy initialize compatibility)
@@ -1045,6 +1053,35 @@ async function handleListWalletPolicies(args: Record<string, unknown>, agent: Ag
 	return { content: [{ type: 'text', text: JSON.stringify({ policies: result.right }) }] }
 }
 
+// Mirrors GET /v1/near/assets/resolve (src/routes/near.ts). Pure, no agent state.
+function handleNearResolveAsset(args: Record<string, unknown>) {
+	const token = typeof args.token === 'string' ? args.token : ''
+	const chain = typeof args.chain === 'string' ? args.chain : undefined
+	const r = resolveNearAsset(token, chain)
+	return { content: [{ type: 'text', text: JSON.stringify(r) }], ...(r.status === 'ok' ? {} : { isError: r.status === 'not_found' }) }
+}
+
+// Mirrors GET /v1/near/amount (src/routes/near.ts). Pure, no agent state.
+function handleNearConvertAmount(args: Record<string, unknown>) {
+	const token = typeof args.token === 'string' ? args.token : ''
+	const chain = typeof args.chain === 'string' ? args.chain : undefined
+	const r = resolveNearAsset(token, chain)
+	const fail = (text: string) => ({ isError: true, content: [{ type: 'text', text }] })
+	if (r.status !== 'ok') return { content: [{ type: 'text', text: JSON.stringify(r) }], isError: r.status === 'not_found' }
+	const human = typeof args.human === 'string' ? args.human : undefined
+	const atomic = typeof args.atomic === 'string' ? args.atomic : undefined
+	if ((human === undefined) === (atomic === undefined)) return fail('Provide exactly one of human or atomic.')
+	try {
+		const out =
+			human !== undefined
+				? { asset: r.asset, human, atomic: toAtomic(human, r.asset.decimals) }
+				: { asset: r.asset, atomic: atomic as string, human: fromAtomic(atomic as string, r.asset.decimals) }
+		return { content: [{ type: 'text', text: JSON.stringify(out) }] }
+	} catch (e) {
+		return fail(e instanceof Error ? e.message : 'bad amount')
+	}
+}
+
 // Mirrors GET /v1/agent/predict/market/:id/book (src/routes/predict.ts)
 async function handlePredictBook(args: Record<string, unknown>) {
 	const marketId = args.market_id as string
@@ -1705,6 +1742,12 @@ mcpRoutes.post('/', async (c) => {
 						break
 					case 'list_wallet_policies':
 						result = await handleListWalletPolicies(args || {}, callAgent)
+						break
+					case 'near_resolve_asset':
+						result = handleNearResolveAsset(args || {})
+						break
+					case 'near_convert_amount':
+						result = handleNearConvertAmount(args || {})
 						break
 					default:
 						// Unreachable while TOOL_NAMES gates above, but if a tool is added to

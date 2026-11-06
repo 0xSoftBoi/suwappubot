@@ -26,7 +26,7 @@
     "usdt0",
     "Wormhole"
   ],
-  "mcpToolCount": 22,
+  "mcpToolCount": 24,
   "mcpTools": [
     "get_quote",
     "get_portfolio",
@@ -49,7 +49,9 @@
     "predict_book",
     "predict_price",
     "predict_trades",
-    "list_wallet_policies"
+    "list_wallet_policies",
+    "near_resolve_asset",
+    "near_convert_amount"
   ],
   "notes": {
     "platformChains": "bot/config/chains.py CHAINS, excluding testnets. Bot + terminal surface.",

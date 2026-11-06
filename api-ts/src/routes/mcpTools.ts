@@ -286,6 +286,36 @@ const TOOLS = [
 		description: 'List Turnkey spending/whitelist policies configured on the agent\'s managed wallet.',
 		inputSchema: LIST_WALLET_POLICIES_INPUT,
 	},
+	{
+		name: 'near_resolve_asset',
+		description:
+			'Resolve a NEAR Intents asset (symbol, defuse asset id, or NEAR contract id) to exactly ONE asset with its defuse_asset_id and decimals. Symbols are not unique across chains (USDC exists on ~17): if ambiguous this returns every candidate instead of guessing — pass `chain` or the exact id. Use before any OutLayer /intents/swap or withdraw. Free.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				token: { type: 'string', description: 'Symbol (e.g. "USDC"), defuse asset id (nep141:…), or NEAR contract id.' },
+				chain: { type: 'string', description: 'Disambiguating chain (near, ethereum, base, arbitrum, solana, …). Optional.' },
+			},
+			required: ['token'],
+			additionalProperties: false,
+		},
+	},
+	{
+		name: 'near_convert_amount',
+		description:
+			'Convert between human and atomic amounts for a NEAR Intents asset (wNEAR is 24 decimals, USDC/USDT 6). Give exactly one of `human` or `atomic`. OutLayer endpoints take atomic integer strings. Free.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				token: { type: 'string', description: 'Symbol, defuse asset id, or contract id.' },
+				chain: { type: 'string', description: 'Disambiguating chain. Optional.' },
+				human: { type: 'string', description: 'Decimal amount, e.g. "1.5".' },
+				atomic: { type: 'string', description: 'Atomic integer amount, e.g. "1500000000000000000000000".' },
+			},
+			required: ['token'],
+			additionalProperties: false,
+		},
+	},
 ]
 
 // ---------------------------------------------------------------
@@ -333,6 +363,8 @@ const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
 	predict_price: { title: 'Prediction Market Prices', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	predict_trades: { title: 'Prediction Market Trades', readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 	list_wallet_policies: { title: 'List Wallet Policies', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	near_resolve_asset: { title: 'Resolve NEAR Intents Asset', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+	near_convert_amount: { title: 'Convert NEAR Asset Amount', readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 }
 
 
