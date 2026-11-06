@@ -219,6 +219,11 @@ function PositionRow({
   const max = toNum(maxLtv)
   const liquidatable = p.debt > 0n && liqLtv !== undefined && p.debt * WAD > p.value * liqLtv
   const amt = parseAmount(input)
+  // Seize is repay·(1+bonus), capped at all collateral. Underwater, repaying the full
+  // debt would pay more than the collateral is worth — repay only what the whole
+  // collateral covers; the contract then writes the remainder off as bad debt.
+  const coverable = liqBonus !== undefined ? (p.value * WAD) / (WAD + liqBonus) : p.debt
+  const liqRepay = p.debt < coverable ? p.debt : coverable
   const tone = liquidatable ? 'down' : p.debt === 0n ? 'up' : ltv > max ? 'warm' : 'neutral'
   const coveredByPending = p.debt > 0n ? Math.min(1, toNum(p.pending) / toNum(p.debt)) : 1
 
@@ -266,8 +271,8 @@ function PositionRow({
             onClick={() =>
               run(`Liquidate #${p.id}`, [
                 // Pad the approval: interest keeps accruing between this read and the block.
-                approveIfNeeded(COMMONS.reserveAsset, COMMONS.amortizingVault, (p.debt * 1001n) / 1000n, 'Approve mUSD'),
-                call('Liquidate', COMMONS.amortizingVault, VA, 'liquidate', [p.id, p.debt, deadline()]),
+                approveIfNeeded(COMMONS.reserveAsset, COMMONS.amortizingVault, (liqRepay * 1001n) / 1000n, 'Approve mUSD'),
+                call('Liquidate', COMMONS.amortizingVault, VA, 'liquidate', [p.id, liqRepay, deadline()]),
               ])
             }
           >
