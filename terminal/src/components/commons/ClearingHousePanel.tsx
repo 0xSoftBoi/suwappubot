@@ -334,7 +334,7 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
       {line.status === LineStatusV2.Proposed &&
         (iAmProposer ? (
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-terminal-text-muted">Waiting for {short(cp)} to accept.</span>
+            <span className="text-terminal-text-muted">Waiting for {name(cp)} to accept.</span>
             <TerminalButton
               size="sm"
               variant="ghost"
@@ -347,7 +347,7 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
         ) : (
           <div className="grid gap-2">
             <p className="text-xs text-terminal-text-muted">
-              {short(cp)} offers {fmt(creditTheyExtend, 2)} mUSD of credit at {aprFromPerSecond(line.feeRate)}, {(Number(line.grace) / 86_400).toFixed(1)}-day grace{isClearable ? ', clearable' : ''}. Accepting binds to terms hash <span className="font-mono">{line.termsHash.slice(0, 10)}…</span> — if they change the terms, your accept fails.
+              {name(cp)} offers {fmt(creditTheyExtend, 2)} mUSD of credit at {aprFromPerSecond(line.feeRate)}, {(Number(line.grace) / 86_400).toFixed(1)}-day grace{isClearable ? ', clearable' : ''}. Accepting binds to terms hash <span className="font-mono">{line.termsHash.slice(0, 10)}…</span> — if they change the terms, your accept fails.
             </p>
             <TerminalTextField label="Credit you extend back" inputMode="decimal" mono value={limitIn} onChange={(e) => setLimitIn(e.target.value)} suffix="mUSD" />
             <div className="flex gap-1.5">
@@ -521,7 +521,7 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
           )}
           <div className="grid grid-cols-[1fr_auto] items-end gap-1.5">
             <TerminalTextField
-              label={`Routing cap toward ${short(cp)} (now ${fmt(myRouteCap, 2)})`}
+              label={`Routing cap toward ${name(cp)} (now ${fmt(myRouteCap, 2)})`}
               inputMode="decimal"
               placeholder="0 = never route through me to them"
               mono

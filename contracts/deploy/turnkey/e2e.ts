@@ -56,17 +56,30 @@ enum Action {
 }
 
 const pub = createPublicClient({ chain: baseSepolia, transport: http(RPC) });
-const tk = new Turnkey({
-	apiBaseUrl: process.env.TURNKEY_BASE_URL ?? "https://api.turnkey.com",
-	apiPublicKey: process.env.TURNKEY_API_PUBLIC_KEY!,
-	apiPrivateKey: process.env.TURNKEY_API_PRIVATE_KEY!,
-	defaultOrganizationId: process.env.TURNKEY_ORGANIZATION_ID!,
-});
-const relayerAccount = (await createAccount({
-	client: tk.apiClient(),
-	organizationId: process.env.TURNKEY_ORGANIZATION_ID!,
-	signWith: process.env.TURNKEY_SIGN_WITH!,
-})) as Account;
+// Testnet relaying uses a LOCAL key (RELAYER_PRIVATE_KEY). The Turnkey org is
+// production's (python-api WALLET_PROVIDER=turnkey) and quota-limited — testnet
+// signing there exhausted it on 2026-11-06. Turnkey stays only as an explicit opt-in.
+async function makeRelayer(): Promise<Account> {
+	const pk = process.env.RELAYER_PRIVATE_KEY as Hex | undefined;
+	if (pk) return privateKeyToAccount(pk);
+	if (process.env.ALLOW_PROD_TURNKEY !== "1") {
+		throw new Error(
+			"set RELAYER_PRIVATE_KEY (local testnet key). Turnkey is production's org; opt in with ALLOW_PROD_TURNKEY=1 only if you mean it.",
+		);
+	}
+	const tk = new Turnkey({
+		apiBaseUrl: process.env.TURNKEY_BASE_URL ?? "https://api.turnkey.com",
+		apiPublicKey: process.env.TURNKEY_API_PUBLIC_KEY!,
+		apiPrivateKey: process.env.TURNKEY_API_PRIVATE_KEY!,
+		defaultOrganizationId: process.env.TURNKEY_ORGANIZATION_ID!,
+	});
+	return (await createAccount({
+		client: tk.apiClient(),
+		organizationId: process.env.TURNKEY_ORGANIZATION_ID!,
+		signWith: process.env.TURNKEY_SIGN_WITH!,
+	})) as Account;
+}
+const relayerAccount = await makeRelayer();
 const relayer = createWalletClient({ account: relayerAccount, chain: baseSepolia, transport: http(RPC) });
 
 let nonceSeq = BigInt(Date.now());

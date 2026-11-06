@@ -61,6 +61,12 @@ function env(name: string, fallback?: string): string {
 }
 
 function turnkey() {
+	// The only Turnkey org we have is PRODUCTION's (python-api WALLET_PROVIDER=turnkey)
+	// and it is quota-limited: testnet signing exhausted it on 2026-11-06 and
+	// disabled user signing. Require an explicit opt-in; prefer a local testnet key.
+	if (process.env.ALLOW_PROD_TURNKEY !== "1") {
+		throw new Error("Refusing to sign with the production Turnkey org. Use a local testnet key, or set ALLOW_PROD_TURNKEY=1 deliberately.");
+	}
 	return new Turnkey({
 		apiBaseUrl: env("TURNKEY_BASE_URL", "https://api.turnkey.com"),
 		apiPublicKey: env("TURNKEY_API_PUBLIC_KEY"),
