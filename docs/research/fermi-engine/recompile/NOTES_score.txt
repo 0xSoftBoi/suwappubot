@@ -1,0 +1,38 @@
+target len 22988 cand len 20131 keccak(target) e397591c78c9a0f0 keccak(cand) 1b510ccaacdcf33e
+target selectors 31 cand selectors 31
+target    cand         score   miss  extra   immx     nT     nC
+1072cbea  1072cbea       605      0      6      1    313    319
+12f351a3  12f351a3      1005      0     10      1    262    272
+17d01716  17d01716     26905    264      5      1    514    255
+18afc274  939fe817     76650    262    504     10    640    882
+1f57256f  1f57256f       405      0      4      1    277    281
+294a8f17  1a0bc925    110440    713    391      8   1204    882
+2b3297f9  2b3297f9         0      0      0      0     32     32
+404177c0  404177c0       705      1      6      1    303    308
+42b1e432  42b1e432         0      0      0      0     28     28
+451a5e65  43d24a5e      7515     30     45      3    103    118
+4b630121  58e1b270      3215     32      0      3    148    116
+519af30e  519af30e       405      0      4      1    222    226
+51ed0ee3  51ed0ee3         0      0      0      0     32     32
+5a33733c  5a33733c     41310    307    106      2    508    307
+6d106317  6d106317      6105     58      3      1    158    103
+713ea8a6  339eb504     22600     49    177      0    236    364
+767eb5ef  767eb5ef      2905     15     14      1    100     99
+79d44573  04b07a5e      4710     47      0      2    118     71
+85535cc5  85535cc5         5      0      0      1    100    100
+9c82f2a4  9c82f2a4         5      0      0      1    106    106
+ae131deb  ae131deb      6700      3     64      0    150    211
+c33a67ba  c33a67ba     27120    173     98      4    412    337
+c9e270d0  c9e270d0    305460   1712   1342     12   2899   2529
+d6b0bdd5  d6b0bdd5    330670   1830   1476     14   3062   2708
+d6c3c9df  d6c3c9df     13220     87     45      4    272    230
+da279a7f  1a9a2909         0      0      0      0     35     35
+dbda983b  dbda983b         5      0      0      1    100    100
+e8275d6e  e8275d6e         5      0      0      1     28     28
+efe1066e  46ab1b48         0      0      0      0     41     41
+f57f2e12  f57f2e12         5      0      0      1    184    184
+ffa1ad74  ffa1ad74         0      0      0      0     25     25
+SHARED    -             3505     31      4      1    102     75
+TOTAL score 992180
+byte-equal (stripped): False
+whole-runtime opcode-sequence similarity: 0.9325

@@ -50,6 +50,16 @@ Heimdall 0.9.3 returned stubs for d6b0bdd5/c9e270d0, so the math was rebuilt fro
 - **Reverts:** NS, UP (unconfigured), IA (flag≠1), ZA, ZP (price 0/empty), COR, TW, IL (`vaultBal(tokenIn)+amtIn > cap`; cap mapping slot 8: WETH 1800e18, USDC/USDT none).
 - **Oracle:** `registry.getState(pairId, now−maxParameterAge(=0), now)`; uses only `values[0]`, **ignores returned timestamp**, **no sanity band** (zero/empty ⇒ ZP). Freshness is enforced entirely by the registry (reverts `0x666a2814` unless a state exists at this exact timestamp). A compromised/buggy updater can set any non-zero price; no on-engine bound.
 
+## CORRECTIONS from recompile pass (VERIFIED by mainnet-fork diff, 120/120 cases; source: `fermi-engine/recompile/proj/src/Engine.sol`)
+Toolchain pinned: **solc 0.8.28, optimizer 1,000,000 runs, prague, viaIR off, ipfs metadata; OpenZeppelin 5.4.0** (same as wrapper). Use `~/.foundry/bin/forge` (`/usr/bin/forge` is unrelated). Whole-runtime recompile does NOT match yet (candidate 20,131 B vs target 22,988 B, opcode similarity 0.93); simple/BaseManager functions are opcode-identical; swap/quote/pair-writers are structurally off (see `recompile/NOTES_score.txt`).
+1. `amountSpecified` is **int256**: negative = **exact-out** (denominated in tokenOut); exact-out amountIn rounds up (`Math.mulDiv Rounding.Ceil`); size curve uses the *unclamped* out leg; if out > vault balance only the out amount is clamped. (Earlier model covered exact-in only.)
+2. `hi == 0` ⇒ no per-swap clamp.
+3. Accumulator is `{uint64 block, uint192 cum}`; swap reverts `CO` if cum overflows uint192.
+4. Pair existence = `lo != 0` (not the active flag). Empty curve ⇒ `EC`; value below first segment ⇒ `COR`.
+5. Registry `getState` selector `16c83adc`; age = `uint32(block.timestamp) - maxParameterAge`. Registry `addUpdater(address)` = `43d24a5e`, `removeUpdater(address)` = `04b07a5e`.
+6. Setters check `ZA` and emit events; curve segment lookup is a **binary search** over storage structs.
+7. Recovered names (keccak match): `getPairParams(address,address)`, `setMaxInventory(address,uint256)`, `setPairActive`, `swap`/`quote` with int256 amount; events `SwapperSet`, `PairRegistered`, `PairUnregistered`, `PairActiveSet(address,address,bool)`. Eight selectors still unnamed: 18afc274, 294a8f17, 451a5e65, 79d44573, 4b630121, 713ea8a6, da279a7f, efe1066e.
+
 ## Still INFERRED / untested
 IL uses original vs clamped amtIn; slot-3 high field is what `4b630121` sets; first return word is always requested amountIn even if clamped; WBTC/cbBTC two-price composition untested.
 
