@@ -13,6 +13,15 @@ export const NEARBLOCKS_TX = (h: string) => `https://testnet.nearblocks.io/txns/
 export const NEARBLOCKS_ACCOUNT = `https://testnet.nearblocks.io/address/${CONTRACT}`;
 export const SPEC_ID = 'suwappu.arbiter/v1';
 
+/** Contract v3: a second testnet contract that pins one arbiter per rubric. Not the contract above. */
+export const CONTRACT_V3 = 'suwappu-arb3.testnet';
+export const NEARBLOCKS_ACCOUNT_V3 = `https://testnet.nearblocks.io/address/${CONTRACT_V3}`;
+export const V3_CODE_SHA256 = '667f4c62a77bdb59442d74daf75d2bb6c093c8bb1fcf893e4bba6562cff9ba8a';
+export const HTTP_ARBITER_WASM_HASH = '2acc016a94a45d01ef31734a0e1dcca8592048f06013eb74a99a82461b8260a7';
+export const V3_DEPLOY_TX = 'a5Hiy5NthGUaU16QaS18xsv4YNy58vQbioY8aCNBXsR';
+/** Pinned to the commit that holds the v3 evidence (the copy on main predates it). Update when the doc is next revised. */
+export const V3_DOC_URL = `${REPO_URL}/blob/edb13e28284a3360142357bad7b10a2643aa51aa/docs/arbiter-production.md`;
+
 export type ScenarioKey = 'pass' | 'fail-self-merged';
 
 export interface Scenario {
@@ -111,6 +120,32 @@ export const LIVE_TXS: LiveTx[] = [
   { case: 'fail', kind: 'resolve', hash: 'G1oidSEPmAKVBQVP1FSHzpLEi4Bi7KcJ6LT5tNv7jDLr', step: 'Resolve PR #1096: held (self-merged)', detail: 'No transfer. Escrow stays open.' },
 ];
 
+export interface V3Tx {
+  hash: string;
+  rubric: 'github_pr_v1' | 'http_json_v1';
+  /** What happened, in plain words. */
+  step: string;
+}
+
+/** Every hash below was read back from chain state (EXPERIMENTAL_tx_status) before being listed. */
+export const V3_TXS: V3Tx[] = [
+  { rubric: 'github_pr_v1', hash: 'E3TmuRYaLP8iYvhuTKdjFZs8uFDry9vpH1DnGbdXid7g', step: 'Original rubric on the new contract: PR #993 paid' },
+  { rubric: 'http_json_v1', hash: '91Nhb6bEnoytMzrQGm59tzLj76f1q28JYXUxyhHVRt7r', step: 'New rubric, condition false: an account below 3.1 NEAR, held' },
+  { rubric: 'http_json_v1', hash: 'EjPF1DRNbnBc3xGJE2wJhLB2jSEYJVSVPeikgmRNSLbE', step: 'Same escrow after the account was topped up: paid' },
+  { rubric: 'http_json_v1', hash: 'ASfp9kYvNgsZRznMbcrDth9BB1MSHrmSKGXmWxYuPAG9', step: 'Largest allowed input (1,694 bytes) ran in the enclave' },
+  { rubric: 'http_json_v1', hash: 'Fjs7aDnGFfKwPQLJqMx5trUXnzUk1vpRrRJPNVKTifbT', step: 'A redirect is reported as a failure, not followed' },
+];
+
+/** What the v3 contract does not do or has not shown. Single source for the page and /arbiter.json. */
+export const V3_LIMITS: string[] = [
+  'Testnet only; no real funds; no independent audit (one internal money-path review)',
+  'The fix for a late-callback double-payment bug (present in the contract above) was tested in a local harness, not on testnet',
+  'A condition that is already true when the escrow is created can be paid out immediately',
+  'The account that signs the resolve call has about 0.3 NEAR less balance while it runs, so a condition on that account\'s balance misfires and its owner can manipulate it',
+  'Whoever controls the endpoint being checked controls the verdict',
+  'OutLayer reported one redirect instead of following it; its DNS and private-network filtering has not been checked',
+];
+
 /** Machine-readable evidence, served at /arbiter.json and mirrored on the page. */
 export function evidenceDocument() {
   return {
@@ -150,6 +185,28 @@ export function evidenceDocument() {
       account: CONTRACT,
       network: 'testnet',
       explorer: NEARBLOCKS_ACCOUNT,
+    },
+    contract_v3: {
+      status: 'deployed on NEAR testnet on 2026-11-05; a separate contract from the one above; not audited',
+      account: CONTRACT_V3,
+      network: 'testnet',
+      explorer: NEARBLOCKS_ACCOUNT_V3,
+      code_sha256: V3_CODE_SHA256,
+      deploy_tx: V3_DEPLOY_TX,
+      rubrics: [
+        { name: 'github_pr_v1', arbiter_sha256: ARBITER_WASM_HASH, verifies: 'a GitHub pull request merged as specified' },
+        {
+          name: 'http_json_v1',
+          arbiter_sha256: HTTP_ARBITER_WASM_HASH,
+          source_path: 'near/arbiter-http',
+          verifies:
+            'the enclave fetches an HTTPS endpoint and checks up to four conditions on the JSON it returns (exists, equals, at least, at most, contains), or a body hash',
+        },
+      ],
+      adversarial_calls: '37 invalid calls were rejected on testnet and no state changed (see the design doc)',
+      limits: V3_LIMITS,
+      live_transactions: V3_TXS.map((t) => ({ rubric: t.rubric, step: t.step, tx_hash: t.hash, url: NEARBLOCKS_TX(t.hash) })),
+      doc: V3_DOC_URL,
     },
     arbiter_wasm: {
       sha256: ARBITER_WASM_HASH,

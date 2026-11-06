@@ -84,6 +84,9 @@ export const MCP_TOOL_COSTS: Record<string, number> = {
 	get_swap_status: 1,
 	get_swap_history: 1,
 	list_wallet_policies: 1,
+	// Pure NEAR asset helpers — no upstream call, no agent state
+	near_resolve_asset: 0,
+	near_convert_amount: 0,
 	// Prediction market order book / price / trades — same tier as predict_markets
 	predict_book: 1,
 	predict_price: 1,

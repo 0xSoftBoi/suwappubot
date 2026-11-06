@@ -310,6 +310,13 @@
 .txContract a { display: inline; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .txContract code { font-size: 0.84rem; overflow-wrap: anywhere; }
 
+/* Contract v3 section */
+.v3List { margin-top: 28px; }
+.v3Head { margin-top: 36px; }
+.v3Limits { margin: 14px 0 0; padding-left: 1.2em; max-width: 64ch; color: var(--ink-2); font-size: 1rem; line-height: 1.6; }
+.v3Limits li { margin-bottom: 10px; }
+.v3Limits li::marker { color: var(--accent); }
+
 /* Verify */
 .codeWrap { position: relative; margin-top: 28px; }
 .codeWrap .copyBtn { position: absolute; top: 14px; right: 14px; }

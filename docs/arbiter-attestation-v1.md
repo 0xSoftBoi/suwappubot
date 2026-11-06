@@ -86,3 +86,37 @@ near tx <settlement-tx> --networkId testnet
   "good". It proves **done as specified** — never *excellent*.
 - Arbitration of LLM-judged rubrics (fixed model/seed/weights in the enclave) is roadmap
   (v0.2), deliberately not in v1.
+
+## 5. Contract v3 additions (additive; v1 attestations above are unchanged)
+
+Contract v3 (`near/arbiter-contract-v3`) pins a table of rubrics instead of one. Existing `github_pr_v1`
+attestations keep exactly the shape above. What changes for consumers:
+
+- **Dispatch on the escrow's `rubric`.** `get_escrow` returns `rubric` (`github_pr_v1` | `http_json_v1`); the
+  attestation's `rubric.context` must equal it. The `arbiter_wasm_hash` is the one pinned for THAT rubric.
+- **Log line gains trailing `rubric=`, `buyer=` and `amount_yocto=`** (and carries `arbiter=`, which v2 already emitted):
+  `arbiter_attestation id=<id> worker=<acct> verdict=<pass|fail|error> [reason=<r>] evidence_hash=<hex> arbiter=<hex> rubric=<name> buyer=<acct> amount_yocto=<n>`.
+  With `buyer` and `amount_yocto` in the log, a reputation graph can be rebuilt from logs alone, without a
+  `get_escrow` call per id. `amount_yocto` is the escrowed amount net of the storage deposit (what the worker is paid).
+  Parse `key=value` tokens; do not anchor on end-of-line or token position.
+- **`arbiter()` view:** the top-level `rubric` / `wasm_hash` / `wasm_url` keep the v2 shape and describe
+  `github_pr_v1` ONLY. The full table is `rubrics[]`; the view also reports `contract: "v3"`.
+- **Stale callbacks are ignored**, not applied. A superseded resolution (after `reset_stuck`) logs
+  `arbiter_stale_callback id=<id> nonce=<n> ...` and changes nothing. Such a line is NOT an attestation.
+
+`http_json_v1` attestation `rubric` object (terms exactly as stored on-chain, so `terms_hash` binds them):
+
+```json
+{ "context": "http_json_v1", "url": "https://…", "method": "POST", "body": "{…}",
+  "checks": [{"path": "/result/amount", "op": "gte_int", "value": "1000000000000000000000000"}],
+  "expect_sha256": "", "deadline_unix": 1795996800, "terms_hash": "" }
+```
+
+- `evidence_hash` = sha256 of the HTTP response body the enclave fetched. The enclave output also carries a
+  `url_hash` (sha256 of `METHOD url\nbody`); the contract does not store it, so recompute it from the terms.
+- **Time:** the predicate is evaluated at resolve time. The contract rejects `resolve` after `deadline_unix`
+  (block time), but the fetch happens up to OutLayer's latency AFTER the call, possibly after the deadline.
+  There is no timestamp inside the evidence, so an attestation proves "true when fetched", never "true by X".
+- **Does not prove:** that the endpoint is truthful or neutral. If a party controls the endpoint it controls the
+  verdict. Redirects, DNS and private-IP handling are the OutLayer host's behavior and are not verified here.
+- **Known open:** a condition already true at escrow creation can be resolved immediately.
