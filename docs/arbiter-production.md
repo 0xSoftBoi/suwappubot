@@ -88,4 +88,6 @@ control: disabling the guard makes the double-callback check fail):
   `wasi:http` host filters private IPs, pins DNS or follows redirects is undocumented. Do not announce `http_json_v1`
   before asking OutLayer.
 - **Open (verify on testnet):** whether OutLayer accepts a ~2 KB `input_data`.
-- **Not verified:** that artifact `2acc016a…` is a reproducible build of its commit.
+- **Reproducible (one machine):** artifact `2acc016a…` rebuilds bit-for-bit from a clean `git archive` of commit
+  `1f85a7ee` in a different directory with `cargo build --release --locked --target wasm32-wasip2`
+  (rustc 1.96.0 ac68faa20, x86_64-unknown-linux-gnu). Not yet tried on a second machine or a pinned container image.
