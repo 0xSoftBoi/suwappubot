@@ -117,3 +117,16 @@ is the human's call (the page change is not "done" until the deployed URL is che
 - Send the OutLayer question (5a)? It is outward-facing.
 - Tier C: worth 1-2 days, or accept "tested locally only" in the claims?
 - Page update: deploy to production when ready, or leave it on the branch?
+
+## Progress (updated 2026-11-06, same day)
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Caller-balance anomaly | **Closed.** Lock model predicted 0.2950, observed 0.2959 NEAR (290 Tgas, 0.005 deposit, receipt gas_price 1e9). Docs corrected. Only "why 10x the RPC's headline price" remains. |
+| 2 | Missing tx hashes | **Closed.** Deploy `a5Hiy5Nt…XsR` and escrow #2 pass `EjPF1DRN…SLbE`, both verified with `EXPERIMENTAL_tx_status`. |
+| 3 | Refund the open escrows | **Waiting on the clock.** Open: #0, #1, #4, #5, #6 (07:24 to 07:50 UTC today) and #7, #8 (04:52 UTC tomorrow). |
+| 4A | Rejection probes | **Done.** 37 probes plus 2 controls on arb3: all rejected as expected, no state changed; 12 HTTP cases also validated offline. |
+| 4B | Lifecycle (`cancel_expired` positive) | Waiting on item 3. Early, non-buyer and Paid-escrow rejections already pass. |
+| 4C | `reset_stuck` / stale-callback on real runtime | Not started; needs a stub resolver. Still "local harness only". |
+| 5 | OutLayer egress | Redirect (public to public) is reported as 302, not followed (escrow #6). DNS / private-IP: **not probed on purpose**; the question for OutLayer still needs the human to send it. |
+| 6 | Page and `arbiter.json` | **Done on the branch.** New "second rubric, second contract" section, `contract_v3` JSON block, regenerated `llms.txt`. `bun run build` passes; 1440 and 390 viewports checked (no horizontal overflow, no console errors); all 10 transaction hashes verified on chain. Not deployed; the doc link is pinned to a commit that must be pushed. |
