@@ -1,5 +1,9 @@
 import { defineRailway, github, group, postgres, project, redis, service, volume } from "railway/iac";
 
+// NOTE: persistent services use Railway's default restart policy (ON_FAILURE). Railway
+// normalises an explicit "ON_FAILURE" / sleepApplication:false back to null, so stating
+// them here makes `railway config plan --detailed-exit-code` report permanent drift.
+// Policy lives in railway.services.json (restartPolicyType: ON_FAILURE).
 export default defineRailway(() => {
   const suwappubot = github("0xSoftBoi/suwappubot", { branch: "feat/pump-onchain-ingest", checkSuites: false });
   // Persistent services deploy from main only after CI passes (railway.services.json policy: waitForCi).
@@ -38,7 +42,7 @@ export default defineRailway(() => {
     healthcheck: "/health",
     healthcheckTimeout: 120,
     replicas: { "us-west2": 1 },
-    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 5, sleepApplication: false },
+    deploy: { restartPolicyMaxRetries: 5 },
   });
   const pumpOnchainIngestProd = service("pump-onchain-ingest-prod", {
     source: suwappubot,
@@ -82,7 +86,7 @@ export default defineRailway(() => {
     healthcheck: "/health",
     healthcheckTimeout: 60,
     replicas: { "us-east4-eqdc4a": 1 },
-    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 5 },
+    deploy: { restartPolicyMaxRetries: 5 },
   });
   const showcase = service("showcase", {
     source: github("0xSoftBoi/suwappubot", { branch: "main", checkSuites: true, rootDirectory: "/" }),
@@ -90,7 +94,7 @@ export default defineRailway(() => {
     healthcheck: "/robots.txt",
     healthcheckTimeout: 100,
     replicas: { "us-west2": 1 },
-    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 5 },
+    deploy: { restartPolicyMaxRetries: 5 },
   });
   const suwappuRelayer = service("suwappu-relayer", {
     build: { buildEnvironment: "V3", builder: "RAILPACK" },
@@ -108,7 +112,7 @@ export default defineRailway(() => {
     healthcheck: "/health",
     healthcheckTimeout: 300,
     replicas: { "us-east4-eqdc4a": 1 },
-    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 5 },
+    deploy: { restartPolicyMaxRetries: 5 },
   });
   const Redis2 = group("Redis", [Redis]);
   const PostgreSQL = group("PostgreSQL", [Postgres]);
