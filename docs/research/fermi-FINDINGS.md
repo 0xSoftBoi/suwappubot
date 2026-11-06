@@ -33,4 +33,26 @@ Titan ACE router → wrapper → engine. Engine calls `registry.getState(keccak(
 - **Activity stopped:** last swap block 25880907 (~2026-09-01), last config 25818378 (2026-08-23). Vault still ~879 WETH, 1.81M USDC, 1.39M USDT, 1.89 cbBTC (~$5M).
 
 ## Not done
-Exact `d6b0bdd5` arithmetic; meaning of config fields f0/f1 and tier zero-words; vault code/ACL; cadence after 2026-09-01.
+~~Exact `d6b0bdd5` arithmetic~~ (now recovered, see UPDATE below); vault code/ACL; cadence after 2026-09-01.
+
+---
+# UPDATE — exact swap math recovered (opcode-trace reconstruction)
+Heimdall 0.9.3 returned stubs for d6b0bdd5/c9e270d0, so the math was rebuilt from `debug_traceCall` traces (eth.drpc.org, custom JS tracer + stateOverrides). **Python model reproduces live `eth_call` bit-exactly on 210/210 random cases** (201 quotes max rel. error 0; 9 reverts same code). Model: `fermi-engine/decomp2/final_model.py`; layout: `decomp2/layout_and_reverts.txt`; validation: `decomp2/val_final.py` + `val_final_out.txt`.
+
+## Formula (VERIFIED unless marked)
+- `d6b0bdd5` = swap: requires `msg.sender==swapper` (`NS`), then writes accumulator. `c9e270d0` = same math, no caller check, no writes.
+- Pair config at `K = keccak(keccak(abi.encode(tokenA,tokenB)) . 4)` (falls back to reversed pair [INFERRED]): K+0 = flag u8 | baseEdge u128 (0.2e18 = 0.2 bp) | targetBps u16 (5000); K+1 = lo u128 (3e12) | hi u128 (3e12); K+2 = base/quote token scales.
+- **Skew:** vault balances live via `balanceOf(vault)`; Vbase = base balance valued in quote units; `s = (Vbase − tgt·total/1e4)·1e18 / total` (relative to base).
+- **Curves:** arrays of 6×int128 segments `[x0,x1,c2,c3,c4,c5]` (3 slots each); `t=(v−x0)·1e18/(x1−x0)`; `y = c5 + c4·t + c3·t² + c2·t³` (cubic); segment = first with `v ≤ x1`; beyond range → `COR`. Skew curve = array at keccak(K+6); size curve = array at keccak(K+5).
+- **Size:** measured on quote leg (native units), clamped to `hi` (`amtIn→amtIn·hi/qty`); `cum = acc + qty` (acc = same-block accumulator); `size = cum·1e18/lo`; `edge = baseEdge + sizeCurve(size)` (1e18-scaled bps).
+- **Price:** `P1 = p·(1e22+skew)/1e22` (p = registry `values[0]`, 1e8). Taker sells base: `P2=P1·(1e22−edge)/1e22`, `out = amtIn·P2·sq/(sb·1e8)`. Taker buys base: `P2=P1·(1e22+edge)/1e22`, `out = amtIn·sb·1e8/(P2·sq)`. `out = min(out, vault balance of tokenOut)`.
+- **Accumulator:** slot `keccak(dir . keccak(pairId . 7))`, dir 0 = taker sells base, 1 = taker sells quote; value `(cum<<64)|block`; accumulates only while `block.number − lastBlock < slot3>>160` (currently 1 ⇒ same-block). So size impact is **per-block cumulative flow**: later takers in the same block pay more edge.
+- **Reverts:** NS, UP (unconfigured), IA (flag≠1), ZA, ZP (price 0/empty), COR, TW, IL (`vaultBal(tokenIn)+amtIn > cap`; cap mapping slot 8: WETH 1800e18, USDC/USDT none).
+- **Oracle:** `registry.getState(pairId, now−maxParameterAge(=0), now)`; uses only `values[0]`, **ignores returned timestamp**, **no sanity band** (zero/empty ⇒ ZP). Freshness is enforced entirely by the registry (reverts `0x666a2814` unless a state exists at this exact timestamp). A compromised/buggy updater can set any non-zero price; no on-engine bound.
+
+## Still INFERRED / untested
+IL uses original vs clamped amtIn; slot-3 high field is what `4b630121` sets; first return word is always requested amountIn even if clamped; WBTC/cbBTC two-price composition untested.
+
+## Design takeaways for Suwappu
+1. Fair-value price + skew from live vault balances (target ratio) + size-tier edge on per-block cumulative flow is the whole model, ~100 lines of Solidity. Cubic segments let the maker retune curves without redeploy.
+2. Add what Fermi lacks: oracle sanity band vs a second source, timestamp check inside the pool, timelocked admin, no `executeGeneral`.

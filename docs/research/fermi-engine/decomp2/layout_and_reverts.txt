@@ -1,0 +1,41 @@
+FermiSwap engine 0x90f73fea...767f  --  storage layout + control flow recovered from opcode trace (debug_traceCall JS tracer, drpc)
+Labels: [V]=verified by eth_call state-override experiments (diff 0), [I]=inferred from trace only
+
+GLOBAL SLOTS
+ slot 2  : traderVault address (0x585d...938b4f) [V]  -- balances are read live via ERC20.balanceOf(vault) (STATICCALL 0x70a08231), tokenIn first then tokenOut
+ slot 3  : low 160 = swapper (0xb107...2d4); bits 160..223 = uint64 "same-block window" (=1; accumulator accumulates iff block.number - lastBlock < window) [I for meaning, V for effect with window=1]
+ slot 4  : mapping(bytes32 pairId => PairCfg)    pairId = keccak256(abi.encode(tokenA, tokenB))   (canonical order = order set by setPair)
+ slot 7  : mapping(bytes32 pairId => mapping(uint dir => Acc))  : Acc slot = keccak256(abi.encode(dir, keccak256(abi.encode(pairId, 7))))
+            dir 0 = taker sells BASE (tokenA), dir 1 = taker sells QUOTE.  [V]  (0xcc22..0b06 in the task = dir 1 of WETH/USDT, 0x62ae..9366 = dir 0)
+            Acc = (cum << 64) | uint64 blockNumber.  cum = cumulative QUOTE-token native units swapped in that block. [V]
+            read: cum_prev = (stored.block == block.number) ? stored.cum : 0 ; stored.block > block.number -> Panic(0x11) [V]
+            write (d6b0bdd5 only): two SSTOREs -> block := block.number ; cum := cum_prev + qty'   [trace]
+ slot 8  : mapping(address token => uint256 maxVaultBalance); revert 'IL' if vaultBal(tokenIn)+amtIn > cap (cap==0 => no cap). WETH=1800e18, WBTC=5e8, cbBTC=12e8, USDC/USDT=0 [V for WETH]
+ slot 0xa: (inside USDT proxy, not engine)
+
+PairCfg (base slot K = keccak256(abi.encode(pairId, 4)))
+ K+0 : bits 0..7  active flag (must be 1, else revert 'IA')                               [V]
+       bits 8..135  baseEdge uint128, 1e18-scaled bps  (0.2e18 = 0.2 bp)                [V: setting bits>=72 breaks it => it is 128 bit, TW/garbage]
+       bits 136..151 targetBps uint16 (5000 = vault wants 50% of VALUE in base token)   [V]
+ K+1 : low 128 = lo : size-curve normaliser (quote native units, 3e12 = 3,000,000 USDT)  [V]
+       high 128 = hi : max quote-leg per swap; larger swaps are CLAMPED, amtIn scaled amtIn*hi/qty  [V]
+ K+2 : low 128 = scaleBase (10^dec tokenA), high 128 = scaleQuote (10^dec tokenB)         [V]
+ K+5 : length n1 of size-curve array  (data at keccak256(K+5), 3 slots/element)          [V]
+ K+6 : length n2 of skew-curve array  (data at keccak256(K+6), 3 slots/element)          [V]
+ element = 6 x int128 packed 2 per slot, low half first: [x0, x1, c2, c3, c4, c5]
+       y = c5 + c4*t + c3*t^2 + c2*t^3 , t=(v-x0)*1e18/(x1-x0)    (c2 pairs with t^3, c3 with t^2: verified by perturbing each) [V]
+       segment = first i with v <= x1[i]; v < x0[i] or v > x1[last] => revert 'COR'
+
+CONTROL FLOW of d6b0bdd5(tokenIn, tokenOut, amountIn, receiver/router)  (c9e270d0 = same minus caller check and minus SSTOREs)
+ 1. require(msg.sender == swapper)  else Error('NS')                       [V: c9e270d0 does not check]
+ 2. id = keccak(tokenIn,tokenOut); if cfg.lo == 0 { id = keccak(tokenOut,tokenIn); dir=1 }; neither => 'UP' (unsupported pair); flag!=1 => 'IA'
+ 3. amountIn == 0 => 'ZA'
+ 4. oracle: STATICCALL registry 0xDa7A..8C5F getState(uint256 pairIdAsUint, uint32 now - maxParameterAge, uint32 now) with maxParameterAge()==0
+      => returns (ts, uint256[] values); engine uses values[0] (1e8-scaled quote-per-base). Engine itself IGNORES returned ts; freshness is enforced by the
+      registry: right now getState(id,T,T) reverts 0x666a2814 unless a state was written with timestamp >= T, i.e. the oracle must be updated in the SAME BLOCK
+      (prior agent's cadence data: engine update lands 1 tx before swap). empty array / 0 => 'ZP'.   [V engine side with mock; registry side observed live]
+ 5. vault balances (tokenA, tokenB) -> skew s ; mid qty ; clamp ; accumulator ; size-edge ; skew ; prices ; out ; cap by vault out-balance ; IL check
+ 6. returns (amountIn_requested, amountOut)  -- NOTE first word is the *requested* amountIn even when it was clamped by hi.
+
+REVERT STRINGS: NS not-swapper, UP unsupported pair, IA inactive, ZA zero amount, ZP zero price, COR curve-out-of-range (size < x0[0], > x1[last], or skew s outside curve),
+                IL inventory limit (slot 8), TW price multiplier <= 0.
