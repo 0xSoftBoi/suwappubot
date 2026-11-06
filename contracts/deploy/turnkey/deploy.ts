@@ -30,11 +30,12 @@ import {
 	formatEther,
 	http,
 	parseAbi,
+	parseEther,
 	type Account,
 	type Chain,
 	type Hex,
 } from "viem";
-import { baseSepolia } from "viem/chains";
+import { baseSepolia, sepolia } from "viem/chains";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -147,10 +148,64 @@ async function deploy(contractName: string) {
 	console.log(`recorded → contracts/deployments/${contractName}.${chain.id}.json`);
 }
 
+/**
+ * Bridge Ethereum Sepolia ETH -> Base Sepolia for the deployer, through Base's
+ * official OP Stack L1StandardBridge (verified: v2.8.0, OTHER_BRIDGE =
+ * 0x4200…0010, messenger = Base Sepolia L1CrossDomainMessenger). Funds arrive
+ * at the same address on Base Sepolia, typically within a few minutes.
+ */
+const BASE_SEPOLIA_L1_STANDARD_BRIDGE = "0xfd0Bf71F60660E2f608ed56e1659C450eB113120" as const;
+
+async function bridgeToBaseSepolia(etherArg: string | undefined) {
+	const signWith = env("TURNKEY_SIGN_WITH");
+	const l1Rpc = process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com";
+	const tk = turnkey();
+	const account = (await createAccount({
+		client: tk.apiClient(),
+		organizationId: env("TURNKEY_ORGANIZATION_ID"),
+		signWith,
+	})) as Account;
+	const l1 = createPublicClient({ chain: sepolia, transport: http(l1Rpc) });
+	const l1Wallet = createWalletClient({ account, chain: sepolia, transport: http(l1Rpc) });
+	const l2 = createPublicClient({ chain: baseSepolia, transport: http("https://sepolia.base.org") });
+	if ((await l1.getChainId()) !== sepolia.id) throw new Error("L1 RPC is not Ethereum Sepolia");
+
+	const bal = await l1.getBalance({ address: account.address });
+	// Keep a little for L1 gas; bridge the rest unless an amount was given.
+	const reserve = parseEther("0.003");
+	const value = etherArg ? parseEther(etherArg) : bal > reserve ? bal - reserve : 0n;
+	console.log(`Sepolia balance ${formatEther(bal)} · bridging ${formatEther(value)} to Base Sepolia`);
+	if (value === 0n || value + reserve > bal) throw new Error("not enough Sepolia ETH to bridge (need > 0.003 for gas)");
+
+	const l2Before = await l2.getBalance({ address: account.address });
+	const hash = await l1Wallet.writeContract({
+		address: BASE_SEPOLIA_L1_STANDARD_BRIDGE,
+		abi: parseAbi(["function depositETH(uint32 _minGasLimit, bytes _extraData) payable"]),
+		functionName: "depositETH",
+		args: [200_000, "0x"],
+		value,
+	});
+	const r = await l1.waitForTransactionReceipt({ hash });
+	console.log(`L1 deposit tx ${hash} · ${r.status}`);
+	if (r.status !== "success") throw new Error("deposit reverted");
+
+	for (let i = 0; i < 40; i++) {
+		await new Promise((res) => setTimeout(res, 15_000));
+		const now = await l2.getBalance({ address: account.address });
+		if (now > l2Before) {
+			console.log(`arrived on Base Sepolia: ${formatEther(now)} ETH`);
+			return;
+		}
+		console.log(`waiting for L2 credit… (${(i + 1) * 15}s)`);
+	}
+	console.log("not credited after 10 min — deposits can take longer; re-check balance later");
+}
+
 const [cmd, contract = "CommonsClearingHouse"] = process.argv.slice(2);
 if (cmd === "create-wallet") await createDeployerWallet();
 else if (cmd === "deploy") await deploy(contract);
+else if (cmd === "bridge") await bridgeToBaseSepolia(process.argv[3]);
 else {
-	console.error("usage: bun run deploy.ts <create-wallet | deploy [ContractName]>");
+	console.error("usage: bun run deploy.ts <create-wallet | deploy [ContractName] | bridge [ether]>");
 	process.exit(1);
 }
