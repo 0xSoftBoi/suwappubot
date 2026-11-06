@@ -12,7 +12,7 @@ Every verified milestone emits one attestation. Anyone can check it with three c
   "fmt": "suwappu.arbiter/v1",
   "subject": {
     "kind": "milestone",
-    "contract": "suwappu-arbiter.testnet",
+    "contract": "arb2.suwappu-arbiter.testnet",
     "escrow_id": 0
   },
   "parties": {
@@ -20,19 +20,19 @@ Every verified milestone emits one attestation. Anyone can check it with three c
     "worker": "octocat-agent.testnet"
   },
   "rubric": {
-    "context": "github_pr",
-    "repo": "arbiter-demo/shop",
-    "pr_number": 7,
-    "author": "octocat",
+    "context": "github_pr_v1",
+    "repo": "0xSoftBoi/suwappubot",
+    "pr_number": 993,
+    "author": "nanofaxcopy",
     "deadline_unix": 1795996800,
     "terms_hash": ""
   },
   "verdict": {
     "verdict": "pass",
     "reason": "merged_as_required",
-    "evidence_hash": "415f1d…",
-    "enclave": "Intel TDX · OutLayer",
-    "arbiter_wasm_hash": "sha256-of-arbiter-wasm.wasm"
+    "evidence_hash": "72f9abbd…",
+    "enclave": "OutLayer (outlayer.testnet)",
+    "arbiter_wasm_hash": "f1818167…412b"
   },
   "settlement": {
     "status": "paid",
@@ -46,7 +46,8 @@ Every verified milestone emits one attestation. Anyone can check it with three c
 
 Field rules:
 - `terms_hash` — sha256 of the canonical terms JSON exactly as stored on-chain. Binding.
-- `evidence_hash` — sha256 of the raw evidence bytes (e.g. webhook payload) **as received by the enclave**.
+- `evidence_hash` — sha256 of the GitHub API response body **as fetched by the enclave** (v2). The response is
+  trusted by the enclave over TLS; it is not independently attested.
 - `arbiter_wasm_hash` — sha256 of the arbiter WASM binary the enclave executed. The contract pins it at
   escrow creation; the attestation repeats it. Three-way match required (contract → attestation → binary).
 - `verdict` is `pass` or `fail`. Any other value is not an attestation — treat as absent.
@@ -66,10 +67,11 @@ the portable form (reconstruct from contract view + tx logs, or from any Arbiter
 
 ```sh
 # 1. pin the arbiter binary
-sha256sum arbiter_wasm.wasm   # must equal escrow.arbiter_wasm_hash and attestation.arbiter_wasm_hash
+sha256sum near/arbiter-github/artifacts/arbiter-github.wasm   # must equal the `arbiter` view's wasm_hash and the attestation's arbiter hash
 
 # 2. read the escrow terms + status
-near view suwappu-arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
+near view arb2.suwappu-arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
+near view arb2.suwappu-arbiter.testnet arbiter '{}' --networkId testnet   # pinned wasm hash/url/rubric
 
 # 3. read the attestation log from the settlement tx
 near tx <settlement-tx> --networkId testnet
@@ -77,9 +79,10 @@ near tx <settlement-tx> --networkId testnet
 
 ## 4. What this proves (and does not)
 
-- Proves: the exact arbiter code hash ran, on the exact evidence bytes, inside a TDX enclave, and the
-  on-chain callback moved funds accordingly.
-- Does not prove: rubric quality, GitHub's honesty beyond its webhook signature, or that the PR was
+- Proves: the exact arbiter code hash was asked to run on these terms and returned this verdict, and the
+  on-chain callback moved funds accordingly. Third parties can check the OutLayer execution off-chain with
+  OutLayer's own verification tooling; this contract does not verify TDX quotes on-chain.
+- Does not prove: rubric quality, that GitHub's API response is authentic beyond the enclave's TLS fetch, or that the PR was
   "good". It proves **done as specified** — never *excellent*.
 - Arbitration of LLM-judged rubrics (fixed model/seed/weights in the enclave) is roadmap
   (v0.2), deliberately not in v1.

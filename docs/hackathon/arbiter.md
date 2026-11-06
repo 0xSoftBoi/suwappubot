@@ -1,106 +1,94 @@
 # NEAR HACKATHON 2026 — Suwappu Arbiter ("Proof of Done")
 
-**Trustless milestone escrow for human and agent work. Delivery verified inside an OutLayer
-Intel TDX enclave. Payout enforced by the contract, not by trust. Shipping as a Suwappu product
-line, not a demo.**
+**Escrow for human and agent work where release-or-refund is decided by a hash-pinned arbiter running on
+NEAR OutLayer — not by either party. The enclave fetches the pull request from GitHub itself and checks it
+against immutable terms. Verified live on NEAR testnet. Not audited; not on mainnet.**
 
-Tag: repo public · branch `hackathon/arbiter` · diff vs `pre-hackathon` tag:
-`https://github.com/0xSoftBoi/suwappubot/compare/pre-hackathon...hackathon/arbiter`
+Live page: https://www.suwappu.bot/arbiter · machine-readable evidence: https://www.suwappu.bot/arbiter.json ·
+production design and open items: [`docs/arbiter-production.md`](../arbiter-production.md)
 
 ## The failure mode
 
-Every AI-agent marketplace (NEAR Agent Market today, everyone tomorrow) has the same hole:
-**"was the work actually done?"** Money sits in escrow. Delivery is a screenshot and vibes.
-Buyers don't pay; good agents can't prove themselves; disputes eat the platform.
+Every agent marketplace holds money in escrow but can't answer "was the work actually done?" Delivery is a
+screenshot and vibes. Arbiter closes the loop: the buyer locks funds against a machine-checkable rubric, and a
+pinned program decides — the contract moves funds only on its `pass`.
 
-Arbiter closes it: a NEAR escrow where release-or-refund is decided by a hash-pinned arbiter
-WASM inside an OutLayer (Intel TDX) enclave — and every verified delivery mints a signed
-**work attestation**, a portable credential the worker carries between jobs.
+## How NEAR fits (what is actually shipped)
 
-## How NEAR fits (concretely)
+- **NEAR contract** (`near/arbiter-contract`, near-sdk 5): `create_escrow` / `resolve` / `cancel_expired` /
+  `reset_stuck`. The arbiter hash, URL, build target and rubric are compile-time constants — callers cannot
+  choose their own verdict source. No admin keys, no upgrade path.
+- **OutLayer** (`near/arbiter-github`, `wasm32-wasip2`): the arbiter. It fetches
+  `api.github.com/repos/{repo}/pulls/{n}` and checks merged / author / repo / `merged_at <= deadline` /
+  merger ≠ author. No shared secret, no worker-supplied evidence. OutLayer refuses a binary whose sha256 differs
+  from the pinned hash.
+- **Not shipped (do not read as claims):** NEAR Intents funding, Agent Market integration, mainnet, in-contract
+  TDX quote verification.
 
-- **NEAR contract** (`near/arbiter-contract`): escrow create/resolve/cancel; no admin keys; rubric immutable at creation.
-- **OutLayer (Intel TDX)** (`near/arbiter-wasm`): the arbiter. HMAC-verifies the GitHub webhook evidence and evaluates the rubric. Zero network I/O in v1. Attestation proves code+input+output.
-- **NEAR Intents 1-Click**: funding rail for the escrow from any chain (deposit-address flow; dry-run quotes for preview). *Roadmap integration — current build uses a native-NEAR testnet escrow; Intents funding lands in Tier 1 (see `ARBITER.md`). No Intents integration shipped in this diff; don't claim it.*
-- **Agent Market**: the worker side can be a hired agent; arbitration is the receipt Agent Market's terms already imply. (Roadmap; not required for the demo.)
-
-## Do X → see Y (judge steps, no funds needed)
-
-```sh
-# 1. open https://www.suwappu.bot/arbiter  (or: cd webapp && npm run dev)
-# 2. pick "Merged PR (pass)" → Run — watch TEE verify → PASS, worker "paid"
-# 3. pick "Wrong author" → Run — FAIL, no transfer, funds refundable
-# 4. pick "Unmerged PR" → Run — FAIL, no transfer, funds refundable
-```
-
-Everything on the page is a recorded replay of the actual `arbiter-wasm` (checked into
-`near/arbiter-wasm/fixtures/`). The verdict JSON you see is byte-identical to the enclave output.
-
-Testnet end-to-end (public RPC, no keys needed for views):
+## Do X → see Y (no funds, no keys)
 
 ```sh
-near view suwappu-arbiter.testnet get_escrow '{"id": 0}' --networkId testnet
-near tx 12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC suwappu-arbiter.testnet --networkId testnet   # logs arbiter_attestation (pass)
-sha256sum near/arbiter-wasm/artifacts/arbiter-wasm.wasm
+# 1. The live page: replay the two real outcomes
+open https://www.suwappu.bot/arbiter
+
+# 2. Read the contract's pinned arbiter (hash, url, rubric)
+near view arb2.suwappu-arbiter.testnet arbiter '{}' --networkId testnet
+
+# 3. The binary hash must match the pinned one
+curl -sL https://raw.githubusercontent.com/0xSoftBoi/suwappubot/main/near/arbiter-github/artifacts/arbiter-github.wasm | sha256sum
+
+# 4. Read the pass settlement: the arbiter_attestation log line
+near tx Ez3bwp3ZLrFVxeak53WaBgasqXFbf8jeyEBZDPv3vq3b arb2.suwappu-arbiter.testnet --networkId testnet
+
+# 5. The evidence the enclave saw is public — check it yourself (PR #993, author nanofaxcopy, merged by another account)
+curl -s https://api.github.com/repos/0xSoftBoi/suwappubot/pulls/993 | sha256sum
 ```
 
-## Live testnet evidence (real OutLayer execution, 2026-11-05, hardened contract)
+Step 5's hash matches the attestation's `evidence_hash` only if GitHub returns byte-identical JSON, which it
+will not forever (fields like `updated_at`, `comments` change). The authoritative evidence hash is the one the
+enclave computed at execution time; compare the *fields* (`merged`, `user.login`, `merged_by.login`, `merged_at`).
 
-Contract: `suwappu-arbiter.testnet` (code sha256 `c9559550…f685`, source `near/arbiter-contract`). Arbiter WASM
-sha256 `2e4f74d4…534e`, fetched by `outlayer.testnet` from this repo's raw URL. Rubric context `github_pr_demo`
-(public demo HMAC secret). Testnet only; amounts 0.1 / 0.05 NEAR.
+## Live testnet evidence (contract `arb2.suwappu-arbiter.testnet`)
 
 | Case | Step | Tx |
 |---|---|---|
-| Pass (merged, right author) | create_escrow (id 2, 0.1 NEAR) | `8shZnhjyTZxJSobr6WzyofjbcqBMtiJ5WjtVAcMmgG3H` |
-| | resolve → OutLayer → `pass`, worker paid, `arbiter_attestation` logged | `12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC` |
-| Fail (wrong author) | create_escrow (id 3, 0.05 NEAR) | `Cap3AaABKEAEG1XaLsJMV4GnpL41KitVinKYVNXLC3Yf` |
-| | resolve → `fail`, no transfer, `arbiter_attestation` logged, escrow stays `Created` | `2zBdABZcCorZX8TKcQJGrwYzwiYUpK3Xsw6bBrzMaBfn` |
+| Pass — PR #993, merged by another account | create (0.1 NEAR) | `DtNk28WFznwZVXXQrLReeD8hC3czaAti1Wzm2vXF5img` |
+| | resolve → `pass`, worker paid | `Ez3bwp3ZLrFVxeak53WaBgasqXFbf8jeyEBZDPv3vq3b` |
+| Fail — PR #1096, authored and merged by the same account | create (0.05 NEAR) | `D7Wgn7AUCTDsyDcmJ19gXEtXh7XrGwum7cZvqHbWXe3H` |
+| | resolve → `fail self_merged`, no transfer | `G1oidSEPmAKVBQVP1FSHzpLEi4Bi7KcJ6LT5tNv7jDLr` |
 
-Earlier run on the first (pre-hardening) build: pass `12uCPjMREp9Uo4228ZMjPg1LqSSE5JTBRY9w6Prn4SEC`, fail
-`DbVioHm1Khqeev9ACaaCq2E146kebTW5fycKvQTiRNJo`, buyer refund `CiKQwXex9q3xNTveHiu5XT2rEtFkvJUWT4BJQuQft6ok`.
-Evidence hashes match the recorded fixtures byte for byte (`415f1d32…` pass, `0bd6a474…` fail).
+Arbiter sha256 `f1818167768f6b2b84b2031071760395d3e4a88cf319de3539d0d2068ad6412b`. Thirteen attack probes were
+rejected on-chain (low-gas resolve leaves the escrow `Created`, duplicate PR, re-resolve, early/non-buyer
+refund, dust deposit, bad resolve fee, demo context, oversize deadline, …). Panic messages are not surfaced by
+this build, so rejections show as `unreachable` traps — each is a rejected condition, not a verified reason.
 
-### Hardening after an adversarial money-path review
-Fixed and verified live (each attack rejected on testnet): a `fail` verdict (including junk evidence from anyone)
-no longer ends the escrow or enables a refund; the buyer can refund only after `deadline + 1h` (or if the worker
-payout failed); the arbiter WASM hash/url and rubric context are compile-time allowlisted (callers cannot supply
-their own verdict source); minimum deposit 0.01 NEAR and capped field lengths; resolve fee bounded to
-0.005–0.02 NEAR; payout failure is recoverable. Consequence: the fail-case refund can no longer be shown live
-before the demo deadline (2026-11-30) — the first-build refund tx above shows the mechanism.
+## What's in the diff (pre-hackathon → main)
 
-### Known limits (not fixed — do not claim otherwise)
-- **Testnet/demo only; must not hold real funds.** Only the public demo rubric (`github_pr_demo`, public HMAC
-  secret) is allowed, so anyone could forge "merged" evidence for a demo escrow. A production rubric needs the
-  OutLayer secrets flow wired and verified.
-- Evidence is not bound to the escrow id (one signed payload satisfies any escrow with the same repo/PR).
-- `resolve` is callable by anyone; the attestation is the contract's log of the OutLayer result, with no TDX
-  quote verification in-contract yet. Contract uses a cross-contract promise + callback, not yield/resume.
-- Panic messages are not surfaced by this build (rejections show as `unreachable`).
-
-## What's in the diff (pre-hackathon → hackathon/arbiter)
-
-- `near/arbiter-wasm/` — arbiter WASM (rubric #1: GitHub PR merge, HMAC-signed evidence, zero I/O) + recorded fixtures + Node WASI runner
-- `near/arbiter-contract/` — escrow contract (create/resolve/cancel; yield/resume callback to `outlayer.testnet`)
-- `api-ts/src/hackathon/near2026/` + `api-ts/src/routes/arbiter.ts` — flag-gated (`HACKATHON_ARBITER=true`) status/fixtures/verify-preview endpoints; unmounted by default; excluded from OpenAPI like `/hackathon/*`
-- `webapp/src/pages/Arbiter.tsx` + lazy public `/arbiter` route (`VITE_ARBITER_ENABLED=true`)
-- `webapp/src/data/arbiterFixtures.ts` — generated from the recorded fixtures
-- `docs/arbiter-attestation-v1.md` — open attestation spec + 3-command verification
-- `ARBITER.md` — the 12-month product line (Suwappu Arbiter) this launch seeds
+- `near/arbiter-github/` — production arbiter (rubric `github_pr_v1`) + committed wasm artifact
+- `near/arbiter-contract/` — escrow contract v2.1
+- `near/arbiter-wasm/` — the earlier webhook-evidence arbiter (demo rubric), kept for its recorded fixtures
+- `showcase/src/app/arbiter/` + `/arbiter.json` — the public product page
+- `api-ts/src/hackathon/near2026/`, `webapp/src/pages/Arbiter.tsx` — flag-gated (off by default) earlier demo surfaces
+- `docs/arbiter-attestation-v1.md` (open attestation spec), `docs/arbiter-production.md`, `ARBITER.md` (roadmap)
 
 ## Threat model — what Arbiter does not prove
 
-- Not rubric fairness — rubrics are agreed by both parties at creation; the contract pins the hash.
-- Not GitHub's honesty beyond its webhook signature — it proves *delivered as specified*, never *excellent*.
-- Not enforcement against a malicious buyer/seller after verdict — it enforces *exactly once*, per the signed rubric.
+- **Not rubric fairness** — the buyer chooses the repo and terms; the contract pins them at creation. A worker should
+  only accept escrows for repos they can verify and with a long deadline.
+- **Not GitHub's honesty** — the enclave trusts its TLS fetch of the GitHub API; the response is not independently
+  attested. Unauthenticated rate limits (60 req/h per IP) can produce a non-pass; the buyer then refunds only after
+  `deadline + 1h`.
+- **Not on-chain quote verification** — the trust anchor is the OutLayer contract's behaviour; third parties verify
+  executions off-chain with OutLayer's tooling.
+- **Done, not good** — it proves a PR merged as specified, never that it was excellent.
+- **Not audited** by a third party. Two internal adversarial reviews were done and their findings fixed and re-verified.
 
 ## Baseline disclosure
 
-Suwappu Arbiter pattern lineage: Suwappu's pre-existing hackathon infrastructure (Tokyo 2026 env-gated
-demo routes pattern in `api-ts/src/hackathon/`) is reused as the integration shape. No production code
-paths touched; no existing behavior changed; the entire slice mounts/unmounts on two flags
-(`HACKATHON_ARBITER`, `VITE_ARBITER_ENABLED`), both default off.
+The env-gated route pattern comes from Suwappu's earlier hackathon slice (`api-ts/src/hackathon/`). The Arbiter work
+(contracts, arbiter, page, docs) was written inside the hackathon window; no production swap/payment paths were
+changed.
 
 ## License
 
-Apache-2.0 (repo LICENSE). Demo fixtures are synthetic; no real webhook secrets present.
+Apache-2.0 (repo LICENSE). Test PRs used as evidence are this repository's own public pull requests.
