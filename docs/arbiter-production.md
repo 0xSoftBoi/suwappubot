@@ -113,7 +113,7 @@ NEAR **testnet only**. Nothing here is audited and nothing is on mainnet.
 | Escrow | Rubric / terms | Result | Txs |
 |---|---|---|---|
 | #3 | `github_pr_v1`, PR #993 (same PR as the `arb2` pass) | **pass**, `Paid` | create `HnNZvHf61sEYLEMLVeCN6BuenJidhX8bQS7f2nCY4Ugd`, resolve `E3TmuRYaLP8iYvhuTKdjFZs8uFDry9vpH1DnGbdXid7g` |
-| #2 | `http_json_v1`: RPC `view_account` of `arb.suwappu-arbiter.testnet` (an idle account nothing else touches), `/result/amount >= 3.1 NEAR`; balance 3.049 NEAR | **fail**, then after a 0.1 NEAR transfer to that account **pass**, `Paid` (`resolve_nonce` 2) | create `35ZeM5TadpYnXht9ixYwZ2qD9pJJrj5RTA9J2fo1QERs`, resolve (fail) `91Nhb6bEnoytMzrQGm59tzLj76f1q28JYXUxyhHVRt7r`, transfer `BLgtpL8fSgJjSkow1ggfPuLGh4sXzuo3NsSta1MdKZpi`; the pass resolve tx hash was not captured (find it in the account history) |
+| #2 | `http_json_v1`: RPC `view_account` of `arb.suwappu-arbiter.testnet` (an idle account nothing else touches), `/result/amount >= 3.1 NEAR`; balance 3.049 NEAR | **fail**, then after a 0.1 NEAR transfer to that account **pass**, `Paid` (`resolve_nonce` 2) | create `35ZeM5TadpYnXht9ixYwZ2qD9pJJrj5RTA9J2fo1QERs`, resolve (fail) `91Nhb6bEnoytMzrQGm59tzLj76f1q28JYXUxyhHVRt7r`, transfer `BLgtpL8fSgJjSkow1ggfPuLGh4sXzuo3NsSta1MdKZpi`, resolve (pass) `EjPF1DRNbnBc3xGJE2wJhLB2jSEYJVSVPeikgmRNSLbE` (recovered afterwards from chain state changes; `EXPERIMENTAL_tx_status` confirms signer `worker.suwappu-arbiter.testnet`, method `resolve`, args `{"id":2}`) |
 | #4 | `http_json_v1`, every field at its cap (URL 300, body 512, 4 checks; terms 1,694 B) | enclave ran and returned `fail http_status_400` (the padded request, not an OutLayer rejection) | create `FWv8nUQoMz9TbLigDQgvpXo5wnvCzTMdoqp4kswcBgYh`, resolve `ASfp9kYvNgsZRznMbcrDth9BB1MSHrmSKGXmWxYuPAG9` |
 | #0, #1, #5 | `http_json_v1` observing the **worker account that calls `resolve`** | see caveat | #0 create `2X7qPCzi15915VLjpLsappKXxr55ahDwN5ZihS9n3zF7`, resolves `CoaqcF4iFaKxkgedX49RtGScw369S2DMv8pQ5nW82oHc` / `4AKsjZoU6NrnsLBJ5Vq3MpWHBXL146yVKbwfhZUUAN9j` / `5ysybF2HFQq1AckHWazeNdz7XTLfG1qGYCkRPdZZUvKn`; #1 create `8JtxvAKH2khLL4TbPbPUizcmPstp4eeMhx1bJ4JpQGBG`, resolve `EvPhBAGy4CUnCj2uL4pbVk5PNrrNQWDck9toFn58QA2V`; #5 create `GyxguNVm3jAtsid1x9UeoQ1gJQQbzpTAQKrVGz5SmmcR`, resolve `437b1hxni7Qprk4PmcUMG6Z33yQ77EWjnxoFHDQSFTSh` |
 
@@ -129,12 +129,42 @@ system refund transfers ~12 blocks later when the call chain completes (net cost
 and the contract all behaved correctly. Consequences: (1) never use a predicate on the balance of an account that can be
 the `resolve` signer (caller, and by extension buyer or worker); (2) such a predicate is also **manipulable**: for an
 `lte_int` check on an account, its owner can make the state momentarily true by calling `resolve` itself, a ~0.3 NEAR
-swing with no real transfer. The untouched-account test (#2) is unaffected. Open: confirm the lock scales with prepaid
-gas (a 290 Tgas resolve should lock ~0.29 + deposit) and why the receipts' price is 10x the RPC's headline price.
+swing with no real transfer. The untouched-account test (#2) is unaffected.
 
-**Not tested on-chain:** `reset_stuck` and the stale-callback guard (covered only by the local mock harness),
-`cancel_expired`, payout failure, or any adversarial probe against `arb3`. The deployment tx hash was not captured.
+**Lock model confirmed by a prediction test (2026-11-06).** Predicted before running: resolving with the minimum 290 Tgas
+and a 0.005 NEAR deposit should drop the caller by `290 Tgas x 1e9 + 0.005 = 0.2950` NEAR. Observed drop at inclusion:
+**0.2959** (block 276436217, resolve tx `3FCTumsdbpjgH4zy8W9MC4db8WRzGZyBSkuyAQLKQdU8`, escrow #5, verdict `fail
+check_failed_0`, receipt `gas_price` 1e9). Refunds landed at +14 and +18 blocks; net cost 0.0023 NEAR. Still open: *why*
+the receipts' price is 10x the `gas_price` RPC's headline value (a testnet protocol parameter we have not read).
 
-**Funds still held by `arb3`:** escrows #0, #1, #4 and #5 are open (`Created`). The buyer
-(`suwappu-arbiter.testnet`) can refund them with `cancel_expired` once `deadline + 1h` has passed (about 4 hours after
-creation).
+**Deployment tx:** `a5Hiy5NthGUaU16QaS18xsv4YNy58vQbioY8aCNBXsR` (`DeployContract`, signer and receiver
+`suwappu-arb3.testnet`, block 276433678; recovered from `contract_code_changes` and confirmed with `EXPERIMENTAL_tx_status`).
+
+**Redirect behavior (one data point, 2026-11-06).** A GET to `https://httpbin.org/redirect-to?url=https://example.com/`
+(a 302 between two public hosts) through the real OutLayer enclave returned `fail http_status_302` (escrow #6, create
+`f1qCeknBonmm8CMTqZ4zMZbnZ8HVEEJEH48Zu3ovExk`, resolve `Fjs7aDnGFfKwPQLJqMx5trUXnzUk1vpRrRJPNVKTifbT`): the redirect is
+reported, not followed. This says nothing about DNS or private-IP filtering, which has NOT been probed (that would test
+OutLayer's infrastructure without their authorization); those questions are still to be put to OutLayer.
+
+**Rejection probes against `arb3` (2026-11-06): 37 probes (plus 2 accepted controls), all rejected as expected, no state changed.**
+- 23 `create_escrow` probes plus 2 accepted controls. Every probe differs from a valid control in one respect: dust
+  deposit, unknown context, invalid repo, `pr_number` 0, past deadline, deadline over 365 days, missing deadline,
+  duplicate PR for the same buyer, terms over 2,048 bytes, non-JSON terms, and 13 `http_json_v1` cases (`http://`, IPv4
+  host, port 8080, userinfo URL, 5 checks, float value, buyer-supplied `escrow_id`, unknown key, POST without body, GET
+  with body, bad `expect_sha256`, no checks, empty `contains`). The 12 HTTP cases the shared validator can judge were
+  also run through it offline: the control passes and each probe returns `invalid_terms`.
+- 14 call-level probes: `resolve` with 100 Tgas, fee below and above the bounds, `resolve` on both `Paid` escrows and a
+  nonexistent id, external calls to the private `on_arbiter_result` and `on_payout`, `cancel_expired` before the deadline,
+  by a non-buyer, on a `Paid` escrow and on a nonexistent id, `reset_stuck` on a non-stuck and a `Paid` escrow.
+- Before/after snapshots: escrow count rose by exactly the 2 controls; no existing escrow's status, nonce, amount or
+  verdict changed.
+- **Limit:** this build surfaces rejections as a bare `unreachable` trap with no reason. A single-deviation-from-control
+  design is what ties each rejection to its cause; the early `cancel_expired` rejection in particular is only confirmed
+  as a timing rule once a refund succeeds after the deadline.
+
+**Not tested on-chain:** `reset_stuck` after a real stuck resolution and the stale-callback guard (covered only by the
+local mock harness), a positive `cancel_expired`, payout failure.
+
+**Funds still held by `arb3`:** `Created` escrows #0, #1, #4, #5, #6, #7 and #8. The buyer (`suwappu-arbiter.testnet`)
+can refund each with `cancel_expired` once its `deadline + 1h` has passed: #0, #4 at 07:24, #1 at 07:26, #5 at 07:30,
+#6 at 07:50 UTC on 2026-11-06; #7 and #8 (the controls) at 04:52 UTC on 2026-11-07.
