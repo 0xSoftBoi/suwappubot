@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccount, useConfig, useSwitchChain } from 'wagmi'
-import { readContract, waitForTransactionReceipt, writeContract } from 'wagmi/actions'
+import { getPublicClient, readContract, waitForTransactionReceipt, writeContract } from 'wagmi/actions'
 import { BaseError, ContractFunctionRevertedError, type Abi, type Address } from 'viem'
 import { COMMONS_CHAIN, erc20Abi, txUrl } from './contracts'
 
@@ -50,6 +50,19 @@ const ERROR_COPY: Record<string, string> = {
   ZeroShares: 'Amount too small — rounds to zero shares',
   InsufficientCash: 'Not enough idle liquidity in the pool',
   NotOwner: 'Only the position owner can do that',
+  // Commons v2 — CommonsClearingHouse
+  TermsMismatch: 'Terms changed since you reviewed them — re-read and accept again',
+  DemandOpen: 'A settlement demand is already open on this line',
+  NotClearable: 'A line in this cycle did not consent to clearing',
+  Unbalanced: 'Not a circulation — every address must owe out what it is owed in',
+  BadPath: 'Invalid path — it must start with you and use existing lines',
+  RoutingDisabled: 'An intermediary has not enabled routing for this token',
+  RouteCapExceeded: 'An intermediary would exceed the routing cap it set for that line',
+  FeeExceeded: 'Routing fees exceed your max fee',
+  Reentrancy: 'Reentrant call blocked',
+  Expired: 'Signed intent expired',
+  NonceUsed: 'This signed intent was already used or cancelled',
+  BadSignature: 'Signature does not match the signer',
 }
 
 export function useCommonsTx() {
@@ -86,13 +99,19 @@ export function useCommonsTx() {
           }
           const prefix = steps.length > 1 ? `(${i + 1}/${steps.length}) ` : ''
           toast.loading(`${prefix}${step.label} — confirm in wallet`, { id })
-          const hash = await writeContract(config, {
+          const call = {
             address: step.address,
             abi: step.abi,
             functionName: step.functionName,
             args: step.args,
             chainId: COMMONS_CHAIN.id,
-          } as never)
+          }
+          // Public-RPC estimates for these contracts were measured to undershoot
+          // actual usage (an accept OOG'd on Base Sepolia) — always buffer 1.5x.
+          const pc = getPublicClient(config, { chainId: COMMONS_CHAIN.id })
+          if (!pc) throw new Error('No RPC client for Base Sepolia')
+          const est = await pc.estimateContractGas({ ...call, account: address } as never)
+          const hash = await writeContract(config, { ...call, gas: (est * 3n) / 2n } as never)
           toast.loading(`${prefix}${step.label} — waiting for block`, { id })
           const receipt = await waitForTransactionReceipt(config, { hash, chainId: COMMONS_CHAIN.id })
           if (receipt.status !== 'success') throw new Error(`${step.label} reverted · ${txUrl(hash)}`)

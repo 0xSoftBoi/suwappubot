@@ -15,6 +15,7 @@ import { call, useCommonsTx } from '../components/commons/useCommonsTx'
 import { TimeCurvePanel } from '../components/commons/TimeCurvePanel'
 import { AmortizingVaultPanel } from '../components/commons/AmortizingVaultPanel'
 import { MutualCreditPanel } from '../components/commons/MutualCreditPanel'
+import { ClearingHousePanel } from '../components/commons/ClearingHousePanel'
 
 /**
  * The Commons: Suwappu's public-good primitives. Immutable, ownerless,
@@ -23,7 +24,7 @@ import { MutualCreditPanel } from '../components/commons/MutualCreditPanel'
  * front end among any number anyone can build.
  */
 
-type Tab = 'overview' | 'curve' | 'vault' | 'credit'
+type Tab = 'overview' | 'clearing' | 'curve' | 'vault' | 'credit'
 
 const PRIMITIVES: { id: Tab; name: string; address: string; line: string; body: string }[] = [
   {
@@ -87,9 +88,10 @@ export function CommonsRoute() {
           activeId={tab}
           options={[
             { id: 'overview', label: 'Overview' },
+            { id: 'clearing', label: 'Clearing House v2' },
             { id: 'curve', label: 'TimeCurve' },
             { id: 'vault', label: 'AmortizingVault' },
-            { id: 'credit', label: 'MutualCredit' },
+            { id: 'credit', label: 'MutualCredit (v1)' },
           ]}
           onChange={(id) => setTab(id as Tab)}
         />
@@ -98,6 +100,7 @@ export function CommonsRoute() {
       </TerminalPanel>
 
       {tab === 'overview' && <Overview onOpen={setTab} />}
+      {tab === 'clearing' && <ClearingHousePanel />}
       {tab === 'curve' && <TimeCurvePanel />}
       {tab === 'vault' && <AmortizingVaultPanel />}
       {tab === 'credit' && <MutualCreditPanel />}
@@ -108,6 +111,19 @@ export function CommonsRoute() {
 function Overview({ onOpen }: { onOpen: (t: Tab) => void }) {
   return (
     <div className="grid gap-1.5 md:gap-2">
+      <TerminalPanel elevated className="flex flex-col gap-2 p-[var(--terminal-space-card)] md:flex-row md:items-center md:justify-between">
+        <div className="grid gap-1">
+          <TerminalEyebrow tone="accent">New · Commons v2</TerminalEyebrow>
+          <h2 className="text-lg font-semibold text-terminal-text">Clearing House — an ownerless credit-clearing network</h2>
+          <p className="max-w-3xl text-sm text-terminal-text-secondary">
+            The successor to MutualCredit: terms you accept are hash-bound, payments route through intermediaries who opt in, and anyone can clear
+            debt cycles without moving a single net position. Repayment goes to escrow, and every action can be signed as an intent for a relayer.
+          </p>
+        </div>
+        <TerminalButton variant="primary" size="sm" onClick={() => onOpen('clearing')}>
+          Open Clearing House
+        </TerminalButton>
+      </TerminalPanel>
       <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3 md:gap-2">
         {PRIMITIVES.map((p, i) => (
           <TerminalPanel key={p.id} className="flex flex-col gap-2 p-[var(--terminal-space-card)]">
