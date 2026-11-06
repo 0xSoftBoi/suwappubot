@@ -41,6 +41,31 @@
       "restartPolicyType": "ON_FAILURE"
     },
     {
+      "name": "python-worker",
+      "serviceId": "27ed9534-d938-4826-b07c-32e00d44fa72",
+      "environment": "production",
+      "lifecycle": "persistent",
+      "kind": "worker",
+      "source": {
+        "type": "github",
+        "branch": "main"
+      },
+      "rootDirectory": "/",
+      "dockerfilePath": "/api/Dockerfile.railway",
+      "watchPatterns": [
+        "/api/**",
+        "/bot/**",
+        "/database/**",
+        "/requirements*.txt",
+        "/pyproject.toml",
+        "/uv.lock",
+        "/railway.python-worker.json"
+      ],
+      "waitForCi": true,
+      "healthcheckPath": "/health",
+      "restartPolicyType": "ON_FAILURE"
+    },
+    {
       "name": "python-api",
       "serviceId": "fed701e4-8fd9-47ec-9e1d-56bcceea1d90",
       "environment": "dev",
@@ -484,12 +509,6 @@
     }
   ],
   "knownGaps": [
-    {
-      "name": "python-worker",
-      "environment": "production",
-      "policy": "persistent worker (railway.python-worker.json)",
-      "finding": "2026-11-06: service absent in production; bot /health reports worker_fingerprint=unknown and all background services dead. Needs a dashboard-created service with env vars; not creatable via IaC while variables are unmanaged."
-    },
     {
       "name": "webapp",
       "environment": "production",

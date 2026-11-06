@@ -114,11 +114,21 @@ export default defineRailway(() => {
     replicas: { "us-east4-eqdc4a": 1 },
     deploy: { restartPolicyMaxRetries: 5 },
   });
+  // Same image as python-api, Telegram bot OFF (RUN_TELEGRAM_BOT=false), background loops ON.
+  // Created 2026-11-06 via `railway add` with variable REFERENCES to python-api (variables are unmanaged here).
+  const pythonWorker = service("python-worker", {
+    source: suwappubot2,
+    build: { buildEnvironment: "V3", builder: "RAILPACK", watchPatterns: ["/api/**", "/bot/**", "/database/**", "/requirements*.txt", "/pyproject.toml", "/uv.lock", "/railway.python-worker.json"] },
+    healthcheck: "/health",
+    healthcheckTimeout: 300,
+    replicas: { "us-east4-eqdc4a": 1 },
+    deploy: { restartPolicyMaxRetries: 10 },
+  });
   const Redis2 = group("Redis", [Redis]);
   const PostgreSQL = group("PostgreSQL", [Postgres]);
 
   return project("suwappu", {
     variables: { managed: false },
-    resources: [suwappuHolderCensus, suwappuBridge, webappMarketdata, apiTs, pumpOnchainIngestProd, ghostcatcherCompactExport, testnetRunner, ghostcatcherChainExportV2, signalLabProd, terminal, showcase, suwappuRelayer, ghostcatcherChainExport, pythonApi, postgresVolume, redisVolume, Redis2, PostgreSQL],
+    resources: [suwappuHolderCensus, suwappuBridge, webappMarketdata, apiTs, pumpOnchainIngestProd, ghostcatcherCompactExport, testnetRunner, ghostcatcherChainExportV2, signalLabProd, terminal, showcase, suwappuRelayer, ghostcatcherChainExport, pythonApi, pythonWorker, postgresVolume, redisVolume, Redis2, PostgreSQL],
   });
 });
