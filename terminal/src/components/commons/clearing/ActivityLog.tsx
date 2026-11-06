@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import type { Address } from 'viem'
 import { TerminalButton, TerminalEmptyState, TerminalPanel, TerminalPanelHeader } from '../../foundation'
-import { fmt, short, toNum, txUrl } from '../contracts'
+import { fmt, toNum, txUrl } from '../contracts'
 import { downloadCsv } from './csv'
-import { useActivity } from './useActivity'
+import { useLocalMeta } from './local'
+import type { useActivity } from './useActivity'
 
 const KIND_TONE: Record<string, string> = {
   Payment: 'text-terminal-text',
@@ -17,8 +18,9 @@ const KIND_TONE: Record<string, string> = {
 }
 
 /** On-chain audit trail for the connected address, with CSV export. */
-export function ActivityLog({ me, counterparties }: { me: Address; counterparties: Address[] }) {
-  const { data, isLoading, error } = useActivity(me, counterparties)
+export function ActivityLog({ me, activity }: { me: Address; activity: ReturnType<typeof useActivity> }) {
+  const { data, isLoading, error } = activity
+  const { name, refOf } = useLocalMeta()
   const [filter, setFilter] = useState('')
   const rows = useMemo(
     () => (data ?? []).filter((r) => !filter || r.kind === filter),
@@ -29,14 +31,17 @@ export function ActivityLog({ me, counterparties }: { me: Address; counterpartie
   const exportCsv = () =>
     downloadCsv(
       `commons-activity-${me.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['time_utc', 'block', 'event', 'counterparty', 'amount_musd', 'detail', 'tx_hash', 'explorer'],
+      ['time_utc', 'block', 'event', 'counterparty', 'counterparty_label', 'amount_musd', 'net_effect_musd', 'detail', 'reference', 'tx_hash', 'explorer'],
       (data ?? []).map((r) => [
         r.time ? new Date(r.time * 1000).toISOString() : '',
         r.block.toString(),
         r.kind,
         r.counterparty ?? '',
+        r.counterparty ? name(r.counterparty) : '',
         r.amount !== undefined ? toNum(r.amount) : '',
+        r.delta !== undefined ? toNum(r.delta) : '',
         r.detail,
+        refOf(r.tx) ?? '',
         r.tx,
         txUrl(r.tx),
       ]),
@@ -84,6 +89,7 @@ export function ActivityLog({ me, counterparties }: { me: Address; counterpartie
                 <th className="px-2 py-1.5 font-medium">Counterparty</th>
                 <th className="px-2 py-1.5 text-right font-medium">Amount</th>
                 <th className="px-2 py-1.5 font-medium">Detail</th>
+                <th className="px-2 py-1.5 font-medium">Reference</th>
                 <th className="px-2 py-1.5 font-medium">Tx</th>
               </tr>
             </thead>
@@ -94,9 +100,10 @@ export function ActivityLog({ me, counterparties }: { me: Address; counterpartie
                     {r.time ? new Date(r.time * 1000).toLocaleString() : `#${r.block}`}
                   </td>
                   <td className={`px-2 py-1.5 font-semibold ${KIND_TONE[r.kind] ?? 'text-terminal-text-secondary'}`}>{r.kind}</td>
-                  <td className="px-2 py-1.5 font-mono text-terminal-text-secondary">{r.counterparty ? short(r.counterparty) : '—'}</td>
+                  <td className="px-2 py-1.5 text-terminal-text-secondary">{r.counterparty ? name(r.counterparty) : '—'}</td>
                   <td className="px-2 py-1.5 text-right font-mono text-terminal-text">{r.amount !== undefined ? fmt(r.amount, 4) : '—'}</td>
                   <td className="px-2 py-1.5 text-terminal-text-secondary">{r.detail}</td>
+                  <td className="px-2 py-1.5 font-mono text-terminal-accent">{refOf(r.tx) ?? ''}</td>
                   <td className="px-2 py-1.5">
                     <a href={txUrl(r.tx)} target="_blank" rel="noreferrer" className="font-mono text-terminal-text-muted hover:text-terminal-accent">
                       {r.tx.slice(0, 8)}… ↗

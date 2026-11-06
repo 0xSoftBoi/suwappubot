@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import type { Address } from 'viem'
 import { FLAG_CLEARABLE, LineStatusV2 } from '@suwappu/primitives-client'
 import { TerminalButton, TerminalEmptyState, TerminalPanel, TerminalPanelHeader, TerminalStatusPill } from '../../foundation'
-import { fmt, short, toNum } from '../contracts'
+import { fmt, toNum } from '../contracts'
+import { useLocalMeta } from './local'
 import { downloadCsv } from './csv'
 import { STATUS_LABEL, aprOf, statusTone } from './shared'
 import type { Position } from './useNetwork'
@@ -53,6 +54,7 @@ export function PositionsTable({
 }) {
   const [sort, setSort] = useState<{ k: SortKey; dir: 1 | -1 }>({ k: 'net', dir: -1 })
   const [hideClosed, setHideClosed] = useState(true)
+  const { name } = useLocalMeta()
   const rows = useMemo(() => {
     const r = positions.filter((p) => !hideClosed || (p.line?.status !== LineStatusV2.Closed && p.line?.status !== LineStatusV2.None))
     return [...r].sort((a, b) => {
@@ -65,9 +67,10 @@ export function PositionsTable({
   const exportCsv = () =>
     downloadCsv(
       `commons-positions-${me.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['counterparty', 'status', 'receivable_musd', 'payable_musd', 'net_musd', 'credit_you_extend', 'credit_they_extend', 'utilization_in', 'utilization_out', 'fee_apr', 'grace_days', 'clearable', 'terms_hash', 'terms_version'],
+      ['counterparty', 'label', 'status', 'receivable_musd', 'payable_musd', 'net_musd', 'credit_you_extend', 'credit_they_extend', 'utilization_in', 'utilization_out', 'fee_apr', 'grace_days', 'clearable', 'terms_hash', 'terms_version'],
       positions.map((p) => [
         p.counterparty,
+        name(p.counterparty),
         STATUS_LABEL[p.line?.status ?? 0],
         toNum(p.theyOwe),
         toNum(p.iOwe),
@@ -136,7 +139,7 @@ export function PositionsTable({
                     onClick={() => onSelect(p.counterparty)}
                     className={`cursor-pointer border-b border-terminal-border/40 hover:bg-terminal-panel ${isSel ? 'bg-terminal-accent/10' : ''}`}
                   >
-                    <td className="px-2 py-1.5 text-terminal-text">{short(p.counterparty)}</td>
+                    <td className="px-2 py-1.5 text-terminal-text" title={p.counterparty}>{name(p.counterparty)}</td>
                     <td className="px-2 py-1.5">
                       <TerminalStatusPill tone={statusTone(p.line?.status)}>{STATUS_LABEL[p.line?.status ?? 0]}</TerminalStatusPill>
                     </td>

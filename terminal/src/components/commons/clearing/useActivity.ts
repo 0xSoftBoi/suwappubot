@@ -17,6 +17,8 @@ export type ActivityRow = {
   kind: string
   counterparty?: Address
   amount?: bigint
+  /** Signed change to MY net position with `counterparty` (+ = they owe me more / I owe less). */
+  delta?: bigint
   detail: string
 }
 
@@ -56,10 +58,16 @@ export function useActivity(me: Address | undefined, counterparties: Address[]) 
             rows.push({ ...base, kind: 'Limit', amount: a.newLimit as bigint, detail: `${eq(a.party as string, m) ? 'You' : 'They'} set credit limit` })
             break
           case 'Payment':
-            rows.push({ ...base, kind: 'Payment', amount: a.amount as bigint, detail: eq(a.from as string, m) ? 'You paid on credit' : 'You were paid on credit' })
+            {
+              const out = eq(a.from as string, m)
+              rows.push({ ...base, kind: 'Payment', amount: a.amount as bigint, delta: out ? -(a.amount as bigint) : (a.amount as bigint), detail: out ? 'You paid on credit (you owe more)' : 'Paid to you on credit (they owe more)' })
+            }
             break
           case 'Settled':
-            rows.push({ ...base, kind: 'Settled', amount: a.amount as bigint, detail: eq(a.debtor as string, m) ? 'You settled (escrow)' : 'Settled to you (escrow)' })
+            {
+              const mine = eq(a.debtor as string, m)
+              rows.push({ ...base, kind: 'Settled', amount: a.amount as bigint, delta: mine ? (a.amount as bigint) : -(a.amount as bigint), detail: mine ? 'You settled in tokens (to their escrow)' : 'Settled to you in tokens (escrow)' })
+            }
             break
           case 'SettlementDemanded':
             rows.push({ ...base, kind: 'Demand', amount: a.owed as bigint, detail: eq(a.creditor as string, m) ? 'You demanded settlement' : 'Settlement demanded from you' })
@@ -71,7 +79,10 @@ export function useActivity(me: Address | undefined, counterparties: Address[]) 
             rows.push({ ...base, kind: 'Cured', detail: 'Default cured by full repayment' })
             break
           case 'WrittenOff':
-            rows.push({ ...base, kind: 'Write-off', amount: a.amount as bigint, detail: eq(a.creditor as string, m) ? 'You wrote off their debt' : 'Your debt was written off' })
+            {
+              const byMe = eq(a.creditor as string, m)
+              rows.push({ ...base, kind: 'Write-off', amount: a.amount as bigint, delta: byMe ? -(a.amount as bigint) : (a.amount as bigint), detail: byMe ? 'You wrote off their debt' : 'Your debt was written off' })
+            }
             break
           case 'LineClosed':
             rows.push({ ...base, kind: 'Closed', detail: 'Line closed' })
@@ -97,17 +108,22 @@ export function useActivity(me: Address | undefined, counterparties: Address[]) 
         } catch {
           continue // relayed via a contract — can't attribute; skip rather than guess
         }
-        const mine = edges.filter((e) => eq(e.debtor, m) || eq(e.creditor, m))
-        if (!mine.length) continue
-        const reducedOwe = mine.filter((e) => eq(e.debtor, m)).reduce((s, e) => s + e.amount, 0n)
-        const reducedOwed = mine.filter((e) => eq(e.creditor, m)).reduce((s, e) => s + e.amount, 0n)
-        rows.push({
-          block: c.blockNumber!,
-          tx: c.transactionHash!,
-          kind: 'Cleared',
-          amount: reducedOwe,
-          detail: `Clearing: your debt −${fmtAmt(reducedOwe)}, owed to you −${fmtAmt(reducedOwed)} (net unchanged)`,
-        })
+        // One row per edge touching me, so per-counterparty statements reconcile.
+        for (const e of edges) {
+          const iAmDebtor = eq(e.debtor, m)
+          if (!iAmDebtor && !eq(e.creditor, m)) continue
+          rows.push({
+            block: c.blockNumber!,
+            tx: c.transactionHash!,
+            kind: 'Cleared',
+            counterparty: iAmDebtor ? e.creditor : e.debtor,
+            amount: e.amount,
+            delta: iAmDebtor ? e.amount : -e.amount,
+            detail: iAmDebtor
+              ? `Clearing: your debt reduced ${fmtAmt(e.amount)} (offset elsewhere in the cycle)`
+              : `Clearing: their debt reduced ${fmtAmt(e.amount)} (offset elsewhere in the cycle)`,
+          })
+        }
       }
 
       // Timestamps for the most recent rows.

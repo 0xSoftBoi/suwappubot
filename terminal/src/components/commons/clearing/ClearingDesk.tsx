@@ -10,7 +10,8 @@ import {
   TerminalPanelHeader,
   TerminalSegmentedTabs,
 } from '../../foundation'
-import { fmt, short } from '../contracts'
+import { fmt } from '../contracts'
+import { useLocalMeta } from './local'
 import { call } from '../useCommonsTx'
 import { planClearing } from './cycles'
 import { CH, CHA, TOKEN, type Run } from './shared'
@@ -24,6 +25,7 @@ import type { Edge } from './useNetwork'
  */
 export function ClearingDesk({ me, edges, loading, run, busy }: { me?: Address; edges: Edge[]; loading: boolean; run: Run; busy: string | null }) {
   const [scope, setScope] = useState<'mine' | 'network'>('mine')
+  const { name } = useLocalMeta()
   const plan = useMemo(() => planClearing(edges, { through: scope === 'mine' ? me : undefined, me }), [edges, scope, me])
   const totalDebt = edges.reduce((s, e) => s + e.amount, 0n)
   const pct = totalDebt > 0n ? Number((plan.grossRemoved * 10_000n) / totalDebt) / 100 : 0
@@ -69,7 +71,7 @@ export function ClearingDesk({ me, edges, loading, run, busy }: { me?: Address; 
           {plan.cycles.map((c, i) => (
             <div key={i} className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-mono text-terminal-text-secondary">
-                {[...c.nodes, c.nodes[0]].map((n) => (me && n.toLowerCase() === me.toLowerCase() ? 'you' : short(n))).join(' → ')}
+                {[...c.nodes, c.nodes[0]].map((n) => (me && n.toLowerCase() === me.toLowerCase() ? 'you' : name(n))).join(' → ')}
               </span>
               <span className="font-mono text-terminal-text">
                 −{fmt(c.amount, 4)} × {c.nodes.length} legs

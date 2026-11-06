@@ -51,6 +51,7 @@ enum Action {
 	Accept = 1,
 	Pay = 6,
 	Settle = 8,
+	Demand = 9,
 	Withdraw = 13,
 }
 
@@ -148,6 +149,16 @@ console.log("2. pay around the triangle (signed)");
 await intent(A, Action.Pay, "address,address,uint256", [B.address, MUSD, e18(30)], "A pays B 30 on credit");
 await intent(B, Action.Pay, "address,address,uint256", [C.address, MUSD, e18(50)], "B pays C 50 on credit");
 await intent(C, Action.Pay, "address,address,uint256", [A.address, MUSD, e18(20)], "C pays A 20 on credit");
+
+if (process.env.E2E_SEED_DESK === "1") {
+	// Desk workflow fixtures for A: a demand against A, and an incoming proposal.
+	console.log("2b. seed desk workflow states for A");
+	await intent(B, Action.Demand, "address,address", [A.address, MUSD], "B demands A settle (grace 1d)");
+	const D = privateKeyToAccount(generatePrivateKey());
+	await intent(D, Action.Propose, "address,address,uint256,uint256,uint64,uint8", [A.address, MUSD, e18(50), 1585489599n, 172800n, 1], "D proposes 50 @5% to A");
+	console.log(`\nSEEDED desk for A: ${A.address}\nB ${B.address}\nC ${C.address}\nD ${D.address}`);
+	process.exit(0);
+}
 
 if (process.env.E2E_SEED_ONLY === "1") {
 	// Leave the cycle open so the terminal's clearing desk has live work to find.

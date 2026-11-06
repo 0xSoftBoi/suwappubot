@@ -7,7 +7,7 @@ import type { Position } from './useNetwork'
 export type Alert = { tone: 'down' | 'warm'; text: string; counterparty: Address }
 
 /** Deadline alerts: demands against me (default risk) and defaults I can now record. */
-export function alertsFor(me: Address, positions: Position[], now = Date.now() / 1000): Alert[] {
+export function alertsFor(me: Address, positions: Position[], name: (a?: string) => string = short, now = Date.now() / 1000): Alert[] {
   const out: Alert[] = []
   for (const p of positions) {
     const l = p.line
@@ -21,12 +21,12 @@ export function alertsFor(me: Address, positions: Position[], now = Date.now() /
         counterparty: p.counterparty,
         text:
           left > 0
-            ? `${short(p.counterparty)} demanded settlement of ${fmt(p.iOwe, 2)} mUSD — ${formatLeft(left)} until they can mark you in default`
-            : `Grace elapsed on ${short(p.counterparty)}'s demand (${fmt(p.iOwe, 2)} mUSD) — you can be marked in default now`,
+            ? `${name(p.counterparty)} demanded settlement of ${fmt(p.iOwe, 2)} mUSD — ${formatLeft(left)} until they can mark you in default`
+            : `Grace elapsed on ${name(p.counterparty)}'s demand (${fmt(p.iOwe, 2)} mUSD) — you can be marked in default now`,
       })
     }
     if (demandedByMe && p.theyOwe > 0n && now > ends) {
-      out.push({ tone: 'warm', counterparty: p.counterparty, text: `Grace elapsed on your demand to ${short(p.counterparty)} (${fmt(p.theyOwe, 2)} mUSD) — eligible to mark default` })
+      out.push({ tone: 'warm', counterparty: p.counterparty, text: `Grace elapsed on your demand to ${name(p.counterparty)} (${fmt(p.theyOwe, 2)} mUSD) — eligible to mark default` })
     }
   }
   return out
@@ -47,9 +47,11 @@ export function KpiStrip({ positions, claimable, alerts }: { positions: Position
   const active = positions.filter((p) => p.line?.status === LineStatusV2.Active).length
   const defaulted = positions.filter((p) => p.line?.status === LineStatusV2.Defaulted).length
   const net = recv - pay
+  const top = positions.reduce((m, p) => (p.theyOwe > m ? p.theyOwe : m), 0n)
+  const concentration = recv > 0n ? Number((top * 10_000n) / recv) / 100 : 0
   return (
     <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-6">
-      <TerminalMetricCard label="Receivable" value={`${fmt(recv, 2)}`} detail="owed to you · mUSD" tone="up" />
+      <TerminalMetricCard label="Receivable" value={`${fmt(recv, 2)}`} detail={recv > 0n ? `largest counterparty ${concentration.toFixed(0)}% of book` : 'owed to you · mUSD'} tone={concentration > 50 ? 'warm' : 'up'} />
       <TerminalMetricCard label="Payable" value={`${fmt(pay, 2)}`} detail="you owe · mUSD" tone="down" />
       <TerminalMetricCard label="Net position" value={`${net >= 0n ? '+' : '−'}${fmt(net >= 0n ? net : -net, 2)}`} detail={`${active} active · ${defaulted} defaulted`} tone={net >= 0n ? 'accent' : 'warm'} />
       <TerminalMetricCard label="Credit extended" value={`${fmt(extended, 0)}`} detail={`${used.toFixed(1)}% drawn by counterparties`} tone="sky" />

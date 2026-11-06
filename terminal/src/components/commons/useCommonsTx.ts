@@ -3,7 +3,7 @@ import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccount, useConfig, useSwitchChain } from 'wagmi'
 import { getPublicClient, readContract, waitForTransactionReceipt, writeContract } from 'wagmi/actions'
-import { BaseError, ContractFunctionRevertedError, type Abi, type Address } from 'viem'
+import { BaseError, ContractFunctionRevertedError, type Abi, type Address, type Hex } from 'viem'
 import { COMMONS_CHAIN, erc20Abi, txUrl } from './contracts'
 
 export type TxStep = {
@@ -73,13 +73,14 @@ export function useCommonsTx() {
   const [busy, setBusy] = useState<string | null>(null)
 
   const run = useCallback(
-    async (name: string, steps: RunnableStep[]): Promise<boolean> => {
+    async (name: string, steps: RunnableStep[]): Promise<Hex[] | false> => {
       if (!address) {
         toast.error('Connect a wallet first')
         return false
       }
       setBusy(name)
       const id = toast.loading(`${name}…`)
+      const hashes: Hex[] = []
       try {
         if (chainId !== COMMONS_CHAIN.id) {
           toast.loading('Switching to Base Sepolia…', { id })
@@ -112,12 +113,13 @@ export function useCommonsTx() {
           if (!pc) throw new Error('No RPC client for Base Sepolia')
           const est = await pc.estimateContractGas({ ...call, account: address } as never)
           const hash = await writeContract(config, { ...call, gas: (est * 3n) / 2n } as never)
+          hashes.push(hash)
           toast.loading(`${prefix}${step.label} — waiting for block`, { id })
           const receipt = await waitForTransactionReceipt(config, { hash, chainId: COMMONS_CHAIN.id })
           if (receipt.status !== 'success') throw new Error(`${step.label} reverted · ${txUrl(hash)}`)
         }
         toast.success(`${name} confirmed`, { id })
-        return true
+        return hashes
       } catch (err) {
         toast.error(`${name}: ${explain(err)}`, { id, duration: 7000 })
         return false

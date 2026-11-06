@@ -89,31 +89,43 @@ export async function getLogsWindowed(topics?: (Hex | Hex[] | null)[]): Promise<
 
 export type SignedIntent = { label: string; decoded: [string, string][]; json: string }
 
+/** Sign one intent as the connected account; returns the relayer payload. */
+export function useSignIntent() {
+  const config = useConfig()
+  return async (signer: Address, action: ClearingAction, values: readonly unknown[]) => {
+    const intent = buildIntent(signer, action, values)
+    const signature = await signTypedData(config, intentTypedData(intent, COMMONS_CHAIN.id, CH) as never)
+    return { intent, signature }
+  }
+}
+
+export const intentJson = (payload: unknown) =>
+  JSON.stringify(
+    { chainId: COMMONS_CHAIN.id, clearingHouse: CH, ...(payload as object) },
+    (_, v) => (typeof v === 'bigint' ? v.toString() : v),
+    2,
+  )
+
 /** Send as a tx, or (relay mode) sign the equivalent EIP-712 intent and surface it. */
 export function useAct(relay: boolean, onSigned: (s: SignedIntent) => void) {
   const { run, busy, address } = useCommonsTx()
-  const config = useConfig()
+  const sign = useSignIntent()
+  /** Resolves to the tx hashes sent (tx mode), true (intent signed), or false. */
   const act = async (
     label: string,
     action: ClearingAction,
     values: readonly unknown[],
     decoded: [string, string][],
     steps: Parameters<typeof run>[1],
-  ): Promise<boolean> => {
+  ): Promise<Hex[] | boolean> => {
     if (!relay) return run(label, steps)
     if (!address) {
       toast.error('Connect a wallet first')
       return false
     }
     try {
-      const it = buildIntent(address, action, values)
-      const signature = await signTypedData(config, intentTypedData(it, COMMONS_CHAIN.id, CH) as never)
-      const json = JSON.stringify(
-        { chainId: COMMONS_CHAIN.id, clearingHouse: CH, intent: it, signature },
-        (_, v) => (typeof v === 'bigint' ? v.toString() : v),
-        2,
-      )
-      onSigned({ label, decoded, json })
+      const payload = await sign(address, action, values)
+      onSigned({ label, decoded, json: intentJson(payload) })
       toast.success(`${label}: intent signed — hand it to any relayer`)
       return true
     } catch (e) {

@@ -17,6 +17,11 @@ import { usePersistentState } from '../../lib/persist'
 import { addressUrl, aprFromPerSecond, fmt, isAddress, parseAmount, short, toNum } from './contracts'
 import { approveIfNeeded, call } from './useCommonsTx'
 import { ActivityLog } from './clearing/ActivityLog'
+import { BatchPay } from './clearing/BatchPay'
+import { Inbox } from './clearing/Inbox'
+import { AddressBookTools, ContactEditor, LocalMetaProvider, useLocalMeta } from './clearing/local'
+import { Statement } from './clearing/Statement'
+import { useActivity } from './clearing/useActivity'
 import { ClearingDesk } from './clearing/ClearingDesk'
 import { AlertsStrip, KpiStrip, alertsFor } from './clearing/Overview'
 import { PositionsTable } from './clearing/PositionsTable'
@@ -47,11 +52,19 @@ import {
  * sent as a tx or, in relay mode, signed as an EIP-712 intent with decoded params.
  */
 
-type DeskTab = 'positions' | 'clearing' | 'activity' | 'payments'
+type DeskTab = 'inbox' | 'positions' | 'clearing' | 'activity' | 'payments'
 
 export function ClearingHousePanel() {
+  return (
+    <LocalMetaProvider>
+      <Desk />
+    </LocalMetaProvider>
+  )
+}
+
+function Desk() {
   const [relay, setRelay] = usePersistentState<boolean>('commons:v2:relay', false)
-  const [tab, setTab] = usePersistentState<DeskTab>('commons:v2:desk', 'positions')
+  const [tab, setTab] = usePersistentState<DeskTab>('commons:v2:desk', 'inbox')
   const [signed, setSigned] = useState<SignedIntent | null>(null)
   const { act, run, busy, address } = useAct(relay, setSigned)
   const [cpInput, setCpInput] = useState('')
@@ -60,8 +73,17 @@ export function ClearingHousePanel() {
   const net = useNetwork(address)
   const { data: claimableRaw } = useReadContract({ ...ch, functionName: 'claimable', args: [address!, TOKEN], query: { enabled: !!address, refetchInterval: 15_000 } })
   const claimable = (claimableRaw as bigint | undefined) ?? 0n
-  const alerts = useMemo(() => (address ? alertsFor(address, net.positions) : []), [address, net.positions])
+  const { name } = useLocalMeta()
+  const alerts = useMemo(() => (address ? alertsFor(address, net.positions, name) : []), [address, net.positions, name])
   const counterparties = useMemo(() => net.positions.map((p) => p.counterparty), [net.positions])
+  const activity = useActivity(address, counterparties)
+  const inboxCount = useMemo(
+    () =>
+      alerts.length +
+      net.positions.filter((p) => p.line?.status === LineStatusV2.Proposed && p.line.proposer.toLowerCase() !== address?.toLowerCase()).length +
+      (claimable > 0n ? 1 : 0),
+    [alerts, net.positions, address, claimable],
+  )
 
   const openLine = (a: Address) => {
     setCpInput(a)
@@ -82,7 +104,10 @@ export function ClearingHousePanel() {
           }
         />
         <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-          <TerminalTextField label="Counterparty — open or propose a line" placeholder="0x…" mono value={cpInput} onChange={(e) => setCpInput(e.target.value)} />
+          <div className="grid gap-1">
+            <TerminalTextField label="Counterparty — open or propose a line" placeholder="0x…" mono value={cpInput} onChange={(e) => setCpInput(e.target.value)} />
+            <AddressBookTools />
+          </div>
           <label className="flex cursor-pointer items-start gap-2 pb-1 text-xs md:max-w-sm">
             <input type="checkbox" className="mt-0.5" checked={relay} onChange={(e) => setRelay(e.target.checked)} />
             <span>
@@ -94,7 +119,7 @@ export function ClearingHousePanel() {
       </TerminalPanel>
 
       {address && <KpiStrip positions={net.positions} claimable={claimable} alerts={alerts} />}
-      {address && <AlertsStrip alerts={alerts} onOpen={openLine} />}
+      {address && tab !== 'inbox' && <AlertsStrip alerts={alerts} onOpen={openLine} />}
       {signed && <SignedIntentCard s={signed} onClose={() => setSigned(null)} />}
 
       <div className="-mx-1 overflow-x-auto px-1">
@@ -102,6 +127,7 @@ export function ClearingHousePanel() {
           <TerminalSegmentedTabs
             activeId={tab}
             options={[
+              { id: 'inbox', label: `Inbox${inboxCount ? ` · ${inboxCount}` : ''}` },
               { id: 'positions', label: `Positions${net.positions.length ? ` · ${net.positions.length}` : ''}` },
               { id: 'clearing', label: 'Clearing desk' },
               { id: 'activity', label: 'Activity' },
@@ -118,6 +144,10 @@ export function ClearingHousePanel() {
         </TerminalPanel>
       ) : null}
 
+      {tab === 'inbox' && address && (
+        <Inbox me={address} positions={net.positions} claimable={claimable} act={act} run={run} busy={busy} onOpen={openLine} />
+      )}
+
       {tab === 'positions' && address && (
         <div className="grid min-h-0 grid-cols-1 gap-1.5 md:gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
           <PositionsTable positions={net.positions} loading={net.loading} selected={cp} onSelect={(a) => setCpInput(a)} me={address} />
@@ -125,6 +155,8 @@ export function ClearingHousePanel() {
             {cp ? (
               <>
                 <LineView me={address} cp={cp} act={act} run={run} busy={busy} relay={relay} />
+                <ContactEditor address={cp} />
+                <Statement me={address} cp={cp} activity={activity.data ?? []} />
                 <CounterpartyStanding who={cp} />
               </>
             ) : (
@@ -138,13 +170,14 @@ export function ClearingHousePanel() {
 
       {tab === 'clearing' && <ClearingDesk me={address} edges={net.clearableEdges} loading={net.loading} run={run} busy={busy} />}
 
-      {tab === 'activity' && address && <ActivityLog me={address} counterparties={counterparties} />}
+      {tab === 'activity' && address && <ActivityLog me={address} activity={activity} />}
 
       {tab === 'payments' && (
-        <div className="grid grid-cols-1 gap-1.5 md:gap-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-1.5 md:gap-2 xl:grid-cols-2">
+          <BatchPay me={address} positions={net.positions} run={run} busy={busy} relay={relay} onSigned={setSigned} />
+          <PathPay me={address} act={act} busy={busy} />
           <Escrow me={address} act={act} busy={busy} />
           <Routing me={address} act={act} busy={busy} />
-          <PathPay me={address} act={act} busy={busy} />
         </div>
       )}
 
@@ -204,6 +237,9 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
   const [amtIn, setAmtIn] = useState('')
   const [capIn, setCapIn] = useState('')
   const [newLimitIn, setNewLimitIn] = useState('')
+  const [refIn, setRefIn] = useState('')
+  const [countering, setCountering] = useState(false)
+  const { name, setRef } = useLocalMeta()
   const limit = parseAmount(limitIn) ?? 0n
   const amt = parseAmount(amtIn)
   const cap = parseAmount(capIn)
@@ -231,9 +267,10 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
     <TerminalPanel className="flex flex-col gap-3 p-[var(--terminal-space-card)]">
       <TerminalPanelHeader
         eyebrow="Line · mUSD"
-        title={`You ⇄ ${short(cp)}`}
+        title={`You ⇄ ${name(cp)}`}
         meta={<TerminalStatusPill tone={statusTone(line.status)}>{STATUS_LABEL[line.status]}</TerminalStatusPill>}
       />
+      <Lifecycle line={line} me={me} iOwe={iOwe} theyOwe={theyOwe} />
 
       {(line.status === LineStatusV2.Active || line.status === LineStatusV2.Defaulted) && (
         <Balance iOwe={iOwe} theyOwe={theyOwe} creditIExtend={creditIExtend} creditTheyExtend={creditTheyExtend} />
@@ -342,13 +379,45 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
               >
                 Reject
               </TerminalButton>
+              <TerminalButton variant="ghost" disabled={!!busy || relay} onClick={() => setCountering((c) => !c)} title={relay ? 'Counter-proposals need two actions — use tx mode' : undefined}>
+                {countering ? 'Cancel counter' : 'Counter-propose'}
+              </TerminalButton>
             </div>
+            {countering && (
+              <div className="grid gap-2 rounded border border-terminal-accent/40 p-2">
+                <p className="text-[11px] text-terminal-text-muted">Rejects their proposal and proposes your terms in one run (two transactions). They then accept, reject or counter.</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <TerminalTextField label="Credit you extend" inputMode="decimal" mono value={limitIn} onChange={(e) => setLimitIn(e.target.value)} suffix="mUSD" />
+                  <TerminalTextField label="Fee APR" inputMode="decimal" mono value={aprIn} onChange={(e) => setAprIn(e.target.value)} suffix="%" />
+                  <TerminalTextField label="Grace" inputMode="decimal" mono value={graceIn} onChange={(e) => setGraceIn(e.target.value)} suffix="days" />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-terminal-text-secondary">
+                  <input type="checkbox" checked={clearable} onChange={(e) => setClearable(e.target.checked)} />
+                  Clearable
+                </label>
+                <TerminalButton
+                  variant="primary"
+                  disabled={!!busy || Number(aprIn) > 50 || Number(graceIn) < 1}
+                  onClick={() =>
+                    run(`Counter-propose to ${name(cp)}`, [
+                      C('Reject theirs', 'rejectProposal', [cp, TOKEN]),
+                      C('Propose yours', 'proposeLine', [cp, TOKEN, limit, feeRate, graceSec, clearable ? FLAG_CLEARABLE : 0]),
+                    ]).then((ok) => ok && setCountering(false))
+                  }
+                >
+                  Send counter-proposal
+                </TerminalButton>
+              </div>
+            )}
           </div>
         ))}
 
       {(line.status === LineStatusV2.Active || line.status === LineStatusV2.Defaulted) && (
         <div className="grid gap-2">
-          <TerminalTextField label="Amount" inputMode="decimal" placeholder="0.0" mono value={amtIn} onChange={(e) => setAmtIn(e.target.value)} suffix="mUSD" />
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <TerminalTextField label="Amount" inputMode="decimal" placeholder="0.0" mono value={amtIn} onChange={(e) => setAmtIn(e.target.value)} suffix="mUSD" />
+            <TerminalTextField label="Reference (local) — invoice / PO" placeholder="INV-1042" value={refIn} onChange={(e) => setRefIn(e.target.value)} />
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {line.status === LineStatusV2.Active && (
               <TerminalButton
@@ -356,8 +425,14 @@ function LineView({ me, cp, act, run, busy, relay }: { me: Address; cp: Address;
                 disabled={!!busy || !amt}
                 onClick={() =>
                   amt &&
-                  act('Pay on credit', ClearingAction.Pay, [cp, TOKEN, amt], [['to', cp], ['amount', `${fmt(amt)} mUSD`]], [C('Pay', 'pay', [cp, TOKEN, amt])]).then(
-                    (ok) => ok && setAmtIn(''),
+                  act('Pay on credit', ClearingAction.Pay, [cp, TOKEN, amt], [['to', `${name(cp)} (${cp})`], ['amount', `${fmt(amt)} mUSD`], ...(refIn ? ([['reference', refIn]] as [string, string][]) : [])], [C('Pay', 'pay', [cp, TOKEN, amt])]).then(
+                    (res) => {
+                      if (Array.isArray(res) && res.length && refIn) setRef(res[res.length - 1], refIn)
+                      if (res) {
+                        setAmtIn('')
+                        setRefIn('')
+                      }
+                    },
                   )
                 }
               >
@@ -609,5 +684,46 @@ function PathPay({ me, act, busy }: { me?: Address; act: Act; busy: string | nul
         Send routed payment
       </TerminalButton>
     </TerminalPanel>
+  )
+}
+
+/** W3 lifecycle indicator: where this line is, and the next legal step for ME. */
+function Lifecycle({ line, me, iOwe, theyOwe }: { line: LineV2; me: Address; iOwe: bigint; theyOwe: bigint }) {
+  const now = Date.now() / 1000
+  const mine = line.proposer.toLowerCase() === me.toLowerCase()
+  const demand = line.demandTs > 0n
+  const byMe = demand && line.demandBy.toLowerCase() === me.toLowerCase()
+  const ends = demand ? Number(line.demandTs) + Number(line.grace) : 0
+  const S = LineStatusV2
+  const stage =
+    line.status === S.Proposed ? 1 : line.status === S.Active ? (demand ? 3 : 2) : line.status === S.Defaulted ? 4 : line.status === S.Closed ? 5 : 0
+  let next = 'Propose terms to open a line.'
+  if (line.status === S.Proposed) next = mine ? 'Waiting for them to accept, reject or counter. You can cancel.' : 'Review the terms: accept, counter-propose or reject.'
+  else if (line.status === S.Active && !demand) next = theyOwe > 0n ? 'Operating. They owe you — you may demand settlement, or clear cycles.' : iOwe > 0n ? 'Operating. Settle any time; clear cycles to reduce gross debt.' : 'Operating, nothing owed. Pay on credit, or close the line.'
+  else if (line.status === S.Active && demand && !byMe) next = now < ends ? `Settle before ${new Date(ends * 1000).toLocaleString()} to avoid default.` : 'Grace elapsed — settle now; they can record a default.'
+  else if (line.status === S.Active && demand && byMe) next = now < ends ? `In grace until ${new Date(ends * 1000).toLocaleString()}.` : 'Grace elapsed — mark default, or write off.'
+  else if (line.status === S.Defaulted) next = iOwe > 0n ? 'You are in default — settle in full to cure (closes the line).' : 'Counterparty in default — await cure, or write off.'
+  else if (line.status === S.Closed) next = 'Closed. Propose new terms to reopen.'
+  const steps = ['Proposed', 'Active', 'Demand', 'Default', 'Closed']
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center gap-1">
+        {steps.map((st, i) => {
+          const idx = i + 1
+          const on = idx === stage
+          const past = stage > idx && !(idx === 4 && stage === 5 && line.status !== S.Defaulted)
+          return (
+            <div key={st} className="flex flex-1 items-center gap-1">
+              <div className={`h-1.5 flex-1 rounded-full ${on ? 'bg-terminal-accent' : past ? 'bg-terminal-accent/40' : 'bg-terminal-panel'}`} />
+              <span className={`text-[9px] uppercase tracking-wide ${on ? 'text-terminal-accent' : 'text-terminal-text-muted'}`}>{st}</span>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-[11px] text-terminal-text-secondary">
+        <span className="font-semibold text-terminal-text">Next: </span>
+        {next}
+      </p>
+    </div>
   )
 }
