@@ -353,8 +353,8 @@ impl ArbiterEscrow {
             // pr_index entry is kept: a PR that has paid once can never pay another escrow.
             self.escrows.insert(&id, &escrow);
             env::log_str(&format!(
-                "arbiter_attestation id={} worker={} verdict=pass evidence_hash={} arbiter={} rubric={}",
-                id, worker, evidence_hash, escrow.arbiter_wasm_hash, escrow.rubric
+                "arbiter_attestation id={} worker={} verdict=pass evidence_hash={} arbiter={} rubric={} buyer={} amount_yocto={}",
+                id, worker, evidence_hash, escrow.arbiter_wasm_hash, escrow.rubric, escrow.buyer, escrow.amount.0
             ));
             let _ = Promise::new(worker)
                 .transfer(amount)
@@ -364,8 +364,8 @@ impl ArbiterEscrow {
             escrow.status = EscrowStatus::Created;
             self.escrows.insert(&id, &escrow);
             env::log_str(&format!(
-                "arbiter_attestation id={} worker={} verdict={} reason={} evidence_hash={} arbiter={} rubric={}",
-                id, escrow.worker, verdict, reason, evidence_hash, escrow.arbiter_wasm_hash, escrow.rubric
+                "arbiter_attestation id={} worker={} verdict={} reason={} evidence_hash={} arbiter={} rubric={} buyer={} amount_yocto={}",
+                id, escrow.worker, verdict, reason, evidence_hash, escrow.arbiter_wasm_hash, escrow.rubric, escrow.buyer, escrow.amount.0
             ));
         }
     }

@@ -94,8 +94,10 @@ attestations keep exactly the shape above. What changes for consumers:
 
 - **Dispatch on the escrow's `rubric`.** `get_escrow` returns `rubric` (`github_pr_v1` | `http_json_v1`); the
   attestation's `rubric.context` must equal it. The `arbiter_wasm_hash` is the one pinned for THAT rubric.
-- **Log line gains a trailing `rubric=`** (and carries `arbiter=`, which v2 already emitted):
-  `arbiter_attestation id=<id> worker=<acct> verdict=<pass|fail|error> [reason=<r>] evidence_hash=<hex> arbiter=<hex> rubric=<name>`.
+- **Log line gains trailing `rubric=`, `buyer=` and `amount_yocto=`** (and carries `arbiter=`, which v2 already emitted):
+  `arbiter_attestation id=<id> worker=<acct> verdict=<pass|fail|error> [reason=<r>] evidence_hash=<hex> arbiter=<hex> rubric=<name> buyer=<acct> amount_yocto=<n>`.
+  With `buyer` and `amount_yocto` in the log, a reputation graph can be rebuilt from logs alone, without a
+  `get_escrow` call per id. `amount_yocto` is the escrowed amount net of the storage deposit (what the worker is paid).
   Parse `key=value` tokens; do not anchor on end-of-line or token position.
 - **`arbiter()` view:** the top-level `rubric` / `wasm_hash` / `wasm_url` keep the v2 shape and describe
   `github_pr_v1` ONLY. The full table is `rubrics[]`; the view also reports `contract: "v3"`.

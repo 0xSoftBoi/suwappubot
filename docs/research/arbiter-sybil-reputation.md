@@ -65,6 +65,6 @@ Read from primary docs by research agents, spot gaps marked:
 ## Next steps
 
 1. Decide the seed policy (who is a trust root) and the strength table. Policy decisions, not engineering.
-2. Add `buyer`/`amount`/`rubric` to the attestation log line (today it carries `id worker verdict evidence_hash arbiter rubric`) so a rating can be recomputed from logs alone without `get_escrow` per id; the view calls work now but are O(N).
+2. ~~Add `buyer`/`amount` to the attestation log line~~ Done in contract v3 source (log now ends `rubric= buyer= amount_yocto=`), so a rating can be recomputed from logs alone. Not live until v3 is deployed; `extract.py` still uses O(N) view calls, which is what works on the deployed `arb2`.
 3. Replace the synthetic market with real Agent Market reputation data only if an account/export is available; otherwise treat the result as a property of the scoring rules.
 4. Separate from reputation: the callback-state guard and the already-true-condition fix from the v3 review remain open.
