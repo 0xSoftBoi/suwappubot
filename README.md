@@ -79,7 +79,7 @@ this submission — not demoed, no live API key provisioned.
 **Trustless milestone escrow for human and agent work. Delivery verified inside an OutLayer
 Intel TDX enclave; settlement enforced by the contract.** One-line problem: every agent
 marketplace holds money in escrow but can’t prove the work was done. Arbiter closes the loop —
-a hash-pinned arbiter WASM verifies the evidence (HMAC-signed GitHub webhook, zero network I/O),
+a hash-pinned arbiter WASM verifies the evidence (the enclave fetches the PR from the GitHub API itself; no shared secret, no caller-supplied evidence),
 and every verdict is anchored on-chain as a signed work attestation.
 
 **Live demo → [suwappu.bot/arbiter](https://www.suwappu.bot/arbiter)** (dry-run by default; no

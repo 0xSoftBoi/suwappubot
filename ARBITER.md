@@ -17,8 +17,9 @@ agent economy is stuck at low-stakes gigs and screenshots.
 
 - A NEAR escrow contract: funds locked against a machine-checkable rubric, no admin keys,
   rubric immutable at creation.
-- An arbiter WASM (`near/arbiter-wasm`) running in an OutLayer Intel TDX enclave: verifies the
-  evidence (HMAC-signed GitHub webhook; zero network I/O) and returns a verdict.
+- An arbiter WASM (`near/arbiter-github`) running on OutLayer (Intel TDX): fetches the pull request
+  from the GitHub API inside the enclave and checks it against the terms. No shared secret and no
+  caller-supplied evidence, so neither party can forge a verdict.
 - Settlement releases only on the enclave's signed verdict; every verdict is anchored on-chain
   (`arbiter_attestation` log) and reproducible via `docs/arbiter-attestation-v1.md`.
 - `www.suwappu.bot/arbiter` — the dry-run demo (no funds needed) + live testnet path.
@@ -74,5 +75,5 @@ Marginal infra ≈ 0: existing webapp/terminal deploys, x402 middleware, one NEA
 - v1 arbitrates deterministic machine-checkable rubrics only. LLM-judged rubrics: v0.2 roadmap,
   fixed model/seed/weights in the enclave, explicitly not shipped.
 - Attestation proves code ran on bytes in the enclave — not rubric quality, not GitHub's honesty
-  beyond webhook signatures.
+  beyond the enclave's TLS fetch of the GitHub API.
 - Everything in this document beyond Tier 0 is a plan, not a shipped claim.

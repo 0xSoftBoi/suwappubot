@@ -1,38 +1,42 @@
 # Arbiter — submission drafts (HUMAN REVIEWS; nothing here is sent automatically)
 
 Deadline: 2026-11-14T23:59:00Z. Tracks: `realworld`, `agents`, `open`.
+Reproduce in one command from a clean clone: `bash scripts/demo-arbiter.sh` (no keys, no funds).
 
-## Pitch (≈900 chars, limit 2000)
+## Pitch (≈1,100 chars, limit 2000)
 
-Agent marketplaces have a hole: money sits in escrow, but "was the work actually done?" is decided by
-screenshots and vibes. Suwappu Arbiter is a NEAR milestone escrow where release-or-refund is decided by a
-hash-pinned arbiter WASM (built for OutLayer / Intel TDX), not by either party. The arbiter HMAC-verifies
-GitHub webhook evidence and checks merged / author / deadline deterministically, with zero network I/O.
-Pass pays the worker; fail refunds the buyer; uncertainty refuses and moves nothing. Every verdict emits a
-signed work attestation (rubric hash, arbiter code hash, evidence hash, payout) — an open, portable
-credential any market can verify without our infrastructure (docs/arbiter-attestation-v1.md). Demo: three
-recorded scenarios (pass / wrong author / unmerged) replay the real arbiter-wasm output byte for byte.
-Honest limits: v1 proves "done", not "good"; only deterministic rubrics; the Intents funding leg and Agent
-Market worker leg are roadmap, not shipped. Repo: github.com/0xSoftBoi/suwappubot (branch hackathon/arbiter).
+Agent marketplaces hold money in escrow but can't answer "was the work actually done?" Suwappu Arbiter is a NEAR
+escrow where release-or-refund is decided by a hash-pinned arbiter running on OutLayer, not by either party. The
+enclave fetches the pull request from the GitHub API itself and checks merged / author / repo / deadline /
+merger-is-not-the-author against immutable terms — no shared secret and no caller-supplied evidence, so neither
+buyer nor worker can forge a verdict. Pass pays the worker; anything else (fail, GitHub error, malformed output)
+moves nothing and the buyer can refund only after the deadline. Every verdict logs an on-chain attestation
+(escrow id, evidence hash, arbiter code hash) described by an open spec. Live on NEAR testnet: a real pass and a
+real fail, plus 13 attack probes rejected on-chain; two adversarial reviews found real bugs (escrow lock via low
+gas, PR squatting, storage drain) which were fixed and re-verified. Honest limits: testnet only, no third-party
+audit, the contract does not verify TDX quotes on-chain, GitHub's response is trusted by the enclave, and it proves
+"done as specified", not "good". Mainnet, Intents funding and Agent Market are roadmap, not shipped.
+Repo: github.com/0xSoftBoi/suwappubot · Live: www.suwappu.bot/arbiter
 
 ## X post (human posts)
 
 Agent marketplaces escrow the money but can't answer "was the work actually done?"
 
-We built Arbiter for #NEARHackathon: a NEAR escrow where a hash-pinned WASM (OutLayer/TDX) verifies signed
-GitHub evidence, pays on pass, refunds on fail, and mints a portable work attestation anyone can verify.
+Built Arbiter for #NEARHackathon: a NEAR escrow where a hash-pinned OutLayer arbiter fetches the GitHub PR itself and
+decides pay or refund — no shared secret, no evidence either party can forge. Live on testnet, with the attack
+probes and the bugs we found in our own contract documented.
 
-Try the 3-scenario replay: https://www.suwappu.bot/arbiter
-Code: https://github.com/0xSoftBoi/suwappubot/tree/hackathon/arbiter
+Verify it yourself, no keys: bash scripts/demo-arbiter.sh
+https://www.suwappu.bot/arbiter
+@NEARProtocol
 
-What rubric would you want an agent to prove first? @NEARProtocol
+What would you want an agent to prove before it gets paid?
 
 ## Form fields the human must supply
 name · lead · email · team size · NEAR payout account · repo + post URLs · consent-to-contact notice.
-Payload is built and printed in full for confirmation before any POST to nearhackathon.com/api/applications.
+The payload is built and printed in full for confirmation before any POST to nearhackathon.com/api/applications.
 
 ## Not done (needs the human — see plan guardrails)
-- Fresh NEAR testnet accounts / faucet + contract deploy → "live evidence" tx hashes (README currently has none; do not claim any).
-- OutLayer `deploy` of the arbiter WASM and end-to-end yield/resume call from the contract.
-- ≤90s screen recording on the live page; X post; flag-on deploy of www.suwappu.bot/arbiter.
-- `gitleaks` pass, repo-public check, MONEY-PATH review before any merge to `main`.
+- ≤90s screen recording on the live page; X post; submission.
+- Mainnet is out of scope for the hackathon entry: any mainnet deploy or transaction needs explicit human approval.
+- Open before any real funds: third-party audit, OutLayer confirmations, GitHub rate-limit plan (see `docs/arbiter-production.md`).
