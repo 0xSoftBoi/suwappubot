@@ -28,6 +28,8 @@ contract ClearingHandler is Test {
     uint256 public pathPays;
     uint256 public settles;
     uint256 public defaults;
+    uint256 public withdrawals;
+    uint256 public routeCapViolations;
 
     uint256 constant N = 5;
 
@@ -49,6 +51,14 @@ contract ClearingHandler is Test {
             }
             vm.prank(actors[i]);
             ch.setRoutingPolicy(address(token), true, uint16(i * 10));
+        }
+        // Every actor consents to be routed toward every other (bounded per line).
+        for (uint256 i; i < N; ++i) {
+            for (uint256 j; j < N; ++j) {
+                if (i == j) continue;
+                vm.prank(actors[i]);
+                ch.setRouteCap(actors[j], address(token), 400e18 + j * 50e18);
+            }
         }
     }
 
@@ -99,6 +109,8 @@ contract ClearingHandler is Test {
             pathPays++;
             if (ch.owedBy(x, y, address(token)) > _limitFor(x, y)) limitViolations++;
             if (ch.owedBy(y, z, address(token)) > _limitFor(y, z)) limitViolations++;
+            // The intermediary never carries routed debt beyond its own cap.
+            if (ch.owedBy(y, z, address(token)) > ch.routeCap(y, z, address(token))) routeCapViolations++;
         } catch {}
     }
 
@@ -171,6 +183,18 @@ contract ClearingHandler is Test {
         vm.stopPrank();
     }
 
+    function withdraw(uint256 s1, uint256 s2) external {
+        address who = _pick(s1);
+        if (ch.claimable(who, address(token)) == 0) return;
+        vm.prank(who);
+        ch.withdraw(address(token), _pick(s2));
+        withdrawals++;
+    }
+
+    function totalClaimable() external view returns (uint256 sum) {
+        for (uint256 i; i < N; ++i) sum += ch.claimable(actors[i], address(token));
+    }
+
     function setLimit(uint256 s1, uint256 s2, uint256 lim) external {
         address x = _pick(s1);
         address y = _pick(s2);
@@ -224,9 +248,14 @@ contract CommonsClearingHouseInvariantTest is Test {
         assertEq(h.limitViolations(), 0);
     }
 
-    /// The clearing house is never a custodian.
-    function invariant_holdsNoTokens() public view {
-        assertEq(token.balanceOf(address(ch)), 0);
+    /// Escrow is exact: tokens held == sum of creditors' claimable balances.
+    function invariant_custodyEqualsClaimable() public view {
+        assertEq(token.balanceOf(address(ch)), h.totalClaimable());
+    }
+
+    /// Routed debt on an intermediary's outbound leg never exceeds its route cap.
+    function invariant_routeCapsRespected() public view {
+        assertEq(h.routeCapViolations(), 0);
     }
 
     /// Net positions across the closed actor set always sum to zero.
@@ -251,6 +280,6 @@ contract CommonsClearingHouseInvariantTest is Test {
         // Coverage proof: these actions must actually succeed, not just be attempted.
         console.log("clears", h.clears(), "pays", h.pays());
         console.log("pathPays", h.pathPays(), "settles", h.settles());
-        console.log("defaults", h.defaults());
+        console.log("defaults", h.defaults(), "withdrawals", h.withdrawals());
     }
 }

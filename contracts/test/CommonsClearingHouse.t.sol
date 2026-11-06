@@ -31,6 +31,27 @@ contract CHFeeToken is ERC20 {
     }
 }
 
+/// @dev A token whose blocked receivers revert on inbound transfers (blacklist /
+///      hook-style griefing by a creditor).
+contract CHBlockingToken is ERC20 {
+    mapping(address => bool) public blocked;
+
+    constructor() ERC20("Blocking USD", "bUSD") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function blockReceiver(address who) external {
+        blocked[who] = true;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        require(!blocked[to], "receiver blocked");
+        super._update(from, to, value);
+    }
+}
+
 /// @dev Minimal ERC-1271 smart account controlled by one EOA key.
 contract CHSmartAccount {
     address public immutable owner;
@@ -104,7 +125,7 @@ contract CommonsClearingHouseTest is Test {
         (address lo,) = a < b ? (a, b) : (b, a);
         assertEq(lo == a ? l.limitLo : l.limitHi, 100e18);
         assertEq(lo == a ? l.limitHi : l.limitLo, 50e18);
-        (,,,, uint32 opened) = ch.standing(a);
+        (,,,, uint32 opened,) = ch.standing(a, t);
         assertEq(opened, 1);
     }
 
@@ -180,8 +201,10 @@ contract CommonsClearingHouseTest is Test {
     function testPayPathChargesIntermediaryFee() public {
         _open(a, b, 0, 1000e18, 0, CLR); // b extends a credit
         _open(b, c, 0, 1000e18, 0, CLR); // c extends b credit
-        vm.prank(b);
+        vm.startPrank(b);
         ch.setRoutingPolicy(t, true, 100); // 1%
+        ch.setRouteCap(c, t, 1000e18); // b consents to owe c via routing
+        vm.stopPrank();
 
         address[] memory path = new address[](3);
         (path[0], path[1], path[2]) = (a, b, c);
@@ -220,8 +243,10 @@ contract CommonsClearingHouseTest is Test {
     function testPayPathRevertsAtomicallyOnLimit() public {
         _open(a, b, 0, 1000e18, 0, CLR);
         _open(b, c, 0, 5e18, 0, CLR); // tight second hop
-        vm.prank(b);
+        vm.startPrank(b);
         ch.setRoutingPolicy(t, true, 0);
+        ch.setRouteCap(c, t, 1000e18);
+        vm.stopPrank();
         address[] memory path = new address[](3);
         (path[0], path[1], path[2]) = (a, b, c);
         vm.prank(a);
@@ -256,7 +281,7 @@ contract CommonsClearingHouseTest is Test {
         assertEq(ch.owedBy(a, b, t), 10e18);
         assertEq(ch.owedBy(b, c, t), 30e18);
         assertEq(ch.owedBy(c, a, t), 0);
-        (, uint128 cleared,,,) = ch.standing(b);
+        (, uint256 cleared,,,,) = ch.standing(b, t);
         assertEq(cleared, 40e18); // debtor on one edge, creditor on another
     }
 
@@ -352,7 +377,7 @@ contract CommonsClearingHouseTest is Test {
         vm.warp(block.timestamp + GRACE);
         vm.prank(b);
         ch.markDefault(a, t);
-        (,, uint32 defaults,,) = ch.standing(a);
+        (,, uint32 defaults,,,) = ch.standing(a, t);
         assertEq(defaults, 1);
 
         token.mint(a, 40e18);
@@ -360,9 +385,14 @@ contract CommonsClearingHouseTest is Test {
         token.approve(address(ch), 40e18);
         ch.settle(b, t, 100e18); // capped at owed
         vm.stopPrank();
+        assertEq(ch.claimable(b, t), 40e18);
+        assertEq(token.balanceOf(address(ch)), 40e18);
+        vm.prank(b);
+        ch.withdraw(t, b);
         assertEq(token.balanceOf(b), 40e18);
+        assertEq(ch.claimable(b, t), 0);
         assertEq(uint8(ch.getLine(a, b, t).status), uint8(CommonsClearingHouse.Status.Closed));
-        (uint128 settled,,, uint32 cures,) = ch.standing(a);
+        (uint256 settled,,, uint32 cures,,) = ch.standing(a, t);
         assertEq(settled, 40e18);
         assertEq(cures, 1);
     }
@@ -377,7 +407,7 @@ contract CommonsClearingHouseTest is Test {
         ch.settleFor(a, b, t, 30e18);
         vm.stopPrank();
         assertEq(ch.owedBy(a, b, t), 0);
-        assertEq(token.balanceOf(b), 30e18);
+        assertEq(ch.claimable(b, t), 30e18);
     }
 
     function testFeeOnTransferRejected() public {
@@ -397,9 +427,9 @@ contract CommonsClearingHouseTest is Test {
         vm.stopPrank();
     }
 
-    function testClearHoldsNoTokens() public {
-        testDemandDefaultCure();
-        assertEq(token.balanceOf(address(ch)), 0, "clearing house never custodies");
+    function testCustodyEqualsClaimable() public {
+        testDemandDefaultCure(); // settles then withdraws
+        assertEq(token.balanceOf(address(ch)), 0, "nothing held once withdrawn");
     }
 
     // ------------------------------------------------------------ intents
@@ -506,8 +536,118 @@ contract CommonsClearingHouseTest is Test {
         });
         vm.prank(d);
         ch.execute(it, _sign(aPk, it));
-        assertEq(token.balanceOf(b), 10e18);
+        assertEq(ch.claimable(b, t), 10e18);
         assertEq(token.balanceOf(d), 0);
+    }
+
+    // ------------------------------------------------------------ review regressions
+
+    /// HIGH-1: a counterparty raises its own limit and routes debt onto an
+    /// intermediary who never chose to owe it. Blocked without a route cap.
+    function testRoutingCannotPushIntermediaryIntoDebt() public {
+        // V (=b) earns routing fees; S (=a) is V's debtor; B (=c) is V's counterparty
+        // on a line where c never meant to lend to b.
+        _open(a, b, 0, 1000e18, 0, CLR); // b extends a credit
+        _open(b, c, 0, 0, ch.MAX_FEE_RATE(), CLR); // c extends nothing to b (yet)
+        vm.prank(b);
+        ch.setRoutingPolicy(t, true, 50);
+        vm.prank(c);
+        ch.setMyLimit(b, t, 1_000_000e18); // colluder raises its own limit
+        address[] memory path = new address[](3);
+        (path[0], path[1], path[2]) = (a, b, c);
+        vm.prank(a);
+        vm.expectRevert(CommonsClearingHouse.RouteCapExceeded.selector);
+        ch.payPath(t, path, 500e18, type(uint256).max);
+        assertEq(ch.owedBy(b, c, t), 0, "b owes c nothing");
+
+        // b opts in for a bounded amount on that specific line only
+        vm.prank(b);
+        ch.setRouteCap(c, t, 100e18);
+        vm.prank(a);
+        ch.payPath(t, path, 100e18, type(uint256).max);
+        assertEq(ch.owedBy(b, c, t), 100e18);
+        vm.prank(a);
+        vm.expectRevert(CommonsClearingHouse.RouteCapExceeded.selector);
+        ch.payPath(t, path, 1e18, type(uint256).max);
+    }
+
+    /// MEDIUM-1: a creditor whose inbound transfers revert can no longer block
+    /// repayment and then default the debtor — settlement goes to escrow.
+    function testCreditorCannotBlockRepayment() public {
+        CHBlockingToken bt = new CHBlockingToken();
+        vm.prank(a);
+        ch.proposeLine(b, address(bt), 0, 0, GRACE, CLR);
+        bytes32 th = ch.getLine(a, b, address(bt)).termsHash;
+        vm.prank(b);
+        ch.acceptLine(a, address(bt), 100e18, th);
+        vm.prank(a);
+        ch.pay(b, address(bt), 50e18);
+        vm.prank(b);
+        ch.demandSettlement(a, address(bt));
+        bt.blockReceiver(b); // creditor makes itself un-payable
+
+        bt.mint(a, 50e18);
+        vm.startPrank(a);
+        bt.approve(address(ch), 50e18);
+        ch.settle(b, address(bt), 50e18); // succeeds: tokens go to escrow
+        vm.stopPrank();
+        assertEq(ch.owedBy(a, b, address(bt)), 0);
+
+        vm.warp(block.timestamp + GRACE);
+        vm.prank(b);
+        vm.expectRevert(CommonsClearingHouse.BadStatus.selector); // demand cleared by repayment
+        ch.markDefault(a, address(bt));
+
+        vm.prank(b);
+        ch.withdraw(address(bt), d); // creditor redirects to a receivable address
+        assertEq(bt.balanceOf(d), 50e18);
+    }
+
+    function testCreditorCannotSelfSettleToFarmStanding() public {
+        _open(a, b, 0, 100e18, 0, CLR);
+        vm.prank(a);
+        ch.pay(b, t, 10e18);
+        token.mint(b, 10e18);
+        vm.startPrank(b);
+        token.approve(address(ch), 10e18);
+        vm.expectRevert(CommonsClearingHouse.BadParams.selector);
+        ch.settleFor(a, b, t, 10e18);
+        vm.stopPrank();
+    }
+
+    /// LOW-2: a defaulted line can be written off, freeing the key and stopping interest.
+    function testWriteOffClosesDefaultedLine() public {
+        _open(a, b, 0, 100e18, FEE_5PCT, CLR);
+        vm.prank(a);
+        ch.pay(b, t, 40e18);
+        vm.prank(b);
+        ch.demandSettlement(a, t);
+        vm.warp(block.timestamp + GRACE);
+        vm.prank(b);
+        ch.markDefault(a, t);
+
+        vm.prank(a); // only the creditor may write off
+        vm.expectRevert(CommonsClearingHouse.NothingOwed.selector);
+        ch.writeOff(b, t);
+
+        vm.prank(b);
+        uint256 forgiven = ch.writeOff(a, t);
+        assertGt(forgiven, 40e18, "includes accrued interest");
+        assertEq(uint8(ch.getLine(a, b, t).status), uint8(CommonsClearingHouse.Status.Closed));
+        (,, uint32 defaults,,, uint32 writeOffs) = ch.standing(a, t);
+        assertEq(defaults, 1, "default history kept");
+        assertEq(writeOffs, 1);
+        vm.prank(a); // key is free again
+        ch.proposeLine(b, t, 0, 0, GRACE, CLR);
+    }
+
+    function testStandingIsPerToken() public {
+        _open(a, b, 0, 100e18, 0, CLR);
+        CHToken other = new CHToken();
+        (,,,, uint32 openedOther,) = ch.standing(a, address(other));
+        assertEq(openedOther, 0);
+        (,,,, uint32 opened,) = ch.standing(a, t);
+        assertEq(opened, 1);
     }
 
     // ------------------------------------------------------------ gas

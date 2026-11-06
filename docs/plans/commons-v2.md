@@ -89,7 +89,10 @@ Line { limitLo, limitHi        // credit each side extends (max the OTHER may ow
 
 - `pay(to, token, amount)` on a direct line, unchanged.
 - `payPath(token, address[] path, amount, maxTotalFee)` is **atomic rippling** across existing lines. Each intermediary `i` must have opted in via `setRoutingPolicy(token, enabled, feeBps)` and is paid its fee in credit on the outgoing leg.
-  - **Why intermediary consent is enough:** routing A→B→C uses credit B extended to A (B's choice) and grows B's debt to C (identical to B paying C directly, which C already accepted). The only party whose risk changes without a direct action is B, so B opts in.
+  - **Consent is per outbound line, not per token (corrected after money-path review).**
+    - The original argument was "B's debt to C grows, which is identical to B paying C directly". It is **wrong**, because C's limit is unilateral and can be raised after acceptance.
+    - Attack: a colluding C raises its limit, then routes a large amount through B. That moves B's debt onto C's terms (up to 50% APR, 1-day grace), and C can default B against its guarantors once L3 exists.
+    - Fix shipped in P1: each intermediary sets `routeCap[node][to][token]`. Routing may only grow B's debt to C up to the cap B chose for *that* line. The default is 0.
   - **Failure handling:** if any leg would exceed a limit, the whole tx reverts. A path that changed since it was solved just reverts (no partial state, no HTLCs).
   - Paths are found off-chain (max-flow over public line state). Suwappu runs one solver; anyone can run others.
 
@@ -131,7 +134,15 @@ There is deliberately **no score and no token**. Research found no robust on-cha
 
 ### 2.6 Settlement
 
-`settle(creditor, token, amount)` works as in v1. New is `settleFor(debtor, creditor, token, amount)`: anyone may pay down someone else's debt. That is benign, and L3 needs it. Fee-on-transfer tokens are rejected by balance-diff.
+`settle(creditor, token, amount)` and `settleFor(debtor, creditor, token, amount)` let anyone pay down someone else's debt, which L3 needs.
+
+- **Settlement is pull-based (review fix).** Tokens move payer → contract and credit `claimable[creditor][token]`, and the creditor later calls `withdraw(token, to)`.
+  - A creditor can therefore never make repayment revert (receive hooks, blacklists) and then claim default.
+  - A blacklisted creditor can withdraw to another address.
+- `payer == creditor` is rejected, so there are no free round-trips to farm standing.
+- Fee-on-transfer tokens are rejected by balance-diff.
+- A creditor may `writeOff` a debt. This closes a Defaulted line, stops its interest and frees the key; it is recorded in standing.
+- Standing counters are **per (address, token)** and explicitly self-dealable (sybils can farm volume for gas). Readers must weight them by counterparties they independently trust.
 
 ---
 

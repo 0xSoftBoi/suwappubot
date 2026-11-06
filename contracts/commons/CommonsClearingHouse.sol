@@ -14,7 +14,13 @@ pragma solidity 0.8.27;
     - Each party may move the credit it extends at any time (setMyLimit).
       Lowering below current exposure only blocks NEW debt.
     - pay() along a direct line; payPath() ripples atomically across lines
-      through intermediaries that opted in (with a fee) via setRoutingPolicy.
+      through intermediaries that opted in (with a fee) via setRoutingPolicy
+      AND set a per-counterparty routeCap: routing can only grow a node's debt
+      to a given counterparty up to the cap that node chose for that line
+      (so a counterparty raising its own limit can't push you into its terms).
+    - Settlement is pull-based: tokens move payer -> this contract and are
+      credited to the creditor's claimable balance, so a creditor can never
+      block repayment (hooks, blacklists) and then claim default.
     - clear(): permissionless multilateral clearing. An untrusted solver
       submits any circulation (set of debt edges); the contract verifies
       per-edge owed amounts and per-node conservation in O(E) and reduces
@@ -27,6 +33,11 @@ pragma solidity 0.8.27;
       counters (settled / cleared volume, defaults, cures) are the substrate
       for reputation and backing layers — no score, no token.
 
+    Interest is simple between accruals and folded into the balance on every
+    touch, so frequent pokes compound it slightly (bounded by MAX_FEE_RATE:
+    at most ~10% more than nominal per year at the 50% ceiling). Debtors can
+    settle at any time.
+
     Invariant: every principal-increasing operation leaves the debtor's
     accrued debt on that line <= the limit its creditor extends. Accrued
     interest may exceed the limit (debt is debt); new principal is then
@@ -37,6 +48,7 @@ pragma solidity 0.8.27;
 //////////////////////////////////////////////////////////////////////////*/
 
 interface IClearingToken {
+    function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
 }
@@ -116,12 +128,15 @@ contract CommonsClearingHouse {
         uint16 feeBps;
     }
 
+    /// @dev Per (address, token). Self-dealable: volume among sybils costs only
+    ///      gas, so readers should weight it by counterparties they trust.
     struct Standing {
-        uint128 settledVolume; // debt this address repaid in tokens
-        uint128 clearedVolume; // debt cleared on lines this address is party to
+        uint256 settledVolume; // debt this address repaid in tokens
+        uint256 clearedVolume; // debt cleared on lines this address is party to
         uint32 defaults;
         uint32 cures;
         uint32 linesOpened;
+        uint32 writeOffs; // debts a creditor forgave on this address
     }
 
     struct Edge {
@@ -142,7 +157,10 @@ contract CommonsClearingHouse {
         Settle, // (creditor, token, amount)
         Demand, // (debtor, token)
         MarkDefault, // (debtor, token)
-        Close // (counterparty, token)
+        Close, // (counterparty, token)
+        SetRouteCap, // (to, token, cap)
+        Withdraw, // (token, to)
+        WriteOff // (debtor, token)
     }
 
     struct Intent {
@@ -159,7 +177,12 @@ contract CommonsClearingHouse {
 
     mapping(bytes32 => Line) internal _lines;
     mapping(address => mapping(address => RoutingPolicy)) public routing; // node => token
-    mapping(address => Standing) public standing;
+    mapping(address => mapping(address => Standing)) public standing; // addr => token
+    /// @notice Max debt `node` will carry to `to` in `token` as a result of being
+    ///         routed through. Default 0: routing needs per-counterparty consent.
+    mapping(address => mapping(address => mapping(address => uint256))) public routeCap;
+    /// @notice Settled tokens awaiting withdrawal by the creditor (pull payments).
+    mapping(address => mapping(address => uint256)) public claimable; // creditor => token
     /// @dev Unordered nonces (Permit2-style bitmap): signer => word => bits.
     mapping(address => mapping(uint256 => uint256)) public nonceBitmap;
 
@@ -191,6 +214,9 @@ contract CommonsClearingHouse {
     event Cured(bytes32 indexed key, address indexed debtor);
     event LineClosed(bytes32 indexed key);
     event NonceInvalidated(address indexed signer, uint256 nonce);
+    event RouteCapSet(address indexed node, address indexed to, address indexed token, uint256 cap);
+    event Withdrawn(address indexed creditor, address indexed token, address to, uint256 amount);
+    event WrittenOff(bytes32 indexed key, address indexed debtor, address indexed creditor, uint256 amount);
 
     /*////////////////////////////////////////////////////////////
                                  ERRORS
@@ -207,6 +233,7 @@ contract CommonsClearingHouse {
     error Unbalanced();
     error BadPath();
     error RoutingDisabled();
+    error RouteCapExceeded();
     error FeeExceeded();
     error TransferFailed();
     error NonStandardToken();
@@ -253,6 +280,21 @@ contract CommonsClearingHouse {
 
     function setRoutingPolicy(address token, bool enabled, uint16 feeBps) external {
         _setRouting(msg.sender, token, enabled, feeBps);
+    }
+
+    function setRouteCap(address to, address token, uint256 cap) external {
+        _setRouteCap(msg.sender, to, token, cap);
+    }
+
+    /// @notice Withdraw settled tokens credited to you, to any address.
+    function withdraw(address token, address to) external returns (uint256) {
+        return _withdraw(msg.sender, token, to);
+    }
+
+    /// @notice Creditor forgives what `debtor` owes on their line. Closes a
+    ///         Defaulted line (stops interest, frees the key); recorded publicly.
+    function writeOff(address debtor, address token) external returns (uint256) {
+        return _writeOff(msg.sender, debtor, token);
     }
 
     function pay(address to, address token, uint256 amount) external {
@@ -325,8 +367,8 @@ contract CommonsClearingHouse {
             _addNet(e.debtor, -int256(e.amount));
             _addNet(e.creditor, int256(e.amount));
 
-            standing[e.debtor].clearedVolume += uint128(e.amount);
-            standing[e.creditor].clearedVolume += uint128(e.amount);
+            standing[e.debtor][token].clearedVolume += e.amount;
+            standing[e.creditor][token].clearedVolume += e.amount;
             volume += e.amount;
         }
 
@@ -410,9 +452,18 @@ contract CommonsClearingHouse {
         } else if (a == Action.MarkDefault) {
             (address debtor, address token) = abi.decode(p, (address, address));
             _markDefault(s, debtor, token);
-        } else {
+        } else if (a == Action.Close) {
             (address cp, address token) = abi.decode(p, (address, address));
             _close(s, cp, token);
+        } else if (a == Action.SetRouteCap) {
+            (address to, address token, uint256 cap) = abi.decode(p, (address, address, uint256));
+            _setRouteCap(s, to, token, cap);
+        } else if (a == Action.Withdraw) {
+            (address token, address to) = abi.decode(p, (address, address));
+            return abi.encode(_withdraw(s, token, to));
+        } else {
+            (address debtor, address token) = abi.decode(p, (address, address));
+            return abi.encode(_writeOff(s, debtor, token));
         }
         return "";
     }
@@ -514,8 +565,8 @@ contract CommonsClearingHouse {
         else l.limitHi = uint128(myLimit);
         l.status = Status.Active;
         l.lastAccrual = uint64(block.timestamp);
-        standing[lo].linesOpened += 1;
-        standing[hi].linesOpened += 1;
+        standing[lo][token].linesOpened += 1;
+        standing[hi][token].linesOpened += 1;
         emit LineOpened(key, lo, hi, token);
     }
 
@@ -552,6 +603,41 @@ contract CommonsClearingHouse {
         emit RoutingPolicySet(self, token, enabled, feeBps);
     }
 
+    function _setRouteCap(address self, address to, address token, uint256 cap) internal {
+        if (to == self || to == address(0)) revert BadParams();
+        routeCap[self][to][token] = cap;
+        emit RouteCapSet(self, to, token, cap);
+    }
+
+    function _writeOff(address creditor, address debtor, address token) internal returns (uint256 owed) {
+        bytes32 key = lineKey(creditor, debtor, token);
+        Line storage l = _lines[key];
+        if (l.status != Status.Active && l.status != Status.Defaulted) revert BadStatus();
+        _accrue(l);
+        (address lo, address hi) = _pair(creditor, debtor);
+        owed = _owedOf(l.balance, debtor, lo);
+        if (owed == 0) revert NothingOwed();
+        _reduceDebt(l, debtor, lo, owed);
+        _clearDemandIfCovered(l, lo, hi);
+        standing[debtor][token].writeOffs += 1;
+        if (l.status == Status.Defaulted) {
+            l.status = Status.Closed;
+            emit LineClosed(key);
+        }
+        emit WrittenOff(key, debtor, creditor, owed);
+    }
+
+    function _withdraw(address creditor, address token, address to) internal returns (uint256 amount) {
+        _lock();
+        if (to == address(0)) revert BadParams();
+        amount = claimable[creditor][token];
+        if (amount == 0) revert NothingOwed();
+        claimable[creditor][token] = 0;
+        _safeTransfer(token, to, amount);
+        emit Withdrawn(creditor, token, to, amount);
+        _unlock();
+    }
+
     function _close(address self, address cp, address token) internal {
         bytes32 key = lineKey(self, cp, token);
         Line storage l = _lines[key];
@@ -584,6 +670,14 @@ contract CommonsClearingHouse {
         if (totalFee > maxFee) revert FeeExceeded();
         for (uint256 i; i + 1 < path.length; ++i) {
             bytes32 key = _increaseDebt(path[i], path[i + 1], token, amounts[i]);
+            // Intermediaries consent per outbound counterparty: routing may only
+            // grow their debt to path[i+1] up to the cap they set for that line.
+            if (i > 0) {
+                (address lo,) = _pair(path[i], path[i + 1]);
+                if (_owedOf(_lines[key].balance, path[i], lo) > routeCap[path[i]][path[i + 1]][token]) {
+                    revert RouteCapExceeded();
+                }
+            }
             emit Payment(key, path[i], path[i + 1], amounts[i]);
         }
         emit PathPayment(token, path, amount, totalFee);
@@ -647,7 +741,8 @@ contract CommonsClearingHouse {
         returns (uint256)
     {
         _lock();
-        if (amount == 0 || debtor == creditor) revert BadParams();
+        // payer == creditor would be a free round-trip (farm volume / cures).
+        if (amount == 0 || debtor == creditor || payer == creditor) revert BadParams();
         bytes32 key = lineKey(debtor, creditor, token);
         Line storage l = _lines[key];
         if (l.status != Status.Active && l.status != Status.Defaulted) revert BadStatus();
@@ -660,17 +755,20 @@ contract CommonsClearingHouse {
         // Effects before the external call.
         _reduceDebt(l, debtor, lo, amount);
         _clearDemandIfCovered(l, lo, hi);
-        standing[debtor].settledVolume += uint128(amount);
+        standing[debtor][token].settledVolume += amount;
+        claimable[creditor][token] += amount;
         if (l.status == Status.Defaulted && l.balance == 0) {
             l.status = Status.Closed;
-            standing[debtor].cures += 1;
+            standing[debtor][token].cures += 1;
             emit Cured(key, debtor);
             emit LineClosed(key);
         }
 
-        uint256 before = IClearingToken(token).balanceOf(creditor);
-        _safeTransferFrom(token, payer, creditor, amount);
-        if (IClearingToken(token).balanceOf(creditor) - before != amount) revert NonStandardToken();
+        // Pull model: tokens land here, never pushed to the creditor, so the
+        // creditor cannot make repayment revert and then claim default.
+        uint256 before = IClearingToken(token).balanceOf(address(this));
+        _safeTransferFrom(token, payer, address(this), amount);
+        if (IClearingToken(token).balanceOf(address(this)) - before != amount) revert NonStandardToken();
         emit Settled(key, debtor, payer, amount);
         _unlock();
         return amount;
@@ -700,7 +798,7 @@ contract CommonsClearingHouse {
         uint256 owed = _owedOf(l.balance, debtor, lo);
         if (owed == 0) revert NothingOwed();
         l.status = Status.Defaulted;
-        standing[debtor].defaults += 1;
+        standing[debtor][token].defaults += 1;
         emit Defaulted(key, debtor, owed);
     }
 
@@ -855,6 +953,13 @@ contract CommonsClearingHouse {
 
     function _buildDomainSeparator() private view returns (bytes32) {
         return keccak256(abi.encode(_DOMAIN_TYPEHASH, _NAME_HASH, _VERSION_HASH, block.chainid, address(this)));
+    }
+
+    function _safeTransfer(address token, address to, uint256 amount) private {
+        if (token.code.length == 0) revert TransferFailed();
+        (bool ok, bytes memory data) =
+            token.call(abi.encodeWithSelector(IClearingToken.transfer.selector, to, amount));
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
     }
 
     function _safeTransferFrom(address token, address from, address to, uint256 amount) private {
