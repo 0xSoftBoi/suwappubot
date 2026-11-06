@@ -116,6 +116,7 @@ Call `tools/list` at runtime; the table is a map, not a client-side registry to 
 | Lending | `lend_markets`, `lend_market` |
 | Managed swap observability | `get_swap_status`, `get_swap_history` |
 | Wallet policy | `list_wallet_policies` |
+| NEAR assets | `near_resolve_asset`, `near_convert_amount` |
 
 The endpoint also exposes MCP resources and prompts. Discover them with
 `resources/list` / `resources/read` and `prompts/list` / `prompts/get`.
