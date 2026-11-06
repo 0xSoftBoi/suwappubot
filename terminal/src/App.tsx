@@ -32,6 +32,9 @@ const OAuthCallback = lazy(() =>
 const AlertSwap = lazy(() =>
   import('./routes/AlertSwap').then((m) => ({ default: m.AlertSwap })),
 )
+const CommonsRoute = lazy(() =>
+  import('./routes/CommonsRoute').then((m) => ({ default: m.CommonsRoute })),
+)
 const BridgeRoute = lazy(() =>
   import('./routes/BridgeRoute').then((m) => ({ default: m.BridgeRoute })),
 )
@@ -124,6 +127,10 @@ function TradingWorkspace() {
               <Route path="/bridge" element={<DeferredRoute><BridgeRoute /></DeferredRoute>} />
               <Route path="bridge" element={<DeferredRoute><BridgeRoute /></DeferredRoute>} />
               <Route path="/terminal/bridge" element={<DeferredRoute><BridgeRoute /></DeferredRoute>} />
+              {/* Commons: the ownerless public-good primitives (Base Sepolia). */}
+              <Route path="/commons" element={<DeferredRoute><CommonsRoute /></DeferredRoute>} />
+              <Route path="commons" element={<DeferredRoute><CommonsRoute /></DeferredRoute>} />
+              <Route path="/terminal/commons" element={<DeferredRoute><CommonsRoute /></DeferredRoute>} />
               {/* Price-alert deep link (?alertId=&token=&chain=&side=&amount=&ref=alert).
                   Covers both the primary terminal.suwappu.bot host (pathname
                   "/alert-swap") and the "/terminal/*" dev/proxy mount (pathname
@@ -164,6 +171,7 @@ export function App() {
             <Route path="/terminal-preview" element={<DeferredRoute><TerminalSiteReplacement /></DeferredRoute>} />
             <Route path="/terminal/*" element={<TradingWorkspace />} />
             <Route path="/points" element={<TradingWorkspace />} />
+            <Route path="/commons" element={<TradingWorkspace />} />
             <Route path="*" element={<DeferredRoute><SuwappuBotSiteReplacement /></DeferredRoute>} />
           </Routes>
         </div>

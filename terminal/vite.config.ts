@@ -11,6 +11,9 @@ export default defineConfig({
     'import.meta.env.VITE_API_URL': JSON.stringify(''),
   },
   resolve: {
+    // @suwappu/primitives-client is linked from ../packages with its own viem;
+    // dedupe so the app ships one viem/wagmi instance.
+    dedupe: ['viem', 'wagmi', '@tanstack/react-query', 'react'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },

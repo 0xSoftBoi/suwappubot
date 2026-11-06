@@ -1,0 +1,10 @@
+{
+  "contract": "CommonsClearingHouse",
+  "address": "0x489b93a02a5ad429b444c0e5370f6d39089677dd",
+  "chainId": 84532,
+  "txHash": "0xdafffa8ec28a1fe0c89b25ee85bcd51c86af6bb650d79d5274f86c457f234cb2",
+  "block": "55164962",
+  "deployer": "0xbB90D09b2a14BaFD456D782519E887C88c178C4f",
+  "signer": "turnkey",
+  "deployedAt": "2026-11-06T08:47:41.544Z"
+}

@@ -6,10 +6,12 @@ WORKDIR /app
 
 # Copy design-tokens dependency first (referenced as file:../packages/design-tokens)
 COPY packages/design-tokens/ /packages/design-tokens/
+# Commons v2 client (ABI + signed-intent helpers), referenced as file:../packages/primitives-client
+COPY packages/primitives-client/ /packages/primitives-client/
 
 # Copy package files with adjusted path for design-tokens
 COPY terminal/package.json terminal/bun.lock* ./
-RUN sed -i 's|file:../packages/design-tokens|file:/packages/design-tokens|' package.json
+RUN sed -i 's|file:../packages/design-tokens|file:/packages/design-tokens|; s|file:../packages/primitives-client|file:/packages/primitives-client|' package.json
 
 # Install dependencies
 RUN bun install --no-frozen-lockfile
