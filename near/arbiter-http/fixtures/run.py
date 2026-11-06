@@ -88,6 +88,10 @@ CASES = [
     ("reject: no checks and no hash", base(checks=[]), "200:acct", "fail", "invalid_terms"),
     ("reject: bad sha256 format", base(checks=[], expect_sha256="ABC"), "200:acct", "fail", "invalid_terms"),
     ("reject: github_pr_v1 context", base(context="github_pr_v1"), "200:acct", "fail", "unknown_context"),
+    ("reject: unknown top-level key", base(extra="x"), "200:acct", "fail", "invalid_terms"),
+    ("reject: exists with null value", base(checks=[{"path": "/result/n", "op": "exists", "value": None}]), "200:acct", "fail", "invalid_terms"),
+    ("reject: unknown key inside a check", base(checks=[{"path": "/result/n", "op": "exists", "x": 1}]), "200:acct", "fail", "invalid_terms"),
+    ("accept: deadline_unix key passes through (contract-enforced)", base(deadline_unix=1763500000), "200:acct", "pass", "checks_satisfied"),
     ("reject: contains empty needle", base(checks=[chk("/result/name", "contains", "")]), "200:acct", "fail", "invalid_terms"),
 ]
 
