@@ -138,7 +138,7 @@ export function evidenceDocument() {
       evidence_hash: s.output.evidence_hash,
     })),
     verify: [
-      'sha256sum near/arbiter-github/artifacts/arbiter-github.wasm   # in github.com/0xSoftBoi/suwappubot; must equal arbiter_wasm.sha256',
+      'sha256sum near/arbiter-github/artifacts/arbiter-github.wasm   # must equal wasm_hash from the arbiter view below',
       `near view ${CONTRACT} get_escrow '{"id":0}' --networkId testnet`,
       `near view ${CONTRACT} arbiter '{}' --networkId testnet`,
       `near tx ${LIVE_TXS[1].hash} --networkId testnet   # logs arbiter_attestation`,
