@@ -6,7 +6,7 @@ import {
   rainbowWallet,
   injectedWallet,
 } from '@rainbow-me/rainbowkit/wallets'
-import { mainnet, arbitrum, optimism, polygon, base, avalanche, bsc } from 'wagmi/chains'
+import { mainnet, arbitrum, optimism, polygon, base, avalanche, bsc, baseSepolia } from 'wagmi/chains'
 import { ledgerConnectKitWallet } from './ledgerConnectKit'
 
 // A real WalletConnect project id is required for WalletConnect AND as the Ledger
@@ -25,7 +25,8 @@ const projectId =
 export const config = getDefaultConfig({
   appName: 'Suwappu Terminal',
   projectId,
-  chains: [mainnet, arbitrum, optimism, polygon, base, avalanche, bsc],
+  // baseSepolia: the Commons public-good primitives (routes/CommonsRoute) live there.
+  chains: [mainnet, arbitrum, optimism, polygon, base, avalanche, bsc, baseSepolia],
   // Explicit wallet list so the Ledger hardware wallet (via Ledger's official
   // Connect Kit — see ./ledgerConnectKit) is always offered in the connect modal
   // alongside the software wallets. Ledger is fully non-custodial: the device holds
