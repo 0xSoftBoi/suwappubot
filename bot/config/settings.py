@@ -973,6 +973,10 @@ class Settings(BaseSettings):
     socket_api_key: Optional[str] = Field(
         default=None, description="Socket/Bungee API key for super-aggregation"
     )
+    dexra_api_key: Optional[str] = Field(
+        default=None,
+        description="Dexra API key; when set, Solana token safety adds Dexra's verdict to RugCheck",
+    )
 
     # OKX DEX Aggregator
     okx_dex_api_key: Optional[str] = Field(default=None, description="OKX DEX API key")

@@ -463,3 +463,19 @@ capabilities:
       set either to 0 to disable that limit.
     evidence: "bot/config/settings.py (LLM_* fields), bot/config/llm_providers.py, bot/config/llm_models.py, bot/services/llm_credit_service.py, bot/utils/llm_budget.py, bot/services/nl_intent_service.py"
     verify: "send an ambiguous NL message to the bot and grep logs for 'llm_cost provider='; python3 scripts/check_llm_prices.py"
+
+  - name: dexra_token_safety
+    description: >
+      Adds Dexra's ok/caution/avoid verdict and its reasons to the Solana
+      token-safety report next to RugCheck. Dexra is a paid provider billed
+      per call; verdicts are cached per mint for 5 minutes and cache misses
+      are limited to 10 per client IP per minute.
+    service: python-bot
+    env_vars:
+      - name: DEXRA_API_KEY
+        required_to_enable: true
+    enabled_when: >
+      DEXRA_API_KEY is set. Without it the route calls RugCheck only. A failed,
+      throttled or malformed Dexra response leaves the RugCheck report unchanged.
+    evidence: api/routes/terminal.py _solana_safety() (if settings.dexra_api_key)
+    verify: "curl '<python-api host>/terminal/token/safety?chain=solana&address=<mint>' and check that sources contains \"dexra\""
