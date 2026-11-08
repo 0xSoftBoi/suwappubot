@@ -282,7 +282,7 @@ pydantic-settings==2.14.2
     # via -r requirements.in
 pygments==2.20.0
     # via pytest
-pyjwt==2.13.0
+pyjwt==2.14.0
     # via -r requirements.in
 pyotp==2.10.0
     # via -r requirements.in
@@ -391,7 +391,7 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   -r requirements.in
     #   requests
