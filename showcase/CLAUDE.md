@@ -21,7 +21,12 @@ Every page MUST use, unless it already deliberately doesn't:
 - **Interactive widgets:** build menus, dialogs, accordions, comboboxes, tabs
   and form fields on `@ui-sdk/react/<name>` (version-matched docs in
   `node_modules/@ui-sdk/react/docs/`). Do not hand-roll `role=`/`aria-*` state.
-- **Footer:** `@/components/SummerFooter`.
+- **Footer:** `@/components/SummerFooter` (goes dark automatically under the
+  same dark ancestors as the header).
+- **Shared rules:** `src/app/foundation.css` (loaded last) owns the top offset
+  under the header (`--page-top`), hero gap, the button system, mobile gutters
+  and interaction defaults. Use `var(--page-top)` for a new page's first
+  padding; do not add header clearance by hand (the header is sticky, not fixed).
 - **Tokens/classes:** the `summer-*` classes (`summer-page`, `summer-shell`,
   `summer-kicker`, `summer-button`, `summer-actions`, `summer-code`) defined in
   `src/app/summer-token-vars.css` / `site.css`, plus the `mkt-*` layout classes

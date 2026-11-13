@@ -157,3 +157,59 @@ html {
 @media (max-width: 760px) {
   .docs-page__main { padding-inline: 20px; }
 }
+
+/* ── Footer ───────────────────────────────────────────────────────────
+   Aligned to the header's container; dark pages get a dark footer instead
+   of a cream slab under a black page. */
+
+.summer-footer { margin-top: 0; }
+.summer-footer__inner,
+.summer-footer__legal,
+.summer-footer__bottom { max-width: 1280px; box-sizing: border-box; }
+.summer-footer__inner { padding-top: 64px; padding-bottom: 40px; }
+.summer-footer__col a,
+.summer-footer__social a { display: inline-block; padding-block: 2px; text-decoration: none; }
+.summer-footer__col h3 { font-weight: 500; letter-spacing: 0.08em; opacity: 0.7; }
+
+.sw-dark .summer-footer,
+.summer-page--cosmic .summer-footer,
+.summer-page--passport .summer-footer {
+  --summer-ink: #f4f1ec;
+  --summer-muted: rgba(244, 241, 236, 0.62);
+  --sw-hairline: rgba(255, 255, 255, 0.1);
+  border-top-color: rgba(255, 255, 255, 0.1);
+  background: #0e0e11;
+}
+
+.sw-dark .summer-footer__newsletter-input,
+.summer-page--cosmic .summer-footer__newsletter-input,
+.summer-page--passport .summer-footer__newsletter-input {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sw-dark .summer-footer :is(a:hover),
+.summer-page--cosmic .summer-footer :is(a:hover) { color: var(--sw-accent-bright); }
+
+/* ── Home: readable body copy on the dark canvas ──────────────────────
+   Section copy sat at 13–14px in mid grey. 16px floor for prose, and the
+   faint tier lifted to pass contrast on the soil background. */
+
+.hd {
+  --fg-dim: #b9b4ad;
+  --fg-faint: #8f8a83;
+}
+
+.hd .home-section__head-lead { font-size: 1.125rem; line-height: 1.6; max-width: 56ch; }
+.hd .home-section :where(p, li):not([class*='eyebrow'], [class*='label'], [class*='note'], [class*='kicker']) {
+  font-size: max(1rem, 100%);
+  line-height: 1.6;
+}
+
+/* The global prose-link rule (`li > a:not([class])`) outranked the footer's
+   own link style, so every footer column rendered as underlined brown links. */
+.summer-footer .summer-footer__col li > a {
+  color: var(--summer-muted);
+  text-decoration: none;
+}
+.summer-footer .summer-footer__col li > a:hover { color: var(--summer-ink); }

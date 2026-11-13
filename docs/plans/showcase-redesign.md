@@ -57,7 +57,7 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
 - One button system (primary / secondary / ghost, 3 sizes) with hover/active/focus-visible; 44px touch targets on mobile.
 - Global: `:focus-visible` ring, `prefers-reduced-motion`, `text-wrap: balance` on headings, `tabular-nums` on stats, `scroll-margin-top` on anchors, skip-to-content link, `theme-color` + `color-scheme`.
 
-### Phase 3 — Footer
+### Phase 3 — Footer  ◐ styling shipped 2026-11-13 (link-map + newsletter field rebuild open)
 - Same link map as the nav panels, newsletter form on `@ui-sdk/react/field`, status + legal row.
 
 ### Phase 4 — Sales pages, in funnel order
@@ -94,3 +94,5 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
 - 2026-11-13 — Phase 1 done: `SummerNav` rebuilt on `navigation-menu` + `dialog` + `accordion`; `ProductMenu`/`NavDrawer` deleted; `nav.css` added; language switcher made theme-agnostic. Verified locally at 1440/1100/950/390: hover, Tab/Enter/Esc with focus return, client-side routing, sheet focus trap, no overflow. Not yet verified on a deployed URL.
 - 2026-11-13 — Phase 2 (most): `src/app/foundation.css` — one top offset (`--page-top`; first line now at 141px on every shared-shell page, was 195–487px), flat button system with hover/active states and border-box sizing (pricing-card buttons no longer overflow), 20px mobile gutters (was 8px), tap/selection/scroll-padding/tabular-nums/balance defaults. Fixed: `/products` H1 wrapping one word per line; `/docs` rendering blank under `prefers-reduced-motion`; docs sidebar offset; `/reserve` doubled title; agents/research/autopilot hero offsets. Verified on a local production build: 23 routes × (1440, 390), no overflow, no page errors.
 - Still open in phase 2: real CSS reset (Tailwind v3 directives on v4), `theme-color` meta, skip-link target audit.
+- 2026-11-13 — Phase 3 (styling) + home pass: footer aligned to the 1280 container, dark variant on dark pages (was a cream slab under the black home page), footer links no longer underlined brown (global prose-link rule outranked them). Home: section copy floor raised to 16px, dim/faint text tiers lifted for contrast. Verified on a local production build: 23 routes × (1440, 390) clean, nav keyboard/mobile checks pass.
+- Next: phase 4 page-by-page (home section layout — several sections leave the right half empty; pricing cards; enterprise/contact form on `@ui-sdk/react/field`), then phases 5–7.
