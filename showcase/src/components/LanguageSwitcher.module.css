@@ -1,37 +1,47 @@
+/* Colours derive from the inherited text colour, so the switcher reads on
+   both the light and dark header without per-page overrides. */
 .switcher {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
   flex-shrink: 0;
+  width: fit-content;
 }
 
 .option {
   font-family: var(--font-sans, sans-serif);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.03em;
-  padding: 3px 7px;
+  min-width: 28px;
+  min-height: 24px;
+  padding: 4px 7px;
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: var(--suwappu-summer-ink-muted, rgba(255,255,255,0.5));
+  color: color-mix(in srgb, currentColor 58%, transparent);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  touch-action: manipulation;
+  transition: background-color 0.15s, color 0.15s;
   line-height: 1;
 }
 
 .option:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--suwappu-summer-ink, #fff);
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: inherit;
 }
 
 .option.active {
-  background: rgba(255, 255, 255, 0.15);
-  color: var(--suwappu-summer-ink, #fff);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--sw-accent-deep);
+  outline-offset: 1px;
 }
 
 .option:disabled {

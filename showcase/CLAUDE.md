@@ -9,9 +9,18 @@ site (wrong nav, wrong palette, "some old library" look).
 
 Every page MUST use, unless it already deliberately doesn't:
 
-- **Nav:** `@/components/SummerNav` — sticky glass bar (light `rgba(255,255,255,.78)`
-  base that composes with dark pages), persimmon logo, "Launch Terminal" CTA.
-  This is the ONLY nav for new pages.
+- **Nav:** `@/components/SummerNav` — the ONLY header. Sticky glass bar:
+  brand · three panels (Products / Developers / Why Suwappu) · Pricing · Docs ·
+  language · one "Launch Terminal" CTA. Behaviour is `@ui-sdk/react`
+  (`navigation-menu`, `dialog`, `accordion`); styles are `src/app/nav.css`,
+  keyed on `data-slot` + state attributes. Dark pages get the dark header from
+  an ancestor `.sw-dark` / `.summer-page--cosmic` / `.summer-page--passport`,
+  or `<SummerNav tone="dark" />` — never re-patch header colours per page.
+  New routes go in `NavMenuData.ts` (+ `nav.menu.*` in all four locales), not
+  in the top row.
+- **Interactive widgets:** build menus, dialogs, accordions, comboboxes, tabs
+  and form fields on `@ui-sdk/react/<name>` (version-matched docs in
+  `node_modules/@ui-sdk/react/docs/`). Do not hand-roll `role=`/`aria-*` state.
 - **Footer:** `@/components/SummerFooter`.
 - **Tokens/classes:** the `summer-*` classes (`summer-page`, `summer-shell`,
   `summer-kicker`, `summer-button`, `summer-actions`, `summer-code`) defined in
@@ -24,11 +33,10 @@ Every page MUST use, unless it already deliberately doesn't:
 
 ## Legacy — do NOT use on new pages
 
-- **`@/components/Navigation`** (+ `NavDrawer`, `NavMenuData`) — the old light
-  nav ("Sign in / Talk to sales / Open Bot"). ~20 older interior pages still
-  import it (about, pricing, research, contact, legal, docs layout, …). Do not
-  copy imports from those pages; migration to SummerNav is tracked separately —
-  don't grow the legacy set.
+- `.summer-nav*` / `.nav__*` rules in `globals.css`, `hero-d.css` and
+  `institutional.css` — dead CSS from the previous hand-rolled header
+  (`ProductMenu`/`NavDrawer`, both deleted). Don't reuse; scheduled for removal
+  in `docs/plans/showcase-redesign.md` phase 7.
 - `src/app/classic/` — the archived previous home page. Reference only.
 - `src/app/hero-a` … `hero-e` — hero experiments. The live home imports
   `hero-d/hero-d.css`; treat the others as dead.

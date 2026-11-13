@@ -8,6 +8,7 @@ import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
 import './institutional.css';
+import './nav.css';
 
 // Archivo carries UI + body (news-agency grotesk register, chosen over Geist
 // in the round-3 sans A/B — see docs/design/serif-decision.md), JetBrains Mono

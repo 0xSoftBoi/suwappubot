@@ -76,7 +76,17 @@
       "autopilotTitle": "Autopilot",
       "autopilotDesc": "实时观看自主代理交易，并验证它的每个决策",
       "signalsTitle": "Signal Intelligence",
-      "signalsDesc": "可解释的链上信号及其证据"
+      "signalsDesc": "可解释的链上信号及其证据",
+      "grpTrust": "代理信任",
+      "passportTitle": "Agent Passport",
+      "passportDesc": "证明代理背后有真人负责",
+      "arbiterTitle": "Arbiter",
+      "arbiterDesc": "交付验证后才付款的托管",
+      "allProducts": "全部产品",
+      "label": "主导航",
+      "open": "打开菜单",
+      "close": "关闭菜单",
+      "mobileTitle": "菜单"
     }
   },
   "hero": {

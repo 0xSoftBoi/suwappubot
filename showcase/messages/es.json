@@ -76,7 +76,17 @@
       "autopilotTitle": "Autopilot",
       "autopilotDesc": "Observa al agente autónomo operar y verifica sus decisiones",
       "signalsTitle": "Signal Intelligence",
-      "signalsDesc": "Señales on-chain explicables, con su evidencia"
+      "signalsDesc": "Señales on-chain explicables, con su evidencia",
+      "grpTrust": "Confianza de agentes",
+      "passportTitle": "Agent Passport",
+      "passportDesc": "Prueba de que un humano respalda al agente",
+      "arbiterTitle": "Arbiter",
+      "arbiterDesc": "Depósito en garantía que paga al verificar la entrega",
+      "allProducts": "Todos los productos",
+      "label": "Principal",
+      "open": "Abrir menú",
+      "close": "Cerrar menú",
+      "mobileTitle": "Menú"
     }
   },
   "hero": {

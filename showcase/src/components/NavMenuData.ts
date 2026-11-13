@@ -27,6 +27,10 @@ export const MENU_PANELS: MenuPanel[] = [
         { key: 'curve', href: '/#curve' },
         { key: 'signals', href: '/signals' },
       ]},
+      { key: 'grpTrust', items: [
+        { key: 'passport', href: '/passport' },
+        { key: 'arbiter', href: '/arbiter' },
+      ]},
     ],
   },
   {

@@ -76,7 +76,17 @@
       "autopilotTitle": "Autopilot",
       "autopilotDesc": "Watch the autonomous agent trade, and check its calls",
       "signalsTitle": "Signal Intelligence",
-      "signalsDesc": "Explainable on-chain signals and evidence"
+      "signalsDesc": "Explainable on-chain signals and evidence",
+      "grpTrust": "Agent trust",
+      "passportTitle": "Agent Passport",
+      "passportDesc": "Proof a human stands behind the agent",
+      "arbiterTitle": "Arbiter",
+      "arbiterDesc": "Escrow that pays on verified delivery",
+      "allProducts": "All products",
+      "label": "Main",
+      "open": "Open menu",
+      "close": "Close menu",
+      "mobileTitle": "Menu"
     }
   },
   "hero": {
