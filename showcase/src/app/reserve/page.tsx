@@ -8,7 +8,7 @@ const DESCRIPTION =
   'Claim your unique Suwappu account name before launch. Refer friends to climb the waitlist leaderboard and move up the line.';
 
 export const metadata: Metadata = {
-  title: TITLE,
+  title: 'Reserve your Suwappu name',
   description: DESCRIPTION,
   openGraph: {
     title: TITLE,

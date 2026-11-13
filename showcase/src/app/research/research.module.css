@@ -6,7 +6,7 @@
 }
 
 .hero {
-  padding: clamp(3.5rem, 7vw, 6.5rem) 0 0;
+  padding: 0;
 }
 
 .heroTopline,

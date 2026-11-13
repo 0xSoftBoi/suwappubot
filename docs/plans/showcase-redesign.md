@@ -51,7 +51,7 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
 - One set of nav colour variables with a dark variant, so dark pages stop hand-patching the nav.
 - `next/link` for internal routes, `aria-current` on the active page, all labels in 4 locales.
 
-### Phase 2 — Foundation  ← next
+### Phase 2 — Foundation  ◐ mostly shipped 2026-11-13 (reset + dead-CSS removal still open)
 - Emit a real reset (fix the Tailwind v3/v4 mismatch) and re-verify every page.
 - One container (`--page-max`, `--page-gutter`), one vertical rhythm scale, one hero top offset.
 - One button system (primary / secondary / ghost, 3 sizes) with hover/active/focus-visible; 44px touch targets on mobile.
@@ -92,3 +92,5 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
 
 - 2026-11-13 — Baseline audit; `@ui-sdk/react` + `@ui-sdk/core` 0.1.0-beta.2 added. Phase 1 started.
 - 2026-11-13 — Phase 1 done: `SummerNav` rebuilt on `navigation-menu` + `dialog` + `accordion`; `ProductMenu`/`NavDrawer` deleted; `nav.css` added; language switcher made theme-agnostic. Verified locally at 1440/1100/950/390: hover, Tab/Enter/Esc with focus return, client-side routing, sheet focus trap, no overflow. Not yet verified on a deployed URL.
+- 2026-11-13 — Phase 2 (most): `src/app/foundation.css` — one top offset (`--page-top`; first line now at 141px on every shared-shell page, was 195–487px), flat button system with hover/active states and border-box sizing (pricing-card buttons no longer overflow), 20px mobile gutters (was 8px), tap/selection/scroll-padding/tabular-nums/balance defaults. Fixed: `/products` H1 wrapping one word per line; `/docs` rendering blank under `prefers-reduced-motion`; docs sidebar offset; `/reserve` doubled title; agents/research/autopilot hero offsets. Verified on a local production build: 23 routes × (1440, 390), no overflow, no page errors.
+- Still open in phase 2: real CSS reset (Tailwind v3 directives on v4), `theme-color` meta, skip-link target audit.

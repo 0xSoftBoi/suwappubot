@@ -13,8 +13,7 @@
 }
 
 .hero {
-  max-width: 20ch;
-  padding: clamp(6.5rem, 12vw, 9.5rem) 0 clamp(2.75rem, 5vw, 4rem);
+  padding: var(--page-top) 0 clamp(2.75rem, 5vw, 4rem);
   border-bottom: 1px solid var(--sw-hairline);
   margin-bottom: clamp(3rem, 6vw, 5rem);
 }
@@ -27,6 +26,7 @@
   letter-spacing: var(--type-display-tracking);
   line-height: 1;
   color: #fafafa;
+  max-width: 18ch;
   text-wrap: balance;
 }
 

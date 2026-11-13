@@ -1,0 +1,159 @@
+/* ─────────────────────────────────────────────────────────────────────
+   Foundation overrides — loaded last (see layout.tsx).
+
+   One place for the rules every marketing page shares: vertical rhythm
+   under the sticky header, the button system, and interaction hygiene
+   from the Web Interface Guidelines. Page CSS should not restate these.
+   ───────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Space between the sticky header and a page's first line. The header used
+     to be position:fixed, so pages carried ~130px of clearance they no longer
+     need. */
+  --page-top: clamp(2.75rem, 5.5vw, 4.75rem);
+  --page-bottom: clamp(4rem, 7vw, 6.5rem);
+  --hero-gap: clamp(2.75rem, 5vw, 4.5rem);
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: rgba(229, 141, 43, 0.18);
+  scroll-padding-top: 5.5rem;
+}
+
+@media (pointer: fine) {
+  html { overscroll-behavior-y: none; }
+}
+
+.sw-dark,
+.summer-page--cosmic,
+.summer-page--passport {
+  color-scheme: dark;
+}
+
+::selection {
+  background: rgba(229, 141, 43, 0.28);
+}
+
+:where(h1, h2, h3) { text-wrap: balance; }
+:where(p, li, figcaption) { text-wrap: pretty; }
+:where(a, button, summary, [role='button'], input, select, textarea) { touch-action: manipulation; }
+:where(table, dl, [class*='stat'], [class*='price'], [class*='metric'], time) { font-variant-numeric: tabular-nums; }
+:where([id]) { scroll-margin-top: 5.5rem; }
+:where(img, svg, video) { max-width: 100%; }
+
+/* ── Rhythm ───────────────────────────────────────────────────────── */
+
+.institutional-page .mkt-page {
+  padding-top: var(--page-top);
+  padding-bottom: var(--page-bottom);
+}
+
+.institutional-page .mkt-hero {
+  row-gap: clamp(1.5rem, 3vw, 2.5rem);
+  margin-bottom: var(--hero-gap);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────
+   One system: primary (persimmon, the single brand accent), secondary
+   (hairline). Flat fills, no glow; state is communicated by contrast. */
+
+.summer-button {
+  min-height: 44px;
+  padding: 0 18px;
+  gap: 8px;
+  border-radius: 10px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    transform 0.1s;
+}
+
+.summer-button:active { transform: scale(0.98); }
+
+.summer-button--primary,
+.institutional-page .summer-button--primary {
+  border: 1px solid #c9731d;
+  background: #e58d2b;
+  color: #14202b;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 1px 2px rgba(122, 68, 19, 0.24);
+}
+
+.summer-button--primary:hover,
+.institutional-page .summer-button--primary:hover {
+  background: #f09a37;
+  border-color: #b96616;
+}
+
+.summer-button--secondary,
+.institutional-page .summer-button--secondary {
+  border: 1px solid rgba(23, 50, 74, 0.2);
+  background: #fff;
+  color: var(--suwappu-summer-ink);
+  box-shadow: 0 1px 2px rgba(16, 42, 62, 0.05);
+}
+
+.summer-button--secondary:hover,
+.institutional-page .summer-button--secondary:hover {
+  border-color: rgba(23, 50, 74, 0.38);
+  background: #fbfaf6;
+}
+
+.sw-dark .summer-button--secondary {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f4f1ec;
+  box-shadow: none;
+}
+
+.sw-dark .summer-button--secondary:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+@media (max-width: 480px) {
+  .summer-actions > .summer-button { flex: 1 1 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .summer-button { transition: none; }
+  .summer-button:active { transform: none; }
+}
+
+/* ── Outliers brought onto the shared rhythm ──────────────────────── */
+
+.institutional-page .agents-hero { padding-top: 0; padding-inline: 0; max-width: none; }
+.docs-page { padding-top: 1.5rem; }
+
+/* The clerk line and actions sat on negative margins tuned to the old row
+   gap; they now simply follow the lead in the second column. */
+.institutional-page .mkt-hero__clerk { margin: -0.75rem 0 0; max-width: 44ch; text-align: left; }
+.institutional-page .mkt-hero > .summer-actions { margin: -0.5rem 0 0; }
+
+/* width:100% buttons were content-box, so padding pushed them past the card. */
+.summer-button { box-sizing: border-box; max-width: 100%; }
+
+/* ── Gutters ──────────────────────────────────────────────────────────
+   Small screens had an 8px gutter; text ran to the glass. 20px minimum,
+   and respect the notch. */
+@media (max-width: 760px) {
+  .summer-shell {
+    padding-inline: max(20px, env(safe-area-inset-left)) max(20px, env(safe-area-inset-right));
+  }
+}
+
+/* Docs: the sidebar was offset for the old fixed header. */
+.docs-page__sidebar { top: 65px; height: calc(100dvh - 65px); }
+.docs-page__main { padding-top: 2rem; }
+
+@media (max-width: 760px) {
+  .docs-page__main { padding-inline: 20px; }
+}
