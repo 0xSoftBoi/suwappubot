@@ -141,7 +141,7 @@ export const AgentTrustServiceLive = Layer.succeed(
 							.where(
 								and(
 									eq(agentTrust.agentId, agentId),
-									sql`coalesce(${agentTrust.lastSeenAt}, ${agentTrust.createdAt}) <= ${recoveryCutoff}`,
+									sql`coalesce(${agentTrust.lastSeenAt}, ${agentTrust.createdAt}) <= ${recoveryCutoff.toISOString()}::timestamp`,
 								),
 							),
 					catch: toError,

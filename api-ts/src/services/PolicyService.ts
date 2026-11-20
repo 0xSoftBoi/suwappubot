@@ -385,11 +385,16 @@ export const PolicyServiceLive = Layer.succeed(
 							let verdict: PolicyDecisionResult = pendingApproval ?? { decision: 'allow' }
 
 							if (needsDaily || needsSession || needsVelocity) {
+								// MONEY-PATH. The window bounds go in as ISO text + cast, never as
+								// Date objects: a Date inside a raw sql`` fragment is not type-mapped
+								// by drizzle and postgres-js throws on it. That made this aggregate
+								// throw for every policy with a daily/session/velocity cap, and the
+								// callers fail OPEN on a policy error, so the caps did not enforce.
 								const [agg] = await tx
 									.select({
-										daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
-										hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
-										hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then 1 else 0 end), 0)`,
+										daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
+										hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
+										hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then 1 else 0 end), 0)`,
 									})
 									.from(policyDecisions)
 									.where(
@@ -507,9 +512,9 @@ export const PolicyServiceLive = Layer.succeed(
 
 							const [agg] = await tx
 								.select({
-									daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
-									hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then ${policyDecisions.valueUsd} else 0 end), 0)`,
-									hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo} then 1 else 0 end), 0)`,
+									daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
+									hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
+									hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then 1 else 0 end), 0)`,
 								})
 								.from(policyDecisions)
 								.where(
