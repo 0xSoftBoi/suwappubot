@@ -48,6 +48,29 @@ retried on the next pass. That is the correct resting state: "we know the
 nonce was spent but not on what" is strictly more than the row knew before,
 and still not grounds to claim an outcome.
 
+## The ceiling of this approach, and what would remove it
+
+A nonce identifies a *slot*, not a transaction. If a swap's broadcast never
+landed, the wallet's next send takes that same nonce, and the transaction
+occupying it then satisfies the sender and nonce checks exactly as the real
+one would. `tx_poller._resolve_hashless_rows` refuses to adopt a hash another
+swap row already owns, which covers the realistic collision (the send that
+reused the nonce was the user's next swap, and it recorded its own hash). What
+it cannot catch is a nonce consumed from the same address by something that
+keeps no SwapTransaction row at all — a hot-wallet sweep, a relayer, bulk pay.
+For those, RESOLVED could still name a transaction that is not the swap's.
+
+The design that removes this entirely is to persist the transaction hash
+itself before broadcasting rather than the nonce: an EVM hash is keccak of the
+signed payload, so it is fully determined at signing time, one step before the
+send that may lose it. That identifies the exact transaction with no
+ambiguity and no explorer. It is a strictly better mechanism than this one and
+the recommended follow-up; it is not what this change does, because it would
+rewrite what every executor records rather than adding to it.
+
+Until then, the asymmetry is the safety property to preserve: NOT_MINED is
+sound unconditionally, and RESOLVED is only ever as strong as the guard above.
+
 That retry is load-bearing, not a formality. Verified live against
 eth.blockscout.com: a transaction already mined and already counted by
 `eth_getTransactionCount` was missing from the sender's address listing for

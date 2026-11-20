@@ -338,6 +338,28 @@ class TransactionPoller:
                 await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
 
             elif result.verdict == swap_nonce.RESOLVED:
+                # A verified (sender, nonce) match is NOT by itself proof the
+                # transaction is this swap's. If this swap's broadcast never
+                # landed, the wallet's next send — very likely the user's next
+                # swap — legitimately takes the same nonce, and that
+                # transaction passes the sender and nonce checks identically.
+                # Adopting it would mark this row COMPLETED on the strength of
+                # a different swap's execution and duplicate its hash.
+                #
+                # So refuse any hash another row already owns. That is the
+                # realistic shape of the collision: the send that reused the
+                # nonce succeeded normally and recorded its own hash.
+                if await self._hash_claimed_elsewhere(result.tx_hash, tx_dict["id"]):
+                    logger.warning(
+                        "Swap %s: nonce %s resolved to %s, but that hash belongs to "
+                        "another swap — the nonce was almost certainly reused by a "
+                        "later send, so leaving this row unresolved",
+                        tx_dict["id"],
+                        tx_dict["nonce"],
+                        result.tx_hash,
+                    )
+                    continue
+
                 logger.info(
                     "Swap %s resolved by nonce %s -> %s (%s)",
                     tx_dict["id"],
@@ -387,6 +409,41 @@ class TransactionPoller:
             await run_in_db(_work)
         except Exception as e:
             logger.warning("Could not adopt resolved hash for swap %s: %s", swap_id, e)
+
+    async def _hash_claimed_elsewhere(self, tx_hash: str, swap_id: int) -> bool:
+        """True if any OTHER swap row already carries `tx_hash`.
+
+        The guard against nonce reuse. One on-chain transaction belongs to one
+        swap; if a row already owns this hash, a nonce-based match to a second
+        row means the nonce was recycled after the first row's broadcast was
+        lost, not that both swaps executed.
+
+        Fails CLOSED: an error here returns True and leaves the row
+        unresolved, because the cost of a wrong False is a swap reported
+        COMPLETED on another swap's transaction.
+        """
+
+        def _work():
+            with get_db_session() as session:
+                return (
+                    session.query(SwapTransaction.id)
+                    .filter(
+                        SwapTransaction.tx_hash == tx_hash,
+                        SwapTransaction.id != swap_id,
+                    )
+                    .first()
+                    is not None
+                )
+
+        try:
+            return await run_in_db(_work)
+        except Exception as e:
+            logger.warning(
+                "Could not check hash ownership for swap %s (treating as claimed): %s",
+                swap_id,
+                e,
+            )
+            return True
 
     async def _apply_status_update(
         self, tx_dict: dict, new_status: str, dest_tx_hash: Optional[str] = None
