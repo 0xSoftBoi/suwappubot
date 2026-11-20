@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from bot.models.advanced import (
     LimitOrder,
@@ -45,12 +45,25 @@ logger = logging.getLogger(__name__)
 #
 # Defined here, once, so the writer and resume_dca's precondition check cannot
 # drift apart.
+# created_at is a naive column, and naive_dt.timestamp() resolves it in the
+# PROCESS's local timezone. Nothing sets TZ today so it lands on UTC, but
+# setting TZ on one service later would shift every key by the offset, the
+# lookup would match no row, and the guard would stop running — the very
+# failure the hour bucket caused. Pin it to UTC so the key cannot depend on
+# deployment config. The None fallback covers a row inserted outside
+# SQLAlchemy, where the column has no server default.
+def _created_stamp(order) -> int:
+    if not order.created_at:
+        return 0
+    return int(order.created_at.replace(tzinfo=timezone.utc).timestamp())
+
+
 def _limit_order_key(order) -> str:
-    return f"lo:{order.id}:{int(order.created_at.timestamp())}"
+    return f"lo:{order.id}:{_created_stamp(order)}"
 
 
 def _dca_order_key(order) -> str:
-    return f"dca:{order.id}:{int(order.created_at.timestamp())}:{order.executions_completed}"
+    return f"dca:{order.id}:{_created_stamp(order)}:{order.executions_completed}"
 
 
 class OrderService:

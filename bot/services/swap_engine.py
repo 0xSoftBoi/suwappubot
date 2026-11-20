@@ -24,6 +24,7 @@ from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from web3 import Web3
+from sqlalchemy.exc import IntegrityError
 import aiohttp
 import base64
 
@@ -4352,7 +4353,40 @@ class SwapEngine:
                     quote._savings_recorded = True
                     return swap_tx.id
 
-            swap_id = await run_in_db(_create_swap_record)
+            try:
+                swap_id = await run_in_db(_create_swap_record)
+            except IntegrityError:
+                # Lost the UNIQUE(idempotency_key) race. The stable key makes
+                # that index a live path for the first time — a rotating key
+                # produced two different keys and never collided — and the
+                # index is the only serialisation point that spans replicas and
+                # restarts, which a per-process lock cannot.
+                #
+                # Fund-safe either way: this runs before the dispatch, so the
+                # loser never broadcast and the failed flush rolled back. But
+                # raising here would surface a raw DB error that the order
+                # paths' broad except turns into a spurious FAILED order while
+                # the winner executes fine. Replay the lookup and return the
+                # winner's row instead, which is the idempotent answer.
+                #
+                # If the winner is FAILED with no hash by now, the lookup
+                # returns None and we re-raise — correct, since nothing moved
+                # and a genuine retry is allowed.
+                #
+                # Only replay when a key was supplied: _check_idempotency is
+                # defined under that branch, and with no key there is nothing
+                # for the unique index to collide on, so the error is something
+                # else and must propagate.
+                if idempotency_key:
+                    existing = await run_in_db(_check_idempotency)
+                    if existing:
+                        logger.warning(
+                            "Idempotency race on key %s — returning the in-flight swap %s",
+                            idempotency_key,
+                            existing.id,
+                        )
+                        return existing
+                raise
 
             # Phase 2: Deep State Simulation (Solana Anti-Honeypot)
             if quote.from_chain == "solana" and quote.to_chain == "solana":

@@ -241,6 +241,19 @@ class TransactionPoller:
                 if not tx:
                     return
                 if (
+                    tx.status == SwapStatus.UNKNOWN.value
+                    and new_status == SwapStatus.SUBMITTED.value
+                ):
+                    # Keep polling, but do not write. SUBMITTED is what the
+                    # receipt check reports while a transaction has not mined
+                    # yet, so this is not news — and it is a backwards step out
+                    # of UNKNOWN that the canonical projection refuses
+                    # (RECONCILING has no path to ACTIVE), which would roll the
+                    # status write back with it on every single cycle. Holding
+                    # UNKNOWN also keeps the "needs verification" marker the
+                    # user sees instead of downgrading it to a plain pending.
+                    return
+                if (
                     tx.status == new_status
                     or tx.status
                     in (
