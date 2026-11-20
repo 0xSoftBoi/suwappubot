@@ -110,8 +110,14 @@ def test_limit_order_executes_through_swap_engine(sqlite_db):
     # Exact, not a prefix: the key must carry no time bucket. A bucketed key
     # (it used to end in a UTC hour) changes on every clock rollover, so the
     # engine's idempotency lookup misses and the guard that decides whether a
-    # retry may broadcast never runs. See bot/services/orders.py.
-    assert captured["execute_kwargs"]["idempotency_key"] == "lo:1"
+    # retry may broadcast never runs. The created_at stamp makes the key unique
+    # to this order for all time, since SQLite reuses rowids after a DELETE.
+    # See _limit_order_key in bot/services/orders.py.
+    with get_session() as session:
+        created = (
+            session.query(LimitOrder).filter(LimitOrder.id == 1).first().created_at.timestamp()
+        )
+    assert captured["execute_kwargs"]["idempotency_key"] == f"lo:1:{int(created)}"
     assert captured["execute_kwargs"]["automated"] is True
 
     with get_session() as session:

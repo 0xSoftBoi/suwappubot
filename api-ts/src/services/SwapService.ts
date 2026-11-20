@@ -1,4 +1,4 @@
-import { and, desc, eq, notInArray } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, notInArray, or } from 'drizzle-orm'
 import { Context, Effect, Exit, Fiber, Layer, Option } from 'effect'
 import { logger } from '../lib/logger'
 import { captureQuoteRoutes, shouldCapture } from '../lib/routeCapture'
@@ -786,7 +786,14 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
-			// Idempotency: if a non-terminal record with this key already exists, return it
+			// Idempotency: return any existing record unless we can see that
+			// nothing left the wallet. Retry is permitted ONLY for a failed or
+			// cancelled row whose txHash is still null — a failed row WITH a
+			// txHash means the origin leg was broadcast and may have mined, so
+			// retrying it would send the funds twice. Everything else,
+			// including 'unknown' ("may have broadcast, outcome unverified"),
+			// returns the existing record. Mirrors the Python guard in
+			// bot/services/swap_engine.py; keep the two in step.
 			if (swap.idempotencyKey) {
 				const existing = yield* Effect.tryPromise({
 					try: () =>
@@ -796,7 +803,11 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 							.where(
 								and(
 									eq(swapTransactions.idempotencyKey, swap.idempotencyKey!),
-									notInArray(swapTransactions.status, ['failed', 'cancelled']),
+									// NOT (retryable-status AND nothing-broadcast)
+									or(
+										notInArray(swapTransactions.status, ['failed', 'cancelled']),
+										isNotNull(swapTransactions.txHash),
+									),
 								),
 							)
 							.limit(1),

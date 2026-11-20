@@ -224,22 +224,33 @@ async def lifespan(app: FastAPI):
                     .all()
                 )
                 if orphaned:
-                    orphan_ids = [row.id for row in orphaned]
+                    orphan_ids = []
                     for row in orphaned:
+                        # Re-check under the same session before writing. This
+                        # is a read-modify-write: between the SELECT above and
+                        # the commit below, the process that owns this swap
+                        # (or another replica) can persist tx_hash and move the
+                        # row to SUBMITTED. Overwriting that would strand a row
+                        # that has a perfectly pollable hash, because the
+                        # poller treats UNKNOWN as settled.
+                        if row.tx_hash:
+                            continue
                         row.status = SwapStatus.UNKNOWN.value
                         row.error_message = (
                             "Reconciled at startup: EXECUTING with no tx_hash. The broadcast "
                             "may have succeeded; outcome unverified. Not retried to avoid a "
                             "duplicate send."
                         )
+                        orphan_ids.append(row.id)
                     session.commit()
-                    logger.error(
-                        "Reconciled %d orphaned EXECUTING transactions to UNKNOWN "
-                        "(may have broadcast, outcome unverified, retry blocked) — "
-                        "needs on-chain verification: swap ids %s",
-                        len(orphan_ids),
-                        orphan_ids,
-                    )
+                    if orphan_ids:
+                        logger.error(
+                            "Reconciled %d orphaned EXECUTING transactions to UNKNOWN "
+                            "(may have broadcast, outcome unverified, retry blocked) — "
+                            "needs on-chain verification: swap ids %s",
+                            len(orphan_ids),
+                            orphan_ids,
+                        )
         except Exception as e:
             logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
 

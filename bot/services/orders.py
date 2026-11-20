@@ -14,13 +14,43 @@ from bot.models.advanced import (
     DCAStatus,
     SwapTemplate,
 )
-from bot.models.swap import SwapStatus
+from bot.models.swap import SwapStatus, SwapTransaction
 from bot.models.favorites import UserSettings
 from bot.services.price_service import price_service
 from bot.services.swap_engine import SwapEngine
 from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
+
+
+# Idempotency keys for automated order execution.
+#
+# Two properties matter, and both are load-bearing for fund safety:
+#
+# 1. STABLE across retries. These used to carry a UTC hour bucket, which
+#    silently defeated SwapEngine's idempotency guard on every clock rollover:
+#    a new hour produced a key matching no row, so the guard never ran and the
+#    order broadcast again regardless of what the previous attempt had done.
+#    The swap's own status is what decides retryability, and the guard can only
+#    read it if the key still finds the row. There is also a UNIQUE index on
+#    swap_transactions.idempotency_key, which is the only cross-replica
+#    serialisation point we have — a per-process lock cannot span replicas or
+#    restarts — and a rotating key defeats that too.
+#
+# 2. UNIQUE to one order for all time. The row id alone is not: SQLite reuses
+#    INTEGER PRIMARY KEY rowids after a DELETE, so a recreated order could
+#    inherit a deleted order's swap row and be reported as executed with
+#    someone else's tx_hash. created_at is immutable, so pairing the two is
+#    stable and collision-free on any backend.
+#
+# Defined here, once, so the writer and resume_dca's precondition check cannot
+# drift apart.
+def _limit_order_key(order) -> str:
+    return f"lo:{order.id}:{int(order.created_at.timestamp())}"
+
+
+def _dca_order_key(order) -> str:
+    return f"dca:{order.id}:{int(order.created_at.timestamp())}:{order.executions_completed}"
 
 
 class OrderService:
@@ -370,7 +400,18 @@ class OrderService:
             return False
 
     def resume_dca(self, order_id: int, user_id: int) -> bool:
-        """Resume a paused DCA order."""
+        """Resume a paused DCA order.
+
+        Refuses while the plan's last attempt is still unverified. A tranche
+        whose swap sits at UNKNOWN may already have moved funds, and its
+        idempotency key cannot advance until that row resolves (the key is
+        keyed on executions_completed, which deliberately did not increment).
+        Resuming regardless would set next_execution_at to now, the scanner
+        would pick the plan up on its next tick, the guard would hand back the
+        same unverified row, and the plan would pause again — an immediate,
+        unbreakable loop that also burns a provider quote on every pass.
+        Resolve the swap first, then resume.
+        """
         with get_session() as session:
             order = (
                 session.query(DCAOrder)
@@ -382,11 +423,30 @@ class OrderService:
                 .first()
             )
 
-            if order:
-                order.status = DCAStatus.ACTIVE.value
-                order.next_execution_at = datetime.utcnow()
-                return True
-            return False
+            if not order:
+                return False
+
+            blocking = (
+                session.query(SwapTransaction)
+                .filter(
+                    SwapTransaction.idempotency_key == _dca_order_key(order),
+                    SwapTransaction.status == SwapStatus.UNKNOWN.value,
+                )
+                .first()
+            )
+            if blocking:
+                logger.error(
+                    "Refusing to resume DCA order %d: swap %s is UNKNOWN (may have "
+                    "broadcast, outcome unverified). Verify it on-chain and resolve the "
+                    "swap row first, or the plan would immediately re-pause.",
+                    order.id,
+                    blocking.id,
+                )
+                return False
+
+            order.status = DCAStatus.ACTIVE.value
+            order.next_execution_at = datetime.utcnow()
+            return True
 
     def cancel_dca(self, order_id: int, user_id: int) -> bool:
         """Cancel a DCA order."""
@@ -618,7 +678,7 @@ class OrderService:
             # own status decides, which is what the guard is for — a genuinely
             # failed attempt still retries, and one whose outcome is unknown
             # does not.
-            idempotency_key = f"lo:{order.id}"
+            idempotency_key = _limit_order_key(order)
 
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -712,7 +772,7 @@ class OrderService:
             # executions_completed only advances on a confirmed submit, so a
             # failed execution retries under the same key and the guard decides
             # from the swap's status.
-            idempotency_key = f"dca:{order.id}:{order.executions_completed}"
+            idempotency_key = _dca_order_key(order)
 
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -758,8 +818,10 @@ class OrderService:
                 # schedule rather than let it come due again: executions_completed
                 # deliberately does NOT advance, so the key stays the same and
                 # every future attempt would hand back this same row forever.
-                # PAUSED is resumable, so once a human has verified the tranche
-                # on-chain the plan can continue from where it stopped.
+                # PAUSED stops the schedule coming due again. resume_dca
+                # refuses while this swap is still UNKNOWN, so the plan cannot
+                # be restarted into an instant re-pause loop; it continues only
+                # once the tranche has been verified and the swap row resolved.
                 with get_session() as session:
                     db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
                     if db_order:

@@ -119,6 +119,15 @@ class TransactionPoller:
                                 SwapStatus.SUBMITTED.value,
                                 SwapStatus.EXECUTING.value,
                                 SwapStatus.PENDING.value,
+                                # An UNKNOWN row with a hash is recoverable:
+                                # swap_engine persists the hash when it loses
+                                # the race between broadcasting and writing the
+                                # result, so polling it resolves the swap to a
+                                # real outcome instead of leaving it for a
+                                # human. The tx_hash filter below keeps the
+                                # hashless orphans out, since there is nothing
+                                # to check for those.
+                                SwapStatus.UNKNOWN.value,
                             ]
                         ),
                         # CONFIRMING only has a real cross-chain status check
@@ -231,15 +240,20 @@ class TransactionPoller:
                 )
                 if not tx:
                     return
-                if tx.status == new_status or tx.status in (
-                    SwapStatus.COMPLETED.value,
-                    SwapStatus.FAILED.value,
-                    # UNKNOWN means a broadcast may have landed and we cannot
-                    # prove it. Treat it as settled here so a late poll cannot
-                    # quietly overwrite it, which would both lose the "needs
-                    # verification" marker and unblock the retry that UNKNOWN
-                    # exists to prevent. Only an on-chain check should move it.
-                    SwapStatus.UNKNOWN.value,
+                if (
+                    tx.status == new_status
+                    or tx.status
+                    in (
+                        SwapStatus.COMPLETED.value,
+                        SwapStatus.FAILED.value,
+                    )
+                    # UNKNOWN is settled only while there is nothing to check.
+                    # A swap that broadcast and then failed to persist its
+                    # status still has its hash (swap_engine records it on the
+                    # error path), and that row MUST stay pollable so it
+                    # resolves itself instead of waiting on a human. Without
+                    # the tx_hash condition this branch would strand it.
+                    or (tx.status == SwapStatus.UNKNOWN.value and tx.tx_hash is None)
                 ):
                     # The legacy status may already have been written by the
                     # websocket path or an older worker. Projection is
@@ -284,9 +298,6 @@ class TransactionPoller:
             if new_status in (
                 SwapStatus.COMPLETED.value,
                 SwapStatus.FAILED.value,
-                # Funds may well have moved on an UNKNOWN swap, so the cached
-                # balance cannot be trusted either way.
-                SwapStatus.UNKNOWN.value,
             ):
                 await self._invalidate_balance_cache_dict(tx_dict)
             await self._notify_user_dict(tx_dict, old_status, new_status)
