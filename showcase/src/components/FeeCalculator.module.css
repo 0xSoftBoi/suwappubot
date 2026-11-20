@@ -163,7 +163,9 @@
   height: 100%;
   border-radius: inherit;
   background: var(--summer-sky-deep);
-  transition: width 320ms var(--pp-ease, ease);
+  transform-origin: left center;
+  transition: transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
 }
 
 .rowBest .barFill {
@@ -245,3 +247,38 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ── v3 instrument pass: plotted track, ticks, lit winner ─────────────── */
+.calc {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(70% 60% at 100% 0%, rgba(229, 141, 43, 0.12), transparent 65%),
+    linear-gradient(180deg, #fffefb, #fff6e8);
+  box-shadow: var(--pp-shadow), inset 0 1px 0 #fff;
+}
+.rows {
+  padding: 14px;
+  border: 1px solid var(--pp-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.bar {
+  height: 14px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(23, 50, 74, 0.14) calc(10% - 1px) 10%),
+    rgba(23, 50, 74, 0.07);
+  box-shadow: inset 0 1px 2px rgba(23, 50, 74, 0.18);
+}
+.rowBest {
+  background: linear-gradient(90deg, rgba(229, 141, 43, 0.14), rgba(255, 255, 255, 0.9));
+  box-shadow: 0 10px 28px -14px rgba(201, 115, 29, 0.55);
+}
+.rowBest .barFill { box-shadow: 0 0 16px rgba(229, 141, 43, 0.7); background: linear-gradient(90deg, #f6a93c, #c9731d); }
+.rowBest .total { font-size: 1.2rem; color: var(--summer-persimmon); }
+.total { min-width: 6.5rem; text-align: right; font-size: 1.05rem; transition: color 300ms ease; }
+.input { font-size: 1.25rem; }
+.inputRow { box-shadow: inset 0 1px 3px rgba(23, 50, 74, 0.12); }
+.verdict { padding: 1rem 1.2rem; border: 1px solid var(--pp-border); border-radius: 14px; background: rgba(255, 255, 255, 0.7); }
+@media (max-width: 640px) { .bar { display: block; grid-column: 1 / -1; grid-row: 2; height: 10px; } .row { grid-template-columns: 1fr auto; } .rows { padding: 8px; } }
+@media (prefers-reduced-motion: reduce) { .barFill { transition: none; } }

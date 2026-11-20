@@ -8,6 +8,8 @@ import { TELEGRAM_URL, ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import DemoCallCta from '@/components/DemoCallCta';
 import UpgradeCta from '@/components/UpgradeCta';
 import FeeCalculator from '@/components/FeeCalculator';
+import { Reveal, Backdrop, BoundaryRings, SpotlightCard, MiniViz, CountUp } from '@/components/v3';
+import '../sales-v3.css';
 import styles from './pricing.module.css';
 
 export const metadata: Metadata = {
@@ -300,11 +302,11 @@ function CompareValue({ value }: { value: string }) {
 
 export default function PricingPage() {
   return (
-    <div className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page v3-tone-light sv3-page">
       <SummerNav />
       <main id="main-content">
       <div className="summer-shell mkt-page">
-        <header className="mkt-hero mkt-hero--center">
+        <div className="sv3-heroband"><Backdrop kind="grid" /><header className="mkt-hero mkt-hero--center">
           <h1>One subscription. A lower fee on every swap.</h1>
           <p className="mkt-hero__lead">
             Every plan carries the same engine: {stats.platformChains} chains, {stats.routerCount}{' '}
@@ -315,9 +317,9 @@ export default function PricingPage() {
             Free to start, no card. Month to month: cancel and you keep the tier until the period
             ends.
           </p>
-        </header>
+        </header></div>
 
-        <section className={styles.plans} aria-label="Self-serve plans">
+        <Reveal stagger as="section" className={styles.plans}>
           {selfServe.map((t) => (
             <article
               className={`${styles.card}${t.highlight ? ` ${styles.cardFeatured} sw-shine` : ''}`}
@@ -332,6 +334,9 @@ export default function PricingPage() {
               <p className={styles.fee}>
                 <b className={styles.feeValue}>{t.fee}</b> account trading swap fee
               </p>
+              <span className={`sv3-meter${t.highlight ? ' sv3-meter--hot' : ''}`} aria-hidden="true">
+                <i style={{ ['--w' as string]: feePct(t) / feePct(tiers[0]) }} />
+              </span>
               <p className={styles.blurb}>{t.blurb}</p>
               {t.name === 'Pro' || t.name === 'Premium' ? (
                 <>
@@ -369,16 +374,17 @@ export default function PricingPage() {
               </ul>
             </article>
           ))}
-        </section>
+        </Reveal>
 
         {/* Enterprise sits below the ladder, not inside it: a quote-only plan
             standing next to three published prices makes every price look
             negotiable, and the buyer is a different person on a different
             timeline. One CTA: a call. */}
         <section
-          className={`${styles.enterprise} sw-card-dark sw-grain sw-grain--dark`}
+          className={`${styles.enterprise} sw-card-dark sw-grain sw-grain--dark sv3-slab v3-tone-dark`}
           aria-labelledby="enterprise-band"
         >
+          <div className="sv3-slab__art" aria-hidden="true"><BoundaryRings /></div>
           <div className={styles.enterpriseGrid}>
             <div>
               <h2 className={styles.enterpriseTitle} id="enterprise-band">
@@ -392,7 +398,7 @@ export default function PricingPage() {
               <div className={styles.enterpriseStats}>
                 {enterpriseStats.map((s) => (
                   <div className={styles.enterpriseStat} key={s.value}>
-                    <span className={styles.enterpriseStatValue}>{s.value}</span>
+                    <span className={styles.enterpriseStatValue}>{s.value.startsWith('0.1') ? s.value : <CountUp value={Number(s.value.replace(/,/g, ''))} />}</span>
                     <span className={styles.enterpriseStatLabel}>{s.label}</span>
                   </div>
                 ))}
@@ -422,7 +428,7 @@ export default function PricingPage() {
             the prices and is asking "which one is actually right for me?". Answer
             it before sending them into a comparison table. Fees are derived from the
             same `tiers` array the cards render, so the ladder has one source. */}
-        <div className={styles.calcWrap}>
+        <Reveal className={styles.calcWrap}>
           <FeeCalculator
             tiers={tiers.map((t) => ({
               name: t.name,
@@ -430,9 +436,9 @@ export default function PricingPage() {
               feePct: feePct(t),
             }))}
           />
-        </div>
+        </Reveal>
 
-        <section className={styles.compare} aria-labelledby="compare-plans">
+        <Reveal as="section" className={`${styles.compare} sv3-block--glass`}>
           <h2 className={styles.compareTitle} id="compare-plans">
             Compare plans
           </h2>
@@ -491,7 +497,7 @@ export default function PricingPage() {
             Swap fee is charged on the traded amount. Network gas and third-party liquidity costs
             are separate on every tier.
           </p>
-        </section>
+        </Reveal>
 
         <section className="compare" id="agent-api" aria-label="Agent API pricing">
           <p className="summer-kicker">Agent API</p>
@@ -502,14 +508,18 @@ export default function PricingPage() {
             subscription when your agent needs a higher rate limit.
           </p>
 
-          <div className="security-grid">
-            {agentPaymentModes.map((p) => (
-              <article className="security-card" key={p.title}>
-                <h2>{p.title}</h2>
-                <p>{p.body}</p>
-              </article>
+          <Reveal stagger className="sv3-tri">
+            {agentPaymentModes.map((p, i) => (
+              <SpotlightCard
+                key={p.title}
+                index={`0${i + 1}`}
+                title={p.title}
+                visual={<MiniViz kind={(['swap', 'book', 'automate'] as const)[i]} />}
+              >
+                {p.body}
+              </SpotlightCard>
             ))}
-          </div>
+          </Reveal>
 
           <h3 className="compare__title" style={{ marginTop: '2.25rem', fontSize: '1.15rem' }}>
             Credit costs
@@ -575,10 +585,10 @@ export default function PricingPage() {
           </p>
         </section>
 
-        <section className="mkt-faq" aria-label="Frequently asked questions">
+        <Reveal as="section" className="mkt-faq">
           <h2 className="mkt-h2">Pricing FAQ</h2>
           <FaqAccordion items={faqs} />
-        </section>
+        </Reveal>
 
         <section className="mkt-cta">
           <h2>Start with Free. Upgrade when it pays for itself.</h2>
