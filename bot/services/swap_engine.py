@@ -4874,6 +4874,7 @@ class SwapEngine:
                     nonce=nonce,
                     wallet=wallet,
                 )
+                await record_intended_nonce(nonce, sender)
                 max_approval = self._approval_amount(amount_needed)
                 # Pass gas explicitly to skip eth_estimateGas simulation
                 approve_data = token_contract.functions.approve(
@@ -4907,6 +4908,7 @@ class SwapEngine:
                     lambda: web3.eth.wait_for_transaction_receipt(approve_hash, timeout=120)
                 )
                 nonce += 1
+                await record_intended_nonce(nonce, sender)
 
         # Re-fetch nonce to account for any approval tx or pending txs
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
@@ -5463,6 +5465,7 @@ class SwapEngine:
                     f"{venue.display_name} ERC20 approval failed (tx: {approve_hash.hex()})"
                 )
             nonce += 1
+            await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
 
         # Step 2: swap via the venue router (style-specific calldata)
         swap_tx = venue_api.build_swap_tx(
@@ -5633,6 +5636,7 @@ class SwapEngine:
             if rcpt["status"] != 1:
                 raise SwapError(f"Tempo {label} failed (tx: {sent.hex()})")
             nonce += 1
+            await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
 
         # Step 1: approval — gasless EIP-2612 permit (TIP-1004) when enabled and the
         # wallet can sign locally; otherwise a standard approve() tx. A permit folds
@@ -5957,6 +5961,7 @@ class SwapEngine:
                 # would revert on-chain and waste the gas already spent here.
                 raise SwapError(f"USDT0 ERC20 approval failed (tx: {approve_hash.hex()})")
             nonce += 1
+            await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
 
         # Step 2: send() on the OFT. `value` is the buffered LayerZero
         # messaging fee; surplus is refunded to the sender by LayerZero
@@ -6072,6 +6077,7 @@ class SwapEngine:
                 raise SwapError(f"ERC20 approval failed (tx: {approve_hash.hex()})")
             logger.info(f"Stargate approval confirmed in block {receipt['blockNumber']}")
             nonce += 1
+            await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
 
         # Step 2: sendToken on Stargate pool
         send_tx_data = tx_bundle["send_tx"]
@@ -6925,6 +6931,7 @@ class SwapEngine:
                         nonce=nonce,
                         wallet=wallet,
                     )
+                    await record_intended_nonce(nonce, sender)
                     max_approval = self._approval_amount(amount_needed)
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
@@ -7072,6 +7079,7 @@ class SwapEngine:
                     nonce=nonce,
                     wallet=wallet,
                 )
+                await record_intended_nonce(nonce, sender)
                 max_approval = self._approval_amount(amount_needed)
                 approve_data = token_contract.functions.approve(
                     spender, max_approval
@@ -7232,6 +7240,7 @@ class SwapEngine:
                         nonce=nonce,
                         wallet=wallet,
                     )
+                    await record_intended_nonce(nonce, sender)
                     max_approval = self._approval_amount(amount_needed)
                     approve_data = token_contract.functions.approve(
                         spender, max_approval
@@ -7570,6 +7579,7 @@ class SwapEngine:
                 nonce=nonce,
                 wallet=wallet,
             )
+            await record_intended_nonce(nonce, sender)
             approve_data = token_contract.functions.approve(
                 spender, self._approval_amount(amount_needed)
             ).build_transaction(
@@ -7723,6 +7733,7 @@ class SwapEngine:
                     nonce=nonce,
                     wallet=wallet,
                 )
+                await record_intended_nonce(nonce, sender)
                 max_approval = self._approval_amount(amount_needed)
                 approve_data = token_contract.functions.approve(
                     router, max_approval
@@ -7912,6 +7923,7 @@ class SwapEngine:
                     nonce=nonce,
                     wallet=wallet,
                 )
+                await record_intended_nonce(nonce, sender)
                 max_approval = self._approval_amount(amount_in)
                 approve_data = token_contract.functions.approve(
                     router, max_approval

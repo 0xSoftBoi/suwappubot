@@ -8,7 +8,7 @@ from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 
 from bot.models.swap import SwapTransaction, SwapStatus
 from bot.config.chains import get_chain_by_name, ChainType
@@ -51,6 +51,10 @@ class TransactionPoller:
         self._zerox = ZeroXAPI()
         # Active Solana websocket watchers keyed by tx id (avoid duplicate subscriptions)
         self._ws_watchers: dict[int, asyncio.Task] = {}
+        # swap id -> consecutive passes that agreed its nonce is unconsumed.
+        # Bounded by the hashless batch size and cleared on resolution; see
+        # NOT_MINED_CONFIRMATIONS.
+        self._not_mined_streak: dict[int, int] = {}
         logger.info(f"Transaction poller initialized (interval: {poll_interval}s)")
 
     async def start(self, bot=None):
@@ -294,6 +298,19 @@ class TransactionPoller:
                         [
                             SwapStatus.UNKNOWN.value,
                             SwapStatus.EXECUTING.value,
+                            # FAILED belongs here even though it is terminal.
+                            # The engine's _mark_failed writes FAILED (not
+                            # UNKNOWN) when the dispatch raised without
+                            # returning a hash — which is precisely what a
+                            # timed-out send_raw_transaction does, the very
+                            # case this whole mechanism exists for. Those rows
+                            # are also the dangerous ones: the idempotency
+                            # guard treats FAILED + tx_hash IS NULL as "nothing
+                            # left the wallet, safe to retry" and DCA retries
+                            # on that basis, while the transaction may be
+                            # sitting in a mempool. A nonce that turns out to
+                            # be consumed is proof the retry must not happen.
+                            SwapStatus.FAILED.value,
                         ]
                     ),
                     SwapTransaction.created_at >= cutoff,
@@ -344,14 +361,81 @@ class TransactionPoller:
                 logger.warning("Nonce resolution failed for swap %s: %s", tx_dict["id"], e)
                 continue
 
+            if result.verdict != swap_nonce.NOT_MINED:
+                # Any other verdict contradicts the streak, so it restarts
+                # from zero rather than accumulating across a flip.
+                self._not_mined_streak.pop(tx_dict["id"], None)
+
+            # A FAILED row is handled on its own terms: the only question
+            # worth asking is whether that FAILED is a lie that makes the swap
+            # retryable. Nothing here ever promotes it to a success.
+            if tx_dict["status"] == SwapStatus.FAILED.value:
+                if result.verdict in (
+                    swap_nonce.NOT_MINED,
+                    swap_nonce.INDETERMINATE,
+                ):
+                    # Either confirmed as never sent — FAILED is already
+                    # correct and retrying really is safe — or we could not
+                    # tell, in which case changing a terminal status on a
+                    # guess is worse than leaving it.
+                    continue
+                logger.warning(
+                    "Swap %s is FAILED with no hash, but nonce %s is %s on-chain (%s) — "
+                    "something did leave the wallet, so promoting to UNKNOWN to stop the "
+                    "idempotency guard treating this as safe to retry",
+                    tx_dict["id"],
+                    tx_dict["nonce"],
+                    result.verdict,
+                    result.detail,
+                )
+                await self._demote_failed_to_unknown(tx_dict["id"], result)
+                continue
+
             if result.verdict == swap_nonce.NOT_MINED:
+                # "pending" is still only ONE node's mempool. The node we
+                # query need not be the one that accepted the broadcast
+                # (_get_web3_with_fallback picks per call), and a privately
+                # relayed transaction is in no public mempool at all, so a
+                # single NOT_MINED can be a stale view of a transaction that
+                # still lands. FAILED is read by the idempotency guard as
+                # "safe to retry", so being wrong here risks a second send.
+                #
+                # Require the same verdict on consecutive passes before
+                # writing it. Costs minutes on rows that have waited for a
+                # human until now, and makes a one-off bad view harmless.
+                if bool(getattr(settings, "compliance_routing_enabled", False)):
+                    logger.info(
+                        "Swap %s: nonce %s looks unconsumed, but private relay routing is "
+                        "enabled so a broadcast transaction need not appear in any public "
+                        "mempool — not asserting FAILED",
+                        tx_dict["id"],
+                        tx_dict["nonce"],
+                    )
+                    continue
+
+                seen = self._not_mined_streak.get(tx_dict["id"], 0) + 1
+                self._not_mined_streak[tx_dict["id"]] = seen
+                if seen < self.NOT_MINED_CONFIRMATIONS:
+                    logger.info(
+                        "Swap %s: nonce %s unconsumed (%s), confirmation %d of %d",
+                        tx_dict["id"],
+                        tx_dict["nonce"],
+                        result.detail,
+                        seen,
+                        self.NOT_MINED_CONFIRMATIONS,
+                    )
+                    continue
+
                 logger.info(
-                    "Swap %s: nonce %s never consumed on %s (%s) — marking FAILED",
+                    "Swap %s: nonce %s never consumed on %s (%s), confirmed over %d passes "
+                    "— marking FAILED",
                     tx_dict["id"],
                     tx_dict["nonce"],
                     tx_dict["from_chain"],
                     result.detail,
+                    seen,
                 )
+                self._not_mined_streak.pop(tx_dict["id"], None)
                 tx_dict["error_message"] = self.NONCE_UNSPENT_REASON
                 await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
 
@@ -399,8 +483,18 @@ class TransactionPoller:
                         tx_dict["nonce"],
                         result.tx_hash,
                     )
-                    await self._adopt_resolved_hash(tx_dict["id"], result.tx_hash)
-                    tx_dict["tx_hash"] = result.tx_hash
+                    # Only the process that actually wrote the hash goes on to
+                    # write the status. If another poller won the race, it is
+                    # already applying this same outcome, and a second
+                    # transition would risk a duplicate user notification.
+                    if not await self._adopt_resolved_hash(tx_dict["id"], result.tx_hash):
+                        logger.info(
+                            "Swap %s: another worker adopted the hash first — leaving the "
+                            "status transition to it",
+                            tx_dict["id"],
+                        )
+                        continue
+                    tx_dict["tx_hash"] = swap_nonce.canonical_hash(result.tx_hash)
                     await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
                 else:
                     # Left UNKNOWN deliberately. The hash is recorded on the
@@ -430,32 +524,102 @@ class TransactionPoller:
                     result.detail,
                 )
 
-    async def _adopt_resolved_hash(self, swap_id: int, tx_hash: str) -> None:
+    async def _adopt_resolved_hash(self, swap_id: int, tx_hash: str) -> bool:
         """Write a nonce-resolved hash onto the row, if it still has none.
 
-        Guarded on `tx_hash IS NULL` so this can never overwrite a hash the
-        engine or another worker recorded in the meantime — that hash came
-        from our own broadcast and outranks one reconstructed from an index.
+        Returns whether this call is the one that wrote it.
+
+        A single conditional UPDATE, not read-then-assign. More than one
+        poller runs in production (api/main.py's lifespan and bot/main.py both
+        start one, and Railway runs python-api and python-worker), so a
+        read-then-assign leaves a window where two processes both see
+        tx_hash IS NULL and both adopt — potentially onto two different rows
+        from one transaction. Letting the database evaluate the predicate as
+        part of the write closes that, and the rowcount tells the caller
+        whether it won, so it can decline to assert a status it did not earn.
+
+        The hash is stored UNPREFIXED to match what the engine writes
+        (HexBytes.hex() on the pinned hexbytes 1.3.1), rather than in the
+        explorer's "0x" form, so one column does not end up holding two
+        spellings of the same transaction.
+
+        `tx_hash IS NULL` also means this never overwrites a hash the engine
+        recorded in the meantime — that one came from our own broadcast and
+        outranks anything reconstructed from an index.
         """
+        from bot.services import swap_nonce
+
+        stored = swap_nonce.canonical_hash(tx_hash)
+        if not stored:
+            return False
 
         def _work():
             with get_db_session() as session:
-                db_tx = (
+                return (
                     session.query(SwapTransaction)
                     .filter(
                         SwapTransaction.id == swap_id,
                         SwapTransaction.tx_hash.is_(None),
                     )
-                    .first()
+                    .update({SwapTransaction.tx_hash: stored}, synchronize_session=False)
                 )
-                if db_tx:
-                    db_tx.tx_hash = tx_hash
-                    session.commit()
 
         try:
-            await run_in_db(_work)
+            return bool(await run_in_db(_work))
         except Exception as e:
             logger.warning("Could not adopt resolved hash for swap %s: %s", swap_id, e)
+            return False
+
+    async def _demote_failed_to_unknown(self, swap_id: int, result) -> None:
+        """Move a FAILED row with no hash to UNKNOWN once the chain shows its
+        nonce was spent.
+
+        "Demote" because UNKNOWN is a weaker claim than FAILED, and that is
+        the point: FAILED asserts nothing left the wallet, and the engine's
+        idempotency guard reads it together with a NULL tx_hash as permission
+        to send again (swap_engine's _check_idempotency). If the nonce was in
+        fact consumed, that permission is wrong and the retry would be a
+        second send. UNKNOWN is on the guard's non-retryable side, so this one
+        write closes it.
+
+        Guarded on the row still being FAILED and still hashless, so it cannot
+        disturb a row that has since been resolved properly, and it does not
+        go through _apply_status_update — that short-circuits on terminal
+        statuses by design, and no user notification is wanted for a
+        correction that only tightens an internal guard.
+        """
+        detail = f"{result.verdict}"
+        if result.tx_hash:
+            detail += f" ({result.tx_hash})"
+        note = (
+            "Recorded FAILED with no transaction hash, but the sending wallet's nonce "
+            f"was already spent on-chain [{detail}] — a transaction DID leave this "
+            "wallet, so this swap must not be retried. Outcome unverified."
+        )
+
+        def _work():
+            with get_db_session() as session:
+                return (
+                    session.query(SwapTransaction)
+                    .filter(
+                        SwapTransaction.id == swap_id,
+                        SwapTransaction.tx_hash.is_(None),
+                        SwapTransaction.status == SwapStatus.FAILED.value,
+                    )
+                    .update(
+                        {
+                            SwapTransaction.status: SwapStatus.UNKNOWN.value,
+                            SwapTransaction.error_message: note,
+                        },
+                        synchronize_session=False,
+                    )
+                )
+
+        try:
+            if await run_in_db(_work):
+                logger.info("Swap %s promoted FAILED -> UNKNOWN (retry now blocked)", swap_id)
+        except Exception as e:
+            logger.warning("Could not demote FAILED swap %s to UNKNOWN: %s", swap_id, e)
 
     async def _note_resolution_evidence(self, swap_id: int, tx_hash: str) -> None:
         """Record which transaction consumed the nonce, without claiming it.
@@ -503,13 +667,25 @@ class TransactionPoller:
         unresolved, because the cost of a wrong False is a swap reported
         COMPLETED on another swap's transaction.
         """
+        from bot.services import swap_nonce
+
+        # Both spellings, because the column is not consistently formatted.
+        # The engine stores whatever HexBytes.hex() returns, which on the
+        # pinned hexbytes 1.3.1 has NO "0x" prefix, while this candidate came
+        # from an explorer and does. Comparing one against the other matches
+        # nothing — which made this guard a no-op for exactly the collision it
+        # was written to catch. Query both forms rather than trusting either.
+        bare = swap_nonce.canonical_hash(tx_hash)
+        if not bare:
+            return True
+        variants = [bare, f"0x{bare}"]
 
         def _work():
             with get_db_session() as session:
                 return (
                     session.query(SwapTransaction.id)
                     .filter(
-                        SwapTransaction.tx_hash == tx_hash,
+                        func.lower(SwapTransaction.tx_hash).in_(variants),
                         SwapTransaction.id != swap_id,
                     )
                     .first()
@@ -580,10 +756,17 @@ class TransactionPoller:
                     # exists to move it. Treating it as settled here would
                     # reject that pass's own writes and leave the row exactly
                     # as stuck as before.
+                    # Both columns, not just the nonce: a row backfilled out
+                    # of route_data["intended_nonce"] has a nonce but no
+                    # sender_address, and resolution needs both, so it is
+                    # genuinely unresolvable. Testing the nonce alone would
+                    # call such a row "not settled" while nothing could ever
+                    # move it, costing it the project_legacy_swap repair this
+                    # branch performs for exactly that case.
                     or (
                         tx.status == SwapStatus.UNKNOWN.value
                         and tx.tx_hash is None
-                        and tx.nonce is None
+                        and (tx.nonce is None or tx.sender_address is None)
                     )
                 ):
                     # The legacy status may already have been written by the
@@ -829,6 +1012,12 @@ class TransactionPoller:
     # until now, so minutes cost nothing, and a wrong FAILED costs a retry of
     # a swap that already executed.
     HASHLESS_MIN_AGE_MINUTES = 15
+
+    # Consecutive passes that must agree a nonce is unconsumed before FAILED
+    # is written. Guards against one stale mempool view from a node that did
+    # not accept the broadcast. In-memory, so a restart simply re-counts —
+    # which errs towards waiting longer, the safe direction.
+    NOT_MINED_CONFIRMATIONS = 2
 
     async def _check_zerox_crosschain_status_dict(
         self, tx_dict: dict

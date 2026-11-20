@@ -152,6 +152,25 @@ _RPC_TIMEOUT = 10.0
 _EXPLORER_TIMEOUT = 12.0
 
 
+def canonical_hash(value: Optional[str]) -> Optional[str]:
+    """Normalise a transaction hash for comparison against a stored one.
+
+    The engine persists what `HexBytes.hex()` returns, and with the pinned
+    hexbytes 1.3.1 that is UNPREFIXED ("abc…", not "0xabc…") — the codebase
+    re-adds "0x" by hand where it needs one. Explorers and JSON-RPC both
+    return the prefixed form. So a stored hash and a fetched one are never
+    equal as strings even when they are the same transaction, which silently
+    turns any `tx_hash == <fetched>` comparison into a guaranteed miss.
+
+    Lowercased and unprefixed, matching what the engine stores, so a value
+    normalised here can be compared with the column directly.
+    """
+    if not value:
+        return None
+    text = str(value).strip().lower()
+    return text[2:] if text.startswith("0x") else text
+
+
 # Resolution verdicts.
 NOT_MINED = "not_mined"  # nonce unspent AND nothing pending -> safe to FAIL
 PENDING_UNMINED = "pending_unmined"  # a tx at this nonce is in the mempool

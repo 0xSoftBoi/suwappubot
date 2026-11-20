@@ -2372,9 +2372,6 @@ def _add_swap_nonce_columns(db_engine, inspector, is_sqlite: bool) -> None:
             conn.execute(text(ddl))
         added = True
 
-    if not added:
-        return
-
     # Partial index for the poller's hashless-resolution pass. That query is
     # the only reader of these columns and selects a handful of rows out of
     # the whole swap history, so an unqualified index would be mostly dead
@@ -2385,21 +2382,39 @@ def _add_swap_nonce_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 "CREATE INDEX IF NOT EXISTS ix_swap_transactions_nonce_unresolved "
                 "ON swap_transactions(sender_address, nonce)"
             )
+            with db_engine.begin() as conn:
+                conn.execute(text(ddl))
         else:
+            # CONCURRENTLY so this does not hold a write lock on
+            # swap_transactions for the length of the build. It runs on the
+            # boot path, and swap_transactions is the hottest table there is
+            # — blocking inserts on it would stall live swaps while the index
+            # builds. CONCURRENTLY cannot run inside a transaction, hence the
+            # AUTOCOMMIT isolation level.
             ddl = (
-                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_nonce_unresolved "
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+                "ix_swap_transactions_nonce_unresolved "
                 "ON swap_transactions(sender_address, nonce) "
                 "WHERE tx_hash IS NULL AND nonce IS NOT NULL"
             )
-        with db_engine.begin() as conn:
-            conn.execute(text(ddl))
+            with db_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(ddl))
     except Exception as e:
         # An index is an optimisation, not a correctness requirement — the
         # poller's pass is bounded by created_at anyway.
         logger.warning("Could not create ix_swap_transactions_nonce_unresolved: %s", e)
 
-    # Backfill route_data["intended_nonce"] -> nonce. Bounded to rows that
-    # actually carry the key, and deliberately NOT given a sender_address:
+    # Backfill route_data["intended_nonce"] -> nonce.
+    #
+    # Deliberately NOT gated on `added`: if this fails on the single boot that
+    # adds the columns — the LIKE scan plus per-row UPDATEs is exactly the
+    # shape that trips the 30s statement timeout this engine sets — it would
+    # otherwise never be retried on any later boot, and those rows would stay
+    # unreachable forever. The `nonce IS NULL` predicate already makes it
+    # idempotent, so re-running it every boot is free once it has succeeded.
+    #
+    # Bounded to rows that actually carry the key, and deliberately NOT given
+    # a sender_address:
     # the 0x cross-chain path never recorded one, and inventing it here
     # (e.g. from the user's current wallet) could attribute a nonce to an
     # address that never held it. A nonce with no sender still tells the
