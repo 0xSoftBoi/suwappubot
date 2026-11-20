@@ -28,6 +28,7 @@ from api.authz import require_proof_of_possession
 from bot.config.chains import CHAINS, ChainType
 from bot.config.tokens import TOKENS, NATIVE_TOKEN_ADDRESS, get_token_by_symbol, get_token_decimals
 from bot.config.settings import settings
+from bot.utils.tx_hash import canonical_tx_hash, tx_hash_variants
 from bot.models.user import User, Wallet
 from bot.models.swap import SwapTransaction
 from bot.models.support import SupportTicket, TicketKind, TicketStatus
@@ -3740,7 +3741,7 @@ def _cctp_relayer_state(session, source_tx_hash: str) -> Optional[tuple]:
 
     row = (
         session.query(CctpGenericDeposit)
-        .filter(CctpGenericDeposit.burn_tx_hash == source_tx_hash)
+        .filter(CctpGenericDeposit.burn_tx_hash.in_(tx_hash_variants(source_tx_hash)))
         .first()
     )
     if not row:
@@ -3944,7 +3945,7 @@ async def record_terminal_bridge_transfer(
     # Idempotent: a client retrying the record call must not reset progress the
     # relayer has already made.
     if not transfer.source_tx_hash:
-        transfer.source_tx_hash = tx_hash
+        transfer.source_tx_hash = canonical_tx_hash(tx_hash, transfer.from_chain)
         if transfer.state == "pending_broadcast":
             transfer.state = "source_pending"
         db.commit()
@@ -4392,6 +4393,13 @@ async def record_terminal_swap(
 
     quote = cached["quote"]
     from_chain = cached.get("from_chain", quote.from_chain)
+
+    # Canonical spelling for what we persist and key on (0x + lowercase on EVM;
+    # Solana signatures are case-sensitive and pass through untouched). The
+    # validator above accepts a `0x`-prefixed hash in any case, so without this
+    # a re-cased hash produced a second row and a second `ext:` key for the
+    # same transaction. See bot/utils/tx_hash.py.
+    tx_hash = canonical_tx_hash(tx_hash, from_chain)
 
     swap = SwapTransaction(
         user_id=user_id,
