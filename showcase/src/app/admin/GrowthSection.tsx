@@ -14,7 +14,7 @@ type Totals = {
   visitors: number; pageViews: number; leads: number; newsletter: number;
   mobileWaitlist: number; reservations: number; signups: number; conversions: number;
 };
-type Day = Omit<Totals, 'conversions'> & { date: string };
+type Day = Omit<Totals, 'conversions'> & { date: string; moneyInUsd: number };
 type Lead = {
   id: number; status: string; createdAt: string | null; name: string | null; company: string | null;
   email: string | null; country: string | null; monthlyVolume: string | null; telegram: string | null;
@@ -28,6 +28,8 @@ export type GrowthReport = {
   totals: Totals;
   previous: Totals;
   paidCustomers: { total: number; byTier: Record<string, number> };
+  moneyIn: { available: boolean; totalUsd: number; previousUsd: number; bySource: { key: string; label: string; usd: number }[] };
+  planEstimate: { monthlyUsd: number; prices: Record<string, number> };
   funnel: { key: string; label: string; count: number }[];
   series: Day[];
   topPages: { path: string; views: number; visitors: number }[];
@@ -45,6 +47,8 @@ const RANGES = [
 
 const nf = new Intl.NumberFormat(undefined);
 const fmt = (n: number) => nf.format(n);
+const uf = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+const usd = (n: number) => uf.format(n);
 const pct = (part: number, whole: number) =>
   whole > 0 ? `${(part / whole * 100).toFixed(part / whole < 0.1 ? 1 : 0)}%` : '0%';
 const dayLabel = (iso: string) =>
@@ -97,10 +101,10 @@ function Tile({ label, value, hint, now, before, days }: {
 }
 
 /** One measure per chart, one hue, baseline at zero. Hover or focus a bar for the exact value. */
-function DailyBars({ title, unit, data, values }: {
-  title: string; unit: [string, string]; data: Day[]; values: number[];
+function DailyBars({ title, unit, data, values, format = fmt }: {
+  title: string; unit: [string, string]; data: Day[]; values: number[]; format?: (n: number) => string;
 }) {
-  const u = (n: number) => (n === 1 ? unit[0] : unit[1]);
+  const u = (n: number) => (unit[0] ? ` ${n === 1 ? unit[0] : unit[1]}` : '');
   const [active, setActive] = useState<number | null>(null);
   const max = Math.max(1, ...values);
   const total = values.reduce((a, b) => a + b, 0);
@@ -115,14 +119,14 @@ function DailyBars({ title, unit, data, values }: {
       <figcaption className={styles.chartHead}>
         <span className={styles.chartTitle}>{title}</span>
         <span className={styles.chartReadout} aria-live="polite">
-          {data[shown] ? `${dayLabel(data[shown].date)}: ${fmt(values[shown])} ${u(values[shown])}` : ''}
+          {data[shown] ? `${dayLabel(data[shown].date)}: ${format(values[shown])}${u(values[shown])}` : ''}
         </span>
       </figcaption>
       {total === 0 ? (
         <p className={styles.empty}>Nothing recorded in this period yet.</p>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className={styles.chartSvg} role="img"
-          aria-label={`${title}: ${fmt(total)} ${u(total)} in total, highest day ${fmt(max)}.`}
+          aria-label={`${title}: ${format(total)}${u(total)} in total, highest day ${format(max)}.`}
           onMouseLeave={() => setActive(null)}>
           <line x1="0" x2={W} y1={H - PAD_B} y2={H - PAD_B} className={styles.axis} />
           {values.map((v, i) => {
@@ -132,7 +136,7 @@ function DailyBars({ title, unit, data, values }: {
               <g key={data[i].date}>
                 {/* Hit target is the full column, larger than the mark. */}
                 <rect x={i * slot} y={0} width={slot} height={H - PAD_B} fill="transparent"
-                  tabIndex={0} aria-label={`${dayLabel(data[i].date)}: ${fmt(v)} ${u(v)}`}
+                  tabIndex={0} aria-label={`${dayLabel(data[i].date)}: ${format(v)}${u(v)}`}
                   onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onBlur={() => setActive(null)}
                   className={styles.hit} />
                 <rect x={x} y={H - PAD_B - h} width={barW} height={h} rx={Math.min(3, barW / 2)}
@@ -151,8 +155,8 @@ function DailyBars({ title, unit, data, values }: {
   );
 }
 
-function RankList({ title, hint, rows, empty }: {
-  title: string; hint: string; empty: string;
+function RankList({ title, hint, rows, empty, format = fmt }: {
+  title: string; hint: string; empty: string; format?: (n: number) => string;
   rows: { key: string; label: string; value: number; note?: string }[];
 }) {
   const max = Math.max(1, ...rows.map((r) => r.value));
@@ -166,7 +170,7 @@ function RankList({ title, hint, rows, empty }: {
             <li key={r.key}>
               <div className={styles.rankRow}>
                 <span className={styles.rankLabel} title={r.label}>{r.label}</span>
-                <span className={styles.rankValue}>{fmt(r.value)}{r.note ? <em> · {r.note}</em> : null}</span>
+                <span className={styles.rankValue}>{format(r.value)}{r.note ? <em> · {r.note}</em> : null}</span>
               </div>
               <div className={styles.rankTrack} aria-hidden="true">
                 <div className={styles.rankFill} style={{ width: `${Math.max(2, r.value / max * 100)}%` }} />
@@ -203,7 +207,7 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
     if (!report.tracking.available) {
       return `In the last ${report.days} days: ${fmt(t.leads)} sales leads and ${fmt(t.signups)} new accounts. Visitor tracking has not started yet.`;
     }
-    return `In the last ${report.days} days, ${fmt(t.visitors)} ${t.visitors === 1 ? 'person' : 'people'} visited the site. ${fmt(t.conversions)} ${t.conversions === 1 ? 'form was' : 'forms were'} sent in, including ${fmt(t.leads)} sales ${t.leads === 1 ? 'lead' : 'leads'}.`;
+    return `In the last ${report.days} days, ${fmt(t.visitors)} ${t.visitors === 1 ? 'person' : 'people'} visited the site. ${fmt(t.conversions)} ${t.conversions === 1 ? 'form was' : 'forms were'} sent in, including ${fmt(t.leads)} sales ${t.leads === 1 ? 'lead' : 'leads'}.${report.moneyIn.available ? ` ${usd(report.moneyIn.totalUsd)} in payments was recorded.` : ''}`;
   }, [report]);
 
   return (
@@ -263,6 +267,11 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
             <Tile days={report.days} label="Visitor → sign-up rate"
               value={report.tracking.available ? pct(report.funnel[2]?.count ?? 0, report.totals.visitors) : '—'}
               hint="Out of every 100 visitors, how many filled in a form." />
+            <Tile days={report.days} label="Money in"
+              value={report.moneyIn.available ? usd(report.moneyIn.totalUsd) : '—'}
+              now={report.moneyIn.available ? report.moneyIn.totalUsd : undefined}
+              before={report.moneyIn.available ? report.moneyIn.previousUsd : undefined}
+              hint="Payments recorded in this period: swap fees, pay-per-call, API credits and agent plans. Card payments for monthly plans are not included (see below)." />
             <Tile days={report.days} label="New accounts" value={fmt(report.totals.signups)}
               now={report.totals.signups} before={report.previous.signups}
               hint="New user accounts created in the product." />
@@ -276,6 +285,23 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
             <DailyBars title="Form sign-ups per day" unit={['sign-up', 'sign-ups']} data={report.series}
               values={report.series.map((d) => d.leads + d.newsletter + d.mobileWaitlist + d.reservations)} />
           </div>
+
+          <div className={styles.grid2}>
+            <DailyBars title="Money in per day" unit={['', '']} format={usd} data={report.series}
+              values={report.series.map((d) => d.moneyInUsd)} />
+            <RankList title="Where the money came from" format={usd}
+              hint="Payments recorded in this period, by type."
+              empty="No payments recorded in this period yet."
+              rows={report.moneyIn.bySource.filter((m) => m.usd > 0).map((m) => ({ key: m.key, label: m.label, value: m.usd }))} />
+          </div>
+          <p className={styles.note}>
+            <strong>About these money numbers.</strong> “Money in” counts payments this system records itself.
+            Card payments for the monthly Pro, Premium and Enterprise plans are collected by Stripe and are not in
+            that total. As a guide, your {fmt(report.paidCustomers.total)} active paid{' '}
+            {report.paidCustomers.total === 1 ? 'plan is' : 'plans are'} worth about{' '}
+            <strong>{usd(report.planEstimate.monthlyUsd)} a month</strong> at list price. Check Stripe for the
+            exact amount received, refunds and failed payments.
+          </p>
 
           <div className={styles.panel}>
             <h3 className={styles.panelTitle}>From visit to sign-up</h3>

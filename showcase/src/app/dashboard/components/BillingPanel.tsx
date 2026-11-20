@@ -19,6 +19,9 @@ import styles from '../dashboard.module.css';
 // ── Types (mirror api-ts/src/routes/billing.ts responses) ───────────────────
 
 /** `chargeUsd` is what Stripe charges; `balanceUsd` is what lands in the balance. */
+// Order of plans, so a button can say whether it is an upgrade or a step down.
+const TIER_RANK: Record<string, number> = { free: 0, pro: 1, premium: 2, enterprise: 3 };
+
 interface CreditPack {
   id: string;
   chargeUsd: number;
@@ -286,7 +289,9 @@ export default function BillingPanel({
                     ? 'Current plan'
                     : busy === `tier:${t.id}`
                       ? 'Opening Stripe…'
-                      : `Switch to ${t.label}`}
+                      : (TIER_RANK[t.id] ?? 0) > (TIER_RANK[tier] ?? 0)
+                        ? `Upgrade to ${t.label}`
+                        : `Move down to ${t.label}`}
                 </button>
               </div>
             );
@@ -415,7 +420,7 @@ export default function BillingPanel({
         </div>
 
         {(invoices?.invoices?.length ?? 0) > 0 ? (
-          <table className={styles.table}>
+          <div className={styles.tableScroll}><table className={styles.table}>
             <thead>
               <tr>
                 <th>Invoice</th>
@@ -451,7 +456,7 @@ export default function BillingPanel({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : (
           <p className={styles.billingMeta}>
             {loading

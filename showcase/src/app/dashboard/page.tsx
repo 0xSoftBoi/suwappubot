@@ -467,6 +467,52 @@ function parseUsage(payload: Record<string, unknown>): UsageData {
   };
 }
 
+// ── Plain-language health summary ───────────────────────────────────────────
+
+/**
+ * The first thing on the page, written for someone who does not read API
+ * metrics: is it working, how much is it being used, and is there anything
+ * to do. The detailed tiles and chart below are the evidence.
+ */
+function HealthSummary({ usage }: { usage: UsageData }) {
+  const { callsThisMonth, callsToday, errorRate, avgDurationMs, rateLimitHits } = usage;
+  const success = Math.max(0, 100 - errorRate);
+  const level: 'ok' | 'watch' | 'problem' | 'idle' =
+    callsThisMonth === 0 ? 'idle' : errorRate >= 5 ? 'problem' : errorRate >= 1 ? 'watch' : 'ok';
+  const HEAD = {
+    ok: 'Everything is running normally.',
+    watch: 'Mostly working, but more requests than usual are failing.',
+    problem: 'Something needs attention: a lot of requests are failing.',
+    idle: 'No requests yet this month.',
+  }[level];
+
+  return (
+    <section className={styles.health} data-level={level} aria-label="Summary">
+      <p className={styles.healthHead}>
+        <span className={styles.healthDot} aria-hidden="true" />
+        {HEAD}
+      </p>
+      {level === 'idle' ? (
+        <p className={styles.healthBody}>
+          Once your apps start calling Suwappu with one of your API keys, usage shows up here. Create a key
+          under “Team &amp; API keys”.
+        </p>
+      ) : (
+        <p className={styles.healthBody}>
+          Your apps made <strong>{fmtNumber(callsThisMonth)}</strong> requests to Suwappu this month
+          ({fmtNumber(callsToday)} today). <strong>{success.toFixed(success >= 99.95 ? 0 : 1)}%</strong> succeeded,
+          and a typical request took <strong>{fmtMs(avgDurationMs)}</strong>.
+          {rateLimitHits > 0 && (
+            <> {fmtNumber(rateLimitHits)} {rateLimitHits === 1 ? 'request was' : 'requests were'} turned away for
+            arriving faster than your plan allows; if that keeps happening, a higher plan raises the limit.</>
+          )}
+          {level !== 'ok' && <> If failures continue, check the status page or contact support.</>}
+        </p>
+      )}
+    </section>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -697,7 +743,6 @@ export default function DashboardPage() {
             {ROLE_LABELS[callerRole] ?? callerRole}
           </span>
         </div>
-        <button className={styles.signOutBtn} onClick={clearToken}>Sign out</button>
       </header>
 
       {/* ── Tab nav ── */}
@@ -724,6 +769,7 @@ export default function DashboardPage() {
       </nav>
 
       {activeTab === 'overview' && (<>
+      <HealthSummary usage={usage} />
       {/* ── KPI hierarchy ──
           Was six identical tiles in a six-column grid, which gave calls,
           errors, latency, team size and key count all the same weight — so
@@ -743,7 +789,7 @@ export default function DashboardPage() {
           decoration read as a status light. */}
       <div className={styles.kpiPrimary}>
         <div className={styles.kpiHero}>
-          <p className={styles.kpiLabel}>API calls this month</p>
+          <p className={styles.kpiLabel}>Requests this month</p>
           <span className={styles.kpiHeroValue}>{fmtNumber(usage.callsThisMonth)}</span>
           <span className={styles.kpiHeroMeta}>
             {fmtNumber(usage.callsToday)} today
@@ -752,7 +798,7 @@ export default function DashboardPage() {
 
         <div className={styles.kpiHero}>
           <p className={styles.kpiLabel}>
-            Error rate
+            Failed requests
             <span
               className={styles.kpiDotInline}
               style={SIGNAL_DOT[errorRateColor(usage.errorRate)]}
@@ -762,8 +808,8 @@ export default function DashboardPage() {
           <span className={styles.kpiHeroValue}>{usage.errorRate.toFixed(2)}%</span>
           <span className={styles.kpiHeroMeta}>
             {usage.rateLimitHits > 0
-              ? `${fmtNumber(usage.rateLimitHits)} rate-limit hits`
-              : 'No rate-limit hits'}
+              ? `${fmtNumber(usage.rateLimitHits)} turned away for speed`
+              : 'None turned away for speed'}
           </span>
         </div>
       </div>
@@ -771,7 +817,7 @@ export default function DashboardPage() {
       <div className={styles.kpiSecondary}>
         <div className={styles.kpiCompact}>
           <span className={styles.kpiCompactLabel}>
-            Avg response
+            Typical response
             <span
               className={styles.kpiDotInline}
               style={SIGNAL_DOT[latencyColor(usage.avgDurationMs)]}
@@ -797,7 +843,7 @@ export default function DashboardPage() {
       {/* ── Usage chart ── */}
       <section className={styles.card} aria-label="API usage chart">
         <div className={styles.cardHead}>
-          <h2 className={styles.cardTitle}>API Usage</h2>
+          <h2 className={styles.cardTitle}>Requests per day</h2>
           {periodLoading && (
             <span style={{ color: 'var(--summer-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>
               Loading…
@@ -820,10 +866,10 @@ export default function DashboardPage() {
       {usage.topEndpoints.length > 0 && (
         <section className={styles.card} aria-label="Top endpoints">
           <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Top Endpoints</h2>
+            <h2 className={styles.cardTitle}>What your apps use most</h2>
             <span className={styles.kicker}>this month</span>
           </div>
-          <table className={styles.table}>
+          <div className={styles.tableScroll}><table className={styles.table}>
             <thead>
               <tr>
                 <th>Endpoint</th>
@@ -837,7 +883,7 @@ export default function DashboardPage() {
                 const pct = (ep.count / endpointTotal) * 100;
                 return (
                   <tr key={i}>
-                    <td className={styles.mono}>{ep.endpoint}</td>
+                    <td className={styles.mono} style={{ textAlign: 'left' }}>{ep.endpoint}</td>
                     <td className={styles.mono} style={{ textAlign: 'right' }}>
                       {ep.count.toLocaleString()}
                     </td>
@@ -857,7 +903,7 @@ export default function DashboardPage() {
                 );
               })}
             </tbody>
-          </table>
+          </table></div>
         </section>
       )}
 
@@ -869,7 +915,7 @@ export default function DashboardPage() {
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>Team</h2>
         </div>
-        <table className={styles.table}>
+        <div className={styles.tableScroll}><table className={styles.table}>
           <thead>
             <tr>
               <th>Member</th>
@@ -916,7 +962,7 @@ export default function DashboardPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </section>
 
       {/* ── API Keys table ── */}
@@ -932,7 +978,7 @@ export default function DashboardPage() {
             </button>
           )}
         </div>
-        <table className={styles.table}>
+        <div className={styles.tableScroll}><table className={styles.table}>
           <thead>
             <tr>
               <th>Name</th>
@@ -995,7 +1041,7 @@ export default function DashboardPage() {
               );
             })}
           </tbody>
-        </table>
+        </table></div>
       </section>
 
       </>)}

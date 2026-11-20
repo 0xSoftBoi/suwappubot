@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { SQL } from 'drizzle-orm'
 import { Effect, Either } from 'effect'
 import { Hono } from 'hono'
+import { TIER_PRICES_USD } from '../config/constants'
 import { requireDb } from '../db'
 import { mapErrorToResponse } from '../errors'
 import { runEffectEither } from '../runtime'
@@ -114,6 +115,8 @@ adminGrowthRoutes.get('/growth', async (c) => {
 				topSources,
 				topEvents,
 				firstEvent,
+				moneyDaily,
+				moneyPrevious,
 			] = yield* Effect.all(
 				[
 					run(
@@ -223,6 +226,38 @@ adminGrowthRoutes.get('/growth', async (c) => {
 							group by 1 order by 2 desc limit 12`,
 					),
 					optional('first event', sql`select min(created_at) as first_at from web_events`),
+					// Money in, by day and source. Same four sources and the same
+					// definitions as GET /admin/finance ("tracked cash inflow"), so the
+					// two sections can never disagree. Optional as a group: a missing
+					// payments table must not take the visitor/lead numbers down.
+					optional(
+						'money in by day',
+						sql`select day, source, sum(usd) as usd from (
+								select to_char(created_at::date, 'YYYY-MM-DD') as day, 'payPerCall' as source, amount::float8 as usd
+									from x402_payments where status = 'completed' and created_at >= ${start}::timestamp
+								union all
+								select to_char(created_at::date, 'YYYY-MM-DD'), 'credits', amount_usd::float8
+									from agent_credit_topups where created_at >= ${start}::timestamp
+								union all
+								select to_char(created_at::date, 'YYYY-MM-DD'), 'agentPlans', amount_usd::float8
+									from agent_subscriptions where created_at >= ${start}::timestamp
+								union all
+								select to_char(created_at::date, 'YYYY-MM-DD'), 'swapFees', fee_amount_usd::float8
+									from fee_transactions where collected = true and created_at >= ${start}::timestamp
+							) m group by 1, 2`,
+					),
+					optional(
+						'money in previous period',
+						sql`select
+							(select coalesce(sum(amount), 0) from x402_payments where status = 'completed'
+								and created_at >= ${prev}::timestamp and created_at < ${start}::timestamp)
+							+ (select coalesce(sum(amount_usd), 0) from agent_credit_topups
+								where created_at >= ${prev}::timestamp and created_at < ${start}::timestamp)
+							+ (select coalesce(sum(amount_usd), 0) from agent_subscriptions
+								where created_at >= ${prev}::timestamp and created_at < ${start}::timestamp)
+							+ (select coalesce(sum(fee_amount_usd), 0) from fee_transactions where collected = true
+								and created_at >= ${prev}::timestamp and created_at < ${start}::timestamp) as usd`,
+					),
 				],
 				{ concurrency: 4 },
 			)
@@ -239,6 +274,7 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					mobileWaitlist: number
 					reservations: number
 					signups: number
+					moneyInUsd: number
 				}
 			>()
 			for (let t = windowStart.getTime(); t <= todayStart.getTime(); t += 86_400_000) {
@@ -252,6 +288,7 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					mobileWaitlist: 0,
 					reservations: 0,
 					signups: 0,
+					moneyInUsd: 0,
 				})
 			}
 			for (const r of ticketDaily) {
@@ -276,6 +313,24 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					day.pageViews = num(r.page_views)
 				}
 			}
+			const MONEY_SOURCES: { key: string; label: string }[] = [
+				{ key: 'swapFees', label: 'Swap fees collected' },
+				{ key: 'payPerCall', label: 'Pay-per-call API payments' },
+				{ key: 'credits', label: 'Prepaid API credit top-ups' },
+				{ key: 'agentPlans', label: 'Agent API plans' },
+			]
+			const moneyBySource = new Map<string, number>(MONEY_SOURCES.map((m) => [m.key, 0]))
+			for (const r of moneyDaily ?? []) {
+				const usd = num(r.usd)
+				const day = series.get(String(r.day))
+				if (day) day.moneyInUsd += usd
+				const key = String(r.source)
+				if (moneyBySource.has(key)) moneyBySource.set(key, (moneyBySource.get(key) ?? 0) + usd)
+			}
+			const round2 = (n: number) => Math.round(n * 100) / 100
+			for (const day of series.values()) day.moneyInUsd = round2(day.moneyInUsd)
+			const moneyTotal = round2([...moneyBySource.values()].reduce((a, b) => a + b, 0))
+
 			const seriesList = [...series.values()]
 			const sum = (key: 'leads' | 'newsletter' | 'mobileWaitlist' | 'reservations' | 'signups') =>
 				seriesList.reduce((total, day) => total + day[key], 0)
@@ -322,6 +377,27 @@ adminGrowthRoutes.get('/growth', async (c) => {
 						num(previous.newsletter) +
 						num(previous.mobile_waitlist) +
 						num(previous.reservations),
+				},
+				// "Money in" is tracked cash inflow, not accounting revenue: prepaid
+				// credits are cash before they are earned, and card payments for the
+				// monthly plans settle in Stripe and are not recorded in this database.
+				moneyIn: {
+					available: moneyDaily !== null,
+					totalUsd: moneyTotal,
+					previousUsd: round2(num(moneyPrevious?.[0]?.usd)),
+					bySource: MONEY_SOURCES.map((m) => ({ ...m, usd: round2(moneyBySource.get(m.key) ?? 0) })),
+				},
+				// Not money received: what the active monthly plans would bring in over
+				// one billing period at list price. Shown as an estimate because the
+				// actual card charges live in Stripe.
+				planEstimate: {
+					monthlyUsd: round2(
+						Object.entries(paidByTier).reduce(
+							(total, [tier, count]) => total + count * (TIER_PRICES_USD[tier] ?? 0),
+							0,
+						),
+					),
+					prices: TIER_PRICES_USD,
 				},
 				paidCustomers: {
 					total: paidByTier.pro + paidByTier.premium + paidByTier.enterprise,

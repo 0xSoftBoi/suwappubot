@@ -39,10 +39,25 @@ still needs the key.
 | Name reservations | `waitlist_signups` |
 | New accounts | `users` |
 | Paying customers | `subscriptions` (paid tier, not expired) |
+| Money in | `fee_transactions` (collected), `x402_payments` (completed), `agent_credit_topups`, `agent_subscriptions` — the same four sources and definitions as `GET /admin/finance` |
+| Plan income estimate | active paid plans × list price (`TIER_PRICES_USD`) |
 
 Leads, sign-ups and customers are database facts and are complete from day
 one. Visitor numbers only exist from the first deploy of this feature — there
 is no history to backfill.
+
+## Reading the money numbers
+
+"Money in" is cash this system records itself. It is **not** accounting
+revenue and it is **not** everything you were paid:
+
+- Card payments for the monthly Pro / Premium / Enterprise plans settle in
+  Stripe and are not stored as amounts in this database, so they are not in
+  "Money in". The dashboard shows an estimate instead (active plans × list
+  price) and says so. Stripe is the source of truth for cash received,
+  refunds and failed payments.
+- Prepaid API credits count when bought, not when used.
+- Pending pay-per-call payments and uncollected swap fees are excluded.
 
 ## Privacy
 
@@ -84,3 +99,14 @@ requires a small, declared `Content-Length`; the lead `mailto:` link is
 encoded; Google `verified_email` now fails closed. Accepted, not fixed: a
 distributed sender can inflate visitor counts (no identity is collected, by
 design), and the public lead form still accepts odd-looking email addresses.
+
+## Customer dashboard (`/dashboard`)
+
+The page customers sign in to. 2026-11-20 pass: a plain-language status line
+first ("Everything is running normally. Your apps made N requests…"), one top
+bar that wraps on phones (the old bar hid Sign out off-screen), tables that
+scroll inside their card instead of being clipped (Remove / Revoke were
+unreachable on phones), a usage chart that fills its card, plain labels in
+place of API jargon, and plan buttons that say whether a change is an upgrade
+or a step down. Checked with the API mocked, in three states (organisation,
+no organisation, signed out) at 1440 and 390 — not against live customer data.
