@@ -153,6 +153,27 @@ class SwapTransaction(Base):
     # bookkeeping). See bot/services/swap_nonce.py.
     intended_tx_hash = Column(String(66), nullable=True)
 
+    # WHICH leg of the swap intended_tx_hash names: "swap" for the transaction
+    # that actually moves the funds, "prep" for an allowance reset, ERC20
+    # approval or EIP-2612 permit sent before it.
+    #
+    # This column is what makes intended_tx_hash safe to conclude from, and
+    # without it the hash is NOT the improvement over the nonce it looks like.
+    # A hash identifies a transaction, but it does not say whether that
+    # transaction is the swap. Executors record on every send, so a process
+    # killed during the approval's receipt wait — e.g. Socket's 120s
+    # wait_for_transaction_receipt, a Railway redeploy landing mid-swap —
+    # leaves the APPROVAL's hash here, mined and successful, with no swap ever
+    # built. Resolving that hash and reading its success as the swap's would
+    # report COMPLETED for a granted allowance and release a DCA tranche that
+    # never traded: exactly the false success the nonce path refuses.
+    #
+    # So only a "swap" leg may settle a row's outcome. A "prep" leg is
+    # operator evidence and falls through to the nonce path, which is
+    # conservative by construction. A NULL leg on a row that has a hash is
+    # treated as "prep" for the same reason — never assume the stronger case.
+    intended_tx_leg = Column(String(16), nullable=True)
+
     bridge_tx_hash = Column(String(255), nullable=True)  # Bridge tx hash if cross-chain
     destination_tx_hash = Column(String(255), nullable=True)  # Destination chain tx hash
 

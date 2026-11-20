@@ -247,14 +247,19 @@ class TransactionPoller:
 
         **`intended_tx_hash` first.** A transaction hash is keccak256 of the
         signed payload, so it is settled at signing — one step before the send
-        that loses it — and it names exactly one transaction. One
+        that loses it — and it names exactly one transaction, which no
+        replacement or nonce-reusing send can impersonate. One
         `eth_getTransactionReceipt` on it is therefore unambiguous, and this is
-        the only path here that may conclude COMPLETED:
+        the only path here that can get a row to COMPLETED:
 
-        - HASH_RESOLVED resolves the row to COMPLETED or FAILED from the
-          receipt's own status. No explorer is involved and there is nothing to
-          disambiguate: no other transaction, approval or nonce-reusing send
-          could hash to this value.
+        - HASH_RESOLVED on a row whose `intended_tx_leg` is `swap` settles it:
+          a revert is applied as FAILED, and a success adopts the hash and
+          hands the row to the main pass so the provider rules decide (see
+          `_resolve_from_intended_hash`).
+        - HASH_RESOLVED on a `prep` leg settles nothing. The hash identifies
+          the transaction, but an approval's receipt says nothing about whether
+          the swap ran — and a successful one usually means the swap was never
+          built. It is noted as operator evidence and falls through.
         - HASH_UNMINED (no receipt) proves nothing by itself — the transaction
           may be in the mempool, or the broadcast may never have left — so it
           falls through to the nonce path, which is the half that can tell
@@ -357,6 +362,7 @@ class TransactionPoller:
                     "sender_address": r.sender_address,
                     "nonce": r.nonce,
                     "intended_tx_hash": r.intended_tx_hash,
+                    "intended_tx_leg": r.intended_tx_leg,
                 }
                 for r in rows
             ]
@@ -482,38 +488,45 @@ class TransactionPoller:
         """Settle a hashless row from the hash recorded at signing.
 
         Returns True when the row no longer needs the nonce path — either
-        because an outcome was applied, or because the hash was adopted and the
+        because FAILED was applied, or because the hash was adopted and the
         ordinary polling pass now owns the row.
 
-        This is the only place in this method that may conclude COMPLETED, and
-        the reason is that a hash is proof of identity in a way a nonce is not:
-        it is keccak256 of the signed payload, so a receipt returned for it is
-        a receipt for the exact transaction this swap signed. An approval, a
-        replacement, or a later send that recycled the nonce all hash
-        elsewhere, so none of the confusions the nonce path has to guard
-        against can arise here.
+        A hash is proof of identity in a way a nonce is not: it is keccak256 of
+        the signed payload, so a receipt returned for it is a receipt for the
+        exact transaction this swap signed, and no replacement or nonce-reusing
+        send can impersonate it.
 
-        Outcomes are still routed through the provider rules rather than read
-        off the receipt directly:
+        But identity is not enough on its own, and this is the subtle part. A
+        hash says WHICH transaction; it does not say which LEG. Executors
+        record before every send, approvals included, so a process killed while
+        an approval's receipt is being awaited leaves the APPROVAL's hash on
+        the row — mined and successful, with no swap transaction ever built.
+        Reading that success as the swap's would report COMPLETED for a granted
+        allowance and release a DCA tranche that never traded, which is exactly
+        the false success the nonce path refuses below. So only a `swap` leg may
+        settle an outcome; a `prep` leg (or a NULL one, which is never assumed
+        to be the stronger case) is recorded as operator evidence and falls
+        through to the nonce path.
 
-        - A reverted origin transaction is FAILED for every provider. Nothing
-          executed, so nothing bridged either.
-        - A successful one is handed to `_check_tx_status_dict`, which already
-          knows that a mined origin receipt completes a same-chain swap but
-          does NOT complete a LiFi or 0x cross-chain route until the
-          destination fill is confirmed. Concluding COMPLETED from the receipt
-          here would tell a user their bridge landed when only the origin leg
-          mined — the precise mistake `_PROVIDERS_WITH_DEST_FILL_CHECK` exists
-          to prevent, and it is not re-litigated in this method.
+        What is concluded, for a swap leg:
 
-        If that check has no verdict yet, the row keeps the adopted hash and is
-        simply left: it is now selectable by the main pass (UNKNOWN and
-        EXECUTING rows with a hash are both in its filter), so it resolves
-        there on a later cycle with no further special-casing.
+        - A revert is applied as FAILED directly. That is sound for every
+          provider: the transaction that moves the funds did not execute, so
+          nothing bridged either.
+        - A success is NOT concluded here. The hash is adopted and the row is
+          handed back to the ordinary pass, which already knows that a mined
+          origin receipt completes a same-chain swap but does not complete a
+          cross-chain route before its destination fill. Both statuses this
+          method selects (UNKNOWN, EXECUTING) are in that pass's filter once a
+          hash is present, so the row resolves there with the provider rules
+          applied by the code that owns them — and this method never persists a
+          non-terminal status, which would otherwise strand a cross-chain row
+          in CONFIRMING where neither pass re-selects it.
         """
         from bot.services import swap_nonce
 
         intended = tx_dict.get("intended_tx_hash")
+        leg = tx_dict.get("intended_tx_leg")
         try:
             result = await swap_nonce.resolve_tx_by_intended_hash(
                 tx_dict["from_chain"], intended, tx_dict.get("sender_address")
@@ -536,14 +549,33 @@ class TransactionPoller:
             )
             return False
 
+        if leg != swap_nonce.SWAP_LEG:
+            # A preparatory transaction (allowance reset, approval, permit).
+            # Its receipt says nothing about whether the swap executed, and if
+            # it succeeded, the swap transaction was very likely never built at
+            # all — the process died in between. Record which transaction it
+            # was so nobody has to read the chain, and let the nonce path, which
+            # is conservative by construction, decide what to do with the row.
+            logger.warning(
+                "Swap %s has a recorded %s-leg hash %s (%s on-chain), not the swap "
+                "transaction — leaving the outcome to the nonce path rather than "
+                "settling a swap from a preparatory transaction",
+                tx_dict["id"],
+                leg or "unmarked",
+                result.tx_hash,
+                result.status,
+            )
+            await self._note_prep_leg_evidence(tx_dict["id"], result.tx_hash, leg, result.status)
+            return False
+
         # One on-chain transaction belongs to one swap. A duplicate here is far
         # less likely than on the nonce path — it needs a retry that rebuilt a
-        # byte-identical payload, not merely a reused nonce — but if some other
-        # row already owns this hash, two rows would be claiming one
+        # byte-identical payload, not merely a reused nonce — but if any other
+        # row already claims this hash, two rows would be counting one
         # transaction, so refuse rather than double-count it.
         if await self._hash_claimed_elsewhere(result.tx_hash, tx_dict["id"]):
             logger.warning(
-                "Swap %s recorded hash %s, but another swap already owns that "
+                "Swap %s recorded hash %s, but another swap already claims that "
                 "hash — refusing to claim one transaction for two swaps",
                 tx_dict["id"],
                 result.tx_hash,
@@ -555,7 +587,7 @@ class TransactionPoller:
 
         if result.status == SwapStatus.FAILED.value:
             logger.info(
-                "Swap %s: its recorded transaction %s reverted on %s — marking FAILED",
+                "Swap %s: its swap transaction %s reverted on %s — marking FAILED",
                 tx_dict["id"],
                 result.tx_hash,
                 tx_dict["from_chain"],
@@ -563,22 +595,18 @@ class TransactionPoller:
             await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
             return True
 
-        new_status, dest_tx_hash = await self._check_tx_status_dict(tx_dict)
-        if new_status:
-            logger.info(
-                "Swap %s resolved to %s from its recorded hash %s",
-                tx_dict["id"],
-                new_status,
-                result.tx_hash,
-            )
-            await self._apply_status_update(tx_dict, new_status, dest_tx_hash)
-        else:
-            logger.info(
-                "Swap %s: recorded transaction %s mined successfully; hash adopted and "
-                "left to the ordinary polling pass (route not settled yet)",
-                tx_dict["id"],
-                result.tx_hash,
-            )
+        # Mined and successful. The outcome is deliberately NOT concluded here:
+        # the hash is now on the row, so the ordinary pass selects it and
+        # applies the provider rules (including the destination-fill checks
+        # that stop a mined origin receipt from completing a bridge). Writing a
+        # verdict here would duplicate that logic, and writing a non-terminal
+        # one would strand a cross-chain row in a status neither pass re-reads.
+        logger.info(
+            "Swap %s: its swap transaction %s mined successfully; hash adopted, outcome "
+            "left to the ordinary polling pass so provider rules apply",
+            tx_dict["id"],
+            result.tx_hash,
+        )
         return True
 
     async def _adopt_resolved_hash(self, swap_id: int, tx_hash: str) -> None:
@@ -642,13 +670,63 @@ class TransactionPoller:
         except Exception as e:
             logger.warning("Could not note resolution evidence for swap %s: %s", swap_id, e)
 
+    async def _note_prep_leg_evidence(
+        self, swap_id: int, tx_hash: str, leg: Optional[str], status: Optional[str]
+    ) -> None:
+        """Record that the hash on this row is a preparatory transaction, not the swap.
+
+        Written to error_message, never to tx_hash: adopting it would hand the
+        row to the ordinary polling pass, which reads a successful receipt as a
+        completed swap — and this receipt belongs to an approval. The row stays
+        where it was, but whoever reviews it can see what actually happened
+        instead of having to reconstruct it from the chain.
+
+        Only ever written onto a row that is still hashless and still UNKNOWN,
+        so it cannot overwrite a real outcome recorded in the meantime.
+        """
+        verb = "succeeded" if status == SwapStatus.COMPLETED.value else "reverted"
+        note = (
+            f"Pre-broadcast hash on this row is the {leg or 'unmarked'} leg "
+            f"({tx_hash}), which {verb} on-chain — not the swap transaction. The swap "
+            "was most likely never broadcast (the process stopped between the two "
+            "sends), so no outcome is asserted. Check that transaction and the "
+            "sender's nonce to settle this row."
+        )
+
+        def _work():
+            with get_db_session() as session:
+                db_tx = (
+                    session.query(SwapTransaction)
+                    .filter(
+                        SwapTransaction.id == swap_id,
+                        SwapTransaction.tx_hash.is_(None),
+                        SwapTransaction.status == SwapStatus.UNKNOWN.value,
+                    )
+                    .first()
+                )
+                if db_tx:
+                    db_tx.error_message = note
+
+        try:
+            await run_in_db(_work)
+        except Exception as e:
+            logger.warning("Could not note prep-leg evidence for swap %s: %s", swap_id, e)
+
     async def _hash_claimed_elsewhere(self, tx_hash: str, swap_id: int) -> bool:
-        """True if any OTHER swap row already carries `tx_hash`.
+        """True if any OTHER swap row already claims `tx_hash`.
 
         The guard against nonce reuse. One on-chain transaction belongs to one
         swap; if a row already owns this hash, a nonce-based match to a second
         row means the nonce was recycled after the first row's broadcast was
         lost, not that both swaps executed.
+
+        "Claims" covers `intended_tx_hash` as well as `tx_hash`, and the
+        difference matters: when two rows are both hashless from the same
+        wallet and only one of their broadcasts landed, the row that did land
+        holds that transaction solely in `intended_tx_hash`. A guard reading
+        only `tx_hash` would see no owner and let the OTHER row adopt it, so
+        the transaction would be attributed to the swap that never sent — and
+        the row that really sent it would then be refused its own hash.
 
         Fails CLOSED: an error here returns True and leaves the row
         unresolved, because the cost of a wrong False is a swap reported
@@ -677,7 +755,10 @@ class TransactionPoller:
                 return (
                     session.query(SwapTransaction.id)
                     .filter(
-                        SwapTransaction.tx_hash.in_(variants),
+                        or_(
+                            SwapTransaction.tx_hash.in_(variants),
+                            SwapTransaction.intended_tx_hash.in_(variants),
+                        ),
                         SwapTransaction.id != swap_id,
                     )
                     .first()

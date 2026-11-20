@@ -2452,11 +2452,18 @@ def _add_swap_intended_hash_column(db_engine, inspector, is_sqlite: bool) -> Non
       2. If a broadcast never landed, the wallet's next send takes the same
          nonce and passes the (sender, nonce) checks identically.
 
-    A hash is immune to both, so this column is what lets the poller conclude
-    COMPLETED — which the nonce path deliberately never does. The nonce columns
-    stay: they prove the complementary half (nonce never consumed, so nothing
-    can land and no funds moved), which needs no explorer and which a hash
-    lookup alone cannot tell apart from "mined but not yet visible".
+    A hash is immune to both, so with intended_tx_leg beside it this is what
+    lets the poller conclude COMPLETED — which the nonce path deliberately
+    never does. The nonce columns stay: they prove the complementary half
+    (nonce never consumed, so nothing can land and no funds moved), which
+    needs no explorer and which a hash lookup alone cannot tell apart from
+    "mined but not yet visible".
+
+    intended_tx_leg ("swap" or "prep") is not optional decoration. A hash says
+    WHICH transaction, not which LEG, and executors record on every send — so
+    a process killed during an approval's receipt wait leaves the approval's
+    mined, successful hash here with no swap ever built. Only a "swap" leg may
+    settle an outcome; see SwapTransaction.intended_tx_leg.
 
     Additive and idempotent, per docs/development/migrations.md. Nullable with
     no default: NULL means "no hash was recorded" on every pre-existing row,
@@ -2470,14 +2477,16 @@ def _add_swap_intended_hash_column(db_engine, inspector, is_sqlite: bool) -> Non
     """
     cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
 
-    if "intended_tx_hash" not in cols:
+    for col_name, col_type in (
+        ("intended_tx_hash", "VARCHAR(66)"),
+        ("intended_tx_leg", "VARCHAR(16)"),
+    ):
+        if col_name in cols:
+            continue
         if is_sqlite:
-            ddl = "ALTER TABLE swap_transactions ADD COLUMN intended_tx_hash VARCHAR(66)"
+            ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type}"
         else:
-            ddl = (
-                "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
-                "intended_tx_hash VARCHAR(66)"
-            )
+            ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
 

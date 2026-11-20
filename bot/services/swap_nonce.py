@@ -75,16 +75,28 @@ it cannot catch is a nonce consumed from the same address by something that
 keeps no SwapTransaction row at all — a hot-wallet sweep, a relayer, bulk pay.
 For those, RESOLVED could still name a transaction that is not the swap's.
 
-Both of these are removed by `intended_tx_hash`, which is now recorded
-alongside the nonce and is the identity resolution prefers. An EVM hash is
-keccak256 of the signed payload, so it is fully determined at signing time —
-one step before the send that may lose it — and it names ONE transaction.
-An approval hashes elsewhere than the swap that follows it, and a later send
-that recycles an abandoned nonce hashes elsewhere than the send that abandoned
-it, so neither ambiguity above can arise. `resolve_tx_by_intended_hash` turns
-that into one `eth_getTransactionReceipt` with no explorer in the loop, and
-its success half IS conclusive: HASH_RESOLVED can report COMPLETED, which the
-nonce path never does.
+Both of these are addressed by `intended_tx_hash` together with
+`intended_tx_leg`, now recorded alongside the nonce and the identity
+resolution prefers. An EVM hash is keccak256 of the signed payload, so it is
+fully determined at signing time — one step before the send that may lose it —
+and it names ONE transaction: a later send that recycles an abandoned nonce
+produces a different payload and so a different hash, which disposes of the
+second ambiguity outright.
+
+The first ambiguity needs the leg, and this is worth being precise about
+because it is easy to get wrong. A hash says WHICH transaction; it does not
+say whether that transaction is the swap. Recording happens before every send,
+approvals included, so a process killed while an approval's receipt is being
+awaited leaves the approval's hash on the row — mined, successful, with no
+swap transaction ever built. Resolving that hash and believing its success
+would report COMPLETED for a granted allowance: the same false success the
+nonce path refuses, reached by a different route. `intended_tx_leg` is what
+closes it, so only a `swap` leg may settle an outcome.
+
+With the leg in hand, `resolve_tx_by_intended_hash` turns the question into
+one `eth_getTransactionReceipt` with no explorer in the loop, and the success
+half becomes usable: HASH_RESOLVED on a swap leg can get a row to COMPLETED,
+which the nonce path never does.
 
 ## Why both identities are kept
 
@@ -377,7 +389,16 @@ def tx_hash_variants(value: Optional[str]) -> list[str]:
     return [canonical, canonical[2:]]
 
 
-async def record_intended_hash(signed: Union[str, bytes, bytearray, None]) -> None:
+# Which leg of a swap a recorded hash belongs to. Only SWAP_LEG may settle a
+# row's outcome; see `SwapTransaction.intended_tx_leg` for why that
+# distinction is the thing that makes the hash safe to conclude from.
+SWAP_LEG = "swap"  # the transaction that moves the funds
+PREP_LEG = "prep"  # an allowance reset, ERC20 approval or EIP-2612 permit
+
+
+async def record_intended_hash(
+    signed: Union[str, bytes, bytearray, None], *, leg: str = PREP_LEG
+) -> None:
     """Record the hash of a signed payload on the active swap row, BEFORE sending.
 
     This is the stronger half of this module, and the reason is arithmetic
@@ -385,31 +406,45 @@ async def record_intended_hash(signed: Union[str, bytes, bytearray, None]) -> No
     RLP payload, so it is fully determined the instant signing returns — one
     step before `send_raw_transaction`, which is the call that loses it. The
     identity is therefore available exactly where the old failure happened, and
-    it names ONE transaction, which `(sender, nonce)` cannot:
+    it names ONE transaction, which `(sender, nonce)` cannot: a later send that
+    reuses an abandoned nonce produces a different payload and so a different
+    hash, and so cannot be mistaken for this swap.
 
-    - An approval and the swap that follows it occupy different hashes even
-      when the recorded nonce is the same, so a success here cannot be an
-      approval mistaken for a swap.
-    - A later send that reuses an abandoned nonce produces a different payload
-      and so a different hash, so it cannot be mistaken for this swap either.
+    `leg` is what makes the recording safe to conclude from, and it is NOT a
+    convenience. A hash identifies a transaction; it does not say whether that
+    transaction is the swap. This is called before EVERY send a swap makes —
+    allowance resets, approvals and permits included, because the column is
+    meant to track the transaction currently in flight — so a process killed
+    while an approval's receipt is being awaited leaves the APPROVAL's hash
+    here, mined and successful, with no swap transaction ever built. Reading
+    that success as the swap's would report COMPLETED for a granted allowance.
 
-    Call it after signing and before the matching send, on EVERY send a swap
-    makes, including each approval: the column tracks the transaction currently
-    in flight, so whichever send loses its outcome is the one whose hash is on
-    the row.
-
-    Accepts the signed payload in any form the executors hold it in — a hex
-    string with or without `0x`, or raw bytes (the Tempo type-0x76 path encodes
-    its own envelope) — because the hash is of the payload either way.
+    So pass `leg=SWAP_LEG` only at the send that moves the funds, and
+    `leg=PREP_LEG` (the default, because it is the safe answer) for everything
+    sent before it. Hash and leg are written in one statement, so a row can
+    never carry a hash from one send with the leg of another.
 
     Never raises, for the same reason `record_intended_nonce` does not: the
     cost of not recording is a row that may need a human, which is the status
     quo being improved on, while the cost of raising is a swap that was ready
-    to send and now does not happen.
+    to send and now does not happen. A failed write therefore leaves whatever
+    the previous send wrote — which is safe precisely because that value
+    carries its own leg: a stale approval hash stays marked PREP_LEG and can
+    never settle an outcome.
+
+    Accepts the signed payload in any form the executors hold it in — a hex
+    string with or without `0x`, or raw bytes (the Tempo type-0x76 path encodes
+    its own envelope) — because the hash is of the payload either way.
     """
     swap_id = _active_swap.get()
     if swap_id is None or signed is None:
         return
+
+    if leg not in (SWAP_LEG, PREP_LEG):
+        # An unrecognised leg must degrade to the conservative one, never to
+        # the one that can settle an outcome.
+        logger.warning("Unknown intended-hash leg %r for swap %s; recording as prep", leg, swap_id)
+        leg = PREP_LEG
 
     try:
         if isinstance(signed, (bytes, bytearray)):
@@ -439,13 +474,18 @@ async def record_intended_hash(signed: Union[str, bytes, bytearray, None]) -> No
             db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
             if not db_tx:
                 return
+            # Both in the same unit of work: a row carrying one send's hash
+            # under another send's leg is the one state that could turn an
+            # approval's receipt into a completed swap.
             db_tx.intended_tx_hash = tx_hash
+            db_tx.intended_tx_leg = leg
 
     try:
         await run_in_db(_work)
     except Exception as e:
         logger.warning(
-            "Could not record intended hash %s for swap %s (continuing to broadcast): %s",
+            "Could not record intended %s hash %s for swap %s (continuing to broadcast): %s",
+            leg,
             tx_hash,
             swap_id,
             e,

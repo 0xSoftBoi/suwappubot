@@ -52,6 +52,15 @@ export const swapTransactions = pgTable('swap_transactions', {
 	// rows, on rows predating the column, and when recording failed.
 	intendedTxHash: varchar('intended_tx_hash', { length: 66 }),
 
+	// WHICH leg intendedTxHash names: 'swap' for the transaction that moves
+	// the funds, 'prep' for an allowance reset, approval or permit sent first.
+	// Load-bearing, not decoration: a hash says which transaction, not which
+	// leg, and executors record on every send — so a process killed during an
+	// approval's receipt wait leaves the approval's mined, successful hash
+	// here with no swap ever built. Only a 'swap' leg may settle an outcome;
+	// 'prep' (and NULL) fall through to the conservative nonce path.
+	intendedTxLeg: varchar('intended_tx_leg', { length: 16 }),
+
 	bridgeTxHash: varchar('bridge_tx_hash', { length: 255 }),
 	destinationTxHash: varchar('destination_tx_hash', { length: 255 }),
 

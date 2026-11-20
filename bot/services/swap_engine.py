@@ -75,6 +75,8 @@ from bot.utils.exceptions import SwapError
 from bot.services.event_bus import event_bus
 from database.db import get_session, run_in_db
 from bot.services.swap_nonce import (
+    PREP_LEG,
+    SWAP_LEG,
     enter_swap_nonce_scope,
     exit_swap_nonce_scope,
     record_intended_hash,
@@ -1266,7 +1268,7 @@ class SwapEngine:
         # built, and this is the nonce the chain would show.
         await record_intended_nonce(nonce, sender)
         signed_reset = await self.wallet_service.sign_evm_transaction(wallet, reset_tx)
-        await record_intended_hash(signed_reset)
+        await record_intended_hash(signed_reset, leg=PREP_LEG)
         reset_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_reset.replace("0x", "")))
         )
@@ -4899,7 +4901,7 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                await record_intended_hash(signed_approve)
+                await record_intended_hash(signed_approve, leg=PREP_LEG)
                 approve_hash = await asyncio.to_thread(
                     lambda: web3.eth.send_raw_transaction(
                         bytes.fromhex(signed_approve.replace("0x", ""))
@@ -4937,9 +4939,11 @@ class SwapEngine:
         # Sign and send (routes privately via Flashbots relay when configured;
         # falls back to public RPC on any relay error).
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        return await self._broadcast_evm_tx(web3, signed_tx_hex, chain)
+        return await self._broadcast_evm_tx(web3, signed_tx_hex, chain, leg=SWAP_LEG)
 
-    async def _broadcast_evm_tx(self, web3: Web3, signed_tx_hex: str, chain) -> str:
+    async def _broadcast_evm_tx(
+        self, web3: Web3, signed_tx_hex: str, chain, *, leg: str = PREP_LEG
+    ) -> str:
         """Broadcast a signed EVM tx, routing privately when configured.
 
         Compliant routing (UBS × Nethermind PoC, stage 2): when
@@ -4956,7 +4960,12 @@ class SwapEngine:
         # The hash is keccak of the signed payload, so it is the same whichever
         # route carries it — recording above the branch covers both, and the
         # relay path can lose an outcome exactly like the public one.
-        await record_intended_hash(signed_tx_hex)
+        #
+        # `leg` is the caller's to state and defaults to the conservative
+        # PREP_LEG: this helper cannot tell a swap from an approval by looking
+        # at a signed payload, and a wrong SWAP_LEG here is what would let an
+        # approval's receipt settle a swap.
+        await record_intended_hash(signed_tx_hex, leg=leg)
         chain_id = getattr(chain, "chain_id", None)
 
         if isinstance(chain_id, int) and flashbots_relay.should_route(chain_id):
@@ -5183,7 +5192,7 @@ class SwapEngine:
                 signed_approval_hex = await self.wallet_service.sign_evm_transaction(
                     wallet, approval_tx
                 )
-                await record_intended_hash(signed_approval_hex)
+                await record_intended_hash(signed_approval_hex, leg=PREP_LEG)
                 approval_hash = await asyncio.to_thread(
                     lambda: web3.eth.send_raw_transaction(
                         bytes.fromhex(signed_approval_hex.replace("0x", ""))
@@ -5212,7 +5221,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -5349,7 +5358,7 @@ class SwapEngine:
             signed_approval_hex = await self.wallet_service.sign_evm_transaction(
                 wallet, approval_tx
             )
-            await record_intended_hash(signed_approval_hex)
+            await record_intended_hash(signed_approval_hex, leg=PREP_LEG)
             approval_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_approval_hex.replace("0x", ""))
@@ -5380,7 +5389,7 @@ class SwapEngine:
 
         # Sign and send
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -5462,7 +5471,7 @@ class SwapEngine:
                 }
             )
             signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            await record_intended_hash(signed_approve)
+            await record_intended_hash(signed_approve, leg=PREP_LEG)
             approve_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_approve.replace("0x", ""))
@@ -5514,7 +5523,7 @@ class SwapEngine:
         )
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -5638,7 +5647,7 @@ class SwapEngine:
             # send is the broadcast whose outcome is lost.
             await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
             signed = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            await record_intended_hash(signed)
+            await record_intended_hash(signed, leg=PREP_LEG)
             sent = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed.replace("0x", "")))
             )
@@ -5721,7 +5730,7 @@ class SwapEngine:
         )
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, swap_tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -5876,7 +5885,7 @@ class SwapEngine:
         tx = attrs.evolve(tx, fee_payer_signature=fee_payer_sig)
 
         raw = tx.encode()
-        await record_intended_hash(raw)
+        await record_intended_hash(raw, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(lambda: web3.eth.send_raw_transaction(raw).hex())
         logger.info(
             f"Tempo gasless swap (type-0x76, fee payer {sponsor_address[:10]}…): "
@@ -5960,7 +5969,7 @@ class SwapEngine:
                 "chainId": chain.chain_id,
             }
             signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            await record_intended_hash(signed_approve)
+            await record_intended_hash(signed_approve, leg=PREP_LEG)
             approve_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_approve.replace("0x", ""))
@@ -6007,7 +6016,7 @@ class SwapEngine:
         }
 
         signed_send = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
-        await record_intended_hash(signed_send)
+        await record_intended_hash(signed_send, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_send.replace("0x", "")))
         )
@@ -6077,7 +6086,7 @@ class SwapEngine:
                 "chainId": chain.chain_id,
             }
             signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            await record_intended_hash(signed_approve)
+            await record_intended_hash(signed_approve, leg=PREP_LEG)
             approve_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_approve.replace("0x", ""))
@@ -6125,7 +6134,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, send_tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -6185,7 +6194,7 @@ class SwapEngine:
         approve_tx["chainId"] = chain.chain_id
 
         signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        await record_intended_hash(signed_approve_hex)
+        await record_intended_hash(signed_approve_hex, leg=PREP_LEG)
         approve_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(
                 bytes.fromhex(signed_approve_hex.replace("0x", ""))
@@ -6282,7 +6291,7 @@ class SwapEngine:
             ) from e
 
         try:
-            await record_intended_hash(signed_raw_bytes)
+            await record_intended_hash(signed_raw_bytes, leg=SWAP_LEG)
             burn_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(signed_raw_bytes)
             )
@@ -6413,7 +6422,7 @@ class SwapEngine:
             }
 
             signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            await record_intended_hash(signed_approve_hex)
+            await record_intended_hash(signed_approve_hex, leg=PREP_LEG)
             approve_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_approve_hex.replace("0x", ""))
@@ -6443,7 +6452,7 @@ class SwapEngine:
         deposit_tx["chainId"] = chain.chain_id
 
         signed_deposit_hex = await self.wallet_service.sign_evm_transaction(wallet, deposit_tx)
-        await record_intended_hash(signed_deposit_hex)
+        await record_intended_hash(signed_deposit_hex, leg=SWAP_LEG)
         deposit_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(
                 bytes.fromhex(signed_deposit_hex.replace("0x", ""))
@@ -6520,7 +6529,7 @@ class SwapEngine:
         }
 
         signed_approve_hex = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-        await record_intended_hash(signed_approve_hex)
+        await record_intended_hash(signed_approve_hex, leg=PREP_LEG)
         approve_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(
                 bytes.fromhex(signed_approve_hex.replace("0x", ""))
@@ -6549,7 +6558,7 @@ class SwapEngine:
         transfer_tx["chainId"] = chain.chain_id
 
         signed_transfer_hex = await self.wallet_service.sign_evm_transaction(wallet, transfer_tx)
-        await record_intended_hash(signed_transfer_hex)
+        await record_intended_hash(signed_transfer_hex, leg=SWAP_LEG)
         transfer_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(
                 bytes.fromhex(signed_transfer_hex.replace("0x", ""))
@@ -6976,7 +6985,7 @@ class SwapEngine:
                     signed_approve = await self.wallet_service.sign_evm_transaction(
                         wallet, approve_tx
                     )
-                    await record_intended_hash(signed_approve)
+                    await record_intended_hash(signed_approve, leg=PREP_LEG)
                     approve_hash = await asyncio.to_thread(
                         lambda: web3.eth.send_raw_transaction(
                             bytes.fromhex(signed_approve.replace("0x", ""))
@@ -7002,7 +7011,7 @@ class SwapEngine:
             }
 
             signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-            await record_intended_hash(signed_tx_hex)
+            await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
             tx_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_tx_hex.replace("0x", ""))
@@ -7123,7 +7132,7 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                await record_intended_hash(signed_approve)
+                await record_intended_hash(signed_approve, leg=PREP_LEG)
                 approve_hash = await asyncio.to_thread(
                     lambda: web3.eth.send_raw_transaction(
                         bytes.fromhex(signed_approve.replace("0x", ""))
@@ -7149,7 +7158,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -7287,7 +7296,7 @@ class SwapEngine:
                     signed_approve = await self.wallet_service.sign_evm_transaction(
                         wallet, approve_tx
                     )
-                    await record_intended_hash(signed_approve)
+                    await record_intended_hash(signed_approve, leg=PREP_LEG)
                     approve_hash = await asyncio.to_thread(
                         lambda: web3.eth.send_raw_transaction(
                             bytes.fromhex(signed_approve.replace("0x", ""))
@@ -7313,7 +7322,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -7624,7 +7633,7 @@ class SwapEngine:
                 "chainId": chain.chain_id,
             }
             signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-            await record_intended_hash(signed_approve)
+            await record_intended_hash(signed_approve, leg=PREP_LEG)
             approve_hash = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(
                     bytes.fromhex(signed_approve.replace("0x", ""))
@@ -7658,7 +7667,7 @@ class SwapEngine:
         await self._persist_0x_crosschain_route_data(swap_id, swap_result.quote_id)
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -7780,7 +7789,7 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                await record_intended_hash(signed_approve)
+                await record_intended_hash(signed_approve, leg=PREP_LEG)
                 approve_hash = await asyncio.to_thread(
                     lambda: web3.eth.send_raw_transaction(
                         bytes.fromhex(signed_approve.replace("0x", ""))
@@ -7806,7 +7815,7 @@ class SwapEngine:
         }
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )
@@ -7971,7 +7980,7 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
                 signed_approve = await self.wallet_service.sign_evm_transaction(wallet, approve_tx)
-                await record_intended_hash(signed_approve)
+                await record_intended_hash(signed_approve, leg=PREP_LEG)
                 approve_hash = await asyncio.to_thread(
                     lambda: web3.eth.send_raw_transaction(
                         bytes.fromhex(signed_approve.replace("0x", ""))
@@ -8061,7 +8070,7 @@ class SwapEngine:
         tx = build_fn.build_transaction({**tx_params, "gas": gas_limit})
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
-        await record_intended_hash(signed_tx_hex)
+        await record_intended_hash(signed_tx_hex, leg=SWAP_LEG)
         tx_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_tx_hex.replace("0x", "")))
         )

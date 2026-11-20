@@ -275,11 +275,23 @@ ADRs 0001–0005.
   from a revert and left every success UNKNOWN.
 - **Decision**: also record `intended_tx_hash` — an EVM hash is keccak256 of
   the signed payload, so it is settled at **signing**, one step before the send
-  that loses it, and it names one transaction. One
-  `eth_getTransactionReceipt` on it is unambiguous, needs no explorer, and is
-  the only evidence here allowed to conclude COMPLETED. `HASH_RESOLVED` is a
-  deliberately separate verdict from the nonce path's `RESOLVED` so nobody
-  later extends nonce-grade evidence to a success.
+  that loses it, and it names one transaction, which disposes of the
+  nonce-reuse half outright. One `eth_getTransactionReceipt` on it is
+  unambiguous and needs no explorer. `HASH_RESOLVED` is a deliberately
+  separate verdict from the nonce path's `RESOLVED` so nobody later extends
+  nonce-grade evidence to a success.
+- **The trap that nearly shipped**: a hash says WHICH transaction, *not which
+  leg*, and that is not the same thing. Recording happens before every send,
+  approvals included, so a process killed while an approval's receipt is being
+  awaited (Socket waits 120s; a Railway redeploy lands mid-swap) leaves the
+  **approval's** hash on the row — mined, successful, no swap ever built.
+  Resolving it and believing its success reports COMPLETED for a granted
+  allowance and releases a DCA tranche that never traded: the same false
+  success the nonce path refuses, reached by a different route. Hence
+  `intended_tx_leg` ("swap" | "prep"), written in the same statement as the
+  hash so the two can never disagree, with NULL and anything unrecognised
+  treated as "prep". Only a swap leg may settle an outcome. Caught in
+  money-path review, not by any gate.
 - **Keep both**: they prove opposite things. The hash proves the positive but
   cannot prove a negative (a null receipt means "in the mempool" and "never
   broadcast" alike); the nonce proves exactly that negative with two RPC calls
@@ -295,10 +307,17 @@ ADRs 0001–0005.
   `HexBytes.hex()`. (2) Sign sites are NOT 1:1 with nonce sites: several
   executors sign an approval then the swap, and `_send_and_wait` signs
   repeatedly under a `nonlocal nonce`, so record before *every* send.
-  (3) A mined *origin* receipt is not a settled bridge — a revert concludes
-  FAILED for all providers, but a success is handed to `_check_tx_status_dict`
-  rather than read off the receipt, so `_PROVIDERS_WITH_DEST_FILL_CHECK` still
-  decides cross-chain routes. (4) A column-add migration that creates its index
+  (3) A mined *origin* receipt is not a settled bridge. A revert concludes
+  FAILED for all providers, but a **success concludes nothing here**: the hash
+  is adopted and the row handed back to the ordinary pass, which owns the
+  provider rules. Persisting a non-terminal verdict instead would have
+  stranded a cross-chain row in CONFIRMING, which only `0x_crosschain` rows
+  are ever re-selected from — a status no pass reads again.
+  (4) `_hash_claimed_elsewhere` must check other rows' `intended_tx_hash`, not
+  just `tx_hash`: when two rows are hashless from one wallet and only one
+  broadcast landed, the row that landed holds that transaction *only* in
+  `intended_tx_hash`, so a guard reading `tx_hash` alone would hand the
+  transaction to the swap that never sent. (5) A column-add migration that creates its index
   only in the "column was just added" branch gives every upgraded database an
   index and every fresh one none, because `create_all` already includes the
   column — attempt the `IF NOT EXISTS` index on every boot.
