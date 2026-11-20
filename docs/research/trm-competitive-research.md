@@ -186,7 +186,37 @@ TRM says the world needs prevention-to-disruption feedback. We can be a feed.
 
 Owners: founder, `growth-marketing` for the partner deck.
 
-### 4.2b Cost versus impact: cheapest moves first
+### 4.2a The gate was not just off, it was wrong (found 2026-11-20)
+
+Before any of the strategy below matters, a correctness finding that came out of testing the gate against live data.
+
+The bundled OFAC seed list shipped 15 Tornado Cash addresses. **OFAC delisted all of them on 2025-03-21** ("Cyber-related Designation Removal", [treasury.gov](https://ofac.treasury.gov/recent-actions/20250321)), following the Fifth Circuit's Van Loon ruling that the designation exceeded OFAC's authority. Confirmed three independent ways:
+
+| Check | Result |
+|---|---|
+| OFAC recent-actions page | Lists the deletions, including our exact address `0x8589427373…fda16` |
+| Live SDN digital-currency extraction | 123 ETH addresses currently designated. **Zero** of our 15 appear |
+| Chainalysis on-chain oracle | Returns false for all 15, and true for 16 of a 25-address live-SDN sample |
+
+So flipping `COMPLIANCE_MODE=enforce` would have blocked 15 addresses that are **not** sanctioned, while covering none of the ~123 that are. A stale sanctions list is worse than no list: it produces false positives against real users and false confidence for the operator.
+
+Fixed in this branch: the bundled list now ships empty by design, the delisted addresses are retained only as commented history, and live coverage comes from the SDN feed plus the on-chain oracle.
+
+### 4.2b The free screening stack (zero cost, verified)
+
+Every source below is free, and each was tested live rather than taken from documentation.
+
+| Source | Cost | Auth | Limit | Status |
+|---|---|---|---|---|
+| **Chainalysis on-chain oracle** `0x40C579…aC8fb` | Free. It is an `eth_call` on RPC we already hold | None | None | **Verified deployed** on ethereum, polygon, bsc, avalanche, optimism, arbitrum. **Not** on base |
+| **OFAC SDN feed** (Treasury XML, or the nightly per-chain extraction) | Free | None | GitHub raw limits | 123 ETH addresses, refreshed daily |
+| TRM public sanctions API | Free | None | 1/s, 100/day | Works, but its terms do not confirm results may be stored, and it reported 14 of our 15 **delisted** addresses as sanctioned. Demoted to fallback |
+| GoPlus, Honeypot.is, RugCheck | Free | None | 30/min | Already wired at `api/routes/terminal.py:979` |
+| MetaMask eth-phishing-detect, ScamSniffer | Free | None | GitHub raw | Not yet wired. ScamSniffer is GPL-3.0, fine to consume, care if redistributed |
+
+The ordering matters commercially: the oracle is free, keyless, unmetered and carries no caching terms, so it runs first and TRM is consulted only when the oracle cannot answer. That keeps the screening layer at **$0 marginal cost per swap** rather than rationing a 100/day budget.
+
+### 4.2c Cost versus impact: cheapest moves first
 
 Everything below was verified against the code or tested live on 2026-09-12. Costs are engineering days for one person; cash cost is zero unless stated.
 
@@ -195,7 +225,7 @@ Everything below was verified against the code or tested live on 2026-09-12. Cos
 | 1 | Set `COMPLIANCE_MODE=monitor` on prod python-api on Railway | 0 days, one env var | Turns on shadow screening for swaps, withdrawals, P2P escrow, paste/snipe/intel address gate across EVM, TRON, Solana, Starknet, BTC | Variable is absent from the prod service today (Railway `python-api` production variables). Gate code: `compliance_service.py:399`, callers in `swap_engine.py:4266`, `hot_wallet.py:104`, `address_gate.py:69` |
 | 2 | Flip to `enforce` after one clean week of logs | 0 days | First Telegram bot with a real pre-sign sanctions block. This is the marketing claim | Same as above |
 | 3 | Nightly OFAC SDN refresh into `COMPLIANCE_OFAC_LIST_PATH` from Treasury's free SDN feed | 0.5 day | Replaces a 15-address static seed with the full list | `ofac_list.py:46` seed has 15 addresses, docstring admits no refresh job |
-| 4 | Second-source the list through TRM's **free** Sanctions Screening API | 0.5 day | TRM-grade sanctions data at $0. Live-tested: no API key needed, one address per request, 100 req/day. 14 of our 15 seed addresses confirmed; TRM returns `isSanctioned: false` for `0x8281aa67…` so our seed needs review | `POST https://api.trmlabs.com/public/v1/sanctions/screening` with `[{"address": "…"}]`, HTTP 201 |
+| 4 | Second-source through the **free Chainalysis on-chain oracle** (not TRM) | 0.5 day | Keyless, unmetered, no caching terms, six EVM chains. Strictly better than the TRM API, which is capped at 100/day and reported our delisted addresses as sanctioned | `eth_call` to `0x40C579…aC8fb`, selector `0xdf592f7d` |
 | 5 | Screen `bulk_pay` and CCTP bridge legs | 1 day | Closes the two admitted unscreened money surfaces | `compliance_service.py:35-42` TODO |
 | 6 | Write blocks and USER_REPORT blacklist entries as structured events | 1 day | Raw material for Chainabuse submissions and the partner pitch | `blacklist_service.py:40` |
 | 7 | Auto-submit confirmed hits to Chainabuse | 1 to 2 days | Free distribution to TRM's 600 customers | Pending API research |
@@ -206,6 +236,27 @@ Everything below was verified against the code or tested live on 2026-09-12. Cos
 Moves 1 through 4 cost about one engineering day in total and no cash. They deliver the whole "every swap screened before signing" claim. Do them before anything else in this document.
 
 What costs money and should wait: TRM paid Wallet Screening (~$200k/yr enterprise floor), Blockaid or Hypernative contracts, any ML tier on the hot path. Free tools already in use stay free: GoPlus, Honeypot.is, RugCheck (`api/routes/terminal.py:979`).
+
+### 4.2d Reducing your own burn (Railway, measured 2026-11-20)
+
+The August audit (`docs/deployment/railway-cost-audit.md`) modelled ~$122/mo and recommended eleven actions. Re-measuring the fleet over a 7-day window shows where it actually stands.
+
+**`python-worker` is now the entire problem.** It got worse, not better:
+
+| Metric | Aug audit | Now |
+|---|---|---|
+| Average vCPU | 0.204 | 0.273 |
+| Average RAM | 1.618 GB | 1.997 GB |
+| Peak RAM | 31.7 GB | 27.5 GB |
+| Modelled cost | $36/mo | **~$45/mo** |
+
+That is roughly 90% of the addressable spend in one service. `python-api` runs the same image at 0.28 GB, so the gap is background services holding memory. The 8 GiB cap is in `railway.python-worker.json`, which bounds the blast radius but does not touch the 2 GB steady-state baseline that you actually pay for. Chasing it is worth more than every other line combined.
+
+**Everything else is rounding error.** Measured over 7 days: `turnkey-key-import` holds 50 MB at zero CPU (~$1/mo), `signal-lab-prod` 32 MB (~$0.65/mo), `pump-onchain-ingest-prod` ~$1.90/mo. Four services report all-zero metrics, so they are already costing nothing to run: `testnet-runner`, `ghostcatcher-compact-export`, and two failed `ghostcatcher-chain-export` deployments. The dev `*-marketdata` services are asleep, so the August `sleepApplication` change worked.
+
+Three of those are one-off jobs left configured as always-on services, on branches that no longer exist (`claude/nft-collections-market-redesign-gm1kpr`, `feat/ghostcatcher-chain-export`). Deleting them is housekeeping worth a few dollars, not a cost strategy, and it is destructive, so it needs a human decision rather than an agent's.
+
+**Recommendation:** spend the effort on `python-worker`'s memory baseline and ignore the long tail. Deleting six services saves about $3/mo; halving the worker's resident memory saves about $20/mo.
 
 ### 4.3 What not to do
 

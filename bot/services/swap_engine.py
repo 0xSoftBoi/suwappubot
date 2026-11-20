@@ -4272,16 +4272,17 @@ class SwapEngine:
                 if not compliance_result.allowed:
                     raise SwapError(f"🚫 {compliance_result.reason}")
 
-                # Live TRM Labs sanctions lookup, layered on top of the local
-                # list check above. Recipient-only, async, off by default
-                # (compliance_trm_enabled) — see AddressComplianceService.
-                # screen_recipient_remote.
-                if getattr(settings, "compliance_trm_enabled", False):
-                    trm_result = await compliance_service.screen_recipient_remote(
-                        recipient, chain=quote.from_chain
-                    )
-                    if not trm_result.allowed:
-                        raise SwapError(f"🚫 {trm_result.reason}")
+                # Remote sanctions lookup, layered on top of the local list
+                # check above. Recipient-only and async. Tries the free
+                # on-chain Chainalysis oracle first, then the metered TRM
+                # API only if COMPLIANCE_TRM_ENABLED — see
+                # AddressComplianceService.screen_recipient_remote. Both
+                # sources fail open, so this can never block on an outage.
+                remote_result = await compliance_service.screen_recipient_remote(
+                    recipient, chain=quote.from_chain
+                )
+                if not remote_result.allowed:
+                    raise SwapError(f"🚫 {remote_result.reason}")
 
             # Validate balance
             await quote_validator.validate_balance(

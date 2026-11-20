@@ -136,14 +136,13 @@ async def _assert_recipient_compliant_remote(to_address: str, chain_name: str) -
     must not turn into blocking I/O. ``send_native_token``/``send_token`` are
     already ``async``, so they call this right after the sync check.
 
-    No-op unless ``COMPLIANCE_TRM_ENABLED``. Mode semantics match the local
-    check: MONITOR logs and allows, ENFORCE raises ``ComplianceBlockedError``
-    on a sanctioned hit. Fails open on any screener error — that is handled
-    inside ``AddressComplianceService.screen_recipient_remote`` itself, so
-    nothing here needs its own try/except for the network call.
+    No-op unless compliance screening is on at all. Mode semantics match the
+    local check: MONITOR logs and allows, ENFORCE raises
+    ``ComplianceBlockedError`` on a sanctioned hit. Fails open on any
+    screener error — that is handled inside
+    ``AddressComplianceService.screen_recipient_remote`` itself, so nothing
+    here needs its own try/except for the network call.
     """
-    if not getattr(settings, "compliance_trm_enabled", False):
-        return
     from bot.services.compliance import compliance_service
 
     if not compliance_service.enabled:

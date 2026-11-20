@@ -49,7 +49,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Iterable, List, Optional, Set
+from typing import Any, Iterable, List, Optional, Set, Tuple
 
 from bot.config.settings import settings
 from bot.services.compliance.ofac_list import (
@@ -573,27 +573,81 @@ class AddressComplianceService:
             raise ComplianceError(result.reason, result)
         return result
 
+    async def _remote_sanctions_verdict(
+        self, addr: str, chain: Optional[str]
+    ) -> Tuple[Optional[bool], str]:
+        """Ask the remote sanctions sources in cost order.
+
+        Returns ``(verdict, source)``. ``verdict`` is ``None`` when no
+        source could answer — never assume "clean" from silence.
+
+        Order is deliberate and is about money, not preference:
+
+        1. **Chainalysis on-chain oracle** — an ``eth_call`` on RPC we
+           already hold. Free, keyless, unmetered, no terms on caching.
+           Covers the six EVM chains it is deployed on.
+        2. **TRM public API** — only consulted when the oracle could not
+           answer (non-oracle chain, or RPC down). It is capped at 100
+           requests/day, and its published terms do not confirm that
+           results may be stored, so it must never be the default path.
+
+        Every call here is fail-open: an exception from either source is
+        logged and degrades to ``None``.
+        """
+        try:
+            from bot.services.compliance.chainalysis_oracle import chainalysis_oracle
+
+            verdict = await chainalysis_oracle.is_sanctioned(addr, chain)
+            if verdict is not None:
+                return verdict, "chainalysis_oracle"
+        except Exception as exc:  # fail-open: an RPC blip must never block a swap
+            logger.warning(
+                "Chainalysis oracle screening errored for recipient (chain=%s): %s",
+                chain,
+                exc,
+            )
+
+        if not getattr(settings, "compliance_trm_enabled", False):
+            return None, ""
+
+        try:
+            from bot.services.compliance.trm_sanctions import trm_sanctions_client
+
+            verdict = await trm_sanctions_client.is_sanctioned(addr)
+            if verdict is not None:
+                return verdict, "trm_sanctions"
+        except Exception as exc:  # fail-open: a TRM outage must never block a swap
+            logger.warning(
+                "TRM sanctions screening errored for recipient (chain=%s): %s", chain, exc
+            )
+
+        return None, ""
+
     async def screen_recipient_remote(
         self, address: Optional[str], chain: Optional[str] = None
     ) -> ComplianceResult:
-        """Consult the live TRM Labs sanctions API for a *recipient* address,
+        """Consult the remote sanctions sources for a *recipient* address,
         on top of whatever the local-list :meth:`screen` already decided.
 
         Deliberately **async** and separate from :meth:`screen` (which stays
-        fully synchronous): the TRM lookup is a real network call, and
+        fully synchronous): these lookups are real network calls, and
         ``screen``/``screen_address`` must never become blocking I/O for
         their many existing sync callers. Callers that run inside async code
         (``SwapEngine.execute_swap``, the withdrawal path in
-        ``hot_wallet.py``) call this *in addition to* ``screen()``, guarded
-        by ``compliance_trm_enabled``.
+        ``hot_wallet.py``) call this *in addition to* ``screen()``.
 
-        Recipient-only by design — per-swap router/token addresses never
-        consume the TRM daily request budget (see
-        ``TrmSanctionsClient``). No-op (``allowed=True``, no verdicts) when
-        disabled, when the mode is ``DISABLED``, or when ``address`` isn't a
-        recognized family. A ``True`` result from TRM is a violation with
-        ``source="trm_sanctions"``; ``None``/``False`` leaves the result
-        clean (fail-open — the local blocklist screen already ran).
+        Sources are tried cheapest-first by
+        :meth:`_remote_sanctions_verdict` — the free on-chain Chainalysis
+        oracle, then the metered TRM API only if it is enabled and the
+        oracle could not answer.
+
+        Recipient-only by design: per-swap router/token addresses would
+        multiply RPC calls and burn the TRM daily budget for little gain.
+        No-op (``allowed=True``, no verdicts) when the mode is ``DISABLED``
+        or when ``address`` isn't a recognized family. A ``True`` verdict is
+        a violation tagged with the source that produced it;
+        ``None``/``False`` leaves the result clean (fail-open — the local
+        blocklist screen already ran).
         """
         mode = self.mode
         policy = self.policy
@@ -601,31 +655,19 @@ class AddressComplianceService:
 
         if mode is ComplianceMode.DISABLED:
             return result
-        if not getattr(settings, "compliance_trm_enabled", False):
-            return result
         if not _is_recognized_address_family(address):
             return result
 
         addr = _normalize_address(address)
-
-        try:
-            from bot.services.compliance.trm_sanctions import trm_sanctions_client
-
-            sanctioned = await trm_sanctions_client.is_sanctioned(addr)
-        except Exception as exc:  # fail-open: a TRM outage must never block a swap
-            logger.warning(
-                "TRM sanctions screening errored for recipient (chain=%s): %s", chain, exc
-            )
-            return result
-
+        sanctioned, source = await self._remote_sanctions_verdict(addr, chain)
         if not sanctioned:
             return result
 
         verdict = AddressVerdict(
             addr,
             allowed=False,
-            source="trm_sanctions",
-            reason="trm_sanctions",
+            source=source,
+            reason=source,
             role="recipient",
         )
         result.verdicts.append(verdict)
@@ -633,16 +675,18 @@ class AddressComplianceService:
         if mode is ComplianceMode.ENFORCE:
             result.allowed = False
             logger.warning(
-                "Compliance BLOCK (chain=%s): TRM flagged recipient %s as sanctioned",
+                "Compliance BLOCK (chain=%s): %s flagged recipient %s as sanctioned",
                 chain,
+                source,
                 _short(addr),
             )
         else:  # MONITOR
             result.allowed = True
             logger.warning(
-                "Compliance MONITOR (would block, chain=%s): TRM flagged recipient %s as "
+                "Compliance MONITOR (would block, chain=%s): %s flagged recipient %s as "
                 "sanctioned",
                 chain,
+                source,
                 _short(addr),
             )
         return result

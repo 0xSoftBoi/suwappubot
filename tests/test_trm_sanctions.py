@@ -149,6 +149,22 @@ def _svc(monkeypatch, mode, trm_enabled):
     return AddressComplianceService()
 
 
+@pytest.fixture(autouse=True)
+def _no_oracle(monkeypatch):
+    """Silence the free Chainalysis oracle for the TRM-fallback tests.
+
+    ``screen_recipient_remote`` consults the oracle first (it is free) and
+    only falls back to the metered TRM API when the oracle cannot answer.
+    These tests are about that fallback, so the oracle returns "unknown".
+    """
+    from bot.services.compliance.chainalysis_oracle import chainalysis_oracle
+
+    async def _unknown(addr, chain):
+        return None
+
+    monkeypatch.setattr(chainalysis_oracle, "is_sanctioned", _unknown)
+
+
 async def test_screen_recipient_remote_blocks_in_enforce(monkeypatch):
     svc = _svc(monkeypatch, "enforce", True)
 

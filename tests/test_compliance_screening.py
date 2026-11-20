@@ -28,7 +28,11 @@ from bot.services.compliance.ofac_list import (  # noqa: E402
     seed_ofac_addresses,
 )
 
-# A known OFAC-seeded address (Tornado.Cash router) and an arbitrary clean one.
+# An address the operator blocklist marks sanctioned, plus clean ones.
+# NOTE: this is no longer sourced from the bundled seed — that list ships
+# empty since the 2025-03-21 Tornado Cash delisting (see ofac_list.py). The
+# `svc` fixture puts this address on the blocklist explicitly so these
+# tests exercise blocklist behaviour rather than hardcoded seed contents.
 SANCTIONED = "0x722122df12d4e14e13ac3b6895a86e84145b6967"
 CLEAN = "0x1111111111111111111111111111111111111111"
 ROUTER = "0x2222222222222222222222222222222222222222"
@@ -40,7 +44,7 @@ def svc(monkeypatch):
     """A fresh service with controllable settings, restored after each test."""
     monkeypatch.setattr(settings, "compliance_mode", "disabled", raising=False)
     monkeypatch.setattr(settings, "compliance_policy", "blocklist_only", raising=False)
-    monkeypatch.setattr(settings, "compliance_blocklist", "", raising=False)
+    monkeypatch.setattr(settings, "compliance_blocklist", SANCTIONED, raising=False)
     monkeypatch.setattr(settings, "compliance_allowlist", "", raising=False)
     monkeypatch.setattr(settings, "compliance_ofac_list_path", "", raising=False)
     service = AddressComplianceService()
@@ -71,7 +75,7 @@ def test_monitor_mode_allows_but_records(svc):
     # Monitor: would-block is recorded but the swap is allowed through.
     assert result.allowed is True
     assert len(result.blocked) == 1
-    assert result.blocked[0].source == "ofac"
+    assert result.blocked[0].source == "blocklist"
 
 
 def test_enforce_mode_blocks_sanctioned(svc):
@@ -115,7 +119,7 @@ def test_blocklist_wins_over_allowlist(svc):
     )
     result = svc.screen(recipient=SANCTIONED)
     assert result.allowed is False
-    assert result.blocked[0].source == "ofac"
+    assert result.blocked[0].source == "blocklist"
 
 
 # --- allowlist (UBS "pre-approved addresses") -------------------------------
@@ -287,9 +291,18 @@ def test_unknown_policy_defaults_blocklist(svc):
 # --- OFAC list loader -------------------------------------------------------
 
 
-def test_seed_list_nonempty_and_lowercased():
+def test_seed_list_is_empty_by_design():
+    """The bundled blocklist ships empty.
+
+    It used to carry 15 Tornado Cash addresses that OFAC delisted on
+    2025-03-21, so enforcing on it blocked unsanctioned addresses while
+    covering none of the ~123 currently designated ones. Live coverage
+    comes from ``sdn_feed`` / the Chainalysis oracle / operator config.
+    """
     seed = seed_ofac_addresses()
-    assert SANCTIONED in seed
+    assert seed == set()
+    # The delisted addresses must not creep back in as a default.
+    assert SANCTIONED not in seed
     assert all(a == a.lower() for a in seed)
 
 
@@ -306,13 +319,11 @@ def test_load_with_extra_file(tmp_path):
     assert CLEAN in addrs
     assert "0xabcdef0000000000000000000000000000000001" in addrs
     assert "not-an-address" not in addrs
-    # Seed entries are still present.
-    assert SANCTIONED in addrs
 
 
-def test_load_missing_file_falls_back_to_seed():
-    addrs = load_ofac_addresses("/nonexistent/path/ofac.txt")
-    assert SANCTIONED in addrs
+def test_load_missing_file_yields_empty_not_stale_seed():
+    """A missing file must not silently fall back to delisted addresses."""
+    assert load_ofac_addresses("/nonexistent/path/ofac.txt") == set()
 
 
 def test_parse_address_lines_filters_invalid():

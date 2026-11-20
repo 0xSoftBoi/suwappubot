@@ -1,21 +1,24 @@
-"""Seed list of OFAC-sanctioned EVM/TRON addresses + optional file loader.
+"""OFAC sanctions address loading for the compliance gate.
 
-This is a *seed* subset of well-documented OFAC SDN-designated Ethereum
-addresses (Tornado Cash mixer contracts and related, designated Aug 2022),
-not an exhaustive sanctions list. It exists so the compliance gate has a
-meaningful default blocklist with zero external dependencies — the UBS ×
-Nethermind PoC equivalent of "block these addresses".
+The bundled default blocklist is **empty by design** — see
+``_SEED_OFAC_ADDRESSES`` below. It previously shipped 15 Tornado Cash
+addresses that OFAC delisted on 2025-03-21, which meant the gate blocked
+unsanctioned addresses while missing every currently-designated one.
 
-For production, extend it from a maintained feed:
-  - Point ``COMPLIANCE_OFAC_LIST_PATH`` at a newline-delimited file of
-    addresses (refreshed from the OFAC SDN crypto list), or
-  - Add addresses via ``COMPLIANCE_BLOCKLIST`` in settings, or
-  - Swap in a commercial screening API (Chainalysis / TRM) behind the same
-    ``AddressComplianceService.screen_*`` interface.
+Real coverage comes from live sources, not from this file:
 
-# TODO(compliance): the file/env lists loaded here are static — there is no
-# scheduled refresh job pulling the live OFAC SDN feed, so a list on disk
-# silently goes stale. There is also no screening on bulk_pay transfers or
+  - ``sdn_feed.py`` pulls the live OFAC SDN digital-currency lists on a
+    timer and merges them in (``COMPLIANCE_SDN_FEED_ENABLED``). This is
+    the intended production source.
+  - ``chainalysis_oracle.py`` answers per-recipient from the free on-chain
+    Chainalysis oracle on the six EVM chains it is deployed to.
+  - ``COMPLIANCE_OFAC_LIST_PATH`` (newline-delimited file) and
+    ``COMPLIANCE_BLOCKLIST`` (settings CSV) are merged on top for
+    operator-supplied additions.
+
+# TODO(compliance): the file/env lists loaded here are still static — only
+# ``sdn_feed`` refreshes, and only when enabled, so a list on disk can
+# still go stale. There is also no screening on bulk_pay transfers or
 # CCTP bridge legs (SwapEngine.execute_swap, the withdrawal path in
 # hot_wallet.py, and P2P escrow release/refund — which settles via
 # hot_wallet.py's send_token — all call into AddressComplianceService today)
@@ -41,9 +44,30 @@ import base58
 logger = logging.getLogger(__name__)
 
 
-# Documented OFAC SDN-designated Ethereum addresses (Tornado Cash et al.).
-# Lowercased. This is a curated seed subset — see module docstring.
-_SEED_OFAC_ADDRESSES: tuple[str, ...] = (
+# ---------------------------------------------------------------------------
+# DELISTED — retained as history, NOT as a blocklist.
+#
+# These are the Tornado Cash addresses this module used to ship as its
+# default blocklist. **OFAC removed them from the SDN list on 2025-03-21**
+# ("Cyber-related Designation Removal; North Korea Designation Update and
+# Removal", https://ofac.treasury.gov/recent-actions/20250321), following
+# the Fifth Circuit's Van Loon v. Treasury ruling that the designation
+# exceeded OFAC's IEEPA authority.
+#
+# Verified three independent ways on 2026-11-20:
+#   1. OFAC's own recent-actions page lists the deletions, including
+#      0x8589427373…fda16 explicitly.
+#   2. The live SDN digital-currency extraction carries 123 ETH addresses,
+#      and **none** of the 15 below is among them.
+#   3. The on-chain Chainalysis sanctions oracle returns false for all 15,
+#      while returning true for 16 of a 25-address live-SDN sample — so the
+#      oracle is current, and these really are delisted.
+#
+# Shipping them as a default blocklist meant the gate would have blocked
+# transactions that are not sanctioned, while missing all 123 that are.
+# They are kept here so the delisting is recorded rather than silently
+# dropped from git history; nothing reads this tuple.
+_DELISTED_TORNADO_CASH_2025_03_21: tuple[str, ...] = (
     "0x8589427373d6d84e98730d7795d8f6f8731fda16",  # Tornado.Cash: Donation
     "0x722122df12d4e14e13ac3b6895a86e84145b6967",  # Tornado.Cash: Router / proxy
     "0xdd4c48c0b24039969fc16d1cdf626eab821d3384",  # Tornado.Cash pool
@@ -55,14 +79,26 @@ _SEED_OFAC_ADDRESSES: tuple[str, ...] = (
     "0xfd8610d20aa15b7b2e3be39b396a1bc3516c7144",  # Tornado.Cash
     "0x07687e702b410fa43f4cb4af7fa097918ffd2730",  # Tornado.Cash
     "0x23773e65ed146a459791799d01336db287f25334",  # Tornado.Cash
-    # TRM's public sanctions API returned isSanctioned=false for this address on
-    # 2026-09-12 while confirming all 14 others in this seed list — re-verify
-    # against the live SDN feed (sdn_feed.py) before relying on it in ENFORCE.
     "0x8281aa6795ade17c8973e1aedca380b7c8e7c1a6",  # Tornado.Cash
     "0x178169b423a011fff22b9e3f3abea13414ddd0f1",  # Tornado.Cash
     "0x610b717796ad172b316836ac95a2ffad065ceab4",  # Tornado.Cash
     "0xbb93e510bbcd0b7beb5a853875f9ec60275cf498",  # Tornado.Cash
 )
+
+# The bundled default blocklist is deliberately EMPTY.
+#
+# A hardcoded sanctions list in a git repo goes stale silently, and a stale
+# sanctions list is worse than none: it blocks users who are not sanctioned
+# (false positives, as above) while giving false confidence that the real
+# list is covered. The live sources are:
+#
+#   * ``sdn_feed.py`` — the OFAC SDN digital-currency feed, refreshed on a
+#     timer (COMPLIANCE_SDN_FEED_ENABLED). This is the intended default.
+#   * ``chainalysis_oracle.py`` — the free on-chain oracle, consulted per
+#     recipient on the six EVM chains it is deployed to.
+#   * ``COMPLIANCE_OFAC_LIST_PATH`` / ``COMPLIANCE_BLOCKLIST`` — operator
+#     supplied, merged on top.
+_SEED_OFAC_ADDRESSES: tuple[str, ...] = ()
 
 
 def seed_ofac_addresses() -> Set[str]:
