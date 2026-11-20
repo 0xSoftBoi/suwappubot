@@ -201,6 +201,15 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
     # Reconcile any EXECUTING rows that have no tx_hash (process died mid-execution)
+    #
+    # These are marked UNKNOWN, never FAILED. We genuinely do not know whether
+    # the broadcast landed: the process died in the window between sending the
+    # transaction and persisting its hash, and with no hash the poller can
+    # never check (it filters on tx_hash IS NOT NULL). FAILED would assert that
+    # no funds moved, and SwapEngine's idempotency guard treats FAILED as safe
+    # to retry — so a swap that actually landed could be re-broadcast with the
+    # user's funds. UNKNOWN is not in that guard's retryable list, so it blocks
+    # the retry and the row waits for human verification instead.
     if db_success:
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
@@ -215,11 +224,22 @@ async def lifespan(app: FastAPI):
                     .all()
                 )
                 if orphaned:
+                    orphan_ids = [row.id for row in orphaned]
                     for row in orphaned:
-                        row.status = SwapStatus.FAILED.value
-                        row.error_message = "Reconciled at startup: EXECUTING with no tx_hash"
+                        row.status = SwapStatus.UNKNOWN.value
+                        row.error_message = (
+                            "Reconciled at startup: EXECUTING with no tx_hash. The broadcast "
+                            "may have succeeded; outcome unverified. Not retried to avoid a "
+                            "duplicate send."
+                        )
                     session.commit()
-                    logger.warning("Reconciled %d orphaned EXECUTING transactions", len(orphaned))
+                    logger.error(
+                        "Reconciled %d orphaned EXECUTING transactions to UNKNOWN "
+                        "(may have broadcast, outcome unverified, retry blocked) — "
+                        "needs on-chain verification: swap ids %s",
+                        len(orphan_ids),
+                        orphan_ids,
+                    )
         except Exception as e:
             logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
 

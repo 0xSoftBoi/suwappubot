@@ -4177,6 +4177,16 @@ class SwapEngine:
                             .filter(SwapTransaction.idempotency_key == idempotency_key)
                             .first()
                         )
+                        # DENYLIST, deliberately: only these two statuses permit
+                        # a retry, so every other status — including UNKNOWN,
+                        # which means "may have broadcast, outcome unverified" —
+                        # returns the existing row instead of sending again.
+                        # Keep it a denylist so a newly added status is
+                        # non-retryable by default, and never add UNKNOWN here:
+                        # retrying a swap that may already have moved funds is a
+                        # double spend. Callers must also keep the key stable
+                        # across retries (no time bucket), or the lookup misses
+                        # and this guard never runs at all.
                         if existing and existing.status not in [
                             SwapStatus.FAILED.value,
                             SwapStatus.CANCELLED.value,

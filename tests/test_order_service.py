@@ -107,7 +107,11 @@ def test_limit_order_executes_through_swap_engine(sqlite_db):
     assert captured["quote_kwargs"]["slippage"] == 0.5
     assert captured["execute_kwargs"]["wallet_id"] == 1
     assert captured["execute_kwargs"]["user_id"] == 1
-    assert captured["execute_kwargs"]["idempotency_key"].startswith("lo:1:")
+    # Exact, not a prefix: the key must carry no time bucket. A bucketed key
+    # (it used to end in a UTC hour) changes on every clock rollover, so the
+    # engine's idempotency lookup misses and the guard that decides whether a
+    # retry may broadcast never runs. See bot/services/orders.py.
+    assert captured["execute_kwargs"]["idempotency_key"] == "lo:1"
     assert captured["execute_kwargs"]["automated"] is True
 
     with get_session() as session:

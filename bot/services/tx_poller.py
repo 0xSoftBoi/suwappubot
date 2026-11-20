@@ -234,6 +234,12 @@ class TransactionPoller:
                 if tx.status == new_status or tx.status in (
                     SwapStatus.COMPLETED.value,
                     SwapStatus.FAILED.value,
+                    # UNKNOWN means a broadcast may have landed and we cannot
+                    # prove it. Treat it as settled here so a late poll cannot
+                    # quietly overwrite it, which would both lose the "needs
+                    # verification" marker and unblock the retry that UNKNOWN
+                    # exists to prevent. Only an on-chain check should move it.
+                    SwapStatus.UNKNOWN.value,
                 ):
                     # The legacy status may already have been written by the
                     # websocket path or an older worker. Projection is
@@ -275,7 +281,13 @@ class TransactionPoller:
 
             logger.info(f"Transaction {tx_dict['id']} status: {old_status} -> {new_status}")
 
-            if new_status in (SwapStatus.COMPLETED.value, SwapStatus.FAILED.value):
+            if new_status in (
+                SwapStatus.COMPLETED.value,
+                SwapStatus.FAILED.value,
+                # Funds may well have moved on an UNKNOWN swap, so the cached
+                # balance cannot be trusted either way.
+                SwapStatus.UNKNOWN.value,
+            ):
                 await self._invalidate_balance_cache_dict(tx_dict)
             await self._notify_user_dict(tx_dict, old_status, new_status)
         except Exception as e:

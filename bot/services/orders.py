@@ -607,7 +607,18 @@ class OrderService:
             )
 
             # 3. Execute Swap
-            idempotency_key = f"lo:{order.id}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+            #
+            # The key is stable across retries ON PURPOSE. It used to carry a
+            # UTC hour bucket, which silently defeated the idempotency guard
+            # every time the clock rolled over: the guard looks the key up and
+            # only permits a retry when the existing swap is FAILED or
+            # CANCELLED, but a new hour produced a key that matched nothing, so
+            # the guard was bypassed and the order broadcast again regardless
+            # of what the first attempt had done. With a stable key the swap's
+            # own status decides, which is what the guard is for — a genuinely
+            # failed attempt still retries, and one whose outcome is unknown
+            # does not.
+            idempotency_key = f"lo:{order.id}"
 
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -632,6 +643,25 @@ class OrderService:
                 # Notify user
                 if self._bot:
                     await self._notify_order_executed(order, swap_tx)
+
+            elif swap_tx and swap_tx.status == SwapStatus.UNKNOWN.value:
+                # The swap may already have broadcast and we cannot prove it.
+                # Take the order out of PENDING so the scanner stops re-firing
+                # it: the stable idempotency key means each retry would just
+                # hand back this same row, looping forever without ever
+                # advancing, and the one thing we must never do is send again.
+                # A human verifies on-chain and places a fresh order.
+                with get_session() as session:
+                    db_order = session.query(LimitOrder).filter(LimitOrder.id == order.id).first()
+                    if db_order:
+                        db_order.status = OrderStatus.FAILED.value
+                logger.error(
+                    "Limit order %d held: swap %s is UNKNOWN (may have broadcast, outcome "
+                    "unverified). Not retried to avoid a duplicate send; needs on-chain "
+                    "verification.",
+                    order.id,
+                    swap_tx.id,
+                )
 
         except Exception as e:
             logger.error(f"Limit order execution failed for order {order.id}: {e}")
@@ -676,7 +706,13 @@ class OrderService:
             )
 
             # 2. Execute Swap
-            idempotency_key = f"dca:{order.id}:{order.executions_completed}:{datetime.utcnow().strftime('%Y%m%d%H')}"
+            #
+            # Keyed on the execution index, with no hour bucket — see the
+            # limit-order path above for why the bucket was unsafe.
+            # executions_completed only advances on a confirmed submit, so a
+            # failed execution retries under the same key and the guard decides
+            # from the swap's status.
+            idempotency_key = f"dca:{order.id}:{order.executions_completed}"
 
             swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
@@ -716,6 +752,26 @@ class OrderService:
                 # Notify user
                 if self._bot:
                     await self._notify_dca_executed(order, swap_tx)
+
+            elif swap_tx and swap_tx.status == SwapStatus.UNKNOWN.value:
+                # May already have broadcast, outcome unprovable. Pause the
+                # schedule rather than let it come due again: executions_completed
+                # deliberately does NOT advance, so the key stays the same and
+                # every future attempt would hand back this same row forever.
+                # PAUSED is resumable, so once a human has verified the tranche
+                # on-chain the plan can continue from where it stopped.
+                with get_session() as session:
+                    db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
+                    if db_order:
+                        db_order.status = DCAStatus.PAUSED.value
+                logger.error(
+                    "DCA order %d paused: swap %s is UNKNOWN (may have broadcast, outcome "
+                    "unverified). Execution %d not counted and not retried, to avoid a "
+                    "duplicate send; needs on-chain verification before resuming.",
+                    order.id,
+                    swap_tx.id,
+                    order.executions_completed,
+                )
 
         except Exception as e:
             logger.error(f"DCA execution failed for order {order.id}: {e}")
