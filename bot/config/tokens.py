@@ -104,7 +104,7 @@ TOKENS: dict[str, TokenConfig] = {
         name="Dai Stablecoin",
         decimals=18,
         addresses={
-            "ethereum": "0x6B175474E89094C44Da98b954EedeA397C5daBE9",
+            "ethereum": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
             "bsc": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
             "polygon": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
             "arbitrum": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
@@ -282,43 +282,17 @@ TOKENS: dict[str, TokenConfig] = {
     "PATHUSD": TokenConfig(
         symbol="pathUSD",
         name="Path USD",
-        decimals=18,
+        decimals=6,  # TIP-20: 6dp on-chain (decimals() on 4217 and 42431)
         addresses={
             "tempo": "0x20c0000000000000000000000000000000000000",
         },
         logo_emoji="⚡",
         is_stablecoin=True,
     ),
-    "ALPHAUSD": TokenConfig(
-        symbol="AlphaUSD",
-        name="Alpha USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000001",
-        },
-        logo_emoji="🅰️",
-        is_stablecoin=True,
-    ),
-    "BETAUSD": TokenConfig(
-        symbol="BetaUSD",
-        name="Beta USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000002",
-        },
-        logo_emoji="🅱️",
-        is_stablecoin=True,
-    ),
-    "THETAUSD": TokenConfig(
-        symbol="ThetaUSD",
-        name="Theta USD",
-        decimals=18,
-        addresses={
-            "tempo": "0x20c0000000000000000000000000000000000003",
-        },
-        logo_emoji="🔷",
-        is_stablecoin=True,
-    ),
+    # AlphaUSD/BetaUSD/ThetaUSD (0x20c0..01-03) exist only on the Tempo
+    # testnet (Moderato, 42431). On mainnet (4217) those addresses revert with
+    # "TIP20 token error: Uninitialized", so they are not listed under "tempo".
+    # scripts/tempo_testnet_smoke.py carries its own testnet token map.
     # === Robinhood Chain (4663) anchor stablecoin ===
     # There is NO USDC on Robinhood Chain. Paxos USDG is the anchor. Two contracts
     # report symbol "USDG"; we pin the one with real supply (338.7M vs 1.1k when
@@ -588,8 +562,8 @@ TOKENS: dict[str, TokenConfig] = {
         name="Optimism",
         decimals=18,
         addresses={
+            # OP exists only on Optimism (predeploy); 0x42..42 has no code on L1.
             "optimism": "0x4200000000000000000000000000000000000042",
-            "ethereum": "0x4200000000000000000000000000000000000042",
         },
         logo_emoji="🔴",
         is_stablecoin=False,
@@ -804,7 +778,8 @@ TOKENS: dict[str, TokenConfig] = {
         name="zkSync",
         decimals=18,
         addresses={
-            "ethereum": "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",
+            # ZK lives on zkSync Era; this address has no code on Ethereum L1.
+            "zksync": "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E",
         },
         logo_emoji="⚡",
         is_stablecoin=False,
@@ -920,6 +895,9 @@ _PER_CHAIN_DECIMALS: dict[tuple[str, str], int] = {
     ("BTC", "citrea"): 18,  # native cBTC, ETH-style
     # WBTC's bsc address is actually BTCB which is 18dp NOT 8
     ("WBTC", "bsc"): 18,
+    # Solana ETH is Wormhole-wrapped (7vfCX...), 8dp on-chain NOT 18
+    ("ETH", "solana"): 8,
+    ("WETH", "solana"): 8,
 }
 
 

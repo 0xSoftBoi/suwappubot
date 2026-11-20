@@ -1119,7 +1119,7 @@ async def daily_checkin(request: Request):
         )
     except Exception as e:
         logger.error(f"daily_checkin failed for user {payload['user_id']}: {e}")
-        raise HTTPException(status_code=400, detail="Check-in failed")
+        raise HTTPException(status_code=400, detail="Check-in failed") from e
 
     return {
         "pointsEarned": points_earned,

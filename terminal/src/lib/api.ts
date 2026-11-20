@@ -73,6 +73,7 @@ import type {
   RewardsClaimPayload,
   CreateLimitOrderParams,
   LendingMarket,
+  ApiLendMarket,
   TrackedWallet,
   TrackedTwitterAccount,
   TweetData,
@@ -141,7 +142,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }))
     const friendly =
-      res.status === 401 ? 'Your session expired — reconnect your wallet.'
+      res.status === 401
+        ? token
+          ? 'Your session expired — reconnect your wallet.'
+          : 'Sign in to see this — connect a wallet, Google or passkey.'
       : res.status === 403 ? "You don't have access to that."
       : res.status === 429 ? 'Too many requests — slow down a moment.'
       : res.status >= 500 ? 'Server hiccup — please retry in a few seconds.'
@@ -151,12 +155,45 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const retryAfterHeader = res.headers.get('Retry-After')
     const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined
     throw {
-      detail: body.detail || body.message || friendly || res.statusText,
+      // For 401 our copy (sign in vs. session expired) beats the API's generic
+      // "Not authenticated".
+      detail: (res.status === 401 && friendly) || body.detail || body.message || friendly || res.statusText,
       status: res.status,
       ...(Number.isFinite(retryAfter) ? { retryAfter } : {}),
     }
   }
   return res.json()
+}
+
+const LEND_CHAIN_NAMES: Record<number, string> = {
+  1: 'Ethereum',
+  10: 'Optimism',
+  137: 'Polygon',
+  8453: 'Base',
+  42161: 'Arbitrum',
+}
+
+/** Adapt the api-ts lend wire shape (percent units) to the UI's LendingMarket (fractions). */
+export function toLendingMarket(m: ApiLendMarket): LendingMarket {
+  const pct = (v: number | null | undefined) => (Number.isFinite(v) ? (v as number) / 100 : 0)
+  const num = (v: number | null | undefined) => (Number.isFinite(v) ? (v as number) : 0)
+  return {
+    id: m.id,
+    asset: m.loanToken || '?',
+    collateral: m.collateralToken || undefined,
+    chain: m.chainId != null ? (LEND_CHAIN_NAMES[m.chainId] ?? `Chain ${m.chainId}`) : '',
+    supplyAPY: pct(m.supplyApy),
+    borrowAPY: pct(m.borrowApy),
+    utilization: pct(m.utilization),
+    totalSupplied: Number.isFinite(m.totalSupplyUsd) ? (m.totalSupplyUsd as number) : null,
+    totalBorrowed: Number.isFinite(m.totalBorrowUsd) ? (m.totalBorrowUsd as number) : null,
+    lltv: num(m.lltv),
+    // Fail closed: only an explicit listed=true counts as verified.
+    listed: m.listed === true,
+    warnings: (m.warnings ?? [])
+      .map((w) => (typeof w === 'string' ? w : w?.type ?? ''))
+      .filter(Boolean),
+  }
 }
 
 export const api = {
@@ -822,11 +859,13 @@ export const api = {
   // Lending — real routes: GET /v1/agent/lend/markets and /v1/agent/lend/market/:id
   // These endpoints are public (no agentBearerAuth) and callable from the browser.
   getLendingMarkets() {
-    return request<{ markets: LendingMarket[] }>('/v1/agent/lend/markets').then((r) => r.markets ?? [])
+    return request<{ markets: ApiLendMarket[] }>('/v1/agent/lend/markets').then((r) =>
+      (r.markets ?? []).map(toLendingMarket),
+    )
   },
 
   getLendingMarket(id: string) {
-    return request<LendingMarket>(`/v1/agent/lend/market/${id}`)
+    return request<ApiLendMarket>(`/v1/agent/lend/market/${id}`).then(toLendingMarket)
   },
 
   // Wallet tracker

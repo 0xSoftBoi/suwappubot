@@ -1,8 +1,10 @@
 import { Context, Effect, Layer } from 'effect'
 import {
 	COMMON_TOKENS,
+	commonTokenDecimals,
 	GATED_TOKEN_SYMBOLS,
 	ROBINHOOD_TOKEN_DECIMALS,
+	SOLANA_TOKENS,
 	TEMPO_TOKEN_DECIMALS,
 } from '../config/tokenRegistry'
 
@@ -10,7 +12,15 @@ import {
 // these names from '../services' — the token registry itself now lives in
 // config/tokenRegistry.ts (see docs/plans/market-data-parity.md Phase 3), the
 // single source of truth shared with routes/data.ts's reference API.
-export { COMMON_TOKENS, ROBINHOOD_TOKEN_DECIMALS, TEMPO_TOKEN_DECIMALS }
+export { COMMON_TOKENS, commonTokenDecimals, ROBINHOOD_TOKEN_DECIMALS, TEMPO_TOKEN_DECIMALS }
+
+/**
+ * Li.Fi's chain id for Solana. Solana stays out of the shared CHAINS registry
+ * (several consumers iterate CHAINS assuming EVM — see routes/agent.ts,
+ * routes/data.ts, routes/mcp.ts) and is handled as an explicit special case in
+ * resolveChain / getChainId / resolveToken below.
+ */
+export const SOLANA_LIFI_CHAIN_ID = 1151111081099710
 
 // Token info
 export interface TokenInfo {
@@ -215,6 +225,21 @@ export const CHAINS: Record<string, ChainInfo> = {
 // config/tokenRegistry.ts (imported + re-exported above) — single source of
 // truth shared with routes/data.ts's reference API.
 
+// ChainInfo-shaped descriptor for Solana, kept out of CHAINS on purpose (see
+// SOLANA_LIFI_CHAIN_ID comment above). Native SOL is represented by its wrapped
+// mint, matching how Li.Fi and Jupiter both address it.
+export const SOLANA_CHAIN_INFO: ChainInfo = {
+	id: SOLANA_LIFI_CHAIN_ID,
+	key: 'solana',
+	name: 'Solana',
+	nativeToken: 'SOL',
+	nativeTokenAddress: 'So11111111111111111111111111111111111111112',
+}
+
+function isSolanaKey(normalized: string): boolean {
+	return normalized === 'solana' || normalized === 'sol'
+}
+
 // In-memory cache for Li.Fi token resolution results
 const tokenResolutionCache = new Map<string, { result: TokenInfo | null; expiry: number }>()
 const TOKEN_RESOLUTION_TTL = 10 * 60 * 1000 // 10 minutes
@@ -252,6 +277,11 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 	resolveChain: (chainInput: string) => {
 		const normalized = chainInput.toLowerCase().trim()
 
+		// Solana is not in CHAINS (EVM-only registry) — explicit special case.
+		if (isSolanaKey(normalized)) {
+			return SOLANA_CHAIN_INFO
+		}
+
 		// Try direct lookup
 		if (CHAINS[normalized]) {
 			return CHAINS[normalized]
@@ -260,6 +290,7 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 		// Try as chain ID
 		const chainId = parseInt(normalized, 10)
 		if (!isNaN(chainId)) {
+			if (chainId === SOLANA_LIFI_CHAIN_ID) return SOLANA_CHAIN_INFO
 			const chain = Object.values(CHAINS).find((c) => c.id === chainId)
 			if (chain) return chain
 		}
@@ -271,6 +302,9 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 		if (typeof chainInput === 'number') return chainInput
 
 		const normalized = chainInput.toLowerCase().trim()
+		if (isSolanaKey(normalized)) {
+			return SOLANA_LIFI_CHAIN_ID
+		}
 		if (CHAINS[normalized]) {
 			return CHAINS[normalized].id
 		}
@@ -292,20 +326,45 @@ export const TokenServiceLive = Layer.succeed(TokenService, {
 				return null
 			}
 
+			// Solana: resolve from the on-chain-verified registry only. The Li.Fi
+			// fallback below is EVM-only (isValidLifiToken requires a 0x address),
+			// and Solana mints are cheap to spoof upstream — registry-only keeps
+			// the cross-chain quote path at the same trust level as the Jupiter
+			// path. Extend here (not via Li.Fi) when new Solana tokens are needed.
+			if (chainId === SOLANA_LIFI_CHAIN_ID) {
+				const entry = SOLANA_TOKENS[normalized]
+				if (!entry) return null
+				return {
+					address: entry.address,
+					symbol: normalized,
+					decimals: entry.decimals,
+					name: entry.name,
+					chainId,
+				}
+			}
+
 			// Check common tokens first
 			const chainTokens = COMMON_TOKENS[chainId]
 			// 6-decimal stablecoins (USDC, USDT, TIP-20 tokens on Tempo, USDG on Robinhood Chain).
 			// USDG MUST stay here: it is 6dp on-chain, and defaulting it to 18 would
 			// misprice every Robinhood Chain quote by 1e12.
 			// USTB/USCC (Superstate fund tokens) are 6dp on-chain like USDC.
-			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDC.E', 'BUSD', 'PATHUSD', 'ALPHAUSD', 'BETAUSD', 'THETAUSD', 'USDG', 'USTB', 'USCC'])
+			const DECIMALS_6 = new Set(['USDC', 'USDT', 'USDT0', 'USDC.E', 'BUSD', 'PATHUSD', 'USDG', 'USTB', 'USCC'])
 
-			if (chainTokens && chainTokens[normalized]) {
+			// Case-insensitive: `normalized` is uppercased, but registry keys like
+			// 'USDC.e' / 'pathUSD' / 'USDe' are mixed-case and never matched a direct
+			// lookup — those tokens silently fell through to Li.Fi instead of the
+			// on-chain-verified registry entry.
+			const registryKey = chainTokens
+				? Object.keys(chainTokens).find((k) => k.toUpperCase() === normalized)
+				: undefined
+			if (chainTokens && registryKey) {
 				return {
-					address: chainTokens[normalized],
-					symbol: normalized,
-					decimals: DECIMALS_6.has(normalized) ? 6 : 18,
-					name: normalized,
+					address: chainTokens[registryKey],
+					symbol: registryKey,
+					// On-chain table first; the symbol guess is only a fallback.
+					decimals: commonTokenDecimals(chainId, registryKey) ?? (DECIMALS_6.has(normalized) ? 6 : 18),
+					name: registryKey,
 					chainId,
 				}
 			}

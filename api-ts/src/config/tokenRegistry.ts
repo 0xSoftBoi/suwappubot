@@ -36,6 +36,8 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		// from ever offering them to the swap path.
 		USTB: '0x43415eB6ff9DB7E26A15b704e7A3eDCe97d31C4e',
 		USCC: '0x14d60E7FDC0D71d8611742720E4C50E7a974020c',
+		// JPYC — yen-pegged stablecoin, JPYC Inc. (Circle-backed via Series A). 18 decimals, not 6.
+		JPYC: '0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29',
 	},
 	// Optimism
 	10: {
@@ -62,6 +64,7 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		'USDC.e': '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
 		USDT: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
 		DAI: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063',
+		JPYC: '0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29',
 	},
 	// Arbitrum
 	42161: {
@@ -86,13 +89,13 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 		USDC: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
 		'USDC.e': '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664',
 		USDT: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+		JPYC: '0xE7C3D8C9a439feDe00D2600032D5dB0Be71C3c29',
 	},
-	// Tempo
+	// Tempo — only pathUSD exists on mainnet. AlphaUSD/BetaUSD/ThetaUSD
+	// (0x20c0..01-03) are Moderato-testnet-only; on 4217 they revert
+	// "TIP20 token error: Uninitialized".
 	4217: {
 		pathUSD: '0x20c0000000000000000000000000000000000000',
-		AlphaUSD: '0x20c0000000000000000000000000000000000001',
-		BetaUSD: '0x20c0000000000000000000000000000000000002',
-		ThetaUSD: '0x20c0000000000000000000000000000000000003',
 	},
 	// Robinhood Chain — anchor stablecoin is Paxos USDG, there is NO USDC here.
 	// The two on-chain contracts both report symbol "USDG"; 0x5fc5... is the real
@@ -106,8 +109,10 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 	// Plasma (zero-fee stablecoin L1)
 	9745: {
 		XPL: '0x0000000000000000000000000000000000000000',
-		USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-		USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+		// USDT0 is Plasma's USD stablecoin (symbol "USDT0", 6dp — verified on-chain).
+		// The USDT/USDC entries here were the ETHEREUM mainnet addresses (no code on
+		// Plasma); bot/config/tokens.py already dropped them for the same reason.
+		USDT0: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
 	},
 }
 
@@ -118,17 +123,62 @@ export const COMMON_TOKENS: Record<number, Record<string, string>> = {
 // match resolveToken's symbol normalization.
 export const GATED_TOKEN_SYMBOLS: ReadonlySet<string> = new Set(['USTB', 'USCC'])
 
+// On-chain decimals for every COMMON_TOKENS entry, read via decimals() on each
+// chain (2026-09-26). Symbol-based guessing ("USDC/USDT -> 6, else 18") was wrong
+// for BSC's Binance-Peg USDC/USDT/BUSD (18dp), WBTC (8dp), and 6dp tokens like
+// pathUSD/USDG/USDT0/USTB/USCC. Keep this in sync when adding a registry token.
+export const COMMON_TOKEN_DECIMALS: Record<number, Record<string, number>> = {
+	// Ethereum
+	1: {
+		ETH: 18,
+		WETH: 18,
+		USDC: 6,
+		USDT: 6,
+		DAI: 18,
+		WBTC: 8,
+		SUSDE: 18,
+		ENA: 18,
+		PENDLE: 18,
+		MORPHO: 18,
+		USTB: 6,
+		USCC: 6,
+	},
+	// Optimism
+	10: { ETH: 18, WETH: 18, USDC: 6, 'USDC.e': 6, USDT: 6, DAI: 18 },
+	// BSC — Binance-Peg stables are 18dp
+	56: { BNB: 18, WBNB: 18, USDC: 18, USDT: 18, BUSD: 18 },
+	// Polygon
+	137: { MATIC: 18, WMATIC: 18, USDC: 6, 'USDC.e': 6, USDT: 6, DAI: 18 },
+	// Tempo
+	4217: { pathUSD: 6 },
+	// Robinhood Chain
+	4663: { ETH: 18, WETH: 18, USDG: 6, USDe: 18 },
+	// Base
+	8453: { ETH: 18, WETH: 18, USDC: 6, DAI: 18 },
+	// Plasma
+	9745: { XPL: 18, USDT0: 6 },
+	// Arbitrum
+	42161: { ETH: 18, WETH: 18, USDC: 6, 'USDC.e': 6, USDT: 6, DAI: 18 },
+	// Avalanche
+	43114: { AVAX: 18, WAVAX: 18, USDC: 6, 'USDC.e': 6, USDT: 6 },
+}
+
+/** Decimals for a COMMON_TOKENS symbol on a chain (case-insensitive), or undefined. */
+export function commonTokenDecimals(chainId: number, symbol: string): number | undefined {
+	const m = COMMON_TOKEN_DECIMALS[chainId]
+	if (!m) return undefined
+	if (m[symbol] !== undefined) return m[symbol]
+	const up = symbol.toUpperCase()
+	for (const [k, v] of Object.entries(m)) if (k.toUpperCase() === up) return v
+	return undefined
+}
+
 // Decimals for Tempo TIP-20 tokens (chain 4217). Kept as a parallel map — not folded
 // into COMMON_TOKENS' address-only shape — to avoid churning every other chain's entry.
-// Authoritative source: bot/config/tokens.py TOKENS["PATHUSD"|"ALPHAUSD"|"BETAUSD"|"THETAUSD"]
-// all declare decimals=18 (get_token_decimals() has no Tempo-specific override, unlike the
-// GOAT/Citrea per-chain pins), and bot/services/swap_engine.py's _get_tempo_dex_quote() scales
-// raw amounts using that same 18. There is no on-chain "6dp USDC-style" override for Tempo.
+// TIP-20 stablecoins are 6 decimals on-chain (decimals() on 4217 and 42431). This map
+// and bot/config/tokens.py previously said 18, a 10^12 scaling error.
 export const TEMPO_TOKEN_DECIMALS: Record<string, number> = {
-	pathUSD: 18,
-	AlphaUSD: 18,
-	BetaUSD: 18,
-	ThetaUSD: 18,
+	pathUSD: 6,
 }
 
 // Decimals for Robinhood Chain (4663) tokens. USDG is 6dp like USDC; the ~100

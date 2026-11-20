@@ -1,0 +1,107 @@
+# Instincts generated from https://github.com/0xSoftBoi/suwappubot
+# Generated: 2026-09-01T01:09:17.622Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: suwappubot-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: fix, docs, chore, feat, perf
+
+## Evidence
+
+- 16 commits analyzed
+- Detected conventional commit pattern
+- Examples: chore(harness): append session journal record, docs(research): Hyperliquid HIP-4 / primitives launch findings
+
+---
+id: suwappubot-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Commit Length
+
+## Action
+
+Write moderate-length commit messages (~66 characters)
+
+## Evidence
+
+- Average commit message length: 66 chars
+- Based on 16 commits
+
+---
+id: suwappubot-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: suwappubot-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: suwappubot-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/0xSoftBoi/suwappubot
+---
+
+# Suwappubot Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+

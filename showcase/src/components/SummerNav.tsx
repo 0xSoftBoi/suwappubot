@@ -1,10 +1,11 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
 import ProductMenu from './ProductMenu';
 import NavDrawer from './NavDrawer';
+import LanguageSwitcher from './LanguageSwitcher';
 
 /**
  * SummerNav: the homepage header.
@@ -16,6 +17,7 @@ import NavDrawer from './NavDrawer';
 export default function SummerNav() {
   const nav = useTranslations('nav');
   const hero = useTranslations('home.hero');
+  const locale = useLocale();
 
   return (
     <header className="summer-nav">
@@ -26,15 +28,17 @@ export default function SummerNav() {
 
       <nav aria-label="Primary navigation" className="summer-nav__menu">
         <ProductMenu triggerClassName="summer-nav__trigger" />
-        <a href="/products"><strong>Explore</strong></a>
         <a href="/dashboard/signals">Signals <span aria-hidden="true">↗</span></a>
         <a href="/research">Research</a>
+        <a href="/passport">{nav('passport')}</a>
+        <a href="/arbiter">{nav('arbiter')}</a>
         <a href="/pricing">{nav('pricing')}</a>
         <a href="/docs">{nav('docs')}</a>
         <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">{hero('telegramNav')}</a>
       </nav>
 
       <div className="summer-nav__actions">
+        <LanguageSwitcher current={locale} />
         <a
           className="summer-nav__cta"
           href={TERMINAL_URL}
@@ -57,6 +61,8 @@ export default function SummerNav() {
             { href: '/products', label: 'Explore all products' },
             { href: '/dashboard/signals', label: 'Signal Intelligence' },
             { href: '/research', label: 'Research' },
+            { href: '/passport', label: nav('passport') },
+            { href: '/arbiter', label: nav('arbiter') },
             { href: '/pricing', label: nav('pricing') },
             { href: '/docs', label: nav('docs') },
             { href: TELEGRAM_URL, label: hero('telegramNav'), external: true },

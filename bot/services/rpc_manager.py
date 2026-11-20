@@ -20,6 +20,8 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse, urlsplit
 
 import aiohttp
+import requests
+from requests.adapters import HTTPAdapter
 from web3 import Web3
 
 try:
@@ -58,7 +60,8 @@ _QUOTA_ERROR = re.compile(
 _UNRECOVERABLE_ERROR = re.compile(
     r"name or service not known|temporary failure in name resolution|"
     r"nodename nor servname|no address associated with hostname|"
-    r"\bhttp_401\b|\bhttp_403\b",
+    r"\bhttp_401\b|\bhttp_403\b|"
+    r"method .{0,20}not supported|eth_call unsupported|-32601",
     re.IGNORECASE,
 )
 
@@ -360,6 +363,11 @@ class RPCEndpoint:
         return time.monotonic() < self.circuit_open_until
 
     @property
+    def is_parked(self) -> bool:
+        """Circuit open on a long (quota / unrecoverable) cooldown, not a short backoff."""
+        return self.circuit_open_until - time.monotonic() > 600
+
+    @property
     def health_score(self) -> float:
         """Score 0..~1.5 combining success rate, latency, and tier."""
         if self.is_circuit_open:
@@ -456,6 +464,13 @@ class RPCEndpoint:
             self.total_requests = max(1, self.total_requests // 2)
             self.successful_requests = max(0, self.successful_requests // 2)
             self.total_latency_ms /= 2
+
+
+# Shared by every Web3 HTTPProvider this manager creates. requests.Session is
+# safe for concurrent use; the multicall executor runs up to 32 threads.
+_HTTP_SESSION = requests.Session()
+_HTTP_SESSION.mount("https://", HTTPAdapter(pool_connections=64, pool_maxsize=64))
+_HTTP_SESSION.mount("http://", HTTPAdapter(pool_connections=16, pool_maxsize=16))
 
 
 class RPCManager:
@@ -730,6 +745,12 @@ class RPCManager:
         endpoints = self._endpoints.get(chain_name, [])
         return [ep.url for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True)]
 
+    def get_healthy_urls(self, chain_name: str) -> List[str]:
+        """URLs whose circuit is closed, best health first (for failover retries)."""
+        chain_name = chain_name.lower()
+        endpoints = [ep for ep in self._endpoints.get(chain_name, []) if not ep.is_circuit_open]
+        return [ep.url for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True)]
+
     def report_success(self, chain_name: str, url: str, latency_ms: float):
         """Report a successful RPC call."""
         ep = self._find_endpoint(chain_name.lower(), url)
@@ -742,13 +763,29 @@ class RPCManager:
         ep = self._find_endpoint(chain_name, url)
         if ep:
             ep.record_failure(error)
-            cached = self._web3_cache.get(chain_name)
-            if cached and cached[1] == url:
-                self._web3_cache.pop(chain_name, None)
+            # Drop the cached client so the next call re-selects an endpoint
+            # (immediate failover). This is cheap now that every provider
+            # shares _HTTP_SESSION: before, each rebuilt web3 v7 HTTPProvider
+            # owned an HTTPSessionManager caching a requests.Session PER THREAD
+            # (pool + SSL context each, native memory tracemalloc never sees),
+            # ~32 sessions per rebuild under the multicall executor.
+            self._drop_web3(chain_name, url)
 
     def invalidate(self, chain_name: str):
         """Force re-selection of endpoint for a chain."""
-        self._web3_cache.pop(chain_name.lower(), None)
+        self._drop_web3(chain_name.lower())
+
+    def _drop_web3(self, chain_name: str, url: Optional[str] = None) -> None:
+        cached = self._web3_cache.get(chain_name)
+        if not cached or (url is not None and cached[1] != url):
+            return
+        self._web3_cache.pop(chain_name, None)
+        # Best-effort release of the provider's private session manager so its
+        # thread pool doesn't outlive the dropped client.
+        try:
+            cached[0].provider._request_session_manager.session_pool.shutdown(wait=False)
+        except Exception:
+            pass
 
     def get_health_report(self) -> Dict:
         """Health report for admin status."""
@@ -758,7 +795,9 @@ class RPCManager:
             for ep in sorted(endpoints, key=lambda e: e.health_score, reverse=True):
                 eps.append(
                     {
-                        "url": ep.url[:60] + ("..." if len(ep.url) > 60 else ""),
+                        # _safe_url, not truncation: keys can sit in the path
+                        # (Alchemy) or query string (dRPC ?dkey=).
+                        "url": _safe_url(ep.url),
                         "tier": ep.tier.name,
                         "score": round(ep.health_score, 3),
                         "success_rate": round(ep.success_rate, 2),
@@ -783,6 +822,10 @@ class RPCManager:
             Web3.HTTPProvider(
                 rpc_url,
                 request_kwargs={"timeout": 3, "headers": {"Content-Type": "application/json"}},
+                # One process-wide session. With an explicit session the
+                # provider's manager never builds its own per-thread sessions,
+                # pools or SSL contexts (see report_failure).
+                session=_HTTP_SESSION,
             )
         )
         if chain_name in POA_CHAINS:
@@ -816,6 +859,14 @@ class RPCManager:
             if chain_name in ("solana", "tron"):
                 continue
             for ep in endpoints:
+                # Parked endpoints sit out their full cooldown. Probing them
+                # anyway let one lucky 200 from a load-balanced provider
+                # (drpc.org answers eth_blockNumber on unsupported chains only
+                # some of the time) call record_success() and clear a 6h park,
+                # so the endpoint flapped back into rotation and re-logged
+                # "circuit OPEN (endpoint gone or gated)" every few minutes.
+                if ep.is_parked:
+                    continue
                 tasks.append(self._health_check_one(sem, ep))
 
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -843,7 +894,36 @@ class RPCManager:
                             ep.record_failure("rate_limited_429")
                             return
                         if resp.status != 200:
-                            ep.record_failure(f"http_{resp.status}")
+                            # Some gateways (drpc.org) answer an unsupported
+                            # chain/method with HTTP 400 and the JSON-RPC error
+                            # in the body rather than HTTP 200 — e.g.
+                            # apechain/soneium/abstract/klaytn on drpc.org all
+                            # 400 eth_blockNumber with -32601 "method ... does
+                            # not exist". Reading the body here lets that reach
+                            # the same permanent-unsupported classification as
+                            # a 200 response would, instead of being logged as
+                            # a generic transient http_400 and retried in
+                            # seconds forever.
+                            try:
+                                body = await resp.json()
+                            except (aiohttp.ContentTypeError, ValueError):
+                                body = None
+                            error = body.get("error") if isinstance(body, dict) else None
+                            if error and _is_method_unsupported(error):
+                                # The literal phrase "method not supported" must
+                                # come before any truncation so it survives into
+                                # _UNRECOVERABLE_ERROR's regex match — the raw
+                                # error dict (e.g. drpc's "does not exist/is not
+                                # available") doesn't itself contain a phrase the
+                                # regex recognizes, and str(error)[:60] can cut
+                                # off the -32601 code before it appears.
+                                ep.record_failure(
+                                    f"method not supported (http_{resp.status}): "
+                                    f"{str(error)[:60]}",
+                                    fatal=True,
+                                )
+                            else:
+                                ep.record_failure(f"http_{resp.status}")
                             return
                         data = await resp.json()
                         if "error" in data:

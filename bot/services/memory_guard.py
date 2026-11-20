@@ -290,7 +290,12 @@ class MemoryGuard:
     async def _loop(self) -> None:
         while True:
             try:
-                self.tick()
+                # Off the event loop: above the soft limit tick() walks every live
+                # object (gc.get_objects) and takes a tracemalloc snapshot. Run
+                # inline, that froze the loop for seconds once a minute, so every
+                # pending asyncio timeout in the process (balance RPCs, pollers)
+                # expired at once. os._exit on the hard path works from any thread.
+                await asyncio.to_thread(self.tick)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # never let the guard itself take the process down

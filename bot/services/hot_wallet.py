@@ -1845,24 +1845,13 @@ class HotWalletService:
     async def _sign_via_turnkey(self, wallet: HotWallet, transaction: dict) -> str:
         """Sign a transaction via Turnkey API."""
         from bot.services.turnkey_client import get_turnkey_client
-        import rlp
 
         client = get_turnkey_client()
 
-        # Serialize transaction for Turnkey
-        tx_data = [
-            transaction.get("nonce", 0),
-            transaction.get("gasPrice", 0),
-            transaction.get("gas", 21000),
-            bytes.fromhex(transaction["to"][2:]) if transaction.get("to") else b"",
-            transaction.get("value", 0),
-            bytes.fromhex(transaction.get("data", "0x")[2:]) if transaction.get("data") else b"",
-            transaction.get("chainId", 1),
-            0,
-            0,
-        ]
-        encoded = rlp.encode(tx_data)
-        unsigned_tx_hex = "0x" + encoded.hex()
+        # Serialize transaction for Turnkey (requires chainId; see serialize_unsigned_evm_tx)
+        from bot.services.wallet import serialize_unsigned_evm_tx
+
+        unsigned_tx_hex = serialize_unsigned_evm_tx(transaction)
 
         signed_tx = await client.sign_transaction(
             unsigned_transaction=unsigned_tx_hex,

@@ -15,6 +15,7 @@ import {
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
+import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
 	adminRoutes,
@@ -26,6 +27,9 @@ import {
 	createTerminalSwapProxyRoutes,
 	dataRoutes,
 	enterpriseRoutes,
+	hackathonRoutes,
+	arbiterRoutes,
+	nearRoutes,
 	healthRoutes,
 	internalRoutes,
 	lendRoutes,
@@ -73,6 +77,10 @@ export interface AppConfig {
 	// Only when 'true' is the OTel request-tracing middleware registered at
 	// all — see the otelRequestTracing() call below and lib/otel.ts.
 	otelEnabled?: string | undefined
+	// ETHGlobal Tokyo 2026 trust-layer demo routes. When true, /hackathon/*
+	// is mounted (see index.ts — decoded from EnvService at boot).
+	hackathonTrustLayer?: boolean | undefined
+	hackathonArbiter?: boolean | undefined
 }
 
 // Per-request context variables set by middleware (see request-ID middleware below).
@@ -155,6 +163,53 @@ export function createApp(config: AppConfig) {
 
 	// Public swap routes for showcase site
 	app.route('/public/swap', publicSwapRoutes)
+
+	// HACKATHON (Tokyo 2026 trust layer): World ID demo routes. Flag-gated —
+	// unmounted by default, so the surface doesn't exist unless explicitly
+	// enabled. MONEY-PATH adjacent (demo only): no production approval or
+	// execution flow reads these endpoints.
+	// OPENAPI TREATMENT: /hackathon/* is intentionally EXCLUDED from the
+	// public OpenAPI spec (openapi-agent.json, served at /v1/agent/openapi).
+	// The spec documents the versioned /v1/agent public surface; hackathon
+	// routes are unversioned demo endpoints and must never be presented as
+	// public API. The spec generator only derives from src/routes/validators.ts,
+	// so exclusion holds by construction — do not add hackathon schemas there.
+	if (config.hackathonTrustLayer) {
+		// Demo-only surface, but it shares the process with money routes —
+		// same defense pattern as /mcp: a loose floor on the whole router plus
+		// a tight budget on the one endpoint that spawns background work.
+		app.use('/hackathon/*', bodyLimit({ maxSize: 4 * 1024 }))
+		// Per-IP limits here are a coarse floor, NOT the gas guard: judges at the
+		// venue share one NAT'd IP, and without CF_PROVENANCE_SECRET the key is
+		// a proxy hop, so tight per-IP caps would lock out the whole room. The
+		// page also polls (/status every 20s, /passport/verify and swap jobs
+		// every 2s), so the floor must clear a normal session comfortably.
+		// Relayer gas is protected by relayerGuard (per-wallet cooldown + global
+		// in-flight cap) and World ID itself (one passport per human).
+		app.use('/hackathon/*', ipRateLimit(240))
+		app.use('/hackathon/world-id/start', ipRateLimit(30))
+		app.use('/hackathon/passport/start', ipRateLimit(30))
+		app.use('/hackathon/passport/swap', ipRateLimit(30))
+		app.route('/hackathon', hackathonRoutes)
+	}
+
+	// NEAR first-class surface: public, read-only (asset registry + OutLayer custody
+	// reads + NEAR Intents quote). Caller's wk_ key is passthrough-only. Not in the
+	// OpenAPI spec yet (unversioned until the shape settles).
+	app.use('/v1/near/*', bodyLimit({ maxSize: 8 * 1024 }))
+	app.use('/v1/near/*', ipRateLimit(120))
+	app.route('/v1/near', nearRoutes)
+
+	// HACKATHON (NEAR 2026): Arbiter demo routes. Flag-gated — unmounted by
+	// default (surface doesn't exist unless HACKATHON_ARBITER=true).
+	// Evidence size can exceed 4 KB (webhook blobs), so a larger body limit
+	// and no background work on these routes; rate floor still applies.
+	// OPENAPI TREATMENT: excluded from the public spec, same as /hackathon/*.
+	if (config.hackathonArbiter) {
+		app.use('/hackathon/arbiter/*', bodyLimit({ maxSize: 64 * 1024 }))
+		app.use('/hackathon/arbiter/*', ipRateLimit(120))
+		app.route('/hackathon/arbiter', arbiterRoutes)
+	}
 
 	// MONEY-PATH: standalone Terminal's POST swap contract still lives in Python.
 	// This exact-path gateway must be mounted before swapRoutes; requests carrying

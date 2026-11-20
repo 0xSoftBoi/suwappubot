@@ -1,0 +1,324 @@
+/* Agent Swap Passport — focused three-step stage. Tokens come from globals.css
+   (--sw-accent*, --sw-danger*, --sw-success); fallbacks keep it rendering if
+   a token is renamed. */
+
+.stage {
+  --ink: #f4f4f6;
+  --muted: rgba(244, 244, 246, 0.62);
+  --faint: rgba(244, 244, 246, 0.38);
+  --line: rgba(244, 244, 246, 0.09);
+  --card: rgba(255, 255, 255, 0.035);
+  --good: var(--sw-success, #4ade80);
+  --bad: var(--sw-danger-bright, #f2a5a0);
+  width: 100%;
+  max-width: 580px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+  color: var(--ink);
+  box-sizing: border-box;
+}
+
+/* ── Agent identity ── */
+.agent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+}
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.agentText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.agentLabel {
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agentAddr {
+  all: unset;
+  cursor: pointer;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.agentAddr:hover { color: var(--ink); }
+.agentAddr:focus-visible { outline: 2px solid var(--sw-accent); outline-offset: 2px; border-radius: 4px; }
+.agentInput {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ghostBtn {
+  flex: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.ghostBtn:hover { background: rgba(255, 255, 255, 0.06); border-color: rgba(244, 244, 246, 0.2); }
+
+/* ── Stepper rail ── */
+.rail {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  counter-reset: none;
+}
+.railItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--faint);
+  padding-top: 10px;
+  border-top: 2px solid var(--line);
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+.railItem[data-state='active'],
+.railItem[data-state='busy'] { color: var(--ink); border-top-color: var(--sw-accent); }
+.railItem[data-state='done'] { color: var(--muted); border-top-color: color-mix(in srgb, var(--good) 70%, transparent); }
+.railItem[data-state='failed'] { color: var(--bad); border-top-color: var(--bad); }
+.railDot {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid currentColor;
+}
+.railItem[data-state='done'] .railDot { color: var(--good); }
+.railLabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Steps ── */
+.steps { display: flex; flex-direction: column; gap: 8px; }
+.step {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  overflow: hidden;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+.step[data-open] {
+  border-color: color-mix(in srgb, var(--sw-accent) 35%, transparent);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 20px 50px -30px color-mix(in srgb, var(--sw-accent) 45%, transparent);
+}
+.step[data-state='locked'] { opacity: 0.5; }
+.stepHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 24px;
+}
+.stepNum {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.step[data-open] .stepNum { color: #14100a; background: var(--sw-accent); border-color: transparent; }
+.step[data-state='done'] .stepNum { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+.step[data-state='failed'] .stepNum { color: var(--bad); border-color: var(--bad); }
+.stepTitle { font-weight: 600; font-size: 0.95rem; flex: none; }
+.stepSummary {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--faint);
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stepSummary a { color: inherit; }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.stepBody {
+  padding: 0 16px 16px 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.copy { margin: 0; color: var(--muted); font-size: 0.92rem; line-height: 1.55; }
+.error { margin: 0; color: var(--bad); font-size: 0.85rem; }
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
+  color: #14100a;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  align-self: flex-start;
+  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--sw-accent) 70%, transparent);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.cta:hover:not(:disabled) { transform: translateY(-1px); }
+.cta:disabled { cursor: progress; opacity: 0.85; }
+.cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+.spin { display: inline-flex; align-items: center; gap: 8px; }
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; color: var(--muted); }
+.progress li[data-done]::before { content: '✓  '; color: var(--good); }
+
+/* ── Result row ── */
+.result {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.result[data-tone='bad'] { background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.result[data-tone='good'] { background: color-mix(in srgb, var(--good) 8%, transparent); }
+.resultIcon { font-weight: 700; }
+.result[data-tone='bad'] .resultIcon { color: var(--bad); }
+.result[data-tone='good'] .resultIcon { color: var(--good); }
+.resultTitle { display: flex; gap: 8px; font-weight: 600; }
+.resultTitle a { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+.resultBody { display: block; color: var(--muted); }
+
+/* ── Payoff passport ── */
+.passport {
+  position: relative;
+  padding: 24px 22px 20px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--sw-accent) 40%, transparent);
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--sw-accent) 16%, transparent), transparent 55%),
+    rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 30px 80px -40px color-mix(in srgb, var(--sw-accent) 60%, transparent);
+}
+.kicker {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.passportName {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: clamp(1.8rem, 1.2rem + 2.4vw, 2.6rem);
+  line-height: 1.05;
+  color: var(--ink);
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  word-break: keep-all;
+}
+.passportName span {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.passportName:hover span { color: var(--ink); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 10%, transparent);
+}
+.beforeAfter { display: flex; align-items: stretch; gap: 10px; }
+.ba {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+}
+.ba[data-tone='bad'] { background: color-mix(in srgb, var(--bad) 8%, transparent); color: var(--bad); }
+.ba[data-tone='good'] { background: color-mix(in srgb, var(--good) 8%, transparent); color: var(--good); }
+.baLabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.baArrow { align-self: center; color: var(--faint); }
+.note { margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; }
+.links a { color: var(--muted); text-decoration: none; }
+.links a:hover { color: var(--ink); text-decoration: underline; }
+.passport .ghostBtn { align-self: flex-start; }
+
+@media (max-width: 520px) {
+  .stepBody { padding-left: 16px; }
+  .railLabel { font-size: 0.7rem; }
+  .stepSummary { display: none; }
+  .step:not([data-open]) .stepSummary { display: block; max-width: 45%; }
+  .beforeAfter { flex-direction: column; }
+  .baArrow { transform: rotate(90deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+}

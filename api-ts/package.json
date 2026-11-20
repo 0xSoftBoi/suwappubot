@@ -8,6 +8,7 @@
 		"build": "bun build src/index.ts --outdir ./dist --target bun",
 		"check": "tsc --noEmit",
 		"verify:smart-account": "bun run scripts/verify-smart-account-send.ts",
+		"smoke:world-id": "bun run scripts/smoke-world-id.ts",
 		"test": "bun test src/__tests__/",
 		"test:watch": "bun test --watch src/__tests__/",
 		"test:coverage": "bun test --coverage src/__tests__/",
@@ -18,7 +19,8 @@
 		"db:push": "drizzle-kit push",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
-		"check:mcp": "bun run scripts/check-mcp-schemas.ts"
+		"check:mcp": "bun run scripts/check-mcp-schemas.ts",
+		"backfill:agent-wallets": "bun run scripts/backfill-agent-wallets.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.120.0",
@@ -33,10 +35,12 @@
 		"@turnkey/api-key-stamper": "^0.6.1",
 		"@turnkey/sdk-server": "^6.1.1",
 		"@types/jsonwebtoken": "^9.0.10",
+		"@worldcoin/idkit-core": "4.2.2",
 		"@x402/core": "^2.16.0",
 		"drizzle-orm": "^0.45.1",
 		"effect": "^3.10.0",
 		"esbuild": "^0.28.1",
+		"fast-geoip": "^1.1.88",
 		"hono": "^4.6.0",
 		"ioredis": "^5.9.3",
 		"jsonwebtoken": "^9.0.3",

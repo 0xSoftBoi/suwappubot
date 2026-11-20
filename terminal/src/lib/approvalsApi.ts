@@ -55,12 +55,16 @@ async function agentRequest<T>(path: string, options: RequestInit = {}): Promise
   const body = await res.json().catch(() => ({}) as Record<string, unknown>)
   if (!res.ok) {
     const friendly =
-      res.status === 401 ? 'Your session expired — reconnect your wallet.'
+      res.status === 401
+        ? token
+          ? 'Your session expired — reconnect your wallet.'
+          : 'Sign in to see this — connect a wallet, Google or passkey.'
       : res.status === 403 ? "You don't have access to that."
       : res.status === 429 ? 'Too many requests — slow down a moment.'
       : res.status >= 500 ? 'Server hiccup — please retry in a few seconds.'
       : null
     const detail =
+      (res.status === 401 && friendly) ||
       (body as { error?: string; detail?: string; message?: string }).error ||
       (body as { detail?: string }).detail ||
       (body as { message?: string }).message ||

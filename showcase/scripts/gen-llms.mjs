@@ -41,6 +41,15 @@ const INSTRUCTIONS = `## Instructions for LLM Agents
 - Agent-surface swap fees are route/configuration-specific rather than subscription-tier discounts. Inspect the live quote; do not hardcode an EVM/Solana fee into strategy economics.
 - Every docs page is available as clean Markdown by appending \`.md\` to its URL (or sending \`Accept: text/markdown\`).`;
 
+const ARBITER = `## Suwappu Arbiter (Proof of Done)
+
+- Page: https://suwappu.bot/arbiter — machine-readable evidence: https://suwappu.bot/arbiter.json
+- Escrow for agent work: release-or-refund is decided by a hash-pinned arbiter WASM run on NEAR OutLayer (Intel TDX), not by either party. Each verdict emits a portable work attestation (spec \`suwappu.arbiter/v1\`).
+- Live on NEAR TESTNET only: contract \`arb2.suwappu-arbiter.testnet\`, arbiter wasm sha256 \`f1818167768f6b2b84b2031071760395d3e4a88cf319de3539d0d2068ad6412b\`, the enclave fetches the PR from GitHub itself (no shared secret), not third-party audited, no real funds. Details: https://github.com/0xSoftBoi/suwappubot/blob/main/docs/arbiter-production.md. Verify with \`sha256sum\`, \`near view\`, \`near tx\` (commands in /arbiter.json).
+- v1 verifies deterministic, machine-checkable rubrics (GitHub PR merge); it proves "done as specified", not "good".
+- Also on testnet only: a separate contract \`suwappu-arb3.testnet\` (code sha256 \`667f4c62a77bdb59442d74daf75d2bb6c093c8bb1fcf893e4bba6562cff9ba8a\`) that pins two rubrics: the PR rubric and \`http_json_v1\`, where the enclave fetches an HTTPS endpoint and checks conditions on the JSON it returns. It fixes a late-callback double-payment bug that the contract above still has, but that fix was tested only in a local harness. Known limits: a condition already true at creation can be paid out immediately; the account that signs the resolve call shows about 0.3 NEAR less balance during it; whoever controls the checked endpoint controls the verdict; not audited. See the \`contract_v3\` block in /arbiter.json.
+- Roadmap, NOT shipped: mainnet, independent audit, in-contract TDX quote verification, NEAR Intents funding, Agent Market integration, LLM-judged rubrics.`;
+
 // Sections kept in the curated index vs moved to the droppable "Optional" group.
 const OPTIONAL_IDS = new Set(['chains-reference', 'guides']);
 
@@ -70,6 +79,8 @@ const llms = [
   '',
   INSTRUCTIONS,
   '',
+  ARBITER,
+  '',
   ...main.map(sectionBlock).flatMap((b) => [b, '']),
   '## Optional',
   optionalLines.join('\n'),
@@ -77,7 +88,7 @@ const llms = [
 ].join('\n');
 
 // ---- llms-full.txt (full corpus) ----
-const fullParts = [H1, '', SUMMARY, '', PREAMBLE, ''];
+const fullParts = [H1, '', SUMMARY, '', PREAMBLE, '', ARBITER, ''];
 for (const section of docs.sections) {
   fullParts.push(`\n\n# ${section.title}\n`);
   for (const page of section.pages) {

@@ -119,7 +119,7 @@ List all available tools and their input schemas:
 
 **Response:**
 
-Returns the live tool definitions and input schemas. Source `0.6.0` currently advertises **22 tools**; `tools/list` is the runtime source of truth if this page and a deployed server ever differ.
+Returns the live tool definitions and input schemas. Source `0.6.0` currently advertises **24 tools**; `tools/list` is the runtime source of truth if this page and a deployed server ever differ.
 
 ## Pay-Per-Call Pricing
 
@@ -151,10 +151,12 @@ Free-tier agents are charged per call. If the balance is insufficient, the serve
 | `predict_price` | Live CLOB midpoint price for every outcome of a prediction market | `market_id` | 1 |
 | `predict_trades` | Recent CLOB trades across a prediction market's outcomes | `market_id`, `limit` | 1 |
 | `list_wallet_policies` | Read managed-wallet spending/whitelist policies for the authenticated agent | `wallet_address` | 1 |
+| `near_resolve_asset` | Resolve a NEAR Intents asset to exactly one `defuse_asset_id`; returns every candidate when a symbol is ambiguous across chains | `token`, `chain` | 0 |
+| `near_convert_amount` | Convert human ↔ atomic amounts for a NEAR Intents asset (wNEAR = 24 decimals) | `token`, `chain`, `human` or `atomic` | 0 |
 
 `predict_market_detail` is a legacy alias for `predict_market` kept for older clients. Both route to the same handler and cost.
 
-The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, and `browse_mpp_directory` can be called without a Bearer token. MCP lifecycle/discovery methods are public as well: `server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts. Other tools require agent authentication even when their purpose is read-only.
+The zero-cost discovery calls `list_chains`, `list_tokens`, `get_tempo_tokens`, `browse_mpp_directory`, `near_resolve_asset`, and `near_convert_amount` can be called without a Bearer token. MCP lifecycle/discovery methods are public as well: `server/discover`, legacy `initialize`, `tools/list`, `resources/list`, `resources/templates/list`, `resources/read`, and prompts. Other tools require agent authentication even when their purpose is read-only.
 
 ## Selected Tool Examples
 

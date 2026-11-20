@@ -552,7 +552,7 @@ class MorphoAPI:
             raise
         except Exception as e:
             logger.warning(f"morpho get_position failed for {user[:8]}: {e}")
-            raise MorphoError("Could not fetch your Morpho position. Try again shortly.")
+            raise MorphoError("Could not fetch your Morpho position. Try again shortly.") from e
 
     def get_market_state(self) -> Dict[str, Any]:
         """Market totals + oracle price + utilization."""
@@ -566,7 +566,7 @@ class MorphoAPI:
             raise
         except Exception as e:
             logger.warning(f"morpho get_market_state failed: {e}")
-            raise MorphoError("Could not fetch the Morpho market state. Try again shortly.")
+            raise MorphoError("Could not fetch the Morpho market state. Try again shortly.") from e
 
     def get_vault_info(self, vault: str, user: Optional[str] = None) -> Dict[str, Any]:
         """MetaMorpho vault TVL + share price (+ optional user balance)."""
@@ -597,7 +597,7 @@ class MorphoAPI:
             raise
         except Exception as e:
             logger.warning(f"morpho get_vault_info failed for {vault[:8]}: {e}")
-            raise MorphoError("Could not fetch the vault info. Try again shortly.")
+            raise MorphoError("Could not fetch the vault info. Try again shortly.") from e
 
     # ── GraphQL (blue-api.morpho.org) with on-chain fallback ─────────────────
 
@@ -686,7 +686,7 @@ class MorphoAPI:
             return await asyncio.to_thread(_onchain)
         except Exception as e:
             logger.warning(f"morpho on-chain APY fallback failed: {e}")
-            raise MorphoError("Could not fetch Morpho rates. Try again shortly.")
+            raise MorphoError("Could not fetch Morpho rates. Try again shortly.") from e
 
     async def get_vault_apys(self, chain_id: int = BASE_CHAIN_ID) -> list:
         """Listed MetaMorpho USDC vaults with netApy; empty list when API is down
@@ -1061,7 +1061,7 @@ class MorphoAPI:
             logger.error(f"morpho {label} failed: {e}", exc_info=True)
             raise MorphoError(
                 f"{label.capitalize()} failed. Your funds were not moved. Try again shortly."
-            )
+            ) from e
 
 
 morpho_api = MorphoAPI()

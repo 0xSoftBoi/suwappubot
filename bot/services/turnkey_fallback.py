@@ -115,12 +115,14 @@ async def sign_evm_with_fallback(wallet_service, wallet, transaction: dict) -> s
     Tries Turnkey first; on failure, falls back to local signing using backup key.
     """
     from bot.config.settings import settings
+    from bot.services.wallet import InvalidTransactionError
 
     if not getattr(settings, "turnkey_fallback_enabled", True):
-        return await wallet_service.sign_evm_transaction(wallet, transaction)
+        # Not sign_evm_transaction: that routes back here (infinite recursion).
+        return await wallet_service._sign_evm_via_turnkey(wallet, transaction)
 
     if not wallet.is_turnkey_wallet:
-        return await wallet_service._sign_evm_local(wallet, transaction)
+        return wallet_service._sign_evm_local(wallet, transaction)
 
     if should_use_fallback():
         return _sign_evm_local(wallet_service, wallet, transaction)
@@ -129,6 +131,11 @@ async def sign_evm_with_fallback(wallet_service, wallet, transaction: dict) -> s
         result = await wallet_service._sign_evm_via_turnkey(wallet, transaction)
         get_circuit_breaker().record_success()
         return result
+    except InvalidTransactionError:
+        # The tx itself is unsignable (e.g. missing chainId), not a Turnkey outage:
+        # never trip the breaker or retry with the local key, which would sign it.
+        # Turnkey misconfiguration (ValueError from the client) still falls back.
+        raise
     except (TurnkeyAPIError, Exception) as e:
         get_circuit_breaker().record_failure()
         logger.warning(f"Turnkey EVM signing failed, trying backup: {e}")

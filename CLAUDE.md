@@ -5,6 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Workflow
 - **IMPLEMENT, don't plan.** When asked to fix or build something, DO the work. If you need to explore first, limit exploration to 5 minutes then start building. Only produce a plan document if explicitly asked for one.
 - If blocked, say so explicitly — don't fill the response with exploration as a substitute for implementation.
+- **Do NOT write tests unless explicitly asked.** No new test files, no "while I'm here" coverage, no `test-engineer` delegation on your own initiative. Fixing an *existing* failing test that blocks the task is fine. Verification means the live/boot checks below, not new tests.
+
+## Token discipline (read this first — usage is the constraint)
+
+- **Never re-read what you already read.** The transcript is the cache. Re-reading a file you read this session is a bug.
+- **Read ranges, not files.** `Read` with `offset`/`limit`, or `rg -n 'pat' -A5 -B5`. Never `cat` a file >200 lines into context.
+- **One Bash call, not five.** Chain independent checks with `&&`/`;` in a single call. Pipe through `head`/`tail`/`wc` — never let raw output over ~100 lines land in context.
+- **Batch independent tool calls into one message** so they run in parallel instead of N sequential round-trips.
+- **Delegate verbose work.** Test runs, log tails, `status.py`, broad greps, doc fetches → a subagent. Its output dies in *its* context; only the summary comes back.
+- **`/clear` between unrelated tasks.** Every turn re-sends the whole conversation — a 1,500-turn session pays for its own history on every single turn. That is where the spend goes.
+- Never `Read` a file just to confirm an `Edit` landed — Edit errors if it didn't.
 
 ## Response Length
 
@@ -184,13 +195,15 @@ bash scripts/verify.sh api    # Run only api-ts checks
 bash scripts/verify.sh agent  # Run only agent card/registry checks
 ```
 
+**Live verification** (a fix isn't done until the deployed URL proves it — CI green and "deploy succeeded" are not evidence): after any deploy, load the production URL with the claude-in-chrome MCP, screenshot the affected view, report the evidence. If genuinely blocked, say "code-complete, not functionally verified — needs X." Never report "deployed" from CI status alone.
+
 ## Standing rules (hard-won — follow these)
 
 1. **CI green ≠ the bot boots.** The "Tests & Quality Gates" job does not exercise `bot/main.py`'s startup import chain, so a bad import passes CI and then crashes the bot. After every deploy, verify with `python3 scripts/status.py` (checks the Railway control plane, deep health, and scans logs for import errors in one shot) **and** `railway logs --service python-api | grep -iE "ImportError|ModuleNotFound|cannot import"` is empty. Do NOT use `curl https://api.suwappu.bot/health` for this — that domain serves api-ts, not the bot. The `/ship` skill does this.
 2. **Don't call an integration "live" without a real end-to-end test.** Parse/boot/CI prove the code *loads*, not that the feature *works*. Send the actual message, do the actual (testnet/small) swap, fetch a real record through the new path. Use the `verify` / `run` skills. If a live test is genuinely blocked, say "code-complete, not functionally verified — needs X," not "live."
 3. **For implementation, prefer `Explore` agents + direct edits over the `Workflow` tool.** Workflow schema-agents drop `StructuredOutput` on most runs → later phases skip and the work needs full hand-finishing (salvage ladder: parse → boot-import gate → dead-button audit → money-path review). Use `Workflow` only for read-only research fan-out.
-4. **Model tiers & the conductor:** The main loop runs **Sonnet** and acts as the *conductor* — it plans, routes, and synthesizes; it does **not** grind. Opus runs **only** at the quality gates (`money-path-reviewer`, `security-auditor`, `suwappu-lead` for heavy architecture). Haiku does mechanical recon (`scout`, `Explore`). See **Conductor protocol** below. (Escape hatch: `/model opus` for a genuinely hard-architecture session.)
-5. **Reuse before building:** use the repo skills (`/ship`, `/deploy`, `/status`, `/audit`, `/bugclass`; see `.claude/commands/`) and `docs/development/migrations.md` for schema changes and the **Blockscout MCP** for on-chain checks (router contracts, real tx) rather than hand-rolling.
+4. **Model tiers & the conductor:** The main loop runs **Sonnet** and acts as the *conductor* — it plans, routes, and synthesizes; it does **not** grind. Opus runs **only** at the quality gates (`money-path-reviewer`, `security-auditor`, `suwappu-lead` for heavy architecture). Haiku does mechanical recon (`scout`, `Explore`). See **Conductor protocol** below. This is enforced by `"model": "sonnet"` in `.claude/settings.json` — if you find yourself running on Opus for routine work, the config was overridden. (Escape hatch: `/model opus` for one genuinely hard-architecture session, then `/model sonnet` back. Never leave Opus — especially `opus[1m]` — as the standing default: the 1M-context tier bills at a premium on *every* turn, including trivial ones.)
+5. **Reuse before building:** use the repo skills (`/ship`, `/deploy`, `/status`, `/audit`, `/bugclass`, `/migrations`, `/new-handler`, `/new-route`, `/new-test`; see `.claude/commands/`) and `docs/development/migrations.md` for schema changes and the **Blockscout MCP** for on-chain checks (router contracts, real tx) rather than hand-rolling.
 6. **Pre-merge formatting:** CI runs `black --check --line-length=100 bot/ api/ tests/`. Run black on changed Python before pushing or CI fails on style.
 
 ## Conductor protocol (how the main loop works)
@@ -216,7 +229,7 @@ The main loop is the **conductor**, not a worker. Measured baseline (46 sessions
 | Dual-ORM schema change | `db-migrate` | sonnet |
 | New chain integration | `chain-support` | sonnet |
 | SDK/package sync | `sdk-dev` | sonnet |
-| Tests | `test-engineer` | sonnet |
+| Tests — **only when the user explicitly asks for tests** | `test-engineer` | sonnet |
 | Swap/balance/RPC debugging | `swap-debug` | sonnet |
 | Deploys / health / logs | `deploy-ops` | sonnet |
 | Production incident | `incident-responder` | sonnet |
@@ -247,6 +260,13 @@ This harness evolves itself from session evidence — see `docs/harness/self-imp
 - `/audit-fleet` — Parallel audit: one `security-auditor` per attack surface, findings streamed to `.audit/findings/*.jsonl`, then deduped/ranked/filed
 - `/bugclass` — Treat one confirmed bug as a class: reproduce → fix → sweep both stacks → one commit per instance
 - `/worktree-check` — Audit all worktrees for uncommitted/unpushed/stashed work at risk **before** any reset or cleanup
+- `/handoff` — Checkpoint the current task to `.claude/handoff.md` so you can `/clear` and resume cheaply. Run it before switching topics or when a session has run long.
+- `/worktree` — Manage git worktrees for parallel development
+- `/migrations` — Database migration tutorial
+- `/new-handler` — Add a new Telegram bot command handler
+- `/new-route` — Add a new TypeScript API endpoint
+- `/new-page` — Add a new webapp page/feature
+- `/new-test` — Write tests for a feature
 
 ## Security Audits
 
@@ -262,12 +282,6 @@ This harness evolves itself from session evidence — see `docs/harness/self-imp
 - **Do NOT cancel a CI run or long command assuming it hung.** GitHub Actions runner contention is common and slow suites are expected. The Bash tool caps ~2 min — that is a tool timeout, not a hung job. Wait and re-check `gh run watch` / poll status before concluding failure.
 - Give slow test suites generous timeouts; an 18-test run taking minutes is normal, not a hang.
 - **Always pass an explicit `timeout` of at least `600000` ms** to Bash for `pytest`, `npm test`/`bun test`, builds, and CI polling. Never cancel a GitHub Actions run for slowness — check whether the job is *queued* (runner contention) vs actually stuck, and wait at least 15 minutes before escalating.
-
-## Live Verification
-
-- **A fix is not complete until it is verified on the live deployed URL.** CI green and "deploy succeeded" are not evidence.
-- After any deploy: load the production URL with the claude-in-chrome MCP, screenshot the affected view, and report the evidence. If the browser tool can't set the viewport, use the iframe workaround at the target width.
-- If live verification is genuinely blocked, say "code-complete, not functionally verified — needs X." Never report "deployed" from CI status alone.
 
 ## Working Style / Scope
 

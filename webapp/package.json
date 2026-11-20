@@ -60,6 +60,7 @@
     "vitest": "^4.1.9"
   },
   "overrides": {
-    "viem": "$viem"
+    "viem": "$viem",
+    "browserslist": "^4.28.7"
   }
 }

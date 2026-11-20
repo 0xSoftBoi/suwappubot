@@ -160,6 +160,27 @@ class X402Receipt:
     signature: str
 
 
+# On-chain decimals for every x402 payment token, verified via decimals() on
+# 2026-09-26. Checked before get_decimals_by_address because several of these
+# addresses are not in bot/config/tokens.py, where the 18dp fallback read every
+# real 6dp payment as 1e-12 of its value (avalanche/linea/mantle/gnosis/scroll).
+_X402_TOKEN_DECIMALS: dict[tuple[str, str], int] = {
+    ("ethereum", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"): 6,
+    ("base", "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"): 6,
+    ("arbitrum", "0xaf88d065e77c8cc2239327c5edb3a432268e5831"): 6,
+    ("optimism", "0x0b2c639c533813f4aa9d7837caf62653d097ff85"): 6,
+    ("polygon", "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"): 6,
+    ("bsc", "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"): 18,
+    ("avalanche", "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e"): 6,
+    ("linea", "0x176211869ca2b568f2a7d4ee941e073a821ee1ff"): 6,
+    ("mantle", "0x09bc4e0d864854c6afb6eb9a9cdf58ac190d0df9"): 6,
+    ("gnosis", "0xddafbb505ad214d7b80b1f830fccc89b60fb7a83"): 6,
+    ("scroll", "0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4"): 6,
+    ("tempo", "0x20c0000000000000000000000000000000000000"): 6,
+    ("robinhood", "0x5fc5360d0400a0fd4f2af552add042d716f1d168"): 6,
+}
+
+
 class X402Service:
     """Service for handling x402 payments and token-gated subscriptions."""
 
@@ -200,7 +221,8 @@ class X402Service:
                 "AVAX": "0x0000000000000000000000000000000000000000",
             },
             "fantom": {
-                "USDC": "0x04068DA6C83AFCFA0e13ba15A6696662335D5B75",
+                # No USDC: 0x04068DA6... is Multichain-bridged USDC, depegged since
+                # the 2023 Multichain exploit — accepting it would credit $1/unit.
                 "FTM": "0x0000000000000000000000000000000000000000",
             },
             "linea": {
@@ -208,7 +230,7 @@ class X402Service:
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
             "mantle": {
-                "USDC": "0x09Bc4E0D10E52cdF6EaF3cdfE71aDd9e94d7f99c",
+                "USDC": "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9",
                 "MNT": "0x0000000000000000000000000000000000000000",
             },
             "gnosis": {
@@ -220,13 +242,11 @@ class X402Service:
                 "ETH": "0x0000000000000000000000000000000000000000",
             },
             "tempo": {
-                # Tempo TIP-20 stablecoins (18 decimals). pathUSD is the primary
-                # payment token; the others are accepted fallbacks. Decimals are
-                # resolved per-address at verify time via get_decimals_by_address.
+                # Tempo TIP-20 stablecoin (6 decimals on-chain). Only pathUSD
+                # exists on mainnet (4217) — AlphaUSD/BetaUSD/ThetaUSD are
+                # testnet-only. Decimals are resolved per-address at verify time
+                # via get_decimals_by_address.
                 "pathUSD": "0x20c0000000000000000000000000000000000000",
-                "AlphaUSD": "0x20c0000000000000000000000000000000000001",
-                "BetaUSD": "0x20c0000000000000000000000000000000000002",
-                "ThetaUSD": "0x20c0000000000000000000000000000000000003",
             },
             "robinhood": {
                 # Robinhood Chain (4663) has NO USDC. Paxos USDG ("Global Dollar")
@@ -419,7 +439,11 @@ class X402Service:
         """Create an x402 payment request."""
         payment_id = f"x402_{secrets.token_hex(16)}"
 
-        token_address = self.payment_tokens.get(chain, {}).get(token_symbol, "")
+        token_address = self.payment_tokens.get(chain, {}).get(token_symbol)
+        if not token_address:
+            # An empty address would later verify as a *native* transfer. Refuse
+            # tokens not listed for this chain instead of issuing that request.
+            raise ValueError(f"Unsupported payment token {token_symbol!r} on {chain}")
 
         return X402PaymentRequest(
             payment_id=payment_id,
@@ -454,7 +478,8 @@ class X402Service:
                 user_id=user_id,
                 payment_id=payment.payment_id,
                 amount=price,
-                token_symbol="USDC",
+                token_symbol=payment.token_symbol,
+                token_address=payment.token_address,
                 chain=chain,
                 product_type="subscription",
                 product_id=tier.value,
@@ -568,15 +593,19 @@ class X402Service:
                         amount_wei = int.from_bytes(data, byteorder="big")
 
                     # Resolve token decimals from the canonical token config so
-                    # non-6dp stablecoins (e.g. Tempo TIP-20 pathUSD/AlphaUSD/
-                    # BetaUSD/ThetaUSD = 18dp) are scaled correctly. Falls back to
-                    # 6 (USDC standard) when the address is unknown.
-                    try:
-                        from bot.config.tokens import get_decimals_by_address
+                    # non-6dp tokens are scaled correctly (Tempo TIP-20 pathUSD
+                    # is 6dp — it was misconfigured as 18dp, which read every real
+                    # payment as 1e-12 of its value). get_decimals_by_address
+                    # returns 18 for an unknown address (under-credits: safe); the
+                    # except below falls back to 6 only if the lookup itself fails.
+                    decimals = _X402_TOKEN_DECIMALS.get((chain.lower(), token_address.lower()))
+                    if decimals is None:
+                        try:
+                            from bot.config.tokens import get_decimals_by_address
 
-                        decimals = get_decimals_by_address(token_address, chain)
-                    except Exception:
-                        decimals = 6
+                            decimals = get_decimals_by_address(token_address, chain)
+                        except Exception:
+                            decimals = 6
                     actual_amount = Decimal(amount_wei) / Decimal(10**decimals)
 
                     expected_decimal = Decimal(str(expected_amount))
@@ -691,6 +720,17 @@ class X402Service:
             if payment.status == PaymentStatus.COMPLETED:
                 return True, "Already completed"
 
+            # Rows created before token_address was persisted have it NULL; an
+            # empty address verifies as a *native* transfer, so a USDC-priced
+            # tier could be bought with ~price units of a sub-$1 gas token.
+            # Resolve from config by (chain, symbol) and fail closed otherwise.
+            expected_token = payment.token_address or self.payment_tokens.get(
+                payment.chain, {}
+            ).get(payment.token_symbol or "")
+            if not expected_token:
+                payment.status = PaymentStatus.FAILED
+                return False, "Verification failed: unknown payment token"
+
             # Verify transaction on-chain
             try:
                 # Verify the transaction matches payment parameters
@@ -699,7 +739,7 @@ class X402Service:
                     chain=payment.chain,
                     expected_recipient=self.payment_recipient,
                     expected_amount=payment.amount,
-                    token_address=payment.token_address,
+                    token_address=expected_token,
                 )
 
                 if not success:

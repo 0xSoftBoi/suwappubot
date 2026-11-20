@@ -125,7 +125,7 @@ class TurnkeyClient:
         except Exception as e:
             raise ValueError(
                 f"Turnkey API key pair validation failed — public key does not match private key: {e}"
-            )
+            ) from e
 
         logger.info(
             f"TurnkeyClient initialized (org={organization_id[:8]}..., pubkey={self._api_public_key[:16]}... [{len(compressed)}B compressed])"

@@ -2,7 +2,7 @@ import LiveQuote from '@/components/LiveQuote';
 import SummerNav from '@/components/SummerNav';
 import './hero-b.css';
 
-export const metadata = { title: 'Hero B - warm brand' };
+export const metadata = { title: 'Hero B - warm brand', robots: { index: false, follow: false } };
 
 export default function HeroB() {
   return (

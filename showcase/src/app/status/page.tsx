@@ -6,7 +6,7 @@ import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import styles from './status.module.css';
 
 export const metadata: Metadata = {
-  title: 'Status | Suwappu',
+  title: 'Status',
   description:
     'Live health checks for Suwappu API origins plus an explicit map of interfaces that are not independently probed here.',
 };

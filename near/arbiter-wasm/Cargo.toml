@@ -1,0 +1,19 @@
+[package]
+name = "arbiter-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Arbiter WASM: attested evidence verification for Suwappu Arbiter escrow. Deterministic, zero network I/O."
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

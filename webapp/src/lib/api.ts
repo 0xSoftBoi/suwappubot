@@ -96,9 +96,12 @@ class ApiClient {
       ...(options.headers as Record<string, string>),
     }
 
+    // Casino-grade: no request hangs forever. 15s is generous for API calls;
+    // React Query retries (see main.tsx) handle transient failures.
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
       headers,
+      signal: options.signal ?? AbortSignal.timeout(15000),
     })
 
     if (!response.ok) {
@@ -110,6 +113,9 @@ class ApiClient {
       try {
         const body = await response.json()
         error.detail = body.detail || body.message || 'Request failed'
+        if (typeof body.error === 'string') {
+          error.code = body.error
+        }
       } catch {
         // Ignore JSON parse errors
       }
@@ -1521,6 +1527,13 @@ export interface StocksResponse {
   stocks: StockEntry[]
   market_open: boolean
   off_hours_warning: string | null
+}
+
+/** True when a caught query error is the US compliance geo-block (451 / REGION_RESTRICTED). */
+export function isRegionRestrictedError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const err = error as Partial<ApiError>
+  return err.status === 451 || err.code === 'REGION_RESTRICTED'
 }
 
 // Export singleton instance

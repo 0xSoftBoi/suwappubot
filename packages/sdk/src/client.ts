@@ -26,6 +26,9 @@ import type {
   BillingInfo,
   BillingStatus,
   Chain,
+  NearAmount,
+  NearAsset,
+  NearResolveResult,
   CreatePolicyArgs,
   DataMetadata,
   DataStatus,
@@ -540,6 +543,63 @@ export class Suwappu {
     });
     if (Array.isArray(data)) return data;
     return data.tokens ?? [];
+  }
+
+  // --- NEAR (/v1/near/*) ---
+  // Reads only. Execution (swap/transfer/withdraw) is intentionally not proxied:
+  // call OutLayer directly with your own wk_ key (https://skills.outlayer.ai/agent-custody/SKILL.md).
+
+  async nearAssets(chain?: string): Promise<NearAsset[]> {
+    const data = await this._request<{ assets?: NearAsset[] }>("GET", "/v1/near/assets", {
+      params: { chain },
+    });
+    return data.assets ?? [];
+  }
+
+  /** Resolve a symbol/id to exactly one asset. Ambiguity is returned, not thrown. */
+  async nearResolveAsset(token: string, chain?: string): Promise<NearResolveResult> {
+    try {
+      return await this._request<NearResolveResult>("GET", "/v1/near/assets/resolve", {
+        params: { token, chain },
+      });
+    } catch (e) {
+      if (e instanceof SuwappuError && (e.status === 409 || e.status === 404)) {
+        return JSON.parse(e.body) as NearResolveResult;
+      }
+      throw e;
+    }
+  }
+
+  async nearAmount(
+    token: string,
+    amount: { human: string } | { atomic: string },
+    chain?: string,
+  ): Promise<NearAmount> {
+    return this._request<NearAmount>("GET", "/v1/near/amount", {
+      params: { token, chain, ...amount },
+    });
+  }
+
+  /** Wallet or intents balance on the caller's OutLayer wallet (`walletKey` = wk_…). */
+  async nearBalance(
+    walletKey: string,
+    opts: { token?: string; source?: "intents"; network?: "mainnet" | "testnet" } = {},
+  ): Promise<unknown> {
+    return this._request("GET", "/v1/near/balance", {
+      params: { token: opts.token, source: opts.source, network: opts.network },
+      headers: { Authorization: `Bearer ${walletKey}` },
+    });
+  }
+
+  /** NEAR Intents quote (mainnet). `amount_in` is atomic; tokens must resolve unambiguously. */
+  async nearSwapQuote(
+    walletKey: string,
+    body: { token_in: string; token_out: string; amount_in: string; chain_in?: string; chain_out?: string },
+  ): Promise<unknown> {
+    return this._request("POST", "/v1/near/swap/quote", {
+      json: body,
+      headers: { Authorization: `Bearer ${walletKey}` },
+    });
   }
 
   // --- Market data (/v1/data/*) ---

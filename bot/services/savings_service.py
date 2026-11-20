@@ -254,7 +254,9 @@ class SavingsService:
             return float(apy * Decimal(100))
         except Exception as e:
             logger.warning(f"Failed to read Aave USDC APY: {e}")
-            raise SavingsError("Could not fetch the current savings rate. Try again shortly.")
+            raise SavingsError(
+                "Could not fetch the current savings rate. Try again shortly."
+            ) from e
 
     def get_position(self, wallet_address: str) -> Decimal:
         """Return the user's savings balance (aToken = principal + accrued interest).
@@ -270,7 +272,7 @@ class SavingsService:
             return self._wei_to_usdc(balance_wei)
         except Exception as e:
             logger.warning(f"Failed to read savings position for {wallet_address[:8]}: {e}")
-            raise SavingsError("Could not fetch your savings balance. Try again shortly.")
+            raise SavingsError("Could not fetch your savings balance. Try again shortly.") from e
 
     def get_usdc_balance(self, wallet_address: str) -> Decimal:
         """Return the wallet's idle (un-supplied) USDC balance on Base."""
@@ -283,7 +285,7 @@ class SavingsService:
             return self._wei_to_usdc(balance_wei)
         except Exception as e:
             logger.warning(f"Failed to read USDC balance for {wallet_address[:8]}: {e}")
-            raise SavingsError("Could not fetch your USDC balance. Try again shortly.")
+            raise SavingsError("Could not fetch your USDC balance. Try again shortly.") from e
 
     # ── writes ────────────────────────────────────────────────────────────────
 
@@ -341,7 +343,9 @@ class SavingsService:
             )
         except Exception as e:
             logger.error(f"savings deposit failed: {e}", exc_info=True)
-            raise SavingsError("Deposit failed. Your funds were not moved. Try again shortly.")
+            raise SavingsError(
+                "Deposit failed. Your funds were not moved. Try again shortly."
+            ) from e
 
     def withdraw(self, wallet, amount: Optional[Decimal]) -> str:
         """Withdraw from Aave V3. Pass amount=None (or "all") to withdraw everything.
@@ -387,7 +391,9 @@ class SavingsService:
             )
         except Exception as e:
             logger.error(f"savings withdraw failed: {e}", exc_info=True)
-            raise SavingsError("Withdrawal failed. Your funds were not moved. Try again shortly.")
+            raise SavingsError(
+                "Withdrawal failed. Your funds were not moved. Try again shortly."
+            ) from e
 
 
 savings_service = SavingsService()

@@ -188,7 +188,7 @@ class AuthorityChecker:
             raise
         except Exception as e:
             logger.error(f"Authority check error for {token_mint}: {e}")
-            raise AuthorityCheckerError(str(e))
+            raise AuthorityCheckerError(str(e)) from e
 
         return result
 

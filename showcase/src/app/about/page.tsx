@@ -7,7 +7,7 @@ import stats from '@/data/stats.generated.json';
 import styles from './about.module.css';
 
 export const metadata: Metadata = {
-  title: 'About | Suwappu',
+  title: 'About',
   description: `Suwappu is cross-chain execution infrastructure for agents and humans: best-price swaps, HyperLiquid perps, and gasless trades across ${stats.platformChains} chains, from a bot, a terminal, or one API.`,
 };
 

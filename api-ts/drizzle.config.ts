@@ -71,5 +71,9 @@ export default defineConfig({
 		// api-ts-exclusive step-up re-confirmation nonces for owner approve
 		// decisions (approvalStepUpChallenges.ts) — no python owner.
 		'approval_step_up_challenges',
+		// api-ts-exclusive World ID nullifier consumption log
+		// (worldIdNullifiers.ts) — no python owner; replay protection for the
+		// hackathon guardian gate.
+		'world_id_nullifiers',
 	],
 })

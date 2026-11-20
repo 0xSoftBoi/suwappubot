@@ -40,7 +40,9 @@ const solanaAddressSchema = z
 	.regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address format')
 
 /** Either an EVM or a Solana wallet address — simulate/quote requests are agnostic to chain_type at the schema level. */
-const walletAddressSchema = z.union([evmAddressSchema, solanaAddressSchema])
+const walletAddressSchema = z.union([evmAddressSchema, solanaAddressSchema], {
+	error: 'Invalid wallet address: expected a 0x EVM address or a base58 Solana address',
+})
 
 /** Positive token amount with an upper cap to prevent accidental whole-portfolio swaps. */
 const tokenAmountSchema = z
@@ -59,6 +61,30 @@ const tokenAmountSchema = z
 // Exported schemas
 // ---------------------------------------------------------------------------
 
+// Keys inside agents.metadata that are written exclusively by server-side
+// logic (World ID verification, ENS subname minting, wallet provisioning,
+// internal user/wallet linkage). Callers must never be able to set or
+// overwrite these via public /register or PATCH /me — doing so would let a
+// caller self-grant the World ID fee discount, forge an ENS identity claim,
+// or corrupt the nullifier-uniqueness sybil check. Keep this list in sync
+// with every `metadata.<key>` write in routes/agent.ts and AgentService.ts.
+export const RESERVED_METADATA_KEYS = [
+	'worldId',
+	'ensName',
+	'wallet_address',
+	'wallet_sub_org_id',
+	'internal_user_id',
+	'internal_wallet_id',
+	'intercepta',
+] as const
+
+function rejectReservedMetadataKeys(metadata: Record<string, unknown> | undefined) {
+	if (!metadata) return true
+	return !RESERVED_METADATA_KEYS.some((key) => key in metadata)
+}
+
+const reservedMetadataMessage = `metadata must not contain server-managed keys: ${RESERVED_METADATA_KEYS.join(', ')}`
+
 export const RegisterAgentSchema = z.object({
 	name: z
 		.string()
@@ -67,7 +93,10 @@ export const RegisterAgentSchema = z.object({
 		.regex(/^[a-zA-Z0-9_-]+$/, 'Name must be alphanumeric with underscores and hyphens only'),
 	description: z.string().max(500).optional(),
 	callback_url: callbackUrlSchema.optional(),
-	metadata: z.record(z.string(), z.unknown()).optional(),
+	metadata: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.refine(rejectReservedMetadataKeys, { message: reservedMetadataMessage }),
 })
 
 export const QuoteRequestSchema = z.object({
@@ -77,7 +106,12 @@ export const QuoteRequestSchema = z.object({
 	chain: z.string().optional(),
 	from_chain: z.string().optional(),
 	to_chain: z.string().optional(),
-	wallet_address: evmAddressSchema.optional(),
+	wallet_address: walletAddressSchema.optional(),
+	// Destination address for cross-chain quotes. Required in practice for
+	// EVM<->Solana (one address cannot serve both address families); when
+	// omitted, the agent's managed wallet for the destination chain is used,
+	// falling back to a chain-appropriate quote-only placeholder.
+	to_wallet_address: walletAddressSchema.optional(),
 	slippage: z.number().min(0).max(0.5).optional(),
 })
 
@@ -125,7 +159,10 @@ export const UpdateAgentSchema = z
 	.object({
 		description: z.string().max(500).optional(),
 		callback_url: callbackUrlSchema.nullish(),
-		metadata: z.record(z.string(), z.unknown()).optional(),
+		metadata: z
+			.record(z.string(), z.unknown())
+			.optional()
+			.refine(rejectReservedMetadataKeys, { message: reservedMetadataMessage }),
 	})
 	.refine(
 		(data) =>
@@ -147,6 +184,11 @@ export const CreatePolicySchema = z.object({
 			.array(z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address'))
 			.optional(),
 	}),
+})
+
+/** POST /v1/agent/wallets body. Defaults to 'evm' so bodyless calls keep working. */
+export const CreateWalletSchema = z.object({
+	chain_type: z.enum(['evm', 'solana']).optional().default('evm'),
 })
 
 /** Format Zod errors into a flat field map */

@@ -4,7 +4,7 @@ import Reveal from '@/components/Reveal';
 import RouteField from '@/components/RouteField';
 import './hero-e.css';
 
-export const metadata = { title: 'Hero E - field + grid + routes' };
+export const metadata = { title: 'Hero E - field + grid + routes', robots: { index: false, follow: false } };
 
 /** Verified product facts. Numerals render tabular. */
 const RAIL = [

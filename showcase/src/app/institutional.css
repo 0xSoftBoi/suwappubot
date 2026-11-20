@@ -102,14 +102,14 @@ body:has(.institutional-page) .nav__hamburger-line {
 .institutional-page .mkt-hero h1 {
   grid-column: 1;
   align-self: end;
-  max-width: 10.5ch;
+  max-width: 15ch;
   margin: 0;
   color: var(--institutional-ink);
-  font-family: var(--font-serif);
-  font-size: clamp(3.6rem, 7.2vw, 6.8rem);
-  font-weight: 400;
-  letter-spacing: -0.043em;
-  line-height: 0.9;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d2);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.0;
   text-wrap: balance;
 }
 
@@ -141,14 +141,14 @@ body:has(.institutional-page) .nav__hamburger-line {
 .institutional-page .compare__title,
 .institutional-page .section__heading {
   color: var(--institutional-ink);
-  font-family: var(--font-serif);
-  font-weight: 500;
-  letter-spacing: -0.025em;
+  font-family: var(--type-display-font);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
 }
 
 .institutional-page .mkt-h2 {
-  font-size: clamp(2rem, 4vw, 3.35rem);
-  line-height: 1.02;
+  font-size: var(--type-d3);
+  line-height: 1.06;
 }
 
 .institutional-page .mkt-page > section,
@@ -212,11 +212,11 @@ body:has(.institutional-page) .nav__hamburger-line {
   max-width: 18ch;
   margin: 0 auto 1.5rem;
   color: var(--institutional-ink);
-  font-family: var(--font-serif);
-  font-size: clamp(2.15rem, 4vw, 3.4rem);
-  font-weight: 500;
-  letter-spacing: -0.03em;
-  line-height: 1.02;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.06;
 }
 
 .institutional-page .summer-button--secondary {
@@ -334,14 +334,14 @@ body:has(.institutional-page) .nav__hamburger-line {
 }
 
 .institutional-section__intro h2 {
-  max-width: 13ch;
+  max-width: 16ch;
   margin: 0;
   color: var(--institutional-ink);
-  font-family: var(--font-serif);
-  font-size: clamp(2.65rem, 5vw, 4.9rem);
-  font-weight: 400;
-  letter-spacing: -0.04em;
-  line-height: 0.94;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.05;
 }
 
 .institutional-section__intro p {
@@ -483,14 +483,14 @@ body:has(.institutional-page) .nav__hamburger-line {
 }
 
 .institutional-darkband h2 {
-  max-width: 12ch;
+  max-width: 16ch;
   margin: 0;
   color: #fafafa;
-  font-family: var(--font-serif);
-  font-size: clamp(2.6rem, 5vw, 4.75rem);
-  font-weight: 400;
-  letter-spacing: -0.04em;
-  line-height: 0.96;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.05;
 }
 
 .institutional-darkband__head p {
@@ -552,7 +552,6 @@ body:has(.institutional-page) .nav__hamburger-line {
   .institutional-page .mkt-hero h1 {
     max-width: 11ch;
   }
-
   .institutional-page .mkt-hero__lead {
     max-width: 58ch;
   }
@@ -592,8 +591,8 @@ body:has(.institutional-page) .nav__hamburger-line {
   }
 
   .institutional-page .mkt-hero h1 {
-    font-size: clamp(3rem, 15vw, 4.5rem);
-    line-height: 0.93;
+    max-width: 16ch;
+    line-height: 1.04;
   }
 
   .institutional-metrics,

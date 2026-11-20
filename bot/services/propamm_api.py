@@ -108,7 +108,7 @@ class PropAMMAPI:
         except PropAMMError:
             raise
         except Exception as e:
-            raise PropAMMError(f"Titan RPC request failed: {e}")
+            raise PropAMMError(f"Titan RPC request failed: {e}") from e
 
         error = data.get("error")
         if error:

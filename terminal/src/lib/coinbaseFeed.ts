@@ -20,6 +20,13 @@
  * exponential backoff; rebuilds the book from the next `snapshot` on reconnect.
  */
 
+import {
+  FEED_STALE_MS,
+  FEED_WATCHDOG_MS,
+  onFeedResume,
+  shouldReconnectOnResume,
+} from './feedLiveness'
+
 export interface BookLevel {
   price: number
   size: number
@@ -98,9 +105,35 @@ class ProductFeed {
   private cachedSnapshotVersion = -1
   private cachedSnapshot: CoinbaseFeedState | null = null
   private closed = false
+  private lastMessageAt = 0
+  private watchdog: ReturnType<typeof setInterval> | null = null
+  private offResume: () => void = () => {}
 
   constructor(private readonly productId: string) {
     this.connect()
+    // A silently-dead socket never fires `close`; the `heartbeat` channel
+    // guarantees ~1 msg/s even on quiet pairs, so a long gap means it's gone.
+    this.watchdog = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN && Date.now() - this.lastMessageAt > FEED_STALE_MS) {
+        this.reconnectNow()
+      }
+    }, FEED_WATCHDOG_MS)
+    this.offResume = onFeedResume(() => {
+      if (shouldReconnectOnResume(this.ws, this.lastMessageAt)) this.reconnectNow()
+    })
+  }
+
+  /** Drop the current socket (dead or backing off) and reconnect immediately. */
+  private reconnectNow(): void {
+    if (this.closed) return
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.reconnectAttempts = 0
+    this.teardownSocket()
+    this.bids.clear()
+    this.asks.clear()
+    this.connect()
+    this.emitNow()
   }
 
   subscribe(fn: Listener): () => void {
@@ -122,6 +155,9 @@ class ProductFeed {
     this.reconnectTimer = null
     if (this.flushTimer) clearTimeout(this.flushTimer)
     this.flushTimer = null
+    if (this.watchdog) clearInterval(this.watchdog)
+    this.watchdog = null
+    this.offResume()
     this.listeners.clear()
     this.teardownSocket()
   }
@@ -158,17 +194,19 @@ class ProductFeed {
     ws.onopen = () => {
       if (this.ws !== ws) return
       this.reconnectAttempts = 0
+      this.lastMessageAt = Date.now()
       ws.send(
         JSON.stringify({
           type: 'subscribe',
           product_ids: [this.productId],
-          channels: ['level2_batch', 'matches'],
+          channels: ['level2_batch', 'matches', 'heartbeat'],
         }),
       )
     }
 
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return
+      this.lastMessageAt = Date.now()
       let msg: L2Message & MatchMessage
       try {
         msg = JSON.parse(ev.data as string)
@@ -265,7 +303,17 @@ class ProductFeed {
         this.scheduleEmit()
         break
       }
+      case 'error': {
+        // e.g. a rejected subscribe — surface it instead of sitting on
+        // "connecting" forever with an empty book.
+        console.warn('[coinbaseFeed] server error', msg)
+        this.status = 'error'
+        this.markDirty()
+        this.emitNow()
+        break
+      }
       default:
+        // `subscriptions`, `heartbeat`: liveness only (lastMessageAt).
         break
     }
   }

@@ -759,3 +759,20 @@
     opacity: 0.35;
   }
 }
+
+/* ==========================================================================
+   Toast layer must never eat clicks.
+
+   react-hot-toast renders one container per position, and each toast is a
+   block-level child of it — so at 1440px the whole layer is a full-width strip
+   pinned to the bottom of the viewport, directly over the bottom panel's own
+   action rows. A visible toast therefore swallows clicks in a band across the
+   entire trading surface (reproduced as a Playwright actionability failure on
+   Copy Trading). Every toast this app raises is an informational
+   success/error string with no interactive content, so the whole layer is
+   transparent to the pointer.
+   ========================================================================== */
+.terminal-toast-container,
+.terminal-toast-container * {
+  pointer-events: none !important;
+}
