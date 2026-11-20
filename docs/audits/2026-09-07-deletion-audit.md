@@ -110,6 +110,22 @@ different files with the same names).
   the package name): zero hits outside the deleted package.
 - Restored files: none imports anything still deleted; every app builds.
 
+## 2026-11-20 addendum: merging two months of dev
+
+Merging `origin/dev` (345 commits) produced eight modify/delete conflicts.
+Six were the hero experiments and classic page, each touched by a one-line
+site-wide polish sweep; a sweep does not make a dead route live, so those
+deletions stand. The webapp pages barrel's only importer on dev is
+`App.tsx.bak`, also deleted here. One reversal: `showcase/src/components/
+LanguageSwitcher.tsx` was wired into SummerNav on dev on 2026-10-20, so it is
+live now. It, its stylesheet, and the i18n comment naming it were restored from
+dev. Net deletions after the merge: 82 files. All three apps build on the
+merged tree; webapp 60/60, terminal 100/100.
+
+The lesson stands twice over: a file with no importer today can be wired next
+month. Deleting on a long-lived branch needs a re-check at merge time, which is
+what the modify/delete conflicts gave for free.
+
 ## How to undo any of it
 Every deletion is on this branch only; main is untouched. `git checkout
 origin/main -- <path>` restores any single file; `git revert <sha>` restores a
