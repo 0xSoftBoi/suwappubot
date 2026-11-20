@@ -2251,7 +2251,13 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
     serializers so hex-string / HexBytes fields encode correctly.
 
     chainId is required: defaulting it (previously to 1) would sign a valid
-    Ethereum-mainnet transaction that anyone could replay there.
+    Ethereum-mainnet transaction that anyone could replay there. For legacy
+    transactions nonce and gasPrice are required for the same class of reason —
+    see the comment on the legacy branch below.
+
+    Raises:
+        InvalidTransactionError: no valid chainId, or a legacy transaction with
+            no nonce or no gasPrice.
     """
     import rlp
     from eth_account._utils.legacy_transactions import (
@@ -2271,22 +2277,41 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
         tx.pop("type", None)  # eth_account rejects an explicit legacy type 0
     is_typed = "maxFeePerGas" in tx or _tx_type(tx) is not None
     if not is_typed:
-        # Preserve the historical defaults for optional legacy fields (None too).
-        for key, default in (("nonce", 0), ("gas", 21000), ("value", 0), ("data", "0x")):
+        # nonce and gasPrice are load-bearing for anything that will be broadcast,
+        # so they are required rather than defaulted. Defaulting them hid caller
+        # bugs in two ways: nonce 0 is *valid* on a fresh wallet, so the signer
+        # would happily sign a nonce the caller never chose, and gasPrice 0 is
+        # accepted by some nodes and then never mines (a silent hang). Local
+        # signing (eth_account's own Account.sign_transaction) already raises on
+        # both, so this only stops the Turnkey path from being the laxer one.
+        # InvalidTransactionError is re-raised by sign_evm_with_fallback rather
+        # than tripping the breaker, so a caller bug never reaches the backup key.
+        for key in ("nonce", "gasPrice"):
+            if tx.get(key) is None:
+                raise InvalidTransactionError(
+                    f"Refusing to sign legacy EVM transaction without {key}"
+                )
+        # gas/value/data keep their defaults: 21000 is the floor for a bare
+        # transfer and 0 / "0x" are the genuine no-op values for the other two.
+        for key, default in (("gas", 21000), ("value", 0), ("data", "0x")):
             if tx.get(key) is None:
                 tx[key] = default
-        if tx.get("gasPrice") is None:
-            tx["gasPrice"] = 0
         if not tx.get("to"):
             tx.pop("to", None)
+    # The whole serialization is wrapped, not just the dict->object step: a typed
+    # transaction missing a required field (e.g. nonce) gets past
+    # serializable_unsigned_transaction_from_dict and only raises TypeError from
+    # rlp's serializer in the TypedTransaction branch below. Leaking a bare
+    # TypeError there sent an unsignable tx into sign_evm_with_fallback's broad
+    # `except Exception`, which tripped the circuit breaker and re-signed a caller
+    # bug with the backup key. InvalidTransactionError is re-raised instead.
     try:
         unsigned = serializable_unsigned_transaction_from_dict(tx)
+        if isinstance(unsigned, TypedTransaction):
+            inner = unsigned.transaction
+            fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
+            body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
+            return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
+        return "0x" + rlp.encode(unsigned).hex()
     except (TypeError, ValueError) as e:
         raise InvalidTransactionError(f"Unsignable EVM transaction: {e}") from e
-
-    if isinstance(unsigned, TypedTransaction):
-        inner = unsigned.transaction
-        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
-        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
-        return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
-    return "0x" + rlp.encode(unsigned).hex()
