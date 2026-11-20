@@ -216,8 +216,9 @@ const CITATIONS = [
 
 export default function AgentTerminalPage() {
   return (
-    <main id="main-content" className={`summer-page docs-shell institutional-page ${styles.page}`}>
+    <div className={`summer-page docs-shell institutional-page ${styles.page}`}>
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">WebMCP Agent Desk</p>
@@ -398,7 +399,8 @@ export default function AgentTerminalPage() {
           </p>
         </section>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

@@ -238,10 +238,10 @@
 .institutional-metric strong {
   display: block;
   color: var(--institutional-ink);
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: clamp(1.7rem, 3vw, 2.35rem);
-  font-weight: 500;
-  letter-spacing: -0.045em;
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
   line-height: 1;
 }
 

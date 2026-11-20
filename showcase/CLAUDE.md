@@ -34,17 +34,17 @@ Every page MUST use, unless it already deliberately doesn't:
   and `institutional-*` section classes (both belong to the current era and
   compose with summer tokens).
 - **Display type:** use `--type-display-font` / `--type-d1…d4` /
-  `--type-display-weight` / `--type-display-tracking`. `--font-display` is a
-  legacy alias for the SANS face — never use it for a heading.
+  `--type-display-weight` / `--type-display-tracking`. The old `--font-display`
+  alias (it resolved to sans) has been deleted; use `--font-sans` for UI text.
 - **Type:** the site's existing stack (serif display = Newsreader via the
   summer tokens; Archivo for body/UI; mono for labels). Never add a new font
   without a brand decision (see docs/design/serif-decision.md).
 
 ## Legacy — do NOT use on new pages
 
-- `src/app/classic/` — the archived previous home page. Reference only.
-- `src/app/hero-a` … `hero-e` — hero experiments. The live home imports
-  `hero-d/hero-d.css`; treat the others as dead.
+- `/classic` and `/hero-a` … `/hero-e` are removed and permanently redirect to
+  `/` (next.config.mjs). `src/app/hero-d/hero-d.css` stays: the live home
+  imports it.
 
 ## Known traps
 

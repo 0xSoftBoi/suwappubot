@@ -71,10 +71,10 @@
 .name {
   margin: 0;
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: 1.05rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
 }
 
 .price {
@@ -83,11 +83,11 @@
   gap: 5px;
   margin: 12px 0 0;
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: 2.4rem;
-  font-weight: 600;
+  font-weight: var(--type-display-weight);
   line-height: 1;
-  letter-spacing: -0.032em;
+  letter-spacing: var(--type-display-tracking);
   font-variant-numeric: tabular-nums;
 }
 
@@ -335,7 +335,7 @@
   border-bottom: 1px solid var(--sw-hairline-strong);
   background: var(--sw-canvas);
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 0.95rem;
   font-weight: 600;
   text-align: center;

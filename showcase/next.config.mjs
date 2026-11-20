@@ -13,12 +13,18 @@ const nextConfig = {
   // real pages (and /api/* serves the live quote proxy), so they must never be
   // redirected to an anchor.
   redirects: async () => [
-    'engine', 'terminal', 'hyperliquid', 'tempo',
-  ].map((id) => ({
-    source: `/${id}`,
-    destination: `/#${id}`,
-    permanent: false,
-  })),
+    ...['engine', 'terminal', 'hyperliquid', 'tempo'].map((id) => ({
+      source: `/${id}`,
+      destination: `/#${id}`,
+      permanent: false,
+    })),
+    // Retired hero experiments and the archived classic home page.
+    ...['hero-a', 'hero-b', 'hero-c', 'hero-d', 'hero-e', 'classic'].map((id) => ({
+      source: `/${id}`,
+      destination: '/',
+      permanent: true,
+    })),
+  ],
   headers: async () => [
     {
       // Apply security headers to all routes (belt-and-suspenders with middleware)

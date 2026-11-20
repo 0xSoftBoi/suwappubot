@@ -14,9 +14,8 @@ import './foundation.css';
 
 // Archivo carries UI + body (news-agency grotesk register, chosen over Geist
 // in the round-3 sans A/B — see docs/design/serif-decision.md), JetBrains Mono
-// is rationed to numerals, kickers, and code. Archivo is loaded ONCE:
-// globals.css aliases --font-display to --font-sans so both var() names
-// resolve to the same instance (no second font download).
+// is rationed to numerals, kickers, and code. Archivo is loaded ONCE
+// as --font-sans (display type uses --type-display-font, the serif).
 const bodySans = Archivo({
   subsets: ['latin'],
   style: ['normal', 'italic'],

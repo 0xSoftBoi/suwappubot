@@ -28,7 +28,7 @@
 .orgName {
   margin: 0;
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.22rem;
   font-weight: 700;
   line-height: 1;
@@ -165,7 +165,7 @@
 
 .kpiValue {
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.72rem;
   font-weight: 700;
   line-height: 1;
@@ -620,7 +620,7 @@
 .loginTitle {
   margin: 0 0 6px;
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.5rem;
   font-weight: 700;
 }
@@ -727,7 +727,7 @@
 .onboardTitle {
   margin: 0 0 8px;
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.35rem;
   font-weight: 700;
 }
@@ -1198,7 +1198,7 @@
 
 .kpiHeroValue {
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 2.45rem;
   font-weight: 700;
   line-height: 1.05;

@@ -119,7 +119,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleLd) }}
@@ -129,6 +129,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page research-post">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>
@@ -195,7 +196,8 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
 
         <a className="research-post__back" href="/research">← All research</a>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

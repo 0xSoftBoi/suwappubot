@@ -115,3 +115,9 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
   - **Dead CSS**: 897 lines of old-header rules removed from `globals.css`, `hero-d.css`, `institutional.css` with a PostCSS pass (deletions only; 26 routes × 2 widths measured before/after, no layout change).
   Verified on a local production build: 27 routes × (1440, 390) clean; nav, search and form checks pass. Not deployed.
 - Still open: `/classic` (archived, noindex) has a hydration error; `hero-a…e`/`classic` routes still ship; `--font-display` alias still exists; pages that wrap the header inside `<main id="main-content">` make the skip link land before the nav; passport's glow button is off-system.
+- 2026-11-20 — Last four open items closed (showcase-dev):
+  - **Dead routes**: deleted `hero-a/b/c/e` and `classic` (and `hero-d/page.tsx`; `hero-d.css` kept, the home imports it). `/hero-a…e` and `/classic` now 308 to `/` (next.config.mjs).
+  - **`--font-display` alias deleted**: 22 heading/display/big-figure uses moved to `--type-display-font` (with display weight/tracking), 15 UI/body uses (admin, dashboard, table heads, footer wordmark, handles) moved to `--font-sans`.
+  - **Skip link**: 20 pages that rendered `<SummerNav>` inside `<main id="main-content">` now use a `summer-page …` wrapper div holding nav, then `<main>`, then footer.
+  - **Passport**: CTA now uses `summer-button summer-button--primary`; glow/box-shadow removed; shared `.summer-button:focus-visible` ring added to foundation.css.
+  Verified on a local production build: 10 routes × (1440, 390) no overflow, one h1, skip link lands on `#main-content` after the header. Not deployed.

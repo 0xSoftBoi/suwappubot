@@ -142,7 +142,7 @@
 }
 
 .adm-topbar__title {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-sans, inherit);
   font-size: 1.4rem;
   font-weight: 700;
   color: var(--adm-ink);
@@ -202,7 +202,7 @@
 }
 
 .adm-auth__title {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-sans, inherit);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--adm-ink);
@@ -290,7 +290,7 @@
 }
 
 .adm-section__title {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-sans, inherit);
   font-size: 1rem;
   font-weight: 700;
   color: var(--adm-ink);
@@ -351,7 +351,7 @@
 }
 
 .adm-stat__value {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-sans, inherit);
   font-size: 2rem;
   font-weight: 700;
   color: var(--adm-ink);
