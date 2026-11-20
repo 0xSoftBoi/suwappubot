@@ -252,22 +252,28 @@ What costs money and should wait: TRM paid Wallet Screening (~$200k/yr enterpris
 
 The August audit (`docs/deployment/railway-cost-audit.md`) modelled ~$122/mo and recommended eleven actions. Re-measuring the fleet over a 7-day window shows where it actually stands.
 
-**`python-worker` is now the entire problem.** It got worse, not better:
+**`python-worker` — corrected 2026-11-20. It is already fixed.**
 
-| Metric | Aug audit | Now |
-|---|---|---|
-| Average vCPU | 0.204 | 0.273 |
-| Average RAM | 1.618 GB | 1.997 GB |
-| Peak RAM | 31.7 GB | 27.5 GB |
-| Modelled cost | $36/mo | **~$45/mo** |
+An earlier revision of this document said the worker averaged 2.0 GB with a 27.5 GB peak, cost ~$45/mo, and was "the entire problem". That measurement was taken against the **retired** service id (`3c9567a4…`). The worker was recreated as `27ed9534…` and redeployed 2026-11-06 with `MEMORY_GUARD_ENABLED` set.
 
-That is roughly 90% of the addressable spend in one service. `python-api` runs the same image at 0.28 GB, so the gap is background services holding memory. The 8 GiB cap is in `railway.python-worker.json`, which bounds the blast radius but does not touch the 2 GB steady-state baseline that you actually pay for. Chasing it is worth more than every other line combined.
+Re-measured over the 7 days to 2026-11-20:
+
+| Metric | Aug audit | Stale claim | Actual now |
+|---|---:|---:|---:|
+| Average RAM | 1.618 GB | 1.997 GB | **0.881 GB** |
+| Peak RAM | 31.7 GB | 27.5 GB | **0.977 GB** |
+| Average vCPU | 0.204 | 0.273 | 0.277 |
+| Modelled cost | ~$36/mo | ~$45/mo | **~$23/mo** |
+
+Memory is flat across the whole window, and the guard's heartbeat has read `peak=0.87GB` unchanged for 10+ hours. The weekly balloon to 30 GB has not recurred. There is no memory problem left to fix.
+
+The one open item is a lost safety net, not a cost: `railway.python-worker.json` declares an 8 GiB / 2 vCPU `limitOverride`, but the recreated service reports a 32 GB limit and carries no override. The in-process guard (hard exit at 6 GB) is armed and is the real protection, so re-applying the platform cap is housekeeping.
 
 **Everything else is rounding error.** Measured over 7 days: `turnkey-key-import` holds 50 MB at zero CPU (~$1/mo), `signal-lab-prod` 32 MB (~$0.65/mo), `pump-onchain-ingest-prod` ~$1.90/mo. Four services report all-zero metrics, so they are already costing nothing to run: `testnet-runner`, `ghostcatcher-compact-export`, and two failed `ghostcatcher-chain-export` deployments. The dev `*-marketdata` services are asleep, so the August `sleepApplication` change worked.
 
 Three of those are one-off jobs left configured as always-on services, on branches that no longer exist (`claude/nft-collections-market-redesign-gm1kpr`, `feat/ghostcatcher-chain-export`). Deleting them is housekeeping worth a few dollars, not a cost strategy, and it is destructive, so it needs a human decision rather than an agent's.
 
-**Recommendation:** spend the effort on `python-worker`'s memory baseline and ignore the long tail. Deleting six services saves about $3/mo; halving the worker's resident memory saves about $20/mo.
+**Recommendation:** there is no compute work left worth doing here. The memory fix already landed and took the worker from ~$36–45/mo to ~$23/mo. The remaining long tail is about $3/mo across six services, four of which already report zero usage, so deleting them is tidying rather than saving. Spend the engineering time on the product instead.
 
 ### 4.3 What not to do
 

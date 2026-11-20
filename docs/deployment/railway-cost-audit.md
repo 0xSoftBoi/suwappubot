@@ -1,5 +1,39 @@
 # Railway Cost & Efficiency Audit
 
+> ## ⚠️ Re-measured 2026-11-20 — F1/F2 are RESOLVED. Do not act on them.
+>
+> The headline finding below ("`python-worker` is 30% of the bill", "spiked to
+> 31.7 GB") was true on 2026-08-27 and is **no longer true**. `python-worker`
+> was recreated since (service id `3c9567a4…` → `27ed9534…`, latest deploy
+> 2026-11-06), and `MEMORY_GUARD_ENABLED` is now set on it.
+>
+> Measured over the 7 days to 2026-11-20, 10,081 samples:
+>
+> | `python-worker` | Aug 2026 | Nov 2026 |
+> |---|---:|---:|
+> | avg RAM | 1.618 GB | **0.881 GB** |
+> | max RAM | 31.7 GB | **0.977 GB** |
+> | avg vCPU | 0.204 | 0.277 |
+> | modelled | ~$36/mo | **~$23/mo** |
+>
+> Memory is flat — no spike anywhere in the window, and the guard's own
+> heartbeat has read `rss=0.79GB peak=0.87GB` unchanged for 10+ hours. The
+> weekly 30 GB balloon that motivated `memory_guard.py` has not recurred.
+> **The memory problem is solved; there is nothing left to chase there.**
+>
+> One regression worth knowing: `railway.python-worker.json` declares
+> `deploy.limitOverride` of 2 vCPU / 8 GiB, but the recreated service reports
+> `MEMORY_LIMIT_GB = 32` and its live deploy config carries no override — the
+> platform-level cap did **not** survive the service recreation. The real
+> protection is the in-process guard (soft 3 GB → tracemalloc report, hard
+> 6 GB → exit 137), which *is* armed, so this is a lost belt-and-braces
+> rather than live exposure. Re-apply the override when convenient.
+>
+> Everything below is the original August audit, kept for the method and for
+> the findings that are still open (F3b, F4–F8). Treat its dollar figures as
+> historical.
+
+
 **Project**: `suwappu` (`428680a3-dd24-4f7c-8349-e66d791b5104`)
 **Environments**: `production` (`99bf10c1…`), `dev` (`ebbeb375…`)
 **Data window**: 7 days (168h), 10,081 samples per series, pulled 2026-08-27 via Railway MCP.
