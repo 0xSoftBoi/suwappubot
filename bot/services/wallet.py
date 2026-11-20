@@ -2272,8 +2272,30 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
             `sign_evm_with_fallback` tell a bad transaction apart from a
             signing-backend outage: it re-raises this without tripping the
             Turnkey circuit breaker or decrypting the wallet's backup key to
-            retry. Any new code path added here must preserve that.
+            retry. That invariant is enforced structurally by the wrapper
+            below, not by enumerating exception types: review found three
+            rounds of escapes (a bare TypeError from the typed encoding, rlp's
+            RLPException, then OverflowError from a float("inf") field and
+            AttributeError from authorizationList), so this now fails closed
+            on anything unexpected instead of listing what to catch.
     """
+    try:
+        return _serialize_unsigned_evm_tx(transaction)
+    except InvalidTransactionError:
+        raise
+    except Exception as e:
+        # Fail closed. Anything escaping as another exception type — including
+        # from a future eth_account or rlp release — reads to
+        # sign_evm_with_fallback as a Turnkey outage and costs a circuit-breaker
+        # failure plus a KMS backup-key decrypt. Nothing in here legitimately
+        # raises a retryable error, so answering 400 even on a bug of our own is
+        # strictly cheaper than an unnecessary decrypt of a user's backup key.
+        raise InvalidTransactionError(f"Unsignable EVM transaction: {type(e).__name__}: {e}") from e
+
+
+def _serialize_unsigned_evm_tx(transaction: dict) -> str:
+    """Body of serialize_unsigned_evm_tx. Always call through that wrapper,
+    which guarantees a malformed transaction raises InvalidTransactionError."""
     import rlp
     from eth_account._utils.legacy_transactions import (
         serializable_unsigned_transaction_from_dict,
