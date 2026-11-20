@@ -1103,7 +1103,10 @@ class Settings(BaseSettings):
 
     # Telegram Mini App
     webapp_url: str = Field(
-        default="https://app.suwappu.bot", description="URL for the Telegram Mini App dashboard"
+        # app.suwappu.bot has no deployment (404 as of 2026-11-20). The terminal
+        # signs in via Telegram initData, so it is the Mini App surface now.
+        default="https://terminal.suwappu.bot",
+        description="URL for the Telegram Mini App dashboard",
     )
 
     # Terminal (non-custodial trading web app, served on its own subdomain)

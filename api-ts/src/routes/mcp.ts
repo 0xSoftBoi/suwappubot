@@ -73,6 +73,13 @@ const PUBLIC_READ_TOOLS = new Set([
 	'browse_mpp_directory',
 	'near_resolve_asset',
 	'near_convert_amount',
+	// Read-only market data. Anonymous callers get a price/route quote (and, with
+	// wallet_address, the unsigned self-custody tx — what public Li.Fi/Jupiter
+	// APIs return anyway). Anonymous quotes are NOT cached, so execute_swap can
+	// never redeem them; that still needs an authenticated agent. /mcp is behind
+	// ipRateLimit(60) in app.ts.
+	'get_quote',
+	'get_prices',
 ])
 
 // ---------------------------------------------------------------
@@ -513,7 +520,7 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	}
 }
 
-async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
+async function handleGetQuote(args: Record<string, unknown>, agent: Agent | undefined) {
 	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = args as {
 		from_token: string; to_token: string; amount: string; chain?: string
 		from_chain?: string; to_chain?: string; wallet_address?: string; slippage?: number
@@ -546,7 +553,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-				cacheAgentQuote(quoteId, quote, agent.id, true, {
+				if (agent) cacheAgentQuote(quoteId, quote, agent.id, true, {
 					fromDecimals: fromInfo.decimals,
 					toDecimals: toInfo.decimals,
 				})
@@ -600,7 +607,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 			// /internal/tempo/quote endpoint must exist (it currently does NOT) and
 			// /swap/execute needs a provider: 'tempo' quote_data branch; only then
 			// populate decimals here from TEMPO_TOKEN_DECIMALS.
-			cacheAgentQuote(quoteId, quote, agent.id, false)
+			if (agent) cacheAgentQuote(quoteId, quote, agent.id, false)
 			return {
 				content: [{
 					type: 'text',
@@ -646,7 +653,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				agent,
 			} as QuoteParams).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
-			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
+			if (agent) cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
 				fromDecimals: fromInfo.decimals,
 				toDecimals: toInfo.decimals,
 			})
@@ -1676,7 +1683,7 @@ mcpRoutes.post('/', async (c) => {
 			try {
 				switch (name) {
 					case 'get_quote':
-						result = await handleGetQuote(args || {}, callAgent)
+						result = await handleGetQuote(args || {}, agent)
 						break
 					case 'get_portfolio':
 						result = await handleGetPortfolio(args || {}, callAgent)

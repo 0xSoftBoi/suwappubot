@@ -371,7 +371,7 @@ export function Header() {
 
       <div className="flex items-center gap-2">
         <a
-          href="https://app.suwappu.bot/enterprise"
+          href="https://www.suwappu.bot/agents"
           target="_blank"
           rel="noopener noreferrer"
           className="terminal-theme-control hidden lg:flex h-8 items-center gap-1.5 rounded-[7px] px-2.5 text-xs font-semibold text-terminal-text-secondary transition-colors hover:text-sakura-700"

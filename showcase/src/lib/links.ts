@@ -5,10 +5,11 @@
 
 export const TELEGRAM_URL = 'https://t.me/suwappu_bot';
 
-// The two hosted product surfaces. Both are live and served through the
-// Cloudflare worker router.
+// The hosted product surface. app.suwappu.bot has no deployment (404 as of
+// 2026-11-20); the terminal is Telegram-Mini-App aware (initData sign-in in
+// terminal/src/contexts/AuthContext.tsx), so the Mini App CTA opens it too.
 export const TERMINAL_URL = 'https://terminal.suwappu.bot';
-export const MINI_APP_URL = 'https://app.suwappu.bot';
+export const MINI_APP_URL = TERMINAL_URL;
 
 // Public docs live on the showcase itself under /docs.
 export const GITHUB_URL = 'https://github.com/0xSoftBoi/suwappubot';

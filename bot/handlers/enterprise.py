@@ -26,7 +26,7 @@ AWAITING_KEY_NAME = 0
 
 DEFAULT_KEY_SCOPES = ["trade:read", "portfolio:read"]
 
-_ORG_URL = "app.suwappu.bot/enterprise"
+_ORG_URL = "www.suwappu.bot/enterprise"
 _PRICING_URL = "suwappu.bot/pricing"
 
 
