@@ -407,3 +407,19 @@ Confidence notes:
 - Bankr revenue is unresolved.
 
 Other sources: [datawallet](https://www.datawallet.com/crypto/best-telegram-crypto-trading-bots), [dropstab](https://news.dropstab.com/research/top-telegram-trading-bots-for-crypto), [Blockworks](https://blockworks.co/news/telegram-trading-bot-banana-gun), [DefiLlama Banana Gun](https://defillama.com/protocol/banana-gun), [0x Bankr case study](https://0x.org/case-study/bankr).
+
+---
+
+## Addendum (2026-11-20, later): live traction check
+
+The prod DB could not be queried from the cloud session: Railway MCP redacts values, raw TCP egress is blocked, and the admin key was not provided. `scripts/traction_queries.sql` is ready to run locally. These numbers come from Railway HTTP metrics and logs instead. All are [V].
+
+| Signal | Value |
+|---|---|
+| Telegram webhook updates, last 7 days | **2** (Telegram sends every user message to this endpoint) |
+| Worker log lines about swap execution, last 30 days | **0** (only "aggregators ready" boot lines) |
+| Last DB snapshot recorded in code (`api/main.py` activation-funnel docstring, Aug 2026) | **43 users, 77 wallets, 0 completed swaps**; custodial_balances and x402_payments empty |
+| Terminal, 7 days | 3,168 requests, 47% 4xx. In a 12h sample: 1 scanner IP was 61% of traffic (171 `.env`/tfstate probes), about 4 human visitors browsed charts and order books, 1 failed passkey login, 0 quote or swap calls |
+| api-ts, 7 days | 18,161 requests. In a 1.5h sample: web-event beacons, agent-card pollers (python-httpx/node), internal autopilot loops, crawlers. **1** `POST /v1/agent/quote`, which got a 402 paywall response. 0 executes |
+
+**Decision gate result:** stay_dex_bot needs at least 50 weekly swappers or $1k/month in fees. Actual: about 0 and about $0, so the **gate fails**. The bot has effectively no users. The agent API is also mostly being hit by crawlers, registry indexers and our own loops.
