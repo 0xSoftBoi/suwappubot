@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
 	bigserial,
 	boolean,
+	doublePrecision,
 	index,
 	integer,
 	jsonb,
@@ -113,7 +114,7 @@ export const policyDecisions = pgTable(
 		matchedPolicyId: uuid('matched_policy_id'),
 		// Snapshot of the evaluated transaction intent (chain, tokens, amounts, usd…).
 		intent: jsonb('intent'),
-		valueUsd: real('value_usd'),
+		valueUsd: doublePrecision('value_usd'),
 		// Set when this decision row exists to make an approved human-in-the-loop
 		// trade count toward daily/session/velocity caps (see ApprovalService +
 		// the agent.ts swap-execute resubmit path). Nullable — most rows are a

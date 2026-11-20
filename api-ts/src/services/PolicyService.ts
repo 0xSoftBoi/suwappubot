@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
 import { type DrizzleService, requireDb } from '../db'
+import type { DbClient } from '../db/client'
 import { approvalRequests } from '../db/schema/approvals'
 import { DatabaseError } from '../errors'
 import { logger } from '../lib/logger'
@@ -203,6 +204,86 @@ function evalStateless(
 	return {}
 }
 
+interface CapUsage {
+	daySum: number
+	hourSum: number
+	hourCount: number
+}
+
+type CapTx = Parameters<Parameters<DbClient['transaction']>[0]>[0]
+
+/**
+ * MONEY-PATH. Reads prior ALLOWED decisions in the trailing 24h and returns
+ * usage at two scopes in ONE query:
+ *   - `org`:   every agent in the org (policy_decisions.organization_id = orgId;
+ *              rows are stamped with the agent's org at decision time).
+ *   - `agent`: only the calling agent.
+ * An org-wide policy (policies.agent_id IS NULL) is evaluated against `org`; a
+ * policy narrowed to one agent against `agent`. With no org (bare agent-token
+ * grants) `org` falls back to the agent's own usage.
+ *
+ * Window bounds go in as ISO text + `::timestamp` — a raw Date inside a sql``
+ * fragment is not type-mapped by postgres-js and throws. Values are cast to
+ * double precision so the SUM is never float4 (value_usd was `real`).
+ */
+async function loadCapUsage(
+	tx: CapTx,
+	orgId: string | null,
+	agentId: string | null | undefined,
+	now: number,
+): Promise<{ org: CapUsage; agent: CapUsage }> {
+	const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
+	const hourIso = new Date(now - 60 * 60 * 1000).toISOString()
+	const inHour = sql`${policyDecisions.createdAt} >= ${hourIso}::timestamp`
+	const isOrg = orgId ? sql`${policyDecisions.organizationId} = ${orgId}` : sql`false`
+	const isAgent = agentId ? sql`${policyDecisions.agentId} = ${agentId}` : sql`false`
+	const val = sql`${policyDecisions.valueUsd}::double precision`
+
+	const scopeFilter =
+		orgId && agentId
+			? or(eq(policyDecisions.organizationId, orgId), eq(policyDecisions.agentId, agentId))
+			: orgId
+				? eq(policyDecisions.organizationId, orgId)
+				: agentId
+					? eq(policyDecisions.agentId, agentId)
+					: sql`false`
+
+	const [agg] = await tx
+		.select({
+			orgDay: sql<number>`coalesce(sum(case when ${isOrg} then ${val} else 0 end), 0)`,
+			orgHour: sql<number>`coalesce(sum(case when ${isOrg} and ${inHour} then ${val} else 0 end), 0)`,
+			orgCount: sql<number>`coalesce(sum(case when ${isOrg} and ${inHour} then 1 else 0 end), 0)`,
+			agentDay: sql<number>`coalesce(sum(case when ${isAgent} then ${val} else 0 end), 0)`,
+			agentHour: sql<number>`coalesce(sum(case when ${isAgent} and ${inHour} then ${val} else 0 end), 0)`,
+			agentCount: sql<number>`coalesce(sum(case when ${isAgent} and ${inHour} then 1 else 0 end), 0)`,
+		})
+		.from(policyDecisions)
+		.where(
+			and(
+				scopeFilter,
+				eq(policyDecisions.decision, 'allow'),
+				gte(policyDecisions.createdAt, dayAgo),
+			),
+		)
+	const agent: CapUsage = {
+		daySum: Number(agg?.agentDay ?? 0),
+		hourSum: Number(agg?.agentHour ?? 0),
+		hourCount: Number(agg?.agentCount ?? 0),
+	}
+	const org: CapUsage = orgId
+		? {
+				daySum: Number(agg?.orgDay ?? 0),
+				hourSum: Number(agg?.orgHour ?? 0),
+				hourCount: Number(agg?.orgCount ?? 0),
+			}
+		: agent
+	return { org, agent }
+}
+
+/** Org-wide policies (no agentId) count org-wide usage; agent-narrowed ones count the agent's. */
+const usageFor = (p: Policy, u: { org: CapUsage; agent: CapUsage }): CapUsage =>
+	p.agentId == null ? u.org : u.agent
+
 export const PolicyServiceLive = Layer.succeed(
 	PolicyService,
 	PolicyService.of({
@@ -358,19 +439,10 @@ export const PolicyServiceLive = Layer.succeed(
 				// the cap (the same TOCTOU class as the approval-resubmit fix, just
 				// via a different caller).
 				const now = Date.now()
-				const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
-				const hourAgo = new Date(now - 60 * 60 * 1000)
 
 				const needsDaily = activeRows.some((p) => p.dailyCapUsd != null)
 				const needsSession = activeRows.some((p) => p.sessionCapUsd != null)
 				const needsVelocity = activeRows.some((p) => p.maxTxPerHour != null)
-
-				// orgId is guaranteed non-null whenever intent.agentId is falsy here —
-				// the only way to reach this point with both null is the fully-unscoped
-				// early return above.
-				const agentFilter = intent.agentId
-					? eq(policyDecisions.agentId, intent.agentId)
-					: eq(policyDecisions.organizationId, orgId as string)
 
 				// Captured from inside the transaction so a write failure AFTER the
 				// verdict is computed can fail closed (return the computed block with
@@ -385,30 +457,12 @@ export const PolicyServiceLive = Layer.succeed(
 							let verdict: PolicyDecisionResult = pendingApproval ?? { decision: 'allow' }
 
 							if (needsDaily || needsSession || needsVelocity) {
-								// MONEY-PATH. The window bounds go in as ISO text + cast, never as
-								// Date objects: a Date inside a raw sql`` fragment is not type-mapped
-								// by drizzle and postgres-js throws on it. That made this aggregate
-								// throw for every policy with a daily/session/velocity cap, and the
-								// callers fail OPEN on a policy error, so the caps did not enforce.
-								const [agg] = await tx
-									.select({
-										daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
-										hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
-										hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then 1 else 0 end), 0)`,
-									})
-									.from(policyDecisions)
-									.where(
-										and(
-											agentFilter,
-											eq(policyDecisions.decision, 'allow'),
-											gte(policyDecisions.createdAt, dayAgo),
-										),
-									)
-								const daySum = Number(agg?.daySum ?? 0)
-								const hourSum = Number(agg?.hourSum ?? 0)
-								const hourCount = Number(agg?.hourCount ?? 0)
+									// MONEY-PATH. See loadCapUsage: org-wide policies sum the whole org,
+									// agent-narrowed ones the calling agent; Date bounds are ISO text.
+									const usage = await loadCapUsage(tx, orgId, intent.agentId, now)
 
 								for (const p of activeRows) {
+										const { daySum, hourSum, hourCount } = usageFor(p, usage)
 									if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
 										verdict = {
 											decision: 'block',
@@ -455,8 +509,13 @@ export const PolicyServiceLive = Layer.succeed(
 						}),
 					catch: (e) => new DatabaseError({ message: `cap check + decision log failed: ${e}`, cause: e }),
 				}).pipe(
+					// A verdict was computed but the transaction (cap read + decision
+					// insert) failed. A 'block' / 'require_approval' is still safe to
+					// return — it only restricts. An 'allow' is NOT: its row was never
+					// written, so the spend would escape every later cap sum. Fail so
+					// the caller rejects (callers fail closed on a policy error).
 					Effect.catchAll((e) =>
-						computedVerdict !== null
+						computedVerdict !== null && computedVerdict.decision !== 'allow'
 							? Effect.succeed(computedVerdict)
 							: Effect.fail(e),
 					),
@@ -499,37 +558,15 @@ export const PolicyServiceLive = Layer.succeed(
 								.orderBy(policies.priority)
 
 							const now = Date.now()
-							const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
-							const hourAgo = new Date(now - 60 * 60 * 1000)
 							// Expired grants are skipped entirely here too, for consistency
 							// with evaluate()'s activeRows filtering.
 							const activeRows = rows.filter(
 								(p) => !p.expiresAt || p.expiresAt.getTime() > now,
 							)
-							const agentFilter = intent.agentId
-								? eq(policyDecisions.agentId, intent.agentId)
-								: eq(policyDecisions.organizationId, orgId)
-
-							const [agg] = await tx
-								.select({
-									daySum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${dayAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
-									hourSum: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then ${policyDecisions.valueUsd} else 0 end), 0)`,
-									hourCount: sql<number>`coalesce(sum(case when ${policyDecisions.createdAt} >= ${hourAgo.toISOString()}::timestamp then 1 else 0 end), 0)`,
-								})
-								.from(policyDecisions)
-								.where(
-									and(
-										agentFilter,
-										eq(policyDecisions.decision, 'allow'),
-										gte(policyDecisions.createdAt, dayAgo),
-									),
-								)
-
-							const daySum = Number(agg?.daySum ?? 0)
-							const hourSum = Number(agg?.hourSum ?? 0)
-							const hourCount = Number(agg?.hourCount ?? 0)
+							const usage = await loadCapUsage(tx, orgId, intent.agentId, now)
 
 							for (const p of activeRows) {
+								const { daySum, hourSum, hourCount } = usageFor(p, usage)
 								if (p.dailyCapUsd != null && daySum + intent.valueUsd > p.dailyCapUsd) {
 									return {
 										blocked: true as const,
