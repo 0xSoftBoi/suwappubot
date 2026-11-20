@@ -2,6 +2,7 @@ import { Effect } from 'effect'
 import { Hono } from 'hono'
 import { requireDb, webEvents } from '../db'
 import { runEffectEither } from '../runtime'
+import { logger } from '../lib/logger'
 
 /**
  * First-party marketing-site event ingest (POST /v1/web/event).
@@ -17,6 +18,7 @@ import { runEffectEither } from '../runtime'
 const webEventRoutes = new Hono()
 
 const MAX_BODY_BYTES = 2048
+let lastFailureLogAt = 0
 const NAME_RE = /^[a-z][a-z0-9_]{1,47}$/
 const SESSION_RE = /^[A-Za-z0-9_-]{8,40}$/
 const HOST_RE = /^[a-z0-9.-]{1,120}$/
@@ -99,7 +101,7 @@ webEventRoutes.post('/event', async (c) => {
 
 	// Best effort. A missing table (Python not yet booted on the new model) or
 	// a DB blip is swallowed: the visitor's page must not notice.
-	await runEffectEither(
+	const stored = await runEffectEither(
 		Effect.gen(function* () {
 			const db = yield* requireDb
 			yield* Effect.tryPromise({
@@ -108,6 +110,15 @@ webEventRoutes.post('/event', async (c) => {
 			})
 		}),
 	)
+	// The visitor never sees a failure, so the log is the only signal that
+	// tracking is silently dropping events. At most one line a minute.
+	if (stored._tag === 'Left' && Date.now() - lastFailureLogAt > 60_000) {
+		lastFailureLogAt = Date.now()
+		logger.warn(
+			{ event: 'web_event_store_failed', error: String(stored.left).slice(0, 300) },
+			'[web-events] could not store a page event — the Growth dashboard is under-counting',
+		)
+	}
 
 	return done()
 })

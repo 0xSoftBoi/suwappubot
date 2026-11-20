@@ -786,7 +786,22 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
-			// Idempotency: if a non-terminal record with this key already exists, return it
+			// Idempotency: return an existing record only when it is NOT safe to
+			// re-execute.
+			//
+			// Do NOT widen this to also return failed/cancelled rows that carry
+			// a txHash, even though the Python engine's guard does exactly that.
+			// The shapes differ: Python's execute_swap returns the row and stops,
+			// whereas here both execution routes continue straight into signing
+			// and broadcasting after this record is created, with a freshly
+			// fetched nonce. Returning a broadcast-bearing row would therefore
+			// send a second origin transaction and overwrite the stored hash.
+			//
+			// Excluding those rows is what keeps this safe: the insert below
+			// then collides with the unique index on idempotencyKey and the
+			// request fails before anything is signed. A hard error, but no
+			// duplicate send. The database is doing the work here, not this
+			// predicate.
 			if (swap.idempotencyKey) {
 				const existing = yield* Effect.tryPromise({
 					try: () =>

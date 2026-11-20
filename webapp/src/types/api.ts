@@ -29,7 +29,7 @@ export interface Swap {
   toAmount?: string
   fromAmountUsd?: number
   toAmountUsd?: number
-  status: 'pending' | 'completed' | 'failed' | 'cancelled'
+  status: 'pending' | 'completed' | 'failed' | 'cancelled' | 'unknown'
   txHash?: string
   bridgeTxHash?: string
   destinationTxHash?: string

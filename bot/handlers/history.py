@@ -283,6 +283,9 @@ def _get_status_emoji(status: str) -> str:
         SwapStatus.COMPLETED.value: "✅",
         SwapStatus.FAILED.value: "❌",
         SwapStatus.CANCELLED.value: "🚫",
+        # Not a failure and not a success — the broadcast may have landed and
+        # we cannot prove it either way.
+        SwapStatus.UNKNOWN.value: "⚠️",
     }.get(status, "❓")
 
 
