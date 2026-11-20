@@ -155,9 +155,11 @@ friends" — an unverified invite does not count.
 
 ## Voice reference
 
-- "The execution layer between intent and markets." — `showcase/src/app/page.tsx`
-- "Suwappu turns a trade intent into an inspectable route and controlled
-  execution across supported markets." — `showcase/messages/en.json`
+- "The full-stack trading platform for cross-chain markets." —
+  `home.hero.h1` in `showcase/messages/en.json`, rendered by
+  `showcase/src/app/page.tsx`
+- "Execution, routing, research, and portfolio management across 45 chains, from
+  one venue." — `home.hero.lead` in `showcase/messages/en.json`
 
 ## Market grounding
 

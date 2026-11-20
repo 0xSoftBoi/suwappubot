@@ -89,20 +89,6 @@
       "mobileTitle": "Menu"
     }
   },
-  "hero": {
-    "kicker": "Désormais en bêta ouverte · 45 chaînes",
-    "h1": "La couche d’exécution entre l’intention et les marchés.",
-    "lead": "Suwappu transforme une intention de trading en une route vérifiable et une exécution contrôlée sur les marchés pris en charge. Tradez depuis le Terminal ou Telegram, ou intégrez via REST, MCP et des SDK typés.",
-    "cta_bot": "Commencer gratuitement",
-    "cta_terminal": "Ouvrir le Terminal",
-    "cta_api": "Construire avec l’API",
-    "cta_telegram": "Trader dans Telegram",
-    "byline_pre": "Créé par l'auteur de",
-    "byline_book": "Printing Money",
-    "byline_mid": "- un livre pratique sur la sécurité DeFi, et contributeur open-source à",
-    "byline_and": "et",
-    "eyebrow": "Infrastructure d’exécution"
-  },
   "home": {
     "hero": {
       "eyebrow": "Plateforme de trading full-stack",
