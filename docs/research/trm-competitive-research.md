@@ -210,11 +210,22 @@ Every source below is free, and each was tested live rather than taken from docu
 |---|---|---|---|---|
 | **Chainalysis on-chain oracle** `0x40C579…aC8fb` | Free. It is an `eth_call` on RPC we already hold | None | None | **Verified deployed** on ethereum, polygon, bsc, avalanche, optimism, arbitrum. **Not** on base |
 | **OFAC SDN feed** (Treasury XML, or the nightly per-chain extraction) | Free | None | GitHub raw limits | 123 ETH addresses, refreshed daily |
-| TRM public sanctions API | Free | None | 1/s, 100/day | Works, but its terms do not confirm results may be stored, and it reported 14 of our 15 **delisted** addresses as sanctioned. Demoted to fallback |
+| TRM public sanctions API | Free | None | 1/s, 100/day advertised | **Not dependable.** Wrong in both directions and 403s under light use. See the table below. Off by default, fallback only |
 | GoPlus, Honeypot.is, RugCheck | Free | None | 30/min | Already wired at `api/routes/terminal.py:979` |
 | MetaMask eth-phishing-detect, ScamSniffer | Free | None | GitHub raw | Not yet wired. ScamSniffer is GPL-3.0, fine to consume, care if redistributed |
 
 The ordering matters commercially: the oracle is free, keyless, unmetered and carries no caching terms, so it runs first and TRM is consulted only when the oracle cannot answer. That keeps the screening layer at **$0 marginal cost per swap** rather than rationing a 100/day budget.
+
+**Do not build on TRM's free endpoint.** Measured against the current OFAC SDN list on 2026-11-20, it is unreliable in both directions and then stops answering:
+
+| Observation | Result |
+|---|---|
+| 15 addresses OFAC **delisted** in 2025 | TRM reported 14 as sanctioned. False positives |
+| A currently-designated SDN address the oracle flags | TRM returned `isSanctioned: false`. False negative |
+| Sustained use from one IP | HTTP 403 after roughly 40 requests, far under the advertised 100/day |
+| Non-EVM (TRON) address formats | HTTP 403 in both base58 and normalized hex |
+
+Over the same window the on-chain oracle answered every query with no auth, no limit and no blocking, flagging 9 of 12 live SDN sample addresses. It does not reach 12 of 12, so it is a fast per-recipient confirmation layer, not a replacement for ingesting the full SDN list. The right architecture is both: the **SDN feed for coverage**, the **oracle for per-transaction checks**, and TRM off.
 
 ### 4.2c Cost versus impact: cheapest moves first
 

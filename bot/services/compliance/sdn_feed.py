@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 TICKERS: tuple[str, ...] = ("ETH", "TRX", "XBT", "SOL")
 
 _FETCH_TIMEOUT_SECONDS = 5.0
+_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+_MAX_MERGED_ENTRIES = 100_000
 
 
 def _parse_lines(text: str) -> Set[str]:
@@ -64,18 +66,31 @@ def _parse_lines(text: str) -> Set[str]:
 
 
 async def _fetch_ticker_text(base_url: str, ticker: str) -> Optional[str]:
-    """Fetch raw list text for one ticker. Returns ``None`` on any error or
-    non-200 response — the caller fails open by keeping the previous set.
+    """Fetch raw list text for one ticker. Returns ``None`` on any error,
+    non-200 response, or a body larger than ``_MAX_RESPONSE_BYTES`` — the
+    caller fails open by keeping the previous set.
     """
-    url = base_url.format(ticker=ticker) if "{ticker}" in base_url else base_url
     try:
+        url = base_url.format(ticker=ticker) if "{ticker}" in base_url else base_url
         async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT_SECONDS) as client:
-            resp = await client.get(url)
-        if resp.status_code != 200:
-            logger.warning("SDN feed %s: HTTP %s from %s", ticker, resp.status_code, url)
-            return None
-        return resp.text
-    except Exception as exc:  # network/timeout/etc — fail open, never crash the loop
+            async with client.stream("GET", url) as resp:
+                if resp.status_code != 200:
+                    logger.warning("SDN feed %s: HTTP %s from %s", ticker, resp.status_code, url)
+                    return None
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > _MAX_RESPONSE_BYTES:
+                        logger.warning(
+                            "SDN feed %s: response exceeds %d bytes, aborting",
+                            ticker,
+                            _MAX_RESPONSE_BYTES,
+                        )
+                        return None
+                    chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="replace")
+    except Exception as exc:  # network/timeout/bad URL/etc — fail open, never crash the loop
         logger.warning("SDN feed %s: fetch failed: %s", ticker, exc)
         return None
 
@@ -95,6 +110,18 @@ class SdnFeed:
         self.last_refresh_at: Optional[datetime] = None
         self.last_count: int = 0
         self.last_error: Optional[str] = None
+        self._ever_succeeded: bool = False
+        self._last_cycle_failed: bool = False
+
+    @property
+    def degraded(self) -> bool:
+        """True when the feed is enabled and either a ticker failed on the
+        last cycle or it has never once fully succeeded (no floor: the
+        bundled seed is empty, so "never loaded" must not read as clean).
+        """
+        if not getattr(settings, "compliance_sdn_feed_enabled", False):
+            return False
+        return self._last_cycle_failed or not self._ever_succeeded
 
     @property
     def base_url(self) -> str:
@@ -118,6 +145,12 @@ class SdnFeed:
                 failed.append(ticker)
                 continue  # fail-open: keep whatever we had for this ticker
             parsed = _parse_lines(text)
+            if not parsed:
+                # HTTP 200 with zero parseable addresses is garbage, not an
+                # empty sanctions list. Never overwrite a good set with it.
+                logger.warning("SDN feed %s: 200 OK but 0 parseable addresses; rejecting", ticker)
+                failed.append(ticker)
+                continue
             with self._lock:
                 self._sets[ticker] = parsed
 
@@ -127,28 +160,38 @@ class SdnFeed:
                 merged |= addrs
             count = len(merged)
 
-        from bot.services.compliance.compliance_service import compliance_service
-
-        compliance_service.extend_blocklist(merged)
-
         self.last_refresh_at = datetime.now(timezone.utc)
-        self.last_count = count
         self.last_error = "fetch failed for: " + ", ".join(failed) if failed else None
+        self._last_cycle_failed = bool(failed)
+
         if failed:
+            # Partial failure: keep the previous feed layer untouched (H1/H2).
             logger.warning(
-                "SDN feed refresh: %d/%d list(s) failed (%s); merged %d address(es) "
-                "from cached/successful lists",
+                "SDN feed refresh: %d/%d list(s) failed (%s); blocklist layer NOT updated, "
+                "feed degraded (%d cached address(es))",
                 len(failed),
                 len(TICKERS),
                 ", ".join(failed),
                 count,
             )
-        else:
-            logger.info(
-                "SDN feed refresh: merged %d sanctioned address(es) from %d list(s)",
-                count,
-                len(TICKERS),
-            )
+            return count
+
+        if count > _MAX_MERGED_ENTRIES:
+            self._last_cycle_failed = True
+            self.last_error = f"merged entries {count} exceed cap {_MAX_MERGED_ENTRIES}"
+            logger.error("SDN feed refresh: %s; rejecting", self.last_error)
+            return count
+
+        from bot.services.compliance.compliance_service import compliance_service
+
+        compliance_service.set_feed_blocklist(merged)
+        self._ever_succeeded = True
+        self.last_count = count
+        logger.info(
+            "SDN feed refresh: replaced feed layer with %d sanctioned address(es) from %d list(s)",
+            count,
+            len(TICKERS),
+        )
         return count
 
     def stats(self) -> dict:
@@ -157,6 +200,7 @@ class SdnFeed:
             "last_refresh_at": (self.last_refresh_at.isoformat() if self.last_refresh_at else None),
             "last_count": self.last_count,
             "last_error": self.last_error,
+            "degraded": self.degraded,
         }
 
 

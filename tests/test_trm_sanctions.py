@@ -214,3 +214,93 @@ async def test_screen_recipient_remote_disabled_flag_skips_call(monkeypatch):
     result = await svc.screen_recipient_remote(CLEAN, chain="ethereum")
     assert result.allowed is True
     assert calls["n"] == 0
+
+
+# --- M2 / M4 / M5 ----------------------------------------------------------
+
+
+async def test_oracle_false_does_not_mask_trm_true(monkeypatch):
+    from bot.services.compliance.chainalysis_oracle import chainalysis_oracle
+
+    svc = _svc(monkeypatch, "enforce", True)
+    seen = {}
+
+    async def oracle_false(addr, chain):
+        seen["chain"] = chain
+        return False
+
+    async def trm_true(addr):
+        return True
+
+    monkeypatch.setattr(chainalysis_oracle, "is_sanctioned", oracle_false)
+    monkeypatch.setattr(trm_module.trm_sanctions_client, "is_sanctioned", trm_true)
+    monkeypatch.setattr(trm_module.trm_sanctions_client, "has_budget", lambda: True)
+    result = await svc.screen_recipient_remote(CLEAN, chain="ethereum")
+    assert result.allowed is False
+    assert result.blocked[0].source == "trm_sanctions"
+    assert result.blocked[0].reason == "sanctioned recipient"
+
+
+async def test_oracle_false_skips_trm_when_budget_tight(monkeypatch):
+    from bot.services.compliance.chainalysis_oracle import chainalysis_oracle
+
+    svc = _svc(monkeypatch, "enforce", True)
+    called = {"n": 0}
+
+    async def oracle_false(addr, chain):
+        return False
+
+    async def trm(addr):
+        called["n"] += 1
+        return True
+
+    monkeypatch.setattr(chainalysis_oracle, "is_sanctioned", oracle_false)
+    monkeypatch.setattr(trm_module.trm_sanctions_client, "is_sanctioned", trm)
+    monkeypatch.setattr(trm_module.trm_sanctions_client, "has_budget", lambda: False)
+    result = await svc.screen_recipient_remote(CLEAN, chain="ethereum")
+    assert result.allowed is True and called["n"] == 0
+
+
+@pytest.mark.parametrize(
+    "from_chain,to_chain,expected",
+    [
+        ("base", "polygon", "polygon"),  # destination supported wins
+        ("arbitrum", "base", "arbitrum"),  # dest unsupported -> source
+        ("base", "linea", "ethereum"),  # neither -> ethereum
+        ("ethereum", None, "ethereum"),
+    ],
+)
+async def test_oracle_chain_selection_for_evm_recipient(
+    monkeypatch, from_chain, to_chain, expected
+):
+    from bot.services.compliance.chainalysis_oracle import chainalysis_oracle
+
+    svc = _svc(monkeypatch, "enforce", False)
+    seen = {}
+
+    async def oracle(addr, chain):
+        seen["chain"] = chain
+        return False
+
+    monkeypatch.setattr(chainalysis_oracle, "is_sanctioned", oracle)
+    await svc.screen_recipient_remote(CLEAN, chain=from_chain, to_chain=to_chain)
+    assert seen["chain"] == expected
+
+
+async def test_failed_request_refunds_budget(client, monkeypatch):
+    monkeypatch.setattr(
+        trm_module.httpx, "AsyncClient", _fake_client_factory(raise_exc=TimeoutError("x"))
+    )
+    assert await client.is_sanctioned(ADDR) is None
+    assert client.stats()["budget_used"] == 0
+    resp = _FakeResponse(500, None)
+    monkeypatch.setattr(trm_module.httpx, "AsyncClient", _fake_client_factory(response=resp))
+    assert await client.is_sanctioned(ADDR) is None
+    assert client.stats()["budget_used"] == 0
+
+
+async def test_success_commits_budget(client, monkeypatch):
+    resp = _FakeResponse(201, [{"address": ADDR, "isSanctioned": False}])
+    monkeypatch.setattr(trm_module.httpx, "AsyncClient", _fake_client_factory(response=resp))
+    assert await client.is_sanctioned(ADDR) is False
+    assert client.stats()["budget_used"] == 1

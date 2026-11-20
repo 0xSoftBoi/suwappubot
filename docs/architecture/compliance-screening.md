@@ -93,6 +93,23 @@ Compliant-routing flags (stage 2):
 | `COMPLIANCE_ROUTING_CHAIN_IDS` | CSV of ints | `1` | Chain IDs whose swaps route through the relay |
 | `FLASHBOTS_MAX_BLOCK_OFFSET` | int | `25` | Future-block validity window for a routed tx |
 
+### Fail-closed while the list is unproven (read before enabling ENFORCE)
+
+The bundled seed list is **empty** since the 2025-03-21 Tornado Cash
+delisting (see `ofac_list.py` — the 15 addresses it used to ship were no
+longer sanctioned, so enforcing on them blocked innocent addresses and
+covered none of the ~123 real ones).
+
+Consequently, when `COMPLIANCE_SDN_FEED_ENABLED=true`, screening reports
+**degraded** whenever the feed has never completed a full refresh, or a
+ticker failed on the last cycle. In `ENFORCE` that fails closed: swaps and
+withdrawals are blocked, because an empty blocklist must never be reported
+as "screened clean". The refresh runs immediately at startup, so the window
+is short, but it is real at every process start.
+
+In `MONITOR` the same condition only logs. That is why the rollout below
+starts there.
+
 ### Rollout recommendation
 
 1. Deploy with `COMPLIANCE_MODE=monitor` to shadow-screen production traffic

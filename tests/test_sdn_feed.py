@@ -41,6 +41,11 @@ def feed(monkeypatch):
     return sdn_feed_module.SdnFeed(), service
 
 
+def _filler(ticker):
+    """A distinct valid EVM address per ticker (every list must be non-empty)."""
+    return "0x" + format(abs(hash(ticker)) % (16**8), "08x") * 5 + "\n"
+
+
 # --- parsing -----------------------------------------------------------
 
 
@@ -64,13 +69,14 @@ async def test_refresh_merges_into_blocklist_and_blocks_in_enforce(feed, monkeyp
     async def fake_fetch(base_url, ticker):
         if ticker == "TRX":
             return f"{CLEAN_TRX_HEX}\n"
-        return ""  # other tickers: valid, empty list
+        return _filler(ticker)
 
     monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", fake_fetch)
     count = await f.refresh()
 
-    assert count == 1
+    assert count == 4
     assert f.last_error is None
+    assert f.degraded is False
     result = service.screen(recipient=CLEAN_TRX_HEX)
     assert result.allowed is False
     assert result.blocked[0].source == "ofac"
@@ -82,23 +88,23 @@ async def test_fail_open_keeps_previous_set_on_next_fetch_failure(feed, monkeypa
     async def fetch_ok(base_url, ticker):
         if ticker == "ETH":
             return CLEAN_ETH + "\n"
-        return ""
+        return _filler(ticker)
 
     monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", fetch_ok)
     count1 = await f.refresh()
-    assert count1 == 1
+    assert count1 == 4
     assert f.last_error is None
 
     async def fetch_eth_fails(base_url, ticker):
         if ticker == "ETH":
             return None  # simulates HTTP error / timeout
-        return ""
+        return _filler(ticker)
 
     monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", fetch_eth_fails)
     count2 = await f.refresh()
 
     # ETH's previously-fetched set is retained (fail-open), not dropped.
-    assert count2 == 1
+    assert count2 == 4
     assert f.last_error is not None and "ETH" in f.last_error
     result = service.screen(recipient=CLEAN_ETH)
     assert result.allowed is False
@@ -135,3 +141,73 @@ async def test_run_loop_noop_when_disabled(monkeypatch):
     await sdn_feed_module.run_sdn_feed_loop()
 
     assert called is False
+
+
+# --- H2 / H1 -------------------------------------------------------------
+
+
+def _enable(monkeypatch):
+    monkeypatch.setattr(settings, "compliance_sdn_feed_enabled", True, raising=False)
+
+
+async def test_delisted_address_is_released_on_next_refresh(feed, monkeypatch):
+    f, service = feed
+
+    async def with_addr(base_url, ticker):
+        return CLEAN_ETH + "\n" if ticker == "ETH" else _filler(ticker)
+
+    async def without_addr(base_url, ticker):
+        return _filler(ticker)
+
+    monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", with_addr)
+    await f.refresh()
+    assert service.screen(recipient=CLEAN_ETH).allowed is False
+
+    monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", without_addr)
+    await f.refresh()
+    assert service.screen(recipient=CLEAN_ETH).allowed is True
+    # reload() must keep the feed layer, not discard it
+    service.reload()
+    assert service.screen(recipient=_filler("ETH").strip()).allowed is False
+
+
+async def test_200_with_garbage_is_failure_degraded_and_keeps_previous(feed, monkeypatch):
+    f, service = feed
+    _enable(monkeypatch)
+
+    async def good(base_url, ticker):
+        return CLEAN_ETH + "\n" if ticker == "ETH" else _filler(ticker)
+
+    monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", good)
+    await f.refresh()
+    assert f.degraded is False
+
+    async def garbage(base_url, ticker):
+        return "<html>oops</html>" if ticker == "ETH" else _filler(ticker)
+
+    monkeypatch.setattr(sdn_feed_module, "_fetch_ticker_text", garbage)
+    await f.refresh()
+    assert f.degraded is True
+    assert "ETH" in f.last_error
+    # previous ETH set retained, still blocked (and ENFORCE fails closed via degraded)
+    assert service.is_sanctioned(CLEAN_ETH) is True
+
+
+async def test_never_succeeded_feed_is_degraded_and_fails_closed(feed, monkeypatch):
+    f, service = feed
+    _enable(monkeypatch)
+    monkeypatch.setattr(sdn_feed_module, "sdn_feed", f)
+    assert f.degraded is True
+    res = service.screen(recipient="0x" + "12" * 20)
+    assert res.allowed is False
+    assert res.blocked[0].source == "degraded_list"
+
+
+async def test_disabled_feed_is_never_degraded(feed, monkeypatch):
+    f, _ = feed
+    monkeypatch.setattr(settings, "compliance_sdn_feed_enabled", False, raising=False)
+    assert f.degraded is False
+
+
+async def test_fetch_ticker_text_bad_placeholder_returns_none():
+    assert await sdn_feed_module._fetch_ticker_text("http://x/{ticker}/{other}", "ETH") is None

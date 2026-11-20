@@ -30,12 +30,17 @@ addresses`` extractor:
 
 Fail-open throughout: any RPC error, timeout, unsupported chain, or
 short/empty return value yields ``None`` — "unknown", never "clean".
-Callers treat ``None`` as no verdict, so a dead RPC can never silently
-un-block a sanctioned recipient *or* block a legitimate one.
+Callers treat ``None`` as no verdict, so a *dead* RPC cannot silently
+un-block a sanctioned recipient or block a legitimate one. That guarantee
+does NOT extend to a *wrong, compromised or forked* RPC: one that answers
+successfully with ``0x00..00`` is indistinguishable from "clean" and will
+un-block a sanctioned recipient. The oracle is only as trustworthy as the
+RPC endpoint serving it; the local blocklist remains the independent layer.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -141,11 +146,23 @@ class ChainalysisSanctionsOracle:
                 "latest",
             ],
         }
-        try:
+
+        async def _do_call():
             async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
                 resp = await client.post(rpc_url, json=payload)
                 resp.raise_for_status()
-                data = resp.json()
+                return resp.json()
+
+        try:
+            # httpx timeouts are per-operation; enforce a TOTAL deadline so a
+            # slow-loris RPC cannot hang the swap path.
+            data = await asyncio.wait_for(_do_call(), timeout=_REQUEST_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Chainalysis oracle lookup timed out for %s on %s", _short(addr), chain_name
+            )
+            self._last_error = "timeout"
+            return None
         except Exception as exc:  # network/timeout/HTTP — fail open
             logger.warning(
                 "Chainalysis oracle lookup failed for %s on %s: %s",
@@ -180,8 +197,23 @@ class ChainalysisSanctionsOracle:
             self._last_error = "empty_result"
             return None
 
+        # isSanctioned returns exactly one 32-byte word. Anything that is not
+        # a whole number of words is malformed -> unknown, never clean.
+        word = result[2:] if result.startswith("0x") else ""
+        if not word or len(word) % 64:
+            self._last_error = "bad_result"
+            return None
         try:
-            sanctioned = int(result, 16) == 1
+            if len(word) == 64:
+                # Any non-zero bool word (incl. non-canonical 0x..02) is sanctioned.
+                sanctioned = int(word, 16) != 0
+            elif int(word, 16) != 0:
+                # Multi-word return is not a valid oracle answer, but a
+                # non-zero word anywhere must never be read as clean.
+                sanctioned = True
+            else:
+                self._last_error = "bad_result"
+                return None
         except ValueError:
             self._last_error = "bad_result"
             return None

@@ -4279,7 +4279,9 @@ class SwapEngine:
                 # AddressComplianceService.screen_recipient_remote. Both
                 # sources fail open, so this can never block on an outage.
                 remote_result = await compliance_service.screen_recipient_remote(
-                    recipient, chain=quote.from_chain
+                    recipient,
+                    chain=quote.from_chain,
+                    to_chain=getattr(quote, "to_chain", None),
                 )
                 if not remote_result.allowed:
                     raise SwapError(f"🚫 {remote_result.reason}")

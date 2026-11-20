@@ -190,3 +190,24 @@ async def test_stats_reports_hits(oracle, monkeypatch):
     assert stats["sanctioned_hits"] == 1
     assert stats["oracle_address"] == ORACLE_ADDRESS
     assert "base" not in stats["chains"]
+
+
+async def test_multiword_result_does_not_read_clean(oracle, monkeypatch):
+    # Old int(result,16)==1 decoded this to False (clean) -- must not.
+    _patch_client(monkeypatch, payload={"result": "0x" + "0" * 63 + "1" + "0" * 64})
+    assert await oracle.is_sanctioned(SANCTIONED, "ethereum") is not False
+
+
+async def test_multiword_all_zero_is_unknown(oracle, monkeypatch):
+    _patch_client(monkeypatch, payload={"result": "0x" + "0" * 128})
+    assert await oracle.is_sanctioned(SANCTIONED, "ethereum") is None
+
+
+async def test_misaligned_result_is_unknown(oracle, monkeypatch):
+    _patch_client(monkeypatch, payload={"result": "0x" + "0" * 65})
+    assert await oracle.is_sanctioned(SANCTIONED, "ethereum") is None
+
+
+async def test_noncanonical_bool_is_sanctioned(oracle, monkeypatch):
+    _patch_client(monkeypatch, payload={"result": "0x" + "0" * 62 + "02"})
+    assert await oracle.is_sanctioned(SANCTIONED, "ethereum") is True

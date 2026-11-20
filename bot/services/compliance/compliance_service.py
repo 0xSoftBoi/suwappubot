@@ -44,6 +44,7 @@ governed by ``ComplianceMode``:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import threading
@@ -62,6 +63,9 @@ from bot.services.compliance.ofac_list import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Total deadline for each remote sanctions lookup (httpx timeouts are per-op).
+_REMOTE_TIMEOUT_SECONDS = 3.0
 
 
 # Sentinel distinguishing "caller didn't pass a recipient at all" (e.g.
@@ -306,8 +310,15 @@ class AddressComplianceService:
         self._allowlist: Set[str] = set()
         self._ofac: Set[str] = set()
         self._list_degraded: bool = False
+        # Operator CSV blocklist (+ seed/file ofac) baseline, and the
+        # replaceable SDN-feed layer. Effective blocklist is always
+        # recomputed as _base_blocklist | _feed_blocklist so a delisted
+        # address is released on the next feed refresh.
+        self._base_blocklist: Set[str] = set()
+        self._ofac_base: Set[str] = set()
+        self._feed_blocklist: Set[str] = set()
         # Guards mutation of the live blocklist/ofac sets so a concurrent
-        # SdnFeed.refresh() (extend_blocklist) can never interleave with a
+        # SdnFeed.refresh() (set_feed_blocklist) can never interleave with a
         # reload() and hand screen_address() a half-updated set. Reads (e.g.
         # `addr in self._blocklist`) don't need the lock — under the GIL, a
         # reference to a complete set is always swapped in atomically here.
@@ -318,7 +329,10 @@ class AddressComplianceService:
 
     def reload(self) -> None:
         """(Re)load allow/block lists from settings + the OFAC seed/file."""
-        self._ofac = load_ofac_addresses(getattr(settings, "compliance_ofac_list_path", "") or None)
+        self._ofac_base = load_ofac_addresses(
+            getattr(settings, "compliance_ofac_list_path", "") or None
+        )
+        self._ofac = self._ofac_base
         # ofac_list.reload() (called inside load_ofac_addresses) sets
         # ofac_list.degraded when an extra_path was configured but failed to
         # load/parse. Mirror it here so screen() can fail closed on it.
@@ -326,7 +340,10 @@ class AddressComplianceService:
 
         operator_block = _parse_csv_addresses(getattr(settings, "compliance_blocklist", ""))
         with self._lock:
-            self._blocklist = self._ofac | operator_block
+            self._base_blocklist = self._ofac | operator_block
+            # Keep the feed layer across reloads (it is owned by SdnFeed).
+            self._blocklist = self._base_blocklist | self._feed_blocklist
+            self._ofac = self._ofac | self._feed_blocklist
         self._allowlist = _parse_csv_addresses(getattr(settings, "compliance_allowlist", ""))
 
         logger.info(
@@ -339,31 +356,34 @@ class AddressComplianceService:
             self._list_degraded,
         )
 
-    def extend_blocklist(self, addresses: Iterable[str], source: str = "ofac") -> int:
-        """Merge additional pre-normalized addresses into the live blocklist.
+    def set_feed_blocklist(self, addresses: Iterable[str]) -> int:
+        """REPLACE the live SDN-feed layer with ``addresses`` (pre-normalized).
 
-        Used by ``SdnFeed`` to layer the live OFAC SDN feed on top of the
-        seed/file/operator lists without a full ``reload()`` (which would
-        otherwise stomp the feed's addresses on the next settings reload).
-        Thread-safe: builds a new set and atomically swaps it in, so a
-        concurrent ``screen_address()`` call never observes a
-        partially-updated blocklist.
+        Replace, not union: an address delisted upstream (e.g. Tornado Cash)
+        must be released on the next refresh. The effective blocklist is
+        recomputed from the operator/seed baseline plus the new feed layer.
+        Builds new sets and swaps them in atomically so lock-free readers
+        never observe a partial update. Feed addresses report
+        ``source="ofac"``.
 
-        ``source="ofac"`` (the default, matching the feed's provenance) also
-        merges into ``self._ofac`` so verdicts on these addresses report
-        ``source="ofac"`` / "OFAC-sanctioned address" rather than the
-        generic operator-blocklist reason.
-
-        Returns the number of addresses newly added to the blocklist.
+        Returns the number of addresses in the feed layer.
         """
         new_addrs = {a for a in addresses if a}
         with self._lock:
-            merged = self._blocklist | new_addrs
-            added = len(merged) - len(self._blocklist)
-            self._blocklist = merged
-            if source == "ofac":
-                self._ofac = self._ofac | new_addrs
-        return added
+            self._feed_blocklist = new_addrs
+            self._blocklist = self._base_blocklist | new_addrs
+            self._ofac = self._ofac_base | new_addrs
+        return len(new_addrs)
+
+    def _sdn_feed_degraded(self) -> bool:
+        """True when the live SDN feed is enabled and not fully healthy."""
+        try:
+            from bot.services.compliance.sdn_feed import sdn_feed
+
+            return bool(sdn_feed.degraded)
+        except Exception as exc:  # never let a feed-introspection bug open/close the gate
+            logger.warning("SDN feed degraded check errored: %s", exc)
+            return False
 
     @property
     def mode(self) -> ComplianceMode:
@@ -482,12 +502,25 @@ class AddressComplianceService:
         if mode is ComplianceMode.DISABLED:
             return result
 
-        if self._list_degraded:
-            # The sanctions list provider (ofac_list) failed to load/parse an
-            # operator-configured extra_path on the last reload. We cannot
-            # claim to have screened against the real list, so ENFORCE must
-            # not present a false "clean" verdict — fail closed regardless of
-            # what's being screened. MONITOR just logs it (shadow mode).
+        if self._list_degraded or self._sdn_feed_degraded():
+            # Either the operator-configured extra_path failed to load/parse
+            # on the last reload (``_list_degraded``), or the live SDN feed
+            # is degraded — a ticker failed this cycle, or it has never once
+            # fully succeeded. We cannot claim to have screened against the
+            # real list, so ENFORCE must not present a false "clean" verdict
+            # — fail closed regardless of what's being screened. MONITOR just
+            # logs it (shadow mode).
+            #
+            # OPERATIONAL NOTE: because the bundled seed is now empty (the
+            # 2025-03-21 Tornado Cash delisting — see ofac_list), "the feed
+            # has never succeeded" is the state at every process start. With
+            # COMPLIANCE_SDN_FEED_ENABLED=true and ENFORCE, swaps and
+            # withdrawals therefore fail closed from boot until the first
+            # full refresh lands (the loop refreshes immediately on start).
+            # That is deliberate: an empty blocklist must never read as
+            # "screened clean". Roll out via MONITOR first, as
+            # docs/architecture/compliance-screening.md prescribes, so this
+            # window shows up in logs rather than in user-facing errors.
             verdict = AddressVerdict(
                 "",
                 allowed=False,
@@ -573,8 +606,26 @@ class AddressComplianceService:
             raise ComplianceError(result.reason, result)
         return result
 
+    @staticmethod
+    def _oracle_chain(addr: str, chain: Optional[str], to_chain: Optional[str]) -> Optional[str]:
+        """Pick the chain to run the Chainalysis oracle on.
+
+        The SanctionsList content is identical on all six deployments, so for
+        an EVM-shaped recipient any supported chain answers: prefer the
+        destination (where the recipient lives), then the source, then
+        ethereum. Non-EVM addresses keep the caller's chain unchanged.
+        """
+        if not _is_evm_address(addr):
+            return chain
+        from bot.services.compliance.chainalysis_oracle import ChainalysisSanctionsOracle
+
+        for cand in (to_chain, chain):
+            if ChainalysisSanctionsOracle.supports(cand):
+                return cand.strip().lower()
+        return "ethereum"
+
     async def _remote_sanctions_verdict(
-        self, addr: str, chain: Optional[str]
+        self, addr: str, chain: Optional[str], to_chain: Optional[str] = None
     ) -> Tuple[Optional[bool], str]:
         """Ask the remote sanctions sources in cost order.
 
@@ -594,37 +645,57 @@ class AddressComplianceService:
         Every call here is fail-open: an exception from either source is
         logged and degrades to ``None``.
         """
+        oracle_clean = False
+        oracle_chain = self._oracle_chain(addr, chain, to_chain)
         try:
             from bot.services.compliance.chainalysis_oracle import chainalysis_oracle
 
-            verdict = await chainalysis_oracle.is_sanctioned(addr, chain)
-            if verdict is not None:
-                return verdict, "chainalysis_oracle"
+            verdict = await asyncio.wait_for(
+                chainalysis_oracle.is_sanctioned(addr, oracle_chain),
+                timeout=_REMOTE_TIMEOUT_SECONDS,
+            )
+            if verdict is True:
+                return True, "chainalysis_oracle"
+            oracle_clean = verdict is False
+        except asyncio.TimeoutError:
+            logger.warning("Chainalysis oracle screening timed out (chain=%s)", oracle_chain)
         except Exception as exc:  # fail-open: an RPC blip must never block a swap
             logger.warning(
                 "Chainalysis oracle screening errored for recipient (chain=%s): %s",
-                chain,
+                oracle_chain,
                 exc,
             )
 
         if not getattr(settings, "compliance_trm_enabled", False):
-            return None, ""
+            return (False, "chainalysis_oracle") if oracle_clean else (None, "")
 
         try:
             from bot.services.compliance.trm_sanctions import trm_sanctions_client
 
-            verdict = await trm_sanctions_client.is_sanctioned(addr)
-            if verdict is not None:
-                return verdict, "trm_sanctions"
+            # A clean oracle answer must not burn scarce TRM budget when it is
+            # tight; but a clean answer must also not mask a TRM positive.
+            if not oracle_clean or trm_sanctions_client.has_budget():
+                verdict = await asyncio.wait_for(
+                    trm_sanctions_client.is_sanctioned(addr), timeout=_REMOTE_TIMEOUT_SECONDS
+                )
+                if verdict is True:
+                    return True, "trm_sanctions"
+                if verdict is False:
+                    return False, "trm_sanctions"
+        except asyncio.TimeoutError:
+            logger.warning("TRM sanctions screening timed out for recipient (chain=%s)", chain)
         except Exception as exc:  # fail-open: a TRM outage must never block a swap
             logger.warning(
                 "TRM sanctions screening errored for recipient (chain=%s): %s", chain, exc
             )
 
-        return None, ""
+        return (False, "chainalysis_oracle") if oracle_clean else (None, "")
 
     async def screen_recipient_remote(
-        self, address: Optional[str], chain: Optional[str] = None
+        self,
+        address: Optional[str],
+        chain: Optional[str] = None,
+        to_chain: Optional[str] = None,
     ) -> ComplianceResult:
         """Consult the remote sanctions sources for a *recipient* address,
         on top of whatever the local-list :meth:`screen` already decided.
@@ -659,7 +730,7 @@ class AddressComplianceService:
             return result
 
         addr = _normalize_address(address)
-        sanctioned, source = await self._remote_sanctions_verdict(addr, chain)
+        sanctioned, source = await self._remote_sanctions_verdict(addr, chain, to_chain)
         if not sanctioned:
             return result
 
@@ -667,7 +738,7 @@ class AddressComplianceService:
             addr,
             allowed=False,
             source=source,
-            reason=source,
+            reason="sanctioned recipient",
             role="recipient",
         )
         result.verdicts.append(verdict)

@@ -23,6 +23,7 @@ same as the local list already ran).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "https://api.trmlabs.com/public/v1/sanctions/screening"
 _CACHE_TTL_SECONDS = 24 * 3600
 _REQUEST_TIMEOUT_SECONDS = 3.0
+_MIN_INTERVAL_SECONDS = 1.05  # published limit: 1 req/s
 
 
 def _short(addr: str) -> str:
@@ -61,6 +63,8 @@ class TrmSanctionsClient:
         self._budget_date: Optional[str] = None
         self._budget_used: int = 0
         self._last_error: Optional[str] = None
+        self._gate = asyncio.Lock()
+        self._last_call_at: float = -1e9
 
     # --- configuration ---------------------------------------------------
 
@@ -116,12 +120,43 @@ class TrmSanctionsClient:
             self._budget_used += 1
 
         try:
-            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
-                resp = await client.post(self.base_url, json=[{"address": addr}])
+            result = await self._query(addr)
+        except asyncio.TimeoutError:
+            logger.warning("TRM sanctions screening timed out for %s", _short(addr))
+            self._last_error = "timeout"
+            self._refund(today)
+            return None
         except Exception as exc:  # network/timeout — fail open
             logger.warning("TRM sanctions screening failed for %s: %s", _short(addr), exc)
             self._last_error = str(exc)
+            self._refund(today)
             return None
+
+        if result is None:
+            # _query recorded last_error; slot is only committed on a good 201 parse.
+            self._refund(today)
+            return None
+
+        with self._lock:
+            self._cache[addr] = (time.time() + _CACHE_TTL_SECONDS, result)
+        self._last_error = None
+        return result
+
+    async def _query(self, addr: str) -> Optional[bool]:
+        """One rate-gated HTTP call. ``None`` on any non-success (error recorded)."""
+        # Enforce the published 1 req/s limit across concurrent swaps.
+        async with self._gate:
+            wait = _MIN_INTERVAL_SECONDS - (time.monotonic() - self._last_call_at)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_call_at = time.monotonic()
+
+        async def _post():
+            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
+                return await client.post(self.base_url, json=[{"address": addr}])
+
+        # Total deadline; httpx timeouts are per-operation only.
+        resp = await asyncio.wait_for(_post(), timeout=_REQUEST_TIMEOUT_SECONDS)
 
         if resp.status_code == 429:
             logger.warning("TRM sanctions screening: rate limited (429) for %s", _short(addr))
@@ -148,11 +183,21 @@ class TrmSanctionsClient:
             self._last_error = "bad_response"
             return None
 
-        result = bool(data[0].get("isSanctioned"))
+        return bool(data[0].get("isSanctioned"))
+
+    def _refund(self, date: str) -> None:
+        """Return a reserved budget slot (failed request must not burn budget)."""
         with self._lock:
-            self._cache[addr] = (time.time() + _CACHE_TTL_SECONDS, result)
-        self._last_error = None
-        return result
+            if self._budget_date == date and self._budget_used > 0:
+                self._budget_used -= 1
+
+    def has_budget(self) -> bool:
+        """True if enabled and at least one daily slot remains (no reservation)."""
+        if not getattr(settings, "compliance_trm_enabled", False):
+            return False
+        with self._lock:
+            used = self._budget_used if self._budget_date == self._today() else 0
+            return used < self.daily_budget
 
     # --- introspection -------------------------------------------------
 
