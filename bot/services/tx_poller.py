@@ -681,8 +681,20 @@ class TransactionPoller:
         where it was, but whoever reviews it can see what actually happened
         instead of having to reconstruct it from the chain.
 
-        Only ever written onto a row that is still hashless and still UNKNOWN,
-        so it cannot overwrite a real outcome recorded in the meantime.
+        Written onto a row that is still hashless and still in one of the two
+        non-terminal states this pass selects, so it cannot overwrite a real
+        outcome recorded in the meantime. EXECUTING has to be included and is
+        in fact the *primary* case: the canonical way to end up here is a
+        process killed while an approval's receipt was being awaited, and that
+        process never got to write UNKNOWN — so a filter demanding UNKNOWN
+        would no-op precisely when this note is most needed.
+
+        Appended rather than assigned, and only once. `error_message` may
+        already hold the engine's own exception text, which is the most useful
+        thing on the row for diagnosing why the swap stopped between its two
+        sends; replacing it to say "something stopped between the two sends"
+        would destroy the better evidence to write the worse. Re-running the
+        pass must also not stack the same paragraph repeatedly.
         """
         verb = "succeeded" if status == SwapStatus.COMPLETED.value else "reverted"
         note = (
@@ -700,12 +712,19 @@ class TransactionPoller:
                     .filter(
                         SwapTransaction.id == swap_id,
                         SwapTransaction.tx_hash.is_(None),
-                        SwapTransaction.status == SwapStatus.UNKNOWN.value,
+                        SwapTransaction.status.in_(
+                            [SwapStatus.UNKNOWN.value, SwapStatus.EXECUTING.value]
+                        ),
                     )
                     .first()
                 )
-                if db_tx:
-                    db_tx.error_message = note
+                if not db_tx:
+                    return
+                existing = db_tx.error_message or ""
+                if tx_hash in existing:
+                    # Already noted on an earlier pass.
+                    return
+                db_tx.error_message = f"{existing}\n{note}".strip() if existing else note
 
         try:
             await run_in_db(_work)

@@ -2498,22 +2498,19 @@ def _add_swap_intended_hash_column(db_engine, inspector, is_sqlite: bool) -> Non
     # difference waiting to confuse someone reading a plan. The statement is
     # IF NOT EXISTS, so the steady-state cost is a catalog lookup.
     #
-    # Partial on Postgres for the same reason as the nonce index: the poller's
-    # pass touches a handful of rows out of the whole swap history, so an
-    # unqualified index would be mostly dead weight. SQLite (dev only) has no
-    # partial-index support here and gets the plain one.
+    # Deliberately NOT partial, unlike the nonce index above. Its reader is
+    # tx_poller's _hash_claimed_elsewhere, which asks
+    #   WHERE (tx_hash IN (...) OR intended_tx_hash IN (...)) AND id != :id
+    # for every candidate in a pass. Postgres cannot prove a predicate like
+    # "tx_hash IS NULL AND intended_tx_hash IS NOT NULL" from that query, so a
+    # partial index would be unusable there and the guard would sequentially
+    # scan the whole swap history once per candidate. A plain index on the
+    # column is what that lookup can actually use.
     try:
-        if is_sqlite:
-            ddl = (
-                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_intended_hash "
-                "ON swap_transactions(intended_tx_hash)"
-            )
-        else:
-            ddl = (
-                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_intended_hash "
-                "ON swap_transactions(intended_tx_hash) "
-                "WHERE tx_hash IS NULL AND intended_tx_hash IS NOT NULL"
-            )
+        ddl = (
+            "CREATE INDEX IF NOT EXISTS ix_swap_transactions_intended_hash "
+            "ON swap_transactions(intended_tx_hash)"
+        )
         with db_engine.begin() as conn:
             conn.execute(text(ddl))
     except Exception as e:
