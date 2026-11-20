@@ -238,8 +238,7 @@ The live hero copy, quoted from `home.hero` in `showcase/messages/en.json`.
 The key matters: a stale top-level `hero` block also exists in all four
 locales, and no component reads it.
 
-- "Every venue competes before you approve."
-- "Send a trade intent. Suwappu prices it across every venue that can serve the route, shows you the one it picked and why, and moves money only after you authorize it."
+- "Execution infrastructure for cross-chain m- "Quote any route across DEXs and bridges, see which venue won and why, and move funds only after you authorize. One engine runs the Terminal, Telegram, and the Agent API."rize it."
 
 Sentence-level rules for this document are in [`docs/WRITING.md`](../WRITING.md).
 
