@@ -28,11 +28,12 @@
 }
 
 .title {
-  font-family: var(--font-display, var(--font-sans));
+  font-family: var(--type-display-font);
   font-size: clamp(2rem, 5vw, 3rem);
   line-height: 1.05;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--type-display-tracking);
   margin: 0;
+  font-weight: var(--type-display-weight);
 }
 
 .subtitle {

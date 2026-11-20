@@ -28,7 +28,7 @@
 .sectionLabel {
   color: var(--sw-muted);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -600,7 +600,7 @@
 .rowFigure figcaption {
   margin-top: 0.65rem;
   color: var(--sw-muted);
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   line-height: 1.48;
 }
 

@@ -32,6 +32,9 @@ Every page MUST use, unless it already deliberately doesn't:
   `src/app/summer-token-vars.css` / `site.css`, plus the `mkt-*` layout classes
   and `institutional-*` section classes (both belong to the current era and
   compose with summer tokens).
+- **Display type:** use `--type-display-font` / `--type-d1…d4` /
+  `--type-display-weight` / `--type-display-tracking`. `--font-display` is a
+  legacy alias for the SANS face — never use it for a heading.
 - **Type:** the site's existing stack (serif display = Newsreader via the
   summer tokens; Archivo for body/UI; mono for labels). Never add a new font
   without a brand decision (see docs/design/serif-decision.md).
@@ -48,7 +51,9 @@ Every page MUST use, unless it already deliberately doesn't:
 
 ## Known traps
 
-- **No CSS reset is emitting anywhere.** `globals.css` uses Tailwind v3
+- **Reset is `foundation.css`, not Tailwind.** Global `box-sizing: border-box`
+  lives there. The paragraph below is why Preflight is absent:
+- **Tailwind Preflight does not emit.** `globals.css` uses Tailwind v3
   directives (`@tailwind base`) but the build runs the v4 PostCSS plugin, so
   Preflight never renders. UA defaults (body margin, etc.) are live on every
   route — set explicit margins/box-sizing; don't assume a reset. Repo-wide fix

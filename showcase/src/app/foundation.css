@@ -213,3 +213,179 @@ html {
   text-decoration: none;
 }
 .summer-footer .summer-footer__col li > a:hover { color: var(--summer-ink); }
+
+/* ── Home: section layout ─────────────────────────────────────────────
+   Sections were a left-aligned text column with the right half empty, on a
+   container narrower than the header, 256px apart. They now share the
+   header's edges, split heading/lead across the width, and lay facts out
+   as a ruled row. */
+
+.hd .home-section {
+  width: min(1280px, 100%);
+  padding: clamp(4rem, 7vw, 6rem) 24px;
+}
+
+@media (min-width: 900px) {
+  .hd .home-section__head--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    column-gap: clamp(2rem, 6vw, 6rem);
+    align-items: end;
+  }
+
+  .hd .home-section__head--split > p {
+    margin: 0 0 0.3rem;
+    max-width: 46ch;
+    font-size: 1.0625rem;
+  }
+}
+
+.hd .home-execution-extra {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0 clamp(1.5rem, 3vw, 2.5rem);
+}
+
+.hd .home-execution-extra > * {
+  padding: 1.25rem 0 1.5rem;
+  border-top: 1px solid var(--line-strong);
+}
+
+.hd .home-execution-extra strong { font-size: 1.0625rem; }
+.hd .home-execution-extra p { max-width: 40ch; font-size: 1rem; }
+
+/* Buttons: the cut-corner silhouette clipped the ghost variant's border and
+   its focus ring, and matched nothing else on the site. Same radius and
+   height as .summer-button. */
+.hd .hd__btn {
+  clip-path: none;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  box-sizing: border-box;
+  transition: background-color 0.15s, border-color 0.15s, opacity 0.15s, transform 0.1s;
+}
+
+.hd .hd__btn:active { transform: scale(0.98); }
+
+.hd .hd__btn--ghost {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.hd .hd__btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+.hd .hd__btn:focus-visible,
+.hd .hd__btn--ghost:focus-visible {
+  outline: 2px solid var(--sw-accent-bright);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* One left/right edge for the whole home page: the header's. */
+.hd .home-hero { width: min(1280px, 100%); padding-inline: 24px; }
+.hd .home-proofbar { width: min(1232px, calc(100% - 48px)); }
+.hd .home-section--security { width: min(1280px, 100%); }
+
+/* Routing grid: keep the mono kicker small, give the body real size. */
+.hd .home-capabilities p { font-size: 0.72rem; line-height: 1.4; }
+.hd .home-capabilities span { font-size: 1rem; max-width: 52ch; }
+
+/* Table/section captions: display face, left-aligned with the content edge
+   (they were 26px, centered, floating over full-width tables). */
+.institutional-page .compare__title {
+  margin: 0 0 1.25rem;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d4);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  line-height: 1.15;
+  text-align: left;
+}
+
+/* ── Type floor ───────────────────────────────────────────────────────
+   Mono labels sat at 9.9–10.6px and row copy at 14px. Labels: 11.5px
+   minimum. Prose: 15–16px. Footnotes: 14px. */
+
+.institutional-page :is(
+  .summer-kicker,
+  .sw-kicker,
+  .institutional-section__label,
+  .institutional-row__label,
+  .institutional-row__number,
+  .institutional-metric span,
+  .institutional-panel > span,
+  .compare-table__colsub,
+  .compare-table__cat
+) {
+  font-size: 0.72rem;
+}
+
+.institutional-page :is(.institutional-row p, .institutional-panel p) {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.institutional-page :is(.compare__note, .compare-legend__item) {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.institutional-page :is(.compare-table__rowhead, .security-card p, .security-card li) {
+  font-size: 0.9375rem;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────
+   Tailwind's Preflight never emitted (v3 directives on the v4 plugin), so
+   every element was content-box: `width:100%` + padding overflowed its
+   parent all over the site. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Section headings share one alignment: left, on the content edge. Centered
+   headings are reserved for the closing CTA band. */
+.institutional-page .mkt-page :is(.mkt-h2, h2):not(.mkt-cta h2, [class*='ctaTitle']) { text-align: left; }
+.institutional-page .summer-kicker + :is(h2, .mkt-h2) { margin-top: 0.75rem; }
+.institutional-page .mkt-page > :is(section, div) + :is(section, div):not(.doc-breadcrumb) { margin-top: clamp(3.5rem, 6vw, 5.5rem); }
+
+/* Comparison tables: row labels read left-to-right from the table edge. */
+.compare-table :is(th, td):first-child,
+.compare-table__rowhead,
+.compare-table__cat {
+  text-align: left;
+}
+.compare-table :is(th, td):first-child { padding-inline-start: 16px; }
+
+/* Docs articles: a flex child defaults to min-width:auto, so one long code
+   line widened the whole column past the viewport and clipped the prose. */
+.docs-page__main { min-width: 0; }
+.doc-reader :is(pre, table) { max-width: 100%; overflow-x: auto; }
+.doc-reader :is(p, li) { overflow-wrap: anywhere; }
+
+/* Code blocks: the inline-code chip style (border, tint, padding) outranked
+   the `pre code` reset, boxing the first line of every block. */
+.docs-shell .doc-reader pre code,
+.doc-reader pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+/* "On this page": quiet list, accent only on the active item. */
+.doc-toc .doc-toc__item,
+.doc-toc li > a {
+  color: var(--suwappu-summer-muted);
+  text-decoration: none;
+}
+.doc-toc .doc-toc__item:hover,
+.doc-toc .doc-toc__item.is-active { color: var(--sw-accent-deep); }
+.doc-reader pre { padding-top: 2.5rem; }

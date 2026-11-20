@@ -60,7 +60,7 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
 ### Phase 3 — Footer  ◐ styling shipped 2026-11-13 (link-map + newsletter field rebuild open)
 - Same link map as the nav panels, newsletter form on `@ui-sdk/react/field`, status + legal row.
 
-### Phase 4 — Sales pages, in funnel order
+### Phase 4 — Sales pages, in funnel order  ✅ shared pass shipped 2026-11-20
 1. `/` home  2. `/pricing`  3. `/products`  4. `/enterprise`  5. `/contact`
 6. `/agents` (+ redirect `/for-agents`)  7. `/solutions`  8. `/compare`  9. `/security`
 
@@ -93,6 +93,16 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
 - 2026-11-13 — Baseline audit; `@ui-sdk/react` + `@ui-sdk/core` 0.1.0-beta.2 added. Phase 1 started.
 - 2026-11-13 — Phase 1 done: `SummerNav` rebuilt on `navigation-menu` + `dialog` + `accordion`; `ProductMenu`/`NavDrawer` deleted; `nav.css` added; language switcher made theme-agnostic. Verified locally at 1440/1100/950/390: hover, Tab/Enter/Esc with focus return, client-side routing, sheet focus trap, no overflow. Not yet verified on a deployed URL.
 - 2026-11-13 — Phase 2 (most): `src/app/foundation.css` — one top offset (`--page-top`; first line now at 141px on every shared-shell page, was 195–487px), flat button system with hover/active states and border-box sizing (pricing-card buttons no longer overflow), 20px mobile gutters (was 8px), tap/selection/scroll-padding/tabular-nums/balance defaults. Fixed: `/products` H1 wrapping one word per line; `/docs` rendering blank under `prefers-reduced-motion`; docs sidebar offset; `/reserve` doubled title; agents/research/autopilot hero offsets. Verified on a local production build: 23 routes × (1440, 390), no overflow, no page errors.
-- Still open in phase 2: real CSS reset (Tailwind v3 directives on v4), `theme-color` meta, skip-link target audit.
+- Still open in phase 2: `theme-color` meta, skip-link target audit. (Reset shipped 2026-11-20.)
 - 2026-11-13 — Phase 3 (styling) + home pass: footer aligned to the 1280 container, dark variant on dark pages (was a cream slab under the black home page), footer links no longer underlined brown (global prose-link rule outranked them). Home: section copy floor raised to 16px, dim/faint text tiers lifted for contrast. Verified on a local production build: 23 routes × (1440, 390) clean, nav keyboard/mobile checks pass.
 - Next: phase 4 page-by-page (home section layout — several sections leave the right half empty; pricing cards; enterprise/contact form on `@ui-sdk/react/field`), then phases 5–7.
+- 2026-11-20 — Phase 4 page-by-page pass (home, pricing, enterprise, contact, agents, solutions, compare, security) plus parts of 5–6:
+  - **Reset**: global `box-sizing: border-box` (measured on 24 routes × 2 widths before/after; no route moved more than ~80px except `/products`, which tightened). Fixes the touching contact-form fields and every `width:100%`+padding overflow.
+  - **Home**: sections on the header's 1280 edge, 96px rhythm (was 256px between sections), split heading/lead, facts as a ruled 3-up row, rounded buttons replacing the cut-corner silhouette (it clipped the ghost border and focus ring). This reverses design decision "D2" in `hero-d.css` — flag if that was load-bearing.
+  - **Type**: every 48px section title now uses the display tokens (pricing, solutions, compare, 404 were silently sans because `--font-display` aliases to the sans face); table captions left-aligned; label floor 11.5px, row copy 15px, footnotes 14px.
+  - **Tables**: comparison row labels left-aligned.
+  - **Docs**: articles no longer clip on mobile (flex `min-width:auto`), code blocks no longer box their first line, TOC links quiet.
+  - **Arbiter / Autopilot**: headings on the display type, arbiter on the shared container and top offset.
+  - `/signals` now has its own title.
+  Verified on a local production build: 25 routes × (1440, 390) no overflow / page errors; nav keyboard + mobile checks pass. Not deployed.
+- Open: `--font-display` alias should be deleted (anything still using it is sans by accident); contact/newsletter forms on `@ui-sdk/react/field`; docs search on `combobox`; `/next` hydration error; passport page; phase 7 dead-CSS removal.
