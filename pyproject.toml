@@ -1,9 +1,10 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--strict-markers -v --tb=short"
+addopts = "--strict-markers -v --tb=short -m 'not livenet'"
 markers = [
     "integration: real-Postgres integration tests (tests/integration) -- requires local docker Postgres; skip cleanly if unreachable",
+    "livenet: hits real external services (OFAC SDN feed, Chainalysis oracle over RPC); deselected by default, run with -m livenet",
 ]
 # Put the repo root on sys.path so tests can import the first-party packages
 # (bot, api, database). The project is not pip-installed, so without this pytest
