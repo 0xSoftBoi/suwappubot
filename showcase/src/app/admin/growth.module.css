@@ -72,3 +72,11 @@
 .note { margin: 0 0 12px; padding: 14px 16px; border: 1px solid var(--adm-border); border-radius: var(--adm-radius-sm); color: var(--adm-muted); font-size: 0.875rem; line-height: 1.55; }
 .note strong { color: var(--adm-ink); font-weight: 600; }
 .grid2 + .note { margin-top: 0; }
+
+.ledger { display: grid; gap: 0; max-width: 460px; margin: 0; }
+.ledger > div { display: flex; gap: 16px; align-items: baseline; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--adm-border); }
+.ledger dt { color: var(--adm-muted); font-size: 0.9375rem; }
+.ledger dd { margin: 0; color: var(--adm-ink); font-size: 0.9375rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ledger .ledgerTotal { border-bottom: 0; }
+.ledger .ledgerTotal dt { color: var(--adm-ink); font-weight: 600; }
+.ledger .ledgerTotal dd { font-size: 1.125rem; }

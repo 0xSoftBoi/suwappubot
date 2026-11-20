@@ -5,7 +5,9 @@ import { Hono } from 'hono'
 import { TIER_PRICES_USD } from '../config/constants'
 import { requireDb } from '../db'
 import { mapErrorToResponse } from '../errors'
+import { type StripeMoneySummary, summarizeBalanceTransactions } from '../lib/stripeMoney'
 import { runEffectEither } from '../runtime'
+import { StripeService } from '../services/StripeService'
 
 /**
  * GET /admin/growth — the marketing + sales funnel in one read-only report.
@@ -74,6 +76,11 @@ const attributionOf = (obj: Record<string, unknown>): Record<string, unknown> =>
 	const a = obj.attribution
 	return a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, unknown>) : {}
 }
+
+// Stripe is rate-limited and a 90-day read can be several pages, so one
+// dashboard refresh must not mean one Stripe crawl. Keyed by the window.
+const STRIPE_CACHE_MS = 5 * 60_000
+const stripeCache = new Map<string, { at: number; value: StripeMoneySummary }>()
 
 adminGrowthRoutes.get('/growth', async (c) => {
 	const rawDays = parseInt(c.req.query('days') || '30', 10)
@@ -335,6 +342,41 @@ adminGrowthRoutes.get('/growth', async (c) => {
 			const sum = (key: 'leads' | 'newsletter' | 'mobileWaitlist' | 'reservations' | 'signups') =>
 				seriesList.reduce((total, day) => total + day[key], 0)
 
+			// Card money from Stripe's balance. Optional by construction: an
+			// unconfigured key, an outage or a rate limit leaves the rest intact.
+			const stripeKey = `${prev}|${start}`
+			const cached = stripeCache.get(stripeKey)
+			const stripeMoney: StripeMoneySummary | null =
+				cached && now.getTime() - cached.at < STRIPE_CACHE_MS
+					? cached.value
+					: yield* Effect.gen(function* () {
+							const stripe = yield* StripeService
+							const { txns, truncated } = yield* stripe.listBalanceTransactions({
+								sinceUnix: prevStart.getTime() / 1000,
+							})
+							const value = summarizeBalanceTransactions(
+								txns,
+								windowStart.getTime(),
+								prevStart.getTime(),
+								truncated,
+							)
+							stripeCache.clear()
+							stripeCache.set(stripeKey, { at: now.getTime(), value })
+							return value as StripeMoneySummary | null
+						}).pipe(Effect.catchAll(() => Effect.succeed(null as StripeMoneySummary | null)))
+			if (stripeMoney) {
+				for (const [date, usd] of Object.entries(stripeMoney.byDay)) {
+					const day = series.get(date)
+					if (day) day.moneyInUsd = round2(day.moneyInUsd + usd)
+				}
+			}
+			const cardNet = stripeMoney
+				? round2(stripeMoney.window.receivedUsd - stripeMoney.window.refundedUsd - stripeMoney.window.disputedUsd)
+				: 0
+			const cardNetPrevious = stripeMoney
+				? round2(stripeMoney.previous.receivedUsd - stripeMoney.previous.refundedUsd - stripeMoney.previous.disputedUsd)
+				: 0
+
 			const visit = eventTotals?.[0]
 			const previous = previousRows[0] ?? {}
 			const trackingAvailable = eventDaily !== null
@@ -378,18 +420,34 @@ adminGrowthRoutes.get('/growth', async (c) => {
 						num(previous.mobile_waitlist) +
 						num(previous.reservations),
 				},
-				// "Money in" is tracked cash inflow, not accounting revenue: prepaid
-				// credits are cash before they are earned, and card payments for the
-				// monthly plans settle in Stripe and are not recorded in this database.
+				// "Money in" is cash received, not accounting revenue: prepaid credits
+				// count when bought, and card money is Stripe's balance activity
+				// (payments minus refunds and disputes, before Stripe's fees).
 				moneyIn: {
 					available: moneyDaily !== null,
-					totalUsd: moneyTotal,
-					previousUsd: round2(num(moneyPrevious?.[0]?.usd)),
-					bySource: MONEY_SOURCES.map((m) => ({ ...m, usd: round2(moneyBySource.get(m.key) ?? 0) })),
+					totalUsd: round2(moneyTotal + cardNet),
+					previousUsd: round2(num(moneyPrevious?.[0]?.usd) + cardNetPrevious),
+					bySource: [
+						...(stripeMoney
+							? [{ key: 'cards', label: 'Card payments (Stripe), after refunds', usd: cardNet }]
+							: []),
+						...MONEY_SOURCES.map((m) => ({ ...m, usd: round2(moneyBySource.get(m.key) ?? 0) })),
+					],
 				},
-				// Not money received: what the active monthly plans would bring in over
-				// one billing period at list price. Shown as an estimate because the
-				// actual card charges live in Stripe.
+				// Card detail straight from Stripe. `available: false` means Stripe
+				// could not be read (not configured, or unreachable) and the totals
+				// above therefore exclude card payments.
+				stripe: stripeMoney
+					? {
+							available: true,
+							...stripeMoney.window,
+							previousReceivedUsd: stripeMoney.previous.receivedUsd,
+							nonUsdSkipped: stripeMoney.nonUsdSkipped,
+							truncated: stripeMoney.truncated,
+						}
+					: { available: false },
+				// Used only when Stripe is unavailable: what the active monthly plans
+				// would bring in over one billing period at list price.
 				planEstimate: {
 					monthlyUsd: round2(
 						Object.entries(paidByTier).reduce(

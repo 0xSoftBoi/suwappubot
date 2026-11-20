@@ -48,16 +48,21 @@ is no history to backfill.
 
 ## Reading the money numbers
 
-"Money in" is cash this system records itself. It is **not** accounting
-revenue and it is **not** everything you were paid:
+"Money in" is cash received in the period. It is not accounting revenue.
 
-- Card payments for the monthly Pro / Premium / Enterprise plans settle in
-  Stripe and are not stored as amounts in this database, so they are not in
-  "Money in". The dashboard shows an estimate instead (active plans × list
-  price) and says so. Stripe is the source of truth for cash received,
-  refunds and failed payments.
-- Prepaid API credits count when bought, not when used.
-- Pending pay-per-call payments and uncollected swap fees are excluded.
+- **Card payments** are read live from Stripe's balance transactions
+  (`STRIPE_SECRET_KEY` on api-ts, already used for checkout): payments
+  received, minus refunds and disputes. The "Card payments (from Stripe)"
+  panel also shows Stripe's fees and what is left. Cached for 5 minutes.
+  Payouts to the bank are ignored (they move money, they are not income).
+  Non-USD transactions are skipped and counted.
+- **On-chain money** comes from this database: collected swap fees, completed
+  pay-per-call payments, API credit top-ups and agent plans. These never touch
+  Stripe, so nothing is counted twice.
+- Prepaid credits count when bought, not when used. Pending pay-per-call
+  payments and uncollected swap fees are excluded.
+- If Stripe cannot be read, the dashboard says card payments are missing and
+  shows an estimate (active plans × list price) instead of a wrong total.
 
 ## Privacy
 

@@ -30,6 +30,9 @@ export type GrowthReport = {
   paidCustomers: { total: number; byTier: Record<string, number> };
   moneyIn: { available: boolean; totalUsd: number; previousUsd: number; bySource: { key: string; label: string; usd: number }[] };
   planEstimate: { monthlyUsd: number; prices: Record<string, number> };
+  stripe:
+    | { available: false }
+    | { available: true; receivedUsd: number; refundedUsd: number; disputedUsd: number; feesUsd: number; netUsd: number; payments: number; previousReceivedUsd: number; nonUsdSkipped: number; truncated: boolean };
   funnel: { key: string; label: string; count: number }[];
   series: Day[];
   topPages: { path: string; views: number; visitors: number }[];
@@ -207,7 +210,7 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
     if (!report.tracking.available) {
       return `In the last ${report.days} days: ${fmt(t.leads)} sales leads and ${fmt(t.signups)} new accounts. Visitor tracking has not started yet.`;
     }
-    return `In the last ${report.days} days, ${fmt(t.visitors)} ${t.visitors === 1 ? 'person' : 'people'} visited the site. ${fmt(t.conversions)} ${t.conversions === 1 ? 'form was' : 'forms were'} sent in, including ${fmt(t.leads)} sales ${t.leads === 1 ? 'lead' : 'leads'}.${report.moneyIn.available ? ` ${usd(report.moneyIn.totalUsd)} in payments was recorded.` : ''}`;
+    return `In the last ${report.days} days, ${fmt(t.visitors)} ${t.visitors === 1 ? 'person' : 'people'} visited the site. ${fmt(t.conversions)} ${t.conversions === 1 ? 'form was' : 'forms were'} sent in, including ${fmt(t.leads)} sales ${t.leads === 1 ? 'lead' : 'leads'}.${report.moneyIn.available ? ` ${usd(report.moneyIn.totalUsd)} came in${report.stripe.available ? '' : ', not counting card payments'}.` : ''}`;
   }, [report]);
 
   return (
@@ -271,7 +274,9 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
               value={report.moneyIn.available ? usd(report.moneyIn.totalUsd) : '—'}
               now={report.moneyIn.available ? report.moneyIn.totalUsd : undefined}
               before={report.moneyIn.available ? report.moneyIn.previousUsd : undefined}
-              hint="Payments recorded in this period: swap fees, pay-per-call, API credits and agent plans. Card payments for monthly plans are not included (see below)." />
+              hint={report.stripe.available
+                ? 'Everything received in this period: card payments from Stripe (after refunds), swap fees, pay-per-call, API credits and agent plans.'
+                : 'Payments recorded in this period. Card payments are NOT included because Stripe could not be read (see below).'} />
             <Tile days={report.days} label="New accounts" value={fmt(report.totals.signups)}
               now={report.totals.signups} before={report.previous.signups}
               hint="New user accounts created in the product." />
@@ -290,18 +295,38 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
             <DailyBars title="Money in per day" unit={['', '']} format={usd} data={report.series}
               values={report.series.map((d) => d.moneyInUsd)} />
             <RankList title="Where the money came from" format={usd}
-              hint="Payments recorded in this period, by type."
+              hint="Money received in this period, by type."
               empty="No payments recorded in this period yet."
               rows={report.moneyIn.bySource.filter((m) => m.usd > 0).map((m) => ({ key: m.key, label: m.label, value: m.usd }))} />
           </div>
-          <p className={styles.note}>
-            <strong>About these money numbers.</strong> “Money in” counts payments this system records itself.
-            Card payments for the monthly Pro, Premium and Enterprise plans are collected by Stripe and are not in
-            that total. As a guide, your {fmt(report.paidCustomers.total)} active paid{' '}
-            {report.paidCustomers.total === 1 ? 'plan is' : 'plans are'} worth about{' '}
-            <strong>{usd(report.planEstimate.monthlyUsd)} a month</strong> at list price. Check Stripe for the
-            exact amount received, refunds and failed payments.
-          </p>
+          {report.stripe.available ? (
+            <div className={styles.panel}>
+              <h3 className={styles.panelTitle}>Card payments (from Stripe)</h3>
+              <p className={styles.panelHint}>
+                Read live from your Stripe balance for this period, so it includes monthly plans and card top-ups.
+              </p>
+              <dl className={styles.ledger}>
+                <div><dt>Received from {fmt(report.stripe.payments)} {report.stripe.payments === 1 ? 'payment' : 'payments'}</dt><dd>{usd(report.stripe.receivedUsd)}</dd></div>
+                <div><dt>Refunded to customers</dt><dd>−{usd(report.stripe.refundedUsd)}</dd></div>
+                <div><dt>Lost to disputes (chargebacks)</dt><dd>−{usd(report.stripe.disputedUsd)}</dd></div>
+                <div><dt>Stripe’s processing fees</dt><dd>−{usd(report.stripe.feesUsd)}</dd></div>
+                <div className={styles.ledgerTotal}><dt>What you keep</dt><dd>{usd(report.stripe.netUsd)}</dd></div>
+              </dl>
+              {(report.stripe.truncated || report.stripe.nonUsdSkipped > 0) && (
+                <p className={styles.panelHint}>
+                  {report.stripe.truncated && 'There were too many transactions to read in one go, so these totals may be low. '}
+                  {report.stripe.nonUsdSkipped > 0 && `${fmt(report.stripe.nonUsdSkipped)} non-USD ${report.stripe.nonUsdSkipped === 1 ? 'transaction is' : 'transactions are'} not included.`}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className={styles.note}>
+              <strong>Card payments are missing from the money numbers.</strong> Stripe could not be read just
+              now, so “Money in” only counts payments this system records itself. As a guide, your{' '}
+              {fmt(report.paidCustomers.total)} active paid {report.paidCustomers.total === 1 ? 'plan is' : 'plans are'}{' '}
+              worth about <strong>{usd(report.planEstimate.monthlyUsd)} a month</strong> at list price.
+            </p>
+          )}
 
           <div className={styles.panel}>
             <h3 className={styles.panelTitle}>From visit to sign-up</h3>
