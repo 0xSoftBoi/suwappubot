@@ -34,6 +34,11 @@ interface FinanceProvider {
   total: number;
   completed: number;
   failed: number;
+  // Swaps that may have broadcast on-chain but whose outcome could not be
+  // verified (SwapStatus.UNKNOWN). Counted in the successRate denominator by
+  // the API, so it is shown here too — an unverified swap that is invisible
+  // in the panel is exactly the orphan an operator needs to go and check.
+  unknown: number;
   successRate: number | null;
   volumeUsd: number;
   priceImprovementUsd: number;
@@ -58,6 +63,7 @@ interface FinanceResponse {
     totalSwaps: number;
     completedSwaps: number;
     failedSwaps: number;
+    unknownSwaps: number;
     successRate: number | null;
     volumeUsd: number;
     quotes: number;
@@ -337,7 +343,7 @@ export default function FinancePanel({ apiKey }: { apiKey: string }) {
             <div className="adm-stat">
               <div className="adm-stat__label">Execution success</div>
               <div className="adm-stat__value">{fmtPct(data.execution.successRate)}</div>
-              <div className="adm-stat__sub">{data.execution.completedSwaps.toLocaleString()} completed / {data.execution.failedSwaps.toLocaleString()} failed</div>
+              <div className="adm-stat__sub">{data.execution.completedSwaps.toLocaleString()} completed / {data.execution.failedSwaps.toLocaleString()} failed{data.execution.unknownSwaps > 0 ? ` / ${data.execution.unknownSwaps.toLocaleString()} unverified` : ''}</div>
             </div>
             <div className="adm-stat">
               <div className="adm-stat__label">Quote → execution</div>
