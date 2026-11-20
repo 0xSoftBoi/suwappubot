@@ -564,6 +564,7 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_error_category_column(db_engine, inspector, is_sqlite)
         _add_swap_realized_output_columns(db_engine, inspector, is_sqlite)
         _add_swap_nonce_columns(db_engine, inspector, is_sqlite)
+        _add_swap_intended_hash_column(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -2432,6 +2433,84 @@ def _add_swap_nonce_columns(db_engine, inspector, is_sqlite: bool) -> None:
                 logger.info("Backfilled %d swap nonce(s) from route_data", migrated)
     except Exception as e:
         logger.warning("Could not backfill swap nonces from route_data: %s", e)
+
+
+def _add_swap_intended_hash_column(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add the pre-broadcast transaction hash to swap_transactions.
+
+    An EVM transaction hash is keccak256 of the signed payload, so it is fully
+    determined at SIGNING time — one step before send_raw_transaction, which is
+    exactly where the hash is lost when the RPC call times out or the process
+    dies. Recording it at signing therefore removes both ambiguities the
+    (sender_address, nonce) pair added by _add_swap_nonce_columns cannot
+    resolve:
+
+      1. A nonce identifies a slot, not a transaction. Most executors send an
+         ERC20 approval and re-fetch the nonce for the swap, so a success at
+         the recorded nonce may belong to an approval whose swap never
+         followed.
+      2. If a broadcast never landed, the wallet's next send takes the same
+         nonce and passes the (sender, nonce) checks identically.
+
+    A hash is immune to both, so this column is what lets the poller conclude
+    COMPLETED — which the nonce path deliberately never does. The nonce columns
+    stay: they prove the complementary half (nonce never consumed, so nothing
+    can land and no funds moved), which needs no explorer and which a hash
+    lookup alone cannot tell apart from "mined but not yet visible".
+
+    Additive and idempotent, per docs/development/migrations.md. Nullable with
+    no default: NULL means "no hash was recorded" on every pre-existing row,
+    every non-EVM row, and any send whose recording failed. VARCHAR(66) is
+    0x + 64 hex exactly.
+
+    No backfill is possible or attempted. The hash of a transaction that was
+    signed before this column existed is not recoverable from anything the
+    database kept, so historical hashless rows stay on the nonce path, which is
+    precisely why that path is retained rather than replaced.
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    if "intended_tx_hash" not in cols:
+        if is_sqlite:
+            ddl = "ALTER TABLE swap_transactions ADD COLUMN intended_tx_hash VARCHAR(66)"
+        else:
+            ddl = (
+                "ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS "
+                "intended_tx_hash VARCHAR(66)"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+
+    # Attempted on every boot, NOT only when the column was just added, and
+    # that is deliberate. A database created fresh gets this column from
+    # SQLAlchemy's create_all (it is on the model), so the add above is a
+    # no-op there — and an index created only in the add branch would exist
+    # on every upgraded database and on no new one, which is a schema
+    # difference waiting to confuse someone reading a plan. The statement is
+    # IF NOT EXISTS, so the steady-state cost is a catalog lookup.
+    #
+    # Partial on Postgres for the same reason as the nonce index: the poller's
+    # pass touches a handful of rows out of the whole swap history, so an
+    # unqualified index would be mostly dead weight. SQLite (dev only) has no
+    # partial-index support here and gets the plain one.
+    try:
+        if is_sqlite:
+            ddl = (
+                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_intended_hash "
+                "ON swap_transactions(intended_tx_hash)"
+            )
+        else:
+            ddl = (
+                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_intended_hash "
+                "ON swap_transactions(intended_tx_hash) "
+                "WHERE tx_hash IS NULL AND intended_tx_hash IS NOT NULL"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+    except Exception as e:
+        # An index is an optimisation, not a correctness requirement — the
+        # poller's pass is bounded by created_at anyway.
+        logger.warning("Could not create ix_swap_transactions_intended_hash: %s", e)
 
 
 def _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite: bool) -> None:

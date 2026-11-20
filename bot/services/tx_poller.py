@@ -232,7 +232,7 @@ class TransactionPoller:
         return False
 
     async def _resolve_hashless_rows(self) -> None:
-        """Resolve swaps that have no tx_hash, using (sender_address, nonce).
+        """Resolve swaps that have no tx_hash, from what was recorded before the send.
 
         These are the rows the main pass cannot touch. `_check_pending_transactions`
         filters on `tx_hash IS NOT NULL` because a hash is the only thing it
@@ -242,8 +242,31 @@ class TransactionPoller:
         a human read the chain. It also blocked `orders.resume_dca`, which
         refuses to advance while a tranche's swap is UNKNOWN.
 
-        `swap_nonce.resolve_tx_by_sender_nonce` supplies the missing half. Its
-        verdicts are deliberately asymmetric and this method preserves that:
+        Two identities are recorded before every EVM broadcast, and this method
+        tries them in order of how much they can prove.
+
+        **`intended_tx_hash` first.** A transaction hash is keccak256 of the
+        signed payload, so it is settled at signing — one step before the send
+        that loses it — and it names exactly one transaction. One
+        `eth_getTransactionReceipt` on it is therefore unambiguous, and this is
+        the only path here that may conclude COMPLETED:
+
+        - HASH_RESOLVED resolves the row to COMPLETED or FAILED from the
+          receipt's own status. No explorer is involved and there is nothing to
+          disambiguate: no other transaction, approval or nonce-reusing send
+          could hash to this value.
+        - HASH_UNMINED (no receipt) proves nothing by itself — the transaction
+          may be in the mempool, or the broadcast may never have left — so it
+          falls through to the nonce path, which is the half that can tell
+          those apart.
+
+        **`(sender_address, nonce)` second**, for rows written before
+        `intended_tx_hash` existed (their hashes are not recoverable, which is
+        why this path is kept rather than replaced) and to supply the negative
+        proof the hash cannot. `swap_nonce.resolve_tx_by_sender_nonce`'s
+        verdicts are deliberately asymmetric and this method preserves that
+        exactly as it was — a nonce identifies a slot, not a transaction, so it
+        still never concludes COMPLETED:
 
         - NOT_MINED is conclusive and the nonce was never spent, so the swap
           FAILED and no funds moved. This is the common case and the one worth
@@ -264,8 +287,10 @@ class TransactionPoller:
           so the broadcast did happen and is simply waiting. Left alone.
         - INDETERMINATE means we could not reach the chain. Retried next pass.
 
-        Only EVM rows are selected. Solana and Tron have no account nonce, so
-        their rows carry none and are excluded by construction.
+        Only EVM rows are selected. Solana and Tron record neither identity —
+        they have no account nonce, and their signatures are not derived the
+        same way — so their rows carry nothing here and are excluded both by
+        the query and by the EVM check in the loop.
         """
         from bot.services import swap_nonce
 
@@ -288,8 +313,17 @@ class TransactionPoller:
                 session.query(SwapTransaction)
                 .filter(
                     SwapTransaction.tx_hash.is_(None),
-                    SwapTransaction.nonce.isnot(None),
-                    SwapTransaction.sender_address.isnot(None),
+                    # Either identity qualifies a row. The nonce pair needs
+                    # both halves to be usable at all, while a recorded hash
+                    # stands alone — it is self-identifying, so a row carrying
+                    # one is resolvable even if the nonce write did not land.
+                    or_(
+                        SwapTransaction.intended_tx_hash.isnot(None),
+                        and_(
+                            SwapTransaction.nonce.isnot(None),
+                            SwapTransaction.sender_address.isnot(None),
+                        ),
+                    ),
                     SwapTransaction.status.in_(
                         [
                             SwapStatus.UNKNOWN.value,
@@ -322,6 +356,7 @@ class TransactionPoller:
                     "tx_hash": None,
                     "sender_address": r.sender_address,
                     "nonce": r.nonce,
+                    "intended_tx_hash": r.intended_tx_hash,
                 }
                 for r in rows
             ]
@@ -329,11 +364,24 @@ class TransactionPoller:
         if not candidates:
             return
 
-        logger.info("Resolving %d hashless swap row(s) by nonce", len(candidates))
+        logger.info(
+            "Resolving %d hashless swap row(s) from pre-broadcast identity", len(candidates)
+        )
 
         for tx_dict in candidates:
             chain = get_chain_by_name(tx_dict["from_chain"])
             if not chain or chain.chain_type != ChainType.EVM:
+                continue
+
+            # The recorded hash is tried first and is the only evidence here
+            # strong enough to conclude COMPLETED. If it resolves, the row is
+            # settled and the nonce path is not consulted at all.
+            if tx_dict.get("intended_tx_hash") and await self._resolve_from_intended_hash(tx_dict):
+                continue
+
+            if tx_dict["nonce"] is None or not tx_dict["sender_address"]:
+                # Selected on the hash alone, and the hash did not settle it.
+                # There is no second identity to fall back to.
                 continue
 
             try:
@@ -430,6 +478,109 @@ class TransactionPoller:
                     result.detail,
                 )
 
+    async def _resolve_from_intended_hash(self, tx_dict: dict) -> bool:
+        """Settle a hashless row from the hash recorded at signing.
+
+        Returns True when the row no longer needs the nonce path — either
+        because an outcome was applied, or because the hash was adopted and the
+        ordinary polling pass now owns the row.
+
+        This is the only place in this method that may conclude COMPLETED, and
+        the reason is that a hash is proof of identity in a way a nonce is not:
+        it is keccak256 of the signed payload, so a receipt returned for it is
+        a receipt for the exact transaction this swap signed. An approval, a
+        replacement, or a later send that recycled the nonce all hash
+        elsewhere, so none of the confusions the nonce path has to guard
+        against can arise here.
+
+        Outcomes are still routed through the provider rules rather than read
+        off the receipt directly:
+
+        - A reverted origin transaction is FAILED for every provider. Nothing
+          executed, so nothing bridged either.
+        - A successful one is handed to `_check_tx_status_dict`, which already
+          knows that a mined origin receipt completes a same-chain swap but
+          does NOT complete a LiFi or 0x cross-chain route until the
+          destination fill is confirmed. Concluding COMPLETED from the receipt
+          here would tell a user their bridge landed when only the origin leg
+          mined — the precise mistake `_PROVIDERS_WITH_DEST_FILL_CHECK` exists
+          to prevent, and it is not re-litigated in this method.
+
+        If that check has no verdict yet, the row keeps the adopted hash and is
+        simply left: it is now selectable by the main pass (UNKNOWN and
+        EXECUTING rows with a hash are both in its filter), so it resolves
+        there on a later cycle with no further special-casing.
+        """
+        from bot.services import swap_nonce
+
+        intended = tx_dict.get("intended_tx_hash")
+        try:
+            result = await swap_nonce.resolve_tx_by_intended_hash(
+                tx_dict["from_chain"], intended, tx_dict.get("sender_address")
+            )
+        except Exception as e:
+            logger.warning("Recorded-hash resolution failed for swap %s: %s", tx_dict["id"], e)
+            return False
+
+        if result.verdict != swap_nonce.HASH_RESOLVED:
+            # HASH_UNMINED means no receipt, which is NOT evidence of failure:
+            # the transaction may be in the mempool, or the broadcast may never
+            # have left. Only the nonce path can tell those apart, so fall
+            # through to it rather than concluding anything here.
+            logger.info(
+                "Swap %s not settled by its recorded hash %s: %s (%s)",
+                tx_dict["id"],
+                intended,
+                result.verdict,
+                result.detail,
+            )
+            return False
+
+        # One on-chain transaction belongs to one swap. A duplicate here is far
+        # less likely than on the nonce path — it needs a retry that rebuilt a
+        # byte-identical payload, not merely a reused nonce — but if some other
+        # row already owns this hash, two rows would be claiming one
+        # transaction, so refuse rather than double-count it.
+        if await self._hash_claimed_elsewhere(result.tx_hash, tx_dict["id"]):
+            logger.warning(
+                "Swap %s recorded hash %s, but another swap already owns that "
+                "hash — refusing to claim one transaction for two swaps",
+                tx_dict["id"],
+                result.tx_hash,
+            )
+            return False
+
+        await self._adopt_resolved_hash(tx_dict["id"], result.tx_hash)
+        tx_dict["tx_hash"] = result.tx_hash
+
+        if result.status == SwapStatus.FAILED.value:
+            logger.info(
+                "Swap %s: its recorded transaction %s reverted on %s — marking FAILED",
+                tx_dict["id"],
+                result.tx_hash,
+                tx_dict["from_chain"],
+            )
+            await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
+            return True
+
+        new_status, dest_tx_hash = await self._check_tx_status_dict(tx_dict)
+        if new_status:
+            logger.info(
+                "Swap %s resolved to %s from its recorded hash %s",
+                tx_dict["id"],
+                new_status,
+                result.tx_hash,
+            )
+            await self._apply_status_update(tx_dict, new_status, dest_tx_hash)
+        else:
+            logger.info(
+                "Swap %s: recorded transaction %s mined successfully; hash adopted and "
+                "left to the ordinary polling pass (route not settled yet)",
+                tx_dict["id"],
+                result.tx_hash,
+            )
+        return True
+
     async def _adopt_resolved_hash(self, swap_id: int, tx_hash: str) -> None:
         """Write a nonce-resolved hash onto the row, if it still has none.
 
@@ -502,14 +653,31 @@ class TransactionPoller:
         Fails CLOSED: an error here returns True and leaves the row
         unresolved, because the cost of a wrong False is a swap reported
         COMPLETED on another swap's transaction.
+
+        Matched against BOTH spellings of the hash, which is load-bearing
+        rather than defensive. The values compared here come from different
+        producers and do not agree on the `0x` prefix: a resolved candidate is
+        prefixed (Blockscout returns it that way, and `record_intended_hash`
+        writes it that way because `eth_getTransactionReceipt` needs it), while
+        the `tx_hash` column holds what an executor returned — and under the
+        pinned hexbytes 1.3.1 `HexBytes.hex()` yields the digest with no
+        prefix. A plain equality test therefore compares a prefixed string to
+        a bare one and never matches, which would silently turn this guard into
+        a no-op on exactly the money-path check it exists to perform.
         """
+        from bot.services.swap_nonce import tx_hash_variants
+
+        variants = tx_hash_variants(tx_hash)
+        if not variants:
+            # Not a hash we can look up. Fail closed, as above.
+            return True
 
         def _work():
             with get_db_session() as session:
                 return (
                     session.query(SwapTransaction.id)
                     .filter(
-                        SwapTransaction.tx_hash == tx_hash,
+                        SwapTransaction.tx_hash.in_(variants),
                         SwapTransaction.id != swap_id,
                     )
                     .first()

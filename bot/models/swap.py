@@ -124,6 +124,35 @@ class SwapTransaction(Base):
     sender_address = Column(String(64), nullable=True)
     nonce = Column(Integer, nullable=True)
 
+    # The exact transaction this swap was about to broadcast, known before the
+    # send that can lose it.
+    #
+    # An EVM transaction hash is keccak256 of the signed payload, so it is
+    # fully determined at SIGNING time — one step earlier than
+    # send_raw_transaction, which is where the hash is lost. Recording it there
+    # removes both ambiguities (sender_address, nonce) above cannot resolve:
+    #
+    #   1. A nonce names a slot, not a transaction. Most executors send an
+    #      ERC20 approval and re-fetch the nonce for the swap itself, so a
+    #      success at the recorded nonce may belong to an approval whose swap
+    #      never followed. A hash names one transaction and nothing else.
+    #   2. If a broadcast never landed, the wallet's next send takes the same
+    #      nonce, and that transaction satisfies the (sender, nonce) checks
+    #      identically. It cannot satisfy the hash.
+    #
+    # So this column is what lets tx_poller conclude COMPLETED, which the nonce
+    # pair deliberately never does: one eth_getTransactionReceipt on this hash
+    # is unambiguous and needs no explorer. The nonce columns are kept because
+    # they prove the opposite case — nonce never consumed, so nothing can land
+    # and no funds moved — which a hash lookup cannot distinguish from "mined
+    # but not indexed yet".
+    #
+    # 66 chars: 0x + 64 hex. NULL on every row written before this column
+    # existed, every non-EVM row, and any send whose recording failed (the
+    # recorder never raises — a swap ready to send must not be blocked by
+    # bookkeeping). See bot/services/swap_nonce.py.
+    intended_tx_hash = Column(String(66), nullable=True)
+
     bridge_tx_hash = Column(String(255), nullable=True)  # Bridge tx hash if cross-chain
     destination_tx_hash = Column(String(255), nullable=True)  # Destination chain tx hash
 

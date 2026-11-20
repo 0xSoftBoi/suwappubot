@@ -39,6 +39,19 @@ export const swapTransactions = pgTable('swap_transactions', {
 	senderAddress: varchar('sender_address', { length: 64 }),
 	nonce: integer('nonce'),
 
+	// The exact transaction the swap was about to broadcast. An EVM hash is
+	// keccak256 of the signed payload, so it is settled at SIGNING time — one
+	// step before the send that loses it. Recording it there removes what the
+	// nonce pair above cannot resolve: a nonce names a slot, so a success at
+	// that nonce may be an ERC20 approval whose swap never followed, or a
+	// later send that reused the nonce after a lost broadcast. A hash names
+	// one transaction, so this is what lets tx_poller conclude COMPLETED —
+	// which the nonce path deliberately never does. The nonce columns stay
+	// because they prove the opposite half (nonce never consumed => nothing
+	// can land) with no explorer. 66 chars = 0x + 64 hex; NULL on non-EVM
+	// rows, on rows predating the column, and when recording failed.
+	intendedTxHash: varchar('intended_tx_hash', { length: 66 }),
+
 	bridgeTxHash: varchar('bridge_tx_hash', { length: 255 }),
 	destinationTxHash: varchar('destination_tx_hash', { length: 255 }),
 

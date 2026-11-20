@@ -53,7 +53,7 @@ retried on the next pass. That is the correct resting state: "we know the
 nonce was spent but not on what" is strictly more than the row knew before,
 and still not grounds to claim an outcome.
 
-## The ceiling of this approach, and what would remove it
+## Why the nonce is not the primary identity (and what is)
 
 A nonce identifies a *slot*, not a transaction, and that cuts two ways.
 
@@ -75,16 +75,39 @@ it cannot catch is a nonce consumed from the same address by something that
 keeps no SwapTransaction row at all — a hot-wallet sweep, a relayer, bulk pay.
 For those, RESOLVED could still name a transaction that is not the swap's.
 
-The design that removes BOTH of these entirely is to persist the transaction hash
-itself before broadcasting rather than the nonce: an EVM hash is keccak of the
-signed payload, so it is fully determined at signing time, one step before the
-send that may lose it. That identifies the exact transaction with no
-ambiguity and no explorer. It is a strictly better mechanism than this one and
-the recommended follow-up; it is not what this change does, because it would
-rewrite what every executor records rather than adding to it.
+Both of these are removed by `intended_tx_hash`, which is now recorded
+alongside the nonce and is the identity resolution prefers. An EVM hash is
+keccak256 of the signed payload, so it is fully determined at signing time —
+one step before the send that may lose it — and it names ONE transaction.
+An approval hashes elsewhere than the swap that follows it, and a later send
+that recycles an abandoned nonce hashes elsewhere than the send that abandoned
+it, so neither ambiguity above can arise. `resolve_tx_by_intended_hash` turns
+that into one `eth_getTransactionReceipt` with no explorer in the loop, and
+its success half IS conclusive: HASH_RESOLVED can report COMPLETED, which the
+nonce path never does.
 
-Until then, the asymmetry is the safety property to preserve: NOT_MINED is
+## Why both identities are kept
+
+The two halves prove opposite things and neither subsumes the other.
+
+The hash proves the positive: a receipt for it is this swap's outcome,
+full stop. What it cannot do is prove a negative — a null receipt means
+"in the mempool" and "never broadcast" alike, and no amount of asking
+again distinguishes them.
+
+The nonce proves exactly that negative. Unspent at both "latest" and
+"pending" means nothing mined this slot and nothing is queued to, so the
+transaction cannot land and no funds moved. That proof costs two RPC calls,
+needs no explorer, and is the fastest way to clear a row — and it is also
+the common case, since a lost broadcast usually never reached a node at all.
+
+So resolution reads the hash first and falls back to the nonce, and rows
+written before `intended_tx_hash` existed (whose hashes are not recoverable
+from anything the database kept) stay on the nonce path unchanged. For those
+rows the old asymmetry remains the safety property to preserve: NOT_MINED is
 sound unconditionally, and RESOLVED is only ever as strong as the guard above.
+Do not loosen RESOLVED because HASH_RESOLVED is sound — they are different
+grades of evidence and the verdicts are named apart for that reason.
 
 That retry is load-bearing, not a formality. Verified live against
 eth.blockscout.com: a transaction already mined and already counted by
@@ -108,7 +131,9 @@ import asyncio
 import contextlib
 import contextvars
 import logging
-from typing import Optional
+from typing import Optional, Union
+
+from web3 import Web3
 
 from bot.config.chains import ChainType, get_chain_by_name
 from bot.models.swap import SwapStatus, SwapTransaction
@@ -158,6 +183,15 @@ PENDING_UNMINED = "pending_unmined"  # a tx at this nonce is in the mempool
 CONSUMED_UNKNOWN = "consumed_unknown"  # nonce spent, hash not identified yet
 RESOLVED = "resolved"  # hash identified and verified over our own RPC
 INDETERMINATE = "indeterminate"  # could not reach the chain; retry later
+
+# Verdicts from the recorded-hash path (`resolve_tx_by_intended_hash`). Kept
+# distinct from RESOLVED on purpose: RESOLVED comes from a nonce match, whose
+# success half is not trustworthy (see the docstring), while HASH_RESOLVED
+# identifies one transaction cryptographically and its success half IS. A
+# caller that collapsed the two would silently extend nonce-grade evidence to
+# a COMPLETED conclusion, which is the exact bug this module exists to avoid.
+HASH_RESOLVED = "hash_resolved"  # the recorded hash has a receipt -> conclusive
+HASH_UNMINED = "hash_unmined"  # no receipt for it yet; says nothing on its own
 
 
 class NonceResolution:
@@ -289,6 +323,130 @@ async def record_intended_nonce(nonce: Optional[int], sender: Optional[str]) -> 
         logger.warning(
             "Could not record nonce %s for swap %s (continuing to broadcast): %s",
             nonce,
+            swap_id,
+            e,
+        )
+
+
+def canonical_tx_hash(value: Optional[str]) -> Optional[str]:
+    """Normalise a transaction hash to lowercase `0x` + 64 hex, or None.
+
+    Two formats are in circulation and they must not be compared directly.
+    `intended_tx_hash` is written canonically by `record_intended_hash`, while
+    the existing `tx_hash` column holds whatever an executor returned — and
+    under hexbytes 1.x (pinned 1.3.1) `HexBytes.hex()` yields the digest with
+    NO `0x` prefix, so historical and current rows carry the bare form. A
+    string comparison between the two would silently never match, which on the
+    money path means a nonce-reuse guard that always passes.
+
+    Anything that is not a 32-byte hex digest returns None rather than being
+    passed through: a caller that got None must not then use the raw value.
+    """
+    if not value:
+        return None
+    text = str(value).strip().lower()
+    if text.startswith("0x"):
+        text = text[2:]
+    if len(text) != 64:
+        return None
+    try:
+        int(text, 16)
+    except ValueError:
+        return None
+    return "0x" + text
+
+
+def tx_hash_variants(value: Optional[str]) -> list[str]:
+    """Both spellings of `value`, for querying a column of mixed format.
+
+    Returns the canonical `0x`-prefixed form and the bare form. Used where a
+    lookup must match rows written by either convention — notably the guard
+    that refuses a hash another swap already owns, which has to fail closed and
+    so cannot afford to miss a row on formatting alone.
+
+    Returns an EMPTY list for anything that is not a 32-byte hex digest, and
+    that emptiness is the signal callers act on. Passing an unparseable value
+    through as a literal to query with would be worse than useless on a money
+    path: the query would reliably find nothing and the caller would read that
+    as "no other row owns this", which is the permissive answer. An empty list
+    lets the caller fail closed instead.
+    """
+    canonical = canonical_tx_hash(value)
+    if not canonical:
+        return []
+    return [canonical, canonical[2:]]
+
+
+async def record_intended_hash(signed: Union[str, bytes, bytearray, None]) -> None:
+    """Record the hash of a signed payload on the active swap row, BEFORE sending.
+
+    This is the stronger half of this module, and the reason is arithmetic
+    rather than engineering: an EVM transaction hash is keccak256 of the signed
+    RLP payload, so it is fully determined the instant signing returns — one
+    step before `send_raw_transaction`, which is the call that loses it. The
+    identity is therefore available exactly where the old failure happened, and
+    it names ONE transaction, which `(sender, nonce)` cannot:
+
+    - An approval and the swap that follows it occupy different hashes even
+      when the recorded nonce is the same, so a success here cannot be an
+      approval mistaken for a swap.
+    - A later send that reuses an abandoned nonce produces a different payload
+      and so a different hash, so it cannot be mistaken for this swap either.
+
+    Call it after signing and before the matching send, on EVERY send a swap
+    makes, including each approval: the column tracks the transaction currently
+    in flight, so whichever send loses its outcome is the one whose hash is on
+    the row.
+
+    Accepts the signed payload in any form the executors hold it in — a hex
+    string with or without `0x`, or raw bytes (the Tempo type-0x76 path encodes
+    its own envelope) — because the hash is of the payload either way.
+
+    Never raises, for the same reason `record_intended_nonce` does not: the
+    cost of not recording is a row that may need a human, which is the status
+    quo being improved on, while the cost of raising is a swap that was ready
+    to send and now does not happen.
+    """
+    swap_id = _active_swap.get()
+    if swap_id is None or signed is None:
+        return
+
+    try:
+        if isinstance(signed, (bytes, bytearray)):
+            digest = Web3.keccak(bytes(signed))
+        else:
+            payload = str(signed).strip()
+            if not payload:
+                return
+            digest = Web3.keccak(hexstr=payload)
+        # Web3.to_hex, not HexBytes.hex(): under the pinned hexbytes 1.3.1 the
+        # latter returns the digest WITHOUT the 0x prefix, and this column's
+        # whole job is to be handed straight to eth_getTransactionReceipt.
+        tx_hash = canonical_tx_hash(Web3.to_hex(digest))
+    except Exception as e:
+        logger.warning(
+            "Could not compute intended hash for swap %s (continuing to broadcast): %s",
+            swap_id,
+            e,
+        )
+        return
+
+    if not tx_hash:
+        return
+
+    def _work():
+        with get_db_session() as session:
+            db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+            if not db_tx:
+                return
+            db_tx.intended_tx_hash = tx_hash
+
+    try:
+        await run_in_db(_work)
+    except Exception as e:
+        logger.warning(
+            "Could not record intended hash %s for swap %s (continuing to broadcast): %s",
+            tx_hash,
             swap_id,
             e,
         )
@@ -521,3 +679,101 @@ async def resolve_tx_by_sender_nonce(chain_name: str, sender: str, nonce: int) -
         return NonceResolution(CONSUMED_UNKNOWN, detail="candidate_unverified")
 
     return NonceResolution(RESOLVED, tx_hash=candidate, status=status)
+
+
+async def resolve_tx_by_intended_hash(
+    chain_name: str,
+    intended_hash: str,
+    expected_sender: Optional[str] = None,
+) -> NonceResolution:
+    """Work out what became of the transaction whose hash we recorded at signing.
+
+    This is the half with no ambiguity to manage, and it is worth being
+    explicit about why, because every caution in the nonce path above exists to
+    work around a weakness this one does not have.
+
+    A transaction hash is keccak256 of the signed payload. Only the holder of
+    the key could have produced that payload, and any different payload —
+    another nonce, another calldata, an approval instead of a swap, a later
+    send that recycled the nonce — hashes somewhere else. So a receipt returned
+    for this hash is a receipt for the exact transaction this swap signed, and
+    its status is the swap's status. There is nothing to disambiguate, no
+    explorer in the loop, and one RPC call does the whole job.
+
+    Verdicts:
+
+    - HASH_RESOLVED with `status` COMPLETED or FAILED. Conclusive. This is what
+      the nonce path cannot produce for a success.
+    - HASH_UNMINED: no receipt. On its own this says nothing — the transaction
+      may be in the mempool, or the broadcast may never have left. The caller
+      should fall through to the nonce path, which is what can prove the
+      second case (`NOT_MINED` requires the nonce to be unspent at both
+      "latest" and "pending", and that proof needs no hash).
+    - INDETERMINATE: the chain could not be reached, or the receipt did not
+      survive the checks below. Retried on the next pass.
+
+    `expected_sender` is defence in depth, not the trust boundary. The hash
+    already binds the transaction to our payload; this only catches a column
+    that holds the wrong value — a mis-recorded or corrupted row — and costs
+    nothing, since `eth_getTransactionReceipt` returns `from` already. A
+    mismatch refuses to resolve rather than guessing which field to believe.
+    """
+    chain = get_chain_by_name(chain_name)
+    if not chain or chain.chain_type != ChainType.EVM:
+        return NonceResolution(INDETERMINATE, detail="not_an_evm_chain")
+
+    tx_hash = canonical_tx_hash(intended_hash)
+    if not tx_hash:
+        # Not a 32-byte digest, so it cannot be looked up and must not be
+        # passed to the RPC raw.
+        return NonceResolution(INDETERMINATE, detail="malformed_intended_hash")
+
+    try:
+        rpc_url = rpc_manager.get_rpc_url(chain.name)
+    except Exception as e:
+        return NonceResolution(INDETERMINATE, detail=f"no_rpc:{e}")
+    if not rpc_url:
+        return NonceResolution(INDETERMINATE, detail="no_rpc")
+
+    receipt = await _rpc(rpc_url, "eth_getTransactionReceipt", [tx_hash])
+    if receipt is None:
+        # Either still in the mempool, or the broadcast never landed. Both read
+        # as a null receipt, so this is explicitly NOT a failure verdict: the
+        # nonce path is the one that can tell those apart.
+        return NonceResolution(HASH_UNMINED, tx_hash=tx_hash, detail="no_receipt")
+    if not isinstance(receipt, dict):
+        return NonceResolution(INDETERMINATE, detail="unreadable_receipt")
+
+    # The node should echo the hash we asked about. If it does not, something
+    # between us and the chain is not answering the question we asked, and no
+    # outcome should be concluded from its answer.
+    echoed = canonical_tx_hash(receipt.get("transactionHash"))
+    if echoed and echoed != tx_hash:
+        logger.warning(
+            "Receipt for %s came back as %s — refusing to resolve from it",
+            tx_hash,
+            echoed,
+        )
+        return NonceResolution(INDETERMINATE, detail="receipt_hash_mismatch")
+
+    if expected_sender:
+        receipt_from = str(receipt.get("from") or "").lower()
+        if receipt_from and receipt_from != str(expected_sender).strip().lower():
+            logger.warning(
+                "Recorded hash %s is on-chain but sent by %s, not the recorded %s "
+                "— refusing to resolve this row from it",
+                tx_hash,
+                receipt_from,
+                expected_sender,
+            )
+            return NonceResolution(INDETERMINATE, detail="sender_mismatch")
+
+    status = receipt.get("status")
+    if status == "0x1" or status == 1:
+        return NonceResolution(HASH_RESOLVED, tx_hash=tx_hash, status=SwapStatus.COMPLETED.value)
+    if status == "0x0" or status == 0:
+        return NonceResolution(HASH_RESOLVED, tx_hash=tx_hash, status=SwapStatus.FAILED.value)
+
+    # A receipt with no readable status: pre-Byzantium, or a node returning a
+    # shape we do not know. Mined, but the outcome is not established.
+    return NonceResolution(INDETERMINATE, tx_hash=tx_hash, detail=f"unreadable_status:{status!r}")

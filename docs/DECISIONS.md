@@ -259,3 +259,46 @@ ADRs 0001–0005.
   rejects). A `[skip ci]` journal commit must never be the head of a push that
   also carries code commits: GitHub reads the head commit and skips the whole
   push, so the code is never tested.
+
+
+## 2026-11-20 — Resolve a hashless swap by the hash recorded at signing, not by its nonce
+
+- **Context**: a `SwapTransaction` whose broadcast outcome was never observed
+  (RPC timeout, or the process dying between `send_raw_transaction` and the
+  `tx_hash` write) has no hash. `tx_poller` filters its queue on
+  `tx_hash IS NOT NULL`, so the row was unresolvable and blocked `resume_dca`.
+  The first fix recorded `(sender_address, nonce)` before every EVM broadcast.
+- **Trap**: a nonce identifies a *slot*, not a transaction, so that half can
+  prove a swap did NOT execute but never that it DID — the recorded nonce may
+  be the ERC20 approval's (executors re-fetch it for the swap), and a lost
+  broadcast frees its nonce for the wallet's next send. So it concluded FAILED
+  from a revert and left every success UNKNOWN.
+- **Decision**: also record `intended_tx_hash` — an EVM hash is keccak256 of
+  the signed payload, so it is settled at **signing**, one step before the send
+  that loses it, and it names one transaction. One
+  `eth_getTransactionReceipt` on it is unambiguous, needs no explorer, and is
+  the only evidence here allowed to conclude COMPLETED. `HASH_RESOLVED` is a
+  deliberately separate verdict from the nonce path's `RESOLVED` so nobody
+  later extends nonce-grade evidence to a success.
+- **Keep both**: they prove opposite things. The hash proves the positive but
+  cannot prove a negative (a null receipt means "in the mempool" and "never
+  broadcast" alike); the nonce proves exactly that negative with two RPC calls
+  and no explorer, which is the common case for a lost broadcast. Resolution
+  reads the hash first and falls through to the nonce on `HASH_UNMINED`.
+  Pre-existing rows have no recoverable hash and stay on the nonce path.
+- **Gotchas**: (1) Under the pinned `hexbytes==1.3.1`, `HexBytes.hex()` returns
+  the digest with **no `0x` prefix**, so every EVM executor stores a bare hash
+  while explorer- and keccak-derived hashes are prefixed. The `tx_hash` column
+  holds a mix, and `_hash_claimed_elsewhere` compared the two with `==`, so the
+  nonce-reuse guard its own docstring calls load-bearing was a no-op — it now
+  matches both spellings and fails closed. Use `Web3.to_hex`, never
+  `HexBytes.hex()`. (2) Sign sites are NOT 1:1 with nonce sites: several
+  executors sign an approval then the swap, and `_send_and_wait` signs
+  repeatedly under a `nonlocal nonce`, so record before *every* send.
+  (3) A mined *origin* receipt is not a settled bridge — a revert concludes
+  FAILED for all providers, but a success is handed to `_check_tx_status_dict`
+  rather than read off the receipt, so `_PROVIDERS_WITH_DEST_FILL_CHECK` still
+  decides cross-chain routes. (4) A column-add migration that creates its index
+  only in the "column was just added" branch gives every upgraded database an
+  index and every fresh one none, because `create_all` already includes the
+  column — attempt the `IF NOT EXISTS` index on every boot.
