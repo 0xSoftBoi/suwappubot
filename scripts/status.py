@@ -335,6 +335,25 @@ META_KEYS = {
     "fingerprint",
 }
 
+# Diagnostic and configuration fields that ride along inside a health payload
+# but are never a health signal. Matched on the full dotted path so a key of
+# the same name elsewhere in the payload is still judged.
+#
+# The memory guard (bot/services/memory_guard.py) reports its tuning next to
+# its state. `tracing=false` is the NORMAL state — tracemalloc is armed only
+# above the soft limit — and `hard_action=exit` is a configuration choice, not
+# a fault. Without these entries the walker flags both on every single probe
+# and the uptime cron pages forever on a perfectly healthy worker. The genuine
+# signal in that subtree is `memory.running`, which stays judged.
+TELEMETRY_PATHS = {
+    "memory.tracing",
+    "memory.hard_action",
+    "memory.rss_gb",
+    "memory.peak_gb",
+    "memory.soft_gb",
+    "memory.hard_gb",
+}
+
 
 def subsystem_breakdown(body: str) -> list[tuple[str, str]]:
     """Pull per-subsystem health out of a deep health payload.
@@ -365,7 +384,10 @@ def subsystem_breakdown(body: str) -> list[tuple[str, str]]:
             for k, v in obj.items():
                 if k in META_KEYS:
                     continue
-                walk(f"{prefix}{k}." if isinstance(v, (dict, list)) else f"{prefix}{k}", v)
+                path = f"{prefix}{k}"
+                if path in TELEMETRY_PATHS:
+                    continue
+                walk(f"{path}." if isinstance(v, (dict, list)) else path, v)
         elif isinstance(obj, list):
             for i, v in enumerate(obj):
                 walk(f"{prefix}{i}.", v)

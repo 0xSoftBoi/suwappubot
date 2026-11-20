@@ -6,7 +6,7 @@ import stats from '@/data/stats.generated.json';
 import styles from './solutions.module.css';
 
 export const metadata: Metadata = {
-  title: 'Solutions | Suwappu',
+  title: 'Solutions',
   description:
     `What you can build with the Suwappu Agent API: trading agents, portfolio agents, payment & commerce agents, and embedded wallets: across ${stats.agentApiChains} chains.`,
 };

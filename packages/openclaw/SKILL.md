@@ -35,12 +35,14 @@ tools:
   - predict_price
   - predict_trades
   - list_wallet_policies
+  - near_resolve_asset
+  - near_convert_amount
 ---
 
 # Suwappu MCP 🌸
 
 Use Suwappu's hosted MCP server for DeFi data, swap routing, simulation, and
-self-custody transaction preparation. The source 0.6 server advertises **22 tools**;
+self-custody transaction preparation. The source 0.6 server advertises **24 tools**;
 always treat the runtime `tools/list` response as canonical because deployed versions
 can move independently of this skill.
 
@@ -81,6 +83,7 @@ secret manager, never a committed config file.
 | Perps research | `perps_markets`, `perps_quote`, `perps_positions` | The Agent API does not expose open/close execution. Treat quote/funding fields as research data; funding is the current raw Hyperliquid market rate, not accrued position P&L. |
 | Lending research | `lend_markets`, `lend_market` | Read-only current APY/USD liquidity/listing/warnings; market detail is chain-scoped. No deposit/withdraw tool. |
 | Managed-wallet controls | `list_wallet_policies` | Inspect existing policy guardrails. |
+| NEAR assets | `near_resolve_asset`, `near_convert_amount` | Free, public. Resolve a NEAR Intents token to exactly one `defuse_asset_id` (symbols are ambiguous across chains) and convert atomic amounts before calling OutLayer. |
 | Extra discovery | `get_tempo_tokens`, `browse_mpp_directory` | Public discovery; MPP directory is a third-party directory. |
 
 ## Safe swap flow

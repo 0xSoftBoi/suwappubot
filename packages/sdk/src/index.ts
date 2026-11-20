@@ -127,4 +127,7 @@ export type {
   LiveTick,
   SubscribeLiveArgs,
   LiveSubscription,
+  NearAsset,
+  NearAmount,
+  NearResolveResult,
 } from "./types.js";

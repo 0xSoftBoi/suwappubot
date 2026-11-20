@@ -7,7 +7,7 @@ import styles from './contact.module.css';
 import stats from '@/data/stats.generated.json';
 
 export const metadata: Metadata = {
-  title: 'Talk to the team | Suwappu',
+  title: 'Talk to the team',
   description:
     'Enterprise execution for desks and agent fleets: 0.1% swap fee, dedicated rate limits, and priority support. Tell us what you’re building and our team will follow up fast.',
 };

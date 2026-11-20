@@ -7,11 +7,16 @@ const chains = ['All', 'Ethereum', 'Base', 'Arbitrum', 'Optimism']
 
 export function LendingPanel() {
   const [chainFilter, setChainFilter] = useState('All')
+  const [showUnverified, setShowUnverified] = useState(false)
   const { data: markets, isLoading } = useLendingMarkets()
 
-  const filtered = chainFilter === 'All'
+  const byChain = chainFilter === 'All'
     ? markets
     : markets?.filter(m => m.chain.toLowerCase() === chainFilter.toLowerCase())
+  // Unlisted markets (not whitelisted, bad debt, unknown collateral) report
+  // nonsense yields like 297,995% APY. Never lead with them; opt-in only.
+  const unverifiedCount = byChain?.filter(m => !m.listed).length ?? 0
+  const filtered = showUnverified ? byChain : byChain?.filter(m => m.listed)
 
   return (
     <div className="p-4 flex flex-col gap-3 h-full">
@@ -28,6 +33,18 @@ export function LendingPanel() {
           ))}
         </select>
       </div>
+
+      {unverifiedCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowUnverified(v => !v)}
+          className="self-start text-[11px] text-terminal-text-muted hover:text-terminal-text underline underline-offset-2"
+        >
+          {showUnverified
+            ? 'Hide unverified markets'
+            : `Show ${unverifiedCount} unverified market${unverifiedCount === 1 ? '' : 's'} (risk-flagged)`}
+        </button>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (

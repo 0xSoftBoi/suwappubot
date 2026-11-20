@@ -72,6 +72,26 @@ balloon already happened since the last restart even if you missed the logs.
 | `MEMORY_GUARD_HARD_ACTION` | `exit` | `log` = observability only |
 | `MEMORY_GUARD_INTERVAL_SECONDS` | `15` | |
 
+## Next level (researched 2026-09-13, after six days on the guard)
+
+Six days after the guard shipped: zero crashes, worker RSS 1.66–2.37 GB. The guard
+is a safety net, not a root cause fix. Ranked by expected $ and reliability impact:
+
+| # | Recommendation | Why it beats what we have | Effort | Expected effect |
+|---|---|---|---|---|
+| 1 | **Gate the balance refresher to active wallets.** `balance_refresher._refresh_all` refreshes *every* active wallet × ~40 EVM chains + Solana/Tron/Starknet every 60 s. Refresh only wallets with a Redis "seen in last N min" marker (set by handlers on interaction); exponential backoff per wallet on RPC failure; cache-with-TTL + refresh-on-read for the rest. | It is the plausible root cause of both the RSS plateau (thousands of aiohttp/web3 objects churned per pass → allocator fragmentation) and the RPC-timeout bursts that preceded every balloon. | M | 80–95 % fewer RPC calls/min; removes the 429 storms; lowers billed CPU-minutes. MONEY-PATH-adjacent (balances feed swap/withdraw decisions) → `money-path-reviewer` before merge. |
+| 2 | **Catch the next balloon with a real cause, not tracemalloc-after-the-fact.** Hook off the guard's soft-limit branch: `py-spy dump --pid` (out-of-process, near-zero overhead, shows the sync call starving the loop), `memray attach` for a few minutes (< 5 % overhead, real allocation sites), and `loop.slow_callback_duration = 0.1` at startup (logs the coroutine that stalls the loop; do **not** use `PYTHONASYNCIODEBUG`, it changes scheduling). | tracemalloc armed at 3 GB misses the first 3 GB of climb and doubles allocation cost exactly when the process is already stressed. | S/M | Turns the next incident into a named line of code. |
+| 3 | **Alchemy Portfolio API for EVM balances** instead of 40-chain RPC fan-out; one request per wallet. | Alchemy pitches it as "one request instead of parallelizing dozens of calls across networks". | M | Collapses the fan-out; pilot on one chain set first. |
+| 4 | **jemalloc via `LD_PRELOAD`** in `api/Dockerfile.railway` (`libjemalloc2`, `background_thread:true`). | `MALLOC_ARENA_MAX=2` caps arena *count*, not fragmentation *within* an arena; the 0.15 → 2 GB-then-plateau curve is classic glibc fragmentation. Third-party reports: 10x RSS reduction / 47 % cut. **Unverified for this workload** — A/B one replica over 8 h before rollout. | S | Possibly 0.5–1 GB off the baseline (≈ $5–10/mo). |
+| 5 | **Railway Monitor → Telegram admin alert at ~4 GB RSS** (between soft and hard). | A human sees the climb before the guard's `os._exit(137)`. | S | Cheap insurance. |
+| 6 | Cron-service or second-worker split | **Not recommended.** Cron minimum is 5 min (too coarse for a 60 s refresh) and a small always-on worker still bills ~$10/mo; the win is #1, not relocating the loop. | L | ~0 |
+
+**Alchemy Starknet 429 decoded**: free tier is a token bucket at 300 CU/s (10 s rolling
+window, 3000 CU burst), not a monthly quota. Constant 429s mean the per-60-s-per-wallet
+Starknet calls exceed 300 CU/s sustained; #1 fixes this without a paid tier.
+
+Do first: #1, then #2, then pilot #3; A/B #4; wire #5.
+
 ## Sources
 
 - Railway — Right-size CPU and memory from real metrics: https://docs.railway.com/guides/right-size-cpu-memory
@@ -85,3 +105,10 @@ balloon already happened since the last restart even if you missed the logs.
 - Heroku — Tuning glibc memory behavior (`MALLOC_ARENA_MAX`): https://devcenter.heroku.com/articles/tuning-glibc-memory-behavior
 - glibc fragmentation write-up: https://blog.arkey.fr/drafts/2021/01/22/native-memory-fragmentation-with-glibc/
 - jemalloc vs glibc RSS case study (47 % cut): https://www.refine.ink/blog/jemalloc-fragmentation
+- Python allocator, glibc vs jemalloc: https://www.sakshamsharma.in/blogs/python-memory-allocator-glibc-vs-jemalloc/
+- Alchemy Portfolio APIs: https://www.alchemy.com/docs/reference/portfolio-apis
+- Alchemy throughput (CU/s token bucket): https://www.alchemy.com/docs/reference/throughput
+- py-spy: https://github.com/benfred/py-spy · memray attach: https://bloomberg.github.io/memray/attach.html
+- asyncio debug / slow callbacks: https://docs.python.org/3/library/asyncio-dev.html
+- Railway webhooks / monitors: https://docs.railway.com/observability/webhooks · https://docs.railway.com/guides/alerts-crashes-failed-deploys
+- Railway cron minimum interval: https://docs.railway.com/cron-jobs

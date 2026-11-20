@@ -36,6 +36,8 @@
       { "name": "get_tempo_tokens", "readOnly": true, "auth": "none", "credits": 0, "description": "TIP-20 token list on Tempo mainnet. Public, no API key required." },
       { "name": "browse_mpp_directory", "readOnly": true, "auth": "none", "credits": 0, "description": "Browse the third-party MPP service directory (directory.mpp.dev). Public, no API key required." },
       { "name": "list_wallet_policies", "readOnly": true, "auth": "bearer", "credits": 1, "description": "List Turnkey spending/whitelist policies on the agent's managed wallet." },
+      { "name": "near_resolve_asset", "readOnly": true, "auth": "none", "credits": 0, "description": "Resolve a NEAR Intents asset (symbol, defuse id, or contract id) to exactly one asset; returns all candidates when a symbol is ambiguous across chains. Public, no API key required." },
+      { "name": "near_convert_amount", "readOnly": true, "auth": "none", "credits": 0, "description": "Convert between human and atomic amounts for a NEAR Intents asset (wNEAR is 24 decimals). Public, no API key required." },
       { "name": "predict_markets", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Search and browse Polymarket prediction markets." },
       { "name": "predict_market", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Detailed prediction market info with live CLOB midpoint prices per outcome." },
       { "name": "predict_book", "readOnly": true, "auth": "bearer", "credits": 1, "description": "Live CLOB order book for every outcome of a prediction market." },

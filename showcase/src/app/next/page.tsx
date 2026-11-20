@@ -5,9 +5,14 @@ import { MarketTicker } from './MarketTicker';
 import styles from './next.module.css';
 
 export const metadata: Metadata = {
-  title: 'Suwappu | the cross-chain execution terminal',
+  // Absolute: the layout template appends '| Suwappu', which this title
+  // already ends with, so the rendered tab read '...terminal | Suwappu'.
+  title: { absolute: 'The cross-chain execution terminal | Suwappu' },
   description:
     'Nine routers race for every swap. Non-custodial, sub-second, 42 chains. The best price wins, and you sign.',
+  // Unlinked CRT art-direction experiment. Reachable for the team, kept out of
+  // search so it cannot compete with the real homepage.
+  robots: { index: false, follow: false },
 };
 
 const jb = JetBrains_Mono({

@@ -8,6 +8,7 @@
  * Auth: Bearer token (same agent API key as /v1/agent/*)
  */
 
+import { fromAtomic, resolveNearAsset, toAtomic } from '../services/near/assets'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { and, desc, eq } from 'drizzle-orm'
@@ -23,7 +24,7 @@ import { runEffectEither } from '../runtime'
 import { ValidationError } from '../errors'
 import { agentBearerAuth, scanValueObserveOnly } from '../middleware'
 import { type AgentErrorCode } from '../lib/agentError'
-import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf } from './agent'
+import { checkEvmWalletOwnership, enforcePolicyGateForFreshQuote, agentIdentifierOf, quoteBoundToWallet } from './agent'
 import type { Context } from 'hono'
 import { chargeAgentForCall, costForTool, refundChargedCall, setX402Headers } from '../middleware/x402Payment'
 import { EnvService } from '../config/EnvService'
@@ -65,7 +66,14 @@ const PUBLIC_MCP_METHODS = new Set([
 // other tool — including cost-0 get_quote-adjacent reads like get_prices, which
 // still cache/scope data — keeps the Bearer requirement. Do NOT add a tool here
 // unless its handler takes no `agent` parameter and its MCP_TOOL_COSTS entry is 0.
-const PUBLIC_READ_TOOLS = new Set(['list_chains', 'list_tokens', 'get_tempo_tokens', 'browse_mpp_directory'])
+const PUBLIC_READ_TOOLS = new Set([
+	'list_chains',
+	'list_tokens',
+	'get_tempo_tokens',
+	'browse_mpp_directory',
+	'near_resolve_asset',
+	'near_convert_amount',
+])
 
 // ---------------------------------------------------------------
 // Protocol eras (MCP 2026-07-28 + legacy initialize compatibility)
@@ -418,12 +426,8 @@ function isTempoChain(chain: string): boolean {
 const TEMPO_CHAIN_ID = 4217
 const TEMPO_TOKEN_DESCRIPTIONS: Record<string, string> = {
 	pathUSD: 'Tempo native stablecoin',
-	AlphaUSD: 'Alpha yield-bearing stablecoin',
-	BetaUSD: 'Beta yield-bearing stablecoin',
-	ThetaUSD: 'Theta yield-bearing stablecoin',
 }
-// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService) — the authoritative source
-// is bot/config/tokens.py, which declares decimals=18 for all Tempo TIP-20 stablecoins.
+// TIP-20 decimals live in TEMPO_TOKEN_DECIMALS (TokenService); TIP-20s are 6dp on-chain.
 
 // Static TIP-20 metadata known for the Tempo native stablecoins. Currency code and the
 // isTip20 flag are constant for all COMMON_TOKENS[4217] entries (all are USD-denominated
@@ -439,7 +443,7 @@ function buildTempoTokens() {
 		symbol,
 		name: symbol,
 		address,
-		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 18,
+		decimals: TEMPO_TOKEN_DECIMALS[symbol] ?? 6,
 		description: TEMPO_TOKEN_DESCRIPTIONS[symbol] || `${symbol} TIP-20 token on Tempo`,
 		// TIP-20 metadata passthrough (statically known for Tempo stablecoins).
 		currency: TEMPO_TIP20_CURRENCY,
@@ -538,6 +542,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				const quote = yield* jupiterService.getQuote({
 					inputMint: fromInfo.address, outputMint: toInfo.address,
 					amount: lamports, slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+					agent,
 				}).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -638,6 +643,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent) {
 				fromToken: fromInfo.address, toToken: toInfo.address,
 				fromAmount: wei, fromAddress: wallet_address as string || '0x0000000000000000000000000000000000000001',
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
+				agent,
 			} as QuoteParams).pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
@@ -938,6 +944,15 @@ async function handleExecuteSwap(args: Record<string, unknown>, agent: Agent, c:
 		}) }] }
 	}
 
+	// The unsigned tx must have been built for wallet_address as sender AND
+	// recipient — a quote made without a wallet targets the placeholder 0x...0001,
+	// so signing it would send the output to an unrecoverable address.
+	if (!quoteBoundToWallet(quote, wallet_address)) {
+		return {
+			isError: true,
+			content: [{ type: 'text', text: 'This quote was not built for wallet_address. Get a new quote with wallet_address set, then call execute_swap with the new quote_id.' }],
+		}
+	}
 	return { content: [{ type: 'text', text: JSON.stringify({
 		status: 'ready', chain_type: 'evm',
 		transaction: {
@@ -1036,6 +1051,35 @@ async function handleListWalletPolicies(args: Record<string, unknown>, agent: Ag
 	)
 	if (Either.isLeft(result)) return { isError: true, content: [{ type: 'text', text: result.left.message }] }
 	return { content: [{ type: 'text', text: JSON.stringify({ policies: result.right }) }] }
+}
+
+// Mirrors GET /v1/near/assets/resolve (src/routes/near.ts). Pure, no agent state.
+function handleNearResolveAsset(args: Record<string, unknown>) {
+	const token = typeof args.token === 'string' ? args.token : ''
+	const chain = typeof args.chain === 'string' ? args.chain : undefined
+	const r = resolveNearAsset(token, chain)
+	return { content: [{ type: 'text', text: JSON.stringify(r) }], ...(r.status === 'ok' ? {} : { isError: r.status === 'not_found' }) }
+}
+
+// Mirrors GET /v1/near/amount (src/routes/near.ts). Pure, no agent state.
+function handleNearConvertAmount(args: Record<string, unknown>) {
+	const token = typeof args.token === 'string' ? args.token : ''
+	const chain = typeof args.chain === 'string' ? args.chain : undefined
+	const r = resolveNearAsset(token, chain)
+	const fail = (text: string) => ({ isError: true, content: [{ type: 'text', text }] })
+	if (r.status !== 'ok') return { content: [{ type: 'text', text: JSON.stringify(r) }], isError: r.status === 'not_found' }
+	const human = typeof args.human === 'string' ? args.human : undefined
+	const atomic = typeof args.atomic === 'string' ? args.atomic : undefined
+	if ((human === undefined) === (atomic === undefined)) return fail('Provide exactly one of human or atomic.')
+	try {
+		const out =
+			human !== undefined
+				? { asset: r.asset, human, atomic: toAtomic(human, r.asset.decimals) }
+				: { asset: r.asset, atomic: atomic as string, human: fromAtomic(atomic as string, r.asset.decimals) }
+		return { content: [{ type: 'text', text: JSON.stringify(out) }] }
+	} catch (e) {
+		return fail(e instanceof Error ? e.message : 'bad amount')
+	}
 }
 
 // Mirrors GET /v1/agent/predict/market/:id/book (src/routes/predict.ts)
@@ -1215,6 +1259,7 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				const quote = yield* jupiterService.getQuote({
 					inputMint: fromInfo.address, outputMint: toInfo.address,
 					amount: lamports, slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+					agent,
 				}).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
 				const quoteId = `jupiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -1263,6 +1308,7 @@ async function handleSimulateSwap(args: Record<string, unknown>, agent: Agent) {
 				fromToken: fromInfo.address, toToken: toInfo.address,
 				fromAmount: wei, fromAddress: wallet_address || '0x0000000000000000000000000000000000000001',
 				slippage: slippage || 0.03, order: 'RECOMMENDED', integrator: 'suwappu-openclaw',
+				agent,
 			} as QuoteParams).pipe(Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))))
 
 			cacheAgentQuote(quote.quoteId, quote, agent.id, false, {
@@ -1600,6 +1646,17 @@ mcpRoutes.post('/', async (c) => {
 				}
 				return c.json(rpcErr(req.id, -32002, 'Payment required', { x402: charge.challenge }), 200)
 			}
+			if (charge.kind === 'blocked') {
+				// Intercepta rejected the counterparty (or screening was unavailable) —
+				// fail-closed: no charge happened, do not run the tool.
+				return c.json(
+					rpcErr(req.id, -32003, 'Payment rejected', {
+						reason: charge.reason,
+						traits: charge.traits,
+					}),
+					200,
+				)
+			}
 			if (charge.kind === 'ok') {
 				c.header('X-Metering-Cost', String(charge.cost))
 				c.header('X-Metering-Balance', String(charge.balance))
@@ -1685,6 +1742,12 @@ mcpRoutes.post('/', async (c) => {
 						break
 					case 'list_wallet_policies':
 						result = await handleListWalletPolicies(args || {}, callAgent)
+						break
+					case 'near_resolve_asset':
+						result = handleNearResolveAsset(args || {})
+						break
+					case 'near_convert_amount':
+						result = handleNearConvertAmount(args || {})
 						break
 					default:
 						// Unreachable while TOOL_NAMES gates above, but if a tool is added to

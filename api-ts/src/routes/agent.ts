@@ -17,8 +17,14 @@ import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
 import { verifyX402Payment } from '../lib/x402Verify'
+import { verifyTradeProof } from '../hackathon/tokyo2026/world-id/guardianGate'
+import { loadWorldIdConfig, isWorldIdConfigured } from '../hackathon/tokyo2026/world-id/config'
+import { PostgresNullifierStore } from '../hackathon/worldIdNullifiers'
+import { mintAgentSubname } from '../lib/ensSubname'
+import { setPassportAddr } from '../hackathon/tokyo2026/passportChain'
 import { approveSpendPermission, isRecurringEnabled, operatorAddress } from '../services/RecurringBillingService'
 import { DatabaseError, ForbiddenError, mapErrorToResponse, NotFoundError, ValidationError } from '../errors'
+import { describeError } from '../lib/errors'
 import { STEP_UP_REJECTED_PREFIX } from '../services/ApprovalService'
 import { agentError } from '../lib/agentError'
 import { agentBearerAuth, agentBearerAuthAllowInactive, scanForThreatsObserveOnly } from '../middleware'
@@ -39,6 +45,10 @@ import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
+// HACKATHON (Tokyo 2026): trust-layer gates (Intercepta + ENSv2), merged into
+// the institutional verdict below. Flag-gated, default off; see
+// src/hackathon/gates.ts.
+import { applyTrustLayerGates } from '../hackathon/gates'
 import { runEffectEither } from '../runtime'
 import {
 	AgentService,
@@ -47,6 +57,7 @@ import {
 	BalanceService,
 	CHAINS,
 	COMMON_TOKENS,
+	commonTokenDecimals,
 	JupiterService,
 	type JupiterQuote,
 	PolicyService,
@@ -60,6 +71,7 @@ import {
 import { assertUrlSafeForFetch, safeFetch } from './ssrfGuard'
 import {
 	CreatePolicySchema,
+	CreateWalletSchema,
 	ExecuteCommandSchema,
 	ExecuteSwapSchema,
 	formatZodErrors,
@@ -99,6 +111,38 @@ export function stopAgentCleanup() {}
 // agent.metadata.wallet_address. A caller-supplied `wallet_address` used as the
 // swap sender must match it — otherwise an agent could build a fund-moving tx from
 // an arbitrary/victim address.
+//
+// SECURITY: These metadata keys are reserved for server-side wallet provisioning
+// (POST /v1/agent/wallets). They must NEVER be settable via PATCH /v1/agent/me,
+// otherwise any agent can claim ownership of an arbitrary address and bypass
+// checkEvmWalletOwnership. See sanitizeUserMetadata below.
+const RESERVED_METADATA_KEYS = new Set([
+	'wallet_address',
+	'wallet_sub_org_id',
+	'wallet_id',
+	'internal_user_id',
+	'internal_wallet_id',
+	'turnkey_wallet_id',
+	'turnkey_sub_org_id',
+	// Solana managed-wallet keys (POST /v1/agent/wallets, chain_type=solana)
+	'wallet_address_solana',
+	'wallet_sub_org_id_solana',
+	'internal_user_id_solana',
+	'internal_wallet_id_solana',
+	'turnkey_wallet_id_solana',
+	'turnkey_sub_org_id_solana',
+])
+/** Strip server-reserved keys from user-supplied metadata. Returns a new object. */
+function sanitizeUserMetadata(
+	metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+	if (!metadata) return metadata
+	const clean: Record<string, unknown> = {}
+	for (const [k, v] of Object.entries(metadata)) {
+		if (!RESERVED_METADATA_KEYS.has(k)) clean[k] = v
+	}
+	return clean
+}
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 function isEvmAddress(addr: unknown): addr is string {
 	return typeof addr === 'string' && EVM_ADDRESS_RE.test(addr)
@@ -108,10 +152,48 @@ function getAgentWalletAddress(agent: Agent): string | undefined {
 	return typeof addr === 'string' ? addr : undefined
 }
 /** True only if `addr` is a valid EVM address matching the agent's managed wallet. */
+/**
+ * True when an EVM quote's tx was built for `wallet` as both sender and recipient.
+ * A quote requested without wallet_address is built for the placeholder 0x...0001
+ * and Li.Fi's recipient defaults to it — handing that tx to a self-signing wallet
+ * would send the swap output to an unrecoverable address. Shared by POST /swap
+ * and the MCP execute_swap tool.
+ */
+export function quoteBoundToWallet(quote: SwapQuote, wallet: string): boolean {
+	const want = wallet.toLowerCase()
+	const action = quote._rawQuote?.action
+	const txFrom = (quote.transactionRequest?.from || action?.fromAddress || '').toLowerCase()
+	const txTo = (action?.toAddress || action?.fromAddress || '').toLowerCase()
+	return txFrom === want && txTo === want
+}
+
 export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
 	if (!isEvmAddress(addr)) return false
 	const owned = getAgentWalletAddress(agent)
 	return isEvmAddress(owned) && owned.toLowerCase() === addr.toLowerCase()
+}
+
+const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+function isSolanaAddress(addr: unknown): addr is string {
+	return typeof addr === 'string' && SOLANA_ADDRESS_RE.test(addr)
+}
+function getAgentSolanaWalletAddress(agent: Agent): string | undefined {
+	const addr = ((agent.metadata || {}) as Record<string, unknown>).wallet_address_solana
+	return typeof addr === 'string' ? addr : undefined
+}
+/** True only if `addr` is a valid Solana address matching the agent's managed Solana wallet. */
+export function checkSolanaWalletOwnership(agent: Agent, addr: unknown): boolean {
+	if (!isSolanaAddress(addr)) return false
+	const owned = getAgentSolanaWalletAddress(agent)
+	return isSolanaAddress(owned) && owned === addr
+}
+/**
+ * True if `addr` matches the agent's managed wallet on either chain.
+ * Use at gates where the address family is caller-chosen (e.g. portfolio);
+ * EVM-only execution paths keep checkEvmWalletOwnership.
+ */
+export function checkWalletOwnership(agent: Agent, addr: unknown): boolean {
+	return checkEvmWalletOwnership(agent, addr) || checkSolanaWalletOwnership(agent, addr)
 }
 
 /**
@@ -123,6 +205,19 @@ export function checkEvmWalletOwnership(agent: Agent, addr: unknown): boolean {
  */
 export function agentIdentifierOf(agent: Agent): string {
 	return agent.uuid ?? String(agent.id)
+}
+
+/**
+ * World ID action + signal contract for claiming an agent (POST /link/code
+ * with `world_id_proof`). Both are returned by an unproven /link/code call so
+ * a client can build the IDKit request:
+ *   IDKit.request({ action }).preset(proofOfHuman({ signal }))
+ * The action is its own nullifier namespace (one human ↔ one agent link),
+ * distinct from the trade-approval action used by the guardian gate.
+ */
+export const WORLD_ID_AGENT_LINK_ACTION = process.env.WORLD_LINK_ACTION || 'suwappu-agent-link'
+export function worldIdLinkSignal(agent: Agent): string {
+	return `agent-link:${agentIdentifierOf(agent)}`
 }
 
 /**
@@ -184,6 +279,67 @@ function isSolanaChain(chain: string): boolean {
 	return normalized === 'solana' || normalized === 'sol'
 }
 
+/**
+ * Route a quote request to the right provider.
+ * - solana -> solana: Jupiter (same-chain Solana only)
+ * - anything else (EVM<->EVM, EVM<->Solana): Li.Fi, which natively supports
+ *   Solana as chain 1151111081099710 in both directions.
+ *
+ * Exported for unit tests.
+ */
+export function classifyQuoteRoute(
+	fromChain: string | undefined,
+	toChain: string | undefined,
+): 'jupiter' | 'lifi' {
+	const fromKey = fromChain || 'ethereum'
+	const fromIsSolana = isSolanaChain(fromKey)
+	// No explicit destination: preserve the legacy behavior of routing on the
+	// source chain alone (pure-Solana -> Jupiter, everything else -> Li.Fi).
+	const toIsSolana = toChain ? isSolanaChain(toChain) : fromIsSolana
+	return fromIsSolana && toIsSolana ? 'jupiter' : 'lifi'
+}
+
+// Quote-only address placeholders: Li.Fi validates the address format per
+// chain, so each leg needs a well-formed address for its own chain. The real
+// wallet addresses replace these at execution time.
+const EVM_QUOTE_PLACEHOLDER = '0x0000000000000000000000000000000000000001'
+const SOLANA_QUOTE_PLACEHOLDER = '11111111111111111111111111111111' // system program: valid base58, never a real user
+
+/**
+ * Resolve the fromAddress/toAddress pair for a Li.Fi quote.
+ *
+ * - walletAddress: explicit sender (EVM or Solana — the schema accepts both).
+ * - toWalletAddress: explicit destination override.
+ * - agentMetadata: consulted for a managed wallet on the destination chain
+ *   when the legs live on different address families — one wallet_address
+ *   cannot serve both EVM and Solana.
+ *
+ * Exported for unit tests.
+ */
+export function resolveQuoteAddresses(opts: {
+	fromIsSolana: boolean
+	toIsSolana: boolean
+	walletAddress: string | undefined
+	toWalletAddress: string | undefined
+	agentMetadata: Record<string, unknown> | null
+}): { fromAddress: string; toAddress: string } {
+	const fromAddress =
+		opts.walletAddress || (opts.fromIsSolana ? SOLANA_QUOTE_PLACEHOLDER : EVM_QUOTE_PLACEHOLDER)
+	if (opts.toWalletAddress) return { fromAddress, toAddress: opts.toWalletAddress }
+	// Same address family: legacy same-address default.
+	if (opts.fromIsSolana === opts.toIsSolana) return { fromAddress, toAddress: fromAddress }
+	const managed = opts.toIsSolana
+		? opts.agentMetadata?.wallet_address_solana
+		: opts.agentMetadata?.wallet_address
+	const toAddress =
+		typeof managed === 'string' && managed
+			? managed
+			: opts.toIsSolana
+				? SOLANA_QUOTE_PLACEHOLDER
+				: EVM_QUOTE_PLACEHOLDER
+	return { fromAddress, toAddress }
+}
+
 // ===========================================
 // PUBLIC ENDPOINTS (no auth required)
 // ===========================================
@@ -230,7 +386,8 @@ agentRoutes.post('/register', ipRateLimit(5), async (c) => {
 				name,
 				description,
 				callbackUrl: callback_url,
-				metadata,
+				// Reserved wallet keys are server-managed (set by POST /wallets only).
+				metadata: sanitizeUserMetadata(metadata),
 				ip,
 			})
 
@@ -530,6 +687,15 @@ agentRoutes.use('/approvals/:id/step-up/challenge', ipRateLimit(30))
 agentRoutes.use('/quote', meteredPayment('quote'))
 agentRoutes.use('/swap', meteredPayment('swap'))
 agentRoutes.use('/execute', meteredPayment('execute'))
+// AgentKit passport gate (ETHGlobal Tokyo 2026 Phase 1, step 3 — see
+// docs/plans/ethglobal-tokyo2026-agent-passport.md): the prior hand-rolled
+// worldIdAuth() middleware was superseded by the hackathon/tokyo2026/world-id
+// guardian-gate implementation (real @worldcoin/idkit-core, intent-bound
+// signals, Postgres nullifier table). This is a deliberate scope-down —
+// there is currently no AgentKit-header-based gate wired in front of
+// /swap/execute. A future pass should add one here using a
+// verifyAgentKitHeader()-style helper built on
+// ../hackathon/tokyo2026/world-id/guardianGate.ts's verifyTradeProof.
 agentRoutes.use('/swap/execute', meteredPayment('swap/execute'))
 // Read-only dry-run — same cost tier as /quote (1 credit). No funds move.
 agentRoutes.use('/swap/simulate', meteredPayment('swap/simulate'))
@@ -563,6 +729,11 @@ agentRoutes.get('/me', async (c) => {
 			// including via the MCP surface. See PolicyService + routes/mcp.ts.
 			org_linked: agent.organizationId != null,
 			owner_linked: agent.ownerUserId != null,
+			// ENS identity anchor (ETHGlobal Tokyo 2026 "Agent Swap Passport" Phase 3) —
+			// set once agent.link/code has minted a subname; null until then.
+			ens_name:
+				(((agent.metadata || {}) as Record<string, unknown>).ensName as { name?: string } | undefined)
+					?.name ?? null,
 			stats: {
 				total_requests: agent.totalRequests,
 				total_swaps: agent.totalSwaps,
@@ -605,7 +776,14 @@ agentRoutes.patch('/me', async (c) => {
 			return yield* agentService.updateAgent(agent.id, {
 				description,
 				callbackUrl: callback_url,
-				metadata,
+				// Strip server-reserved wallet keys: agents must not be able to
+				// claim ownership of arbitrary addresses via metadata. Keep the stored
+				// reserved keys (read inside the UPDATE, not from this request's
+				// snapshot) or a profile PATCH would orphan the managed wallet.
+				replaceMetadataPreserving:
+					metadata === undefined
+						? undefined
+						: { data: sanitizeUserMetadata(metadata) ?? {}, preserveKeys: [...RESERVED_METADATA_KEYS] },
 			})
 		}),
 	)
@@ -663,8 +841,17 @@ agentRoutes.post('/quote', async (c) => {
 		)
 	}
 
-	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } =
-		parsed.data
+	const {
+		from_token,
+		to_token,
+		amount,
+		chain,
+		from_chain,
+		to_chain,
+		wallet_address,
+		to_wallet_address,
+		slippage,
+	} = parsed.data
 
 	// Track request
 	await runEffectEither(
@@ -689,7 +876,7 @@ agentRoutes.post('/quote', async (c) => {
 	}
 
 	// Check if this is a Solana swap
-	if (isSolanaChain(chainKey)) {
+	if (classifyQuoteRoute(chainKey, to_chain) === 'jupiter') {
 		// Use Jupiter for Solana
 		const result = await runEffectEither(
 			Effect.gen(function* () {
@@ -732,6 +919,7 @@ agentRoutes.post('/quote', async (c) => {
 						outputMint: toTokenInfo.address,
 						amount: fromAmountLamports,
 						slippageBps: slippage ? Math.floor(slippage * 10000) : 300, // Default 3%
+						agent,
 					})
 					.pipe(
 						Effect.mapError((e) => {
@@ -852,8 +1040,13 @@ agentRoutes.post('/quote', async (c) => {
 			}
 			const fromAmountWei = BigInt(Math.floor(amountNum * 10 ** fromTokenInfo.decimals)).toString()
 
-			// Use a placeholder address if none provided
-			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
+			const { fromAddress, toAddress } = resolveQuoteAddresses({
+				fromIsSolana: sourceChainInfo.key === 'solana',
+				toIsSolana: destChainInfo.key === 'solana',
+				walletAddress: wallet_address,
+				toWalletAddress: to_wallet_address,
+				agentMetadata: (agent.metadata as Record<string, unknown> | null) ?? null,
+			})
 
 			// Build quote params
 			const quoteParams: QuoteParams = {
@@ -863,6 +1056,7 @@ agentRoutes.post('/quote', async (c) => {
 				toToken: toTokenInfo.address,
 				fromAmount: fromAmountWei,
 				fromAddress,
+				toAddress,
 				slippage: slippage || 0.03,
 				order: 'RECOMMENDED',
 				integrator: 'suwappu-agent',
@@ -870,6 +1064,7 @@ agentRoutes.post('/quote', async (c) => {
 				// the agent-vs-human split real — without it every captured
 				// route is anonymous.
 				agentId: agent.id,
+				agent,
 			}
 
 			// Get quote from Li.Fi
@@ -1009,10 +1204,25 @@ async function buildSwapTxResponse(
 	}
 
 	const evmQuote = quote as SwapQuote
-	if (!checkEvmWalletOwnership(agent, walletAddress)) {
-		return c.json(
-			{ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' },
-			403,
+	// Self-signed swaps: any wallet may receive UNSIGNED tx data — nothing moves
+	// without that wallet's own key, and POST /quote already returns the same tx
+	// for any wallet_address. Managed (server-signed) execution stays behind
+	// POST /swap/execute's ownership + policy gates.
+	//
+	// The tx must have been built for THIS wallet as sender and recipient. A quote
+	// requested without wallet_address is built for a placeholder
+	// (0x...0001) and Li.Fi's recipient defaults to it — signing that would send
+	// the swap output to an unrecoverable address.
+	if (!isEvmAddress(walletAddress)) {
+		return agentError(c, 400, 'VALIDATION_ERROR', 'wallet_address must be a valid EVM address')
+	}
+	if (!quoteBoundToWallet(evmQuote, walletAddress)) {
+		return agentError(
+			c,
+			400,
+			'VALIDATION_ERROR',
+			'This quote was not built for wallet_address; request a new quote with wallet_address set',
+			{ hint: 'POST /v1/agent/quote with "wallet_address": "<your wallet>", then POST /v1/agent/swap with the new quote_id' },
 		)
 	}
 
@@ -1165,9 +1375,23 @@ export async function enforcePolicyGateForFreshQuote(
 		return null
 	}
 
-	if (verdict.right.decision === 'allow') return null
+	// HACKATHON (Tokyo 2026 trust layer): Intercepta counterparty screening +
+	// ENSv2 onchain agent-policy caps, merged into the institutional verdict.
+	// Additive and flag-gated (HACKATHON_TRUST_LAYER, default off) — when
+	// disabled this is one boolean check inside applyTrustLayerGates. Policy
+	// stays the authority: the merge only ever escalates
+	// allow → require_approval → block, never downgrades. A policy block above
+	// skips this entirely (early return, unchanged). The existing downstream
+	// handling (audit, require_approval → ApprovalService.create, block → 403)
+	// applies uniformly to the merged verdict.
+	const gatedVerdict = await applyTrustLayerGates(
+		{ policyIntent, agentIdentifier, orgId },
+		verdict.right,
+	)
 
-	const { decision, reason, matchedPolicyId, id: policyDecisionId } = verdict.right
+	if (gatedVerdict.decision === 'allow') return null
+
+	const { decision, reason, matchedPolicyId, id: policyDecisionId } = gatedVerdict
 	writeAuditLog({
 		userId: 0,
 		orgId,
@@ -1340,6 +1564,7 @@ async function releaseApprovalReserve(reserve: ApprovalReserve): Promise<void> {
  */
 async function resolveApprovalResubmit(
 	c: Context,
+	agent: Agent,
 	agentIdentifier: string,
 	orgId: string | null,
 	approvalId: string,
@@ -1394,6 +1619,7 @@ async function resolveApprovalResubmit(
 						outputMint: storedTerms.toToken,
 						amount: storedTerms.amountIn,
 						slippageBps: storedTerms.slippageBps ?? 300,
+						agent,
 					})
 					.pipe(
 						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
@@ -1412,6 +1638,7 @@ async function resolveApprovalResubmit(
 					slippage: storedTerms.slippage ?? 0.03,
 					order: 'RECOMMENDED',
 					integrator: 'suwappu-agent',
+					agent,
 				})
 				.pipe(
 					Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
@@ -1652,7 +1879,7 @@ agentRoutes.post('/swap', async (c) => {
 	if (approval_id) {
 		const orgId = apiKeyCtx?.orgId ?? null
 
-		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, wallet_address)
+		const outcome = await resolveApprovalResubmit(c, agent, agentIdentifier, orgId, approval_id, wallet_address)
 		if (outcome.kind === 'response') return outcome.response
 
 		const { freshQuote, isSolana, decidedBy, decidedAt, payload, reserve } = outcome
@@ -1879,7 +2106,10 @@ agentRoutes.post('/swap/simulate', async (c) => {
 		)
 	}
 
-	if (isSolanaChain(chainKey)) {
+	// Mirror the /quote routing: solana->solana simulates via Jupiter, every
+	// other combination (including EVM<->Solana) via Li.Fi. Routing on the
+	// source chain alone would silently simulate the wrong leg.
+	if (classifyQuoteRoute(chainKey, to_chain) === 'jupiter') {
 		const result = await runEffectEither(
 			Effect.gen(function* () {
 				const jupiterService = yield* JupiterService
@@ -1911,6 +2141,7 @@ agentRoutes.post('/swap/simulate', async (c) => {
 						outputMint: toTokenInfo.address,
 						amount: fromAmountLamports,
 						slippageBps: slippage ? Math.floor(slippage * 10000) : 300,
+						agent,
 					})
 					.pipe(
 						Effect.mapError((e) => (e instanceof ValidationError ? e : new ValidationError({ message: e.message }))),
@@ -1987,7 +2218,13 @@ agentRoutes.post('/swap/simulate', async (c) => {
 			// A placeholder sender when none is given keeps Li.Fi routing working (as
 			// /quote does); the simulation checks below only run against a REAL
 			// fromAddress (wallet_address), never the placeholder.
-			const fromAddress = wallet_address || '0x0000000000000000000000000000000000000001'
+			const { fromAddress, toAddress } = resolveQuoteAddresses({
+				fromIsSolana: sourceChainInfo.key === 'solana',
+				toIsSolana: destChainInfo.key === 'solana',
+				walletAddress: wallet_address,
+				toWalletAddress: undefined,
+				agentMetadata: (agent.metadata as Record<string, unknown> | null) ?? null,
+			})
 
 			const quoteParams: QuoteParams = {
 				fromChain: sourceChainInfo.id,
@@ -1996,9 +2233,11 @@ agentRoutes.post('/swap/simulate', async (c) => {
 				toToken: toTokenInfo.address,
 				fromAmount: fromAmountWei,
 				fromAddress,
+				toAddress,
 				slippage: slippage || 0.03,
 				order: 'RECOMMENDED',
 				integrator: 'suwappu-agent',
+				agent,
 			}
 
 			const quote = yield* swapService.getQuote(quoteParams).pipe(
@@ -2174,6 +2413,7 @@ agentRoutes.post('/execute', async (c) => {
 						fromAddress,
 						slippage: 0.03,
 						integrator: 'suwappu-agent',
+						agent,
 					} as QuoteParams)
 					.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
@@ -2305,9 +2545,11 @@ agentRoutes.get('/portfolio', async (c) => {
 		})
 	}
 
-	// Only allow an agent to read its own managed wallet's balances — otherwise the
+	// Only allow an agent to read its own managed wallets' balances — otherwise the
 	// endpoint discloses live balances for any address and enables wallet enumeration (H9).
-	if (!checkEvmWalletOwnership(agent, walletAddress)) {
+	// Either managed wallet (EVM or Solana) is accepted; the portfolio service
+	// already routes Solana addresses to its Solana path.
+	if (!checkWalletOwnership(agent, walletAddress)) {
 		return c.json({ success: false, error: 'wallet_address is not your managed wallet', error_code: 'POLICY_VIOLATION' }, 403)
 	}
 
@@ -2377,8 +2619,122 @@ agentRoutes.get('/portfolio', async (c) => {
 })
 
 // POST /v1/agent/wallets - Create agent wallet via Turnkey + internal provision
-agentRoutes.post('/wallets', async (c) => {
-	const agent = c.get('agent')
+const SUPPORTED_WALLET_CHAINS = ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc']
+const SUPPORTED_SOLANA_WALLET_CHAINS = ['solana']
+
+type WalletChainType = 'evm' | 'solana'
+
+/** Per-chain metadata keys + response shape. EVM keys are unchanged for compatibility. */
+const WALLET_CHAIN_CONFIG = {
+	evm: {
+		addressKey: 'wallet_address',
+		subOrgKey: 'wallet_sub_org_id',
+		turnkeyWalletKey: 'turnkey_wallet_id',
+		internalUserKey: 'internal_user_id',
+		internalWalletKey: 'internal_wallet_id',
+		supportedChains: SUPPORTED_WALLET_CHAINS,
+	},
+	solana: {
+		addressKey: 'wallet_address_solana',
+		subOrgKey: 'wallet_sub_org_id_solana',
+		turnkeyWalletKey: 'turnkey_wallet_id_solana',
+		internalUserKey: 'internal_user_id_solana',
+		internalWalletKey: 'internal_wallet_id_solana',
+		supportedChains: SUPPORTED_SOLANA_WALLET_CHAINS,
+	},
+} as const
+
+function existingWalletResponse(c: Context<AgentContext>, address: string, chainType: WalletChainType) {
+	const cfg = WALLET_CHAIN_CONFIG[chainType]
+	return c.json(
+		{
+			success: true,
+			wallet: { address, chain_type: chainType, supported_chains: cfg.supportedChains },
+			message: 'Agent already has a managed wallet.',
+		},
+		200,
+	)
+}
+
+// Register the agent's Turnkey wallet with python-api for /swap/execute signing.
+// Idempotent on the python side; null if python-api is unconfigured or fails.
+function provisionInternalWallet(
+	env: { INTERNAL_API_KEY?: string | undefined; INTERNAL_API_URL?: string | undefined },
+	agentUuid: string,
+	wallet: { walletId: string; subOrgId: string; address: string },
+	chainType: WalletChainType,
+) {
+	if (!env.INTERNAL_API_KEY || !env.INTERNAL_API_URL) return Effect.succeed(null)
+	return Effect.tryPromise({
+		try: async () => {
+			const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-Internal-Key': env.INTERNAL_API_KEY!,
+				},
+				body: JSON.stringify({
+					agent_uuid: agentUuid,
+					chain_type: chainType,
+					turnkey_wallet_id: wallet.walletId,
+					turnkey_sub_org_id: wallet.subOrgId,
+					address: wallet.address,
+				}),
+				signal: AbortSignal.timeout(15_000),
+			})
+			if (res.ok) {
+				return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
+			}
+			return null
+		},
+		catch: () => null, // Non-fatal
+	}).pipe(Effect.catchAll(() => Effect.succeed(null)))
+}
+
+async function createManagedWallet(
+	c: Context<AgentContext>,
+	agent: Agent,
+	chainType: WalletChainType,
+) {
+	const cfg = WALLET_CHAIN_CONFIG[chainType]
+
+	// Idempotent per chain: a second call must not mint a new wallet and
+	// overwrite the address — that strands any funds sent to the first one.
+	const md = (agent.metadata as Record<string, unknown> | null) ?? {}
+	if (typeof md[cfg.addressKey] === 'string') {
+		const address = md[cfg.addressKey] as string
+		// Repair: if python provisioning failed when the wallet was created, the
+		// internal_* ids are null and /swap/execute can't sign. Re-provision the
+		// same Turnkey wallet (idempotent) instead of leaving the agent stuck.
+		if (
+			(md[cfg.internalUserKey] == null || md[cfg.internalWalletKey] == null) &&
+			typeof md[cfg.turnkeyWalletKey] === 'string' &&
+			typeof md[cfg.subOrgKey] === 'string'
+		) {
+			const walletId = md[cfg.turnkeyWalletKey] as string
+			const subOrgId = md[cfg.subOrgKey] as string
+			await runEffectEither(
+				Effect.gen(function* () {
+					const env = yield* EnvService
+					const provisioned = yield* provisionInternalWallet(
+						env,
+						agent.uuid,
+						{ walletId, subOrgId, address },
+						chainType,
+					)
+					if (!provisioned) return
+					const agentService = yield* AgentService
+					yield* agentService.updateAgent(agent.id, {
+						mergeMetadata: {
+							[cfg.internalUserKey]: provisioned.internal_user_id,
+							[cfg.internalWalletKey]: provisioned.internal_wallet_id,
+						},
+					})
+				}),
+			)
+		}
+		return existingWalletResponse(c, address, chainType)
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -2386,7 +2742,7 @@ agentRoutes.post('/wallets', async (c) => {
 
 			// Create wallet for agent
 			const wallet = yield* turnkeyService
-				.createAgentWallet(agent.id, 'evm')
+				.createAgentWallet(agent.id, chainType)
 				.pipe(Effect.mapError((e) => new ValidationError({ message: e.message })))
 
 			// Call internal Python API to provision a User + Wallet row for swap execution
@@ -2394,51 +2750,38 @@ agentRoutes.post('/wallets', async (c) => {
 			let internalUserId: number | undefined
 			let internalWalletId: number | undefined
 
-			if (env.INTERNAL_API_KEY && env.INTERNAL_API_URL) {
-				const provisionResult = yield* Effect.tryPromise({
-					try: async () => {
-						const res = await fetch(`${env.INTERNAL_API_URL}/internal/agent/provision-wallet`, {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/json',
-								'X-Internal-Key': env.INTERNAL_API_KEY!,
-							},
-							body: JSON.stringify({
-								agent_uuid: agent.uuid,
-								chain_type: 'evm',
-								turnkey_wallet_id: wallet.walletId,
-								turnkey_sub_org_id: wallet.subOrgId,
-							}),
-							signal: AbortSignal.timeout(15_000),
-						})
-						if (res.ok) {
-							return (await res.json()) as { internal_user_id: number; internal_wallet_id: number }
-						}
-						return null
-					},
-					catch: () => null, // Non-fatal
-				}).pipe(Effect.catchAll(() => Effect.succeed(null)))
-
-				if (provisionResult) {
-					internalUserId = provisionResult.internal_user_id
-					internalWalletId = provisionResult.internal_wallet_id
-				}
+			const provisioned = yield* provisionInternalWallet(env, agent.uuid, wallet, chainType)
+			if (provisioned) {
+				internalUserId = provisioned.internal_user_id
+				internalWalletId = provisioned.internal_wallet_id
 			}
 
 			// Store wallet address in agent metadata
 			const agentService = yield* AgentService
-			const existingMetadata = (agent.metadata as Record<string, unknown>) || {}
-			yield* agentService.updateAgent(agent.id, {
-				metadata: {
-					...existingMetadata,
-					wallet_address: wallet.address,
-					wallet_sub_org_id: wallet.subOrgId,
-					...(internalUserId !== undefined && { internal_user_id: internalUserId }),
-					...(internalWalletId !== undefined && { internal_wallet_id: internalWalletId }),
-				},
+			// Atomic jsonb merge (a snapshot-spread could drop a concurrent PATCH /me),
+			// and only while this chain's address key is unset: if a concurrent call
+			// won, keep its wallet (ours stays unfunded and unused) and return that one.
+			const claimed = yield* agentService.mergeMetadataIfAbsent(agent.id, cfg.addressKey, {
+				[cfg.addressKey]: wallet.address,
+				[cfg.subOrgKey]: wallet.subOrgId,
+				[cfg.turnkeyWalletKey]: wallet.walletId,
+				// Always write: if provisioning failed, a stale internal_* pair from an
+				// earlier wallet would sign with a different wallet than the address.
+				[cfg.internalUserKey]: internalUserId ?? null,
+				[cfg.internalWalletKey]: internalWalletId ?? null,
 			})
 
-			return wallet
+			let winnerAddress: string | null = null
+			if (!claimed) {
+				const current = yield* agentService.getAgentById(agent.id)
+				const curMd = Option.isSome(current)
+					? (current.value.metadata as Record<string, unknown> | null)
+					: null
+				winnerAddress =
+					typeof curMd?.[cfg.addressKey] === 'string' ? (curMd[cfg.addressKey] as string) : null
+			}
+
+			return { wallet, claimed, winnerAddress }
 		}),
 	)
 
@@ -2447,20 +2790,52 @@ agentRoutes.post('/wallets', async (c) => {
 		return c.json(body, status)
 	}
 
-	const wallet = result.right
+	const { wallet, claimed, winnerAddress } = result.right
+	if (!claimed) {
+		if (winnerAddress !== null) return existingWalletResponse(c, winnerAddress, chainType)
+		return agentError(c, 500, 'INTERNAL', 'Wallet creation raced another request; retry')
+	}
 
 	return c.json(
 		{
 			success: true,
 			wallet: {
 				address: wallet.address,
-				chain_type: 'evm',
-				supported_chains: ['ethereum', 'polygon', 'arbitrum', 'optimism', 'base', 'bsc'],
+				chain_type: chainType,
+				supported_chains: cfg.supportedChains,
 			},
 			message: 'Wallet created. Fund it to start swapping.',
 		},
 		201,
 	)
+}
+
+agentRoutes.post('/wallets', async (c) => {
+	const agent = c.get('agent')
+
+	// Optional body: { chain_type }. Existing clients POST with no body, which
+	// keeps the historical EVM default.
+	let chainType: WalletChainType = 'evm'
+	try {
+		const body = (await c.req.json()) ?? {}
+		const parsed = CreateWalletSchema.safeParse(body)
+		if (!parsed.success) {
+			return c.json(
+				{
+					success: false,
+					error: 'Validation error',
+					error_code: 'VALIDATION_ERROR',
+					fields: formatZodErrors(parsed.error),
+				},
+				400,
+			)
+		}
+		chainType = parsed.data.chain_type
+	} catch {
+		// No/empty body: default EVM behavior (backward compatible).
+	}
+
+	return createManagedWallet(c, agent, chainType)
 })
 
 // Refund a pay-per-call charge for POST /v1/agent/swap/execute when the request
@@ -2552,7 +2927,7 @@ agentRoutes.post('/swap/execute', async (c) => {
 		// Same re-quote + validate + policy-recheck + cap-reservation flow as
 		// POST /swap (see resolveApprovalResubmit) — this is the SAME gate the
 		// custodial execute path was previously missing entirely (money-path fix).
-		const outcome = await resolveApprovalResubmit(c, agentIdentifier, orgId, approval_id, walletAddress)
+		const outcome = await resolveApprovalResubmit(c, agent, agentIdentifier, orgId, approval_id, walletAddress)
 		if (outcome.kind === 'response') {
 			await refundSwapExecuteCharge(c, agent, 'approval resubmit failed')
 			return outcome.response
@@ -2645,6 +3020,26 @@ agentRoutes.post('/swap/execute', async (c) => {
 		)
 	}
 
+	// Chain ids for the Python endpoint. The cached quote is a normalized
+	// SwapQuote: fromChain is a display string and action lives on _rawQuote, so
+	// the old `quote.fromChain?.key || quote.action?.fromChainId || 'ethereum'`
+	// ALWAYS fell through to 'ethereum' — a Base quote was balance-checked (and
+	// would have been executed) on Ethereum mainnet. Take the id of the tx being
+	// signed; never default a chain.
+	const evmFromChainId = isSolana
+		? undefined
+		: (quote.transactionRequest?.chainId ?? quote._rawQuote?.action?.fromChainId ?? quote.action?.fromChainId)
+	const evmToChainId = isSolana
+		? undefined
+		: (quote._rawQuote?.action?.toChainId ?? quote.action?.toChainId ?? evmFromChainId)
+	if (!isSolana && (!evmFromChainId || !evmToChainId)) {
+		await refundSwapExecuteCharge(c, agent, 'unresolvable quote chain')
+		if (approvalToFinalize) await releaseApprovalReserve(approvalToFinalize.reserve)
+		return agentError(c, 422, 'QUOTE_NOT_FOUND', 'Unable to resolve the chain for this quote; request a fresh quote', {
+			hint: 'Request a new quote using POST /v1/agent/quote',
+		})
+	}
+
 	// Build quote_data for the Python endpoint
 	const quoteData: Record<string, unknown> = isSolana
 		? {
@@ -2668,8 +3063,8 @@ agentRoutes.post('/swap/execute', async (c) => {
 			}
 		: {
 				provider: 'lifi',
-				from_chain: quote.fromChain?.key || quote.action?.fromChainId?.toString() || 'ethereum',
-				to_chain: quote.toChain?.key || quote.action?.toChainId?.toString() || 'ethereum',
+				from_chain: String(evmFromChainId),
+				to_chain: String(evmToChainId),
 				from_token: quote.fromToken?.symbol || '',
 				to_token: quote.toToken?.symbol || '',
 				from_amount: quote.fromAmount || '',
@@ -3038,7 +3433,9 @@ agentRoutes.get('/tokens', async (c) => {
 		let entries = Object.entries(tokens).map(([symbol, address]) => ({
 			symbol,
 			address,
-			decimals: symbol === 'USDC' || symbol === 'USDT' || symbol.includes('USDC') ? 6 : 18,
+			// On-chain table (COMMON_TOKEN_DECIMALS); the old symbol guess reported
+			// BSC USDC/USDT as 6dp (they're 18), WBTC as 18 (8), pathUSD/USDG/USDT0 as 18 (6).
+			decimals: commonTokenDecimals(chainId, symbol) ?? 18,
 		}))
 		if (searchParam) {
 			entries = entries.filter((t) => t.symbol.includes(searchParam))
@@ -3129,9 +3526,34 @@ agentRoutes.get('/tokens', async (c) => {
 agentRoutes.get('/wallets', async (c) => {
 	const agent = c.get('agent')
 	const metadata = (agent.metadata as Record<string, unknown>) || {}
-	const walletAddress = metadata.wallet_address as string | undefined
 
-	if (!walletAddress) {
+	const wallets: Array<{ address: string; chain_type: WalletChainType; supported_chains: string[] }> = []
+	const evmAddress = metadata[WALLET_CHAIN_CONFIG.evm.addressKey]
+	if (typeof evmAddress === 'string' && evmAddress) {
+		wallets.push({
+			address: evmAddress,
+			chain_type: 'evm',
+			supported_chains: [
+				'ethereum',
+				'polygon',
+				'arbitrum',
+				'optimism',
+				'base',
+				'bsc',
+				'avalanche',
+			],
+		})
+	}
+	const solanaAddress = metadata[WALLET_CHAIN_CONFIG.solana.addressKey]
+	if (typeof solanaAddress === 'string' && solanaAddress) {
+		wallets.push({
+			address: solanaAddress,
+			chain_type: 'solana',
+			supported_chains: [...SUPPORTED_SOLANA_WALLET_CHAINS],
+		})
+	}
+
+	if (wallets.length === 0) {
 		return c.json({
 			success: true,
 			wallets: [],
@@ -3141,21 +3563,7 @@ agentRoutes.get('/wallets', async (c) => {
 
 	return c.json({
 		success: true,
-		wallets: [
-			{
-				address: walletAddress,
-				chain_type: 'evm',
-				supported_chains: [
-					'ethereum',
-					'polygon',
-					'arbitrum',
-					'optimism',
-					'base',
-					'bsc',
-					'avalanche',
-				],
-			},
-		],
+		wallets,
 	})
 })
 
@@ -4176,6 +4584,9 @@ agentRoutes.post('/billing/recurring', async (c) => {
 agentRoutes.post('/link/code', async (c) => {
 	const agent = c.get('agent')
 
+	// Already-linked check runs BEFORE World ID proof verification (money-path
+	// review finding 6) so an already-linked agent gets a fast 409 without us
+	// spending a call against the World ID portal.
 	if (agent.ownerUserId != null) {
 		writeAuditLog({
 			userId: 0,
@@ -4192,9 +4603,111 @@ agentRoutes.post('/link/code', async (c) => {
 		)
 	}
 
+	// Optional World ID proof (ETHGlobal Tokyo 2026 "Agent Swap Passport" Phase 1):
+	// when present, verify it before minting the code and stamp the result into
+	// agents.metadata. This makes the *claim* step sybil-resistant — World ID's
+	// nullifier is per-human-per-action, so one real human can't mint unlimited
+	// linked agents. Body is optional/additive: omitting it preserves prior behavior.
+	//
+	// Verification now goes through the real AgentKit-based guardian gate
+	// (../hackathon/tokyo2026/world-id/guardianGate.ts) instead of the
+	// superseded hand-rolled lib/worldId.ts: real @worldcoin/idkit-core
+	// verifier call, and replay defense via the Postgres-backed
+	// PostgresNullifierStore (DB-level UNIQUE (action, nullifier) constraint)
+	// instead of an application-level SELECT check.
+	const body = await c.req.json().catch(() => ({}) as Record<string, unknown>)
+	const worldIdProof = body?.world_id_proof as unknown | undefined
+
+	// Distinct action from the trade-approval gate so nullifiers don't
+	// collide across features (same human verifying for a trade vs. for
+	// linking an agent must yield independent nullifiers).
 	const code = randomBytes(8).toString('hex')
 	const codeHash = createHash('sha256').update(code).digest('hex')
 	const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+
+	let worldIdMetadata: Record<string, unknown> | undefined
+
+	if (worldIdProof) {
+		if (!isWorldIdConfigured()) {
+			writeAuditLog({
+				userId: 0,
+				agentId: agentIdentifierOf(agent),
+				eventType: 'agent.link_code_rejected',
+				details: { reason: 'world_id_env_unavailable' },
+			})
+			return c.json(
+				{
+					success: false,
+					error: 'World ID verification failed. Ask the owner to re-verify and try again.',
+					reason: 'world_id_env_unavailable',
+				},
+				409,
+			)
+		}
+
+		const cfg = loadWorldIdConfig()
+		// The claim intent (agent + one-time link code) is the bound signal,
+		// mirroring guardianGate.ts's intent-hashing pattern for trades.
+		// The signal must be something the prover can know BEFORE calling this
+		// route. The previous derivation mixed in the link code's hash, but the
+		// code is generated inside this very request, so no client could ever
+		// produce a proof bound to it and every proof failed the signal check.
+		// Bind to the agent identifier instead: the caller proves "this human
+		// claims THIS agent"; replay across agents is stopped by the signal,
+		// replay across humans by the (action, nullifier) uniqueness store.
+		const signal = worldIdLinkSignal(agent)
+
+		const dbEither = await runEffectEither(
+			Effect.gen(function* () {
+				return yield* requireDb
+			}),
+		)
+		if (Either.isLeft(dbEither)) {
+			return c.json(
+				{ success: false, error: 'World ID verification unavailable.', reason: 'db_unavailable' },
+				503,
+			)
+		}
+		const nullifierStore = new PostgresNullifierStore(dbEither.right)
+
+		const verifyResult = await verifyTradeProof(
+			cfg,
+			worldIdProof,
+			signal,
+			WORLD_ID_AGENT_LINK_ACTION,
+			nullifierStore,
+		)
+
+		if (!verifyResult.ok) {
+			writeAuditLog({
+				userId: 0,
+				agentId: agentIdentifierOf(agent),
+				eventType: 'agent.link_code_rejected',
+				details: { reason: 'world_id_verification_failed', error: verifyResult.reason },
+			})
+			return c.json(
+				{
+					success: false,
+					error: 'World ID verification failed. Ask the owner to re-verify and try again.',
+					reason: verifyResult.reason,
+				},
+				409,
+			)
+		}
+
+		// Sybil-resistance across agents is enforced by the nullifier store's
+		// DB-level UNIQUE (action, nullifier) constraint above — a nullifier
+		// already consumed under WORLD_ID_AGENT_LINK_ACTION fails verifyResult.ok
+		// before we get here, so no separate application-level SELECT check is
+		// needed (replacing the prior query-based uniqueness check).
+		worldIdMetadata = {
+			worldId: {
+				verified: true,
+				nullifierHash: verifyResult.nullifier,
+				verifiedAt: new Date().toISOString(),
+			},
+		}
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -4205,15 +4718,124 @@ agentRoutes.post('/link/code', async (c) => {
 						.insert(agentLinkCodes)
 						.values({ agentId: agent.id, codeHash, expiresAt })
 						.returning(),
-				catch: (e) => new ValidationError({ message: `Failed to create link code: ${e}` }),
+				catch: (e) => new ValidationError({ message: `Failed to create link code: ${describeError(e)}` }),
 			})
 			const row = rows[0]
 			if (!row) {
 				return yield* Effect.fail(new ValidationError({ message: 'Link code insert returned no row' }))
 			}
+
+			// Stamp World ID verification result into agents.metadata (jsonb, no
+			// migration needed) so the claim can later be shown as sybil-resistant.
+			if (worldIdMetadata) {
+				yield* Effect.tryPromise({
+					try: () =>
+						db
+							.update(agents)
+							.set({
+								metadata: sql`coalesce(${agents.metadata}, '{}'::jsonb) || ${JSON.stringify(worldIdMetadata)}::jsonb`,
+								updatedAt: new Date(),
+							})
+							.where(eq(agents.id, agent.id)),
+					catch: (e) => new ValidationError({ message: `Failed to store World ID metadata: ${describeError(e)}` }),
+				})
+			}
+
 			return row
 		}),
 	)
+
+	// ENS subname mint (ETHGlobal Tokyo 2026 "Agent Swap Passport" Phase 3):
+	// once World ID verification has succeeded (worldIdMetadata set above),
+	// mint `<agent-uuid-prefix>.suwappu-agents.eth` as a durable identity
+	// anchor. Best-effort and non-blocking — a mint failure (unconfigured
+	// minter key/subregistry, no EVM wallet on the agent, RPC error) never
+	// fails the link-code issuance; the agent just proceeds without an ENS
+	// name. NOTE: this fires at code-mint time, not at bot-side claim
+	// completion (agents.ownerUserId is set by the Python bot's /claim
+	// handler, outside this file's scope) — "claimed AND verified" from the
+	// plan doc is approximated here as "verified", since claim finalization
+	// isn't observable from api-ts.
+	if (Either.isRight(result) && worldIdMetadata) {
+		const walletAddress = ((agent.metadata || {}) as Record<string, unknown>).wallet_address
+		if (typeof walletAddress === 'string' && walletAddress) {
+			const env = await runEffectEither(Effect.gen(function* () { return yield* EnvService }))
+			if (Either.isRight(env)) {
+				const label = agent.uuid.split('-')[0]?.toLowerCase()
+				if (label) {
+					const mintResult = await mintAgentSubname(
+						{
+							rpcUrl: env.right.ENS_SEPOLIA_RPC_URL,
+							minterPrivateKey: env.right.ENS_MINTER_PRIVATE_KEY,
+							subregistryAddress: env.right.ENS_SUWAPPU_AGENTS_SUBREGISTRY,
+							resolverAddress: env.right.ENS_RESOLVER_ADDRESS,
+							parentName: 'suwappu-agents.eth',
+						},
+						label,
+						walletAddress,
+					)
+					if (mintResult.minted) {
+						// Point the freshly minted name at the agent's wallet: mint alone
+						// only claims the name, it doesn't make it resolve. Never throws —
+						// setAddr failure is logged/audited but never fails link/code.
+						let addrTx: string | null = null
+						try {
+							addrTx = await setPassportAddr(mintResult.ensName ?? `${label}.suwappu-agents.eth`, walletAddress)
+							writeAuditLog({
+								userId: 0,
+								agentId: agentIdentifierOf(agent),
+								eventType: addrTx ? 'agent.ens_addr_set' : 'agent.ens_addr_skipped',
+								details: { ensName: mintResult.ensName, txHash: addrTx },
+							})
+						} catch (e) {
+							writeAuditLog({
+								userId: 0,
+								agentId: agentIdentifierOf(agent),
+								eventType: 'agent.ens_addr_failed',
+								details: { ensName: mintResult.ensName, reason: describeError(e) },
+							})
+						}
+						await runEffectEither(
+							Effect.gen(function* () {
+								const db = yield* requireDb
+								yield* Effect.tryPromise({
+									try: () =>
+										db
+											.update(agents)
+											.set({
+												metadata: sql`coalesce(${agents.metadata}, '{}'::jsonb) || ${JSON.stringify({
+													ensName: {
+														name: mintResult.ensName,
+														txHash: mintResult.txHash,
+														addrTx,
+														mintedAt: new Date().toISOString(),
+													},
+												})}::jsonb`,
+												updatedAt: new Date(),
+											})
+											.where(eq(agents.id, agent.id)),
+									catch: (e) => new ValidationError({ message: `Failed to store ENS metadata: ${describeError(e)}` }),
+								})
+							}),
+						)
+						writeAuditLog({
+							userId: 0,
+							agentId: agentIdentifierOf(agent),
+							eventType: 'agent.ens_subname_minted',
+							details: { ensName: mintResult.ensName, txHash: mintResult.txHash },
+						})
+					} else {
+						writeAuditLog({
+							userId: 0,
+							agentId: agentIdentifierOf(agent),
+							eventType: 'agent.ens_subname_mint_skipped',
+							details: { reason: mintResult.error },
+						})
+					}
+				}
+			}
+		}
+	}
 
 	if (Either.isLeft(result)) {
 		const { status, body } = mapErrorToResponse(result.left)
@@ -4231,6 +4853,15 @@ agentRoutes.post('/link/code', async (c) => {
 		success: true,
 		code,
 		expires_at: expiresAt.toISOString(),
+		world_id_verified: !!worldIdMetadata,
+		// What a client must prove to make the next /link/code call World ID-
+		// verified (see worldIdLinkSignal). Stable per agent, so it can be
+		// fetched with an unproven call first.
+		world_id: {
+			action: WORLD_ID_AGENT_LINK_ACTION,
+			signal: worldIdLinkSignal(agent),
+			environment: isWorldIdConfigured() ? loadWorldIdConfig().environment : null,
+		},
 		instructions:
 			'Send /claim <code> to the Suwappu Telegram bot within 10 minutes to link this agent to your account.',
 	})

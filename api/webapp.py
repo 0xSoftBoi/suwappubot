@@ -5235,7 +5235,7 @@ async def get_execution_benchmark(
         )
     except Exception as e:
         logger.error(f"[execution_benchmark] failed: {e}")
-        raise HTTPException(status_code=503, detail="Benchmark temporarily unavailable")
+        raise HTTPException(status_code=503, detail="Benchmark temporarily unavailable") from e
 
 
 @router.get("/execution/receipt/{swap_id}")
@@ -5268,7 +5268,7 @@ async def get_execution_receipt(
         receipt = execution_receipt.build(user_id=user.id, swap_id=swap_id)
     except Exception as e:
         logger.error(f"[execution_receipt] failed for swap {swap_id}: {e}")
-        raise HTTPException(status_code=503, detail="Receipt temporarily unavailable")
+        raise HTTPException(status_code=503, detail="Receipt temporarily unavailable") from e
 
     if receipt is None:
         raise HTTPException(status_code=404, detail="Swap not found")

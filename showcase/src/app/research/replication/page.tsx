@@ -7,7 +7,7 @@ const BASE = '/research/replication';
 const AUTHOR_NAME = 'Tsolmondorj Natsagdorj';
 
 export const metadata: Metadata = {
-  title: 'Data & code availability | Suwappu Research',
+  title: { absolute: 'Data & code availability | Suwappu Research' },
   description:
     'Full working papers, collection code and datasets behind Suwappu Research on USDT0 token-unit backing, points-program equilibria, airdrop allocations, ERC-8056 Stock Token interface risk, and cross-chain latency economics.',
   alternates: { canonical: BASE },

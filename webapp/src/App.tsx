@@ -13,6 +13,7 @@ import { Home } from './pages/Home'
 // All other pages: lazy-loaded for code splitting
 const Swap = lazy(() => import('./pages/Swap').then(m => ({ default: m.Swap })))
 const Discover = lazy(() => import('./pages/Discover'))
+const Arbiter = lazy(() => import('./pages/Arbiter').then(m => ({ default: m.Arbiter })))
 const Wallet = lazy(() => import('./pages/Wallet').then(m => ({ default: m.Wallet })))
 const Portfolio = lazy(() => import('./pages/Portfolio').then(m => ({ default: m.Portfolio })))
 const History = lazy(() => import('./pages/History').then(m => ({ default: m.History })))
@@ -204,6 +205,17 @@ function AppContent() {
             </PageTransition>
           }
         />
+        {/* Arbiter — hackathon/product page: public for judges, dry-run by default */}
+        {import.meta.env.VITE_ARBITER_ENABLED === 'true' && (
+          <Route
+            path="/arbiter"
+            element={
+              <PageTransition>
+                <Arbiter />
+              </PageTransition>
+            }
+          />
+        )}
 
         {/* Protected routes */}
         <Route

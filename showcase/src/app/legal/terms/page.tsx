@@ -3,7 +3,7 @@ import SummerNav from '@/components/SummerNav';
 import SummerFooter from '@/components/SummerFooter';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service | Suwappu',
+  title: 'Terms of Service',
   description: 'The terms governing your use of Suwappu’s bot, terminal, API, and SDK.',
 };
 

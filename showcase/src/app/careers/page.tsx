@@ -6,7 +6,7 @@ import { TELEGRAM_URL } from '@/lib/links';
 import styles from './careers.module.css';
 
 export const metadata: Metadata = {
-  title: 'Careers | Suwappu',
+  title: 'Careers',
   description:
     'We’re building the routing and agent layer for cross-chain DeFi. Small, senior team. If routing, wallets, perps, or agent tooling is your thing, let’s talk.',
 };

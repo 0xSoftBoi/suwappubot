@@ -163,13 +163,16 @@ async def test_sign_evm_fallback_disabled_delegates_straight_to_primary(monkeypa
 
     monkeypatch.setattr(settings, "turnkey_fallback_enabled", False)
     wallet_service = MagicMock()
-    wallet_service.sign_evm_transaction = AsyncMock(return_value="0xsigned")
+    # Must call Turnkey directly: sign_evm_transaction routes back into
+    # sign_evm_with_fallback, so delegating there recursed forever.
+    wallet_service._sign_evm_via_turnkey = AsyncMock(return_value="0xsigned")
     wallet = _wallet()
 
     result = await tf.sign_evm_with_fallback(wallet_service, wallet, {"to": "0x0"})
 
     assert result == "0xsigned"
-    wallet_service.sign_evm_transaction.assert_awaited_once_with(wallet, {"to": "0x0"})
+    wallet_service._sign_evm_via_turnkey.assert_awaited_once_with(wallet, {"to": "0x0"})
+    wallet_service.sign_evm_transaction.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -178,13 +181,14 @@ async def test_sign_evm_fallback_non_turnkey_wallet_uses_local_signer_directly(m
 
     monkeypatch.setattr(settings, "turnkey_fallback_enabled", True)
     wallet_service = MagicMock()
-    wallet_service._sign_evm_local = AsyncMock(return_value="0xlocalsigned")
+    # WalletService._sign_evm_local is synchronous.
+    wallet_service._sign_evm_local = MagicMock(return_value="0xlocalsigned")
     wallet = _wallet(is_turnkey=False)
 
     result = await tf.sign_evm_with_fallback(wallet_service, wallet, {"to": "0x0"})
 
     assert result == "0xlocalsigned"
-    wallet_service._sign_evm_local.assert_awaited_once_with(wallet, {"to": "0x0"})
+    wallet_service._sign_evm_local.assert_called_once_with(wallet, {"to": "0x0"})
 
 
 @pytest.mark.asyncio

@@ -105,6 +105,10 @@ adds no value.
 
 You hold the keys. Suwappu returns an **unsigned** transaction; you sign and broadcast.
 
+**Request the quote (step 3) with `"wallet_address": "0xYourWallet"`.** The transaction is built
+for the quoted wallet as both sender and recipient; `POST /swap` rejects a quote that was built for
+a different address (or for none) with `VALIDATION_ERROR` — re-quote with your wallet.
+
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/swap \
   -H "Authorization: Bearer $SUWAPPU_API_KEY" \

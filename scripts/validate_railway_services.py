@@ -135,7 +135,15 @@ def validate_manifest(data: dict[str, Any], repo_root: Path) -> list[str]:
                 errors.append(f"{label}: persistent GitHub services must wait for CI")
             if any(pattern.startswith("/.manual-deploy-only/") for pattern in watch_patterns):
                 errors.append(f"{label}: persistent service uses a manual-only watch path")
-            for field in ("rootDirectory", "configFile", "dockerfilePath"):
+            # Once the project is IaC-managed, production services are configured by
+            # .railway/railway.ts and must not carry a Config-as-Code file (Railway
+            # refuses to manage a service from both). Dev still reads its files until
+            # its own IaC import lands, so only production drops the requirement.
+            iac_managed = (data.get("infrastructureAsCode") or {}).get("status") == "managed"
+            fields = ("rootDirectory", "dockerfilePath")
+            if not (iac_managed and environment == "production"):
+                fields = ("rootDirectory", "configFile", "dockerfilePath")
+            for field in fields:
                 if not isinstance(instance.get(field), str) or not instance[field]:
                     errors.append(f"{label}: persistent service requires {field}")
             if kind in {"http", "worker"} and not instance.get("healthcheckPath"):
@@ -253,10 +261,15 @@ def validate_iac_transition(
         return errors, notices
 
     literals = _string_literals(iac_path.read_text())
+    # .railway/railway.ts is a production authoring file (`railway config pull
+    # --environment production`). Dev-only services can never appear in it, so only
+    # production instances are required; dev is covered by its own file later.
     required = {
         instance["name"]
         for instance in data["instances"]
-        if isinstance(instance, dict) and isinstance(instance.get("name"), str)
+        if isinstance(instance, dict)
+        and isinstance(instance.get("name"), str)
+        and instance.get("environment") == "production"
     }
     missing = sorted(required - literals)
     if missing:
@@ -266,11 +279,42 @@ def validate_iac_transition(
             "would destroy them."
         )
 
+    # Dev is imported into its own authoring file (`railway config pull --environment dev`,
+    # planned with `--file`). Same omit-means-delete rule: it must name every dev instance.
+    dev_target = iac.get("devTargetFile")
+    if dev_target is not None:
+        dev_path = repo_root / str(dev_target)
+        if not dev_path.is_file():
+            errors.append(f"infrastructureAsCode.devTargetFile {dev_target} does not exist")
+        else:
+            dev_literals = _string_literals(dev_path.read_text())
+            dev_required = {
+                instance["name"]
+                for instance in data["instances"]
+                if isinstance(instance, dict)
+                and isinstance(instance.get("name"), str)
+                and instance.get("environment") == "dev"
+            }
+            dev_missing = sorted(dev_required - dev_literals)
+            if dev_missing:
+                errors.append(
+                    f"{dev_target} does not mention {len(dev_missing)} dev service(s) present in "
+                    f"this manifest: {', '.join(dev_missing)}. Railway IaC is omit-means-delete."
+                )
+
+    # A Config-as-Code file is only "stale" if no non-production instance still reads it.
     stale = sorted(
         {
             instance["configFile"]
             for instance in data["instances"]
             if isinstance(instance, dict) and isinstance(instance.get("configFile"), str)
+        }
+        - {
+            instance["configFile"]
+            for instance in data["instances"]
+            if isinstance(instance, dict)
+            and isinstance(instance.get("configFile"), str)
+            and instance.get("environment") != "production"
         }
     )
     still_present = [path for path in stale if (repo_root / path.lstrip("/")).is_file()]

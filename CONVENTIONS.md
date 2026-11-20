@@ -73,6 +73,16 @@ fork the convention.
   `bash scripts/verify.sh` is the aggregate gate; a feature is "live" only after a real
   end-to-end exercise (actual message, actual small swap, actual record fetched). If
   live verification is blocked, say "code-complete, not functionally verified — needs X".
+- **"Verified" in a doc is a timestamped record, not a standing fact.** Write it as
+  `VERIFIED <UTC timestamp> <environment> <artifact>` where the artifact is a URL,
+  tx hash, request id, or log line that a reader can re-check. It applies to the code
+  at that commit only: when the file or function it names is rewritten, the claim is
+  stale and must be re-proven or marked `STALE`. (2026-09-26: four prod bugs sat behind
+  a "LIVE-VERIFIED" line that referred to a laptop run of since-deleted code.)
+- **Every external integration gets a committed smoke script** (`api-ts/scripts/smoke-*.ts`
+  or `scripts/smoke/*`) that hits the real sandbox/prod endpoint and asserts on the
+  field names the provider actually returns. Run it after each deploy touching the
+  integration. Mocked tests prove the code's own logic, never the provider's shape.
 - Give test suites generous timeouts (≥10 min); slow CI is usually runner contention,
   not a hang.
 

@@ -161,8 +161,14 @@ class ExecutionStore:
 
         try:
             with session.begin_nested():
-                session.add_all([intent, candidate, parent])
-                session.flush()
+                # Explicit FK order. These models link by plain ForeignKey
+                # columns (no relationship()), so a single add_all/flush lets
+                # the unit of work insert the candidate before its intent —
+                # Postgres rejects that (SQLite tests don't enforce FKs), which
+                # blocked every swap status write in prod.
+                for row in (intent, candidate, parent):
+                    session.add(row)
+                    session.flush()
         except IntegrityError:
             existing = (
                 session.query(ExecutionParentOrder)

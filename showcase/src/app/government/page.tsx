@@ -5,7 +5,7 @@ import { ENTERPRISE_CONTACT_PATH } from '@/lib/links';
 import styles from './government.module.css';
 
 export const metadata: Metadata = {
-  title: 'Government | Suwappu',
+  title: 'Government',
   description:
     'The Lattice Transfer Protocol (LTP) is Suwappu’s government arm: post-quantum ' +
     'data transfer with on-chain anchors, built for FedRAMP High environments. ' +

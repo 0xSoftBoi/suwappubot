@@ -1,0 +1,294 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ApiError,
+  Evidence,
+  HackathonStatus,
+  PassportRecord,
+  PassportStartResponse,
+  PassportVerifyResponse,
+  SwapJob,
+  SwapStartResponse,
+  getEvidence,
+  getPassport,
+  getStatus,
+  getSwapJob,
+  passportStart,
+  passportSwap,
+  passportVerify,
+  randomWallet,
+} from './api';
+
+export type SwapPhase = 'idle' | 'checking' | 'blocked' | 'submitted' | 'executed' | 'failed';
+export type SwapBeat = 'pre' | 'post';
+export type SwapView = {
+  phase: SwapPhase;
+  result: SwapStartResponse | null;
+  job: SwapJob | null;
+  error: string | null;
+};
+const EMPTY_SWAP: SwapView = { phase: 'idle', result: null, job: null, error: null };
+const DEFAULT_WALLET = '0x0000000000000000000000000000000000000000';
+export type VerifyPhase = 'idle' | 'starting' | 'pending' | 'provisioning' | 'ready' | 'existing' | 'failed' | 'error';
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_ERROR_BACKOFF_MS = 3500;
+const POLL_CAP_MS = 5 * 60 * 1000;
+
+export function usePassportFlow() {
+  const [status, setStatus] = useState<HackathonStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+
+  // Deterministic on server AND client so SSR and hydration agree (#418).
+  // The wallet is randomized once in an effect after mount — see below.
+  const [wallet, setWallet] = useState<string>(DEFAULT_WALLET);
+
+  useEffect(() => {
+    // Home is the demo flow's entry point; the first paint should already
+    // show a wallet. Randomize once, post-hydration, so server and client
+    // never disagree on the initial value.
+    setWallet(randomWallet());
+  }, []);
+
+  // Beat 1 (before the passport) and Beat 3 (after) are the same API call but
+  // separate stories: each keeps its own outcome, so Beat 3 executing never
+  // overwrites Beat 1's "blocked" — the contrast is the whole demo.
+  const [swapBeat, setSwapBeat] = useState<SwapBeat>('pre');
+  const [swaps, setSwaps] = useState<Record<SwapBeat, SwapView>>({ pre: EMPTY_SWAP, post: EMPTY_SWAP });
+  const patchSwap = useCallback(
+    (beat: SwapBeat, patch: Partial<SwapView>) =>
+      setSwaps((s) => ({ ...s, [beat]: { ...s[beat], ...patch } })),
+    [],
+  );
+
+  // Beat 2 — proof of human
+  const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>('idle');
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [start, setStart] = useState<PassportStartResponse | null>(null);
+  const [verified, setVerified] = useState<PassportVerifyResponse | null>(null);
+
+  const [passportRecord, setPassportRecord] = useState<PassportRecord | null>(null);
+  // Set when a returning human's passport lived on another wallet and the
+  // agent was moved onto it (see the 'existing' branch of verify polling).
+  const [walletSwitchedFrom, setWalletSwitchedFrom] = useState<string | null>(null);
+
+  const [evidence, setEvidence] = useState<Evidence | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+
+  const swapPollToken = useRef<{ cancelled: boolean } | null>(null);
+  const verifyPollToken = useRef<{ cancelled: boolean } | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await getStatus();
+      setStatus(s);
+      setStatusError(null);
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Status endpoint unavailable.');
+    } finally {
+      setStatusLoading(false);
+    }
+  }, []);
+
+  const loadEvidence = useCallback(async () => {
+    try {
+      const ev = await getEvidence();
+      setEvidence(ev);
+      setEvidenceError(null);
+    } catch (e) {
+      setEvidenceError(e instanceof ApiError && e.status === 404 ? 'not-deployed' : 'unavailable');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+    loadEvidence();
+    const t = setInterval(loadStatus, 20000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const newWallet = useCallback(() => {
+    setWallet(randomWallet());
+    setSwaps({ pre: EMPTY_SWAP, post: EMPTY_SWAP });
+    setSwapBeat('pre');
+    setVerifyPhase('idle');
+    setVerifyError(null);
+    setStart(null);
+    setVerified(null);
+    setPassportRecord(null);
+    setWalletSwitchedFrom(null);
+  }, []);
+
+  const stopSwapPolling = useCallback(() => {
+    if (swapPollToken.current) swapPollToken.current.cancelled = true;
+  }, []);
+  const stopVerifyPolling = useCallback(() => {
+    if (verifyPollToken.current) verifyPollToken.current.cancelled = true;
+  }, []);
+
+  // Beat 1 / Beat 3 — same action, called before and after the passport exists.
+  const attemptSwap = useCallback(async (beat: SwapBeat = 'pre') => {
+    stopSwapPolling();
+    setSwapBeat(beat);
+    patchSwap(beat, { phase: 'checking', result: null, job: null, error: null });
+    const setSwapPhase = (phase: SwapPhase) => patchSwap(beat, { phase });
+    const setSwapJob = (job: SwapJob) => patchSwap(beat, { job });
+    const setSwapError = (error: string) => patchSwap(beat, { error });
+    try {
+      const res = await passportSwap(wallet);
+      patchSwap(beat, { result: res });
+      if (res.status === 'blocked') {
+        setSwapPhase('blocked');
+        return;
+      }
+      setSwapPhase('submitted');
+      const token = { cancelled: false };
+      swapPollToken.current = token;
+      const deadline = Date.now() + POLL_CAP_MS;
+
+      const poll = async () => {
+        if (token.cancelled) return;
+        if (Date.now() > deadline) {
+          if (!token.cancelled) {
+            setSwapPhase('failed');
+            setSwapError('Swap job timed out — retry when ready.');
+          }
+          return;
+        }
+        try {
+          const job = await getSwapJob(res.jobId);
+          if (token.cancelled) return;
+          setSwapJob(job);
+          if (job.status === 'executed') {
+            setSwapPhase('executed');
+            return;
+          }
+          if (job.status === 'failed') {
+            setSwapPhase('failed');
+            setSwapError(job.reason || 'Swap failed.');
+            return;
+          }
+          setTimeout(poll, POLL_INTERVAL_MS);
+        } catch {
+          setTimeout(poll, POLL_ERROR_BACKOFF_MS);
+        }
+      };
+      poll();
+    } catch (e) {
+      setSwapPhase('failed');
+      setSwapError(e instanceof Error ? e.message : 'Could not reach the swap endpoint.');
+    }
+  }, [wallet, stopSwapPolling, patchSwap]);
+
+  // Beat 2 — proof of human
+  const beginVerification = useCallback(async () => {
+    stopVerifyPolling();
+    setVerifyError(null);
+    setVerified(null);
+    setVerifyPhase('starting');
+    try {
+      const res = await passportStart(wallet);
+      setStart(res);
+      setVerifyPhase('pending');
+
+      const token = { cancelled: false };
+      verifyPollToken.current = token;
+      const deadline = Date.now() + POLL_CAP_MS;
+
+      const poll = async () => {
+        if (token.cancelled) return;
+        if (Date.now() > deadline) {
+          if (!token.cancelled) {
+            setVerifyPhase('failed');
+            setVerifyError('Verification timed out after 5 minutes — retry when ready.');
+          }
+          return;
+        }
+        try {
+          const v = await passportVerify(res.signal);
+          if (token.cancelled) return;
+          setVerified(v);
+          if (v.status === 'pending') {
+            setTimeout(poll, POLL_INTERVAL_MS);
+            return;
+          }
+          if (v.status === 'provisioning') {
+            setVerifyPhase('provisioning');
+            setTimeout(poll, POLL_INTERVAL_MS);
+            return;
+          }
+          if (v.status === 'ready') {
+            setVerifyPhase('ready');
+            getPassport(wallet).then(setPassportRecord).catch(() => {});
+            return;
+          }
+          if (v.status === 'existing') {
+            // One human, one passport: a returning human's passport lives on
+            // the wallet it was first bound to. Swapping with the fresh wallet
+            // would just be blocked again, so move the agent onto the
+            // passport's wallet (and say so) — Beat 3 then works for them.
+            const bound = v.wallet;
+            if (bound && bound.toLowerCase() !== wallet.toLowerCase()) {
+              setWalletSwitchedFrom(wallet);
+              setWallet(bound);
+              setSwaps((s) => ({ ...s, post: EMPTY_SWAP }));
+            }
+            setVerifyPhase('existing');
+            getPassport(bound || wallet).then(setPassportRecord).catch(() => {});
+            return;
+          }
+          if (v.status === 'failed') {
+            setVerifyPhase('failed');
+            setVerifyError(v.reason || 'Verification failed.');
+            return;
+          }
+        } catch {
+          setTimeout(poll, POLL_ERROR_BACKOFF_MS);
+        }
+      };
+      poll();
+    } catch (e) {
+      setVerifyPhase('error');
+      setVerifyError(e instanceof Error ? e.message : 'Could not start verification.');
+    }
+  }, [wallet, stopVerifyPolling]);
+
+  const cancelVerification = useCallback(() => {
+    stopVerifyPolling();
+    setVerifyPhase('idle');
+    setVerifyError(null);
+  }, [stopVerifyPolling]);
+
+  useEffect(() => () => {
+    stopSwapPolling();
+    stopVerifyPolling();
+  }, [stopSwapPolling, stopVerifyPolling]);
+
+  const humanVerified = verifyPhase === 'ready' || verifyPhase === 'existing';
+
+  return {
+    status,
+    statusError,
+    statusLoading,
+    wallet,
+    setWallet,
+    newWallet,
+    swaps,
+    swapBeat,
+    attemptSwap,
+    verifyPhase,
+    verifyError,
+    start,
+    verified,
+    humanVerified,
+    beginVerification,
+    cancelVerification,
+    passportRecord,
+    walletSwitchedFrom,
+    evidence,
+    evidenceError,
+  };
+}

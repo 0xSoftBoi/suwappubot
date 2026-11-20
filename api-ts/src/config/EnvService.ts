@@ -47,6 +47,55 @@ export const EnvSchema = Schema.Struct({
 		default: () => 'https://suwappu.bot',
 	}),
 
+	// World ID verification (ETHGlobal Tokyo 2026 "Agent Swap Passport") now
+	// lives entirely in ../hackathon/tokyo2026/world-id/config.ts, which reads
+	// its own env vars (WORLD_APP_ID, WORLD_RP_ID, RP_SIGNING_KEY, WORLD_ENV,
+	// WORLD_ACTION, WORLD_STEP_UP_ACTION, WORLD_APPROVAL_TTL_MS) directly from
+	// process.env. The prior WORLD_ID_* vars here belonged to the superseded
+	// hand-rolled lib/worldId.ts + middleware/worldIdAuth.ts and have been
+	// removed along with those files.
+
+	// Intercepta (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 2).
+	// Address risk screening: GET https://api.web3antivirus.io/api/public/v2/extension/account/{address}/quick-scan.
+	// Key is obtained via a self-serve Typeform (docs.web3antivirus.io/reference/getting-started-1)
+	// and is NOT YET PROVISIONED as of this build. Unset means lib/intercepta.ts fails closed
+	// (screening unavailable -> the metered payment is rejected, never silently allowed through).
+	INTERCEPTA_API_KEY: Schema.optional(Schema.String),
+	INTERCEPTA_TOXIC_SCORE_THRESHOLD: Schema.optionalWith(Schema.NumberFromString, {
+		default: () => 70,
+	}),
+
+	// ENS (ETHGlobal Tokyo 2026 "Agent Swap Passport" — hackathon Phase 3).
+	// Mints `<agent>.suwappu-agents.eth` ENSv2 subnames on Sepolia once an agent
+	// is claimed + World ID-verified. All optional — unset means ensSubname.ts
+	// fails closed (mint skipped, agent flow proceeds without an ENS name; this
+	// is a nice-to-have identity anchor, never a gate on the claim flow).
+	ENS_SEPOLIA_RPC_URL: Schema.optionalWith(Schema.String, {
+		default: () => 'https://ethereum-sepolia-rpc.publicnode.com',
+	}),
+	// Private key of 0x23865aA89E79511950987CC15cd5834BE010E8E7, the account
+	// that owns `suwappu-agents.eth` and holds admin roles on its subregistry.
+	// Loaded from an env var in real deployments; the hackathon build sandbox
+	// keeps it at scripts/.ens_sepolia_key (gitignored, chmod 600) instead.
+	ENS_MINTER_PRIVATE_KEY: Schema.optional(Schema.String),
+	// Subregistry contract for suwappu-agents.eth (a PermissionedRegistry
+	// instance deployed as the child registry of the parent .eth registry
+	// entry) — this is what register() is actually called on to mint agent
+	// subnames. Deployed and wired via setSubregistry() on 2026-09-26; see
+	// docs/plans/ethglobal-tokyo2026-agent-passport.md Phase 3 for tx hashes.
+	ENS_SUWAPPU_AGENTS_SUBREGISTRY: Schema.optionalWith(Schema.String, {
+		default: () => '0xd617a7918b89c7bac8f85c53e327d034914bd062',
+	}),
+	// Resolver to attach to each minted subname. Defaults to the shared
+	// PublicResolverV2 on Sepolia (verified contract, confirmed via Blockscout
+	// as `PublicResolverV2`) rather than PermissionedResolver, which ENSv2
+	// docs describe as a per-account proxy meant to be deployed once per
+	// name via a factory — unnecessary complexity for a shared hackathon
+	// namespace where every subname can safely share one resolver.
+	ENS_RESOLVER_ADDRESS: Schema.optionalWith(Schema.String, {
+		default: () => '0xd7e590ad0e92a6ac1d81f4483a9b951d3585a50f',
+	}),
+
 	// Internal Python API
 	INTERNAL_API_KEY: Schema.optional(Schema.String),
 	INTERNAL_API_URL: Schema.optionalWith(Schema.String, {
@@ -202,6 +251,28 @@ export const EnvSchema = Schema.Struct({
 	// collector). Traces are POSTed to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`.
 	// When unset, the exporter's own default (http://localhost:4318) is used.
 	OTEL_EXPORTER_OTLP_ENDPOINT: Schema.optional(Schema.String),
+
+	// ETHGlobal Tokyo 2026 hackathon trust layer — additive, default OFF.
+	// The master flag gates the whole layer; per-sponsor flags default to the
+	// master and can be toggled independently. Uniswap comparison is an
+	// explicit opt-in even when the master flag is on.
+	HACKATHON_TRUST_LAYER: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// NEAR Arbiter (NEAR HACKATHON 2026) — additive, default OFF.
+	HACKATHON_ARBITER: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// NEAR testnet wiring for the Arbiter demo. Empty = fixture-replay-only mode.
+	NEAR_ARBITER_CONTRACT: Schema.optionalWith(Schema.String, { default: () => '' }),
+	NEAR_ARBITER_WASM_URL: Schema.optionalWith(Schema.String, { default: () => '' }),
+	NEAR_ARBITER_WASM_HASH: Schema.optionalWith(Schema.String, { default: () => '' }),
+	HACKATHON_INTERCEPTA: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	HACKATHON_ENSV2: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	HACKATHON_WORLD_ID: Schema.optionalWith(Schema.String, { default: () => 'true' }),
+	// JSON map of internal agent id → ENSv2 agent name, e.g.
+	// {"agent_123":"agent.acme.suwappu.eth"}. A bare *.eth identifier passes
+	// through directly without a mapping entry.
+	HACKATHON_ENSV2_NAMES: Schema.optional(Schema.String),
+	UNISWAP_COMPARISON_ENABLED: Schema.optionalWith(Schema.String, { default: () => 'false' }),
+	// Sepolia RPC for ENSv2 onchain policy reads. Unset = ENSv2 gate disabled.
+	SEPOLIA_RPC_URL: Schema.optional(Schema.String),
 })
 
 export type Env = Schema.Schema.Type<typeof EnvSchema>
