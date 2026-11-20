@@ -109,9 +109,16 @@ function DailyBars({ title, unit, data, values, format = fmt }: {
 }) {
   const u = (n: number) => (unit[0] ? ` ${n === 1 ? unit[0] : unit[1]}` : '');
   const [active, setActive] = useState<number | null>(null);
-  const max = Math.max(1, ...values);
+  // Signed scale: money can go backwards (a refund day), so bars below the
+  // zero line are real and must not be drawn as small positive ones.
+  const top = Math.max(0, ...values);
+  const bottom = Math.min(0, ...values);
+  const span = top - bottom || 1;
   const total = values.reduce((a, b) => a + b, 0);
+  const anyActivity = values.some((v) => v !== 0);
   const W = 640, H = 150, PAD_B = 22, PAD_T = 8;
+  const plotH = H - PAD_B - PAD_T;
+  const zeroY = PAD_T + (top / span) * plotH;
   const slot = W / Math.max(1, values.length);
   const barW = Math.max(2, slot - 2); // 2px surface gap between adjacent bars
   const tickEvery = Math.ceil(values.length / 6);
@@ -125,15 +132,15 @@ function DailyBars({ title, unit, data, values, format = fmt }: {
           {data[shown] ? `${dayLabel(data[shown].date)}: ${format(values[shown])}${u(values[shown])}` : ''}
         </span>
       </figcaption>
-      {total === 0 ? (
+      {!anyActivity ? (
         <p className={styles.empty}>Nothing recorded in this period yet.</p>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className={styles.chartSvg} role="img"
-          aria-label={`${title}: ${format(total)}${u(total)} in total, highest day ${format(max)}.`}
+          aria-label={`${title}: ${format(total)}${u(total)} in total, highest day ${format(top)}${bottom < 0 ? `, lowest day ${format(bottom)}` : ''}.`}
           onMouseLeave={() => setActive(null)}>
-          <line x1="0" x2={W} y1={H - PAD_B} y2={H - PAD_B} className={styles.axis} />
+          <line x1="0" x2={W} y1={zeroY} y2={zeroY} className={styles.axis} />
           {values.map((v, i) => {
-            const h = v === 0 ? 0 : Math.max(2, (v / max) * (H - PAD_B - PAD_T));
+            const h = v === 0 ? 0 : Math.max(2, (Math.abs(v) / span) * plotH);
             const x = i * slot + (slot - barW) / 2;
             return (
               <g key={data[i].date}>
@@ -142,8 +149,8 @@ function DailyBars({ title, unit, data, values, format = fmt }: {
                   tabIndex={0} aria-label={`${dayLabel(data[i].date)}: ${format(v)}${u(v)}`}
                   onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onBlur={() => setActive(null)}
                   className={styles.hit} />
-                <rect x={x} y={H - PAD_B - h} width={barW} height={h} rx={Math.min(3, barW / 2)}
-                  className={i === shown ? styles.barActive : styles.bar} pointerEvents="none" />
+                <rect x={x} y={v >= 0 ? zeroY - h : zeroY} width={barW} height={h} rx={Math.min(3, barW / 2)}
+                  className={v < 0 ? styles.barNegative : i === shown ? styles.barActive : styles.bar} pointerEvents="none" />
                 {i % tickEvery === 0 && (
                   <text x={i * slot + slot / 2} y={H - 6} textAnchor="middle" className={styles.tick}>
                     {dayLabel(data[i].date)}

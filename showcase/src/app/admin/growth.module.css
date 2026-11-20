@@ -80,3 +80,6 @@
 .ledger .ledgerTotal { border-bottom: 0; }
 .ledger .ledgerTotal dt { color: var(--adm-ink); font-weight: 600; }
 .ledger .ledgerTotal dd { font-size: 1.125rem; }
+
+/* Days where more went out (refunds, disputes) than came in: same hue, hatched lighter, below the zero line. */
+.barNegative { fill: #38bdf8; opacity: 0.38; }

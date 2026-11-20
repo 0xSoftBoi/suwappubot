@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import FinancePanel from './FinancePanel';
 import GrowthSection, { type GrowthReport } from './GrowthSection';
+import { SESSION_AUTH, adminRequestInit } from './adminRequest';
 import './admin.css';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -143,15 +144,8 @@ function DeltaBadge({ value }: { value: number }) {
 
 // ── Admin API fetch wrapper ──────────────────────────────────────────────────
 
-/** Sentinel "key" meaning: authenticate with the signed-in Google session
- *  cookie instead of an X-Admin-Key header (api-ts adminSessionAuth.ts). */
-const SESSION_AUTH = '@session';
-
 async function adminFetch<T>(path: string, key: string): Promise<T> {
-  const res = await fetch(
-    `${API_BASE_URL}${path}`,
-    key === SESSION_AUTH ? { credentials: 'include' } : { headers: { 'X-Admin-Key': key } },
-  );
+  const res = await fetch(`${API_BASE_URL}${path}`, adminRequestInit(key));
   if (res.status === 401) throw new Error('UNAUTHORIZED');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<T>;
