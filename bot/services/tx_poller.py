@@ -250,8 +250,12 @@ class TransactionPoller:
           having: it clears the row and unblocks the DCA schedule with no
           human and no explorer.
         - RESOLVED means a transaction was found AND verified over our own RPC
-          as having this sender and this nonce. Its hash is adopted and its
-          receipt decides COMPLETED or FAILED.
+          as having this sender and this nonce. A REVERT resolves the row to
+          FAILED. A SUCCESS does not resolve it to COMPLETED: a nonce cannot
+          tell a swap's own transaction from the ERC20 approval most
+          executors send first, so a successful receipt may belong to an
+          approval whose swap never followed. The hash is recorded as an
+          operator note and the row stays UNKNOWN.
         - CONSUMED_UNKNOWN means the nonce was spent but we cannot say on
           what. Left UNKNOWN on purpose — "something mined at that nonce" is
           not grounds to claim a swap succeeded, and a replacement or cancel
@@ -374,19 +378,48 @@ class TransactionPoller:
                     )
                     continue
 
-                logger.info(
-                    "Swap %s resolved by nonce %s -> %s (%s)",
-                    tx_dict["id"],
-                    tx_dict["nonce"],
-                    result.tx_hash,
-                    result.status,
-                )
-                # Adopt the hash first so the row is pollable by the ordinary
-                # pass from here on, even if the status write below loses a
-                # race with another worker.
-                await self._adopt_resolved_hash(tx_dict["id"], result.tx_hash)
-                tx_dict["tx_hash"] = result.tx_hash
-                await self._apply_status_update(tx_dict, result.status)
+                # A nonce does not say WHICH of a swap's transactions it
+                # belongs to. Most executors send an ERC20 approval first and
+                # re-fetch the nonce for the swap itself, so the recorded
+                # nonce is the approval's for as long as the swap tx has not
+                # been built — and if the process dies in that window, the
+                # approval is mined and successful while the swap never
+                # happened at all. Concluding COMPLETED from that receipt
+                # would tell the user a swap executed when only an allowance
+                # was granted, and would release resume_dca on a tranche that
+                # never traded.
+                #
+                # So success is never concluded here. A revert is, because it
+                # is unambiguous: whichever of the two transactions occupied
+                # the nonce, it reverted, so the swap did not complete.
+                if result.status == SwapStatus.FAILED.value:
+                    logger.info(
+                        "Swap %s: the transaction at nonce %s reverted (%s) — marking FAILED",
+                        tx_dict["id"],
+                        tx_dict["nonce"],
+                        result.tx_hash,
+                    )
+                    await self._adopt_resolved_hash(tx_dict["id"], result.tx_hash)
+                    tx_dict["tx_hash"] = result.tx_hash
+                    await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
+                else:
+                    # Left UNKNOWN deliberately. The hash is recorded on the
+                    # row as an operator note rather than as tx_hash, because
+                    # adopting it would hand the row to the ordinary polling
+                    # pass, which reads a successful receipt as COMPLETED and
+                    # would reintroduce exactly the false success this branch
+                    # exists to avoid. What the operator needed — which
+                    # transaction to go and look at — is now on the row
+                    # instead of nowhere.
+                    logger.warning(
+                        "Swap %s: nonce %s was consumed by %s, which succeeded, but a "
+                        "nonce cannot distinguish the swap from its approval — leaving "
+                        "UNKNOWN for review rather than claiming COMPLETED",
+                        tx_dict["id"],
+                        tx_dict["nonce"],
+                        result.tx_hash,
+                    )
+                    await self._note_resolution_evidence(tx_dict["id"], result.tx_hash)
 
             else:
                 logger.info(
@@ -423,6 +456,40 @@ class TransactionPoller:
             await run_in_db(_work)
         except Exception as e:
             logger.warning("Could not adopt resolved hash for swap %s: %s", swap_id, e)
+
+    async def _note_resolution_evidence(self, swap_id: int, tx_hash: str) -> None:
+        """Record which transaction consumed the nonce, without claiming it.
+
+        Writes to error_message, not tx_hash: the row stays UNKNOWN and out of
+        the ordinary polling pass, but whoever reviews it no longer has to
+        read the chain to find the candidate. Only ever written onto a row
+        that is still UNKNOWN and still hashless, so this cannot overwrite a
+        real outcome recorded in the meantime.
+        """
+        note = (
+            f"Nonce consumed by {tx_hash}, which succeeded — but a nonce cannot "
+            "distinguish this swap's transaction from its ERC20 approval, so the "
+            "outcome is not asserted. Check that transaction to settle this row."
+        )
+
+        def _work():
+            with get_db_session() as session:
+                db_tx = (
+                    session.query(SwapTransaction)
+                    .filter(
+                        SwapTransaction.id == swap_id,
+                        SwapTransaction.tx_hash.is_(None),
+                        SwapTransaction.status == SwapStatus.UNKNOWN.value,
+                    )
+                    .first()
+                )
+                if db_tx:
+                    db_tx.error_message = note
+
+        try:
+            await run_in_db(_work)
+        except Exception as e:
+            logger.warning("Could not note resolution evidence for swap %s: %s", swap_id, e)
 
     async def _hash_claimed_elsewhere(self, tx_hash: str, swap_id: int) -> bool:
         """True if any OTHER swap row already carries `tx_hash`.

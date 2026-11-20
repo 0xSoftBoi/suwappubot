@@ -55,7 +55,17 @@ and still not grounds to claim an outcome.
 
 ## The ceiling of this approach, and what would remove it
 
-A nonce identifies a *slot*, not a transaction. If a swap's broadcast never
+A nonce identifies a *slot*, not a transaction, and that cuts two ways.
+
+First, within one swap: most executors send an ERC20 approval and re-fetch
+the nonce for the swap itself, so the recorded nonce is the approval's until
+the swap transaction is built. A process that dies in that window leaves a
+mined, successful approval and no swap. A success at the recorded nonce
+therefore does NOT mean the swap succeeded, which is why
+`tx_poller._resolve_hashless_rows` concludes FAILED from a revert but never
+COMPLETED from a success.
+
+Second, across swaps: if a swap's broadcast never
 landed, the wallet's next send takes that same nonce, and the transaction
 occupying it then satisfies the sender and nonce checks exactly as the real
 one would. `tx_poller._resolve_hashless_rows` refuses to adopt a hash another
@@ -65,7 +75,7 @@ it cannot catch is a nonce consumed from the same address by something that
 keeps no SwapTransaction row at all — a hot-wallet sweep, a relayer, bulk pay.
 For those, RESOLVED could still name a transaction that is not the swap's.
 
-The design that removes this entirely is to persist the transaction hash
+The design that removes BOTH of these entirely is to persist the transaction hash
 itself before broadcasting rather than the nonce: an EVM hash is keccak of the
 signed payload, so it is fully determined at signing time, one step before the
 send that may lose it. That identifies the exact transaction with no
