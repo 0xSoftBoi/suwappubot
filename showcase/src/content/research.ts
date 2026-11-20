@@ -128,9 +128,11 @@ The distinction matters because a bank should not confuse a protocol primitive w
 
 [Tempo's transaction specification](https://docs.tempo.xyz/docs/protocol/transactions/spec-tempo-transaction) defines type **0x76** with native fee sponsorship: a third-party fee payer can pay fees for a sender. [Tempo's fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee) makes the fee token part of the fee-payer commitment. The protocol therefore separates payment authorization from fee authorization without requiring an ERC-4337 paymaster contract.
 
-Suwappu constructs the transaction through the official \`pytempo\` SDK. The sender signs the sender hash; the sponsor signs the fee-payer hash after the fee token is set. The current path batches \`approve(DEX, amount)\` and \`swapExactAmountIn(...)\` as two calls in the same Tempo transaction before broadcast. For the sponsored path, there is no separate on-chain approval transaction to pre-fund.
+Suwappu constructs the transaction through the official \`pytempo\` SDK. The sender signs the sender hash. The sponsor signs the fee-payer hash after the fee token is set.
 
-This does **not** mean a sponsored swap is free. The user's network-fee debit is zero because the sponsor pays it; swap fees, spread, and slippage remain economic costs of the trade.
+The current path batches \`approve(DEX, amount)\` and \`swapExactAmountIn(...)\` as two calls in the same Tempo transaction before broadcast. For the sponsored path, there is no separate on-chain approval transaction to pre-fund.
+
+This does **not** mean a sponsored swap is free. The user's network-fee debit is zero because the sponsor pays it. Swap fees, spread, and slippage remain economic costs of the trade.
 
 ## Persistent limits, not yet a budget control
 
@@ -169,7 +171,7 @@ A useful operating model is therefore:
 
 ## Evidence ledger
 
-The protocol claims in this note come from Tempo's [type-0x76 transaction specification](https://docs.tempo.xyz/docs/protocol/transactions/spec-tempo-transaction), [fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee), and current [performance documentation](https://tempo.xyz/developers/performance). The institutional control framing uses [CPMI-IOSCO's stablecoin PFMI guidance](https://www.bis.org/cpmi/publ/d206.htm) only as a risk-separation lens; it is not a classification of Tempo or Suwappu.
+The protocol claims in this note come from Tempo's [type-0x76 transaction specification](https://docs.tempo.xyz/docs/protocol/transactions/spec-tempo-transaction), [fee specification](https://docs.tempo.xyz/docs/protocol/fees/spec-fee), and current [performance documentation](https://tempo.xyz/developers/performance). The institutional control framing uses [CPMI-IOSCO's stablecoin PFMI guidance](https://www.bis.org/cpmi/publ/d206.htm) only as a risk-separation lens. It is not a classification of Tempo or Suwappu.
 
 The implementation claims are source observations from current Suwappu main: the sponsorship policy service, Tempo swap construction, keychain, settings, persistence model, and their call sites. Repository state can establish what software is written to do. It cannot establish a production feature flag, sponsor balance, key-control procedure, receipt population, realized fee, uptime, or legal settlement status. Those remain outside this note until runtime evidence is collected.
 
@@ -246,7 +248,7 @@ The fallback is a feature and a limitation. It prevents a heuristic gas number f
 
 A bank-grade execution objective would normally distinguish **economic score** from **risk eligibility**. One useful design target is to think about a route's decision value as quoted economics less network cost, expected failure cost, the opportunity cost of value in flight, and any explicit risk charge. Some risks may belong outside the score entirely as hard eligibility constraints.
 
-That is a design frame, **not the algorithm Suwappu runs today**. Current code conditionally prices trusted gas and uses a narrow time tiebreak; it does not estimate expected loss from route failure, attach a shadow price to settlement time, or risk-weight bridges and venues. Pretending those terms were quantified would create more false precision, not better execution.
+That is a design frame, **not the algorithm Suwappu runs today**. Current code conditionally prices trusted gas and uses a narrow time tiebreak. It does not estimate expected loss from route failure, attach a shadow price to settlement time, or risk-weight bridges and venues. Pretending those terms were quantified would create more false precision, not better execution.
 
 The practical roadmap is therefore measurable:
 
@@ -266,7 +268,9 @@ The same discipline applies to every venue-specific protection: capability is no
 
 ## Quote competition versus best execution
 
-The engine emits structured \`route_comparison\` telemetry for multi-quote Python races, including winner, quoted output, gas, fees, estimated time, basis-point delta, and any speed tiebreak. The TypeScript agent/web path separately samples and persists LI.FI route candidates; on same-chain EVM it also fetches KyberSwap for comparison, while execution remains LI.FI. Solana uses Jupiter. That means the agent surface does **not** inherit the Python engine's multi-provider winner selection.
+The engine emits structured \`route_comparison\` telemetry for multi-quote Python races, including winner, quoted output, gas, fees, estimated time, basis-point delta, and any speed tiebreak. The TypeScript agent/web path separately samples and persists LI.FI route candidates. On same-chain EVM it also fetches KyberSwap for comparison, while execution remains LI.FI.
+
+Solana uses Jupiter. That means the agent surface does **not** inherit the Python engine's multi-provider winner selection.
 
 These datasets are useful for transaction-cost analysis, but they do not yet justify a "best execution" claim. Quote-stage counterfactuals answer **selection** questions.
 
@@ -344,9 +348,9 @@ Three boundaries matter.
 
 **10bp is relative to winner score, not automatically input notional.** The underlying score can be net of trusted gas when the pricing evidence supports that conversion, or gross output when it does not. Dollar examples in this paper therefore introduce **V**: the USD-equivalent economic value of the winner score under a credible contemporaneous mark. A $1m input is not asserted to create a $1,000 speed budget.
 
-**"Trusted time" describes provenance, not forecast accuracy.** The pinned source classifies several provider-supplied timing fields as trusted for the tiebreak and excludes several hard-coded adapter durations. That is a useful implementation boundary; it is not an empirical test that those ETAs predict the defined completion endpoint.
+**"Trusted time" describes provenance, not forecast accuracy.** The pinned source classifies several provider-supplied timing fields as trusted for the tiebreak and excludes several hard-coded adapter durations. That is a useful implementation boundary. It is not an empirical test that those ETAs predict the defined completion endpoint.
 
-**The threshold is a heuristic, not a fitted optimum.** Exactly half the winner ETA does not qualify; just under half can. 10.01bp does not qualify; 10bp can. Deterministic cutoffs are easy to audit, but their existence is not evidence of optimality.
+**The threshold is a heuristic, not a fitted optimum.** Exactly half the winner ETA does not qualify. Just under half can. 10.01bp does not qualify; 10bp can. Deterministic cutoffs are easy to audit, but their existence is not evidence of optimality.
 
 ## The minimal financing model
 
@@ -390,7 +394,7 @@ A complete speed value can contain several terms:
 | Liquidity / operations | Deadline misses, stuck-balance duration, exception workload, liquidity reuse |
 | Service-level value | Explicit user or treasury willingness to pay for a documented deadline |
 
-Only the first term is estimated here. The others can be larger; the paper has no production outcome sample with which to say how large.
+Only the first term is estimated here. The others can be larger. The paper has no production outcome sample with which to say how large.
 
 That is why the right implementation is not "replace 10bp with SOFR carry." It is to turn the heuristic into a **versioned willingness-to-pay curve** whose non-carry terms have evidence behind them.
 
@@ -406,7 +410,7 @@ The [BIS Markets Committee's execution-algorithm study](https://www.bis.org/publ
 
 **4. Validate the ETA itself.** Report median and tail ETA error, percentile coverage, failure and retry distributions, and time-to-usable-funds by route class and relevant size band. "Provider-reported" should be the beginning of the trust test, not the end.
 
-**5. Shadow first; identify counterfactuals before steering.** A candidate calibrated policy can run on the same quote races without changing winners, which tests decision disagreement, data coverage and implementation. But only the executed route has a realized outcome, since shadow choices cannot reveal how a losing route would have filled.
+**5. Shadow first. Identify counterfactuals before steering.** A candidate calibrated policy can run on the same quote races without changing winners, which tests decision disagreement, data coverage and implementation. But only the executed route has a realized outcome, since shadow choices cannot reveal how a losing route would have filled.
 
 Any causal "loss avoided" premium that can change a winner therefore needs bounded controlled exploration among already-eligible routes where policy and risk permit, or a predeclared causal/off-policy estimator with adequate overlap/support diagnostics and sensitivity analysis. If support is inadequate, leave that premium unestimated. Steering requires both operational evidence and identification evidence.
 
@@ -422,7 +426,7 @@ The financing result can be rerun by changing one pinned rate input. The more im
 
 If a predeclared identification design shows that faster trusted-time routes consistently avoid market, failure, liquidity or operational losses worth close to the paid score concession, then the 10bp ceiling has an empirical defense. That design could use controlled exploration where appropriate, or a defensible causal/off-policy estimator with adequate support. Joined chosen-route telemetry alone is insufficient.
 
-If identified avoided cost is materially lower, the threshold should fall; if support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
+If identified avoided cost is materially lower, the threshold should fall. If support is inadequate, the premium remains unestimated. If provider ETAs do not predict the defined usability endpoint with acceptable error, timing should lose steering authority regardless of provenance.
 
 The question becomes reviewable: **what identified cost or explicit preference pays for each basis point of speed premium?**
 
@@ -444,7 +448,9 @@ The boundary is equally explicit. This paper uses **no production replay**. It d
 
 const USDT0_BODY = `# USDT0 backing, reconciled at the perimeter
 
-*Institutional research note. This study tests token-unit backing inside USDT0's cross-chain accounting perimeter. It does not test Tether's reserve portfolio, USDT redemption capacity, or the legal status of the backing asset. The [working paper](/research/replication/papers/usdt0-collateral-reconciliation.md) is canonical; a [nine-page report edition](/research/reports/accounting-for-an-omnichain-dollar.pdf) is available for circulation.*
+*Institutional research note. This study tests token-unit backing inside USDT0's cross-chain accounting perimeter. It does not test Tether's reserve portfolio, USDT redemption capacity, or the legal status of the backing asset.*
+
+*The [working paper](/research/replication/papers/usdt0-collateral-reconciliation.md) is canonical. A [nine-page report edition](/research/reports/accounting-for-an-omnichain-dollar.pdf) is available for circulation.*
 
 ## Executive conclusion
 
@@ -520,7 +526,9 @@ For a bank, the address map therefore belongs in controlled reference data. Ever
 
 ## The Polygon reference-data break
 
-Version 2 reported 16 pre-migration observations at 0.513x to 0.588x because the address recorded as Polygon's ERC20 predicate held 0.02 USDT. The balance read was correct; the mapping was not. Polygon's canonical PoS predicate is \`0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf\`. Archive reads at the same aligned blocks show **1.22bn to 1.39bn USDT** in that account, covering the Polygon supply leg at 1.006 to 1.015 in all 16 observations.
+Version 2 reported 16 pre-migration observations at 0.513x to 0.588x because the address recorded as Polygon's ERC20 predicate held 0.02 USDT. The balance read was correct. The mapping was not.
+
+Polygon's canonical PoS predicate is \`0x40ec5B33f54e0E8A33A975908C5BA1c14e5BbbDf\`. Archive reads at the same aligned blocks show **1.22bn to 1.39bn USDT** in that account, covering the Polygon supply leg at 1.006 to 1.015 in all 16 observations.
 
 ![Two series: version 2's published token-unit backing ratio, dashed, falling to 0.51-0.59 before late August 2025, and the corrected measured series including the canonical Polygon predicate, solid, holding above par across the panel.](/research/usdt0-corrected-series.svg "The V2 shortfall was an address-map artifact. Including the canonical Polygon predicate restores the measured pre-migration backing account; the historical panel remains subject to its stated deployment-coverage limits.")
 
@@ -544,7 +552,7 @@ Post-migration, the nominal token-unit difference between observed backing and m
 
 The final eight days are more decision-relevant than the peak. From 17 to 25 July, USDT backing fell **192.9m units** while measured USDT0 supply fell **75.7m units**, about **117m more units of backing left than supply declined**. The measured difference compressed to 5.1m units.
 
-That terminal panel point needs one more qualification. The final historical row carried 17 supply legs; three additional documented legs held a combined 4.9m units at the complete head read six days later. If their 25 July balances were similar, the complete-universe difference would have been on the order of 0.2m units, with sign indeterminable.
+That terminal panel point needs one more qualification. The final historical row carried 17 supply legs. Three additional documented legs held a combined 4.9m units at the complete head read six days later. If their 25 July balances were similar, the complete-universe difference would have been on the order of 0.2m units, with sign indeterminable.
 
 That is an inference, not a measured historical point. At this margin, population completeness matters more than another decimal place of RPC precision.
 
@@ -582,21 +590,23 @@ Two different assessments can change, for different reasons.
 
 None of those changes necessarily moves either side of this ratio.
 
-Tron and TON are intentionally outside this direct-supply reconciliation. [USDT0 documents them within the Legacy Mesh](https://docs.usdt0.to/overview/the-legacy-mesh), which connects native USDT deployments through liquidity pools and a hub rather than treating their full native supply as direct USDT0 supply against this lockbox. That system creates a different liquidity and counterparty perimeter; this article does not measure it.
+Tron and TON are intentionally outside this direct-supply reconciliation. [USDT0 documents them within the Legacy Mesh](https://docs.usdt0.to/overview/the-legacy-mesh), which connects native USDT deployments through liquidity pools and a hub rather than treating their full native supply as direct USDT0 supply against this lockbox. That system creates a different liquidity and counterparty perimeter. This article does not measure it.
 
 ## Method and reproducibility
 
 The historical panel contains **183 block-height-aligned observations at 48-hour intervals from 26 July 2025 through 25 July 2026**. It also includes a six-hour migration rescan, a 16-observation archive backfill of the canonical Polygon predicate, and the complete documented-universe head snapshot at 01:53 UTC on 1 August 2026.
 
-All collection uses public chain state. No explorer API, indexer, or credential is required. The ratio is computed in native token units and assumes the protocol's 1:1 USDT/USDT0 accounting convention; it is not USD mark-to-market. Superseded inputs are retained: the original 12-chain panel, wrong-address Polygon control, corrected predicate backfill, buffer analysis, and complete head snapshot can all be inspected alongside the scripts that generated them.
+All collection uses public chain state. No explorer API, indexer, or credential is required.
+
+The ratio is computed in native token units and assumes the protocol's 1:1 USDT/USDT0 accounting convention. It is not USD mark-to-market. Superseded inputs are retained: the original 12-chain panel, wrong-address Polygon control, corrected predicate backfill, buffer analysis, and complete head snapshot can all be inspected alongside the scripts that generated them.
 
 **[Open the working paper, code, data, and correction history](/research/replication)**. The [working paper](/research/replication/papers/usdt0-collateral-reconciliation.md) governs where this abridged article and the paper differ.
 
-Primary architecture sources used to define the perimeter are USDT0's [developer guide](https://docs.usdt0.to/technical-documentation/developer/), [deployment registry](https://docs.usdt0.to/technical-documentation/deployments), and [Polygon migration notice](https://blog.usdt0.to/polygon-usdt-now-upgraded-to-usdt0-1-3b-in-usdt-liquidity-available-natively-omnichain); LayerZero's [OFT standard](https://docs.layerzero.network/v2/concepts/applications/oft-standard); and Tether's [legal terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) and [reserve transparency page](https://tether.to/transparency/). The bank-risk framing also references [CPMI-IOSCO's PFMI stablecoin guidance](https://www.bis.org/cpmi/publ/d198.pdf), the US banking agencies' [SR 26-2 revised model-risk guidance](https://www.federalreserve.gov/supervisionreg/srletters/SR2602.pdf), and the Basel Committee's [SCO60 cryptoasset framework](https://www.bis.org/basel_framework/chapter/SCO/60.htm?inforce=20260101&published=20240717). Party-authored sources define claims made by the relevant parties; citing them is not independent assurance of those claims.
+Primary architecture sources used to define the perimeter are USDT0's [developer guide](https://docs.usdt0.to/technical-documentation/developer/), [deployment registry](https://docs.usdt0.to/technical-documentation/deployments), and [Polygon migration notice](https://blog.usdt0.to/polygon-usdt-now-upgraded-to-usdt0-1-3b-in-usdt-liquidity-available-natively-omnichain); LayerZero's [OFT standard](https://docs.layerzero.network/v2/concepts/applications/oft-standard); and Tether's [legal terms](https://tether.to/en/legal/?tab=risk-disclosure-statement) and [reserve transparency page](https://tether.to/transparency/). The bank-risk framing also references [CPMI-IOSCO's PFMI stablecoin guidance](https://www.bis.org/cpmi/publ/d198.pdf), the US banking agencies' [SR 26-2 revised model-risk guidance](https://www.federalreserve.gov/supervisionreg/srletters/SR2602.pdf), and the Basel Committee's [SCO60 cryptoasset framework](https://www.bis.org/basel_framework/chapter/SCO/60.htm?inforce=20260101&published=20240717). Party-authored sources define claims made by the relevant parties. Citing them is not independent assurance of those claims.
 
 ---
 
-*Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, regulatory classification, prudential-capital opinion, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it; no directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication.*
+*Disclosures: this is research, not a reserve attestation, audit opinion, legal opinion, credit rating, regulatory classification, prudential-capital opinion, or investment recommendation. Suwappu builds cross-chain execution infrastructure spanning several of the chains measured and holds operational stablecoin balances, including USDT and USDT0, incidental to running it. No directional position informed this analysis. Tether, Everdawn Labs, and other named parties did not review the work before publication.*
 
 *The first correction originated in an external adversarial review we commissioned; the second in our own registry re-verification. The current working-paper revision was also adversarially refereed and incorporates the surviving corrections from that pass. All measurement inputs are public chain state or cited public documents.*`;
 
@@ -634,7 +644,9 @@ Let a fixed prize be split in proportion to points earned, and let points cost s
 
 The symmetric benchmark has one clean comparative-static result. With identical linear costs and no quantity constraint, the dissipated fraction is exactly (*n*−1)/*n*. Holding *n* = 100 and scaling the common unit cost from $0.10 to $100 leaves modeled dissipation at 0.990: points minted fall from 9.9 million to 9,900 while modeled dollar spend remains $990k.
 
-The original article incorrectly promoted that result into a claim about **hard caps**. A scalar increase in marginal unit cost and a binding per-user quantity ceiling are not the same mechanism. A hard cap is a corner constraint on effort; the current heterogeneous-cost model does not solve that constrained game. We therefore retract the sentence "caps change points minted but not dissipation" as a general design claim.
+The original article incorrectly promoted that result into a claim about **hard caps**. A scalar increase in marginal unit cost and a binding per-user quantity ceiling are not the same mechanism.
+
+A hard cap is a corner constraint on effort. The current heterogeneous-cost model does not solve that constrained game. We therefore retract the sentence "caps change points minted but not dissipation" as a general design claim.
 
 The second benchmark is the active-set result under heterogeneous linear costs. It is mathematically correct for the game we solve. The companion empirical paper shows that it is not a good description of the observed wallet-level allocation process in the programs we tested.
 
@@ -690,19 +702,21 @@ The gain rises as the participant's own share of the pool falls, approaching the
 
 ## Empirical status of the sharp prediction
 
-This post originally said the model's falsification test, recipient-level concentration at completed programs, had not been run. It now has. The primary HYPE and EIGEN vectors contain 329,947 positive-allocation wallets in aggregate; measured top-1 shares are 0.73% and 2.40% against a program-matched model envelope whose lower edge is about 14.3%. Across the grid test, no sampled parameter value reconciles both observed participation and top-share concentration. [The companion paper reports the collection, correction history, and simulation test.](/research/airdrop-concentration)
+This post originally said the model's falsification test, recipient-level concentration at completed programs, had not been run. It now has.
+
+The primary HYPE and EIGEN vectors contain 329,947 positive-allocation wallets in aggregate. Measured top-1 shares are 0.73% and 2.40% against a program-matched model envelope whose lower edge is about 14.3%. Across the grid test, no sampled parameter value reconciles both observed participation and top-share concentration. [The companion paper reports the collection, correction history, and simulation test.](/research/airdrop-concentration)
 
 What fails is the **descriptive active-set channel at wallet level**. What survives are conditional identities that do not depend on that descriptive fit: the symmetric cost-scaling result, the modeled revenue-capture identity, and the fixed-budget wallet-splitting arithmetic. Even those results inherit their stated assumptions and should not be promoted into claims about hard caps, realized revenue, or beneficial owners.
 
 ## Model-risk boundary
 
-The solver has been verified against first-order conditions, inactive-player entry conditions, a brute-force deviation grid, and an independently coded damped best-response process. That establishes that the code solves the stated game. It does not establish external validity; the companion study supplies direct evidence that the active-set description fails for the observed programs.
+The solver has been verified against first-order conditions, inactive-player entry conditions, a brute-force deviation grid, and an independently coded damped best-response process. That establishes that the code solves the stated game. It does not establish external validity. The companion study supplies direct evidence that the active-set description fails for the observed programs.
 
-The main omitted mechanisms are now more than a limitations list; they are candidate explanations for the rejection:
+The main omitted mechanisms are now more than a limitations list. They are candidate explanations for the rejection:
 
 - **Budget constraints and nonlinear costs.** The model gives participants unbounded effort at constant marginal cost. Real users have finite capital and operational limits.
 - **Incomplete information and dynamic participation.** Users need not solve a one-shot complete-information Nash game to receive points for activity they would have undertaken anyway.
-- **Risk and uncertain prize value.** The token value is unknown while points are earned; the model treats the dollar prize as fixed.
+- **Risk and uncertain prize value.** The token value is unknown while points are earned. The model treats the dollar prize as fixed.
 - **Identity resolution.** Wallets are not beneficial owners. Entity clustering can raise economic concentration even when wallet concentration is measured correctly.
 - **Hard quantity caps.** A binding cap is a constrained game not solved by Proposition 2's scalar-cost invariance.
 
@@ -710,7 +724,7 @@ The empirical rejection also gives the model a clean governance status: **challe
 
 ## Applying this to Suwappu's own incentives
 
-The current source configuration denominates the pro-rata core in fees and also contains per-user engagement and referral caps. Those are two different mechanisms. The fixed-budget wallet-splitting corollary applies to the strictly fee-proportional core; it does **not** certify the nonlinear grants or the entire program as sybil-neutral.
+The current source configuration denominates the pro-rata core in fees and also contains per-user engagement and referral caps. Those are two different mechanisms. The fixed-budget wallet-splitting corollary applies to the strictly fee-proportional core. It does **not** certify the nonlinear grants or the entire program as sybil-neutral.
 
 We also do not use repository code as evidence of a realized distribution outcome. No completed Suwappu token allocation is measured in this study. Until outcome data exists, concentration for our own program is **unverified**.
 
@@ -731,11 +745,13 @@ The relevant operating dataset therefore joins incentive cost to the business ou
 
 This post is an abridgement. [The paper](/research/replication/papers/points-tullock-contests.md) carries the propositions and their proofs, the full robustness section and the references, and where the two disagree, the paper governs.
 
-As a reproducibility cross-check, the symmetric benchmark reconciles directly. *D* = 99/100 = 0.99, so a $1m prize implies $990k of modeled spend. At unit costs of $0.10 and $100 that corresponds to 9.9m and 9,900 points, and 5% and 97% capture imply $49.5k and $960.3k. This checks the article's arithmetic; it is **not** model validation or evidence of realized program economics.
+As a reproducibility cross-check, the symmetric benchmark reconciles directly. *D* = 99/100 = 0.99, so a $1m prize implies $990k of modeled spend. At unit costs of $0.10 and $100 that corresponds to 9.9m and 9,900 points, and 5% and 97% capture imply $49.5k and $960.3k. This checks the article's arithmetic. It is **not** model validation or evidence of realized program economics.
 
 ---
 
-*Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a direct commercial interest in fee-denominated incentive design. No completed Suwappu token distribution is used as evidence here. The active-set prediction in the first version of this article failed its first published wallet-level empirical test; that correction is part of the research record, not a footnote.*`;
+*Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a direct commercial interest in fee-denominated incentive design. No completed Suwappu token distribution is used as evidence here.*
+
+*The active-set prediction in the first version of this article failed its first published wallet-level empirical test. That correction is part of the research record, not a footnote.*`;
 
 const AIRDROP_BODY = `# When a correct model is wrong
 
@@ -770,11 +786,15 @@ This is why publishing a failed prediction is more valuable than quietly replaci
 
 ## The data
 
-**HYPE genesis.** The collector returns 90,918 addresses; after six enumerated system-account exclusions, the analysis contains **90,912 recipient wallets holding 269.6m HYPE**. The accounting reconciliation closes against the published genesis components used by the collector. The vector is post-eligibility: issuer rules operated before distribution, so this paper does not observe the counterfactual pre-filter population. We therefore do not assign a causal direction to those filters without measuring the excluded set.
+**HYPE genesis.** The collector returns 90,918 addresses. After six enumerated system-account exclusions, the analysis contains **90,912 recipient wallets holding 269.6m HYPE**. The accounting reconciliation closes against the published genesis components used by the collector.
 
-**EIGEN Season 1.** We aggregate transfers from both distributor phases to **239,035 wallets and 101.1m EIGEN**. The first collection omitted Phase 2; the corrected release adds it and publishes a seed = claims + forfeiture-sweep conservation check for each distributor. [Eigen Foundation's own Season 1 documentation](https://docs.eigenfoundation.org/faq/season-1) confirms the two-phase design and the additional 100-EIGEN per-address allocation. Because unclaimed allocations and eligibility restrictions are not observed symmetrically, HYPE carries more weight in the top-wallet rejection.
+The vector is post-eligibility: issuer rules operated before distribution, so this paper does not observe the counterfactual pre-filter population. We therefore do not assign a causal direction to those filters without measuring the excluded set.
 
-**ENA Season 1.** Four sibling claim contracts seeded from the same issuer address reconcile to approximately 750m units. After excluding the issuer's **336.6m** sweep-back from the recipient vector and closing a 47m coverage gap found during review, the released vector contains **46,198 wallets and 407.8m ENA**. We deliberately do **not** equate that ledger reconciliation to public "claimed percentage" figures unless their denominator, time window, and treatment of sweep-backs match ours. ENA is lower-resolution because claim executors may aggregate beneficiaries; it is a cross-check, not equal-quality evidence for the primary test.
+**EIGEN Season 1.** We aggregate transfers from both distributor phases to **239,035 wallets and 101.1m EIGEN**. The first collection omitted Phase 2. The corrected release adds it and publishes a seed = claims + forfeiture-sweep conservation check for each distributor. [Eigen Foundation's own Season 1 documentation](https://docs.eigenfoundation.org/faq/season-1) confirms the two-phase design and the additional 100-EIGEN per-address allocation. Because unclaimed allocations and eligibility restrictions are not observed symmetrically, HYPE carries more weight in the top-wallet rejection.
+
+**ENA Season 1.** Four sibling claim contracts seeded from the same issuer address reconcile to approximately 750m units. After excluding the issuer's **336.6m** sweep-back from the recipient vector and closing a 47m coverage gap found during review, the released vector contains **46,198 wallets and 407.8m ENA**.
+
+We deliberately do **not** equate that ledger reconciliation to public "claimed percentage" figures unless their denominator, time window, and treatment of sweep-backs match ours. ENA is lower-resolution because claim executors may aggregate beneficiaries. It is a cross-check, not equal-quality evidence for the primary test.
 
 ## The result
 
@@ -786,7 +806,7 @@ This is why publishing a failed prediction is more valuable than quietly replaci
 
 The model band was recomputed at each program's own entrant count. The grid-based rejection then evaluates 15 cost-dispersion values from 10⁻⁴ to 1.2 with 200 Monte Carlo economies at each value. Zero of 3,000 draws per program jointly produced a top-1 share within a factor of two of the observed one and an active set of at least half the observed wallet count.
 
-Within that prespecified grid, lowering dispersion raises modeled participation while collapsing the top share; increasing dispersion raises the top share while shrinking the active set. No sampled parameter reconciles both moments. The paper reports this as a grid-based simulation test, not proof over every possible alternative model or parameterization.
+Within that prespecified grid, lowering dispersion raises modeled participation while collapsing the top share. Increasing dispersion raises the top share while shrinking the active set. No sampled parameter reconciles both moments. The paper reports this as a grid-based simulation test, not proof over every possible alternative model or parameterization.
 
 ## What the allocations actually look like
 
@@ -800,7 +820,7 @@ From a distribution-risk seat, that produces a second caution: **wide participat
 
 ### Interpretation versus identification
 
-A **working hypothesis** is that capital or activity budgets are the omitted constraint. HYPE and EIGEN rewarded activities related to trading or restaking, so an allocation that co-moves with participant capital is economically plausible; a budget-bound pro-rata mechanism can produce many positive allocations with a heavy upper tail. The backed-out Tullock parameter also moves toward very low marginal-cost dispersion when forced to match the observed top share.
+A **working hypothesis** is that capital or activity budgets are the omitted constraint. HYPE and EIGEN rewarded activities related to trading or restaking, so an allocation that co-moves with participant capital is economically plausible. A budget-bound pro-rata mechanism can produce many positive allocations with a heavy upper tail. The backed-out Tullock parameter also moves toward very low marginal-cost dispersion when forced to match the observed top share.
 
 The data in this paper do **not** measure participant capital at the relevant snapshots, estimate marginal costs, or randomly vary the reward rule. They therefore do not identify "allocation mirrors capital" as the cause of the observed shape. That hypothesis should be tested by joining future recipient vectors to pre-distribution balance/activity distributions, rather than stated as an empirical fact.
 
@@ -816,7 +836,7 @@ The capital-mirror hypothesis makes a useful prospective test: **if** pre-distri
 
 ## Beneficial-owner resolution is the largest remaining measurement risk
 
-All headline statistics are wallet-level. Wallet splitting can make beneficial-owner concentration **higher** than measured wallet concentration; omnibus or custodial collection can make a single wallet represent many beneficiaries, pushing in the opposite direction. The sign is therefore not known without entity resolution.
+All headline statistics are wallet-level. Wallet splitting can make beneficial-owner concentration **higher** than measured wallet concentration. Omnibus or custodial collection can make a single wallet represent many beneficiaries, pushing in the opposite direction. The sign is therefore not known without entity resolution.
 
 We quantify how much clustering would be required to rescue the model rather than assume it away. Using each program's stored σ = 0.2 matched-*n* median as the lower benchmark, the wealthiest **63 HYPE wallets** would have to be treated as one entity to reach 16.1%. The participation moment would require roughly 90,000 wallets to collapse to about 21 entities.
 
@@ -832,13 +852,13 @@ For mechanism design, per-wallet nonlinearities should be tested explicitly for 
 
 ## Data and code
 
-**[Both primary wallet vectors, the collectors, the analysis, and the simulation test are published here](/research/replication)**. The release covers 329,947 recipient rows across the HYPE genesis and EIGEN claim-recipient vectors used for the primary test, the model solver reused verbatim from the theory paper, and fixed seeds throughout. This post is an abridgement; [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, matched-*n* bands, prespecified grid-based simulation test, and ENA post-mortem, and where the two disagree, the paper governs.
+**[Both primary wallet vectors, the collectors, the analysis, and the simulation test are published here](/research/replication)**. The release covers 329,947 recipient rows across the HYPE genesis and EIGEN claim-recipient vectors used for the primary test, the model solver reused verbatim from the theory paper, and fixed seeds throughout. This post is an abridgement. [the paper](/research/replication/papers/airdrop-concentration.md) carries the full method, matched-*n* bands, prespecified grid-based simulation test, and ENA post-mortem, and where the two disagree, the paper governs.
 
-For program-design provenance, the primary external source for EIGEN is the [Eigen Foundation Season 1 documentation](https://docs.eigenfoundation.org/faq/season-1), which documents the two phases and the additional per-address allocation. The outcome quantities above come from the released recipient vectors and collectors rather than from that program document; the distinction between source-defined mechanics and measured outcomes is deliberate.
+For program-design provenance, the primary external source for EIGEN is the [Eigen Foundation Season 1 documentation](https://docs.eigenfoundation.org/faq/season-1), which documents the two phases and the additional per-address allocation. The outcome quantities above come from the released recipient vectors and collectors rather than from that program document. The distinction between source-defined mechanics and measured outcomes is deliberate.
 
 ---
 
-*Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a commercial interest in fee-denominated incentive design; this paper rejects a more dramatic concentration claim from our own prior work. We hold no position in HYPE, EIGEN, or ENA taken on the basis of this analysis.*
+*Disclosures: this is research, not investment, legal, accounting, or prudential advice. Suwappu has a commercial interest in fee-denominated incentive design. This paper rejects a more dramatic concentration claim from our own prior work. We hold no position in HYPE, EIGEN, or ENA taken on the basis of this analysis.*
 
 *No issuer named here reviewed the study. The primary evidence is public chain state or public APIs collected 31 July to 1 August 2026, and all headline concentration statistics are wallet-level.*`;
 
@@ -846,7 +866,7 @@ const ERC8056_BODY = `# The stock split your ERC-20 balance never shows
 
 *Research note. Published 7 August 2026. Evidence state: RESEARCH. ERC-8056 is a Draft standards-track ERC, not a finalized standard.*
 
-*This study tests integration semantics and public code-search visibility; it does not claim a live user incident or that any named product lacks runtime support.*
+*This study tests integration semantics and public code-search visibility. It does not claim a live user incident or that any named product lacks runtime support.*
 
 Here is a crypto failure mode that can produce a **10x wrong number without a failed RPC call, a reverted transaction, or a broken ERC-20 contract**.
 
@@ -920,18 +940,18 @@ So the finding is deliberately narrow: the canonical ERC-8056 integration vocabu
 
 We ran the same marker set against Suwappu's own pre-study main snapshot, commit **8ca242149eb40c7f90b0c2ac02a4ca850e432e4c**, across the bot, TypeScript API, webapp, terminal, packages, contracts, showcase source, and docs. It returned zero matches too.
 
-That is not evidence of an exposed Suwappu Stock Token trading bug. Current source explicitly keeps canonical Robinhood Stock Token trading **fail-closed** until a dedicated jurisdiction and eligibility flow exists; the guard is visible in the pinned [discovery handler](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/paste_trade.py#L196-L207) and [swap callback](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/swap.py#L2030-L2041).
+That is not evidence of an exposed Suwappu Stock Token trading bug. Current source explicitly keeps canonical Robinhood Stock Token trading **fail-closed** until a dedicated jurisdiction and eligibility flow exists. The guard is visible in the pinned [discovery handler](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/paste_trade.py#L196-L207) and [swap callback](https://github.com/0xSoftBoi/suwappubot/blob/8ca242149eb40c7f90b0c2ac02a4ca850e432e4c/bot/handlers/swap.py#L2030-L2041).
 
 The useful conclusion is engineering governance: **ERC-8056 handling belongs in the admission criteria before that gate can safely be removed.** Catching the mismatch while the route is closed is the cheap version of finding it.
 
 ## What a correct integration has to remember
 
-1. **Detect the scaled-UI interface explicitly.** ERC-8056 is Draft; treat that status as a versioning risk rather than assuming every ERC-20 has these methods.
+1. **Detect the scaled-UI interface explicitly.** ERC-8056 is Draft. Treat that status as a versioning risk rather than assuming every ERC-20 has these methods.
 2. **Give quantities semantic names.** Raw token amount, share-equivalent amount, raw underlying price, and adjusted token price should not share an ambiguous “amount” or “price” field.
-3. **Apply the multiplier exactly once.** Raw Robinhood REST share price needs it to become per-token value; the Chainlink token feed already has it.
+3. **Apply the multiplier exactly once.** Raw Robinhood REST share price needs it to become per-token value. The Chainlink token feed already has it.
 4. **Model the transition, not just the steady state.** Pending multiplier/effective time, oracle pause, feed staleness, and L2 sequencer state matter around corporate actions.
 5. **Test 10x and 0.1x, not only 1.0x.** A test suite that only sees the launch multiplier cannot distinguish ERC-20-only display logic from correct scaled-UI handling.
-6. **Keep transfers raw.** The multiplier changes presentation semantics; standard ERC-20 transfer operations remain raw.
+6. **Keep transfers raw.** The multiplier changes presentation semantics. Standard ERC-20 transfer operations remain raw.
 
 The invariant we would want before enabling the asset class is simple: for the same holding and observation time, every supported price/amount path must reconcile to the same economic value after its documented transformation. If the REST, Chainlink, and UI paths disagree, fail closed instead of guessing which surface has already been adjusted.
 
@@ -941,13 +961,13 @@ ERC-20 compatibility solved a huge part of composability by making token plumbin
 
 ERC-8056's design is interesting precisely because it tries to preserve the raw ERC-20 world while adding one missing semantic layer for the UI. That makes the new failure mode subtle: **settlement compatibility can survive while display compatibility does not.**
 
-**[Open the working paper and machine-readable audit](/research/replication)**. The [working paper](/research/replication/papers/erc8056-stock-token-interface-risk.md) is canonical; the released JSON records the repository set, query set, positive control, Suwappu self-check, and split fixture used here.
+**[Open the working paper and machine-readable audit](/research/replication)**. The [working paper](/research/replication/papers/erc8056-stock-token-interface-risk.md) is canonical. The released JSON records the repository set, query set, positive control, Suwappu self-check, and split fixture used here.
 
 ---
 
 *Disclosures and limits: ERC-8056 is Draft. The nine-repository audit is purposive, identifier-based public-code search and is not runtime conformance testing. We did not establish a live non-1x multiplier incident or a user-visible failure in any named product.*
 
-*Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions; this research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
+*Robinhood Stock Tokens are tokenised debt securities with jurisdiction and eligibility restrictions. This research is not an acquisition/trading guide and does not suggest bypassing those restrictions. Suwappu has a commercial interest in cross-chain execution infrastructure, while canonical Robinhood Stock Token trading remains fail-closed in the cited source snapshot. This is not investment, legal, tax, accounting, or financial advice.*`;
 
 export const researchPosts: ResearchPost[] = [
   {
