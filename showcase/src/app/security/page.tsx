@@ -22,7 +22,7 @@ const buckets = [
   },
   {
     title: 'Data protection',
-    body: 'Secrets are encrypted at rest with AES-256-GCM; all traffic is TLS-encrypted in transit. Sensitive material is segregated from application data, and API keys are shown exactly once at creation.',
+    body: 'Secrets are encrypted at rest with AES-256-GCM. All traffic is TLS-encrypted in transit. Sensitive material is segregated from application data, and API keys are shown exactly once at creation.',
   },
   {
     title: 'Account controls',

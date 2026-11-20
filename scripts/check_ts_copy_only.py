@@ -5,6 +5,12 @@ Blanks every string literal and JSX text node, then compares the remaining
 skeleton against HEAD. Identical skeletons mean no identifier, call, import,
 prop, or control-flow token moved: the diff is prose and nothing else.
 
+Known limitation: a JSX text node broken up by inline expressions such as
+`{' '}` is compared segment by segment, so re-wrapping a paragraph can move a
+word across a segment boundary and be reported as a code change. When that
+happens, confirm by hand that the diff is text only; comparing the word
+multiset of the changed block before and after is the usual proof.
+
 This is the TS analogue of comparing Python syntax trees, and it is what makes
 a large delegated copy rewrite safe to accept even when a workspace has no
 node_modules and cannot be built.

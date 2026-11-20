@@ -260,7 +260,7 @@ const agentTiers: { tier: string; rateLimit: string; swapFee: string }[] = [
 const agentPaymentModes = [
   {
     title: 'x402 pay-per-call',
-    body: 'Pay per request over HTTP 402: no signup, no API key, no subscription. Fund a wallet and call the endpoint; you’re charged for exactly what you use.',
+    body: 'Pay per request over HTTP 402: no signup, no API key, no subscription. Fund a wallet and call the endpoint. You’re charged for exactly what you use.',
   },
   {
     title: 'Prepaid credits',

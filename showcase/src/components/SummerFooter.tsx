@@ -106,9 +106,9 @@ export default function SummerFooter() {
       <div className="summer-footer__legal">
         <p>
           Suwappu is execution software, not a broker, exchange, investment adviser, or custodian.
-          Connect your own wallet and you keep your keys; we never take discretionary control of your
-          funds and we do not provide financial, tax, or legal advice. Digital-asset trading carries
-          risk of total loss. See our{' '}
+          Connect your own wallet and you keep your keys. We never take discretionary control of
+          your funds, and we do not provide financial, tax, or legal advice. Digital-asset trading
+          carries risk of total loss. See our{' '}
           <a href="/legal/risk">risk disclosures</a>, <a href="/legal/terms">terms</a>, and{' '}
           <a href="/legal/privacy">privacy policy</a>.
         </p>
@@ -121,7 +121,7 @@ export default function SummerFooter() {
 
       <div className="summer-footer__bottom">
         <span>&copy; 2026 Suwappu. All rights reserved.</span>
-        <span>You sign every swap by default; bring your own keys for full self-custody. Crypto trading carries risk.</span>
+        <span>You sign every swap by default. Bring your own keys for full self-custody. Crypto trading carries risk.</span>
       </div>
     </footer>
   );

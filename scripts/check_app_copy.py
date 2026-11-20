@@ -36,6 +36,9 @@ BANNED = re.compile(
     r"delightful|empower|elevate|unleash)\b",
     re.I,
 )
+# A spaced dash BETWEEN two amounts or numbers ("$100k – $1M", "5 – 10") is a
+# range, not sentence glue. Neutralised before the glue check.
+SPACED_RANGE = re.compile(r"(?<=[\w%])\s[—–]\s(?=[$€£]?\d)")
 DASH = re.compile(r"\s[—–]\s|\s--\s")
 MAX_SENTENCE_WORDS = 35
 
@@ -71,7 +74,7 @@ SKIP_DIRS = {"legal"}
 def flag(text: str) -> list[str]:
     flat = re.sub(r"\s+", " ", text).strip()
     out: list[str] = []
-    if DASH.search(flat):
+    if DASH.search(SPACED_RANGE.sub(" to ", flat)):
         out.append("A01 dash as sentence glue")
     m = BANNED.search(flat)
     if m:

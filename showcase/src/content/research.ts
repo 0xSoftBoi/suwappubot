@@ -988,7 +988,7 @@ export const researchPosts: ResearchPost[] = [
       status: 'MEASURED',
       asOf: '2026-08-01',
       basis: 'Public chain state · code and data released',
-      boundary: 'Protocol token-unit reconciliation; not an issuer reserve attestation.',
+      boundary: 'Protocol token-unit reconciliation. Not an issuer reserve attestation.',
     },
     paperPath: '/research/replication/papers/usdt0-collateral-reconciliation.md',
     report: {
@@ -1006,7 +1006,7 @@ export const researchPosts: ResearchPost[] = [
     indexFigure: {
       src: '/research/usdt0-corrected-series.svg',
       alt: 'Corrected measured USDT0 coverage series after the canonical Polygon predicate is included.',
-      caption: 'The V2 shortfall disappears when the canonical Polygon backing account is included; the complete head snapshot separately reconciles to 1.0003x.',
+      caption: 'The V2 shortfall disappears when the canonical Polygon backing account is included. The complete head snapshot separately reconciles to 1.0003x.',
     },
     keywords: [
       'omnichain stablecoin', 'USDT0', 'stablecoin backing reconciliation',
@@ -1029,13 +1029,13 @@ export const researchPosts: ResearchPost[] = [
       status: 'RESEARCH — SOURCE-VERIFIED',
       asOf: '2026-08-08',
       basis: 'Pinned router source + NY Fed rate benchmark · code/data released',
-      boundary: 'Scenario calibration, not production TCA; realized latency value and finality remain unmeasured.',
+      boundary: 'Scenario calibration, not production TCA. Realized latency value and finality remain unmeasured.',
     },
     paperPath: '/research/replication/papers/settlement-latency-value.md',
     heroArt: {
       src: '/research/cross-chain-latency-editorial.jpg',
       alt: 'A precision stopwatch feeds an amber ribbon across a navy ledger gap, through a translucent ETA marker and then a separate navy-and-brass finality gate before continuing into a long accordion of ivory paper leaves.',
-      caption: 'Editorial illustration, not quantitative evidence: the translucent marker represents the provider-reported ETA/expected-arrival milestone; the separate sealed gate represents an independently defined finality endpoint. At 3.65% SOFR, the pinned 10bp policy ceiling equals 9.86 days of simple ACT/360 carry; the study’s reproducible calibration figure contains the quantitative evidence.',
+      caption: 'Editorial illustration, not quantitative evidence: the translucent marker represents the provider-reported ETA/expected-arrival milestone. The separate sealed gate represents an independently defined finality endpoint. At 3.65% SOFR, the pinned 10bp policy ceiling equals 9.86 days of simple ACT/360 carry. The study’s reproducible calibration figure contains the quantitative evidence.',
     },
     indexFigure: {
       src: '/research/latency-carry.svg',
@@ -1064,7 +1064,7 @@ export const researchPosts: ResearchPost[] = [
       status: 'MODEL — CHALLENGED',
       asOf: '2026-08-08',
       basis: 'Exact equilibrium + seeded Monte Carlo · field test released',
-      boundary: 'Retained for conditional mechanism analysis; rejected for wallet-level allocation forecasting.',
+      boundary: 'Retained for conditional mechanism analysis. Rejected for wallet-level allocation forecasting.',
     },
     paperPath: '/research/replication/papers/points-tullock-contests.md',
     indexFigure: {
@@ -1094,7 +1094,7 @@ export const researchPosts: ResearchPost[] = [
       status: 'MEASURED',
       asOf: '2026-08-01',
       basis: '329,947 primary recipient wallets · code and data released',
-      boundary: 'Wallet-level outcomes; beneficial owners and causal mechanism unresolved. Not a legal or prudential classification.',
+      boundary: 'Wallet-level outcomes. Beneficial owners and causal mechanism unresolved. Not a legal or prudential classification.',
     },
     paperPath: '/research/replication/papers/airdrop-concentration.md',
     indexFigure: {
@@ -1125,12 +1125,12 @@ export const researchPosts: ResearchPost[] = [
       status: 'SOURCE-VERIFIED',
       asOf: '2026-08-08',
       basis: 'Current main + Tempo primary specifications',
-      boundary: 'Implementation verified; production enablement and realized fee control unverified.',
+      boundary: 'Implementation verified. Production enablement and realized fee control unverified.',
     },
     indexFigure: {
       src: '/research/tempo-fee-payer-control.svg',
       alt: 'Control map showing Tempo sender asset authority separated from sponsor network-fee authority in one transaction.',
-      caption: 'The fee payer is a separate treasury authority, not “free gas.” Implementation is source-verified; production enablement and receipt-reconciled hard budgets remain unverified.',
+      caption: 'The fee payer is a separate treasury authority, not “free gas.” Implementation is source-verified. Production enablement and receipt-reconciled hard budgets remain unverified.',
     },
     keywords: [
       'Tempo blockchain', 'fee sponsorship', 'stablecoin network fees',
@@ -1154,12 +1154,12 @@ export const researchPosts: ResearchPost[] = [
       status: 'SOURCE-VERIFIED',
       asOf: '2026-08-08',
       basis: 'Current main + primary execution/control sources',
-      boundary: 'Quote-selection policy verified; realized TCA and best-execution outcome unproven.',
+      boundary: 'Quote-selection policy verified. Realized TCA and best-execution outcome unproven.',
     },
     indexFigure: {
       src: '/research/routing-decision-waterfall.svg',
       alt: 'Decision waterfall for quote routing, from the returned comparison set through evidence-quality gates and the final cross-chain tiebreak.',
-      caption: 'The integration roster is inventory; the router is the policy. Evidence quality determines whether the current engine may rank net of gas or must fall back to gross output.',
+      caption: 'The integration roster is inventory. The router is the policy. Evidence quality determines whether the current engine may rank net of gas or must fall back to gross output.',
     },
     keywords: [
       'DEX routing', 'cross-chain routing', 'transaction cost analysis',

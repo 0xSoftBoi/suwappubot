@@ -30,7 +30,7 @@ const criteria = [
     label: 'Integration',
     title: 'One execution plane, multiple interfaces.',
     body:
-      `REST, typed SDKs, MCP and A2A sit over the same execution system. The Agent API currently exposes ${stats.agentApiChains} chains; the broader bot and terminal surface covers ${stats.platformChains}.`,
+      `REST, typed SDKs, MCP and A2A sit over the same execution system. The Agent API currently exposes ${stats.agentApiChains} chains. The broader bot and terminal surface covers ${stats.platformChains}.`,
   },
   {
     label: 'Operations',
@@ -40,9 +40,9 @@ const criteria = [
   },
   {
     label: 'Commercial',
-    title: 'Start self-serve; scope enterprise deliberately.',
+    title: 'Start self-serve. Scope enterprise deliberately.',
     body:
-      'Self-serve pricing is public. Enterprise engagements add dedicated rate limits and priority support; commercial terms and any service commitments are scoped with the team rather than implied on the website.',
+      'Self-serve pricing is public. Enterprise engagements add dedicated rate limits and priority support. Commercial terms and any service commitments are scoped with the team rather than implied on the website.',
   },
 ] as const;
 
