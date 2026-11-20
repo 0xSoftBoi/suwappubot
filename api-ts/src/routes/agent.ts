@@ -1285,7 +1285,8 @@ function policyUnavailableResponse(
 		{
 			event: 'policy_gate_fail_closed',
 			stage: info.stage,
-			orgId: info.orgId,
+			// The org is recorded on the audit row below, not here: it comes off
+			// the API-key auth context and stays out of application logs.
 			agentId: info.agentId,
 			error: errorText,
 		},
