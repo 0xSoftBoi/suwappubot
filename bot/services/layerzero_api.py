@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from bot.config.chains import get_chain_by_name
 from bot.utils.http_client import get_session
+from bot.utils.tx_hash import rpc_tx_hash
 
 logger = logging.getLogger(__name__)
 
@@ -464,7 +465,7 @@ class LayerZeroAPI:
         """Get the status of a LayerZero transaction via LZ Scan."""
         session = await get_session()
 
-        url = f"{self.scan_url}/v1/messages/tx/{src_tx_hash}"
+        url = f"{self.scan_url}/v1/messages/tx/{rpc_tx_hash(src_tx_hash)}"
 
         async with session.get(url) as response:
             if response.status == 404:

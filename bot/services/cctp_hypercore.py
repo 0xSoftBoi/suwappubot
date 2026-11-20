@@ -31,6 +31,7 @@ from typing import Any, Dict, Optional
 from web3 import Web3
 
 from bot.utils.http_client import get_session
+from bot.utils.tx_hash import rpc_tx_hash
 from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
@@ -308,7 +309,9 @@ class CctpHyperCoreAPI:
         for _ in range(max_attempts):
             await api_limiter.wait_and_acquire("cctp")
             try:
-                async with session.get(url, params={"transactionHash": burn_tx_hash}) as resp:
+                async with session.get(
+                    url, params={"transactionHash": rpc_tx_hash(burn_tx_hash)}
+                ) as resp:
                     if resp.status == 404:
                         await asyncio.sleep(poll_interval)
                         continue

@@ -76,6 +76,7 @@ from bot.config.chains import get_chain_by_name
 from bot.models.cctp import CctpGenericDeposit
 from bot.services.cctp_api import cctp_api
 from bot.services.rpc_manager import rpc_manager
+from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -196,7 +197,9 @@ class CctpGenericRelayer:
         """
         with get_session() as session:
             existing = (
-                session.query(CctpGenericDeposit).filter_by(burn_tx_hash=burn_tx_hash).first()
+                session.query(CctpGenericDeposit)
+                .filter(CctpGenericDeposit.burn_tx_hash.in_(tx_hash_variants(burn_tx_hash)))
+                .first()
             )
             if existing:
                 return existing.id
@@ -205,7 +208,10 @@ class CctpGenericRelayer:
                 recipient_address=recipient_address,
                 from_chain=from_chain,
                 to_chain=to_chain,
-                burn_tx_hash=burn_tx_hash,
+                # Keyed on the real from_chain (the burn happens on the source
+                # chain), not a hardcoded "evm": CCTP v2 also settles on Solana,
+                # whose base58 signatures must never be given an "0x" prefix.
+                burn_tx_hash=canonical_tx_hash(burn_tx_hash, from_chain),
                 amount_raw=Decimal(int(amount_raw)),
                 version=int(version),
                 status=status,
@@ -219,7 +225,11 @@ class CctpGenericRelayer:
         send_raw_transaction returns successfully. No-op if the row is
         missing or already past this stage (idempotent)."""
         with get_session() as session:
-            row = session.query(CctpGenericDeposit).filter_by(burn_tx_hash=burn_tx_hash).first()
+            row = (
+                session.query(CctpGenericDeposit)
+                .filter(CctpGenericDeposit.burn_tx_hash.in_(tx_hash_variants(burn_tx_hash)))
+                .first()
+            )
             if row and row.status == "pending_broadcast":
                 row.status = "burned"
 

@@ -37,6 +37,7 @@ from bot.models.cctp import CctpDeposit
 from bot.models.user import Wallet
 from bot.services.cctp_hypercore import cctp_hypercore
 from bot.services.rpc_manager import rpc_manager
+from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
 from bot.services.wallet import WalletService
 from database.db import get_session, run_in_db
 
@@ -131,14 +132,23 @@ class CctpRelayer:
         docstring). Returns the CctpDeposit id, or None if already recorded.
         """
         with get_session() as session:
-            existing = session.query(CctpDeposit).filter_by(burn_tx_hash=burn_tx_hash).first()
+            existing = (
+                session.query(CctpDeposit)
+                .filter(CctpDeposit.burn_tx_hash.in_(tx_hash_variants(burn_tx_hash)))
+                .first()
+            )
             if existing:
                 return existing.id
             dep = CctpDeposit(
                 user_id=user_id,
                 hl_address=recipient_address,
                 from_chain=from_chain,
-                burn_tx_hash=burn_tx_hash,
+                # Keyed on the real from_chain, not a hardcoded "evm": CCTP v2
+                # also settles on Solana, whose signatures are base58 and would
+                # be corrupted by having "0x" prepended. canonical_tx_hash is
+                # chain-aware, so passing the actual value is both correct today
+                # and safe if a non-EVM burn source is ever wired up.
+                burn_tx_hash=canonical_tx_hash(burn_tx_hash, from_chain),
                 amount_raw=Decimal(int(amount_raw)),
                 status="burned",
             )

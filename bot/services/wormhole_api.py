@@ -15,6 +15,7 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
 from bot.utils.http_client import get_session
+from bot.utils.tx_hash import canonical_tx_hash
 from bot.utils.rate_limiter import api_limiter
 
 logger = logging.getLogger(__name__)
@@ -355,7 +356,7 @@ class WormholeAPI:
                 # Query Wormholescan for VAA
                 url = f"{self.api_url}/vaas"
                 params = {
-                    "txHash": tx_hash,
+                    "txHash": canonical_tx_hash(tx_hash, from_chain),
                     "chainId": wh_chain_id,
                 }
 
@@ -408,7 +409,7 @@ class WormholeAPI:
         try:
             # Check for VAA
             url = f"{self.api_url}/vaas"
-            params = {"txHash": tx_hash, "chainId": wh_chain_id}
+            params = {"txHash": canonical_tx_hash(tx_hash, from_chain), "chainId": wh_chain_id}
 
             async with session.get(url, params=params) as response:
                 data = await response.json() if response.status == 200 else {}
