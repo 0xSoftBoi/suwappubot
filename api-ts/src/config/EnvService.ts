@@ -20,6 +20,9 @@ export const EnvSchema = Schema.Struct({
 
 	// API Keys
 	ADMIN_API_KEY: Schema.optional(Schema.String),
+	// Comma-separated staff emails that may open the admin dashboard by signing
+	// in with Google (read-only). Unset = key-only admin access.
+	ADMIN_EMAILS: Schema.optional(Schema.String),
 
 	// Turnkey
 	TURNKEY_API_PUBLIC_KEY: Schema.optional(Schema.String),

@@ -62,6 +62,8 @@ async function main() {
 	const app = createApp({
 		allowedOrigins: env.ALLOWED_ORIGINS,
 		adminApiKey: env.ADMIN_API_KEY,
+		adminEmails: env.ADMIN_EMAILS,
+		jwtSecret: env.JWT_SECRET,
 		internalApiKey: env.INTERNAL_API_KEY,
 		internalApiUrl: env.INTERNAL_API_URL,
 		otelEnabled: env.OTEL_ENABLED,
