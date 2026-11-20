@@ -27,14 +27,20 @@ UNKNOWN_TG_ID = 999999  # has no matching users row
 def _make_session():
     engine = create_engine("sqlite:///:memory:")
     with engine.connect() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text(
+                """
                 CREATE TABLE users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     telegram_id BIGINT UNIQUE
                 )
-                """))
+                """
+            )
+        )
         conn.execute(text("INSERT INTO users (telegram_id) VALUES (:tg)"), {"tg": ADMIN_TG_ID})
-        conn.execute(text("""
+        conn.execute(
+            text(
+                """
                 CREATE TABLE policy_kill_switches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     scope TEXT NOT NULL,
@@ -45,7 +51,9 @@ def _make_session():
                     activated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     deactivated_at TIMESTAMP
                 )
-                """))
+                """
+            )
+        )
         conn.commit()
     return sessionmaker(bind=engine)()
 

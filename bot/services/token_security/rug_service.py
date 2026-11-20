@@ -32,7 +32,7 @@ from bot.services.wallet import WalletService
 from bot.utils.http_client import get_session as get_http_session
 from bot.models.user import User
 from bot.models.favorites import UserSettings
-from bot.models.swap import SwapTransaction
+from bot.models.swap import SwapStatus, SwapTransaction
 from database.db import get_session, run_in_db
 
 logger = logging.getLogger(__name__)
@@ -794,14 +794,55 @@ class RugService:
             idempotency_key = f"panic_sell:{user_id}:{wallet_id}:{sig_hash}"
 
             # 3. Execute via the swap engine with URGENT priority
-            await self._swap_engine.execute_swap(
+            swap_tx = await self._swap_engine.execute_swap(
                 quote=quote,
                 wallet_id=wallet_id,
                 user_id=user_id,
                 idempotency_key=idempotency_key,
             )
 
-            logger.info(f"✅ Panic Sell SUCCESS for user {user_id}")
+            # Gate the success line on what actually happened.
+            #
+            # This used to discard the return value and log SUCCESS
+            # unconditionally — including when the swap came back FAILED, and
+            # including when SwapEngine's idempotency guard short-circuited and
+            # handed back an unresolved row without sending anything. Nothing
+            # is credited off this path, so the bug was observability only, but
+            # it misled exactly the incident where the log matters most: a rug
+            # in progress, operators reading these lines to decide whether a
+            # user's funds got out. A false SUCCESS there is worse than silence.
+            status = getattr(swap_tx, "status", None)
+            swap_id = getattr(swap_tx, "id", None)
+            if swap_tx is None:
+                logger.error(
+                    "Panic Sell for user %s returned no swap record — treat as NOT sold "
+                    "and verify the wallet on-chain.",
+                    user_id,
+                )
+            elif status in (SwapStatus.SUBMITTED.value, SwapStatus.COMPLETED.value):
+                logger.info(
+                    "✅ Panic Sell submitted for user %s (swap %s, status %s, tx %s)",
+                    user_id,
+                    swap_id,
+                    status,
+                    getattr(swap_tx, "tx_hash", None),
+                )
+            elif status == SwapStatus.UNKNOWN.value:
+                logger.error(
+                    "⚠️ Panic Sell for user %s is UNVERIFIED (swap %s): it may have "
+                    "broadcast on-chain but the outcome could not be confirmed. Do NOT "
+                    "assume the position was sold; verify on-chain.",
+                    user_id,
+                    swap_id,
+                )
+            else:
+                logger.error(
+                    "❌ Panic Sell for user %s did NOT complete (swap %s, status %s). The "
+                    "position is likely still held.",
+                    user_id,
+                    swap_id,
+                    status,
+                )
 
         except Exception as e:
             logger.error(f"Panic Sell failed for user {user_id}: {e}")

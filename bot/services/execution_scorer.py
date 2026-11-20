@@ -155,7 +155,8 @@ class ExecutionScorer:
 
         with get_session() as session:
             rows = session.execute(
-                text("""
+                text(
+                    """
                     SELECT id, to_token, to_amount_usd, from_amount_usd, completed_at
                     FROM swap_transactions
                     WHERE status = 'completed'
@@ -164,7 +165,8 @@ class ExecutionScorer:
                       AND to_token IS NOT NULL
                     ORDER BY completed_at DESC
                     LIMIT :limit
-                    """),
+                    """
+                ),
                 {"cutoff": cutoff, "limit": BATCH_SIZE},
             ).fetchall()
 
@@ -279,7 +281,8 @@ class ExecutionScorer:
                 else "ON CONFLICT DO NOTHING"
             )
             session.execute(
-                text(f"""
+                text(
+                    f"""
                     INSERT INTO swap_execution_marks
                         (swap_id, horizon, to_token_price_usd, fill_price_usd,
                          realized_vs_quoted_bps, markout_bps, scored_at)
@@ -287,7 +290,8 @@ class ExecutionScorer:
                         (:swap_id, :horizon, :to_token_price_usd, :fill_price_usd,
                          :realized_vs_quoted_bps, :markout_bps, :scored_at)
                     {conflict}
-                    """),
+                    """
+                ),
                 {**kw, "scored_at": datetime.utcnow()},
             )
 

@@ -76,7 +76,8 @@ ROLLUP_SPECS = [
     ("1h", "1d", 86400, timedelta(days=400)),
 ]
 
-_UPSERT_SQL_PG = text("""
+_UPSERT_SQL_PG = text(
+    """
     INSERT INTO market_candles
         (symbol, chain, token_address, timeframe, ts, open, high, low, close, volume, source)
     VALUES
@@ -87,9 +88,11 @@ _UPSERT_SQL_PG = text("""
         close = EXCLUDED.close,
         volume = COALESCE(EXCLUDED.volume, market_candles.volume),
         source = EXCLUDED.source
-    """)
+    """
+)
 
-_UPSERT_SQL_SQLITE = text("""
+_UPSERT_SQL_SQLITE = text(
+    """
     INSERT INTO market_candles
         (symbol, chain, token_address, timeframe, ts, open, high, low, close, volume, source)
     VALUES
@@ -100,15 +103,18 @@ _UPSERT_SQL_SQLITE = text("""
         close = excluded.close,
         volume = COALESCE(excluded.volume, market_candles.volume),
         source = excluded.source
-    """)
+    """
+)
 
-_INSERT_IGNORE_SQL = text("""
+_INSERT_IGNORE_SQL = text(
+    """
     INSERT INTO market_candles
         (symbol, chain, token_address, timeframe, ts, open, high, low, close, volume, source)
     VALUES
         (:symbol, :chain, :token_address, :timeframe, :ts, :open, :high, :low, :close, :volume, :source)
     ON CONFLICT (symbol, chain, timeframe, ts) DO NOTHING
-    """)
+    """
+)
 
 
 class MarketDataService:

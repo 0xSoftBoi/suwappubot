@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List
 from decimal import Decimal
 
-from bot.models.swap import SwapTransaction
+from bot.models.swap import SwapStatus, SwapTransaction
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,9 @@ class TaxExportService:
         with get_session() as session:
             query = session.query(SwapTransaction).filter(
                 SwapTransaction.user_id == user_id,
-                SwapTransaction.status == "completed",
+                # UNKNOWN swaps may have really disposed of tokens; include them so a
+                # disposal is never silently omitted. They are flagged "unverified" in output.
+                SwapTransaction.status.in_(["completed", SwapStatus.UNKNOWN.value]),
             )
 
             if year:
@@ -44,6 +46,11 @@ class TaxExportService:
                 )
 
             return query.order_by(SwapTransaction.created_at).all()
+
+    @staticmethod
+    def _unverified_flag(tx: SwapTransaction) -> str:
+        """'yes' if the swap outcome is unverified (may have broadcast), else 'no'."""
+        return "yes" if tx.status == SwapStatus.UNKNOWN.value else "no"
 
     def generate_csv(
         self,
@@ -73,6 +80,7 @@ class TaxExportService:
                     "Label",
                     "Description",
                     "TxHash",
+                    "Unverified",
                 ]
             )
 
@@ -91,6 +99,7 @@ class TaxExportService:
                         "swap",
                         f"{tx.from_chain} to {tx.to_chain}",
                         tx.tx_hash or "",
+                        self._unverified_flag(tx),
                     ]
                 )
 
@@ -109,6 +118,7 @@ class TaxExportService:
                     "Fee Currency",
                     "Exchange/Wallet",
                     "Tag",
+                    "Unverified",
                 ]
             )
 
@@ -125,6 +135,7 @@ class TaxExportService:
                         "USD",
                         f"Suwappu ({tx.from_chain})",
                         "",
+                        self._unverified_flag(tx),
                     ]
                 )
 
@@ -146,6 +157,7 @@ class TaxExportService:
                     "Fee (USD)",
                     "TX Hash",
                     "Status",
+                    "Unverified",
                 ]
             )
 
@@ -165,6 +177,7 @@ class TaxExportService:
                         "",
                         tx.tx_hash or "",
                         tx.status,
+                        self._unverified_flag(tx),
                     ]
                 )
 
@@ -189,6 +202,7 @@ class TaxExportService:
                 "tokens_traded": [],
                 "first_trade": None,
                 "last_trade": None,
+                "unverified_transactions": 0,
                 "year": year or datetime.now().year,
             }
 
@@ -226,6 +240,9 @@ class TaxExportService:
             "tokens_traded": list(tokens),
             "first_trade": transactions[0].created_at if transactions else None,
             "last_trade": transactions[-1].created_at if transactions else None,
+            "unverified_transactions": sum(
+                1 for tx in transactions if tx.status == SwapStatus.UNKNOWN.value
+            ),
             "year": year or datetime.now().year,
         }
 

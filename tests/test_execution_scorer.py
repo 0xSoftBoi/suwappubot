@@ -21,7 +21,9 @@ def engine(monkeypatch):
     """In-memory DB with just the tables the scorer touches."""
     eng = sa.create_engine("sqlite://", connect_args={"check_same_thread": False})
     with eng.begin() as c:
-        c.execute(text("""
+        c.execute(
+            text(
+                """
                 CREATE TABLE swap_transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     status VARCHAR(30),
@@ -30,8 +32,12 @@ def engine(monkeypatch):
                     from_amount_usd REAL,
                     completed_at TIMESTAMP
                 )
-                """))
-        c.execute(text("""
+                """
+            )
+        )
+        c.execute(
+            text(
+                """
                 CREATE TABLE swap_execution_marks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     swap_id INTEGER NOT NULL,
@@ -44,7 +50,9 @@ def engine(monkeypatch):
                     CONSTRAINT uq_swap_execution_marks_swap_horizon
                         UNIQUE (swap_id, horizon)
                 )
-                """))
+                """
+            )
+        )
     return eng
 
 

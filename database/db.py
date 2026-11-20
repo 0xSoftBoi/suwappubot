@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from typing import Generator, TypeVar, Callable
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import json
 import logging
 import time
 
@@ -562,6 +563,7 @@ def _ensure_schema(db_engine) -> None:
         _add_swap_price_columns(db_engine, inspector, is_sqlite)
         _add_swap_error_category_column(db_engine, inspector, is_sqlite)
         _add_swap_realized_output_columns(db_engine, inspector, is_sqlite)
+        _add_swap_nonce_columns(db_engine, inspector, is_sqlite)
 
     # --- user_settings: MEV protection column + quick trade presets ---
     if "user_settings" in tables:
@@ -2332,6 +2334,106 @@ def _add_swap_error_category_column(db_engine, inspector, is_sqlite: bool) -> No
             conn.execute(text(ddl))
 
 
+def _add_swap_nonce_columns(db_engine, inspector, is_sqlite: bool) -> None:
+    """Add the pre-broadcast EVM identity columns to swap_transactions.
+
+    (sender_address, nonce) is recorded BEFORE send_raw_transaction, so it
+    survives the one failure mode that loses tx_hash: the RPC call times out,
+    or the process dies, between the broadcast and the hash write. A row with
+    no hash cannot be looked up by tx_poller at all (it filters on
+    tx_hash IS NOT NULL) and so waited on a human to read the chain — while
+    also blocking resume_dca, which refuses while a tranche's swap is UNKNOWN.
+
+    Additive and idempotent. Both columns are nullable with no default: NULL
+    means "no nonce identity recorded" (every pre-existing row, plus every
+    Solana/Tron row, which have no account nonce), never nonce 0.
+
+    Also backfills the one place a nonce was previously persisted:
+    swap_engine's _persist_0x_crosschain_route_data wrote it as
+    route_data["intended_nonce"], a JSON blob no index or query could filter
+    on. Those rows are migrated into the column here so the poller's
+    resolution pass sees them, and the engine now writes the column directly.
+    The JSON key is left in place on historical rows rather than rewritten —
+    reading it back out is a one-way migration and route_data is otherwise
+    untouched by this change.
+    """
+    cols = {c["name"] for c in inspector.get_columns("swap_transactions")}
+
+    specs = (("sender_address", "VARCHAR(64)"), ("nonce", "INTEGER"))
+    added = False
+    for col_name, col_type in specs:
+        if col_name in cols:
+            continue
+        if is_sqlite:
+            ddl = f"ALTER TABLE swap_transactions ADD COLUMN {col_name} {col_type}"
+        else:
+            ddl = f"ALTER TABLE swap_transactions ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+        added = True
+
+    if not added:
+        return
+
+    # Partial index for the poller's hashless-resolution pass. That query is
+    # the only reader of these columns and selects a handful of rows out of
+    # the whole swap history, so an unqualified index would be mostly dead
+    # weight; Postgres can restrict it to exactly the rows that pass.
+    try:
+        if is_sqlite:
+            ddl = (
+                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_nonce_unresolved "
+                "ON swap_transactions(sender_address, nonce)"
+            )
+        else:
+            ddl = (
+                "CREATE INDEX IF NOT EXISTS ix_swap_transactions_nonce_unresolved "
+                "ON swap_transactions(sender_address, nonce) "
+                "WHERE tx_hash IS NULL AND nonce IS NOT NULL"
+            )
+        with db_engine.begin() as conn:
+            conn.execute(text(ddl))
+    except Exception as e:
+        # An index is an optimisation, not a correctness requirement — the
+        # poller's pass is bounded by created_at anyway.
+        logger.warning("Could not create ix_swap_transactions_nonce_unresolved: %s", e)
+
+    # Backfill route_data["intended_nonce"] -> nonce. Bounded to rows that
+    # actually carry the key, and deliberately NOT given a sender_address:
+    # the 0x cross-chain path never recorded one, and inventing it here
+    # (e.g. from the user's current wallet) could attribute a nonce to an
+    # address that never held it. A nonce with no sender still tells the
+    # poller the row is incomplete; resolution requires both, so these rows
+    # stay unresolved rather than being resolved against a guess.
+    try:
+        with db_engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT id, route_data FROM swap_transactions "
+                    "WHERE nonce IS NULL AND route_data IS NOT NULL "
+                    "AND route_data LIKE '%intended_nonce%'"
+                )
+            ).fetchall()
+            migrated = 0
+            for row in rows:
+                try:
+                    blob = json.loads(row[1] or "{}")
+                except (TypeError, ValueError):
+                    continue
+                value = blob.get("intended_nonce")
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    continue
+                conn.execute(
+                    text("UPDATE swap_transactions SET nonce = :n WHERE id = :i"),
+                    {"n": value, "i": row[0]},
+                )
+                migrated += 1
+            if migrated:
+                logger.info("Backfilled %d swap nonce(s) from route_data", migrated)
+    except Exception as e:
+        logger.warning("Could not backfill swap nonces from route_data: %s", e)
+
+
 def _add_swap_execution_savings_columns(db_engine, inspector, is_sqlite: bool) -> None:
     """Add execution-savings receipt columns to swap_transactions.
 
@@ -2445,6 +2547,11 @@ def _add_advanced_order_columns(db_engine, inspector, is_sqlite: bool) -> None:
         ("highest_price_seen", "FLOAT", "NULL"),
         ("parent_order_id", "INTEGER", "NULL"),
         ("portion_percent", "FLOAT", "NULL"),
+        # Why the order ended without executing — see LimitOrder.error_message.
+        # VARCHAR(500) matches the model; both backends accept the unsized
+        # form, but keep it explicit so Postgres does not get a TEXT column
+        # the model believes is bounded.
+        ("error_message", "VARCHAR(500)", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:

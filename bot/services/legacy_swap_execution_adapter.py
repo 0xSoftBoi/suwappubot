@@ -38,6 +38,12 @@ _STATUS_TARGET = {
     SwapStatus.SUBMITTED.value: ParentState.ACTIVE,
     SwapStatus.CONFIRMING.value: ParentState.ACTIVE,
     SwapStatus.CANCELLED.value: ParentState.CANCELLED,
+    # "May have broadcast, outcome unverified" projects as RECONCILING, the
+    # same target a FAILED-with-tx_hash row gets below: funds may have moved
+    # and the record is not settled either way. Without an entry here the
+    # lookup at the bottom of _project returns None and raises, which would
+    # roll back any write that happens to project an orphaned swap.
+    SwapStatus.UNKNOWN.value: ParentState.RECONCILING,
 }
 
 _FORWARD_PATH = [

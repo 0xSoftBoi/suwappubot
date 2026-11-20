@@ -51,23 +51,28 @@ MAX_QUESTION_LEN = 500
 PREDICTION_MARKET_LIMIT = 100
 LEND_MARKET_LIMIT = 100
 
-_PERP_INSERT_IGNORE_SQL = text("""
+_PERP_INSERT_IGNORE_SQL = text(
+    """
     INSERT INTO perp_metrics
         (venue, symbol, ts, funding_rate, open_interest, mark_price, index_price, volume_24h)
     VALUES
         (:venue, :symbol, :ts, :funding_rate, :open_interest, :mark_price, :index_price, :volume_24h)
     ON CONFLICT (venue, symbol, ts) DO NOTHING
-    """)
+    """
+)
 
-_PREDICTION_INSERT_IGNORE_SQL = text("""
+_PREDICTION_INSERT_IGNORE_SQL = text(
+    """
     INSERT INTO prediction_snapshots
         (venue, market_id, condition_id, question, outcome, ts, price, volume, liquidity, end_date)
     VALUES
         (:venue, :market_id, :condition_id, :question, :outcome, :ts, :price, :volume, :liquidity, :end_date)
     ON CONFLICT (venue, market_id, outcome, ts) DO NOTHING
-    """)
+    """
+)
 
-_LEND_INSERT_IGNORE_SQL = text("""
+_LEND_INSERT_IGNORE_SQL = text(
+    """
     INSERT INTO lend_metrics
         (venue, market_id, chain_id, loan_symbol, collateral_symbol, ts,
          supply_apy, borrow_apy, tvl, utilization)
@@ -75,7 +80,8 @@ _LEND_INSERT_IGNORE_SQL = text("""
         (:venue, :market_id, :chain_id, :loan_symbol, :collateral_symbol, :ts,
          :supply_apy, :borrow_apy, :tvl, :utilization)
     ON CONFLICT (venue, market_id, ts) DO NOTHING
-    """)
+    """
+)
 
 # Morpho public GraphQL — top lending markets by supply, across all chains.
 # ``totalSupplyUsd`` is aliased onto ``supplyAssetsUsd`` (the schema's actual

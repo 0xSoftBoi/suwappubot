@@ -201,6 +201,15 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
     # Reconcile any EXECUTING rows that have no tx_hash (process died mid-execution)
+    #
+    # These are marked UNKNOWN, never FAILED. We genuinely do not know whether
+    # the broadcast landed: the process died in the window between sending the
+    # transaction and persisting its hash, and with no hash the poller can
+    # never check (it filters on tx_hash IS NOT NULL). FAILED would assert that
+    # no funds moved, and SwapEngine's idempotency guard treats FAILED as safe
+    # to retry — so a swap that actually landed could be re-broadcast with the
+    # user's funds. UNKNOWN is not in that guard's retryable list, so it blocks
+    # the retry and the row waits for human verification instead.
     if db_success:
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
@@ -215,11 +224,33 @@ async def lifespan(app: FastAPI):
                     .all()
                 )
                 if orphaned:
+                    orphan_ids = []
                     for row in orphaned:
-                        row.status = SwapStatus.FAILED.value
-                        row.error_message = "Reconciled at startup: EXECUTING with no tx_hash"
+                        # Re-check under the same session before writing. This
+                        # is a read-modify-write: between the SELECT above and
+                        # the commit below, the process that owns this swap
+                        # (or another replica) can persist tx_hash and move the
+                        # row to SUBMITTED. Overwriting that would strand a row
+                        # that has a perfectly pollable hash, because the
+                        # poller treats UNKNOWN as settled.
+                        if row.tx_hash:
+                            continue
+                        row.status = SwapStatus.UNKNOWN.value
+                        row.error_message = (
+                            "Reconciled at startup: EXECUTING with no tx_hash. The broadcast "
+                            "may have succeeded; outcome unverified. Not retried to avoid a "
+                            "duplicate send."
+                        )
+                        orphan_ids.append(row.id)
                     session.commit()
-                    logger.warning("Reconciled %d orphaned EXECUTING transactions", len(orphaned))
+                    if orphan_ids:
+                        logger.error(
+                            "Reconciled %d orphaned EXECUTING transactions to UNKNOWN "
+                            "(may have broadcast, outcome unverified, retry blocked) — "
+                            "needs on-chain verification: swap ids %s",
+                            len(orphan_ids),
+                            orphan_ids,
+                        )
         except Exception as e:
             logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
 
@@ -318,9 +349,7 @@ async def lifespan(app: FastAPI):
                             )
                         )
             else:
-                logger.warning(
-                    "⚠️ Placeholder or missing Telegram token. Skipping polling/webhook."
-                )
+                logger.warning("⚠️ Placeholder or missing Telegram token. Skipping polling/webhook.")
         except Exception as e:
             logger.error(f"❌ Telegram bot failed to initialize: {e}")
             logger.warning("⚠️ Continuing in HEADLESS MODE (API only)")

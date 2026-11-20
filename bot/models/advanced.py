@@ -122,6 +122,17 @@ class LimitOrder(Base):
     execution_price = Column(Float, nullable=True)
     tx_hash = Column(String(100), nullable=True)
 
+    # Why the order left PENDING/TRIGGERED without executing.
+    #
+    # A limit order is one-shot: _mark_triggered moves it to TRIGGERED before
+    # execution and check_limit_orders only ever selects PENDING, so the order
+    # is picked up exactly once and there is no second pass to explain itself.
+    # Without somewhere to record the reason, a failed or unverifiable
+    # execution left the row at a bare FAILED (or stalled at TRIGGERED) with
+    # the cause only ever in the process log — unreadable to the user and gone
+    # with the container. Set alongside every non-executed terminal status.
+    error_message = Column(String(500), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
