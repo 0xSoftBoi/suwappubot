@@ -260,7 +260,7 @@ This harness evolves itself from session evidence — see `docs/harness/self-imp
 - `/audit-fleet` — Parallel audit: one `security-auditor` per attack surface, findings streamed to `.audit/findings/*.jsonl`, then deduped/ranked/filed
 - `/bugclass` — Treat one confirmed bug as a class: reproduce → fix → sweep both stacks → one commit per instance
 - `/worktree-check` — Audit all worktrees for uncommitted/unpushed/stashed work at risk **before** any reset or cleanup
-- `/handoff` — Checkpoint the current task to `.claude/handoff.md` so you can `/clear` and resume cheaply. Run it before switching topics or when a session has run long.
+- `/handoff` — Checkpoint the current task to a `handoff.md` the skill writes under `.claude/`, so you can `/clear` and resume cheaply. Run it before switching topics or when a session has run long.
 - `/worktree` — Manage git worktrees for parallel development
 - `/migrations` — Database migration tutorial
 - `/new-handler` — Add a new Telegram bot command handler

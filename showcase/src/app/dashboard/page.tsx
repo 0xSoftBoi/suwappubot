@@ -207,7 +207,7 @@ function CreateWorkspaceCard({ apiFetch }: { apiFetch: ReturnType<typeof useApiF
   async function create() {
     const trimmed = name.trim();
     if (!trimmed) {
-      setError('Give your workspace a name — your company or team name works well.');
+      setError('Give your workspace a name. Your company or team name works well.');
       return;
     }
     const slug = slugify(trimmed);
@@ -281,7 +281,7 @@ function CreateWorkspaceCard({ apiFetch }: { apiFetch: ReturnType<typeof useApiF
         {error && <p className={styles.onboardError} role="alert">{error}</p>}
       </div>
       <p className={styles.onboardHint}>
-        Free to create — you only pay when you pick a plan. You can rename it any time.
+        Free to create. You only pay when you pick a plan. You can rename it any time.
       </p>
     </section>
   );
@@ -381,7 +381,7 @@ function NewKeyModal({ orgId, onClose, onCreated, apiFetch }: NewKeyModalProps) 
             />
           ) : (
             <p className={styles.loginError} role="alert">
-              The key was created but we couldn’t read it back — revoke it and create a new one.
+              The key was created but we couldn’t read it back. Revoke it and create a new one.
             </p>
           )}
           <div className={styles.modalActions}>

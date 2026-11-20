@@ -58,6 +58,7 @@
     "viem": "2.55.10",
     "ws": "^8.21.0",
     "@remix-run/router": "^1.23.2",
-    "zod": "^4.6.6"
+    "zod": "^4.6.6",
+    "decode-uri-component": "^0.5.1"
   }
 }

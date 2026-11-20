@@ -41,7 +41,7 @@ export function PredictionsTab() {
           message={
             search
               ? 'Try a different search.'
-              : "The capture service hasn't populated prediction markets yet — expected before deploy."
+              : "Prediction markets are not populated yet. This is expected before deploy."
           }
         />
       )}

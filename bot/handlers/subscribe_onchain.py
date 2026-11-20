@@ -67,7 +67,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not membership_service.enabled:
         await update.message.reply_text(
-            "On-chain membership isn't live yet — your current plan is unchanged."
+            "On-chain membership isn't live yet. Your current plan is unchanged."
         )
         return
 
@@ -87,7 +87,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not bound:
         await update.message.reply_text(
-            "🔗 Link a wallet first with /bindwallet — that's the wallet the "
+            "🔗 Link a wallet first with /bindwallet. That's the wallet the "
             "subscription will be credited to."
         )
         return
@@ -99,7 +99,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending = context.user_data.get(_PENDING_KEY)
         if not pending or pending["valid_before"] <= int(time.time()):
             context.user_data.pop(_PENDING_KEY, None)
-            await update.message.reply_text("⏱ That quote expired — run /subscribe again.")
+            await update.message.reply_text("⏱ That quote expired. Run /subscribe again.")
             return
 
         signer = membership_service.verify_subscription_signature(pending, args[0])
@@ -159,7 +159,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tier = _TIERS[args[0].lower()]
     payload = await membership_service.quote_subscription(bound, tier, periods)
     if not payload:
-        await update.message.reply_text("❌ Couldn't build a quote right now — try again shortly.")
+        await update.message.reply_text("❌ Couldn't build a quote right now. Try again shortly.")
         return
 
     context.user_data[_PENDING_KEY] = payload

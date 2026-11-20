@@ -320,7 +320,7 @@ async def pos_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     ctx_map = context.user_data.get("pos_manage") or {}
     pair = ctx_map.get(key)
     if not pair:
-        await query.answer("Session expired — reopen Positions.", show_alert=True)
+        await query.answer("Session expired. Reopen Positions.", show_alert=True)
         return
     token, chain = pair
 
@@ -357,12 +357,12 @@ async def pos_sell_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     ctx_map = context.user_data.get("pos_manage") or {}
     pair = ctx_map.get(key)
     if not pair:
-        await query.answer("Session expired — reopen Positions.", show_alert=True)
+        await query.answer("Session expired. Reopen Positions.", show_alert=True)
         return
     token, chain = pair
 
     if token.upper() == "USDC":
-        await query.answer("Already USDC — nothing to sell.", show_alert=True)
+        await query.answer("Already USDC. Nothing to sell.", show_alert=True)
         return
 
     chain_type = _resolve_chain_type(chain)

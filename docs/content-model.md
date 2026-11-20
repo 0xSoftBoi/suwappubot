@@ -3,7 +3,9 @@
 Suwappu documentation should help a reader complete one job at a time. Do not turn every
 page into a product overview, architecture document, API reference, and runbook at once.
 
-This content model exists to keep the docs useful as the monorepo grows.
+This content model exists to keep the docs useful as the monorepo grows. It decides the
+shape of a page. The sentence-level rules for the prose on that page are in
+[WRITING.md](WRITING.md).
 
 ## Core rules
 

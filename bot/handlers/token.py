@@ -108,7 +108,7 @@ async def token_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"*Claim SUWP Tokens*\n\n"
         f"You have *{current_points:,} points* -> up to *{max_suwp} SUWP*\n\n"
         f"Enter your Base wallet address to receive SUWP:\n"
-        f"_(SUWP is distributed weekly -- pending claims are batched)_",
+        f"_(SUWP is distributed weekly. Pending claims are batched.)_",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("Cancel", callback_data="token_menu")]]
@@ -199,7 +199,7 @@ async def token_claim_rewards_callback(update: Update, context: ContextTypes.DEF
         f"Pending USDC: *${pending_usdc:.4f}*\n"
         f"Pending SUWP bonus: *{pending_suwp_bonus:.2f} SUWP*\n\n"
         f"Rewards are settled on-chain weekly to your registered staking wallet. "
-        f"No action required -- they will be sent automatically at the next epoch distribution.",
+        f"No action required. They will be sent automatically at the next epoch distribution.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("Back", callback_data="token_menu")]]
@@ -389,7 +389,7 @@ async def receive_lp_token_id(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"To complete bonding:\n"
         f"1. Approve the NFT to the bonds contract\n"
         f"2. Call `bond({token_id})` on the contract\n\n"
-        f"_Bonding is an on-chain action — use your wallet directly or the webapp._\n\n"
+        f"_Bonding is an on-chain action. Use your wallet directly or the webapp._\n\n"
         f"[Open on Basescan](https://basescan.org/address/{contract_addr or '0x0'})",
         parse_mode="Markdown",
     )

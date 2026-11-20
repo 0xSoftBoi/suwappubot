@@ -48,7 +48,7 @@ export function Arbiter() {
 
   const steps = useMemo(
     () => [
-      { label: 'Escrow funded', detail: 'Buyer locks NEAR against terms { context, repo, pr#, author, deadline } — rubric hash anchored at creation.' },
+      { label: 'Escrow funded', detail: 'Buyer locks NEAR against terms { context, repo, pr#, author, deadline }. The rubric hash is anchored at creation.' },
       { label: 'Worker delivers', detail: 'PR merges. GitHub fires an HMAC-signed pull_request webhook (raw payload captured).' },
       { label: 'TEE verifies', detail: 'arbiter-wasm.wasm (sha256-pinned) runs inside OutLayer Intel TDX: HMAC verify → parse → rubric. Zero network I/O. No private key in the enclave.' },
       { label: 'Settlement', detail: verdict?.verdict === 'pass' ? 'Contract callback: verdict=pass → pay worker + anchor attestation (tx log event).' : 'Contract callback: verdict=fail → no transfer; buyer recovers funds.' },
@@ -81,7 +81,7 @@ export function Arbiter() {
           </div>
           <h2 className="font-heading font-bold text-xl leading-tight">Escrowed milestones.<br />Hardware-verified delivery.</h2>
           <p className="text-sm text-white/85 mt-1.5 max-w-md">
-            Buyers lock funds against a machine-checkable rubric. An arbiter WASM in an Intel TDX enclave verifies the evidence. Pass pays; fail refunds. Nobody — not us, not the worker, not the buyer — can argue with the verdict.
+            Buyers lock funds against a machine-checkable rubric. An arbiter WASM in an Intel TDX enclave verifies the evidence. Pass pays, fail refunds. Nobody can argue with the verdict: not us, not the worker, not the buyer.
           </p>
           <p className="text-[11px] text-white/60 mt-2">The picker replays recorded arbiter-wasm outputs (no funds). The same WASM has also run live on NEAR testnet via <code className="text-white/80">outlayer.testnet</code> — see the evidence below.</p>
         </section>
@@ -174,7 +174,7 @@ export function Arbiter() {
                 {'\n'}{'}'}
               </div>
               <p className="text-[11px] text-suwappu-text-secondary mt-2">
-                The contract only moves funds after the enclave returns this exact JSON from OutLayer via a cross-contract callback. Verdict, evidence hash and worker are logged on-chain in the settlement tx — that's the attestation.
+                The contract only moves funds after the enclave returns this exact JSON from OutLayer via a cross-contract callback. Verdict, evidence hash and worker are logged on-chain in the settlement tx. That is the attestation.
               </p>
             </div>
           </section>
@@ -182,7 +182,7 @@ export function Arbiter() {
 
         {/* Live testnet evidence */}
         <section className="mt-4 rounded-suwappu-lg bg-white border border-suwappu-sakura-mid/20 p-4">
-          <p className="text-[10px] uppercase tracking-wider text-suwappu-text-secondary font-semibold">Live on NEAR testnet — real OutLayer executions</p>
+          <p className="text-[10px] uppercase tracking-wider text-suwappu-text-secondary font-semibold">Live on NEAR testnet. Real OutLayer executions.</p>
           <p className="text-[11px] text-suwappu-text-secondary mt-1">Contract <code>suwappu-arbiter.testnet</code>. Testnet demo contract — do not send real funds. Demo rubric only.</p>
           <ul className="mt-2 text-[11px] space-y-1" style={mono}>
             {LIVE_TXS.map((t) => (

@@ -18,7 +18,7 @@ export function LendTab() {
         <EmptyDataset
           icon="\u{1F3E6}"
           title="No lending data yet"
-          message="The capture service hasn't populated lending markets yet — expected before deploy."
+          message="Lending markets are not populated yet. This is expected before deploy."
         />
       )}
 

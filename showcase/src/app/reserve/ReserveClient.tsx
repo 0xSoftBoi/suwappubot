@@ -305,7 +305,7 @@ export default function ReserveClient() {
         const err = body as ReserveError;
         let msg = 'Something went wrong. Please try again.';
         if (err.error === 'handle_taken') {
-          msg = 'That name was just taken. Try another.';
+          msg = 'That name is taken. Try another.';
           setAvailability('taken');
         } else if (err.error === 'invalid_handle') {
           msg = "That name isn't valid. Use 3-32 letters, numbers or dashes.";

@@ -698,7 +698,7 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         keyboard.append([InlineKeyboardButton("Cancel", callback_data="bp_cancel")])
 
     await update.message.reply_text(
-        "Bulk Payments — select the sending wallet:",
+        "Bulk Payments: select the sending wallet.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
     return BP_SELECT_WALLET
@@ -829,7 +829,7 @@ async def _pay_select_token(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     await update.message.reply_text(
         f"Token: {token}\n\n"
-        "Now paste the recipient list — one recipient per line:\n"
+        "Now paste the recipient list, one recipient per line:\n"
         "`<address> <amount>`\n\n"
         "Example:\n"
         "`0xABC...123  1.5`\n"
@@ -860,7 +860,7 @@ async def _pay_enter_list(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if parse_errors:
         error_text = "\n".join(f"• {e}" for e in parse_errors[:10])
         await update.message.reply_text(
-            f"Validation errors — all issues must be fixed before sending:\n\n"
+            f"Validation errors. Fix these before sending:\n\n"
             f"{error_text}\n\n"
             "Please fix the list and paste it again.",
         )
@@ -1037,9 +1037,7 @@ async def _pay_twofa_entered(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data.clear()
             await update.message.reply_text("Too many invalid 2FA codes. Bulk payment cancelled.")
             return ConversationHandler.END
-        await update.message.reply_text(
-            f"Invalid code. {3 - attempts} attempt(s) left — try again:"
-        )
+        await update.message.reply_text(f"Invalid code. {3 - attempts} attempt(s) left. Try again:")
         return BP_2FA
 
     context.user_data[_UD_2FA_VERIFIED_AT] = time.time()

@@ -706,7 +706,7 @@ async def payment_method_callback(update: Update, context: ContextTypes.DEFAULT_
             "*Native escrow coming soon*\n\n"
             "On-chain escrow for native P2P trades isn't live yet, so this trade "
             "can't be completed in-app right now.\n\n"
-            "Try a *NoOnes* or *P2P.me* offer from the list — those settle today.",
+            "Try a *NoOnes* or *P2P.me* offer from the list. Those settle today.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -1040,7 +1040,7 @@ async def create_chain_callback(update: Update, context: ContextTypes.DEFAULT_TY
     no = data["new_offer"]
     await query.edit_message_text(
         f"*Create offer*\n\n"
-        f"Enter your *price* — how much {no['fiat_currency']} per 1 "
+        f"Enter your *price*: how much {no['fiat_currency']} per 1 "
         f"{no['crypto_asset']}?\n_Example: `1.02`_",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
@@ -1106,7 +1106,7 @@ async def create_max_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return CREATE_MAX
     data["new_offer"]["max_fiat_amount"] = max_amt
     await update.message.reply_text(
-        "*Payment methods* — send a comma-separated list.\n"
+        "*Payment methods*: send a comma-separated list.\n"
         "_Example: `bank_transfer, wise, revolut`_",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
@@ -1124,7 +1124,7 @@ async def create_payments_handler(update: Update, context: ContextTypes.DEFAULT_
         return CREATE_PAYMENTS
     data["new_offer"]["payment_methods"] = methods
     await update.message.reply_text(
-        "*Region* — send an ISO country code (e.g. `US`, `NG`) or `skip` for global.",
+        "*Region*: send an ISO country code (e.g. `US`, `NG`) or `skip` for global.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("❌ Cancel", callback_data="p2p_cancel")]]

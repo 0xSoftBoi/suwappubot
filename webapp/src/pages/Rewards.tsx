@@ -111,7 +111,7 @@ function OnchainClaimRow({ entry }: { entry: RewardsEntryView }) {
           )}
           {payload?.alreadyClaimed === true && (
             <p className="text-xs text-green-500">
-              Already claimed on-chain — it will show as settled shortly.
+              Already claimed on-chain. It will show as settled shortly.
             </p>
           )}
           {payload && payload.alreadyClaimed !== true && (

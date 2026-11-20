@@ -22,7 +22,7 @@ const buckets = [
   },
   {
     title: 'Data protection',
-    body: 'Secrets are encrypted at rest with AES-256-GCM; all traffic is TLS-encrypted in transit. Sensitive material is segregated from application data, and API keys are shown exactly once at creation.',
+    body: 'Secrets are encrypted at rest with AES-256-GCM. All traffic is TLS-encrypted in transit. Sensitive material is segregated from application data, and API keys are shown exactly once at creation.',
   },
   {
     title: 'Account controls',
@@ -73,9 +73,9 @@ export default function SecurityPage() {
             <h2 className="mkt-h2">Found something? Tell us.</h2>
             <p>
               We welcome reports from security researchers. Email{' '}
-              <code>security@suwappu.bot</code> with details and reproduction steps. Please
-              give us a reasonable window to remediate before public disclosure; we do not
-              pursue good-faith researchers.
+              <code>security@suwappu.bot</code> with details and reproduction steps. Give us a
+              reasonable window to remediate before public disclosure. We do not pursue
+              good-faith researchers.
             </p>
           </div>
           <div className={styles.honesty}>

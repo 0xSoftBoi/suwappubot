@@ -115,7 +115,7 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
 }
 ```
 
-`fundingRate` is the current raw market rate for the position's asset; it is not the position's accrued funding P&L. `liquidationPrice` is returned as `0` when Hyperliquid reports no liquidation price; treat zero as unavailable rather than a real zero-price liquidation level.
+`fundingRate` is the current raw market rate for the position's asset. It is not the position's accrued funding P&L. `liquidationPrice` returns as `0` when Hyperliquid reports no liquidation price. Treat zero as unavailable, not a real zero-price liquidation level.
 
 The position state and market funding context come from separate Hyperliquid reads. Do not treat the combined position object as an atomic exchange snapshot.
 

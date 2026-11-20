@@ -158,7 +158,7 @@ export function PulseTab({ onSelectToken, onBuy }: PulseTabProps) {
                   <div className="flex flex-col items-center gap-2">
                     <span>
                       {stageUnavailable
-                        ? 'Final Stretch needs a pump.fun bonding feed — coming soon.'
+                        ? 'Final Stretch needs a pump.fun bonding feed. Coming soon.'
                         : isError
                           ? 'Could not reach the live feed.'
                           : 'No tokens match your filters'}

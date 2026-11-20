@@ -130,6 +130,18 @@ export default async function Home() {
     { title: h('security.policiesTitle'), body: h('security.policiesBody') },
   ];
 
+  // Each limit restates, in the body, a constraint the FAQ also answers. The
+  // source for every one is on the site or in the docs already: venue coverage
+  // and prepare-vs-execute from the FAQ and docs/README.md "Execution
+  // authority", FedRAMP from the government section, best execution from the
+  // routing research note.
+  const limits = [
+    { title: h('limits.venuesTitle'), body: h('limits.venuesBody') },
+    { title: h('limits.bestExTitle'), body: h('limits.bestExBody') },
+    { title: h('limits.agentsTitle'), body: h('limits.agentsBody') },
+    { title: h('limits.postQuantumTitle'), body: h('limits.postQuantumBody') },
+  ];
+
   const faq = [
     {
       q: h('faq.coverageQuestion'),
@@ -198,6 +210,13 @@ export default async function Home() {
 
           </section>
 
+          {/* The one line a skimmer should leave with. Rendered once, full
+              width, directly under the hero it summarises. */}
+          <aside className="home-thesis">
+            <p>{h('thesis.quote')}</p>
+            <cite>{h('thesis.attribution')}</cite>
+          </aside>
+
             {/* The hero's visual is the real trading desk, which is what every
                 comparable product leads with. It replaces the live-quote
                 widget, which moved down to the execution section: that widget
@@ -255,6 +274,7 @@ export default async function Home() {
           <section id="use-cases" className="home-section" aria-labelledby="usecases-title">
             <Reveal>
               <div className="home-section__head">
+                <p className="home-eyebrow">{h('useCases.eyebrow')}</p>
                 <h2 id="usecases-title">{h('useCases.title')}</h2>
                 <p className="home-section__head-lead">{h('useCases.lead')}</p>
               </div>
@@ -277,6 +297,7 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
+                  <p className="home-eyebrow">{h('execution.eyebrow')}</p>
                   <h2 id="execution-title">{h('execution.title')}</h2>
                 </div>
                 <p>{h('execution.lead')}</p>
@@ -332,6 +353,7 @@ export default async function Home() {
                   not a floating explainer — the sanctioned use of a split head. */}
               <div className="home-section__head home-section__head--figure">
                 <div>
+                  <p className="home-eyebrow">{h('markets.eyebrow')}</p>
                   <h2 id="markets-title">{h('markets.title')}</h2>
                   <p className="home-section__head-lead">{h('markets.lead')}</p>
                 </div>
@@ -365,6 +387,7 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
+                  <p className="home-eyebrow">{h('research.eyebrow')}</p>
                   <h2 id="research-title">{h('research.title')}</h2>
                 </div>
                 <p>{h('research.lead')}</p>
@@ -388,6 +411,7 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
+                  <p className="home-eyebrow">{h('portfolio.eyebrow')}</p>
                   <h2 id="portfolio-title">{h('portfolio.title')}</h2>
                 </div>
                 <p>{h('portfolio.lead')}</p>
@@ -432,12 +456,34 @@ export default async function Home() {
             </Reveal>
           </section>
 
+          {/* Limits sit in the body, at the same size as the claims they
+              qualify. The FAQ still answers them, but a reader who never opens
+              an accordion should still meet them. */}
+          <section id="limits" className="home-section" aria-labelledby="limits-title">
+            <Reveal>
+              <div className="home-section__head">
+                <p className="home-eyebrow">{h('limits.eyebrow')}</p>
+                <h2 id="limits-title">{h('limits.title')}</h2>
+                <p className="home-section__head-lead">{h('limits.lead')}</p>
+              </div>
+              <div className="home-limits">
+                {limits.map((item) => (
+                  <article key={item.title}>
+                    <h3>{item.title}</h3>
+                    <p>{item.body}</p>
+                  </article>
+                ))}
+              </div>
+            </Reveal>
+          </section>
+
           <section id="terminal" className="home-section" aria-labelledby="interfaces-title">
             <Reveal>
               {/* Right column is the MCP tool constellation — exactly
                   stats.mcpToolCount nodes from the registry the server ships. */}
               <div className="home-section__head home-section__head--figure">
                 <div>
+                  <p className="home-eyebrow">{h('interfaces.eyebrow')}</p>
                   <h2 id="interfaces-title">{h('interfaces.title')}</h2>
                   <p className="home-section__head-lead">{h('interfaces.lead')}</p>
                 </div>
@@ -485,6 +531,7 @@ export default async function Home() {
             <Reveal>
               <div className="home-section__head home-section__head--split">
                 <div>
+                  <p className="home-eyebrow">{h('government.eyebrow')}</p>
                   <h2 id="government-title">{h('government.title')}</h2>
                 </div>
                 <p>{h('government.lead')}</p>
@@ -507,6 +554,7 @@ export default async function Home() {
             <Reveal>
               <div className="home-faq">
                 <div className="home-section__head">
+                  <p className="home-eyebrow">{h('faq.eyebrow')}</p>
                   <h2 id="faq-title">{h('faq.title')}</h2>
                 </div>
                 <FaqAccordion items={faq} />

@@ -28,7 +28,7 @@ export function useSnipe() {
         const title = data.status === 'completed' ? 'Snipe Successful' : 'Snipe Submitted'
         const body = data.tokenSymbol
           ? `${data.status === 'completed' ? 'Bought' : 'Buying'} ${data.tokenAmount ?? ''} ${data.tokenSymbol} for ${data.spentAmount} ${data.spentSymbol}`
-          : `Snipe ${data.status} — spent ${data.spentAmount} ${data.spentSymbol}`
+          : `Snipe ${data.status}. Spent ${data.spentAmount} ${data.spentSymbol}.`
         desktop.notify(title, body)
       }
     },

@@ -21,7 +21,7 @@ monorepo directory-by-directory unless you are maintaining it.
 | **Operate production** | [Production inventory](deployment/production-inventory.md) | [Build reliability](deployment/build-reliability.md) · [Railway](deployment/railway.md) · [Railway best practices](deployment/railway-best-practices.md) · [Monitoring](deployment/monitoring.md) |
 - [`deployment/admin-dashboard.md`](deployment/admin-dashboard.md) — the `/admin` growth dashboard: what it measures, how to turn it on, staff Google sign-in.
 | **Handle an incident** | [Incident docs](incidents/README.md) | [Monitoring](deployment/monitoring.md) |
-| **Write or review docs** | [Documentation content model](content-model.md) | `./scripts/verify.sh docs` |
+| **Write or review docs** | [Documentation content model](content-model.md) | [Writing standard](WRITING.md) · `./scripts/verify.sh docs` |
 
 ## Product and developer docs
 
@@ -149,6 +149,11 @@ non-authoritative by definition.
 Read [content-model.md](content-model.md) before adding a substantial new page. Every doc
 should have one primary job and use the appropriate content type: quickstart, how-to,
 reference, concept, runbook, troubleshooting, or plan/research.
+
+Read [WRITING.md](WRITING.md) before writing any prose that ships: docs, research posts,
+marketing copy, the README, bot strings. It is the sentence-level standard. The evidence
+behind it is [design/reference-breakdown-kamino-letter.md](design/reference-breakdown-kamino-letter.md).
+`python3 scripts/copy_lint.py <path>` checks the mechanical rules.
 
 For money-moving docs, state custody and authority beside the action. For dynamic facts,
 link the source of truth instead of making another copy.

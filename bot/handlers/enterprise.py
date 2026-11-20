@@ -226,7 +226,7 @@ async def org_newkey_name_received(update: Update, context: ContextTypes.DEFAULT
         f"Name: {name}\n"
         f"Scopes: {scopes}\n\n"
         f"`{raw_key}`\n\n"
-        f"⚠️ Save this key — it will not be shown again.",
+        f"⚠️ Save this key. It will not be shown again.",
         parse_mode="Markdown",
     )
     return ConversationHandler.END

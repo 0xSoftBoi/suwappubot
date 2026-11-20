@@ -20,7 +20,7 @@ export function PredictPositions() {
       if (res.ok) {
         toast.success(res.message || 'Redeemed to pUSD on Polygon')
       } else if (res.pending) {
-        toast(res.message || 'Redeem submitted — confirming on Polygon', { icon: '⏳' })
+        toast(res.message || 'Redeem submitted. Confirming on Polygon.', { icon: '⏳' })
       } else {
         toast.error(res.message || 'Could not redeem')
       }
@@ -37,7 +37,7 @@ export function PredictPositions() {
         className="h-full"
         kicker="Predictions"
         title="Sign in to view your positions"
-        description="Your Polymarket holdings show here with average cost, live price and PnL — plus a one-tap Redeem once a market resolves in your favour."
+        description="Your Polymarket holdings show here with average cost, live price and PnL. A one-tap Redeem appears once a market resolves in your favour."
       />
     )
   }
@@ -56,7 +56,7 @@ export function PredictPositions() {
         className="h-full"
         kicker="Predictions"
         title="No prediction positions"
-        description="Buy shares of an outcome from the ticket and the position lands here — winners surface as Claimable when the market resolves."
+        description="Buy shares of an outcome from the ticket and the position lands here. Winners surface as Claimable when the market resolves."
       />
     )
   }

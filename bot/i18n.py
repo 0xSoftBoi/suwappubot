@@ -26,25 +26,21 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
     # ------------------------------------------------------------------
     "welcome": {
         "en": (
-            "🌸 *suwappu* — fast cross-chain swaps with a native C\\+\\+ core\\!\n\n"
-            "🔄 *Welcome to Suwappu Bot*\n\n"
-            "Cross-chain swaps made simple\\."
+            "🌸 *Suwappu*\n\n"
+            "Swap tokens across chains from one account\\.\n"
+            "Send an amount, see the route, approve the trade\\."
         ),
         "es": (
-            "🌸 *suwappu* — intercambios rápidos entre cadenas con un núcleo C\\+\\+ nativo\\!\n\n"
-            "🔄 *Bienvenido a Suwappu Bot*\n\n"
-            "Intercambios entre cadenas simplificados\\."
+            "🌸 *Suwappu*\n\n"
+            "Intercambia tokens entre cadenas desde una sola cuenta\\.\n"
+            "Envía un monto, mira la ruta, aprueba la operación\\."
         ),
         "fr": (
-            "🌸 *suwappu* — échanges cross-chain rapides avec un cœur C\\+\\+ natif\\!\n\n"
-            "🔄 *Bienvenue sur Suwappu Bot*\n\n"
-            "Les échanges cross-chain simplifiés\\."
+            "🌸 *Suwappu*\n\n"
+            "Échangez des tokens entre chaînes depuis un seul compte\\.\n"
+            "Envoyez un montant, consultez l'itinéraire, approuvez la transaction\\."
         ),
-        "zh": (
-            "🌸 *suwappu* — 原生 C\\+\\+ 核心驱动的快速跨链交换\\!\n\n"
-            "🔄 *欢迎使用 Suwappu Bot*\n\n"
-            "跨链交换，简单快捷\\."
-        ),
+        "zh": ("🌸 *Suwappu*\n\n" "从一个账户跨链交换代币\\.\n" "输入金额，查看路线，确认交易\\."),
     },
     # ------------------------------------------------------------------
     # wallet_created — success message after wallet creation
@@ -114,10 +110,10 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
     # wallet_failed — fallback when creation fails
     # ------------------------------------------------------------------
     "wallet_failed": {
-        "en": "⚠️ _Wallet creation failed — use /w to retry._",
-        "es": "⚠️ _Error al crear la cartera — usa /w para intentarlo de nuevo._",
-        "fr": "⚠️ _Échec de la création du portefeuille — utilisez /w pour réessayer._",
-        "zh": "⚠️ _钱包创建失败 — 使用 /w 重试。_",
+        "en": "⚠️ _Wallet creation failed. Use /w to retry._",
+        "es": "⚠️ _Error al crear la cartera. Usa /w para intentarlo de nuevo._",
+        "fr": "⚠️ _Échec de la création du portefeuille. Utilisez /w pour réessayer._",
+        "zh": "⚠️ _钱包创建失败。使用 /w 重试。_",
     },
     # ------------------------------------------------------------------
     # wallet_ready — explicit confirmation once background provisioning

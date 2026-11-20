@@ -113,7 +113,7 @@ builder contribution margin
 - polling + storage + queue + delivery + hosting + support costs
 ```
 
-Customer APY, gas, slippage, defaults, liquidation, and position P&L belong to the customer's financial outcome ledger—not your SaaS revenue ledger.
+Customer APY, gas, slippage, defaults, liquidation, and position P&L belong to the customer's financial outcome ledger. They do not belong on your SaaS revenue ledger.
 
 ## 6. A product ladder that earns trust
 

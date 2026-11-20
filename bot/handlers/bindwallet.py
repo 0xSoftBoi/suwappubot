@@ -117,7 +117,7 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"`{challenge}`\n\n"
             "3. Send back:\n"
             "`/bindwallet <address> <signature>`\n\n"
-            "_Expires in 10 minutes. Signing proves ownership only — it authorizes "
+            "_Expires in 10 minutes. Signing proves ownership only. It authorizes "
             "no transaction._",
             parse_mode="Markdown",
         )
@@ -134,7 +134,7 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not stored or time.time() - stored[1] > _NONCE_TTL:
         context.user_data.pop(_CHALLENGE_KEY, None)
         await update.message.reply_text(
-            "⏱ Challenge expired — run /bindwallet again for a fresh one."
+            "⏱ Challenge expired. Run /bindwallet again for a fresh one."
         )
         return
     nonce = stored[0]
@@ -218,10 +218,10 @@ async def bindwallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         outcome, displaced = "error", None
 
     if outcome == "error":
-        await update.message.reply_text("❌ Couldn't link that wallet right now — try again.")
+        await update.message.reply_text("❌ Couldn't link that wallet right now. Try again.")
         return
     if outcome == "no_user":
-        await update.message.reply_text("❌ Account not found — try /start again.")
+        await update.message.reply_text("❌ Account not found. Try /start again.")
         return
     if outcome == "claimed":
         # Security-relevant: one wallet moved between accounts on a fresh proof.

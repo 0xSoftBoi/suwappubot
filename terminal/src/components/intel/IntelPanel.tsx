@@ -170,7 +170,7 @@ function IntelResults({
       <TerminalEmptyState
         kicker="Rate limited"
         title="Slow down a moment"
-        description="Too many scans in a short window — retrying shortly on its own. No need to resubmit."
+        description="Too many scans in a short window. This retries on its own, so do not resubmit."
       />
     )
   }
@@ -195,7 +195,7 @@ function IntelResults({
     return (
       <TerminalEmptyState
         kicker={isRateLimited ? 'Rate limited' : 'Scan failed'}
-        title={isRateLimited ? 'Still rate limited — try again shortly' : "Couldn't load this token"}
+        title={isRateLimited ? 'Still rate limited. Try again shortly.' : "Couldn't load this token"}
         description={isRateLimited ? 'This endpoint is per-IP rate limited. Wait a few seconds, then retry.' : message}
         action={
           <TerminalButton size="sm" onClick={onRetry}>

@@ -553,7 +553,7 @@ function AuthInner({ children }: { children: ReactNode }) {
       return
     }
     if (!openConnectModal) {
-      setError("Couldn't open the wallet picker — refresh and try again.")
+      setError("Couldn't open the wallet picker. Refresh and try again.")
       return
     }
     pendingWalletSignIn.current = true

@@ -65,12 +65,12 @@ async def llm_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     spec = get_model(choice)
     if spec is None:
-        await update.message.reply_text("❌ Unknown model — send /model to see the list.")
+        await update.message.reply_text("❌ Unknown model. Send /model to see the list.")
         return
     if spec.friendly_name not in usable_names:
         if not spec.is_tier_allowed(user_ctx.tier):
             await update.message.reply_text(
-                f"❌ `{choice}` needs the *{spec.min_tier.value}* tier — see /vip to upgrade.",
+                f"❌ `{choice}` needs the *{spec.min_tier.value}* tier. See /vip to upgrade.",
                 parse_mode="Markdown",
             )
         else:

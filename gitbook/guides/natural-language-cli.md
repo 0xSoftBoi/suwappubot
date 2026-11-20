@@ -4,7 +4,7 @@ Build a CLI that takes plain-English commands and routes them through the Suwapp
 
 ## The /execute Endpoint
 
-`POST /v1/agent/execute` accepts a natural-language `command` and an optional `wallet_address`. It parses swap and quote/price commands, fetches a quote, and returns a structured response. If you include `wallet_address` (which must be your own managed wallet), it also returns executable transaction data.
+`POST /v1/agent/execute` accepts a natural-language `command` and an optional `wallet_address`. It parses swap and quote/price commands, fetches a quote, and returns a structured response. Include `wallet_address` to also get executable transaction data. The address must be your own managed wallet.
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/execute \
@@ -104,7 +104,11 @@ If the chain is omitted, it defaults to Ethereum. For Solana, include `on solana
 
 ## Executing the Quote
 
-`/execute` returns a quote (and optionally unsigned transaction data). It does not perform managed execution. Before acting on a read-only quote, re-run the intent with your managed wallet to get a fresh wallet-bound `quote_id`; simulate that exact quote against the same address, then, after explicit approval, hand it to the managed endpoint:
+`/execute` returns a quote and, optionally, unsigned transaction data. It does not perform managed execution. Before acting on a read-only quote:
+
+- re-run the intent with your managed wallet to get a fresh wallet-bound `quote_id`;
+- simulate that exact quote against the same address; and
+- after explicit approval, hand it to the managed endpoint:
 
 ```bash
 curl -X POST https://api.suwappu.bot/v1/agent/execute \

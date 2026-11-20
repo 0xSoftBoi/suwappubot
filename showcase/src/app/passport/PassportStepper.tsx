@@ -89,7 +89,7 @@ export default function PassportStepper({ flow }: { flow: Flow }) {
         pre.phase === 'blocked' ? (
           <span className={s.bad}>Blocked by the hook · no gas spent</span>
         ) : pre.phase === 'executed' ? (
-          <span className={s.good}>Went through — this wallet already has a passport</span>
+          <span className={s.good}>Went through. This wallet already has a passport.</span>
         ) : null,
     },
     {
@@ -168,7 +168,7 @@ export default function PassportStepper({ flow }: { flow: Flow }) {
       <AnimatePresence>
         {finished && passport && executedJob && (
           <motion.div className={s.passport} {...fade} transition={{ duration: 0.5, ease: EASE }}>
-            <span className={s.kicker}>{returning ? 'Welcome back — passport active' : 'Passport issued'}</span>
+            <span className={s.kicker}>{returning ? 'Welcome back. Your passport is active.' : 'Passport issued'}</span>
             <a className={s.passportName} href={ensAppUrl(passport.ens.name)} target="_blank" rel="noopener noreferrer">
               {passport.ens.name.split('.')[0]}
               <span>.{passport.ens.name.split('.').slice(1).join('.')}</span>
@@ -326,7 +326,7 @@ export default function PassportStepper({ flow }: { flow: Flow }) {
                           {post.phase === 'checking' ? (
                             <Spinner label="Asking the hook…" />
                           ) : post.phase === 'submitted' ? (
-                            <Spinner label="Allowed — sending the swap…" />
+                            <Spinner label="Allowed. Sending the swap…" />
                           ) : (
                             'Trade with the passport'
                           )}

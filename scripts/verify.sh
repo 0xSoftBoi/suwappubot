@@ -15,6 +15,31 @@ if [[ "$MODE" == "all" || "$MODE" == "python" ]]; then
   echo "=== Python syntax ==="
   find api bot database -name "*.py" -not -path "*/\.*" | xargs python3 -m py_compile
   echo "✓ Python OK"
+
+  # CI green does not prove the bot boots: the test job never exercises
+  # bot/main.py's startup import chain, so a bad intra-repo import passes CI and
+  # then crashes on deploy. A real import needs packages this container lacks,
+  # so check that every bot/api/database import resolves to a module that exists.
+  echo "=== Intra-repo import graph ==="
+  if ! python3 scripts/check_import_graph.py; then
+    echo "✗ An import that CI would not catch will crash the bot on deploy."
+    exit 1
+  fi
+
+  # A MarkdownV2 message with unescaped punctuation is rejected by Telegram at
+  # send time. Nothing else in CI performs a real send, so the user just never
+  # receives the message.
+  echo "=== Telegram MarkdownV2 escaping ==="
+  # The checker's own cases run first: it has to know that a correct inline
+  # link is correct before its verdict on a real message means anything.
+  if ! python3 scripts/check_markdown_escapes.py --self-test; then
+    echo "✗ The escape checker's own cases fail; its findings cannot be trusted."
+    exit 1
+  fi
+  if ! python3 scripts/check_markdown_escapes.py; then
+    echo "✗ A bot message would be rejected by Telegram at send time."
+    exit 1
+  fi
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "api" ]]; then
@@ -61,6 +86,57 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
     echo "  Update the doc alongside the rename/removal that stranded it."
     exit 1
   fi
+  echo "=== Generated docs data vs gitbook/ ==="
+  if ! bash scripts/check_generated_docs.sh; then
+    echo "✗ The live docs site would serve prose that no longer matches gitbook/."
+    exit 1
+  fi
+  echo "=== Launch-copy numbers vs source ==="
+  if ! python3 scripts/check_positions_numbers.py; then
+    echo "✗ Customer-facing copy cites numbers its own source contradicts."
+    exit 1
+  fi
+  echo "=== Copy-lint self-test ==="
+  if ! python3 scripts/test_copy_lint.py; then
+    echo "✗ The prose linter's own tests fail; its findings cannot be trusted."
+    exit 1
+  fi
+  # The copy-only gate is what makes a large delegated rewrite safe to accept,
+  # so its own cases are a gate too. They pin the two ways it can lie: a
+  # changed expression inside a template literal, and a retargeted URL.
+  echo "=== Copy-only gate self-test ==="
+  if ! python3 scripts/check_ts_copy_only.py --self-test; then
+    echo "✗ The copy-only gate's own cases fail; it cannot certify a rewrite."
+    exit 1
+  fi
+  # Two tiers, deliberately. PUBLISHED surfaces are what customers read, so they
+  # are a hard gate at zero. The docs/ tree is contributor and agent material:
+  # real, but 90+ files of ADRs, incident reports and working notes whose count
+  # would otherwise drown the signal that matters.
+  #
+  # gitbook/ is the DEPLOYED docs tree: showcase/scripts/regen-docs.mjs reads it
+  # into showcase/src/data/docs.json. It is listed first because it is the
+  # largest published prose surface and the easiest one to forget.
+  echo "=== Writing standard: published surfaces (docs/WRITING.md) ==="
+  if ! python3 scripts/copy_lint.py --strict \
+    gitbook README.md showcase/messages/en.json showcase/src/content/research.ts \
+    docs/WRITING.md docs/README.md docs/content-model.md docs/marketing; then
+    echo "✗ Customer-facing prose breaks the writing standard."
+    echo "  Fix it, or mark a deliberate exception with <!-- copy-lint: off -->."
+    exit 1
+  fi
+  echo "✓ Published prose meets the writing standard"
+
+  # copy_lint reads Markdown and JSON. It cannot see a string inside a Python
+  # handler or a JSX text node, which is where most of what a user reads lives.
+  echo "=== Writing standard: app strings (bot, webapp, terminal, extension, showcase) ==="
+  if ! python3 scripts/check_app_copy.py --strict; then
+    echo "✗ App copy breaks the writing standard. See docs/WRITING.md §8."
+    exit 1
+  fi
+
+  echo "=== Writing standard: repository docs (advisory) ==="
+  python3 scripts/copy_lint.py --summary docs | tail -6 || true
 fi
 
 if [[ "$MODE" == "all" || "$MODE" == "health" ]]; then

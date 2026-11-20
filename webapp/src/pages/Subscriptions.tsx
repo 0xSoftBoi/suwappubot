@@ -152,7 +152,7 @@ export function Subscriptions() {
             Upgrade to Premium
           </h2>
           <p className="text-sm text-suwappu-text-secondary mt-1">
-            Unlock powerful trading features
+            Get advanced trading features
           </p>
         </div>
 

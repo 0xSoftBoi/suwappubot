@@ -132,7 +132,7 @@ export default function QrModal({
             </div>
             <p className={styles.modalHint} aria-live="polite">
               {simHint
-                ? 'Link copied — tap “Paste code” in the simulator.'
+                ? 'Link copied. Tap “Paste code” in the simulator.'
                 : 'Waiting for confirmation on your phone…'}
             </p>
             <div className={styles.modalActions}>

@@ -160,6 +160,24 @@ export function markdownToHtml(md: string): string {
   // Inline code (after code blocks)
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
+  // Italics. Runs after bold and after both code paths, so `**x**` is already
+  // <strong> and no asterisk inside a code block or code span can be consumed.
+  // Code regions are masked rather than pattern-excluded: a `<pre>` body can
+  // contain arbitrary text, and a lookaround cannot see that far.
+  const codeMasks: string[] = [];
+  html = html.replace(/<pre[\s\S]*?<\/pre>|<code>[\s\S]*?<\/code>/g, (m) => {
+    codeMasks.push(m);
+    return `@@CODEMASK${codeMasks.length - 1}@@`;
+  });
+  // Opening * must be preceded by a boundary and followed by a non-space;
+  // closing * must be preceded by a non-space and not start a new emphasis.
+  // The span never crosses a newline, so an unmatched * cannot swallow a page.
+  html = html.replace(
+    /(^|[\s(["'>])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)/gm,
+    '$1<em>$2</em>',
+  );
+  html = html.replace(/@@CODEMASK(\d+)@@/g, (_m, i) => codeMasks[Number(i)]);
+
   // Images → figure/figcaption. Must run before links, or the trailing
   // "[alt](src)" of an image would be consumed as a link and leave a stray "!".
   // Syntax: ![alt text](/path.svg "Optional caption")

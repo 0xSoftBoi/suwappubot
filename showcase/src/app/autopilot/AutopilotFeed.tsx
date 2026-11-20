@@ -165,7 +165,7 @@ export default function AutopilotFeed({
       </div>
 
       {stale && (
-        <p className={styles.sectionNote}>Live updates paused — showing the last data received.</p>
+        <p className={styles.sectionNote}>Live updates are paused. This shows the last data received.</p>
       )}
 
       <ul className={styles.feed}>

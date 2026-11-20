@@ -312,7 +312,7 @@ function SeasonEmissionNote({ data }: { data: SeasonStanding }) {
         <p className="text-[10px] text-suwappu-text-secondary">Season inflation {inflation}%</p>
       )}
       <p className="text-[10px] text-suwappu-text-secondary">
-        Points = 100 × fees you pay — wash-trading earns nothing free.
+        Points = 100 × fees you pay. Wash-trading earns no free points.
       </p>
       {standing.feePaidUsd > 0 && (
         <p className="text-[10px] text-suwappu-text-secondary">

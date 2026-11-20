@@ -1,6 +1,6 @@
 # Solana
 
-Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets — a Solana swap signs with a Solana keypair, not an EVM `0x` address. Pass `chain: "solana"` (or `"sol"`) in your requests.
+Suwappu supports Solana swaps through the Jupiter aggregator, with SPL-token routing and Base58 addresses. Solana wallets are separate from EVM wallets. A Solana swap signs with a Solana keypair, not an EVM `0x` address. Pass `chain: "solana"` (or `"sol"`) in your requests.
 
 ## Overview
 

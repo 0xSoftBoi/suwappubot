@@ -830,9 +830,7 @@ async def bulk_twofa_entered(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
             ctx.user_data.pop("bulk_swap", None)
             await update.message.reply_text("Too many invalid 2FA codes. Bulk swap cancelled.")
             return ConversationHandler.END
-        await update.message.reply_text(
-            f"Invalid code. {3 - attempts} attempt(s) left — try again:"
-        )
+        await update.message.reply_text(f"Invalid code. {3 - attempts} attempt(s) left. Try again:")
         return BULK_2FA
 
     bulk["twofa_verified_at"] = time.time()
@@ -844,7 +842,7 @@ async def bulk_twofa_entered(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
             quote_validator.validate_quote_freshness(quote)
         except SwapError:
             await update.message.reply_text(
-                "Code verified — but one or more quotes expired in the meantime. "
+                "Code verified. One or more quotes expired in the meantime. "
                 "Start over to get fresh quotes.",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("Start over", callback_data="bulk_restart")]]

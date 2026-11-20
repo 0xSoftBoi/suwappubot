@@ -12,7 +12,7 @@ export function RecentTradesPanel() {
     : status === 'error' ? "Couldn't load recent trades"
     : 'Loading recent trades…'
   const emptySub =
-    status === 'unsupported' ? 'On-chain pairs trade against pool liquidity — there is no central trade tape.'
+    status === 'unsupported' ? 'On-chain pairs trade against pool liquidity. There is no central trade tape.'
     : status === 'error' ? 'Retrying automatically…'
     : ''
 

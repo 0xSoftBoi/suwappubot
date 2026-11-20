@@ -98,7 +98,7 @@ For a Solana quote, the response returns a base64-encoded transaction to deseria
 ### Notes
 
 - Amounts in this response are in smallest units (wei / lamports), not human-readable decimals.
-- The EVM transaction is built with `from: wallet_address`, so that address must be your agent's managed wallet — otherwise the request returns `403`.
+- The EVM transaction is built with `from: wallet_address`, so that address must be your agent's managed wallet. Otherwise the request returns `403`.
 - This endpoint does **not** broadcast. To have Suwappu sign and submit, use [`POST /v1/agent/swap/execute`](swap-execute.md).
 
 ### Errors

@@ -113,10 +113,10 @@ export function Settings({ onLock }: SettingsProps) {
           <button
             type="button"
             disabled
-            title="Coming soon — requires server-side passkey verification"
+            title="Coming soon. This requires server-side passkey verification."
             className="w-full px-4 py-3 bg-warn text-bg rounded-lg font-medium transition text-sm font-mono opacity-50 cursor-not-allowed"
           >
-            Back up to Suwappu (KMS) — coming soon
+            Back up to Suwappu with KMS. Coming soon.
           </button>
           <button
             onClick={handleLock}

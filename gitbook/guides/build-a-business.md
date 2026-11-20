@@ -129,7 +129,7 @@ The [Trading Bot guide](building-a-trading-bot.md) shows the concrete action bou
 
 For an executable-route example, the [Arbitrage Monitor](arbitrage-monitor.md) shows why chain-neutral reference prices are not enough, how to budget quote calls, and how to turn a read-only signal into a paid monitor before adding a two-leg execution problem.
 
-For a venue-data example, the [Standalone Prediction Monitor](prediction-markets.md) turns detail + midpoint + book + trades into a reusable market-health snapshot and restart-safe watch state, then shows how to price alerts from measured request volume while keeping forecast calibration separate from customer trading P&L.
+For a venue-data example, the [Standalone Prediction Monitor](prediction-markets.md) turns detail + midpoint + book + trades into a reusable market-health snapshot and restart-safe watch state. It then shows how to price alerts from measured request volume, while keeping forecast calibration separate from customer trading P&L.
 
 For leveraged-position monitoring, the [Standalone Perps Risk Monitor](perps-trading.md) turns authenticated position reads plus shared market context into restart-safe liquidation-distance transitions, then separates alert-delivery economics from customer trading returns and shows where direct Hyperliquid streaming becomes the better architecture.
 

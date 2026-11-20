@@ -55,7 +55,7 @@ export function CandlesTab() {
             <EmptyDataset
               icon="\u{1F4C9}"
               title={`No candles for ${symbol} ${timeframe}`}
-              message="The capture service hasn't backfilled this symbol/timeframe yet — expected before deploy."
+              message="This symbol and timeframe are not backfilled yet. This is expected before deploy."
             />
           </div>
         ) : (

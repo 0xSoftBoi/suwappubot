@@ -57,7 +57,7 @@ bun src/index.ts history --limit 20
 bun src/index.ts history --json --limit 100
 ```
 
-Each observation has a deterministic policy fingerprint and a one-way wallet reference rather than the API key/full wallet address. `SUWAPPU_REBALANCER_HISTORY_LIMIT` bounds local observations (default 5000). Treat a failed/stale scheduled run separately from exit code 2—a silent monitor is not evidence that a portfolio is in policy.
+Each observation has a deterministic policy fingerprint and a one-way wallet reference rather than the API key/full wallet address. `SUWAPPU_REBALANCER_HISTORY_LIMIT` bounds local observations (default 5000). Treat a failed or stale scheduled run separately from exit code 2. A silent monitor is not evidence that a portfolio is in policy.
 
 ## Define the policy explicitly
 
@@ -181,7 +181,7 @@ const response = await fetch('https://api.suwappu.bot/v1/agent/swap/execute', {
 
 If the request times out, loses its connection, returns HTTP 408/5xx, or returns a malformed success after submission may have started, do not create a new current-time ID. A fresh quote can still represent the **same economic intent**; reuse the persisted idempotency key.
 
-The reference bounds direct REST calls and its SDK quote wait with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default; accepted range 100–30000 ms). `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr without API keys, wallets, quote/swap IDs, policy terms, response bodies, or error messages.
+The reference bounds direct REST calls and its SDK quote wait with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the accepted range is 100–30000 ms. `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr without API keys, wallets, quote/swap IDs, policy terms, response bodies, or error messages.
 
 ## Reconcile before the next economic action
 
@@ -205,7 +205,7 @@ bun src/index.ts executions --reconcile
 
 For safety, the live reference executes at most **one reconciled economic action per invocation**. Run `rebalance --execute` again to read the new portfolio and calculate the next action from fresh state. This avoids blindly running the remainder of a plan computed before the first fill.
 
-The local deployment also holds `rebalance-live.lock` across the *whole* live cycle—resume/reconcile, fresh portfolio, plan, submit/reconcile, and final accounting. `executions --reconcile` takes the same lock, so status writes cannot race a live planner. After an abnormal death, stop schedulers, inspect the journal read-only, prove the recorded owner is gone, clear only the stale lock, then reconcile before re-enabling live work. The [operations runbook](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer/blob/main/docs/OPERATIONS.md) gives the full recovery sequence.
+The local deployment also holds `rebalance-live.lock` across the *whole* live cycle: resume/reconcile, fresh portfolio, plan, submit/reconcile, and final accounting. `executions --reconcile` takes the same lock, so status writes cannot race a live planner. After an abnormal death, stop schedulers, inspect the journal read-only, prove the recorded owner is gone, clear only the stale lock, then reconcile before re-enabling live work. The [operations runbook](https://github.com/0xSoftBoi/suwappu-portfolio-rebalancer/blob/main/docs/OPERATIONS.md) gives the full recovery sequence.
 
 ## Turn on live mode deliberately
 
@@ -217,7 +217,9 @@ export MIN_REBALANCE_USD=10  # example operational floor, not a recommendation
 bun src/index.ts rebalance --execute
 ```
 
-The repository defaults `MAX_REBALANCE_USD` to `1000` and `MIN_REBALANCE_USD` to `0`; choose limits for your policy rather than copying the example. Invalid values fail closed. The local limits are defense in depth—use Suwappu wallet policies, approvals, audit history, and a kill switch for server-side limits.
+The repository defaults `MAX_REBALANCE_USD` to `1000` and `MIN_REBALANCE_USD` to `0`. Choose limits for your policy rather than copying the example. Invalid values fail closed.
+
+The local limits are defense in depth. Use Suwappu wallet policies, approvals, audit history, and a kill switch for server-side limits.
 
 The reference JSON execution journal and drift history live under `~/.suwappu-rebalancer` by default. Existing corrupt state fails closed; writes use restrictive permissions, fsync, and atomic replace. A multi-worker service still needs transactional state, an economic-intent uniqueness constraint, locking/leases, and an append-only audit trail.
 

@@ -58,7 +58,7 @@ An empty `warnings` array does not mean a market is risk-free. Smart-contract, o
 
 ## `GET /v1/agent/lend/market/:id`
 
-Read one market by Morpho market ID. Market identity is chain-scoped, so pass the chain when it is not Base—or explicitly pass it in stored workflows so a market ID is never detached from its chain.
+Read one market by Morpho market ID. Market identity is chain-scoped, so pass the chain when it is not Base. Pass it explicitly in stored workflows too, so a market ID is never detached from its chain.
 
 | Parameter | Location | Type | Required | Description |
 |-----------|----------|------|----------|-------------|

@@ -1,6 +1,6 @@
 # Simulate Swap (Dry Run)
 
-Preview a swap with **zero funds moved** — a Tenderly-style dry run that fetches (or reuses) a quote and runs a battery of pre-flight checks, without creating a swap record, signing, or broadcasting anything. Use it to let an agent validate a trade before committing real value.
+Preview a swap with **zero funds moved**. This is a Tenderly-style dry run that fetches or reuses a quote and runs a battery of pre-flight checks, without creating a swap record, signing, or broadcasting anything. Use it to let an agent validate a trade before committing real value.
 
 Also available as the `simulate_swap` MCP tool (same logic, same cost).
 
@@ -48,7 +48,7 @@ Same shape as [Quote](quote.md), plus an optional `quote_id`. Provide **either**
 }
 ```
 
-`would_execute` is `true` only when every check that could run passed (inapplicable or unavailable checks degrade to `warn` and do not block).
+`would_execute` is `true` only when every check that could run passed. Inapplicable or unavailable checks degrade to `warn` and do not block.
 
 ### Checks
 
@@ -61,7 +61,7 @@ Same shape as [Quote](quote.md), plus an optional `quote_id`. Provide **either**
 | `eth_call_revert_check` | EVM, needs executable tx data | Dry-runs the transaction via `eth_call` and reports the revert reason if it would fail |
 | `slippage_sane` | all | Warns when price impact exceeds 5% or min-output deviates far from the expected output |
 
-Checks are independent and degrade gracefully: a check that cannot run returns `warn` with an explanatory `detail` — the endpoint never fails because one check was unavailable.
+Checks are independent and degrade gracefully. A check that cannot run returns `warn` with an explanatory `detail`. The endpoint never fails because one check was unavailable.
 
 ### Guarantees
 

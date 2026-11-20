@@ -12,7 +12,7 @@ export function DCAManager() {
       <TerminalEmptyState
         kicker="In development"
         title="Recurring DCA schedules are coming soon"
-        description="Automate a token buy over time — set a total budget, a cadence, and a number of orders. Ships once the DCA execution backend lands; your swaps in the meantime work exactly as they do today."
+        description="Automate a token buy over time. Set a total budget, a cadence, and a number of orders. Ships once the DCA execution backend lands. Your swaps in the meantime work exactly as they do today."
       />
     </div>
   )

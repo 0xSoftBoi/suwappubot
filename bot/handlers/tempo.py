@@ -56,7 +56,7 @@ async def _status(update: Update, user_id: int) -> None:
             "🔑 *Tempo Session Key*\n\n"
             "No active key.\n\n"
             "Grant one so the bot can run automated Tempo swaps (DCA / limit / snipe) "
-            "for you — gaslessly, capped on-chain, with no per-trade approval:\n"
+            "for you. Gasless, capped on-chain, with no per-trade approval:\n"
             f"`/tempo grant [weekly $ cap]`  _(default ${DEFAULT_CAP_USD:.0f}/week, "
             "30-day expiry)_",
             parse_mode="Markdown",
@@ -65,7 +65,7 @@ async def _status(update: Update, user_id: int) -> None:
     cap = int(rec.spend_limit_raw) / 1e6
     expiry_dt = datetime.fromtimestamp(rec.expiry, tz=timezone.utc).strftime("%Y-%m-%d")
     await update.message.reply_text(
-        "🔑 *Tempo Session Key — Active*\n\n"
+        "🔑 *Tempo Session Key: Active*\n\n"
         f"Key: `{rec.key_address}`\n"
         "Scope: enshrined-DEX swaps (TIP-20)\n"
         f"Cap: {format_usd(cap)} / week _(enforced on-chain)_\n"

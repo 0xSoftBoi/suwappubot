@@ -292,7 +292,7 @@ async def stake_pick_validator(update: Update, context: ContextTypes.DEFAULT_TYP
     idx = int(query.data.split(":")[1])
     cached = context.user_data.get("hl_validators") or []
     if idx >= len(cached):
-        await query.edit_message_text("Validator list expired — run /stake again.")
+        await query.edit_message_text("Validator list expired. Run /stake again.")
         return ConversationHandler.END
 
     v = cached[idx]
@@ -322,7 +322,7 @@ async def stake_amount_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
     validator = context.user_data.get("hl_stake_validator")
     name = context.user_data.get("hl_stake_validator_name")
     if not validator:
-        await update.message.reply_text("Session expired — run /stake again.")
+        await update.message.reply_text("Session expired. Run /stake again.")
         return ConversationHandler.END
 
     await _do_delegate(update, update.effective_user.id, amount, validator, name)
@@ -373,7 +373,7 @@ async def unstake_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     validator, name = _resolve_validator(context, args[1])
     if not validator:
         await update.message.reply_text(
-            "Unknown validator — pass a number from /stake or a 0x address."
+            "Unknown validator. Pass a number from /stake or a 0x address."
         )
         return
 
@@ -512,7 +512,7 @@ async def vault_amount_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
     action = context.user_data.get("hl_vault_action")
     vault = context.user_data.get("hl_vault_addr", HLP_VAULT_ADDRESS)
     if not action:
-        await update.message.reply_text("Session expired — run /vault again.")
+        await update.message.reply_text("Session expired. Run /vault again.")
         return ConversationHandler.END
 
     await _do_vault(update, update.effective_user.id, action == "deposit", usd, vault)

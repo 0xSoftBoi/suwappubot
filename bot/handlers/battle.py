@@ -135,7 +135,7 @@ async def battle_market_callback(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("Cancel", callback_data="battle_cancel")],
     ]
     await query.edit_message_text(
-        f"**{_market_display(market)} — Market Battle**\n\n"
+        f"**{_market_display(market)}: Market Battle**\n\n"
         f"Current price: {price_str}\n\n"
         f"Which direction do you bet?",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -292,9 +292,9 @@ async def battle_duration_callback(update: Update, context: ContextTypes.DEFAULT
     ]
     await query.edit_message_text(
         "**Choose backing**\n\n"
-        "**Perps** — opens a real HyperLiquid position with leverage.\n"
+        "**Perps:** opens a real HyperLiquid position with leverage.\n"
         "  Requires a HyperLiquid account.\n\n"
-        f"**Prediction** — settles against the oracle price.\n"
+        f"**Prediction:** settles against the oracle price.\n"
         f"  No exchange account needed. Win = {float(PREDICTION_WIN_MULTIPLIER):.1f}x stake.\n"
         f"  Stake is debited from your custodial balance at entry.",
         reply_markup=InlineKeyboardMarkup(keyboard),

@@ -154,7 +154,7 @@ export function usePassportFlow() {
         if (Date.now() > deadline) {
           if (!token.cancelled) {
             setSwapPhase('failed');
-            setSwapError('Swap job timed out — retry when ready.');
+            setSwapError('Swap job timed out. Retry when ready.');
           }
           return;
         }
@@ -203,7 +203,7 @@ export function usePassportFlow() {
         if (Date.now() > deadline) {
           if (!token.cancelled) {
             setVerifyPhase('failed');
-            setVerifyError('Verification timed out after 5 minutes — retry when ready.');
+            setVerifyError('Verification timed out after 5 minutes. Retry when ready.');
           }
           return;
         }

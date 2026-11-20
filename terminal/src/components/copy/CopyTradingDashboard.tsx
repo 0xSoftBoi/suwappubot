@@ -101,7 +101,7 @@ export function CopyTradingDashboard() {
           reason: 'ambiguous_symbol',
         })
         toast.error(
-          `Multiple tokens match ${activity.tokenPair} — token-address handoff is required before we can load it safely`,
+          `Multiple tokens match ${activity.tokenPair}. A token-address handoff is required before we can load it safely.`,
         )
         return
       }

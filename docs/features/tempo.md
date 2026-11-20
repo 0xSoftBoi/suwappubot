@@ -11,7 +11,7 @@ the hood these are Tempo **type-0x76 fee-payer** transactions: the swap is
 built and counter-signed by Suwappu's sponsor wallet (via the official
 `pytempo` SDK), so the fee is paid by the bot, not by you.
 
-For you, that means **effectively gasless onboarding** — your first swaps on
+For you, that means **effectively gasless onboarding**. Your first swaps on
 Tempo cost you nothing in gas. Because Tempo settles fees in TIP-20
 stablecoins, the underlying cost is tiny (sub-`$0.001` per swap).
 
@@ -23,8 +23,8 @@ stablecoins, the underlying cost is tiny (sub-`$0.001` per swap).
 - **Daily budget:** there's a shared daily sponsorship budget (default
   `$100/day`, `DAILY_SPONSOR_BUDGET_USD`). If the day's budget is exhausted,
   sponsorship pauses until the next day.
-- **Graceful fallback:** if sponsorship isn't available — cap reached, budget
-  spent, or the feature is turned off — the swap **still executes**, just
+- **Graceful fallback:** if sponsorship isn't available because the cap is reached,
+  the budget is spent, or the feature is off, the swap **still executes**,
   user-paid. You're never blocked from swapping.
 - **Best-effort, not a guarantee:** sponsorship accounting is tracked
   in-memory and resets if the bot process restarts. It's an onboarding perk,
@@ -37,7 +37,7 @@ stablecoins, the underlying cost is tiny (sub-`$0.001` per swap).
 ## Machine Payments Protocol (MPP)
 
 MPP lets you pay services and agents on Tempo with one-time micropayments or
-streaming payment **sessions** — handy for paying per-call for AI, data,
+streaming payment **sessions**. That suits per-call payment for AI, data,
 compute, or API services.
 
 | Command | What it does |

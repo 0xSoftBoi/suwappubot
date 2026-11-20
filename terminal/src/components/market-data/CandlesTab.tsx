@@ -97,7 +97,7 @@ export function CandlesTab() {
             label={`${symbol} ${timeframe}`}
             emptyState={{
               title: 'No candles captured yet for this symbol/timeframe.',
-              subtitle: "The capture service hasn't populated this dataset yet — expected before deploy.",
+              subtitle: "The capture service hasn't populated this dataset yet. This is expected before deploy.",
             }}
           />
         )}

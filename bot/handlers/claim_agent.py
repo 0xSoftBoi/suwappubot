@@ -84,7 +84,7 @@ async def claim_agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     args = context.args if context.args else []
     if not args:
         await update.message.reply_text(
-            "Usage: `/claim <code>` — paste the linking code shown to you when "
+            "Usage: `/claim <code>`. Paste the linking code shown to you when "
             "registering your agent.",
             parse_mode="Markdown",
         )
@@ -92,7 +92,7 @@ async def claim_agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     code = args[0].strip()
     if not code:
-        await update.message.reply_text("That code looks empty — try again.")
+        await update.message.reply_text("That code looks empty. Try again.")
         return
 
     code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
@@ -189,7 +189,7 @@ async def claim_agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             session.commit()
     except SQLAlchemyError as e:
         if _table_missing(e):
-            await update.message.reply_text("Agent linking isn't set up yet — check back shortly.")
+            await update.message.reply_text("Agent linking isn't set up yet. Check back shortly.")
             return
         logger.error("Failed to claim agent for telegram_id=%s: %s", user.id, e)
         await update.message.reply_text(
@@ -198,7 +198,7 @@ async def claim_agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     await update.message.reply_text(
-        f"✅ Agent *{agent_name}* is now linked to you — you'll receive approval " "requests here.",
+        f"✅ Agent *{agent_name}* is now linked to you. You'll receive approval " "requests here.",
         parse_mode="Markdown",
     )
 
@@ -271,7 +271,7 @@ async def unlink_agent_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
     except SQLAlchemyError as e:
         if _table_missing(e):
-            await update.message.reply_text("Agent linking isn't set up yet — check back shortly.")
+            await update.message.reply_text("Agent linking isn't set up yet. Check back shortly.")
             return
         logger.error("Failed to unlink agent for telegram_id=%s: %s", user.id, e)
         await update.message.reply_text(

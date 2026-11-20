@@ -1,10 +1,10 @@
 # Chains
 
-List every chain Suwappu can route through. This endpoint is public — use it to discover the chain `key` values you pass to the quote, swap, and token endpoints.
+List every chain Suwappu can route through. This endpoint is public. Use it to discover the chain `key` values you pass to the quote, swap, and token endpoints.
 
 ## GET /v1/agent/chains
 
-Public — no `Authorization` header required.
+Public. No `Authorization` header required.
 
 ```bash
 curl https://api.suwappu.bot/v1/agent/chains
@@ -37,7 +37,7 @@ chains = res.json()
 }
 ```
 
-Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is abridged — call the endpoint for the full, current set.
+Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is abridged. Call the endpoint for the full, current set.
 
 ### Fields
 
@@ -51,6 +51,6 @@ Suwappu supports 40+ chains across EVM, Solana, Sui, and TON. The list above is 
 
 ### Routing
 
-Best-price routing races up to 9 aggregators — LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP — to find the best execution for each request. EVM routes are quoted via Li.Fi; Solana routes via Jupiter.
+Best-price routing races up to 9 aggregators to find the best execution for each request: LiFi, CoW, OKX, 1inch, KyberSwap, Jupiter (Solana), Across, and CCTP. EVM routes are quoted via Li.Fi. Solana routes are quoted via Jupiter.
 
 See [Tokens](tokens.md) to list the tradable tokens on a given chain.

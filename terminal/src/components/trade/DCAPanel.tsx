@@ -8,7 +8,7 @@ export function DCAPanel() {
       <TerminalEmptyState
         kicker="In development"
         title="DCA scheduling is coming soon"
-        description="Set a total budget, a cadence (hourly, daily or weekly) and a number of orders — the terminal will split it into a recurring schedule automatically. Ships once the DCA execution backend lands."
+        description="Set a total budget, a cadence (hourly, daily or weekly) and a number of orders. The terminal will split it into a recurring schedule automatically. Ships once the DCA execution backend lands."
       />
     </div>
   )

@@ -61,7 +61,7 @@ A swap or execute call with an expired, missing, or cross-agent `quote_id` retur
 }
 ```
 
-Quotes are valid for 60 seconds — request a fresh one and retry.
+Quotes are valid for 60 seconds. Request a fresh one and retry.
 
 ## Rate-limit errors
 

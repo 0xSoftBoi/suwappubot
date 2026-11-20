@@ -647,7 +647,7 @@ function WithdrawView({
   if (!enabled) {
     return (
       <div className="rounded-lg border border-terminal-border bg-terminal-bg px-3 py-8 text-center text-sm text-terminal-text-muted">
-        Withdrawals are temporarily paused. Your funds are safe — please check back shortly.
+        Withdrawals are temporarily paused. Your funds are safe. Check back shortly.
       </div>
     )
   }
@@ -675,7 +675,7 @@ function WithdrawView({
           </div>
         </div>
         <p className="text-center text-[11px] text-terminal-text-muted">
-          Double-check the address — on-chain transfers can’t be reversed.
+          Double-check the address. On-chain transfers can’t be reversed.
         </p>
         <div className="flex gap-2">
           <button
@@ -897,7 +897,7 @@ export function WalletModal({
               {tab === 'deposit' ? (
                 <>
                   <p className="text-sm text-terminal-text">
-                    You’re signed in with your own wallet — receive funds directly to it:
+                    You’re signed in with your own wallet. Receive funds directly to it:
                   </p>
                   {/* Same picker as the custodial flow: a self-custody user still
                       has to choose which network they are sending from, and still
@@ -913,7 +913,7 @@ export function WalletModal({
                 </>
               ) : (
                 <p className="py-6 text-center text-sm text-terminal-text-muted">
-                  Your funds stay in your own wallet — use <b>Swap</b> to move or convert them, or send
+                  Your funds stay in your own wallet. Use <b>Swap</b> to move or convert them, or send
                   directly from your wallet app.
                 </p>
               )}

@@ -62,7 +62,7 @@ export function PortfolioPanel() {
             <TerminalEmptyState
               kicker="Portfolio"
               title="Your positions live here"
-              description="Connect a wallet from the header to see balances, PnL and trade history across every chain you trade — plus perps positions and open orders."
+              description="Connect a wallet from the header to see balances, PnL and trade history across every chain you trade, plus perps positions and open orders."
             />
           </div>
         ) : (

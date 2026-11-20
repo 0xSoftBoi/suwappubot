@@ -1,6 +1,6 @@
 # All Chains
 
-Suwappu supports 40+ blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API -- the `chain` parameter in your requests determines which network to use. This includes major L1s and L2s, Bitcoin L2s (Rootstock, Citrea, BOB, Hemi, GOAT), and emerging chains like Tempo, Plasma, Berachain, and HyperEVM.
+Suwappu supports 40+ blockchain networks across four chain types: EVM, Solana, TRON, and Starknet. Every chain is accessible through the same unified API. The `chain` parameter in your requests determines which network to use. This includes major L1s and L2s, Bitcoin L2s (Rootstock, Citrea, BOB, Hemi, GOAT), and emerging chains like Tempo, Plasma, Berachain, and HyperEVM.
 
 ## Chain Types at a Glance
 
@@ -76,7 +76,7 @@ curl -X POST https://api.suwappu.bot/v1/agent/quote \
 
 ### EVM Chains
 
-All EVM chains share the same address format (`0x...`) and ERC-20 token standard. Most route through Li.Fi and the other aggregators for optimal pricing; a few Bitcoin L2s route through chain-specific venues only (e.g. GOAT via GOATSwap, Citrea via JuiceSwap). A single EVM managed wallet works across every EVM chain.
+All EVM chains share the same address format (`0x...`) and ERC-20 token standard. Most route through Li.Fi and the other aggregators for optimal pricing. A few Bitcoin L2s route through chain-specific venues only, for example GOAT via GOATSwap and Citrea via JuiceSwap. A single EVM managed wallet works across every EVM chain.
 
 See [EVM Chains](evm-chains.md) for the full table.
 
@@ -92,7 +92,7 @@ TRON uses Base58Check addresses (starting with `T`), the TRC-20 token standard, 
 
 ### Starknet
 
-Starknet uses a Cairo-based account-abstraction model with Felt252 addresses. Swaps route through AVNU with integrator fees, and gasless transactions are supported via the SNIP-29 paymaster. In the TypeScript API, Starknet is read-only — signing and broadcast are handled by the Python bot backend.
+Starknet uses a Cairo-based account-abstraction model with Felt252 addresses. Swaps route through AVNU with integrator fees, and gasless transactions are supported via the SNIP-29 paymaster. In the TypeScript API, Starknet is read-only. Signing and broadcast are handled by the Python bot backend.
 
 ## Discovering Chains Programmatically
 

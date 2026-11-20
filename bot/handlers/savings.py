@@ -777,7 +777,7 @@ async def save_btc_action_callback(update: Update, context: ContextTypes.DEFAULT
         except Exception:
             # Never present a false 0 balance on an RPC failure — stop here.
             await query.edit_message_text(
-                "⚠️ Balance unavailable (RPC error) — try again",
+                "⚠️ Balance unavailable (RPC error). Try again",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("« Back", callback_data=f"save_btc_v_{btc['venue']}")]]
                 ),

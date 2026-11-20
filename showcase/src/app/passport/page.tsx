@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: 'Agent Passport',
   description:
     'Give your AI agent an identity people can trust. A human proves they’re real, and every ' +
-    'trade the agent makes after that is protected — powered by World, ENS, and Uniswap.',
+    'trade the agent makes after that is protected. Powered by World, ENS, and Uniswap.',
   alternates: { canonical: '/passport' },
   openGraph: {
     title: 'Agent Passport',

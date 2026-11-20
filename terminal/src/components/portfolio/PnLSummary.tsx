@@ -57,7 +57,7 @@ function PnlStat({ pnl, isLoading }: { pnl: RealizedPnl | null; isLoading: boole
     // so external-wallet (MetaMask/Phantom) swaps never appear here.
     return (
       <span className="text-xs text-terminal-text-muted">
-        No priced trades yet — PnL covers swaps executed through the Suwappu engine
+        No priced trades yet. PnL covers swaps executed through the Suwappu engine.
       </span>
     )
   }

@@ -131,7 +131,7 @@ export function P2PMePanel({ offer, side, network, onClose }: P2PMePanelProps) {
       return
     }
     openExternalLink(p2pMeDeeplink(side, currency))
-    a11yToast.info('Finishing on P2P.me — complete the trade there, then return.')
+    a11yToast.info('Finish the trade on P2P.me, then return here.')
     onClose()
   }
 
@@ -337,7 +337,7 @@ export function P2PMePanel({ offer, side, network, onClose }: P2PMePanelProps) {
       <p className="text-[10px] text-suwappu-text-secondary text-center">
         {account
           ? 'Settles on-chain via the P2P.me Diamond on Base. Signed with your passkey wallet.'
-          : 'No in-app wallet connected — this opens P2P.me to finish the trade (self-custody).'}
+          : 'No in-app wallet connected. This opens P2P.me to finish the trade with self-custody.'}
       </p>
     </div>
   )

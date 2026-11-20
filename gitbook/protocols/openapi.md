@@ -4,7 +4,7 @@ Suwappu publishes several machine-readable discovery files so agents can learn t
 
 ## Discovery Endpoints
 
-All discovery files are public — no authentication required.
+All discovery files are public. No authentication required.
 
 | File | Endpoint | Purpose |
 |------|----------|---------|
@@ -41,7 +41,7 @@ npx openapi-typescript https://api.suwappu.bot/v1/agent/openapi -o suwappu.d.ts
 curl https://api.suwappu.bot/llms.txt
 ```
 
-It documents the public endpoints (`/register`, `/chains`, `/openapi`), the authenticated endpoints (`/quote`, `/swap`, `/swap/execute`, `/portfolio`, `/wallets`, `/execute`, `/webhooks`, ...), and the three protocols (REST, MCP, A2A) with their base URLs.
+It documents the public endpoints such as `/register`, `/chains`, and `/openapi`. It also lists the authenticated endpoints, including `/quote`, `/swap`, `/swap/execute`, `/portfolio`, `/wallets`, `/execute`, and `/webhooks`, plus the three protocols (REST, MCP, A2A) with their base URLs.
 
 ## Agent Card
 
@@ -70,4 +70,4 @@ A well-behaved agent bootstraps from these files in order:
 3. **Fetch the OpenAPI spec** (or `llms.txt`) from the card's `openApiUrl` to learn the REST surface.
 4. **Call the API** over REST, MCP, or A2A using the obtained token.
 
-No hardcoded knowledge of Suwappu is required — every integration point is self-describing.
+No hardcoded knowledge of Suwappu is required. Every integration point is self-describing.

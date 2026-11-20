@@ -217,7 +217,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
         # /approvals reminder or the original message state, if still
         # editable, will still work).
         await query.edit_message_text(
-            "Cancelled — this request is still pending. Use /approvals to act on it."
+            "Cancelled. This request is still pending. Use /approvals to act on it."
         )
         return
 
@@ -280,7 +280,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
                     except SQLAlchemyError as e:
                         if _table_missing(e):
                             await query.edit_message_text(
-                                "Step-up confirmation isn't set up yet — ask an admin to enable "
+                                "Step-up confirmation isn't set up yet. Ask an admin to enable "
                                 "approval_step_up_challenges before approving."
                             )
                             return
@@ -338,7 +338,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
 
     if decided_now:
         outcome = "✅ Approved" if new_status == "approved" else "❌ Denied"
-        await query.edit_message_text(f"{outcome} — agent `{label}`.", parse_mode="Markdown")
+        await query.edit_message_text(f"{outcome}: agent `{label}`.", parse_mode="Markdown")
         # Fire the agent's decision webhook (durable — enqueued first inside
         # notify_approval_decided so the decision is never lost even if the
         # inline POST attempt fails). Never blocks/crashes this handler.
@@ -348,12 +348,12 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
             logger.warning("approval webhook dispatch failed for %s: %s", approval_id, e)
     elif status in ("approved", "denied"):
         await query.edit_message_text(
-            f"Already {status} (by user #{existing_decided_by or 'someone'}) — agent `{label}`.",
+            f"Already {status} (by user #{existing_decided_by or 'someone'}): agent `{label}`.",
             parse_mode="Markdown",
         )
     elif status == "expired":
         await query.edit_message_text(
-            f"⌛ This request expired — agent `{label}`.", parse_mode="Markdown"
+            f"⌛ This request expired. Agent `{label}`.", parse_mode="Markdown"
         )
     elif (
         status == "pending"
@@ -365,7 +365,7 @@ async def approval_decision_callback(update: Update, context: ContextTypes.DEFAU
         # poll loop — tell them what actually happened rather than the
         # confusing generic "already pending" fallback below.
         await query.edit_message_text(
-            f"⌛ This request expired — agent `{label}`.", parse_mode="Markdown"
+            f"⌛ This request expired. Agent `{label}`.", parse_mode="Markdown"
         )
     else:
         await query.edit_message_text(f"This request is already {status}.")

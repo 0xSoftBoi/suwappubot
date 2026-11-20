@@ -117,7 +117,7 @@ export function AuditLogPanel() {
       <TerminalPanelHeader
         eyebrow={<TerminalEyebrow tone="accent">Agent Control Plane</TerminalEyebrow>}
         title="Audit Log"
-        description="Policy, approval, and killswitch events for your agents — tamper-evident via a hash chain."
+        description="Policy, approval, and killswitch events for your agents. The record is tamper-evident via a hash chain."
         meta={<VerifyBadge />}
       />
 

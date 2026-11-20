@@ -66,7 +66,7 @@ curl "https://api.suwappu.bot/v1/agent/perps/positions?address=0xYOUR_HYPERLIQUI
   -H "Authorization: Bearer suwappu_sk_YOUR_KEY"
 ```
 
-`liquidationPrice: 0` means Hyperliquid did not report a liquidation price on this path. Treat that as unavailable—not a real zero-price liquidation boundary.
+`liquidationPrice: 0` means Hyperliquid did not report a liquidation price on this path. Treat that as unavailable. It is not a real zero-price liquidation boundary.
 
 `fundingRate` is current raw market context for the asset. It is **not** accrued position funding P&L and is not a forecast.
 
@@ -114,7 +114,16 @@ Emit transitions like this:
 
 If a missing position reappears but its liquidation evidence is unavailable, end the missing interval while preserving the prior alert state. A later disappearance can then produce a new reconciliation notification instead of being suppressed as a duplicate of the old missing interval.
 
-For a single-node process, persist the state with an exclusive writer lock and atomic durable writes. The reference v2 uses a `0700` directory, `0600` state/lock files, keeps the exclusive lock descriptor open for the watch lifetime, verifies both lock-file identity and ownership token before release, uses a unique temporary file + file `fsync` + atomic rename + best-effort directory `fsync`, rejects live or dangling symlinked state, and fails closed on corrupt JSON. It never guesses that a lock is stale and deletes it automatically.
+For a single-node process, persist the state with an exclusive writer lock and atomic durable writes. The reference v2:
+
+- uses a `0700` directory and `0600` state/lock files;
+- keeps the exclusive lock descriptor open for the watch lifetime;
+- verifies both lock-file identity and ownership token before release;
+- uses a unique temporary file, file `fsync`, atomic rename, and best-effort directory `fsync`;
+- rejects live or dangling symlinked state; and
+- fails closed on corrupt JSON.
+
+It never guesses that a lock is stale and deletes it automatically.
 
 That is a single-node guarantee. Multi-replica services should use transactional shared state plus a delivery outbox/queue.
 
@@ -122,7 +131,7 @@ That is a single-node guarantee. Multi-replica services should use transactional
 
 The v2 reference runtime makes its network policy explicit:
 
-- 20s request timeout by default, bounded to 250ms–30s;
+- 20s request timeout by default, bounded between 250ms and 30s;
 - 2 safe-read retries by default, bounded to 0–4;
 - GET retry on transport failure, 408, 429, and 5xx with bounded backoff/`Retry-After`;
 - no automatic quote POST retry;

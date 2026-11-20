@@ -44,7 +44,7 @@ export function TraderFeed({ onSelectTrader, onTrade }: TraderFeedProps) {
     return (
       <div className="flex items-center justify-center py-12 text-sm text-terminal-text-muted">
         <button type="button" onClick={() => void refetch()} className="text-sakura-400 hover:text-sakura-300">
-          Live trader activity unavailable — retry
+          Live trader activity is unavailable. Try again.
         </button>
       </div>
     )

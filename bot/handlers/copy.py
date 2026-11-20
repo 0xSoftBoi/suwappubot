@@ -857,7 +857,7 @@ async def filters_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(
         "Advanced Filters\n\n"
-        "Set a minimum trade size — copies below this USD amount will be skipped.\n\n"
+        "Set a minimum trade size. Copies below this USD amount will be skipped.\n\n"
         "Send the minimum USD amount (e.g. 50), or /cancel to skip:",
         parse_mode="Markdown",
     )

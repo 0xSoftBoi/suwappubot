@@ -47,7 +47,7 @@ export function PredictionPanel({ selectedId, onSelect }: Props) {
             title={search ? `Nothing matches “${search}”` : 'No markets found'}
             description={
               search
-                ? 'Try a shorter phrase — Polymarket titles are full questions, so single keywords match best.'
+                ? 'Try a shorter phrase. Polymarket titles are full questions, so single keywords match best.'
                 : 'Polymarket returned no open markets right now. This list refreshes on its own.'
             }
           />

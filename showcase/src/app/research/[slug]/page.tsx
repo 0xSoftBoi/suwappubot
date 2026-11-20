@@ -129,6 +129,14 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
       <SummerNav />
+      {/* Reading-progress line only, not the full category chrome bar: a
+          sticky bar tall enough to carry a text label would need to hardcode
+          SummerNav's rendered height, and that height isn't ours to own. A
+          thin progress line tolerates a few px of drift instead. Sits outside
+          <main> because it is chrome, not content. */}
+      <div className="research-post__progress" aria-hidden="true">
+        <div className="research-post__progress-fill" />
+      </div>
       <main id="main-content">
       <div className="summer-shell mkt-page research-post">
         <nav className="doc-breadcrumb">
@@ -146,7 +154,11 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
             {post.updated && <span>Revised {fmtDate(post.updated)}</span>}
             {post.readMins && <span>{post.readMins} min read</span>}
           </div>
+          <p className="research-post__eyebrow">
+            {post.kind === 'research' ? 'Research' : 'Engineering note'}
+          </p>
           <h1>{post.title}</h1>
+          <p className="research-post__deck">{post.excerpt}</p>
           {(post.report || post.paperPath) && (
             <div className="research-post__artifacts" aria-label="Research artifacts">
               {post.report && (
@@ -191,6 +203,13 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
             </figure>
           )}
         </header>
+
+        {post.pullQuote && (
+          <blockquote className="research-post__pull">
+            <p>{post.pullQuote}</p>
+            <cite>Suwappu Research</cite>
+          </blockquote>
+        )}
 
         <DocsReader html={html} title={post.title} />
 

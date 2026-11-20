@@ -44,10 +44,10 @@ async def quickswap_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "🔄 *Quick Swap*\n\n"
             "Usage: `/s <amount> <from_token> [from_chain] <to_token> [to_chain]`\n\n"
             "Examples:\n"
-            "• `/s 100 USDC ETH` - Swap 100 USDC to ETH\n"
-            "• `/s 0.004 ETH base USDC base` - Same-chain swap on Base\n"
-            "• `/s 50 USDC polygon ETH ethereum` - Cross-chain swap\n\n"
-            "For full swap wizard, tap the button below.",
+            "• `/s 100 USDC ETH`: swap 100 USDC to ETH.\n"
+            "• `/s 0.004 ETH base USDC base`: same-chain swap on Base.\n"
+            "• `/s 50 USDC polygon ETH ethereum`: cross-chain swap.\n\n"
+            "For the full swap wizard, tap the button below.",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("🔄 Open Swap Wizard", callback_data="swap_start")]]
@@ -288,7 +288,7 @@ async def quickswap_confirm_callback(update: Update, context: ContextTypes.DEFAU
                 f"🔐 *2FA Required*\n\n"
                 f"This swap moves {format_usd(amount_usd)}, which is at or above "
                 f"your 2FA threshold. Quick Swap (`/s`) doesn't support entering "
-                f"a verification code inline — please use the full swap wizard "
+                f"a verification code inline. Use the full swap wizard "
                 f"to confirm this trade.",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(

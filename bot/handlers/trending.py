@@ -125,7 +125,7 @@ async def trending_buy_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     items = context.user_data.get("trending") or []
     if idx < 0 or idx >= len(items):
-        await query.answer("That list expired — tap Refresh.", show_alert=True)
+        await query.answer("That list expired. Tap Refresh.", show_alert=True)
         return
 
     entry = items[idx]

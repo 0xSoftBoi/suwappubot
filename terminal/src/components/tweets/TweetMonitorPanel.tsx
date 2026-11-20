@@ -55,7 +55,7 @@ export function TweetMonitorPanel() {
       {COMING_SOON ? (
         <TerminalEmptyState
           kicker="In development"
-          title="Tweet monitor — ships with the vNEXT backend"
+          title="Tweet monitor ships with the vNEXT backend"
           description="Track crypto Twitter accounts and see a live sentiment feed with $TOKEN mentions linked straight to your chart. The account list you build here will carry over once the feed goes live."
         />
       ) : (

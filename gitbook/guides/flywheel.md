@@ -27,7 +27,7 @@ Flywheel deliberately does less than a mature trading framework.
 | Local operations | Fail-closed state, execution lock, persistent container volume, reconciliation | You need database-backed ledgers, queues, leases, and fleet operations |
 | Release safety | Tests, builds, dependency audit, container contract, CodeQL | You need your own deployment, SLO, and compliance controls |
 
-[Freqtrade](https://www.freqtrade.io/en/stable/strategy-customization/) is a useful benchmark because the same strategy concept spans backtesting, dry/forward testing, and live operation; it also ships dedicated [lookahead-bias analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/). [Hummingbot](https://hummingbot.org/docs/) is a useful benchmark for a broader connector/multi-bot platform whose V2 controllers can be [backtested](https://hummingbot.org/dashboard/backtest/).
+[Freqtrade](https://www.freqtrade.io/en/stable/strategy-customization/) is a useful benchmark because the same strategy concept spans backtesting, dry/forward testing, and live operation. It also ships dedicated [lookahead-bias analysis](https://www.freqtrade.io/en/stable/lookahead-analysis/). [Hummingbot](https://hummingbot.org/docs/) is a useful benchmark for a broader connector/multi-bot platform whose V2 controllers can be [backtested](https://hummingbot.org/dashboard/backtest/).
 
 Do not rebuild either inside Flywheel. Combine the evaluation or infrastructure you actually need with Suwappu's action surface.
 
@@ -87,7 +87,7 @@ For a managed swap, Flywheel does this:
 
 If a managed submission times out, loses its network response, returns HTTP 408/5xx, or returns a malformed success response after submission may have started, its outcome is **unknown**. Keep the same economic intent and idempotency key. If a `swap_id` is known, poll it rather than submitting another trade. Never turn transport uncertainty into a second economic action.
 
-Flywheel bounds managed simulate/execute/status calls with `SUWAPPU_OPERATION_TIMEOUT_MS` (25 seconds by default; accepted range 100–30000 ms). `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr. Those events intentionally omit API keys, wallets, quote/swap IDs, response bodies, and error messages.
+Flywheel bounds managed simulate/execute/status calls with `SUWAPPU_OPERATION_TIMEOUT_MS`. The default is 25 seconds, and the accepted range is 100–30000 ms. `SUWAPPU_API_EVENTS=1` adds metadata-only operation/outcome/duration/status events to stderr. Those events intentionally omit API keys, wallets, quote/swap IDs, response bodies, and error messages.
 
 Inspect the local journal at any time:
 

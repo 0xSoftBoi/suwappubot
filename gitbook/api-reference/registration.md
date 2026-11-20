@@ -4,7 +4,7 @@ Register a new agent and receive an API key. This is the only endpoint you can c
 
 ## POST /v1/agent/register
 
-Public — no `Authorization` header. Rate-limited to 5 requests per minute per IP.
+Public. No `Authorization` header required. Rate-limited to 5 requests per minute per IP.
 
 ### Request body
 
@@ -72,7 +72,7 @@ agent = res.json()
 }
 ```
 
-Store `agent.api_key` immediately — Suwappu keeps only a hash and cannot return it again.
+Store `agent.api_key` immediately. Suwappu keeps only a hash and cannot return it again.
 
 ### Errors
 

@@ -1,6 +1,6 @@
 # Wallets
 
-Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you — the private key lives in a Turnkey secure enclave and is never exposed.
+Create and list your agent's managed (Turnkey) wallet. Managed wallets let Suwappu sign and broadcast swaps for you. The private key lives in a Turnkey secure enclave and is never exposed.
 
 ## POST /v1/agent/wallets
 
@@ -86,7 +86,7 @@ If no wallet exists yet, `wallets` is an empty array with a hint to create one.
 
 ## Wallet policies
 
-Attach Turnkey policies to constrain what your managed wallet can do — spending limits and address whitelists — using these endpoints:
+Attach Turnkey policies to constrain what your managed wallet can do, including spending limits and address whitelists. Use these endpoints:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
