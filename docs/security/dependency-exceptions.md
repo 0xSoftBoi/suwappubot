@@ -4,16 +4,18 @@ Dependency audit exceptions are last-resort, reviewable controls. Each exception
 
 ## PYSEC-2026-1325 — `ecdsa==0.19.2`
 
-- Severity: High (CVSS 7.4).
-- Dependency path: `starknet-py -> crypto-cpp-py==2.0.0 -> ecdsa==0.19.2`.
+- Severity: High (CVSS 7.4). Aliases: CVE-2024-23342, GHSA-wj6h-64fc-37mp.
+- Dependency path: `starknet-py==0.30.0 -> crypto-cpp-py==2.0.0 -> ecdsa==0.19.2`.
 - Scope: Python dependency audit only, exact advisory ID `PYSEC-2026-1325`.
 - Owner: Suwappu maintainers.
-- Accepted: 2026-08-08.
-- Review by: 2026-11-06.
+- Accepted: 2026-08-08. Renewed: 2026-11-20.
+- Review by: 2027-02-20.
 
 ### Evidence
 
 The [OSV advisory](https://osv.dev/vulnerability/PYSEC-2026-1325) describes a Minerva timing attack against python-ecdsa's P-256 signing path and states that ECDSA signatures, key generation, and ECDH operations are affected; the project reports no planned fix.
+
+Renewal check, 2026-11-20: no upgrade removes the dependency. `ecdsa` 0.19.2 (2026-03-26) is the latest release and OSV lists every version through 0.19.2 as affected with no fix. `crypto-cpp-py` 2.0.0 (2026-04-03) is the latest release and hard-pins `ecdsa==0.19.2`. `starknet-py` 0.30.0 is the latest release and pins `crypto-cpp-py==2.0.0`. We are already on all three latest versions.
 
 The locked graph installs `crypto-cpp-py==2.0.0`. Inspection of that exact published wheel found one code import from python-ecdsa: `ecdsa.rfc6979.generate_k`. It contains no `SigningKey`, `sign_digest`, or ECDH use. The matching [upstream utility source](https://github.com/software-mansion-labs/crypto-cpp-py/blob/main/crypto_cpp_py/utils.py) uses `generate_k` with Starknet's curve order rather than the affected P-256 signing/key-generation/ECDH APIs.
 

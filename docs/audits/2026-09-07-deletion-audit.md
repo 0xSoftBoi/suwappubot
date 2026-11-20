@@ -126,6 +126,30 @@ The lesson stands twice over: a file with no importer today can be wired next
 month. Deleting on a long-lived branch needs a re-check at merge time, which is
 what the modify/delete conflicts gave for free.
 
+## 2026-11-20 addendum: closing the open items
+
+- `createTerminalWebappProxyRoutes` (api-ts): DEAD, deleted. It was added in
+  95efcde alongside `createTerminalSwapProxyRoutes`, but only the swap factory
+  was ever mounted (api-ts/src/app.ts, PR #1021), and the swap factory's
+  `/webapp/*` handler already accepts every path the webapp factory allowed.
+  `git log -G` on app.ts shows no mount was ever removed, so this is not a
+  wiring bug. The one test that used it now exercises the same alias-rewrite
+  path through the mounted factory, so no coverage was lost. The allow-list
+  predicate `isTerminalWebappProxyAllowed` stays: the swap factory calls it.
+- Terminal's 3 pre-existing tsc errors: fixed (an unused type import and a
+  story importing Storybook types from the wrong package). Terminal tsc is now
+  clean, so the next regression will be visible.
+- Extension build: pre-broken on dev (package.json asked for plugin-react 6,
+  which needs vite 8, while the lock still held 4.7.0; and an ed25519 import
+  without the `.js` suffix that @noble/curves 2.x requires). Fixed by pinning
+  plugin-react back to the 4.x line and adding the suffix. Build, typecheck
+  and audit pass; frozen install passes.
+- packages/design-tokens lockfile drift: resynced to typescript ^7.0.2 so
+  `bun install --frozen-lockfile` passes.
+- PYSEC-2026-1325 exception had expired on 2026-11-06. Renewed to 2027-02-20
+  with fresh evidence (all three packages in the path are at their latest
+  releases; no fix exists). See docs/security/dependency-exceptions.md.
+
 ## How to undo any of it
 Every deletion is on this branch only; main is untouched. `git checkout
 origin/main -- <path>` restores any single file; `git revert <sha>` restores a
