@@ -137,3 +137,9 @@
     order: 2;
   }
 }
+
+/* v3: visual + code column follows the same alternation as the bare code block. */
+.codeFirst .col { order: 1; }
+@media (max-width: 900px) {
+  .rowSplit .col, .codeFirst .col { order: 2; }
+}

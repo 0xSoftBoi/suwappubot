@@ -13,3 +13,4 @@ export type { MiniKind } from './MiniViz';
 export { default as ToolOrbit } from './ToolOrbit';
 export { default as BoundaryRings } from './BoundaryRings';
 export { default as ProductFrame } from './ProductFrame';
+export { AuthorityFlow, EvidenceStack, TierLadder } from './Schematics';

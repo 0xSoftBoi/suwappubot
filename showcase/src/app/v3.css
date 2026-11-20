@@ -465,3 +465,8 @@
 .hd .v3-section .v3-head__lead,
 .hd .hv3-close .v3-head__lead { color: var(--v3-dim); }
 .hd .v3-section h3 { color: inherit; }
+
+/* Schematics (AuthorityFlow / EvidenceStack / TierLadder) */
+.v3-schem { max-width: 460px; margin-inline: auto; }
+.v3-schem text { font-weight: 600; }
+.v3-framed { position: relative; width: min(100%, 420px); aspect-ratio: 1; margin-inline: auto; }
