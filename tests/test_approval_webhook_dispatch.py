@@ -100,15 +100,21 @@ API_KEY_HASH = "cd" * 32
 def _make_session_factory():
     engine = create_engine("sqlite:///:memory:")
     with engine.connect() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text(
+                """
                 CREATE TABLE agents (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     uuid TEXT UNIQUE,
                     callback_url TEXT,
                     api_key_hash TEXT
                 )
-                """))
-        conn.execute(text("""
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE approval_requests (
                     id TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -116,8 +122,12 @@ def _make_session_factory():
                     -- mirrors api-ts's schema (payload_hash is NOT NULL there)
                     payload_hash TEXT NOT NULL DEFAULT 'deadbeef'
                 )
-                """))
-        conn.execute(text("""
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE agent_webhook_deliveries (
                     id TEXT PRIMARY KEY,
                     approval_id TEXT NOT NULL,
@@ -133,7 +143,9 @@ def _make_session_factory():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     delivered_at TIMESTAMP
                 )
-                """))
+                """
+            )
+        )
         conn.commit()
     return sessionmaker(bind=engine), engine
 

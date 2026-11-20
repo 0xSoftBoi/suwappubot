@@ -291,14 +291,16 @@ class ExecutionSyncReplayStore:
         cutoff = datetime.utcnow() - timedelta(days=window_days)
         with self._session() as session:
             rows = session.execute(
-                text("""
+                text(
+                    """
                     SELECT route_provider, status, created_at, completed_at,
                            to_amount_usd, realized_to_amount_usd
                     FROM swap_transactions
                     WHERE created_at >= :cutoff
                       AND status IN ('completed', 'failed')
                       AND route_provider IS NOT NULL
-                """),
+                """
+                ),
                 {"cutoff": cutoff},
             ).fetchall()
         return [
@@ -323,7 +325,8 @@ class ExecutionSyncReplayStore:
             # LEFT JOIN only annotates the route that actually executed with an
             # observed output. Rejected candidates naturally keep NULL.
             rows = session.execute(
-                text("""
+                text(
+                    """
                     SELECT c.quote_id, c.swap_id, c.provider, c.from_chain, c.to_chain,
                            c.from_token, c.to_token, c.quoted_to_amount_usd,
                            c.quoted_gas_usd, c.quoted_fee_usd, c.quoted_duration_s,
@@ -333,7 +336,8 @@ class ExecutionSyncReplayStore:
                     LEFT JOIN swap_transactions s ON s.id = c.swap_id
                     WHERE c.created_at >= :cutoff
                     ORDER BY c.quote_id, c.rank, c.id
-                """),
+                """
+                ),
                 {"cutoff": cutoff},
             ).fetchall()
 

@@ -119,9 +119,7 @@ async def history_command(
         for i in range(0, len(recent_completed), 2):
             keyboard.append(
                 [
-                    InlineKeyboardButton(
-                        f"🖼️ Share {s.to_token}", callback_data=f"pnl_share_{s.id}"
-                    )
+                    InlineKeyboardButton(f"🖼️ Share {s.to_token}", callback_data=f"pnl_share_{s.id}")
                     for s in recent_completed[i : i + 2]  # noqa: E203
                 ]
             )

@@ -19,15 +19,21 @@ from sqlalchemy import text
 def engine():
     eng = sa.create_engine("sqlite://", connect_args={"check_same_thread": False})
     with eng.begin() as c:
-        c.execute(text("""
+        c.execute(
+            text(
+                """
                 CREATE TABLE swap_transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     from_token VARCHAR(40),
                     to_token VARCHAR(40)
                 )
-                """))
-        c.execute(text("""
+                """
+            )
+        )
+        c.execute(
+            text(
+                """
                 CREATE TABLE swap_execution_marks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     swap_id INTEGER NOT NULL,
@@ -35,7 +41,9 @@ def engine():
                     realized_vs_quoted_bps REAL,
                     scored_at TIMESTAMP
                 )
-                """))
+                """
+            )
+        )
     return eng
 
 

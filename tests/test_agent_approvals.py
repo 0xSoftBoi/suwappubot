@@ -31,15 +31,21 @@ OTHER_TG_ID = 999  # a different Telegram user, no approval ownership
 def _make_session():
     engine = create_engine("sqlite:///:memory:")
     with engine.connect() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text(
+                """
                 CREATE TABLE users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     telegram_id BIGINT UNIQUE
                 )
-                """))
+                """
+            )
+        )
         conn.execute(text("INSERT INTO users (telegram_id) VALUES (:tg)"), {"tg": OWNER_TG_ID})
         conn.execute(text("INSERT INTO users (telegram_id) VALUES (:tg)"), {"tg": OTHER_TG_ID})
-        conn.execute(text("""
+        conn.execute(
+            text(
+                """
                 CREATE TABLE approval_requests (
                     id TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -60,15 +66,23 @@ def _make_session():
                     notify_chat_id INTEGER,
                     notify_message_id INTEGER
                 )
-                """))
-        conn.execute(text("""
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE agents (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     uuid TEXT UNIQUE,
                     name TEXT
                 )
-                """))
-        conn.execute(text("""
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
                 CREATE TABLE approval_step_up_challenges (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -78,7 +92,9 @@ def _make_session():
                     expires_at TIMESTAMP NOT NULL,
                     used_at TIMESTAMP
                 )
-                """))
+                """
+            )
+        )
         conn.commit()
     return sessionmaker(bind=engine)()
 

@@ -75,7 +75,8 @@ class ExecutionBenchmark:
         cutoff = datetime.utcnow() - timedelta(days=window_days)
         with get_session() as session:
             return session.execute(
-                text("""
+                text(
+                    """
                     SELECT s.user_id, m.realized_vs_quoted_bps
                     FROM swap_execution_marks m
                     JOIN swap_transactions s ON s.id = m.swap_id
@@ -84,7 +85,8 @@ class ExecutionBenchmark:
                       AND s.from_token = :from_token
                       AND s.to_token = :to_token
                       AND m.scored_at >= :cutoff
-                    """),
+                    """
+                ),
                 {"from_token": from_token, "to_token": to_token, "cutoff": cutoff},
             ).fetchall()
 
@@ -168,7 +170,8 @@ class ExecutionBenchmark:
 
         with get_session() as session:
             mine = session.execute(
-                text("""
+                text(
+                    """
                     SELECT m.realized_vs_quoted_bps
                     FROM swap_execution_marks m
                     JOIN swap_transactions s ON s.id = m.swap_id
@@ -178,7 +181,8 @@ class ExecutionBenchmark:
                       AND s.from_token = :from_token
                       AND s.to_token = :to_token
                       AND m.scored_at >= :cutoff
-                    """),
+                    """
+                ),
                 {
                     "user_id": user_id,
                     "from_token": from_token,
