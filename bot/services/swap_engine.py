@@ -30,6 +30,7 @@ import base64
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
+from bot.services.swap_nonce import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
 from bot.services.spending_limits import spending_limit_service
 from bot.services.compliance import compliance_service, flashbots_relay
 from bot.utils.cache import quote_cache
@@ -4564,6 +4565,18 @@ class SwapEngine:
                         "executor; the route should not have been offered."
                     )
 
+                # Canonicalize BEFORE anything stores or compares this value.
+                # The ~20 EVM executor branches above each return
+                # `tx_hash.hex()`, and from hexbytes 1.x on that is the digest
+                # WITHOUT the `0x` prefix, while provider-API executors return
+                # a prefixed string. Normalizing at this single chokepoint --
+                # rather than at every executor return -- is what keeps the
+                # column from accumulating two spellings of the same hash.
+                # canonical_tx_hash is chain-aware: Solana (base58) and TRON
+                # (bare hex by convention) pass through untouched.
+                # See bot/services/swap_nonce.py for the full rationale.
+                tx_hash = canonical_tx_hash(tx_hash, quote.from_chain)
+
                 # Past this line the transaction is on-chain. Record that fact
                 # before any further await: the two run_in_db calls that follow
                 # (_update_tx_hash, _refetch) can raise on a DB blip, failover,
@@ -8223,8 +8236,13 @@ class SwapEngine:
         """Check EVM transaction status."""
         try:
             web3 = self.wallet_service._get_web3(swap_tx.from_chain)
+            # web3.py normalizes a bare hex string itself (verified live: both
+            # spellings return the same receipt), so this is defensive rather
+            # than a live break. It matters because the bare `except Exception`
+            # below returns FAILED -- any future raise on a malformed hash
+            # would mark a real, mined swap as failed.
             receipt = await asyncio.to_thread(
-                lambda: web3.eth.get_transaction_receipt(swap_tx.tx_hash)
+                lambda: web3.eth.get_transaction_receipt(rpc_tx_hash(swap_tx.tx_hash))
             )
 
             if receipt is None:
@@ -8244,8 +8262,10 @@ class SwapEngine:
     async def _check_lifi_status(self, swap_tx: SwapTransaction) -> str:
         """Check cross-chain swap status via Li.Fi."""
         try:
+            # Li.Fi rejects a bare hash as "not found in any chain" (verified
+            # live) -- see the same call in tx_poller._check_lifi_status_dict.
             status = await self.lifi.get_status(
-                tx_hash=swap_tx.tx_hash,
+                tx_hash=rpc_tx_hash(swap_tx.tx_hash),
                 from_chain=swap_tx.from_chain,
                 to_chain=swap_tx.to_chain,
             )
@@ -8261,7 +8281,12 @@ class SwapEngine:
                                 .filter(SwapTransaction.id == swap_tx.id)
                                 .first()
                             )
-                            tx.destination_tx_hash = status.receiving_tx_hash
+                            # Destination hash lands on the DESTINATION chain,
+                            # so canonicalize against to_chain (a Solana/TRON
+                            # destination passes through untouched).
+                            tx.destination_tx_hash = canonical_tx_hash(
+                                status.receiving_tx_hash, swap_tx.to_chain
+                            )
 
                     await run_in_db(_update_dest_hash)
 
@@ -8306,6 +8331,7 @@ class SwapEngine:
                     if tx_chain_id == destination_chain_id and tx.get("txHash"):
                         destination_hash = tx["txHash"]
                 if destination_hash:
+                    destination_hash = canonical_tx_hash(destination_hash, swap_tx.to_chain)
 
                     def _update_dest_hash():
                         with get_session() as session:
