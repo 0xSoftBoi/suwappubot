@@ -66,7 +66,7 @@ export default async function AutopilotPage() {
   return (
     <>
       <SummerNav tone="dark" />
-      <main className={styles.shell}>
+      <main id="main-content" className={styles.shell}>
         <div className={styles.wrap}>
           <header className={styles.header}>
             <div>

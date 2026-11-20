@@ -2,7 +2,7 @@
    contrast on this background, so wayfinding lives in the links below. */
 .page {
   position: relative;
-  min-height: 100dvh;
+  min-height: calc(100dvh - 65px);
   display: grid;
   place-items: center;
   padding: 48px 20px;

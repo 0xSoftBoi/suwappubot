@@ -19,7 +19,8 @@ Every page MUST use, unless it already deliberately doesn't:
   New routes go in `NavMenuData.ts` (+ `nav.menu.*` in all four locales), not
   in the top row.
 - **Interactive widgets:** build menus, dialogs, accordions, comboboxes, tabs
-  and form fields on `@ui-sdk/react/<name>` (version-matched docs in
+  and form fields on `@ui-sdk/react/<name>` (live examples: `SummerNav`,
+  `docs/DocsSearch`, `EnterpriseContactForm`, `FooterNewsletterForm`) (version-matched docs in
   `node_modules/@ui-sdk/react/docs/`). Do not hand-roll `role=`/`aria-*` state.
 - **Footer:** `@/components/SummerFooter` (goes dark automatically under the
   same dark ancestors as the header).
@@ -41,10 +42,6 @@ Every page MUST use, unless it already deliberately doesn't:
 
 ## Legacy — do NOT use on new pages
 
-- `.summer-nav*` / `.nav__*` rules in `globals.css`, `hero-d.css` and
-  `institutional.css` — dead CSS from the previous hand-rolled header
-  (`ProductMenu`/`NavDrawer`, both deleted). Don't reuse; scheduled for removal
-  in `docs/plans/showcase-redesign.md` phase 7.
 - `src/app/classic/` — the archived previous home page. Reference only.
 - `src/app/hero-a` … `hero-e` — hero experiments. The live home imports
   `hero-d/hero-d.css`; treat the others as dead.

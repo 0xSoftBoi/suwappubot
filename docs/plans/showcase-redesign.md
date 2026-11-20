@@ -106,3 +106,12 @@ Each phase ends with: `bun run build` → local render → 1440 + 390 screenshot
   - `/signals` now has its own title.
   Verified on a local production build: 25 routes × (1440, 390) no overflow / page errors; nav keyboard + mobile checks pass. Not deployed.
 - Open: `--font-display` alias should be deleted (anything still using it is sans by accident); contact/newsletter forms on `@ui-sdk/react/field`; docs search on `combobox`; `/next` hydration error; passport page; phase 7 dead-CSS removal.
+- 2026-11-20 — Open items closed:
+  - **Forms**: contact (`EnterpriseContactForm`) and footer newsletter rebuilt on `@ui-sdk/react` `field` + `input` + `textarea`. Inline per-field errors, focus moves to the first invalid field, nothing is sent until valid (previously `noValidate` posted empty forms to the API), submit keeps its label and shows a spinner. Tested with the lead endpoints mocked — no real submissions were made.
+  - **Docs search**: rebuilt on `command` + `dialog` (mod+K, arrow keys, Enter, grouped results, empty state, focus return). Navigates client-side.
+  - **`/next`**: hydration error fixed (`SplitFlap` seeded its first digit with `Math.random()`).
+  - **404**: now has the site header and footer.
+  - **Skip link**: `#main-content` target added to passport, autopilot (both routes), docs landing and docs articles. `theme-color` meta added.
+  - **Dead CSS**: 897 lines of old-header rules removed from `globals.css`, `hero-d.css`, `institutional.css` with a PostCSS pass (deletions only; 26 routes × 2 widths measured before/after, no layout change).
+  Verified on a local production build: 27 routes × (1440, 390) clean; nav, search and form checks pass. Not deployed.
+- Still open: `/classic` (archived, noindex) has a hydration error; `hero-a…e`/`classic` routes still ship; `--font-display` alias still exists; pages that wrap the header inside `<main id="main-content">` make the skip link land before the nav; passport's glow button is off-system.

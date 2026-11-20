@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import stats from '@/data/stats.generated.json';
 import { Archivo, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
@@ -45,6 +45,15 @@ const displaySerif = Newsreader({
   variable: '--font-serif',
   display: 'swap',
 });
+
+// Browser chrome matches the page canvas (light pages are the warm canvas;
+// the dark value applies when the OS prefers dark and for dark-first pages).
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FFFEFB' },
+    { media: '(prefers-color-scheme: dark)', color: '#0E0E11' },
+  ],
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://suwappu.bot'),

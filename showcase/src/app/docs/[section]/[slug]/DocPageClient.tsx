@@ -25,7 +25,7 @@ export default function DocPageClient({ section, page, html, toc }: Props) {
           <DocsNav sections={sections} currentSection={section.id} currentSlug={page.slug} />
         </aside>
 
-        <main className="docs-page__main">
+        <main id="main-content" className="docs-page__main">
           <DocsBreadcrumb section={section} page={page} />
           <DocsReader html={html} title={page.title} />
         </main>

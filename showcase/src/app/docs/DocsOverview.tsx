@@ -115,7 +115,7 @@ export default function DocsOverview() {
           <DocsNav sections={sections} />
         </aside>
 
-        <main className="docs-page__main">
+        <main id="main-content" className="docs-page__main">
           <motion.div {...reveal(0)}>
             <p className="section__label">Documentation</p>
             <h1 className="section__heading">Suwappu API</h1>

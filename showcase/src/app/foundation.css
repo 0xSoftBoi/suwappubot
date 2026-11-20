@@ -389,3 +389,14 @@ html {
 .doc-toc .doc-toc__item:hover,
 .doc-toc .doc-toc__item.is-active { color: var(--sw-accent-deep); }
 .doc-reader pre { padding-top: 2.5rem; }
+
+/* Footer newsletter (Field parts). */
+.summer-footer__newsletter-form { align-items: flex-start; max-width: 340px; }
+.summer-footer__newsletter-field { display: grid; gap: 6px; flex: 1; min-width: 0; }
+.summer-footer__newsletter-input { width: 100%; min-height: 40px; font-size: 1rem; }
+.summer-footer__newsletter-submit { min-height: 40px; }
+.summer-footer__newsletter-field[data-invalid] .summer-footer__newsletter-input { border-color: #c2413a; }
+.summer-footer__newsletter-error { margin: 0; color: #a8322c; font-size: 0.8125rem; line-height: 1.4; }
+.sw-dark .summer-footer__newsletter-error,
+.summer-page--cosmic .summer-footer__newsletter-error,
+.summer-page--passport .summer-footer__newsletter-error { color: #ff9c94; }
