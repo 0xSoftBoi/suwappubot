@@ -1165,6 +1165,25 @@ class CopyService:
                 automated=True,
             )
 
+            # Do not credit anything on an outcome we cannot confirm. The
+            # idempotency key here is stable, so once a prior attempt left an
+            # unresolved row the guard hands that same row straight back —
+            # without this check every later pass would re-credit volume,
+            # counters and points for a swap that may never have landed.
+            if not swap_tx or swap_tx.status not in (
+                SwapStatus.SUBMITTED.value,
+                SwapStatus.COMPLETED.value,
+            ):
+                observed = swap_tx.status if swap_tx else "no record"
+                logger.error(
+                    "Copy trade %d for copier %d not credited: swap outcome is %s, "
+                    "not a confirmed submit.",
+                    copy_trade_id,
+                    copier_id,
+                    observed,
+                )
+                return False, f"Copy swap outcome unverified ({observed}) — not credited", None
+
             with get_session() as session:
                 copy_trade = session.query(CopyTrade).filter(CopyTrade.id == copy_trade_id).first()
                 copy_trade.copy_swap_id = swap_tx.id

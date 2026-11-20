@@ -201,25 +201,66 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️ Database monitoring disabled (no connection)")
 
     # Reconcile any EXECUTING rows that have no tx_hash (process died mid-execution)
+    #
+    # These are marked UNKNOWN, never FAILED. We genuinely do not know whether
+    # the broadcast landed: the process died in the window between sending the
+    # transaction and persisting its hash, and with no hash the poller can
+    # never check (it filters on tx_hash IS NOT NULL). FAILED would assert that
+    # no funds moved, and SwapEngine's idempotency guard treats FAILED as safe
+    # to retry — so a swap that actually landed could be re-broadcast with the
+    # user's funds. UNKNOWN is not in that guard's retryable list, so it blocks
+    # the retry and the row waits for human verification instead.
     if db_success:
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
             with get_session() as session:
-                orphaned = (
-                    session.query(SwapTransaction)
+                # Conditional UPDATE, not a read-modify-write. Selecting the
+                # rows and then mutating the loaded objects would compare a
+                # stale in-session tx_hash: the process that owns a swap (or
+                # another replica) can persist its hash and move it to
+                # SUBMITTED between the select and the commit, and overwriting
+                # that would strand a row whose hash was perfectly pollable.
+                # Pushing the predicate into the UPDATE lets the database
+                # decide, so a row that acquired a hash is simply not matched.
+                orphan_ids = [
+                    row.id
+                    for row in session.query(SwapTransaction.id)
                     .filter(
                         SwapTransaction.status == SwapStatus.EXECUTING.value,
                         SwapTransaction.tx_hash.is_(None),
                         SwapTransaction.created_at < cutoff,
                     )
                     .all()
-                )
-                if orphaned:
-                    for row in orphaned:
-                        row.status = SwapStatus.FAILED.value
-                        row.error_message = "Reconciled at startup: EXECUTING with no tx_hash"
+                ]
+                if orphan_ids:
+                    updated = (
+                        session.query(SwapTransaction)
+                        .filter(
+                            SwapTransaction.id.in_(orphan_ids),
+                            SwapTransaction.status == SwapStatus.EXECUTING.value,
+                            SwapTransaction.tx_hash.is_(None),
+                        )
+                        .update(
+                            {
+                                SwapTransaction.status: SwapStatus.UNKNOWN.value,
+                                SwapTransaction.error_message: (
+                                    "Reconciled at startup: EXECUTING with no tx_hash. The "
+                                    "broadcast may have succeeded; outcome unverified. Not "
+                                    "retried to avoid a duplicate send."
+                                ),
+                            },
+                            synchronize_session=False,
+                        )
+                    )
                     session.commit()
-                    logger.warning("Reconciled %d orphaned EXECUTING transactions", len(orphaned))
+                    if updated:
+                        logger.error(
+                            "Reconciled %d orphaned EXECUTING transactions to UNKNOWN "
+                            "(may have broadcast, outcome unverified, retry blocked) — "
+                            "needs on-chain verification: swap ids %s",
+                            updated,
+                            orphan_ids,
+                        )
         except Exception as e:
             logger.warning(f"Orphan reconciliation error (non-fatal): {e}")
 
