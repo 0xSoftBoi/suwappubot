@@ -84,3 +84,5 @@ new palette. Add **craft**:
 5. Art-direction review of rendered output, then fixes.
 
 ## Log
+
+- 2026-11-20 Phase 1: v3 kit (`showcase/src/components/v3/`, `src/app/v3.css`) + home page rebuilt on it (framed hero desk, bento use cases, animated intent->authorize flow, venue-rank + route-map stage, signal sparklines, cream portfolio interlude with ring, MCP tool orbit, quiet gov band, mesh close). Verified at 1440/390 incl. reduced motion; no overflow, one h1, no console errors. Gotcha: globals.css `.sw-dark [class*='card']` flattens any class containing "card" (hence `v3-tile`).

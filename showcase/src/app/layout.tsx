@@ -10,6 +10,7 @@ import './summer-token-vars.css';
 import './globals.css';
 import './institutional.css';
 import './nav.css';
+import './v3.css';
 import './foundation.css';
 
 // Archivo carries UI + body (news-agency grotesk register, chosen over Geist
