@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { AppLayout, AppHeader } from '../components/layout'
 import { useSwapHistory } from '../hooks/useSwapHistory'
 import type { Swap } from '../types/api'
+import { canonicalTxHash } from '../lib/chains'
 
 // Chain explorer URLs
 const explorerUrls: Record<string, string> = {
@@ -114,7 +115,7 @@ function exportCsv(swaps: Swap[]) {
 function SwapItem({ swap }: { swap: Swap }) {
   const status = statusConfig[swap.status] || statusConfig.pending
   const explorerUrl = explorerUrls[swap.fromChain.toLowerCase()]
-  const txUrl = swap.txHash && explorerUrl ? `${explorerUrl}${swap.txHash}` : null
+  const txUrl = swap.txHash && explorerUrl ? `${explorerUrl}${canonicalTxHash(swap.txHash, swap.fromChain)}` : null
   const pnl = swapPnl(swap)
 
   return (

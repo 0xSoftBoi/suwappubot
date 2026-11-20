@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { ChainBadge } from './ChainBadge'
 import { AnimatedNumber } from './AnimatedNumber'
+import { shortTxHash } from '../../lib/chains'
 
 export type TxStep = 'submitting' | 'confirming' | 'bridging' | 'destination' | 'complete'
 export type TxStatus = 'pending' | 'active' | 'complete' | 'failed'
@@ -34,19 +35,19 @@ function formatElapsed(seconds: number): string {
   return `${mins}m ${secs}s`
 }
 
-function truncateHash(hash: string): string {
-  if (hash.length <= 12) return hash
-  return `${hash.slice(0, 6)}...${hash.slice(-4)}`
+function truncateHash(hash: string, chain?: string): string {
+  return shortTxHash(hash, chain, 6, 4)
 }
 
 // --- TxHashLink sub-component ---
 
 interface TxHashLinkProps {
   hash: string
+  chain?: string
   explorerUrl?: string
 }
 
-const TxHashLink = React.memo(function TxHashLink({ hash, explorerUrl }: TxHashLinkProps) {
+const TxHashLink = React.memo(function TxHashLink({ hash, chain, explorerUrl }: TxHashLinkProps) {
   const [copied, setCopied] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
@@ -66,7 +67,7 @@ const TxHashLink = React.memo(function TxHashLink({ hash, explorerUrl }: TxHashL
 
   return (
     <span className="inline-flex items-center gap-1.5 mt-1 text-xs text-suwappu-text-secondary">
-      <span className="font-mono">{truncateHash(hash)}</span>
+      <span className="font-mono">{truncateHash(hash, chain)}</span>
       <button
         type="button"
         onClick={handleCopy}
@@ -196,7 +197,7 @@ const TrackerStep = React.memo(function TrackerStep({ step, stepNumber, isLast }
           {step.description}
         </p>
         {step.txHash && (
-          <TxHashLink hash={step.txHash} explorerUrl={step.explorerUrl} />
+          <TxHashLink hash={step.txHash} chain={step.chainId} explorerUrl={step.explorerUrl} />
         )}
         {step.status === 'active' && (
           <div className="mt-1">

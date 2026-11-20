@@ -73,12 +73,62 @@ export function getChainDisplay(chain: string): ChainDisplay {
   )
 }
 
+/*
+ * Canonical tx-hash handling. Mirrors bot/utils/tx_hash.py (canonical_tx_hash).
+ *
+ * swap_transactions.tx_hash holds a MIX of 0x-prefixed and BARE 64-hex hashes
+ * (hexbytes 1.x HexBytes.hex() drops the 0x; legacy rows are not rewritten), so
+ * readers must tolerate both. Canonical = "0x" + lowercase hex.
+ *
+ * Chain-aware on purpose: TRON txids are canonically BARE 64-hex (same shape as a
+ * bare EVM hash) and Solana signatures are base58 (case-sensitive), so those pass
+ * through untouched. A bare hash on an UNKNOWN chain is left alone rather than guessed.
+ */
+const PASSTHROUGH_CHAINS = new Set(['solana', 'sol', 'tron', 'trx'])
+const HEX_PREFIXED_ALIASES = new Set(['eth', 'matic', 'bnb', 'evm'])
+
+function isHexPrefixedChain(chain: string): boolean {
+  const key = chain.toLowerCase().trim()
+  if (PASSTHROUGH_CHAINS.has(key)) return false
+  // Every other entry in CHAIN_DISPLAY is EVM or Starknet (both 0x-prefixed).
+  return key in CHAIN_DISPLAY || HEX_PREFIXED_ALIASES.has(key)
+}
+
+function hexBody(value: string): string | null {
+  const body = /^0x/i.test(value) ? value.slice(2) : value
+  return /^[0-9a-fA-F]+$/.test(body) ? body.toLowerCase() : null
+}
+
+/** Canonical spelling of a tx hash; returns the input unchanged when it can't be
+ *  normalized safely. Never throws. */
+export function canonicalTxHash(hash: string, chain?: string | null): string {
+  if (typeof hash !== 'string') return hash
+  const trimmed = hash.trim()
+  if (!trimmed) return hash
+  if (chain && PASSTHROUGH_CHAINS.has(chain.toLowerCase().trim())) return trimmed
+  const body = hexBody(trimmed)
+  if (body === null) return trimmed // base58 or junk
+  if (/^0x/i.test(trimmed)) return `0x${body}` // already prefixed: safe on any chain
+  if (chain && isHexPrefixedChain(chain)) return `0x${body}`
+  return trimmed // bare hex, chain unknown: could be TRON, don't guess
+}
+
+/** Display-only shortening. Canonicalizes first (see `canonicalTxHash`), so an EVM hash
+ *  renders as `0x1234...abcd` whether stored bare or prefixed. Solana/TRON and
+ *  unknown-chain bare values are not given a `0x`. `head`/`tail` count characters of
+ *  the canonical string (including any `0x`). */
+export function shortTxHash(hash: string, chain?: string | null, head = 6, tail = 4): string {
+  const canonical = canonicalTxHash(hash, chain)
+  if (canonical.length <= head + tail + 3) return canonical
+  return `${canonical.slice(0, head)}...${canonical.slice(-tail)}`
+}
+
 /** Build an explorer transaction link for a chain key, or `null` if the chain's explorer
  *  is unknown. Callers must handle the `null` case (e.g. render no link) rather than
  *  falling back to a guessed explorer — a wrong link is worse than no link. */
 export function getExplorerTxUrl(chain: string, txHash: string): string | null {
   const { explorerUrl } = getChainDisplay(chain)
-  return explorerUrl ? `${explorerUrl}/tx/${txHash}` : null
+  return explorerUrl ? `${explorerUrl}/tx/${canonicalTxHash(txHash, chain)}` : null
 }
 
 /** Numeric EVM chain id (as a string) -> CHAIN_DISPLAY key. Only covers chains with a

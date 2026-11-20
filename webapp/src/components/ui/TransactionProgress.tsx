@@ -4,6 +4,7 @@
  * With animated transitions using Framer Motion
  */
 import { motion, AnimatePresence } from 'framer-motion'
+import { canonicalTxHash, shortTxHash } from '../../lib/chains'
 
 export type TransactionStatus = 'idle' | 'submitting' | 'pending' | 'confirming' | 'confirmed' | 'completed' | 'failed'
 
@@ -69,9 +70,8 @@ function getStepIndex(status: TransactionStatus): number {
 }
 
 // Shorten tx hash for display
-function shortenHash(hash: string): string {
-  if (hash.length <= 16) return hash
-  return `${hash.slice(0, 8)}...${hash.slice(-6)}`
+function shortenHash(hash: string, chain?: string): string {
+  return shortTxHash(hash, chain, 8, 6)
 }
 
 /** Individual step indicator */
@@ -173,7 +173,8 @@ export function TransactionProgress({
   const isIdle = status === 'idle'
 
   // Get explorer URL
-  const explorerUrl = chain && txHash ? explorerUrls[chain.toLowerCase()] + txHash : null
+  const explorerBase = chain ? explorerUrls[chain.toLowerCase()] : undefined
+  const explorerUrl = explorerBase && txHash ? explorerBase + canonicalTxHash(txHash, chain) : null
 
   if (isIdle) {
     return null
@@ -251,7 +252,7 @@ export function TransactionProgress({
           <div className="flex items-center justify-between">
             <span className="text-xs text-suwappu-text-secondary">Tx Hash:</span>
             <div className="flex items-center gap-2">
-              <code className="text-xs font-mono text-suwappu-purple-deep">{shortenHash(txHash)}</code>
+              <code className="text-xs font-mono text-suwappu-purple-deep">{shortenHash(txHash, chain)}</code>
               {explorerUrl && (
                 <a
                   href={explorerUrl}

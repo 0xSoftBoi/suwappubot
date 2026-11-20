@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { TokenPair } from './TokenPair'
 import { ChainBadge } from './ChainBadge'
+import { shortTxHash } from '../../lib/chains'
 
 // --- Types ---
 
@@ -112,9 +113,8 @@ function formatTokenAmount(value: number): string {
   return parseFloat(value.toFixed(6)).toString()
 }
 
-function truncateHash(hash: string): string {
-  if (hash.length <= 12) return hash
-  return `${hash.slice(0, 6)}...${hash.slice(-4)}`
+function truncateHash(hash: string, chain?: string): string {
+  return shortTxHash(hash, chain, 6, 4)
 }
 
 // --- Sub-components ---
@@ -232,7 +232,7 @@ function ExpandedDetails({ entry }: { entry: SwapHistoryEntry }) {
           <span className="font-medium text-suwappu-text">Transaction:</span>
           <span className="inline-flex items-center gap-1.5">
             <code className="bg-suwappu-sakura-50 px-1.5 py-0.5 rounded font-mono text-[11px]">
-              {truncateHash(entry.txHash)}
+              {truncateHash(entry.txHash, entry.fromChain)}
             </code>
             <button
               type="button"

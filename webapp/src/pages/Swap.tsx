@@ -8,6 +8,7 @@ import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useSwapExecute } from '../hooks/useSwapExecute'
 import { api } from '../lib/api'
 import a11yToast from '../lib/a11yToast'
+import { shortTxHash } from '../lib/chains'
 import type { SwapToken, SwapExecuteResult } from '../types/swap'
 
 export function Swap() {
@@ -229,7 +230,7 @@ export function Swap() {
             </p>
             {txHash && (
               <p className="text-xs text-suwappu-text-secondary mb-4 font-mono">
-                Tx: {txHash.slice(0, 10)}...{txHash.slice(-8)}
+                Tx: {shortTxHash(txHash, fromToken?.chain, 10, 8)}
               </p>
             )}
             <div className="space-y-2">
