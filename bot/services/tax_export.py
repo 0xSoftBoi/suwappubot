@@ -48,9 +48,28 @@ class TaxExportService:
             return query.order_by(SwapTransaction.created_at).all()
 
     @staticmethod
-    def _unverified_flag(tx: SwapTransaction) -> str:
-        """'yes' if the swap outcome is unverified (may have broadcast), else 'no'."""
-        return "yes" if tx.status == SwapStatus.UNKNOWN.value else "no"
+    def _is_unverified(tx: SwapTransaction) -> bool:
+        """Whether this swap's outcome is unverified (it may have broadcast)."""
+        return tx.status == SwapStatus.UNKNOWN.value
+
+    @classmethod
+    def _unverified_flag(cls, tx: SwapTransaction) -> str:
+        """'yes'/'no' for our own standard format, which has a column for it."""
+        return "yes" if cls._is_unverified(tx) else "no"
+
+    @classmethod
+    def _describe(cls, tx: SwapTransaction, description: str) -> str:
+        """Fold the unverified marker into a free-text description field.
+
+        Koinly and CoinTracker match columns by header name and their
+        importers are schema-sensitive, so an UNKNOWN row is flagged inside a
+        field they already expect rather than by widening the row. The row is
+        still present either way — omitting a disposal that really happened is
+        the failure mode that matters for tax.
+        """
+        if not cls._is_unverified(tx):
+            return description
+        return f"{description} (UNVERIFIED: outcome unconfirmed, verify on-chain)"
 
     def generate_csv(
         self,
@@ -80,7 +99,6 @@ class TaxExportService:
                     "Label",
                     "Description",
                     "TxHash",
-                    "Unverified",
                 ]
             )
 
@@ -97,9 +115,8 @@ class TaxExportService:
                         "",
                         "",
                         "swap",
-                        f"{tx.from_chain} to {tx.to_chain}",
+                        self._describe(tx, f"{tx.from_chain} to {tx.to_chain}"),
                         tx.tx_hash or "",
-                        self._unverified_flag(tx),
                     ]
                 )
 
@@ -118,7 +135,6 @@ class TaxExportService:
                     "Fee Currency",
                     "Exchange/Wallet",
                     "Tag",
-                    "Unverified",
                 ]
             )
 
@@ -134,8 +150,12 @@ class TaxExportService:
                         tx.gas_cost or "",
                         "USD",
                         f"Suwappu ({tx.from_chain})",
-                        "",
-                        self._unverified_flag(tx),
+                        # CoinTracker's own Tag field, rather than an extra
+                        # column: its importer is the stricter of the two and
+                        # these headers already deviate from its documented
+                        # 8-column shape, so widening the row is a real import
+                        # risk for no gain.
+                        "unverified" if self._is_unverified(tx) else "",
                     ]
                 )
 

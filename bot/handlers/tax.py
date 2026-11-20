@@ -41,9 +41,19 @@ async def tax_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📈 Total Transactions: *{summary['total_transactions']}*\n"
         f"💰 Total Volume: *{format_usd(summary['total_volume_usd'])}*\n"
-        f"⛽ Gas Paid: *{format_usd(summary['total_gas_usd'])}*\n\n"
-        f"🔗 Chains: {', '.join(summary['chains_used'][:5]) if summary['chains_used'] else 'None'}\n"
-        f"🪙 Tokens: {', '.join(summary['tokens_traded'][:5]) if summary['tokens_traded'] else 'None'}"
+        f"⛽ Gas Paid: *{format_usd(summary['total_gas_usd'])}*\n"
+        # These totals now include swaps whose outcome could not be verified,
+        # because omitting a disposal that really happened is the worse error
+        # for tax. Say so when there are any, rather than letting the figure
+        # change meaning silently.
+        + (
+            f"⚠️ Includes *{summary['unverified_transactions']}* unverified "
+            f"(verify on-chain)\n\n"
+            if summary.get("unverified_transactions")
+            else "\n"
+        )
+        + f"🔗 Chains: {', '.join(summary['chains_used'][:5]) if summary['chains_used'] else 'None'}\n"
+        + f"🪙 Tokens: {', '.join(summary['tokens_traded'][:5]) if summary['tokens_traded'] else 'None'}"
     )
 
     # Year selection buttons
@@ -106,6 +116,13 @@ async def tax_year_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"📈 Transactions: *{summary['total_transactions']}*\n"
         f"💰 Volume: *{format_usd(summary['total_volume_usd'])}*\n"
         f"⛽ Gas: *{format_usd(summary['total_gas_usd'])}*"
+        # Same disclosure as the export centre: these totals include
+        # unverified swaps, so the count is shown rather than implied.
+        + (
+            f"\n⚠️ Includes *{summary['unverified_transactions']}* unverified " f"(verify on-chain)"
+            if summary.get("unverified_transactions")
+            else ""
+        )
     )
 
     keyboard = [

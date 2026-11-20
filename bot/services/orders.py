@@ -119,7 +119,16 @@ _FAILED_RETRY_BACKOFF = timedelta(minutes=15)
 # ("no funds were sent") and mark an order failed that is about to execute.
 # Nothing is retried on the strength of this, so the grace window only delays a
 # notification; it never risks a second send.
-_TRIGGERED_GRACE = timedelta(minutes=5)
+_TRIGGERED_GRACE = timedelta(minutes=30)
+
+# Deliberately generous, because the window it covers is NOT bounded by the
+# write-then-insert gap alone: _mark_triggered → get_quote → balance checks →
+# execute_swap's insert spans provider calls and RPC retries, so there is no
+# tight upper bound on how long an order legitimately has no swap row. The
+# grace window alone therefore cannot make this safe, and it is not relied on
+# to: _fail_limit_order only writes from TRIGGERED, and a resolved swap
+# re-opens a prematurely failed order (see _reconcile_triggered_orders), so a
+# wrong verdict here self-heals instead of sticking.
 
 # LimitOrder.error_message is VARCHAR(500) in the SQLAlchemy model, but the
 # Drizzle schema for the same table declares it as TEXT, so the live column
@@ -825,7 +834,11 @@ class OrderService:
                     f"wallet on-chain before placing a replacement order. (swap "
                     f"#{swap_tx.id})"
                 )
-                await run_in_db(lambda: self._fail_limit_order(order.id, reason))
+                changed = await run_in_db(
+                    lambda: self._fail_limit_order(
+                        order.id, reason, getattr(swap_tx, "tx_hash", None)
+                    )
+                )
                 logger.error(
                     "Limit order %d held: swap %s is UNKNOWN (may have broadcast, outcome "
                     "unverified). Not retried to avoid a duplicate send; needs on-chain "
@@ -836,7 +849,7 @@ class OrderService:
                 # The order is dead and the user's funds may have moved. This
                 # is the single most important case to TELL them about, and it
                 # was the one case that said nothing at all.
-                if self._bot:
+                if self._bot and changed:
                     await self._notify_order_failed(order, reason, needs_verification=True)
 
             elif swap_tx and swap_tx.status in _IN_FLIGHT_STATUSES:
@@ -868,19 +881,40 @@ class OrderService:
                 # pass to explain itself. Record the reason and tell the user,
                 # instead of leaving the order stalled at TRIGGERED in silence.
                 status_text = getattr(swap_tx, "status", None) or "no swap was created"
-                reason = (
-                    f"The swap did not go through (status: {status_text}). No funds were "
-                    f"sent. Place a new order to try again."
+                failed_hash = getattr(swap_tx, "tx_hash", None)
+                if failed_hash:
+                    # Broadcast, then failed — tx_poller's mined-origin /
+                    # unsettled-bridge case. Funds are gone from the wallet, so
+                    # this must never read "no funds were sent" or suggest
+                    # re-ordering. See the matching branch in
+                    # _reconcile_triggered_orders.
+                    reason = (
+                        f"The swap was broadcast on-chain but did not complete (status: "
+                        f"{status_text}). Funds have left your wallet, so do NOT assume "
+                        f"nothing was sent — a cross-chain leg can still settle later. "
+                        f"Check the transaction before placing another order."
+                    )
+                    needs_verification = True
+                else:
+                    reason = (
+                        f"The swap did not go through (status: {status_text}). No funds were "
+                        f"sent. Place a new order to try again."
+                    )
+                    needs_verification = False
+                changed = await run_in_db(
+                    lambda: self._fail_limit_order(order.id, reason, failed_hash)
                 )
-                await run_in_db(lambda: self._fail_limit_order(order.id, reason))
                 logger.warning(
-                    "Limit order %d failed: swap %s status %s.",
+                    "Limit order %d failed: swap %s status %s (tx_hash %s).",
                     order.id,
                     getattr(swap_tx, "id", None),
                     getattr(swap_tx, "status", None),
+                    failed_hash,
                 )
-                if self._bot:
-                    await self._notify_order_failed(order, reason)
+                if self._bot and changed:
+                    await self._notify_order_failed(
+                        order, reason, needs_verification=needs_verification
+                    )
 
         except Exception as e:
             logger.error(f"Limit order execution failed for order {order.id}: {e}")
@@ -892,14 +926,43 @@ class OrderService:
             # payloads, URLs with query strings, and internal addresses, none
             # of which belong in a Telegram message. The full exception is in
             # the log line above, keyed by order id.
-            reason = (
-                "The swap could not be executed because of an internal error. No funds "
-                "were sent. Please place a new order."
-            )
+            # Do NOT assert "no funds were sent" without checking. The try
+            # block spans execute_swap, and although #1122 made that method
+            # swallow its own post-broadcast errors into an UNKNOWN row rather
+            # than raising, an exception arriving here is not proof that
+            # nothing went out. Ask the row: if a swap exists under this
+            # order's key and it either carries a hash or is UNKNOWN, the honest
+            # answer is "unverified", not "nothing happened".
             try:
-                await run_in_db(lambda: self._fail_limit_order(order.id, reason))
-                if self._bot:
-                    await self._notify_order_failed(order, reason)
+                existing = await run_in_db(lambda: self._peek_swap_for_key(_limit_order_key(order)))
+            except Exception:
+                existing = None
+            sent_maybe = existing is not None and (
+                existing[2] is not None or existing[1] == SwapStatus.UNKNOWN.value
+            )
+            if sent_maybe:
+                reason = (
+                    "The swap could not be completed and its outcome could not be "
+                    "verified. Funds may have left your wallet, so do NOT assume nothing "
+                    "was sent — check on-chain before placing another order."
+                )
+            else:
+                # The reason is deliberately generic: `e` can carry provider
+                # payloads, URLs with query strings, and internal addresses,
+                # none of which belong in a Telegram message. The full
+                # exception is in the log line above, keyed by order id.
+                reason = (
+                    "The swap could not be executed because of an internal error. No funds "
+                    "were sent. Please place a new order."
+                )
+            try:
+                changed = await run_in_db(
+                    lambda: self._fail_limit_order(
+                        order.id, reason, None if existing is None else existing[2]
+                    )
+                )
+                if self._bot and changed:
+                    await self._notify_order_failed(order, reason, needs_verification=sent_maybe)
             except Exception as notify_exc:
                 # Never let the failure bookkeeping mask the original failure.
                 logger.error(
@@ -920,13 +983,37 @@ class OrderService:
             return session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
 
     @staticmethod
-    def _fail_limit_order(order_id: int, reason: str) -> None:
-        """Mark a limit order FAILED and record why, in one transaction."""
+    def _fail_limit_order(order_id: int, reason: str, tx_hash: Optional[str] = None) -> bool:
+        """Mark a TRIGGERED limit order FAILED and record why. True if it changed.
+
+        The status filter is load-bearing, not defensive. Two writers can reach
+        this row: the executor and the reconciliation pass, on different
+        replicas. An unconditional write let the reconciler stamp FAILED over
+        an order the executor was about to complete, and the caller notified
+        regardless — so the user got "no funds were sent" for a swap that then
+        landed. Conditioning on TRIGGERED means the second writer loses, and
+        returning whether anything changed lets the caller stay quiet when it
+        did.
+        """
         with get_session() as session:
-            db_order = session.query(LimitOrder).filter(LimitOrder.id == order_id).first()
-            if db_order:
-                db_order.status = OrderStatus.FAILED.value
-                db_order.error_message = _truncate_reason(reason)
+            db_order = (
+                session.query(LimitOrder)
+                .filter(
+                    LimitOrder.id == order_id,
+                    LimitOrder.status == OrderStatus.TRIGGERED.value,
+                )
+                .first()
+            )
+            if db_order is None:
+                return False
+            db_order.status = OrderStatus.FAILED.value
+            db_order.error_message = _truncate_reason(reason)
+            # Persist the hash when there is one: these are the rows where
+            # funds demonstrably left the wallet, so the user needs the
+            # explorer link more than for any other outcome.
+            if tx_hash:
+                db_order.tx_hash = tx_hash
+            return True
 
     @staticmethod
     def _triggered_order_snapshot():
@@ -998,12 +1085,32 @@ class OrderService:
                 # they were owed and the order stops showing as open.
                 def _execute(oid=order_id, h=tx_hash):
                     with get_session() as session:
-                        db_order = session.query(LimitOrder).filter(LimitOrder.id == oid).first()
+                        # FAILED is accepted as well as TRIGGERED, on purpose:
+                        # a confirmed submit is the strongest evidence there
+                        # is, so it overrides an earlier FAILED verdict — which
+                        # is how a premature failure (this pass racing a slow
+                        # executor on another replica) corrects itself instead
+                        # of leaving the order permanently wrong. Any other
+                        # status means someone else already settled it.
+                        db_order = (
+                            session.query(LimitOrder)
+                            .filter(
+                                LimitOrder.id == oid,
+                                LimitOrder.status.in_(
+                                    [
+                                        OrderStatus.TRIGGERED.value,
+                                        OrderStatus.FAILED.value,
+                                    ]
+                                ),
+                            )
+                            .first()
+                        )
                         if not db_order:
                             return None
                         db_order.status = OrderStatus.EXECUTED.value
                         db_order.executed_at = datetime.utcnow()
                         db_order.tx_hash = h
+                        db_order.error_message = None
                         session.flush()
                         return db_order
 
@@ -1041,6 +1148,24 @@ class OrderService:
                     "sent. Place a new order to try again."
                 )
                 needs_verification = False
+            elif tx_hash:
+                # FAILED or CANCELLED *with* a transaction hash. Funds left the
+                # wallet. tx_poller writes exactly this for a mined origin leg
+                # whose bridge never settled (its BRIDGE_UNSETTLED_TIMEOUT_REASON
+                # path), which is a stuck bridge, not a revert.
+                #
+                # Saying "no funds were sent" here and inviting a replacement
+                # order would be worse than silence: it is the one message that
+                # could talk the user into spending the amount a second time.
+                # SwapEngine's own guard refuses to retry this case for the
+                # same reason, so the advice must match.
+                reason = (
+                    f"The swap was broadcast on-chain but did not complete (status: "
+                    f"{swap_status}). Funds have left your wallet, so do NOT assume "
+                    f"nothing was sent — a cross-chain leg can still settle later. "
+                    f"Check the transaction before placing another order. (swap #{swap_id})"
+                )
+                needs_verification = True
             else:
                 reason = (
                     f"The swap did not go through (status: {swap_status}). No funds were "
@@ -1049,9 +1174,21 @@ class OrderService:
                 needs_verification = False
 
             try:
-                await run_in_db(lambda oid=order_id, r=reason: self._fail_limit_order(oid, r))
+                changed = await run_in_db(
+                    lambda oid=order_id, r=reason, h=tx_hash: self._fail_limit_order(oid, r, h)
+                )
             except Exception as e:
                 logger.error(f"Limit order {order_id}: could not record failure: {e}")
+                continue
+            if not changed:
+                # Someone else settled this order between the snapshot and now
+                # — most likely the executor completing it. Say nothing.
+                logger.info(
+                    "Limit order %d was already settled by another writer; skipping the "
+                    "failure verdict from swap %s.",
+                    order_id,
+                    swap_id,
+                )
                 continue
             logger.warning(
                 "Limit order %d finalised as FAILED from swap %s (status %s).",
@@ -1067,17 +1204,165 @@ class OrderService:
                     )
 
     @staticmethod
-    def _peek_in_flight_swap(idempotency_key: str):
-        """``(swap_id, status)`` when this key's swap is still in flight, else None.
+    def _peek_swap_for_key(idempotency_key: str):
+        """``(id, status, tx_hash, from_amount, to_amount)`` for this key, or None.
 
-        Runs in the DB thread pool. Returns plain values, not an ORM instance,
-        so nothing is read off a detached object after the session closes.
+        Runs in the DB thread pool and returns plain values, not an ORM
+        instance, so nothing is read off a detached object after the session
+        closes. Callers get the whole shape rather than a yes/no, because the
+        decisions that depend on it differ: "is this still in flight?",
+        "did it already land, so book it without quoting?" and "did funds
+        leave the wallet?" are three different questions about one row.
         """
         with get_session() as session:
             swap = _find_swap_for_key(session, idempotency_key)
-            if swap is None or swap.status not in _IN_FLIGHT_STATUSES:
+            if swap is None:
                 return None
-            return (swap.id, swap.status)
+            return (
+                swap.id,
+                swap.status,
+                swap.tx_hash,
+                swap.from_amount,
+                swap.to_amount,
+            )
+
+    @staticmethod
+    def _pause_dca(order_id: int) -> bool:
+        """Pause an ACTIVE DCA plan. True if it changed.
+
+        Conditioned on ACTIVE so two replicas reaching the same verdict do not
+        both report it, and so a plan a user cancelled in the meantime is not
+        quietly revived into PAUSED.
+        """
+        with get_session() as session:
+            db_order = (
+                session.query(DCAOrder)
+                .filter(
+                    DCAOrder.id == order_id,
+                    DCAOrder.status == DCAStatus.ACTIVE.value,
+                )
+                .first()
+            )
+            if db_order is None:
+                return False
+            db_order.status = DCAStatus.PAUSED.value
+            return True
+
+    @staticmethod
+    def _derive_execution_price(order, from_amount, to_amount) -> float:
+        """Executed rate (to-per-from, human units) from the swap's own amounts.
+
+        Used when a tranche is booked from a resolved swap row rather than from
+        a live quote, so the recorded price is the one actually achieved
+        instead of a quote fetched minutes later. Returns 0.0 when it cannot be
+        computed, which is what the column already holds for a missing rate —
+        better than inventing a plausible-looking number on a money record.
+        """
+        try:
+            from bot.config.tokens import get_token_decimals
+
+            raw_from = int(from_amount or order.amount_per_execution or 0)
+            raw_to = int(to_amount or 0)
+            if raw_from <= 0 or raw_to <= 0:
+                return 0.0
+            from_dec = get_token_decimals(order.from_token, order.from_chain)
+            to_dec = get_token_decimals(order.to_token, order.to_chain)
+            human_from = raw_from / (10**from_dec)
+            human_to = raw_to / (10**to_dec)
+            if human_from <= 0:
+                return 0.0
+            return human_to / human_from
+        except Exception as e:
+            logger.warning(
+                "DCA order %s: could not derive an execution price from the swap row: %s",
+                getattr(order, "id", None),
+                e,
+            )
+            return 0.0
+
+    async def _book_dca_execution(
+        self, order: DCAOrder, swap_id, tx_hash, from_amount, to_amount
+    ) -> None:
+        """Count a tranche that resolved out-of-band, without quoting.
+
+        Mirrors the success branch's bookkeeping, but takes its numbers from
+        the swap row instead of a fresh quote. Conditioned on the plan still
+        sitting at the same executions_completed, so that if the normal path
+        (or another replica) already booked this tranche, this does not book it
+        twice — double-booking would overstate total_spent and, worse, advance
+        the idempotency key as if a further tranche had run.
+        """
+        expected = order.executions_completed
+        price = self._derive_execution_price(order, from_amount, to_amount)
+
+        def _book():
+            with get_session() as session:
+                db_order = (
+                    session.query(DCAOrder)
+                    .filter(
+                        DCAOrder.id == order.id,
+                        DCAOrder.executions_completed == expected,
+                    )
+                    .first()
+                )
+                if db_order is None:
+                    return False
+                db_order.executions_completed += 1
+                db_order.total_spent = str(
+                    int(db_order.total_spent) + int(order.amount_per_execution)
+                )
+                db_order.next_execution_at = datetime.utcnow() + timedelta(
+                    hours=db_order.interval_hours
+                )
+                session.add(
+                    DCAExecution(
+                        dca_order_id=order.id,
+                        amount_spent=order.amount_per_execution,
+                        amount_received=to_amount or "0",
+                        price=price,
+                        tx_hash=tx_hash,
+                    )
+                )
+                return True
+
+        try:
+            booked = await run_in_db(_book)
+        except Exception as e:
+            logger.error(
+                "DCA order %d: swap %s resolved but the tranche could not be booked: %s. "
+                "Leaving the plan due so a later pass retries the bookkeeping.",
+                order.id,
+                swap_id,
+                e,
+            )
+            return
+
+        if not booked:
+            logger.info(
+                "DCA order %d: tranche for swap %s was already booked by another writer.",
+                order.id,
+                swap_id,
+            )
+            return
+
+        logger.info(
+            "DCA order %d: booked execution %d from resolved swap %s without re-quoting "
+            "(price derived from the executed amounts).",
+            order.id,
+            expected + 1,
+            swap_id,
+        )
+        if self._bot:
+            # Re-read so the notification shows the advanced counter and the
+            # new next_execution_at rather than the pre-booking values.
+            fresh = await run_in_db(lambda: self._load_dca_order(order.id))
+            if fresh is not None:
+                await self._notify_dca_executed(fresh)
+
+    @staticmethod
+    def _load_dca_order(order_id: int):
+        with get_session() as session:
+            return session.query(DCAOrder).filter(DCAOrder.id == order_id).first()
 
     @staticmethod
     def _delay_dca(order_id: int, delay: timedelta) -> None:
@@ -1120,20 +1405,88 @@ class OrderService:
             # resolve, the next due pass picks the outcome up through the
             # guard and the normal branches below handle it.
             dca_key = _dca_order_key(order)
-            in_flight = await run_in_db(lambda: self._peek_in_flight_swap(dca_key))
-            if in_flight is not None:
-                swap_id, swap_status = in_flight
-                await run_in_db(lambda: self._delay_dca(order.id, _IN_FLIGHT_BACKOFF))
-                logger.info(
-                    "DCA order %d left alone: swap %s is still %s. Not re-quoting; next "
-                    "check in %s. Execution %d is not counted until it settles.",
-                    order.id,
-                    swap_id,
-                    swap_status,
-                    _IN_FLIGHT_BACKOFF,
-                    order.executions_completed,
-                )
-                return
+            prior = await run_in_db(lambda: self._peek_swap_for_key(dca_key))
+            if prior is not None:
+                swap_id, swap_status, swap_hash, swap_from, swap_to = prior
+
+                if swap_status in _IN_FLIGHT_STATUSES:
+                    await run_in_db(lambda: self._delay_dca(order.id, _IN_FLIGHT_BACKOFF))
+                    logger.info(
+                        "DCA order %d left alone: swap %s is still %s. Not re-quoting; next "
+                        "check in %s. Execution %d is not counted until it settles.",
+                        order.id,
+                        swap_id,
+                        swap_status,
+                        _IN_FLIGHT_BACKOFF,
+                        order.executions_completed,
+                    )
+                    return
+
+                if swap_status in _SUBMITTED_STATUSES:
+                    # The tranche landed while we were backed off, and it is
+                    # not booked yet — the key carries executions_completed,
+                    # which only advances on booking, so this key resolving to
+                    # a submitted swap means exactly "ran, not yet counted".
+                    #
+                    # Book it from the swap row and do NOT quote. Falling
+                    # through to the normal path would work, but it would pay
+                    # for a provider quote purely to re-discover a finished
+                    # trade, and it would record that quote's rate as the
+                    # execution price — a rate from minutes after the trade.
+                    # The executed amounts are on the row; use those.
+                    await self._book_dca_execution(
+                        order,
+                        swap_id=swap_id,
+                        tx_hash=swap_hash,
+                        from_amount=swap_from,
+                        to_amount=swap_to,
+                    )
+                    return
+
+                # Terminal, not submitted. Decide here rather than quoting to
+                # rediscover it: SwapEngine's guard permits a retry only for
+                # FAILED/CANCELLED with a NULL hash, so for every other
+                # terminal shape the normal path would pay for a quote, be
+                # handed this same row back, and land on the backoff branch —
+                # forever, every 15 minutes, with the tranche never counted.
+                if swap_status == SwapStatus.UNKNOWN.value or swap_hash:
+                    # Either the outcome is unverifiable, or it failed *after*
+                    # broadcasting (tx_poller writes FAILED with a hash for a
+                    # mined origin leg whose bridge never settled). Both mean
+                    # funds may have left the wallet for this tranche and the
+                    # guard will never retry it, so the plan cannot make
+                    # progress on its own. Pause it and say so.
+                    if swap_status == SwapStatus.UNKNOWN.value:
+                        detail = (
+                            "its outcome could not be verified (the swap may have been "
+                            "broadcast on-chain)"
+                        )
+                    else:
+                        detail = (
+                            f"it was broadcast on-chain but did not complete (status: "
+                            f"{swap_status})"
+                        )
+                    reason = (
+                        f"DCA paused after execution {order.executions_completed + 1}: "
+                        f"{detail}. Funds may have left your wallet, so this tranche was "
+                        f"NOT retried — retrying could have sent it twice. Check on-chain, "
+                        f"then resume the plan. (swap #{swap_id})"
+                    )
+                    await run_in_db(lambda: self._pause_dca(order.id))
+                    logger.error(
+                        "DCA order %d paused before quoting: swap %s is %s (tx_hash %s). "
+                        "Not retried; needs on-chain verification.",
+                        order.id,
+                        swap_id,
+                        swap_status,
+                        swap_hash,
+                    )
+                    if self._bot:
+                        await self._notify_dca_failed(order, reason, needs_verification=True)
+                    return
+
+                # FAILED or CANCELLED with no hash: nothing moved, the guard
+                # will allow a real retry. Fall through to the normal path.
 
             # 1. Get Quote
             from bot.services.wallet import WalletService
@@ -1221,10 +1574,7 @@ class OrderService:
                 # refuses while this swap is still UNKNOWN, so the plan cannot
                 # be restarted into an instant re-pause loop; it continues only
                 # once the tranche has been verified and the swap row resolved.
-                with get_session() as session:
-                    db_order = session.query(DCAOrder).filter(DCAOrder.id == order.id).first()
-                    if db_order:
-                        db_order.status = DCAStatus.PAUSED.value
+                paused = await run_in_db(lambda: self._pause_dca(order.id))
                 logger.error(
                     "DCA order %d paused: swap %s is UNKNOWN (may have broadcast, outcome "
                     "unverified). Execution %d not counted and not retried, to avoid a "
@@ -1233,6 +1583,23 @@ class OrderService:
                     swap_tx.id,
                     order.executions_completed,
                 )
+                # This branch used to say nothing to the user at all, which was
+                # the worst silence in the file: the plan stops, resume_dca then
+                # refuses to restart it, and the funds for this tranche may
+                # already be gone. Fund safety, so it is sent regardless of the
+                # order-notification preference, matching the limit-order path.
+                if self._bot and paused:
+                    await self._notify_dca_failed(
+                        order,
+                        (
+                            f"DCA paused after execution {order.executions_completed + 1}: "
+                            f"the swap may have been broadcast on-chain but its outcome "
+                            f"could not be verified. This tranche was NOT retried — "
+                            f"retrying could have sent it twice. Check on-chain, then "
+                            f"resume the plan. (swap #{swap_tx.id})"
+                        ),
+                        needs_verification=True,
+                    )
 
             elif swap_tx and swap_tx.status in _IN_FLIGHT_STATUSES:
                 # The swap is on its way but has not reached a confirmed submit
@@ -1260,6 +1627,39 @@ class OrderService:
                     order.executions_completed,
                     _IN_FLIGHT_BACKOFF,
                 )
+
+            elif getattr(swap_tx, "tx_hash", None):
+                # Terminal, not submitted, but it HAS a hash — it went out and
+                # then failed to complete (tx_poller's mined-origin /
+                # unsettled-bridge case). Funds left the wallet and the guard
+                # will never retry a row with a hash, so backing off would mean
+                # quoting every 15 minutes forever and never making progress.
+                # Pause and tell the user instead. Step 0 would catch this on
+                # the next pass, but there is no reason to burn a cycle and a
+                # quote to reach the same verdict.
+                paused = await run_in_db(lambda: self._pause_dca(order.id))
+                logger.error(
+                    "DCA order %d paused: swap %s is %s WITH tx_hash %s — broadcast but "
+                    "not completed. Execution %d not counted and not retried.",
+                    order.id,
+                    swap_tx.id,
+                    swap_tx.status,
+                    swap_tx.tx_hash,
+                    order.executions_completed,
+                )
+                if self._bot and paused:
+                    await self._notify_dca_failed(
+                        order,
+                        (
+                            f"DCA paused after execution {order.executions_completed + 1}: "
+                            f"the swap was broadcast on-chain but did not complete "
+                            f"(status: {swap_tx.status}). Funds have left your wallet, so "
+                            f"this tranche was NOT retried. A cross-chain leg can still "
+                            f"settle later — check the transaction, then resume the plan. "
+                            f"(swap #{swap_tx.id})"
+                        ),
+                        needs_verification=True,
+                    )
 
             else:
                 # FAILED or CANCELLED with no hash (genuinely nothing moved, so
@@ -1446,6 +1846,46 @@ class OrderService:
                     )
         except Exception as e:
             logger.error(f"Order failure notification failed for order {order.id}: {e}")
+
+    async def _notify_dca_failed(
+        self, order: DCAOrder, reason: str, needs_verification: bool = False
+    ):
+        """Tell the user a DCA tranche did not execute and the plan is paused.
+
+        The limit-order path got this and the DCA path did not, which left the
+        worse of the two silent: a paused plan whose tranche may have moved
+        funds, with resume_dca refusing to restart it. From the user's side
+        that is a dead plan and no explanation.
+        """
+        try:
+            from bot.models.user import User
+
+            telegram_id = None
+            with get_session() as session:
+                user = session.query(User).filter(User.id == order.user_id).first()
+                if user:
+                    telegram_id = user.telegram_id
+
+            if not telegram_id:
+                return
+
+            header = (
+                "⚠️ *DCA Paused — Needs Verification*" if needs_verification else "⏸️ *DCA Paused*"
+            )
+            text = (
+                f"{header}\n\n"
+                f"Plan: {order.from_token} → {order.to_token}\n"
+                f"Completed: {order.executions_completed}/{order.max_executions or '∞'}\n\n"
+                f"{reason}"
+            )
+            await self._bot.send_message(
+                chat_id=telegram_id,
+                text=text,
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+            )
+        except Exception as e:
+            logger.error(f"DCA failure notification failed for order {order.id}: {e}")
 
     async def _notify_dca_executed(self, order: DCAOrder, swap_tx=None):
         """Notify user of executed DCA via Telegram and, if linked, WhatsApp."""
