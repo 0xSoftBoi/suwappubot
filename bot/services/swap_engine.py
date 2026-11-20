@@ -30,7 +30,7 @@ import base64
 
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
-from bot.services.swap_nonce import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
+from bot.utils.tx_hash import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
 from bot.services.spending_limits import spending_limit_service
 from bot.services.compliance import compliance_service, flashbots_relay
 from bot.utils.cache import quote_cache
@@ -4574,7 +4574,7 @@ class SwapEngine:
                 # column from accumulating two spellings of the same hash.
                 # canonical_tx_hash is chain-aware: Solana (base58) and TRON
                 # (bare hex by convention) pass through untouched.
-                # See bot/services/swap_nonce.py for the full rationale.
+                # See bot/utils/tx_hash.py for the full rationale.
                 tx_hash = canonical_tx_hash(tx_hash, quote.from_chain)
 
                 # Past this line the transaction is on-chain. Record that fact

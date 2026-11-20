@@ -4,7 +4,7 @@ from typing import Optional
 from bot.config.chains import get_chain_by_name
 
 # Relative import of a LEAF module on purpose. bot/utils/__init__.py imports
-# this file eagerly, and `from bot.services.swap_nonce import ...` would run
+# this file eagerly, so importing anything from `bot.services.*` here would run
 # bot/services/__init__.py (wallet, swap_engine, web3, solders, ...) just to
 # reach a dependency-free string helper. Verified both import orders still
 # boot either way, so this is about not adding that dependency edge, not about

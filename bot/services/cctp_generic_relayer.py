@@ -76,7 +76,7 @@ from bot.config.chains import get_chain_by_name
 from bot.models.cctp import CctpGenericDeposit
 from bot.services.cctp_api import cctp_api
 from bot.services.rpc_manager import rpc_manager
-from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
+from bot.utils.tx_hash import canonical_tx_hash, tx_hash_variants
 from database.db import get_session
 
 logger = logging.getLogger(__name__)

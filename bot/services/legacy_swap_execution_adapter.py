@@ -22,7 +22,7 @@ from bot.models.execution import (
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.services.execution_lifecycle import ParentState, TERMINAL_STATES
 from bot.services.execution_store import ExecutionStore, ExecutionStoreError, execution_store
-from bot.services.swap_nonce import tx_hash_variants
+from bot.utils.tx_hash import tx_hash_variants
 
 
 class LegacySwapProjectionError(ExecutionStoreError):

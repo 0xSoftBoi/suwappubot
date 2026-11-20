@@ -46,6 +46,38 @@ Non-EVM chains are *not* hex-prefixed and must pass through untouched:
 * **TRON** txids are canonically **bare** 64-char hex. They have the exact
   same shape as a bare EVM hash, so shape alone cannot distinguish the two.
   This is why :func:`canonical_tx_hash` is chain-aware and refuses to guess.
+
+Relationship to ``bot/services/swap_nonce.py`` (branch amazing-bell-ykhxgv)
+---------------------------------------------------------------------------
+That unmerged branch adds an 819-line nonce-recording module at
+``bot/services/swap_nonce.py`` which defines its own ``canonical_tx_hash`` and
+``tx_hash_variants``. They are **deliberately different** from these, and the
+difference is not an accident on either side:
+
+===================  ==============================  =========================
+                     swap_nonce (that branch)        this module
+===================  ==============================  =========================
+signature            ``canonical_tx_hash(value)``    ``(value, chain=None)``
+non-hex input        returns ``None``                returns input unchanged
+``tx_hash_variants`` ``list[str]``, ``[]`` on junk   ``frozenset``
+chain awareness      none (EVM-only by context)      required to add a prefix
+===================  ==============================  =========================
+
+Theirs is strict and fail-closed because its caller is a nonce-ownership guard:
+an unparseable value must produce an EMPTY list, so the caller cannot read
+"query found nothing" as "no other swap owns this hash". Ours passes unknown
+values through because its callers handle legitimately non-hex hashes -- a
+Solana base58 signature must still match its own row, and a bare TRON txid must
+keep its form.
+
+Both behaviours are correct for their own call sites, which is exactly why they
+must not share a name. So this module lives here and nothing re-exports it from
+``bot/services/swap_nonce.py``; that path belongs to the nonce module. **When
+that branch merges there is no file conflict, but do not then "unify" the two
+functions without reading both docstrings** -- collapsing them either way
+silently breaks one set of callers. If they are ever merged, the chain-aware
+form must win for swap/CCTP/explorer paths and the fail-closed form for the
+nonce guard; that likely means two differently-named functions, not one.
 """
 
 from typing import Any, FrozenSet, Optional

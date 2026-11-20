@@ -21,7 +21,7 @@ from bot.models.subscription import (
     ConsumedPayment,
 )
 from bot.services.fee_service import TIER_FEE_RATES
-from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
+from bot.utils.tx_hash import canonical_tx_hash, tx_hash_variants
 from bot.services.wallet import WalletService
 from database.db import get_session
 

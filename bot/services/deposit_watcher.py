@@ -30,7 +30,7 @@ from typing import Dict, Optional, Tuple
 
 from sqlalchemy import text
 
-from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
+from bot.utils.tx_hash import canonical_tx_hash, tx_hash_variants
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.models.custodial import (
     CustodialTransaction,

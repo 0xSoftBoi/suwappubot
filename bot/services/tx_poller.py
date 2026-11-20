@@ -16,7 +16,7 @@ from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
-from bot.services.swap_nonce import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
+from bot.utils.tx_hash import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
 from bot.services.lifi_api import LiFiAPI
 from bot.services.zerox_api import ZeroXAPI, ZEROX_CHAIN_IDS
 from bot.services.legacy_swap_execution_adapter import project_legacy_swap

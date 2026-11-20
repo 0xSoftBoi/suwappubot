@@ -34,7 +34,7 @@ from sqlalchemy import String, cast, func
 from bot.models.execution import ExecutionChildPlacement, ExecutionParentOrder
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.services.legacy_swap_execution_adapter import project_legacy_swap
-from bot.services.swap_nonce import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
+from bot.utils.tx_hash import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
 from bot.services.lifi_api import LiFiAPI, LiFiStatus
 from database.db import get_session as get_db_session
 
