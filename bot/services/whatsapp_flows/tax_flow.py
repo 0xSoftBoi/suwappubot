@@ -107,7 +107,7 @@ class TaxFlow(BaseWhatsAppFlow):
         import io
         from datetime import datetime
         from database.db import get_session
-        from bot.models.swap import SwapTransaction
+        from bot.models.swap import SwapStatus, SwapTransaction
 
         start_date = datetime(year, 1, 1)
         end_date = datetime(year, 12, 31, 23, 59, 59)
@@ -119,7 +119,8 @@ class TaxFlow(BaseWhatsAppFlow):
                     SwapTransaction.user_id == user_db_id,
                     SwapTransaction.created_at >= start_date,
                     SwapTransaction.created_at <= end_date,
-                    SwapTransaction.status == "completed",
+                    # Include UNKNOWN (may have broadcast); flagged in the Unverified column.
+                    SwapTransaction.status.in_(["completed", SwapStatus.UNKNOWN.value]),
                 )
                 .order_by(SwapTransaction.created_at)
                 .all()
@@ -144,6 +145,7 @@ class TaxFlow(BaseWhatsAppFlow):
                     "Fee USD",
                     "TX Hash",
                     "Status",
+                    "Unverified",
                 ]
             )
 
@@ -162,6 +164,7 @@ class TaxFlow(BaseWhatsAppFlow):
                         f"{s.fee_usd:.4f}" if s.fee_usd else "0",
                         s.tx_hash or "",
                         s.status,
+                        "yes" if s.status == SwapStatus.UNKNOWN.value else "no",
                     ]
                 )
 

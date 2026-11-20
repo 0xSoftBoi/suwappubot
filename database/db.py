@@ -2445,6 +2445,11 @@ def _add_advanced_order_columns(db_engine, inspector, is_sqlite: bool) -> None:
         ("highest_price_seen", "FLOAT", "NULL"),
         ("parent_order_id", "INTEGER", "NULL"),
         ("portion_percent", "FLOAT", "NULL"),
+        # Why the order ended without executing — see LimitOrder.error_message.
+        # VARCHAR(500) matches the model; both backends accept the unsized
+        # form, but keep it explicit so Postgres does not get a TEXT column
+        # the model believes is bounded.
+        ("error_message", "VARCHAR(500)", "NULL"),
     ]
 
     for col_name, col_type, default in new_columns:

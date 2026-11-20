@@ -7,7 +7,7 @@ from decimal import Decimal
 from collections import defaultdict
 
 from bot.models.user import User
-from bot.models.swap import SwapTransaction
+from bot.models.swap import SwapStatus, SwapTransaction
 from bot.models.custodial import CustodialBalance, HotWallet
 from bot.models.fees import FeeTransaction
 from database.db import get_session
@@ -43,6 +43,14 @@ class MetricsService:
                 session.query(SwapTransaction).filter(SwapTransaction.status == "failed").count()
             )
 
+            # UNKNOWN = may have broadcast, outcome unverified. Reported explicitly so
+            # completed + failed + pending + unknown reconciles against total.
+            unknown_swaps = (
+                session.query(SwapTransaction)
+                .filter(SwapTransaction.status == SwapStatus.UNKNOWN.value)
+                .count()
+            )
+
             # Today's swaps
             today_swaps = (
                 session.query(SwapTransaction)
@@ -64,6 +72,7 @@ class MetricsService:
                     "total": total_swaps,
                     "completed": completed_swaps,
                     "failed": failed_swaps,
+                    "unknown": unknown_swaps,
                     "today": today_swaps,
                     "success_rate": (completed_swaps / total_swaps * 100) if total_swaps > 0 else 0,
                 },
@@ -74,6 +83,8 @@ class MetricsService:
         with get_session() as session:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
+            # Volume counts completed swaps only; UNKNOWN (unverified, may have
+            # broadcast) volume is excluded so reported volume is never overstated.
             transactions = (
                 session.query(SwapTransaction)
                 .filter(
@@ -181,6 +192,7 @@ class MetricsService:
             # Get swap counts per user
             users_data = {}
 
+            # Completed only: UNKNOWN (unverified) swaps are excluded from user volume ranking.
             transactions = (
                 session.query(SwapTransaction).filter(SwapTransaction.status == "completed").all()
             )
@@ -231,7 +243,7 @@ class MetricsService:
             )
 
             chain_stats = defaultdict(
-                lambda: {"total": 0, "completed": 0, "failed": 0, "pending": 0}
+                lambda: {"total": 0, "completed": 0, "failed": 0, "unknown": 0, "pending": 0}
             )
 
             for tx in transactions:
@@ -240,6 +252,8 @@ class MetricsService:
                     chain_stats[tx.from_chain]["completed"] += 1
                 elif tx.status == "failed":
                     chain_stats[tx.from_chain]["failed"] += 1
+                elif tx.status == SwapStatus.UNKNOWN.value:
+                    chain_stats[tx.from_chain]["unknown"] += 1
                 else:
                     chain_stats[tx.from_chain]["pending"] += 1
 

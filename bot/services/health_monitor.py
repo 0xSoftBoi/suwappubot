@@ -332,7 +332,11 @@ class HealthMonitor:
 
             # Calculate failure rate
             total = len(recent_swaps)
-            failed = sum(1 for s in recent_swaps if s.status == SwapStatus.FAILED.value)
+            hard_failed = sum(1 for s in recent_swaps if s.status == SwapStatus.FAILED.value)
+            # UNKNOWN = may have broadcast, outcome unverified. Not a success, so it counts
+            # toward the failure rate, but is reported separately (orphan spike vs real failures).
+            unknown = sum(1 for s in recent_swaps if s.status == SwapStatus.UNKNOWN.value)
+            failed = hard_failed + unknown
             failure_rate = failed / total
 
             if failure_rate >= self._failure_threshold and total >= 5:
@@ -342,11 +346,18 @@ class HealthMonitor:
                         title="High Swap Failure Rate",
                         message=(
                             f"Swap failure rate is {failure_rate:.1%}\n"
-                            f"Failed: {failed}/{total} in last hour\n\n"
+                            f"Failed: {failed}/{total} in last hour "
+                            f"({hard_failed} failed, {unknown} unknown/unverified)\n\n"
                             f"Please investigate immediately."
                         ),
                         timestamp=datetime.now(timezone.utc),
-                        data={"failure_rate": failure_rate, "total": total, "failed": failed},
+                        data={
+                            "failure_rate": failure_rate,
+                            "total": total,
+                            "failed": failed,
+                            "hard_failed": hard_failed,
+                            "unknown": unknown,
+                        },
                     )
                 )
 

@@ -24,11 +24,14 @@ from bot.services.price_service import price_service
 
 logger = logging.getLogger(__name__)
 
-# Statuses where the tx was actually broadcast (holdings really changed).
+# Statuses where the tx was (or may have been) broadcast (holdings really changed).
+# UNKNOWN is included because it MAY have broadcast; omitting it would understate a
+# disposal and leave holdings wrong.
 _REPLAY_STATUSES = (
     SwapStatus.SUBMITTED.value,
     SwapStatus.CONFIRMING.value,
     SwapStatus.COMPLETED.value,
+    SwapStatus.UNKNOWN.value,
 )
 _MAX_REPLAY = 1000  # bound one-time latency for heavy traders
 
@@ -62,6 +65,11 @@ async def backfill_user_positions(user_id: int) -> bool:
                 .limit(_MAX_REPLAY)
                 .all()
             )
+            for s in rows:
+                if s.status == SwapStatus.UNKNOWN.value:
+                    logger.warning(
+                        f"backfill: replaying UNKNOWN (unverified) swap {s.id} for user {user_id}"
+                    )
             return [
                 (s.from_token, s.from_chain, s.to_token, s.to_chain, s.from_amount, s.to_amount)
                 for s in rows

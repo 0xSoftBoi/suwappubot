@@ -603,6 +603,7 @@ adminRoutes.get('/finance', async (c) => {
 								total: sql<number>`count(*)`,
 								completed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) in ('completed', 'success'))`,
 								failed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) = 'failed')`,
+								unknown: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) = 'unknown')`,
 								volumeUsd: sql<number>`coalesce(sum(${swapTransactions.fromAmountUsd}), 0)`,
 								gasCostUsd: sql<number>`coalesce(sum(cast(${swapTransactions.gasCostUsd} as numeric)), 0)`,
 								feeCostUsd: sql<number>`coalesce(sum(cast(${swapTransactions.feeCostUsd} as numeric)), 0)`,
@@ -621,6 +622,7 @@ adminRoutes.get('/finance', async (c) => {
 								total: sql<number>`count(*)`,
 								completed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) in ('completed', 'success'))`,
 								failed: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) = 'failed')`,
+								unknown: sql<number>`count(*) filter (where lower(coalesce(${swapTransactions.status}, '')) = 'unknown')`,
 								volumeUsd: sql<number>`coalesce(sum(${swapTransactions.fromAmountUsd}), 0)`,
 								priceImprovementUsd: sql<number>`coalesce(sum(${swapTransactions.priceImprovementUsd}), 0)`,
 							})
@@ -735,7 +737,10 @@ adminRoutes.get('/finance', async (c) => {
 			const totalSwaps = Number(swaps?.total ?? 0)
 			const completedSwaps = Number(swaps?.completed ?? 0)
 			const failedSwaps = Number(swaps?.failed ?? 0)
-			const terminalSwaps = completedSwaps + failedSwaps
+			// 'unknown' = may have broadcast, outcome unverified: not a success, so it
+			// stays in the success-rate denominator (completed stays strictly-confirmed).
+			const unknownSwaps = Number(swaps?.unknown ?? 0)
+			const terminalSwaps = completedSwaps + failedSwaps + unknownSwaps
 			const volumeUsd = Number(swaps?.volumeUsd ?? 0)
 			const observedWeeklyVolumeUsd = volumeUsd * (7 / 30)
 			const quotes = Number(funnelRows[0]?.quotes ?? 0)
@@ -800,6 +805,7 @@ adminRoutes.get('/finance', async (c) => {
 					totalSwaps,
 					completedSwaps,
 					failedSwaps,
+					unknownSwaps,
 					successRate: terminalSwaps > 0 ? completedSwaps / terminalSwaps : null,
 					volumeUsd,
 					quotes,
@@ -847,12 +853,14 @@ adminRoutes.get('/finance', async (c) => {
 					const total = Number(row.total ?? 0)
 					const completed = Number(row.completed ?? 0)
 					const failed = Number(row.failed ?? 0)
-					const terminal = completed + failed
+					const unknown = Number(row.unknown ?? 0)
+					const terminal = completed + failed + unknown
 					return {
 						provider: row.provider ?? 'unknown',
 						total,
 						completed,
 						failed,
+						unknown,
 						successRate: terminal > 0 ? completed / terminal : null,
 						volumeUsd: Number(row.volumeUsd ?? 0),
 						priceImprovementUsd: Number(row.priceImprovementUsd ?? 0),

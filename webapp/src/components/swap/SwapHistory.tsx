@@ -14,7 +14,7 @@ export interface SwapHistoryEntry {
   toAmount: number
   fromAmountUsd: number
   toAmountUsd: number
-  status: 'completed' | 'pending' | 'failed' | 'cancelled'
+  status: 'completed' | 'pending' | 'failed' | 'cancelled' | 'unknown'
   provider: string
   txHash?: string
   explorerUrl?: string
@@ -25,7 +25,7 @@ export interface SwapHistoryEntry {
 }
 
 export type ChainFilter = 'all' | string
-export type StatusFilter = 'all' | 'completed' | 'pending' | 'failed'
+export type StatusFilter = 'all' | 'completed' | 'pending' | 'failed' | 'unknown'
 
 export interface SwapHistoryProps {
   entries: SwapHistoryEntry[]
@@ -81,6 +81,15 @@ const STATUS_CONFIG = {
     label: 'Cancelled',
     bgClass: 'bg-tx-state-failed/10',
     textClass: 'text-tx-state-failed',
+    animation: '',
+  },
+  // May have broadcast on-chain; outcome unverified. Not failed (red), not pending
+  // (nothing is in flight, no pulse). Mirrors pages/History.tsx amber treatment.
+  // No tx-state warning token exists (tx-state-pending is the amber-500 in-flight colour).
+  unknown: {
+    label: 'Unverified',
+    bgClass: 'bg-amber-100',
+    textClass: 'text-amber-700',
     animation: '',
   },
 } as const
@@ -192,7 +201,12 @@ function StatusFilterPill({
   isSelected: boolean
   onClick: () => void
 }) {
-  const label = status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)
+  const label =
+    status === 'all'
+      ? 'All'
+      : status === 'unknown'
+        ? STATUS_CONFIG.unknown.label
+        : status.charAt(0).toUpperCase() + status.slice(1)
   const selectedClass = isSelected
     ? 'bg-suwappu-magenta text-white shadow-suwappu-2'
     : 'bg-white shadow-suwappu-1 text-suwappu-text'
@@ -489,7 +503,7 @@ export const SwapHistory = React.memo(function SwapHistory({
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-suwappu-text-secondary shrink-0">Status:</span>
           <div className="flex gap-1.5">
-            {(['all', 'completed', 'pending', 'failed'] as StatusFilter[]).map((status) => (
+            {(['all', 'completed', 'pending', 'failed', 'unknown'] as StatusFilter[]).map((status) => (
               <StatusFilterPill
                 key={status}
                 status={status}

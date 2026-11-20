@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 from decimal import Decimal
 from collections import defaultdict
 
-from bot.models.swap import SwapTransaction
+from bot.models.swap import SwapStatus, SwapTransaction
 from bot.models.advanced import UserStats, PortfolioSnapshot
 from bot.services.price_service import price_service
 from bot.services.wallet import WalletService
@@ -41,6 +41,22 @@ class PnLService:
                 .all()
             )
 
+            # Realized-PnL math stays completed-only (an unverified swap must not silently
+            # move realized PnL), but count UNKNOWN rows so callers can flag the figure
+            # as incomplete.
+            unverified_swaps = (
+                session.query(SwapTransaction)
+                .filter(
+                    SwapTransaction.user_id == user_id,
+                    SwapTransaction.status == SwapStatus.UNKNOWN.value,
+                    SwapTransaction.created_at >= cutoff,
+                )
+                .count()
+            )
+            warning = (
+                f"{unverified_swaps} unverified swap(s) not included" if unverified_swaps else None
+            )
+
             if not swaps:
                 return {
                     "total_pnl_usd": 0,
@@ -50,6 +66,8 @@ class PnLService:
                     "swap_count": 0,
                     "pnl_by_token": {},
                     "period_days": days,
+                    "unverified_swaps": unverified_swaps,
+                    "warning": warning,
                 }
 
             # Track token positions
@@ -129,6 +147,8 @@ class PnLService:
                 "swap_count": len(swaps),
                 "pnl_by_token": pnl_by_token,
                 "period_days": days,
+                "unverified_swaps": unverified_swaps,
+                "warning": warning,
             }
 
     async def get_portfolio_value(self, user_id: int) -> Dict:
@@ -319,6 +339,11 @@ class PnLService:
         """Get P&L data for a specific swap (ROI since trade)."""
         with get_session() as session:
             swap = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
+            if swap and swap.status == SwapStatus.UNKNOWN.value:
+                logger.warning(
+                    f"PnL attribution skipped for swap {swap_id}: status is UNKNOWN "
+                    f"(outcome unverified)"
+                )
             if not swap or swap.status != "completed":
                 return None
 
