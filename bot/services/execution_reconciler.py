@@ -34,6 +34,7 @@ from sqlalchemy import String, cast, func
 from bot.models.execution import ExecutionChildPlacement, ExecutionParentOrder
 from bot.models.swap import SwapStatus, SwapTransaction
 from bot.services.legacy_swap_execution_adapter import project_legacy_swap
+from bot.services.swap_nonce import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
 from bot.services.lifi_api import LiFiAPI, LiFiStatus
 from database.db import get_session as get_db_session
 
@@ -144,7 +145,11 @@ class ExecutionReconciler:
             try:
                 status = await asyncio.wait_for(
                     self._lifi.get_status(
-                        tx_hash=candidate["tx_hash"],
+                        # Li.Fi answers "Transaction hash is not found in any
+                        # chain" for a bare hash (verified live), so a stored
+                        # bare hash would make a real bridge look unknown and
+                        # leave the swap unreconciled.
+                        tx_hash=rpc_tx_hash(candidate["tx_hash"]),
                         from_chain=candidate["from_chain"],
                         to_chain=candidate["to_chain"],
                     ),
@@ -355,7 +360,7 @@ class ExecutionReconciler:
                 swap.realized_to_amount = amount
                 swap.realized_to_amount_usd = status.receiving_amount_usd
                 if destination_hash and not swap.destination_tx_hash:
-                    swap.destination_tx_hash = destination_hash
+                    swap.destination_tx_hash = canonical_tx_hash(destination_hash, swap.to_chain)
                 if swap.status == SwapStatus.FAILED.value:
                     # A prior timeout/ambiguous failure is superseded only by
                     # stronger positive settlement evidence from the same tx.

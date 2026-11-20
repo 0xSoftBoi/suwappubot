@@ -3,6 +3,14 @@
 from typing import Optional
 from bot.config.chains import get_chain_by_name
 
+# Relative import of a LEAF module on purpose. bot/utils/__init__.py imports
+# this file eagerly, and `from bot.services.swap_nonce import ...` would run
+# bot/services/__init__.py (wallet, swap_engine, web3, solders, ...) just to
+# reach a dependency-free string helper. Verified both import orders still
+# boot either way, so this is about not adding that dependency edge, not about
+# fixing a crash.
+from .tx_hash import canonical_tx_hash
+
 # Try to import C++ core
 try:
     import suwappu_core
@@ -100,10 +108,13 @@ def format_tx_link(tx_hash: str, chain_name: str) -> str:
     if not chain:
         return tx_hash
 
-    if chain.chain_type.value == "solana":
-        url = f"{chain.explorer_url}/tx/{tx_hash}"
-    else:
-        url = f"{chain.explorer_url}/tx/{tx_hash}"
+    # SwapTransaction.tx_hash holds a mix of `0x`-prefixed and bare hashes
+    # (EVM executors persisted `HexBytes.hex()`, which drops the prefix from
+    # hexbytes 1.x on). Some explorers 404 on a bare hash, so canonicalize
+    # here -- chain-aware, so Solana base58 and TRON bare-hex are untouched.
+    tx_hash = canonical_tx_hash(tx_hash, chain)
+
+    url = f"{chain.explorer_url}/tx/{tx_hash}"
 
     short_hash = f"{tx_hash[:8]}...{tx_hash[-6:]}"
     return f"[{short_hash}]({url})"

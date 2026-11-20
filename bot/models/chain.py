@@ -23,10 +23,20 @@ class Chain:
     logo_emoji: str
 
     def get_tx_url(self, tx_hash: str) -> str:
-        """Get explorer URL for a transaction."""
-        if self.chain_type == "solana":
-            return f"{self.explorer_url}/tx/{tx_hash}"
-        return f"{self.explorer_url}/tx/{tx_hash}"
+        """Get explorer URL for a transaction.
+
+        The hash is canonicalized because stored EVM hashes come in two
+        spellings (see bot/utils/tx_hash.py) and some explorers 404 on an
+        unprefixed one. `self.chain_type` is passed through so Solana base58
+        and TRON bare-hex are left exactly as they are.
+
+        The import is function-local to keep this dataclass module a leaf:
+        bot/models/ is imported early in the boot chain and must not pull in
+        bot/utils/__init__.py at module scope.
+        """
+        from bot.utils.tx_hash import canonical_tx_hash
+
+        return f"{self.explorer_url}/tx/{canonical_tx_hash(tx_hash, self.chain_type)}"
 
     def get_address_url(self, address: str) -> str:
         """Get explorer URL for an address."""
