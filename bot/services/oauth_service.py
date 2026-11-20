@@ -297,7 +297,11 @@ class OAuthService:
                 email=result.get("email"),
                 name=result.get("name"),
                 profile_image=result.get("picture"),
-                email_verified=result.get("verified_email", True),
+                # Fail closed: only an explicit True from Google counts. (v2 userinfo
+                # sends ``verified_email``; OIDC /v3 sends ``email_verified``.) This flag
+                # gates staff access to /admin via ADMIN_EMAILS in api-ts.
+                email_verified=result.get("verified_email", result.get("email_verified", False))
+                is True,
             )
         elif provider == "twitter":
             data = result.get("data", {})

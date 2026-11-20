@@ -300,8 +300,9 @@ function CompareValue({ value }: { value: string }) {
 
 export default function PricingPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <h1>One subscription. A lower fee on every swap.</h1>
@@ -589,7 +590,8 @@ export default function PricingPage() {
           </div>
         </section>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

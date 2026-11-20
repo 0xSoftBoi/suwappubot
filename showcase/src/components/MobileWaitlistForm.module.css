@@ -130,7 +130,7 @@ select.input {
 
 /* Rank numeral: 180deg wash (135deg is banned), persimmon as the only accent. */
 .positionStat strong {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: clamp(2.5rem, 6vw, 3.4rem);
   font-weight: 600;
   line-height: 1;

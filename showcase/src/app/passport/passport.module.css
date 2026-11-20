@@ -187,26 +187,12 @@
 }
 
 .cta {
-  /* Also used on an <a> (the QR sheet's "Open World App"), so center the
-     label and drop the link underline explicitly. */
-  display: inline-flex;
-  align-items: center;
+  /* Visuals come from the shared .summer-button--primary (foundation.css).
+     This class only centres the label for the <a> use (QR sheet's "Open
+     World App") and owns the disabled state. */
   justify-content: center;
   text-decoration: none;
-  min-height: 52px;
-  padding: 0 30px;
-  border-radius: 999px;
-  border: none;
-  background: linear-gradient(180deg, var(--sw-accent-bright), var(--sw-accent));
-  color: #14100a;
-  font-weight: 700;
-  font-size: 0.98rem;
-  letter-spacing: -0.005em;
-  cursor: pointer;
-  box-shadow: 0 12px 30px -10px color-mix(in srgb, var(--sw-accent) 65%, transparent);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
-.cta:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 16px 36px -10px color-mix(in srgb, var(--sw-accent) 70%, transparent); }
 .cta:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ── Narration ── */

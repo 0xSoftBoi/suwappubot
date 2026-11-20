@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { API_BASE_URL, TELEGRAM_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
 import { getAttribution } from '@/lib/attribution';
+import { Field, FieldControl, FieldError, FieldLabel } from '@ui-sdk/react/field';
+import { Input } from '@ui-sdk/react/input';
+import { Textarea } from '@ui-sdk/react/textarea';
 import styles from './EnterpriseContactForm.module.css';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
@@ -112,88 +115,68 @@ export default function EnterpriseContactForm() {
   const submitting = status === 'submitting';
 
   return (
-    <form className={styles.form} onSubmit={handleSubmit} noValidate>
+    <form className={styles.form} onSubmit={handleSubmit}>
       <div className={styles.row}>
-        <label className={styles.field}>
-          <span className={styles.label}>Name *</span>
-          <input
-            className={styles.input}
-            name="name"
-            type="text"
-            required
-            autoComplete="name"
-            placeholder="Priya Raghavan"
-          />
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Company / desk *</span>
-          <input
-            className={styles.input}
-            name="company"
-            type="text"
-            required
-            autoComplete="organization"
-            placeholder="Meridian Digital"
-          />
-        </label>
+        <Field name="name" className={styles.field}>
+          <FieldLabel className={styles.label}>Name</FieldLabel>
+          <Input className={styles.input} required autoComplete="name" placeholder="Priya Raghavan…" />
+          <FieldError className={styles.fieldError} match="valueMissing">Enter your name.</FieldError>
+        </Field>
+        <Field name="company" className={styles.field}>
+          <FieldLabel className={styles.label}>Company / desk</FieldLabel>
+          <Input className={styles.input} required autoComplete="organization" placeholder="Meridian Digital…" />
+          <FieldError className={styles.fieldError} match="valueMissing">Enter your company or desk.</FieldError>
+        </Field>
       </div>
 
       <div className={styles.row}>
-        <label className={styles.field}>
-          <span className={styles.label}>Work email *</span>
-          <input
+        <Field name="email" className={styles.field}>
+          <FieldLabel className={styles.label}>Work email</FieldLabel>
+          <Input
             className={styles.input}
-            name="email"
             type="email"
+            inputMode="email"
             required
             autoComplete="email"
-            placeholder="priya@meridian.xyz"
+            spellCheck={false}
+            placeholder="priya@meridian.xyz…"
           />
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Telegram (optional)</span>
-          <input
-            className={styles.input}
-            name="telegram"
-            type="text"
-            autoComplete="off"
-            placeholder="@priyaonchain"
-          />
-        </label>
+          <FieldError className={styles.fieldError} match="valueMissing">Enter your work email.</FieldError>
+          <FieldError className={styles.fieldError} match="typeMismatch">
+            Enter an email address like priya@meridian.xyz.
+          </FieldError>
+        </Field>
+        <Field name="telegram" className={styles.field}>
+          <FieldLabel className={styles.label}>Telegram (optional)</FieldLabel>
+          <Input className={styles.input} autoComplete="off" spellCheck={false} placeholder="@priyaonchain…" />
+        </Field>
       </div>
 
       <div className={styles.row}>
-        <label className={styles.field}>
-          <span className={styles.label}>Country / jurisdiction (optional)</span>
-          <input
-            className={styles.input}
-            name="country"
-            type="text"
-            autoComplete="country-name"
-            placeholder="Singapore"
-          />
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Monthly volume (optional)</span>
-          <select className={styles.input} name="monthly_volume" defaultValue="">
+        <Field name="country" className={styles.field}>
+          <FieldLabel className={styles.label}>Country / jurisdiction (optional)</FieldLabel>
+          <Input className={styles.input} autoComplete="country-name" placeholder="Singapore…" />
+        </Field>
+        <Field name="monthly_volume" className={styles.field}>
+          <FieldLabel className={styles.label}>Monthly volume (optional)</FieldLabel>
+          <FieldControl render={<select />} className={styles.input} defaultValue="">
             {VOLUME_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
-          </select>
-        </label>
+          </FieldControl>
+        </Field>
       </div>
 
-      <label className={styles.field}>
-        <span className={styles.label}>What are you looking to build? (optional)</span>
-        <textarea
+      <Field name="use_case" className={styles.field}>
+        <FieldLabel className={styles.label}>What are you looking to build? (optional)</FieldLabel>
+        <Textarea
           className={styles.textarea}
-          name="use_case"
           rows={4}
           placeholder="Agent fleet execution, OTC desk routing, dedicated rate limits…"
         />
-      </label>
+      </Field>
 
       {/* Honeypot: hidden from humans, catches bots. */}
       <div className={styles.honeypot} aria-hidden="true">
@@ -213,8 +196,10 @@ export default function EnterpriseContactForm() {
         className="summer-button summer-button--primary"
         type="submit"
         disabled={submitting}
+        aria-busy={submitting}
       >
-        {submitting ? 'Sending…' : 'Talk to the team'}
+        {submitting && <span className={styles.spinner} aria-hidden="true" />}
+        Talk to the team
       </button>
       <p className={styles.fineprint}>
         We&rsquo;ll only use these details to follow up about your request. No spam.

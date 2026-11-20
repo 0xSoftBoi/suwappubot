@@ -2,7 +2,7 @@
    contrast on this background, so wayfinding lives in the links below. */
 .page {
   position: relative;
-  min-height: 100dvh;
+  min-height: calc(100dvh - 65px);
   display: grid;
   place-items: center;
   padding: 48px 20px;
@@ -32,11 +32,11 @@
 
 .title {
   margin: 18px 0 0;
-  font-family: var(--font-display);
-  font-size: var(--type-display-2-size);
-  line-height: var(--type-display-2-lh);
-  letter-spacing: var(--type-display-2-ls);
-  font-weight: 600;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  line-height: 1.06;
+  letter-spacing: var(--type-display-tracking);
+  font-weight: var(--type-display-weight);
 }
 
 .lead {

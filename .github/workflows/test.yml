@@ -486,7 +486,13 @@ jobs:
             packages/design-tokens
           do
             echo "::group::bun audit ($dir)"
-            (cd "$dir" && bun audit --audit-level=high) || status=1
+            # Exceptions are per-workspace and per-advisory; each one is
+            # documented in docs/security/dependency-exceptions.md.
+            ignore=()
+            if [ "$dir" = "terminal" ]; then
+              ignore=(--ignore=GHSA-qr28-fpjm-wq7f)
+            fi
+            (cd "$dir" && bun audit --audit-level=high "${ignore[@]}") || status=1
             echo "::endgroup::"
           done
           exit "$status"

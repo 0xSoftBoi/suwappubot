@@ -282,9 +282,10 @@ export default function ReplicationPage() {
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(datasetLd) }} />
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page repl-page">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>
@@ -452,7 +453,8 @@ export default function ReplicationPage() {
           ← All research
         </a>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

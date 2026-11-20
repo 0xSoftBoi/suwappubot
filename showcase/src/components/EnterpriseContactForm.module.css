@@ -33,6 +33,7 @@
 .input,
 .textarea {
   width: 100%;
+  min-height: 44px;
   padding: 0.72rem 0.9rem;
   font: inherit;
   font-size: 0.95rem;
@@ -154,4 +155,45 @@ select.input {
   to {
     stroke-dashoffset: 0;
   }
+}
+
+/* Field parts (@ui-sdk/react/field). */
+.label[data-required]::after {
+  content: ' *';
+  color: var(--sw-accent-deep);
+}
+
+.field[data-invalid] .input,
+.field[data-invalid] .textarea {
+  border-color: #c2413a;
+  background: #fff;
+}
+
+.fieldError {
+  margin: 0;
+  color: #a8322c;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+select.input {
+  background-color: #fff;
+  color: var(--sw-ink);
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: contact-spin 0.7s linear infinite;
+}
+
+@keyframes contact-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2s; }
 }

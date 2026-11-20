@@ -190,8 +190,9 @@ const assurance = [
 
 export default function GovernmentPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">
           <p className="summer-kicker">Government / Lattice Transfer Protocol</p>
@@ -320,7 +321,8 @@ export default function GovernmentPage() {
           </div>
         </section>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

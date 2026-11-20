@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import SummerNav from '@/components/SummerNav';
+import SummerFooter from '@/components/SummerFooter';
 import styles from './not-found.module.css';
 
 export const metadata: Metadata = {
@@ -10,7 +12,9 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <main id="main-content" className={`${styles.page} sw-grain sw-grain--dark`}>
+    <div className="sw-dark">
+      <SummerNav />
+      <main id="main-content" className={`${styles.page} sw-grain sw-grain--dark`}>
       <div className={styles.inner}>
         <p className={styles.code}>404</p>
         <h1 className={styles.title}>This route was never deployed.</h1>
@@ -27,5 +31,7 @@ export default function NotFound() {
         <p className={styles.meta}>Error 404 · Not found</p>
       </div>
     </main>
+      <SummerFooter />
+    </div>
   );
 }

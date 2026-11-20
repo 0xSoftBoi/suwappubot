@@ -118,8 +118,9 @@ const FAQS = [
 
 export default function AgentsPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         {/* ── a. HERO ── */}
         <header className="mkt-hero mkt-hero--center agents-hero">
@@ -335,7 +336,8 @@ curl -X POST https://api.suwappu.bot/v1/agent/swap/execute \\
           </div>
         </section>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

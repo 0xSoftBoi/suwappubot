@@ -9,8 +9,9 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>
@@ -60,7 +61,8 @@ export default function TermsPage() {
         </div>
         </article>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

@@ -94,12 +94,13 @@ export default function ResearchPage() {
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionLd) }}
       />
       <SummerNav />
+      <main id="main-content">
       <div className={`summer-shell mkt-page ${styles.page}`}>
         <header className={styles.hero}>
           <div className={styles.heroTopline}>
@@ -397,7 +398,8 @@ export default function ResearchPage() {
         )}
 
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

@@ -1,19 +1,21 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import stats from '@/data/stats.generated.json';
 import { Archivo, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
+import PageViewTracker from '@/components/PageViewTracker';
 import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
 import './institutional.css';
+import './nav.css';
+import './foundation.css';
 
 // Archivo carries UI + body (news-agency grotesk register, chosen over Geist
 // in the round-3 sans A/B — see docs/design/serif-decision.md), JetBrains Mono
-// is rationed to numerals, kickers, and code. Archivo is loaded ONCE:
-// globals.css aliases --font-display to --font-sans so both var() names
-// resolve to the same instance (no second font download).
+// is rationed to numerals, kickers, and code. Archivo is loaded ONCE
+// as --font-sans (display type uses --type-display-font, the serif).
 const bodySans = Archivo({
   subsets: ['latin'],
   style: ['normal', 'italic'],
@@ -43,6 +45,15 @@ const displaySerif = Newsreader({
   variable: '--font-serif',
   display: 'swap',
 });
+
+// Browser chrome matches the page canvas (light pages are the warm canvas;
+// the dark value applies when the OS prefers dark and for dark-first pages).
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FFFEFB' },
+    { media: '(prefers-color-scheme: dark)', color: '#0E0E11' },
+  ],
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://suwappu.bot'),
@@ -137,6 +148,7 @@ export default async function RootLayout({
       <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>
         <Analytics />
+        <PageViewTracker />
         <AttributionCapture />
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}

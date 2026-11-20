@@ -21,10 +21,10 @@
 }
 
 .statValue {
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: clamp(2rem, 1.5rem + 1.8vw, 2.6rem);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
   color: var(--sw-ink);
 }
 

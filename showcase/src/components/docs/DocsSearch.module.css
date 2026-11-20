@@ -1,0 +1,123 @@
+/* ⌘K docs palette. Behaviour is @ui-sdk/react (command + dialog). */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 30, 44, 0.42);
+  transition: opacity 0.16s;
+}
+
+.backdrop[data-starting-style],
+.backdrop[data-ending-style] { opacity: 0; }
+
+.modal {
+  position: fixed;
+  inset: 12vh auto auto 50%;
+  translate: -50% 0;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(560px, 76dvh);
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(23, 50, 74, 0.14);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--suwappu-summer-ink);
+  box-shadow: 0 1px 2px rgba(16, 42, 62, 0.08), 0 24px 64px -16px rgba(16, 42, 62, 0.36);
+  transition: opacity 0.16s, scale 0.16s var(--sw-ease);
+}
+
+.modal:not([data-open]):not([data-ending-style]) { display: none; }
+
+.modal[data-starting-style],
+.modal[data-ending-style] {
+  opacity: 0;
+  scale: 0.98;
+}
+
+.command {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid rgba(23, 50, 74, 0.1);
+}
+
+.icon { color: var(--sw-accent-deep); font-size: 1.125rem; line-height: 1; }
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 54px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1rem;
+}
+
+.input:focus-visible { box-shadow: none; }
+
+.list {
+  min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.group + .group { margin-top: 6px; }
+
+.groupLabel {
+  padding: 8px 10px 4px;
+  color: var(--suwappu-summer-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.item {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  scroll-margin: 8px;
+}
+
+.item[data-highlighted] { background: rgba(229, 141, 43, 0.12); }
+
+.itemTitle { font-size: 0.9375rem; font-weight: 600; }
+
+.itemDesc {
+  overflow: hidden;
+  color: var(--suwappu-summer-muted);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 0;
+  padding: 28px 16px;
+  color: var(--suwappu-summer-muted);
+  font-size: 0.9375rem;
+  text-align: center;
+}
+
+.empty:not([data-empty]) { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .modal { transition: none; }
+}

@@ -8,13 +8,15 @@ import type { AgentErrorCode } from './lib/agentError'
 import { logger } from './lib/logger'
 import { captureServerError } from './lib/sentry'
 import {
-	adminKeyAuth,
 	createCorsMiddleware,
 	createMcpOriginGuard,
 	otelRequestTracing,
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
+import { adminAuth, parseAdminEmails, parseAdminOrigins } from './middleware/adminSessionAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
+import { adminGrowthRoutes } from './routes/adminGrowth'
+import { webEventRoutes } from './routes/webEvents'
 import { bodyLimit } from 'hono/body-limit'
 import {
 	a2aRoutes,
@@ -71,6 +73,11 @@ function httpExceptionCode(status: number, message: string): AgentErrorCode {
 export interface AppConfig {
 	allowedOrigins: string
 	adminApiKey?: string | undefined
+	/** Comma-separated staff emails allowed to open /admin via Google sign-in. */
+	adminEmails?: string | undefined
+	/** Origins allowed to use staff-session admin auth (defaults to the marketing site). */
+	adminSessionOrigins?: string | undefined
+	jwtSecret?: string | undefined
 	internalApiKey?: string | undefined
 	internalApiUrl?: string | undefined
 	// String 'true'/'false' (matches the *_ENABLED convention in EnvService).
@@ -260,6 +267,11 @@ export function createApp(config: AppConfig) {
 	// Core agent routes (v1/agent/*) enforce their own public/authenticated boundaries.
 	// Protocol-specific routes mounted below define their own auth boundary as well.
 	app.route('/v1/agent', agentRoutes)
+
+	// First-party marketing-site events (public; no auth, no PII). 120/min per
+	// IP is generous for a browsing human and useless for flooding the table.
+	app.use('/v1/web/*', ipRateLimit(120))
+	app.route('/v1/web', webEventRoutes)
 
 	// Protocol-specific agent routes
 	app.route('/v1/agent/perps', perpsRoutes)
@@ -532,8 +544,21 @@ https://suwappu.bot/docs
 	app.route('/internal', internalRoutes)
 
 	// Admin API routes - X-Admin-Key required
-	app.use('/admin/*', adminKeyAuth(config.adminApiKey))
+	// Admin API routes - X-Admin-Key, or (read-only) a signed-in staff session
+	// whose verified Google email is on ADMIN_EMAILS. See adminSessionAuth.ts.
+	app.use(
+		'/admin/*',
+		adminAuth(config.adminApiKey, {
+			jwtSecret: config.jwtSecret,
+			adminEmails: parseAdminEmails(config.adminEmails),
+			sessionOrigins: parseAdminOrigins(
+				config.adminSessionOrigins,
+				process.env.NODE_ENV === 'production',
+			),
+		}),
+	)
 	app.route('/admin', adminRoutes)
+	app.route('/admin', adminGrowthRoutes)
 	app.route('/admin/autopilot', autopilotAdminRoutes)
 
 	// Dashboard SPA - static files

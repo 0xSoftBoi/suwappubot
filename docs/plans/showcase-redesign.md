@@ -1,0 +1,123 @@
+# Showcase redesign — systematic pass
+
+Started 2026-11-13. Working branch: `claude/sleepy-darwin-stwqqs`.
+
+## Standards we are working to
+
+| Source | What it gives us | How we use it |
+|---|---|---|
+| [`vercel-labs/ui`](https://github.com/vercel-labs/ui) (`@ui-sdk/react`, beta) | **Behaviour only** — keyboard, focus, dismissal, ARIA, top-layer popups. Ships no styles. | Every interactive widget: nav menu, mobile menu, accordions, docs search, language select, forms. No more hand-rolled `aria-*`. |
+| [Vercel Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines) | The visual/UX rubric (focus rings, hit targets, motion, layout, forms, copy). | The checklist every page is graded against (see "Page rubric"). |
+| `showcase/CLAUDE.md` | The "summer" token/brand canon. | Palette + type stay; we tighten how they are applied. |
+
+Note: `vercel-labs/ui` is not a design system. Anything visual in this plan
+comes from the Web Interface Guidelines + our own tokens.
+
+## Baseline audit (26 routes, 1440 + 390, production build)
+
+No route overflows horizontally; all return 200. What is actually wrong:
+
+**Nav (every page)**
+- 10 top-level items + language + CTA crammed in a bordered pill at ~11px. No hierarchy.
+- Hand-rolled mega menu (hover state in React, no arrow keys, no focus return) and drawer (`role="dialog"` with no focus trap, portal hack for `backdrop-filter`).
+- Dropdown panel is cream `rgba(255,250,242)` — a previous brand era — under a cool-white bar.
+- Dark pages: `/products` nav pill renders as an opaque grey block with unreadable links; `/passport` triggers are near-invisible.
+- Hard-coded English ("Signals", "Research", "Explore all") beside translated labels.
+- Internal links are `<a>` → full document reloads.
+
+**Page shell**
+- Three different content widths (about/careers ≈ 560px column, agents ≈ 1150px, arbiter its own).
+- 150–250px of dead space between nav and the first line on most interior pages; hero → first section gap is larger still on pricing/research/solutions.
+- Four unrelated visual eras live at once: warm-cream serif (most pages), cool sans (`/arbiter`), navy dashboard (`/autopilot`), black (`/products`, `/passport`), orange CRT (`/next`).
+- Three primary-button treatments (orange gradient, navy solid, white).
+
+**Page-specific defects**
+- `/products`: H1 wraps one word per line.
+- `/next`: hydration error (React #418), no nav, zero `<h1>`.
+- `/signals`: sign-in card with no nav and the wrong `<title>`.
+- `/reserve`: title is "… | Suwappu | Suwappu".
+- `/for-agents` duplicates `/agents` (same content, two URLs).
+- `hero-a…e`, `classic`: dead experiments still shipping as public routes.
+- No CSS reset is emitted (Tailwind v3 directives on a v4 build).
+
+## Phases
+
+Each phase ends with: `bun run build` → local render → 1440 + 390 screenshots → commit.
+
+### Phase 1 — Nav + mobile menu  ✅ shipped 2026-11-13
+- Rebuild `SummerNav` on `@ui-sdk/react/navigation-menu`: brand · Products / Developers / Why Suwappu (panels) · Pricing · Docs · language · one primary CTA.
+- Everything removed from the top row stays one hover away inside a panel (Signals, Research, Passport, Arbiter, Telegram).
+- Mobile: `@ui-sdk/react/dialog` full-height sheet + `accordion`; real focus trap, scroll lock, Esc, top layer.
+- One set of nav colour variables with a dark variant, so dark pages stop hand-patching the nav.
+- `next/link` for internal routes, `aria-current` on the active page, all labels in 4 locales.
+
+### Phase 2 — Foundation  ◐ mostly shipped 2026-11-13 (reset + dead-CSS removal still open)
+- Emit a real reset (fix the Tailwind v3/v4 mismatch) and re-verify every page.
+- One container (`--page-max`, `--page-gutter`), one vertical rhythm scale, one hero top offset.
+- One button system (primary / secondary / ghost, 3 sizes) with hover/active/focus-visible; 44px touch targets on mobile.
+- Global: `:focus-visible` ring, `prefers-reduced-motion`, `text-wrap: balance` on headings, `tabular-nums` on stats, `scroll-margin-top` on anchors, skip-to-content link, `theme-color` + `color-scheme`.
+
+### Phase 3 — Footer  ◐ styling shipped 2026-11-13 (link-map + newsletter field rebuild open)
+- Same link map as the nav panels, newsletter form on `@ui-sdk/react/field`, status + legal row.
+
+### Phase 4 — Sales pages, in funnel order  ✅ shared pass shipped 2026-11-20
+1. `/` home  2. `/pricing`  3. `/products`  4. `/enterprise`  5. `/contact`
+6. `/agents` (+ redirect `/for-agents`)  7. `/solutions`  8. `/compare`  9. `/security`
+
+### Phase 5 — Product pages
+`/arbiter`, `/autopilot`, `/passport`, `/agent-terminal`, `/signals`, `/reserve` — bring onto the shared shell; keep each product's own content area.
+
+### Phase 6 — Content pages
+`/docs` (search → `combobox`/`command`, sidebar → `accordion`), `/research`, `/changelog`, `/status`, `/about`, `/careers`, `/architecture`, `/government`, `/legal/*`.
+
+### Phase 7 — Cleanup
+- Remove or `noindex` `hero-a…e`, `classic`, `next`.
+- Delete dead CSS (globals.css is 8,383 lines across several eras).
+- Update `showcase/CLAUDE.md` (it still describes a legacy `Navigation` that no longer exists).
+
+## Page rubric (applied to every page in phases 4–6)
+
+1. One `<h1>`, hierarchical headings, correct `<title>`.
+2. Shared container + hero offset; no dead space above the fold.
+3. One primary CTA above the fold, one secondary at most.
+4. Every interactive element: visible `:focus-visible`, ≥24px target (44px mobile), real `<a>`/`<button>`.
+5. Widgets use `@ui-sdk/react`, not hand-rolled ARIA.
+6. Motion: transform/opacity only, honours reduced motion, no `transition: all`.
+7. Forms: labels, `autocomplete`, correct `type`/`inputmode`, inline errors, submit never pre-disabled.
+8. Numbers `tabular-nums`; `…` not `...`; non-breaking space between number and unit.
+9. Works at 390 / 1440 / ultra-wide; no clipped text; empty/error states designed.
+10. All four locales updated together.
+
+## Log
+
+- 2026-11-13 — Baseline audit; `@ui-sdk/react` + `@ui-sdk/core` 0.1.0-beta.2 added. Phase 1 started.
+- 2026-11-13 — Phase 1 done: `SummerNav` rebuilt on `navigation-menu` + `dialog` + `accordion`; `ProductMenu`/`NavDrawer` deleted; `nav.css` added; language switcher made theme-agnostic. Verified locally at 1440/1100/950/390: hover, Tab/Enter/Esc with focus return, client-side routing, sheet focus trap, no overflow. Not yet verified on a deployed URL.
+- 2026-11-13 — Phase 2 (most): `src/app/foundation.css` — one top offset (`--page-top`; first line now at 141px on every shared-shell page, was 195–487px), flat button system with hover/active states and border-box sizing (pricing-card buttons no longer overflow), 20px mobile gutters (was 8px), tap/selection/scroll-padding/tabular-nums/balance defaults. Fixed: `/products` H1 wrapping one word per line; `/docs` rendering blank under `prefers-reduced-motion`; docs sidebar offset; `/reserve` doubled title; agents/research/autopilot hero offsets. Verified on a local production build: 23 routes × (1440, 390), no overflow, no page errors.
+- Still open in phase 2: `theme-color` meta, skip-link target audit. (Reset shipped 2026-11-20.)
+- 2026-11-13 — Phase 3 (styling) + home pass: footer aligned to the 1280 container, dark variant on dark pages (was a cream slab under the black home page), footer links no longer underlined brown (global prose-link rule outranked them). Home: section copy floor raised to 16px, dim/faint text tiers lifted for contrast. Verified on a local production build: 23 routes × (1440, 390) clean, nav keyboard/mobile checks pass.
+- Next: phase 4 page-by-page (home section layout — several sections leave the right half empty; pricing cards; enterprise/contact form on `@ui-sdk/react/field`), then phases 5–7.
+- 2026-11-20 — Phase 4 page-by-page pass (home, pricing, enterprise, contact, agents, solutions, compare, security) plus parts of 5–6:
+  - **Reset**: global `box-sizing: border-box` (measured on 24 routes × 2 widths before/after; no route moved more than ~80px except `/products`, which tightened). Fixes the touching contact-form fields and every `width:100%`+padding overflow.
+  - **Home**: sections on the header's 1280 edge, 96px rhythm (was 256px between sections), split heading/lead, facts as a ruled 3-up row, rounded buttons replacing the cut-corner silhouette (it clipped the ghost border and focus ring). This reverses design decision "D2" in `hero-d.css` — flag if that was load-bearing.
+  - **Type**: every 48px section title now uses the display tokens (pricing, solutions, compare, 404 were silently sans because `--font-display` aliases to the sans face); table captions left-aligned; label floor 11.5px, row copy 15px, footnotes 14px.
+  - **Tables**: comparison row labels left-aligned.
+  - **Docs**: articles no longer clip on mobile (flex `min-width:auto`), code blocks no longer box their first line, TOC links quiet.
+  - **Arbiter / Autopilot**: headings on the display type, arbiter on the shared container and top offset.
+  - `/signals` now has its own title.
+  Verified on a local production build: 25 routes × (1440, 390) no overflow / page errors; nav keyboard + mobile checks pass. Not deployed.
+- Open: `--font-display` alias should be deleted (anything still using it is sans by accident); contact/newsletter forms on `@ui-sdk/react/field`; docs search on `combobox`; `/next` hydration error; passport page; phase 7 dead-CSS removal.
+- 2026-11-20 — Open items closed:
+  - **Forms**: contact (`EnterpriseContactForm`) and footer newsletter rebuilt on `@ui-sdk/react` `field` + `input` + `textarea`. Inline per-field errors, focus moves to the first invalid field, nothing is sent until valid (previously `noValidate` posted empty forms to the API), submit keeps its label and shows a spinner. Tested with the lead endpoints mocked — no real submissions were made.
+  - **Docs search**: rebuilt on `command` + `dialog` (mod+K, arrow keys, Enter, grouped results, empty state, focus return). Navigates client-side.
+  - **`/next`**: hydration error fixed (`SplitFlap` seeded its first digit with `Math.random()`).
+  - **404**: now has the site header and footer.
+  - **Skip link**: `#main-content` target added to passport, autopilot (both routes), docs landing and docs articles. `theme-color` meta added.
+  - **Dead CSS**: 897 lines of old-header rules removed from `globals.css`, `hero-d.css`, `institutional.css` with a PostCSS pass (deletions only; 26 routes × 2 widths measured before/after, no layout change).
+  Verified on a local production build: 27 routes × (1440, 390) clean; nav, search and form checks pass. Not deployed.
+- Still open: `/classic` (archived, noindex) has a hydration error; `hero-a…e`/`classic` routes still ship; `--font-display` alias still exists; pages that wrap the header inside `<main id="main-content">` make the skip link land before the nav; passport's glow button is off-system.
+- 2026-11-20 — Last four open items closed (showcase-dev):
+  - **Dead routes**: deleted `hero-a/b/c/e` and `classic` (and `hero-d/page.tsx`; `hero-d.css` kept, the home imports it). `/hero-a…e` and `/classic` now 308 to `/` (next.config.mjs).
+  - **`--font-display` alias deleted**: 22 heading/display/big-figure uses moved to `--type-display-font` (with display weight/tracking), 15 UI/body uses (admin, dashboard, table heads, footer wordmark, handles) moved to `--font-sans`.
+  - **Skip link**: 20 pages that rendered `<SummerNav>` inside `<main id="main-content">` now use a `summer-page …` wrapper div holding nav, then `<main>`, then footer.
+  - **Passport**: CTA now uses `summer-button summer-button--primary`; glow/box-shadow removed; shared `.summer-button:focus-visible` ring added to foundation.css.
+  Verified on a local production build: 10 routes × (1440, 390) no overflow, one h1, skip link lands on `#main-content` after the header. Not deployed.
