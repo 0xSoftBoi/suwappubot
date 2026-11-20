@@ -144,9 +144,9 @@
       "changelogMeta": "Lo publicado"
     },
     "interfaces": {
-      "eyebrow": "Capacidad 06",
-      "title": "Una cuenta. Cada superficie.",
-      "lead": "La interfaz cambia lo que puede autorizarse. Mostramos esos límites en lugar de insinuar que todas tienen las mismas funciones.",
+      "eyebrow": "Interfaces",
+      "title": "Una cuenta. Autoridad distinta en cada superficie.",
+      "lead": "La interfaz decide qué se puede autorizar. Esos límites quedan a la vista en lugar de insinuar que todas las superficies hacen lo mismo.",
       "ariaLabel": "Interfaces de Suwappu",
       "terminal": "Terminal",
       "terminalMeta": "Mesa de trading completa",
@@ -161,9 +161,9 @@
       "surfaceWhatsApp": "WhatsApp"
     },
     "execution": {
-      "eyebrow": "Capacidad 01",
-      "title": "La intención se convierte en una ejecución que puedes inspeccionar.",
-      "lead": "El ruteo y la autoridad están separados. Tras cotizar, puedes hacer de forma opcional una prevalidación sin fondos antes de la decisión de autorización independiente.",
+      "eyebrow": "Cotización y autorización",
+      "title": "La intención se vuelve una ejecución que puedes inspeccionar.",
+      "lead": "El enrutamiento y la autoridad son decisiones separadas. Primero cotiza, haz una simulación sin fondos si la quieres, y luego autoriza.",
       "intentTitle": "Intención",
       "intentBody": "Define importe, activos, origen y destino. Aún no se ha movido nada.",
       "quoteTitle": "Cotizar",
@@ -183,8 +183,8 @@
       "mobileHint": "Captura del producto. En pantallas estrechas, desplázate horizontalmente para ver el detalle a tamaño legible."
     },
     "markets": {
-      "eyebrow": "Capacidad 02",
-      "title": "El enrutamiento clasifica cada mercado antes de mostrarte una cotización.",
+      "eyebrow": "Enrutamiento",
+      "title": "El precio y la fiabilidad deciden la ruta.",
       "crossChainKicker": "Multicadena",
       "crossChainTitle": "Ejecución spot según la ruta",
       "crossChainBody": "El inventario de plataforma enumera {platformChains} cadenas y Agent API expone {agentApiChains}. Una cotización solo usa proveedores compatibles con esa ruta.",
@@ -196,7 +196,7 @@
       "curveBody": "El venue de Curve del terminal lista cada pool en cada red donde Curve está desplegado, directamente desde la Curve Prices API: ordenable por TVL, volumen de 24h o APR base, con búsqueda y a un clic del panel de swap. Construido sobre nuestro fork de flet-curve.",
       "screenshotAlt": "Mesa de perpetuos de Suwappu con mercados de HyperLiquid, datos de mercado y ticket de orden.",
       "screenshotCaption": "Perpetuos de HyperLiquid en Suwappu · captura del producto · 31 jul 2026",
-      "lead": "El enrutamiento inteligente clasifica los mercados por precio y fiabilidad, y elige uno antes de mostrarte una cotización. El DEX propio de Tempo, las subastas por lotes protegidas de CoW y la liquidación de bridges alimentan esa clasificación. Un sistema de respaldo mantiene las rutas disponibles si un proveedor falla."
+      "lead": "El DEX nativo de Tempo, las subastas protegidas de CoW y la liquidación de puentes alimentan el mismo ranking. Un sistema de conmutación mantiene las rutas disponibles cuando un proveedor se degrada."
     },
     "security": {
       "eyebrow": "Modelo de seguridad",
@@ -239,14 +239,14 @@
     },
     "close": {
       "eyebrow": "Elige el modelo de autoridad",
-      "title": "Envía la intención. Mantén explícita la autoridad de ejecución.",
+      "title": "Envía la intención. Mantén la autoridad explícita.",
       "lead": "Empieza con la interfaz que corresponda a quien debe revisar, firmar y transmitir.",
       "telegram": "O opera en Telegram"
     },
     "useCases": {
       "eyebrow": "Qué puedes hacer",
-      "title": "Diseñado para cada operación, en cada mercado.",
-      "lead": "Ocho formas de actuar sobre una idea, desde un simple swap hasta ejecutar Suwappu como un agente.",
+      "title": "Ocho formas de actuar sobre una idea.",
+      "lead": "Un solo swap es la más pequeña. Ejecutar Suwappu como agente es la más grande.",
       "ariaLabel": "Casos de uso de Suwappu",
       "item01Title": "Swap y enrutamiento",
       "item01Body": "El mejor precio entre Jupiter, OKX, 0x, Li.Fi, CoW, Socket y Jito, comparados en cada solicitud.",
@@ -266,9 +266,9 @@
       "item08Body": "Battles, temporadas y XP, referidos, recompensas y NFT de membresía."
     },
     "research": {
-      "eyebrow": "Capacidad 03",
-      "title": "Investigación y señales, publicadas abiertamente.",
-      "lead": "Las señales corren en la Terminal y por la API. La investigación sale por el mismo canal: fechada, atribuida y pública.",
+      "eyebrow": "Investigación",
+      "title": "Señales y estudios, publicados en abierto.",
+      "lead": "Las señales corren en el Terminal y por la API. La investigación sale igual: fechada, atribuida y pública.",
       "ctaResearch": "Leer la investigación",
       "ctaSignals": "Explorar señales",
       "launchTitle": "Detección de lanzamientos",
@@ -279,9 +279,9 @@
       "dataBody": "Precios en tiempo real y monitoreo on-chain alimentan la API de señales y cada gráfico de la Terminal."
     },
     "portfolio": {
-      "eyebrow": "Capacidad 04",
-      "title": "Gestión de portafolio para una posición que abarca varias cadenas.",
-      "lead": "Las posiciones se consolidan en todas las cadenas que opera la Terminal, en un solo libro legible de un vistazo. Un resumen semanal recapitula el rendimiento.",
+      "eyebrow": "Cartera",
+      "title": "Un solo libro para una posición repartida entre cadenas.",
+      "lead": "Las posiciones se consolidan en cada cadena que opera el terminal, en un libro que puedes leer de un vistazo. Un resumen semanal recapitula el rendimiento.",
       "cta": "Abrir tu portafolio",
       "positionsTitle": "Posiciones cross-chain",
       "positionsBody": "Un único servicio agrega las tenencias de todas las cadenas soportadas, sin contabilidad por cadena.",
@@ -291,7 +291,7 @@
       "cardsBody": "Una posición puede acuñar un recibo on-chain, una tarjeta de posición que viaja con la operación."
     },
     "government": {
-      "eyebrow": "Capacidad 07",
+      "eyebrow": "Gobierno",
       "title": "El brazo gubernamental, construido para la seguridad poscuántica.",
       "lead": "El Lattice Transfer Protocol gestiona transferencia de datos post-cuántica con anclajes on-chain. Está construido con miras a la preparación para FedRAMP High, aún sin certificar.",
       "cta": "Ver el protocolo",

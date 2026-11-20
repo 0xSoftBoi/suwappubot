@@ -144,9 +144,9 @@
       "changelogMeta": "最近发布"
     },
     "interfaces": {
-      "eyebrow": "能力 06",
-      "title": "一个账户，覆盖每一个入口。",
-      "lead": "不同接口拥有不同授权能力。我们明确展示这些边界，不假设功能完全一致。",
+      "eyebrow": "接口",
+      "title": "一个账户。每个界面的授权各不相同。",
+      "lead": "界面决定了什么可以被授权。这些边界保持可见，而不是暗示每个界面都做同样的事。",
       "ariaLabel": "Suwappu 接口",
       "terminal": "Terminal",
       "terminalMeta": "完整交易台",
@@ -161,9 +161,9 @@
       "surfaceWhatsApp": "WhatsApp"
     },
     "execution": {
-      "eyebrow": "能力 01",
-      "title": "让交易意图变成可检查的执行流程。",
-      "lead": "路由与授权彼此独立。报价后可选择进行零资金预检，再进入单独的授权决策。",
+      "eyebrow": "询价与授权",
+      "title": "意图变成一笔你可以检视的执行。",
+      "lead": "路由与授权是两个独立的决定。先询价，需要时跑一次零资金预演，然后再授权。",
       "intentTitle": "意图",
       "intentBody": "指定金额、资产、来源和目的地。此时尚未移动任何资金。",
       "quoteTitle": "报价",
@@ -183,8 +183,8 @@
       "mobileHint": "产品截图。在窄屏设备上可横向滚动，以可读尺寸查看完整界面细节。"
     },
     "markets": {
-      "eyebrow": "能力 02",
-      "title": "在你看到报价之前，路由已对每个市场排序。",
+      "eyebrow": "路由",
+      "title": "价格与可靠性共同决定路径。",
       "crossChainKicker": "跨链",
       "crossChainTitle": "按路由执行现货交易",
       "crossChainBody": "平台清单包含 {platformChains} 条链，而 Agent API 当前开放 {agentApiChains} 条。每次报价只使用与该路由兼容的提供方。",
@@ -196,7 +196,7 @@
       "curveBody": "终端的 Curve 交易区直接从 Curve Prices API 列出 Curve 部署的每条链上的所有资金池，可按 TVL、24 小时交易量或基础 APR 排序，支持搜索，一键进入兑换面板。基于我们的 flet-curve 分叉构建。",
       "screenshotAlt": "Suwappu 永续合约交易台展示 HyperLiquid 市场、行情数据和订单票据。",
       "screenshotCaption": "Suwappu 中的 HyperLiquid 永续合约 · 产品截图 · 2026 年 7 月 31 日",
-      "lead": "智能路由按价格和可靠性对市场排序，再在报价前选定一个。Tempo 的内置 DEX、CoW 的抗 MEV 批量拍卖和跨链桥结算共同构成这一排序依据。故障切换系统确保某个服务商出问题时路由仍然可用。"
+      "lead": "Tempo 的原生 DEX、CoW 的受保护批量拍卖，以及跨链结算，都汇入同一套排序。当某个提供方降级时，故障转移机制会让路径保持可用。"
     },
     "security": {
       "eyebrow": "安全模型",
@@ -239,14 +239,14 @@
     },
     "close": {
       "eyebrow": "选择权限模型",
-      "title": "提交意图，并让执行权限保持明确。",
+      "title": "发送意图。让授权保持明确。",
       "lead": "选择与审核、签名和广播责任相匹配的接口。",
       "telegram": "或在 Telegram 交易"
     },
     "useCases": {
-      "eyebrow": "你能做什么",
-      "title": "为每一笔交易、每一个市场而设计。",
-      "lead": "八种将想法付诸行动的方式，从一次简单的兑换到把 Suwappu 作为代理运行。",
+      "eyebrow": "你可以做什么",
+      "title": "把一个想法付诸行动的八种方式。",
+      "lead": "单笔兑换是最小的一种。把 Suwappu 当作代理来运行是最大的一种。",
       "ariaLabel": "Suwappu 使用场景",
       "item01Title": "兑换与路由",
       "item01Body": "在 Jupiter、OKX、0x、Li.Fi、CoW、Socket 和 Jito 之间实时竞价，获取最优报价。",
@@ -266,9 +266,9 @@
       "item08Body": "对战、赛季与 XP、推荐奖励，以及会员 NFT。"
     },
     "research": {
-      "eyebrow": "能力 03",
-      "title": "公开发布的研究与信号。",
-      "lead": "信号在终端与 API 中运行。研究以同样的方式发布：注明日期、署名、公开。",
+      "eyebrow": "研究",
+      "title": "信号与研究，公开发布。",
+      "lead": "信号在 Terminal 和 API 上运行。研究也以同样的方式发布：标注日期、署名、公开。",
       "ctaResearch": "阅读研究",
       "ctaSignals": "查看信号",
       "launchTitle": "新币发射检测",
@@ -279,9 +279,9 @@
       "dataBody": "实时价格与链上监控为信号 API 和终端的每一张图表供数。"
     },
     "portfolio": {
-      "eyebrow": "能力 04",
-      "title": "面向跨链持仓的投资组合管理。",
-      "lead": "仓位跨终端交易的所有链汇总为一本一目了然的账本。每周摘要回顾业绩表现。",
+      "eyebrow": "投资组合",
+      "title": "跨链持仓，汇成一本账。",
+      "lead": "持仓会在终端交易的每条链上汇总成一本账，一眼就能读完。每周摘要回顾表现。",
       "cta": "打开你的投资组合",
       "positionsTitle": "跨链仓位",
       "positionsBody": "单一仓位服务聚合所有受支持链上的持仓，无需按链记账。",
@@ -291,7 +291,7 @@
       "cardsBody": "仓位可铸造链上凭证，一张随交易同行的仓位卡。"
     },
     "government": {
-      "eyebrow": "能力 07",
+      "eyebrow": "政府",
       "title": "政府业务线，专为后量子安全打造。",
       "lead": "Lattice Transfer Protocol 负责带链上锚定的后量子数据传输。它正朝 FedRAMP High 就绪迈进，尚未通过认证。",
       "cta": "查看协议",

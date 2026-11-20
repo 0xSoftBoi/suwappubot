@@ -144,9 +144,9 @@
       "changelogMeta": "What shipped"
     },
     "interfaces": {
-      "eyebrow": "Capability 06",
-      "title": "One account. Every surface.",
-      "lead": "The interface changes what can be authorized. We keep those authority boundaries visible instead of implying feature parity.",
+      "eyebrow": "Interfaces",
+      "title": "One account. Different authority per surface.",
+      "lead": "The interface decides what can be authorized. Those boundaries stay visible rather than implying every surface does the same thing.",
       "ariaLabel": "Suwappu interfaces",
       "terminal": "Terminal",
       "terminalMeta": "Full trading desk",
@@ -161,9 +161,9 @@
       "surfaceWhatsApp": "WhatsApp"
     },
     "execution": {
-      "eyebrow": "Capability 01",
+      "eyebrow": "Quote and authorization",
       "title": "Intent becomes an execution you can inspect.",
-      "lead": "Routing and authority are separate. After quoting, you can optionally run a zero-funds preflight before the separate authorization decision.",
+      "lead": "Routing and authority are separate decisions. Quote first, run a zero-funds preflight if you want one, then authorize.",
       "intentTitle": "Intent",
       "intentBody": "Specify amount, assets, source, and destination. Nothing has moved yet.",
       "quoteTitle": "Quote",
@@ -183,8 +183,8 @@
       "mobileHint": "Product screenshot. On narrow screens, scroll horizontally to inspect full-size interface detail."
     },
     "markets": {
-      "eyebrow": "Capability 02",
-      "title": "Routing ranks every venue before you see a quote.",
+      "eyebrow": "Routing",
+      "title": "Price and reliability both decide the route.",
       "crossChainKicker": "Cross-chain",
       "crossChainTitle": "Route-specific spot execution",
       "crossChainBody": "The platform inventory lists {platformChains} chains while the Agent API exposes {agentApiChains}. A quote only uses venues compatible with that route.",
@@ -196,7 +196,7 @@
       "curveBody": "The terminal's Curve venue lists every pool on every chain Curve deploys to, straight from the Curve Prices API, sortable by TVL, 24h volume, or base APR, searchable, and one click from the swap desk. Built on our fork of flet-curve.",
       "screenshotAlt": "Suwappu perps desk showing HyperLiquid markets, market data, and an order ticket.",
       "screenshotCaption": "HyperLiquid perps inside Suwappu · product capture · 31 Jul 2026",
-      "lead": "Smart routing ranks venues by price and reliability, then selects one before you see a quote. Tempo's enshrined DEX, CoW's protected batch auctions, and bridge settlement all feed into that ranking. A failover system keeps routes available if a provider degrades."
+      "lead": "Tempo's enshrined DEX, CoW's protected batch auctions, and bridge settlement all feed the same ranking. A failover system keeps routes available when a provider degrades."
     },
     "security": {
       "eyebrow": "Security model",
@@ -239,14 +239,14 @@
     },
     "close": {
       "eyebrow": "Choose the authority model",
-      "title": "Send intent. Keep execution authority explicit.",
+      "title": "Send intent. Keep authority explicit.",
       "lead": "Start with the interface that matches who should review, sign, and broadcast.",
       "telegram": "Or trade in Telegram"
     },
     "useCases": {
       "eyebrow": "What you can do",
-      "title": "Built for every trade, on every venue.",
-      "lead": "Eight ways to act on an idea, from a single swap to running Suwappu as an agent.",
+      "title": "Eight ways to act on an idea.",
+      "lead": "A single swap is the smallest one. Running Suwappu as an agent is the largest.",
       "ariaLabel": "Suwappu use cases",
       "item01Title": "Swap & route",
       "item01Body": "Best quote across Jupiter, OKX, 0x, Li.Fi, CoW, Socket, and Jito, raced on every request.",
@@ -266,8 +266,8 @@
       "item08Body": "Battles, seasons and XP, referrals, rewards, and membership NFTs."
     },
     "research": {
-      "eyebrow": "Capability 03",
-      "title": "Research and signals, published in the open.",
+      "eyebrow": "Research",
+      "title": "Signals and studies, published in the open.",
       "lead": "Signals run in the Terminal and over the API. Research goes out the same way: dated, attributed, and public.",
       "launchTitle": "Launch detection",
       "launchBody": "The launch detector watches Pump.fun and Raydium and flags new tokens the moment they deploy.",
@@ -279,8 +279,8 @@
       "ctaSignals": "Explore signals"
     },
     "portfolio": {
-      "eyebrow": "Capability 04",
-      "title": "Portfolio management for a position that spans chains.",
+      "eyebrow": "Portfolio",
+      "title": "One book for a position that spans chains.",
       "lead": "Positions roll up across every chain the terminal trades, into one book you can read at a glance. A weekly digest recaps performance.",
       "positionsTitle": "Cross-chain positions",
       "positionsBody": "One positions service aggregates holdings across every supported chain, no per-chain bookkeeping.",
@@ -291,7 +291,7 @@
       "cta": "Open your portfolio"
     },
     "government": {
-      "eyebrow": "Capability 07",
+      "eyebrow": "Government",
       "title": "The government arm, built for post-quantum security.",
       "lead": "The Lattice Transfer Protocol handles post-quantum data transfer with on-chain anchors. It is built toward FedRAMP High readiness, not yet certified.",
       "pqTitle": "Post-quantum by default",
