@@ -3171,6 +3171,323 @@
           }
         }
       }
+    },
+    "/policies": {
+      "get": {
+        "summary": "List spend policies",
+        "operationId": "listSpendPolicies",
+        "description": "The server-enforced spend policies that gate this agent's swap execution: per-trade and daily USD caps, slippage and gas ceilings, chain and token allow/block lists, and maker-checker escalation. Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here. Rate-limited by tier.",
+        "responses": {
+          "200": {
+            "description": "Spend policies on this agent, lowest priority number first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "policies": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SpendPolicy"
+                      }
+                    },
+                    "enforcement": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "policies": [
+                    {
+                      "id": "6f1c2e4a-9b3d-4c8e-a1f2-0d5e7b9c3a11",
+                      "name": "Agent Desk mandate v3",
+                      "scope": "agent",
+                      "agent_id": "agent_01HZX...",
+                      "enabled": true,
+                      "priority": 100,
+                      "max_tx_usd": 500,
+                      "max_slippage_bps": 100,
+                      "max_gas_usd": null,
+                      "daily_cap_usd": 2000,
+                      "session_cap_usd": null,
+                      "max_tx_per_hour": null,
+                      "allowed_chains": [
+                        "base",
+                        "arbitrum"
+                      ],
+                      "blocked_chains": null,
+                      "allowed_tokens": null,
+                      "blocked_tokens": null,
+                      "allowed_contracts": null,
+                      "destination_allowlist": null,
+                      "approval_mode": "above_limit",
+                      "require_approval_above_usd": null,
+                      "expires_at": null,
+                      "created_at": "2026-11-20T23:30:00.000Z",
+                      "updated_at": "2026-11-20T23:30:00.000Z"
+                    }
+                  ],
+                  "enforcement": "Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Authenticated with an organization key, not an agent token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "UNAUTHORIZED",
+                  "message": "Spend policies are scoped to an agent",
+                  "hint": "Authenticate with the agent bearer token (suwappu_sk_...)"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "summary": "Install a spend policy",
+        "operationId": "createSpendPolicy",
+        "description": "Install a server-enforced spend policy on the calling agent. Every field maps onto one control the policy engine evaluates on each execute; at least one must be set. Pass `replaces` with the ids of earlier agent-scoped policies to retire them in the same transaction, so a re-applied envelope never overlaps its previous version. Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here. Rate-limited by tier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSpendPolicyRequest"
+              },
+              "example": {
+                "name": "Agent Desk mandate v3",
+                "max_tx_usd": 500,
+                "daily_cap_usd": 2000,
+                "max_slippage_bps": 100,
+                "allowed_chains": [
+                  "base",
+                  "arbitrum"
+                ],
+                "approval_mode": "above_limit",
+                "replaces": [
+                  "0b2e7a40-3c1d-4f9a-9e21-5a6c8d7e4f10"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Policy installed and live for this agent's next execute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "policy": {
+                      "$ref": "#/components/schemas/SpendPolicy"
+                    },
+                    "enforcement": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "policy": {
+                    "id": "6f1c2e4a-9b3d-4c8e-a1f2-0d5e7b9c3a11",
+                    "name": "Agent Desk mandate v3",
+                    "scope": "agent",
+                    "agent_id": "agent_01HZX...",
+                    "enabled": true,
+                    "priority": 100,
+                    "max_tx_usd": 500,
+                    "max_slippage_bps": 100,
+                    "max_gas_usd": null,
+                    "daily_cap_usd": 2000,
+                    "session_cap_usd": null,
+                    "max_tx_per_hour": null,
+                    "allowed_chains": [
+                      "base",
+                      "arbitrum"
+                    ],
+                    "blocked_chains": null,
+                    "allowed_tokens": null,
+                    "blocked_tokens": null,
+                    "allowed_contracts": null,
+                    "destination_allowlist": null,
+                    "approval_mode": "above_limit",
+                    "require_approval_above_usd": null,
+                    "expires_at": null,
+                    "created_at": "2026-11-20T23:30:00.000Z",
+                    "updated_at": "2026-11-20T23:30:00.000Z"
+                  },
+                  "enforcement": "Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error: no control set, bad list entry, or malformed expires_at",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "VALIDATION_ERROR",
+                  "message": "Invalid request",
+                  "details": {
+                    "_root": "At least one control must be set"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Authenticated with an organization key, not an agent token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "UNAUTHORIZED",
+                  "message": "Spend policies are scoped to an agent",
+                  "hint": "Authenticate with the agent bearer token (suwappu_sk_...)"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/policies/{id}": {
+      "delete": {
+        "summary": "Retire a spend policy",
+        "operationId": "deleteSpendPolicy",
+        "description": "Remove one of this agent's own (agent-scoped) spend policies. Organization-scoped policies on this agent are not removable with the agent token. Rate-limited by tier.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "6f1c2e4a-9b3d-4c8e-a1f2-0d5e7b9c3a11"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Policy retired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "deleted": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "deleted": true,
+                  "id": "6f1c2e4a-9b3d-4c8e-a1f2-0d5e7b9c3a11"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Id is not a UUID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Authenticated with an organization key, not an agent token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "UNAUTHORIZED",
+                  "message": "Spend policies are scoped to an agent",
+                  "hint": "Authenticate with the agent bearer token (suwappu_sk_...)"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent-scoped policy with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "success": false,
+                  "error": "NOT_FOUND",
+                  "message": "No agent-scoped policy with that id",
+                  "hint": "Organization-scoped policies cannot be removed with the agent token"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5324,6 +5641,251 @@
           }
         },
         "description": "Provide quote_id to simulate a cached quote, or from_token + to_token + amount to fetch and simulate a fresh one."
+      },
+      "SpendPolicy": {
+        "type": "object",
+        "description": "A server-enforced spend policy. Null means the control is not set.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "organization"
+            ],
+            "description": "agent: set with this agent's token and changeable here. organization: set by an organization on this agent; read-only here."
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "max_tx_usd": {
+            "type": "number",
+            "nullable": true
+          },
+          "max_slippage_bps": {
+            "type": "integer",
+            "nullable": true
+          },
+          "max_gas_usd": {
+            "type": "number",
+            "nullable": true
+          },
+          "daily_cap_usd": {
+            "type": "number",
+            "nullable": true
+          },
+          "session_cap_usd": {
+            "type": "number",
+            "nullable": true
+          },
+          "max_tx_per_hour": {
+            "type": "integer",
+            "nullable": true
+          },
+          "allowed_chains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "blocked_chains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "allowed_tokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "blocked_tokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "allowed_contracts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "destination_allowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "approval_mode": {
+            "type": "string",
+            "enum": [
+              "always_ask",
+              "above_limit",
+              "autonomous"
+            ]
+          },
+          "require_approval_above_usd": {
+            "type": "number",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateSpendPolicyRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "max_tx_usd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "max_slippage_bps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "max_gas_usd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "daily_cap_usd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "session_cap_usd": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "max_tx_per_hour": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "allowed_chains": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "blocked_chains": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "allowed_tokens": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "description": "Token contract addresses (lowercased on write). Applies to BOTH the token sold and the token bought."
+          },
+          "blocked_tokens": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "allowed_contracts": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "destination_allowlist": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "approval_mode": {
+            "type": "string",
+            "enum": [
+              "always_ask",
+              "above_limit",
+              "autonomous"
+            ]
+          },
+          "require_approval_above_usd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "replaces": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "description": "Ids of this agent's own policies to retire in the same transaction, so a re-applied envelope never overlaps its previous version."
+          }
+        },
+        "required": [
+          "name"
+        ]
       }
     }
   }

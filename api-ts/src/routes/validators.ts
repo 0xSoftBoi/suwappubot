@@ -186,6 +186,69 @@ export const CreatePolicySchema = z.object({
 	}),
 })
 
+const lowercaseList = (max: number) =>
+	z.array(z.string().trim().min(1).max(100)).max(max).optional()
+
+/**
+ * POST /v1/agent/policies body: a server-enforced spend policy on the calling
+ * agent. Every field maps 1:1 onto a `policies` column (see db/schema/policies.ts)
+ * and is evaluated by PolicyService on every swap execute by this agent, before
+ * the transaction is built. At least one control must be set.
+ */
+export const CreateSpendPolicySchema = z
+	.object({
+		name: z.string().trim().min(1).max(120),
+		// Per-transaction limits (stateless).
+		max_tx_usd: z.number().positive().optional(),
+		max_slippage_bps: z.number().int().min(0).max(10_000).optional(),
+		max_gas_usd: z.number().positive().optional(),
+		// Velocity / cumulative caps (stateful, against the decision log).
+		daily_cap_usd: z.number().positive().optional(),
+		session_cap_usd: z.number().positive().optional(),
+		max_tx_per_hour: z.number().int().positive().optional(),
+		// Allow / block lists. Chains are chain keys; tokens, contracts and
+		// destinations are addresses. All are lowercased on write.
+		allowed_chains: lowercaseList(50),
+		blocked_chains: lowercaseList(50),
+		allowed_tokens: lowercaseList(200),
+		blocked_tokens: lowercaseList(200),
+		allowed_contracts: lowercaseList(100),
+		destination_allowlist: lowercaseList(100),
+		// Maker-checker escalation.
+		approval_mode: z.enum(['always_ask', 'above_limit', 'autonomous']).optional(),
+		require_approval_above_usd: z.number().min(0).optional(),
+		// ISO-8601; an expired policy is skipped during evaluation.
+		expires_at: z
+			.string()
+			.refine((s) => !Number.isNaN(Date.parse(s)), 'expires_at must be an ISO-8601 timestamp')
+			.optional(),
+		// Lower wins first; the first matching block/require_approval short-circuits.
+		priority: z.number().int().min(0).max(1000).optional(),
+		// Ids of this agent's own policies to retire in the same transaction, so a
+		// re-applied envelope never overlaps its previous version.
+		replaces: z.array(z.string().uuid()).max(20).optional(),
+	})
+	.refine(
+		(p) =>
+			[
+				p.max_tx_usd,
+				p.max_slippage_bps,
+				p.max_gas_usd,
+				p.daily_cap_usd,
+				p.session_cap_usd,
+				p.max_tx_per_hour,
+				p.allowed_chains,
+				p.blocked_chains,
+				p.allowed_tokens,
+				p.blocked_tokens,
+				p.allowed_contracts,
+				p.destination_allowlist,
+				p.approval_mode,
+				p.require_approval_above_usd,
+			].some((v) => v !== undefined),
+		'At least one control must be set',
+	)
+
 /** POST /v1/agent/wallets body. Defaults to 'evm' so bodyless calls keep working. */
 export const CreateWalletSchema = z.object({
 	chain_type: z.enum(['evm', 'solana']).optional().default('evm'),
