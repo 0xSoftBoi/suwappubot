@@ -22,8 +22,9 @@ const trust = [
 
 export default function ContactPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         <header className="mkt-hero mkt-hero--center">
           <p className="summer-kicker">Enterprise</p>
@@ -76,7 +77,8 @@ export default function ContactPage() {
           </div>
         </section>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

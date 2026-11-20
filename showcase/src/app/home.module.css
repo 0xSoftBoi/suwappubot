@@ -60,10 +60,10 @@
 
 /* ── Section heads the polish layer does not already scale ─────────────── */
 .h2Scale.h2Scale {
-  font-size: var(--type-display-2-size);
-  line-height: var(--type-display-2-lh);
-  letter-spacing: var(--type-display-2-ls);
-  font-weight: 600;
+  font-size: var(--type-d3);
+  line-height: 1.06;
+  letter-spacing: var(--type-display-tracking);
+  font-weight: var(--type-display-weight);
 }
 
 /* ── Staggered reveals: keep the hover grammar alive ───────────────────── */

@@ -258,7 +258,7 @@ export default function PassportStepper({ flow }: { flow: Flow }) {
                         {pre.phase === 'failed' && <p className={s.error}>{pre.error}</p>}
                         <button
                           type="button"
-                          className={s.cta}
+                          className={`summer-button summer-button--primary ${s.cta}`}
                           onClick={() => attemptSwap('pre')}
                           disabled={st.state === 'busy'}
                         >
@@ -289,7 +289,7 @@ export default function PassportStepper({ flow }: { flow: Flow }) {
                             {verifyFailed && <p className={s.error}>{verifyError || 'Verification failed.'}</p>}
                             <button
                               type="button"
-                              className={s.cta}
+                              className={`summer-button summer-button--primary ${s.cta}`}
                               onClick={() => (verifyBusy ? cancelVerification() : beginVerification())}
                             >
                               {verifyBusy ? 'Waiting for World App… (cancel)' : verifyFailed ? 'Try again' : 'Verify with World ID'}
@@ -319,7 +319,7 @@ export default function PassportStepper({ flow }: { flow: Flow }) {
                         {post.phase === 'failed' && <p className={s.error}>{post.error}</p>}
                         <button
                           type="button"
-                          className={s.cta}
+                          className={`summer-button summer-button--primary ${s.cta}`}
                           onClick={() => attemptSwap('post')}
                           disabled={st.state === 'busy'}
                         >

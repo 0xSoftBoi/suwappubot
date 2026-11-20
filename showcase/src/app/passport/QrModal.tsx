@@ -117,7 +117,7 @@ export default function QrModal({
             <p className={styles.modalKicker}>Scan with World App</p>
 
             {preferDeepLink && (
-              <a className={styles.cta} href={connectorURI}>
+              <a className={`summer-button summer-button--primary ${styles.cta}`} href={connectorURI}>
                 Open World App
               </a>
             )}

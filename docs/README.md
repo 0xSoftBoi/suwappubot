@@ -19,6 +19,7 @@ monorepo directory-by-directory unless you are maintaining it.
 | **Understand the system** | [Architecture overview](architecture/OVERVIEW.md) | [`ARCHITECTURE.md`](../ARCHITECTURE.md) · [ADRs](adr/README.md) |
 | **Contribute** | [Onboarding](ONBOARDING.md) | [`CONVENTIONS.md`](../CONVENTIONS.md) · [`CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | **Operate production** | [Production inventory](deployment/production-inventory.md) | [Build reliability](deployment/build-reliability.md) · [Railway](deployment/railway.md) · [Railway best practices](deployment/railway-best-practices.md) · [Monitoring](deployment/monitoring.md) |
+- [`deployment/admin-dashboard.md`](deployment/admin-dashboard.md) — the `/admin` growth dashboard: what it measures, how to turn it on, staff Google sign-in.
 | **Handle an incident** | [Incident docs](incidents/README.md) | [Monitoring](deployment/monitoring.md) |
 | **Write or review docs** | [Documentation content model](content-model.md) | [Writing standard](WRITING.md) · `./scripts/verify.sh docs` |
 

@@ -9,7 +9,7 @@
     radial-gradient(1200px 600px at 20% -10%, rgba(229, 141, 43, 0.10), transparent 60%),
     linear-gradient(180deg, var(--sw-cosmic-0) 0%, var(--sw-cosmic-1) 55%, var(--sw-cosmic-2) 100%);
   color: var(--sw-cosmic-ink);
-  padding: 7rem 1.25rem 5rem;
+  padding: var(--page-top) 1.25rem 5rem;
 }
 
 .wrap {
@@ -28,11 +28,12 @@
 }
 
 .title {
-  font-family: var(--font-display, var(--font-sans));
+  font-family: var(--type-display-font);
   font-size: clamp(2rem, 5vw, 3rem);
   line-height: 1.05;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--type-display-tracking);
   margin: 0;
+  font-weight: var(--type-display-weight);
 }
 
 .subtitle {

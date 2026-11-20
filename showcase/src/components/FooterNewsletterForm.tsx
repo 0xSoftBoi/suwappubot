@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { API_BASE_URL } from '@/lib/links';
 import { track } from '@/lib/analytics';
 import { getAttribution } from '@/lib/attribution';
+import { Field, FieldError, FieldLabel } from '@ui-sdk/react/field';
+import { Input } from '@ui-sdk/react/input';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
 
@@ -68,22 +70,29 @@ export default function FooterNewsletterForm() {
   const submitting = status === 'submitting';
 
   return (
-    <form className="summer-footer__newsletter" onSubmit={handleSubmit} noValidate>
+    <form className="summer-footer__newsletter" onSubmit={handleSubmit}>
       <h4>Get launch + alpha updates</h4>
       <div className="summer-footer__newsletter-form">
         <label className="summer-footer__newsletter-honeypot" aria-hidden="true">
           Website
           <input name="website" type="text" tabIndex={-1} autoComplete="off" />
         </label>
-        <input
-          className="summer-footer__newsletter-input"
-          name="email"
-          type="email"
-          required
-          autoComplete="email"
-          placeholder="you@example.com"
-          aria-label="Email address"
-        />
+        <Field name="email" className="summer-footer__newsletter-field">
+          <FieldLabel className="sr-only">Email address</FieldLabel>
+          <Input
+            className="summer-footer__newsletter-input"
+            type="email"
+            inputMode="email"
+            required
+            autoComplete="email"
+            spellCheck={false}
+            placeholder="you@example.com…"
+          />
+          <FieldError className="summer-footer__newsletter-error" match="valueMissing">Enter your email.</FieldError>
+          <FieldError className="summer-footer__newsletter-error" match="typeMismatch">
+            Enter an email like you@example.com.
+          </FieldError>
+        </Field>
         <button
           className="summer-footer__newsletter-submit"
           type="submit"
@@ -91,7 +100,7 @@ export default function FooterNewsletterForm() {
           aria-busy={submitting}
         >
           {submitting && <span className="summer-footer__newsletter-spinner" aria-hidden="true" />}
-          {submitting ? 'Joining…' : 'Subscribe'}
+          Subscribe
         </button>
       </div>
       {error && (

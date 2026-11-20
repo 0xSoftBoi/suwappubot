@@ -157,8 +157,7 @@ export default function UsageChart({
           ref={svgRef}
           viewBox={`0 0 ${SVG_W} ${SVG_H}`}
           width="100%"
-          height={SVG_H}
-          style={{ display: 'block', overflow: 'visible', cursor: 'crosshair' }}
+          style={{ display: 'block', height: 'auto', maxHeight: 360, overflow: 'visible', cursor: 'crosshair' }}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoveredIdx(null)}
         >

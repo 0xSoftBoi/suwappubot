@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_BASE_URL } from '@/lib/links';
+import { adminRequestInit } from './adminRequest';
 
 interface LegacyScenario {
   name: 'survival' | 'base' | 'growth';
@@ -254,9 +255,7 @@ export default function FinancePanel({ apiKey }: { apiKey: string }) {
     setError('');
     try {
       const suffix = planningParams.size ? `?${planningParams.toString()}` : '';
-      const res = await fetch(`${API_BASE_URL}/admin/finance${suffix}`, {
-        headers: { 'X-Admin-Key': apiKey },
-      });
+      const res = await fetch(`${API_BASE_URL}/admin/finance${suffix}`, adminRequestInit(apiKey));
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(body.error || `HTTP ${res.status}`);

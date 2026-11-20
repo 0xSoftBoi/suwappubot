@@ -62,7 +62,7 @@ export default async function DecisionPage({ params }: { params: Promise<{ id: s
   return (
     <>
       <SummerNav />
-      <main className={styles.shell}>
+      <main id="main-content" className={styles.shell}>
         <div className={styles.wrap}>
           <a className={styles.back} href="/autopilot">
             ← All decisions

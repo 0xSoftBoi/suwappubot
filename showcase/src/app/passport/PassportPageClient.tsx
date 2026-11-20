@@ -48,7 +48,7 @@ export default function PassportPageClient() {
     <div className={`summer-page ${styles.canvas}`}>
       <SummerNav />
 
-      <main className={styles.shell}>
+      <main id="main-content" className={styles.shell}>
         <section className={styles.hero}>
           <AmbientOrb state={orbState} />
 

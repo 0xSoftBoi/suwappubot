@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { TELEGRAM_URL, API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import TelegramLoginButton from './components/TelegramLoginButton';
 import { type AuthState, DashboardAuthContext } from './auth-context';
@@ -124,24 +125,31 @@ function LoginScreen({ onToken, initialError }: { onToken: (t: string) => void; 
 }
 
 function WorkspaceNav({ onSignOut }: { onSignOut: () => void }) {
-  const linkStyle: React.CSSProperties = {
-    color: '#c9d0da', textDecoration: 'none', fontSize: 14, padding: '9px 12px',
-    borderRadius: 8, border: '1px solid transparent', whiteSpace: 'nowrap',
-  };
+  const pathname = usePathname();
+  const links = [
+    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/dashboard/signals', label: 'Signals' },
+    { href: '/docs', label: 'Docs' },
+    { href: '/status', label: 'Status' },
+  ];
   return (
-    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '18px 24px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: '1px solid #202631', borderRadius: 12, background: '#0d1117', overflowX: 'auto' }}>
-        <Link href="/" style={{ ...linkStyle, fontWeight: 800, color: '#fff' }}>suwappu</Link>
-        <span style={{ color: '#48505c' }}>/</span>
-        <Link href="/dashboard" style={linkStyle}>Home</Link>
-        <Link href="/dashboard/signals" style={{ ...linkStyle, color: '#fff', background: '#171d26', borderColor: '#2a3340', fontWeight: 700 }}>Signal Intelligence <span aria-hidden="true">●</span></Link>
-        <Link href="/products" style={linkStyle}>All products</Link>
-        <Link href="/research" style={linkStyle}>Research</Link>
-        <Link href="/docs" style={linkStyle}>Docs</Link>
-        <span style={{ flex: 1 }} />
-        <button onClick={onSignOut} style={{ ...linkStyle, cursor: 'pointer', background: 'transparent', border: '1px solid #2a313b' }}>Sign out</button>
+    <header className={styles.topbar}>
+      <div className={styles.topbarInner}>
+        <Link href="/" className={styles.topbarBrand} aria-label="Suwappu home">
+          <Image src="/logo.svg" alt="" width={24} height={24} aria-hidden="true" />
+          <span translate="no">suwappu</span>
+        </Link>
+        <nav className={styles.topbarLinks} aria-label="Workspace">
+          {links.map((l) => (
+            <Link key={l.href} href={l.href} className={styles.topbarLink}
+              aria-current={pathname === l.href ? 'page' : undefined}>
+              {l.label}
+            </Link>
+          ))}
+        </nav>
+        <button type="button" className={styles.topbarSignOut} onClick={onSignOut}>Sign out</button>
       </div>
-    </div>
+    </header>
   );
 }
 
@@ -221,7 +229,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <DashboardAuthContext.Provider value={{ auth, clearToken }}>
       <div className="summer-page">
         <WorkspaceNav onSignOut={clearToken} />
-        <div className={styles.shell} style={{ paddingTop: 24 }}>{children}</div>
+        <div id="main-content" className={styles.shell} style={{ paddingTop: 24 }}>{children}</div>
       </div>
     </DashboardAuthContext.Provider>
   );

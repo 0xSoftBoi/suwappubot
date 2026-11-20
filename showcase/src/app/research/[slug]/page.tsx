@@ -119,7 +119,7 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
   };
 
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleLd) }}
@@ -132,10 +132,12 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
       {/* Reading-progress line only, not the full category chrome bar: a
           sticky bar tall enough to carry a text label would need to hardcode
           SummerNav's rendered height, and that height isn't ours to own. A
-          thin progress line tolerates a few px of drift instead. */}
+          thin progress line tolerates a few px of drift instead. Sits outside
+          <main> because it is chrome, not content. */}
       <div className="research-post__progress" aria-hidden="true">
         <div className="research-post__progress-fill" />
       </div>
+      <main id="main-content">
       <div className="summer-shell mkt-page research-post">
         <nav className="doc-breadcrumb">
           <a href="/">Home</a>
@@ -213,7 +215,8 @@ export default async function ResearchPost({ params }: { params: Promise<Params>
 
         <a className="research-post__back" href="/research">← All research</a>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

@@ -40,6 +40,7 @@ import { requireScope } from '../middleware/requireScope'
 import { ipRateLimit, resolveRequestIp } from '../middleware/ipRateLimit'
 import { rateLimit } from '../middleware/rateLimit'
 import { BYPASS_TIERS, type ChargeResult, COST_WEIGHTS, CREDIT_USD_VALUE, meteredPayment, refundChargedCall } from '../middleware/x402Payment'
+import { logger } from '../lib/logger'
 import { cacheAgentQuote, getCachedQuote } from '../lib/quoteCache'
 import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
@@ -1268,6 +1269,51 @@ async function buildSwapTxResponse(
 }
 
 /**
+ * MONEY-PATH. Fail-CLOSED response for a policy/cap evaluation that ERRORED
+ * (DB/aggregate failure) — distinct from "no policy configured", which
+ * PolicyService.evaluate() returns as a normal `allow`. Previously callers
+ * swallowed the error and let the swap proceed, so a broken cap query meant
+ * caps silently never enforced. Logged at error level with a stable
+ * `policy_gate_fail_closed` marker for alerting.
+ */
+function policyUnavailableResponse(
+	c: Context,
+	info: { orgId: string | null; agentId: string; stage: string; error: unknown },
+): Response {
+	const errorText = String(info.error)
+	logger.error(
+		{
+			event: 'policy_gate_fail_closed',
+			stage: info.stage,
+			// The org is recorded on the audit row below, not here: it comes off
+			// the API-key auth context and stays out of application logs.
+			agentId: info.agentId,
+			error: errorText,
+		},
+		'[policy] policy/cap evaluation errored — rejecting request (fail closed)',
+	)
+	writeAuditLog({
+		userId: 0,
+		orgId: info.orgId,
+		agentId: info.agentId,
+		eventType: 'policy.eval_error',
+		details: { stage: info.stage, error: errorText, failClosed: true },
+	})
+	c.header('Retry-After', '5')
+	return c.json(
+		{
+			success: false,
+			status: 'error',
+			code: 'POLICY_CHECK_UNAVAILABLE',
+			retryable: true,
+			error:
+				'Spend-policy check is temporarily unavailable, so this request was not processed. No transaction was built or sent. Retry shortly.',
+		},
+		503,
+	)
+}
+
+/**
  * Institutional policy gate for a freshly fetched (never before submitted)
  * quote. Evaluates the trade intent against the org's policy rules + this
  * agent's spend profile + kill switches. On 'block' or 'require_approval' it
@@ -1362,17 +1408,15 @@ export async function enforcePolicyGateForFreshQuote(
 		}),
 	)
 
-	// If the policy query itself errored, fail open but log it — never block
-	// legitimate trades on an infra hiccup.
+	// If the policy/cap evaluation itself errored, fail CLOSED (503, retryable).
+	// "No policy configured" is NOT an error — evaluate() returns a normal allow.
 	if (Either.isLeft(verdict)) {
-		writeAuditLog({
-			userId: 0,
+		return policyUnavailableResponse(c, {
 			orgId,
 			agentId: agentIdentifier,
-			eventType: 'policy.eval_error',
-			details: { error: String(verdict.left) },
+			stage: 'evaluate',
+			error: verdict.left,
 		})
-		return null
 	}
 
 	// HACKATHON (Tokyo 2026 trust layer): Intercepta counterparty screening +
@@ -1714,8 +1758,11 @@ async function resolveApprovalResubmit(
 	// Always re-run the policy gate (kill switches / block rules still apply).
 	// A valid, price-checked approval only satisfies a 'require_approval'
 	// verdict — 'block' still 403s even with an approved approval_id.
+	// Org-less agents are gated too (per-agent policy rows), matching the first
+	// evaluation in enforcePolicyGateForFreshQuote — skip only when there is
+	// neither an org nor an agent identity.
 	let reserve: ApprovalReserve = null
-	if (orgId) {
+	if (orgId || agentIdentifier) {
 		const freshGasUsd = isSolana
 			? undefined
 			: parseFloat((freshQuote as SwapQuote).estimatedGasUsd ?? '0') || 0
@@ -1743,6 +1790,21 @@ async function resolveApprovalResubmit(
 				return yield* policy.evaluate(policyIntent)
 			}),
 		)
+
+		// Fail CLOSED if the policy/cap evaluation errored: previously a Left fell
+		// through, skipping both the block check and the cap reservation, so an
+		// approved resubmit executed with no cap accounting.
+		if (Either.isLeft(verdict)) {
+			return {
+				kind: 'response',
+				response: policyUnavailableResponse(c, {
+					orgId,
+					agentId: agentIdentifier,
+					stage: 'approval_resubmit_evaluate',
+					error: verdict.left,
+				}),
+			}
+		}
 
 		if (Either.isRight(verdict) && verdict.right.decision === 'block') {
 			writeAuditLog({
@@ -1790,7 +1852,12 @@ async function resolveApprovalResubmit(
 				})
 				return {
 					kind: 'response',
-					response: c.json({ success: false, error: 'Failed to reserve cap allowance' }, 500),
+					response: policyUnavailableResponse(c, {
+						orgId,
+						agentId: agentIdentifier,
+						stage: 'approval_reserve',
+						error: reserved.left,
+					}),
 				}
 			}
 

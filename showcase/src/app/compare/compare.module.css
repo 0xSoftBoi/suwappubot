@@ -122,11 +122,11 @@
 .whyCard h3 {
   margin: 12px 0 8px;
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: var(--type-h3-size);
   line-height: var(--type-h3-lh);
   letter-spacing: var(--type-h3-ls);
-  font-weight: 600;
+  font-weight: var(--type-display-weight);
 }
 
 .whyCard p {
@@ -164,11 +164,11 @@
 
 .ctaTitle {
   margin: 14px 0 0;
-  font-family: var(--font-display);
-  font-size: var(--type-display-2-size);
-  line-height: var(--type-display-2-lh);
-  letter-spacing: var(--type-display-2-ls);
-  font-weight: 600;
+  font-family: var(--type-display-font);
+  font-size: var(--type-d3);
+  line-height: 1.06;
+  letter-spacing: var(--type-display-tracking);
+  font-weight: var(--type-display-weight);
 }
 
 .ctaBody {

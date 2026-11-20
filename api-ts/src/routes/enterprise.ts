@@ -757,8 +757,8 @@ enterpriseRoutes.get('/orgs/:orgId/usage', async (c) => {
 					try: () =>
 						db
 							.select({
-								callsToday: sql<number>`count(*) filter (where ${apiUsageEvents.createdAt} >= ${todayStart})`,
-								callsThisMonth: sql<number>`count(*) filter (where ${apiUsageEvents.createdAt} >= ${monthStart})`,
+								callsToday: sql<number>`count(*) filter (where ${apiUsageEvents.createdAt} >= ${todayStart.toISOString()}::timestamp)`,
+								callsThisMonth: sql<number>`count(*) filter (where ${apiUsageEvents.createdAt} >= ${monthStart.toISOString()}::timestamp)`,
 								rateLimitHits: sql<number>`count(*) filter (where ${apiUsageEvents.statusCode} = 429)`,
 								totalCalls: sql<number>`count(*)`,
 								errorCalls: sql<number>`count(*) filter (where ${apiUsageEvents.statusCode} >= 400)`,

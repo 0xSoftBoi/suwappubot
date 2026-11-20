@@ -98,7 +98,10 @@ export default function DocsOverview() {
   // here loops or reacts to scroll.
   const reveal = (delay: number) =>
     reduce
-      ? { initial: false as const }
+      ? // The server renders the hidden `initial` state (it cannot know the
+        // preference), so reduced motion must still animate *to* visible, just
+        // instantly. `initial: false` alone left the page at opacity 0.
+        { initial: false as const, animate: { opacity: 1, y: 0 }, transition: { duration: 0 } }
       : {
           initial: { opacity: 0, y: 16 },
           animate: { opacity: 1, y: 0 },
@@ -112,7 +115,7 @@ export default function DocsOverview() {
           <DocsNav sections={sections} />
         </aside>
 
-        <main className="docs-page__main">
+        <main id="main-content" className="docs-page__main">
           <motion.div {...reveal(0)}>
             <p className="section__label">Documentation</p>
             <h1 className="section__heading">Suwappu API</h1>

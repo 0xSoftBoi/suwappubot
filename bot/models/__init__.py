@@ -58,6 +58,7 @@ from .btc_swap import BtcSwap
 from .tempo import TempoSponsorship
 from .tempo_access_key import TempoAccessKey
 from .waitlist import WaitlistSignup
+from .web_event import WebEvent
 from .market_data import (
     MarketCandle,
     ApiUsageDaily,
@@ -140,6 +141,8 @@ __all__ = [
     "TempoAccessKey",
     # Handle-reservation waitlist + referral leaderboard
     "WaitlistSignup",
+    # First-party marketing-site events (admin Growth dashboard)
+    "WebEvent",
     # Market data (Databento-parity Phase 1): OHLCV candles
     "MarketCandle",
     # API usage metering (per-caller/route/day request counts)
