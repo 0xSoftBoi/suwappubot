@@ -16,6 +16,7 @@ from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
+from bot.services.swap_nonce import canonical_tx_hash, rpc_tx_hash, tx_hash_variants
 from bot.services.lifi_api import LiFiAPI
 from bot.services.zerox_api import ZeroXAPI, ZEROX_CHAIN_IDS
 from bot.services.legacy_swap_execution_adapter import project_legacy_swap
@@ -289,7 +290,9 @@ class TransactionPoller:
                         tx.realized_to_amount = str(realized)[:78]
                         tx.realized_to_amount_usd = tx_dict.get("_realized_to_amount_usd")
                 if dest_tx_hash:
-                    tx.destination_tx_hash = dest_tx_hash
+                    tx.destination_tx_hash = canonical_tx_hash(
+                        dest_tx_hash, tx_dict.get("to_chain")
+                    )
                 if (
                     new_status == SwapStatus.FAILED.value
                     and tx_dict.get("error_message") == self.BRIDGE_UNSETTLED_TIMEOUT_REASON
@@ -423,9 +426,18 @@ class TransactionPoller:
     async def _check_lifi_status_dict(self, tx_dict: dict) -> tuple[Optional[str], Optional[str]]:
         """Check cross-chain swap via Li.Fi; return (new_status, dest_tx_hash)."""
         try:
+            # Li.Fi does not tolerate a bare hash. Verified live against
+            # li.quest/v1/status with a real mainnet tx:
+            #   txHash=0x<64hex> -> {"message": "No event found, this
+            #                        transaction was not handled by LI.FI
+            #                        contracts."}   (hash understood)
+            #   txHash=<64hex>   -> {"message": "Transaction hash is not found
+            #                        in any chain."}  (hash not understood)
+            # So a genuine Li.Fi bridge stored under the bare spelling looks
+            # like an unknown transaction and the route never resolves.
             status = await asyncio.wait_for(
                 self._lifi.get_status(
-                    tx_hash=tx_dict["tx_hash"],
+                    tx_hash=rpc_tx_hash(tx_dict["tx_hash"]),
                     from_chain=tx_dict["from_chain"],
                     to_chain=tx_dict["to_chain"],
                 ),
@@ -739,10 +751,25 @@ class TransactionPoller:
         try:
             http_session = await get_session()
 
+            # `tx_hash` comes straight off SwapTransaction.tx_hash, which holds
+            # a MIX of spellings: EVM executors historically persisted
+            # `HexBytes.hex()`, which from hexbytes 1.x on has no `0x` prefix.
+            # Node tolerance for a bare hash is provider-dependent -- verified
+            # live against a real mainnet receipt:
+            #   ethereum-rpc.publicnode.com -> accepted
+            #   eth.drpc.org                -> {"error": "json: cannot
+            #                                   unmarshal hex string without
+            #                                   0x prefix into Go ..."}
+            # and `*.drpc.org` is in the default rotation for 14 chains in
+            # bot/config/settings.py (first in the list for tempo). On a strict
+            # node the error response has no "result", so `_do_evm` below read
+            # it as "not yet mined" and the swap stayed SUBMITTED forever.
+            # Rows predating the write-side fix are deliberately not rewritten,
+            # so this read path has to stay tolerant.
             payload = {
                 "jsonrpc": "2.0",
                 "method": "eth_getTransactionReceipt",
-                "params": [tx_hash],
+                "params": [rpc_tx_hash(tx_hash)],
                 "id": 1,
             }
 
@@ -828,10 +855,14 @@ class TransactionPoller:
         try:
             http_session = await get_session()
 
+            # Same mixed-spelling hazard as _check_evm_tx: felt252 hashes are
+            # hex and strict nodes reject an unprefixed one outright. Starknet
+            # hashes may be SHORTER than 64 hex chars (leading zeros stripped),
+            # so only the prefix is normalized, never the length.
             payload = {
                 "jsonrpc": "2.0",
                 "method": "starknet_getTransactionStatus",
-                "params": [tx_hash],
+                "params": [rpc_tx_hash(tx_hash)],
                 "id": 1,
             }
             urls = settings.starknet_rpc_urls()
@@ -998,9 +1029,14 @@ class TransactionPoller:
         await self._invalidate_balance_cache_dict({"user_id": tx.user_id})
 
     def _get_explorer_link_dict(self, tx_dict: dict) -> str:
-        """Get block explorer link from tx dict."""
-        chain = get_chain_by_name(tx_dict.get("from_chain", ""))
-        tx_hash = tx_dict.get("tx_hash")
+        """Get block explorer link from tx dict.
+
+        Canonicalized because some explorers 404 on an unprefixed hash, and
+        rows written before the write-side normalization still carry one.
+        """
+        from_chain = tx_dict.get("from_chain", "")
+        chain = get_chain_by_name(from_chain)
+        tx_hash = canonical_tx_hash(tx_dict.get("tx_hash"), chain or from_chain)
         if chain and chain.explorer_url and tx_hash:
             return f"{chain.explorer_url}/tx/{tx_hash}"
         return "#"
@@ -1008,8 +1044,9 @@ class TransactionPoller:
     def _get_explorer_link(self, tx: SwapTransaction) -> str:
         """Get block explorer link for transaction."""
         chain = get_chain_by_name(tx.from_chain)
-        if chain and chain.explorer_url and tx.tx_hash:
-            return f"{chain.explorer_url}/tx/{tx.tx_hash}"
+        tx_hash = canonical_tx_hash(tx.tx_hash, chain or tx.from_chain)
+        if chain and chain.explorer_url and tx_hash:
+            return f"{chain.explorer_url}/tx/{tx_hash}"
         return "#"
 
 
