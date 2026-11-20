@@ -91,6 +91,10 @@ webEventRoutes.post('/event', async (c) => {
 		utmMedium: cleanText(utm.medium, 80),
 		utmCampaign: cleanText(utm.campaign, 80),
 		propsJson: cleanProps(body.props),
+		// Set here, not left to a column default: the table is created by the
+		// Python model, whose default is client-side, so the database has none
+		// and an omitted value would violate NOT NULL (and be swallowed below).
+		createdAt: new Date(),
 	}
 
 	// Best effort. A missing table (Python not yet booted on the new model) or

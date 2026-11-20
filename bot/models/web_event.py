@@ -17,7 +17,7 @@ The table is created by ``Base.metadata.create_all`` (importing this model in
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, Index, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, Index, String, Text, text
 
 from database.db import Base
 
@@ -45,7 +45,14 @@ class WebEvent(Base):
     # Small JSON object of event properties (size-capped at ingest).
     props_json = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # server_default as well as default: api-ts inserts into this table too, and
+    # a client-side default alone leaves the database column with none.
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        server_default=text("(now() at time zone 'utc')"),
+    )
 
     __table_args__ = (
         Index("ix_web_events_created_at", "created_at"),
