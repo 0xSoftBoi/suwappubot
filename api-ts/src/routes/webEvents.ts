@@ -112,10 +112,12 @@ webEventRoutes.post('/event', async (c) => {
 	)
 	// The visitor never sees a failure, so the log is the only signal that
 	// tracking is silently dropping events. At most one line a minute.
+	// First line only: the driver appends the failed INSERT's bound values
+	// (path, referrer, UTM) on later lines, and those stay out of the logs.
 	if (stored._tag === 'Left' && Date.now() - lastFailureLogAt > 60_000) {
 		lastFailureLogAt = Date.now()
 		logger.warn(
-			{ event: 'web_event_store_failed', error: String(stored.left).slice(0, 300) },
+			{ event: 'web_event_store_failed', error: String(stored.left).split('\n')[0].slice(0, 300) },
 			'[web-events] could not store a page event — the Growth dashboard is under-counting',
 		)
 	}
