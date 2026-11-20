@@ -23,3 +23,24 @@ The locked graph installs `crypto-cpp-py==2.0.0`. Inspection of that exact publi
 - `ecdsa` remains transitive rather than a direct application dependency.
 - Any new direct python-ecdsa use, any use of its signing/key-generation/ECDH APIs, or a change to the `crypto-cpp-py` call path requires immediate re-review.
 - Remove this exception as soon as the dependency path drops python-ecdsa, a patched implementation becomes available, or before the review date unless the evidence is renewed.
+
+## GHSA-qr28-fpjm-wq7f — `decode-uri-component@0.2.2` (terminal only)
+
+- Severity: High (denial of service: quadratic time on long runs of percent-encoded input).
+- Dependency path: `wagmi -> @wagmi/connectors -> @walletconnect/ethereum-provider -> @walletconnect/utils -> query-string@7.1.3 -> decode-uri-component@0.2.2`.
+- Scope: `bun audit` in `terminal/` only, exact advisory ID `GHSA-qr28-fpjm-wq7f`. Every other workspace audits without this ignore.
+- Owner: Suwappu maintainers.
+- Accepted: 2026-11-20.
+- Review by: 2027-02-20.
+
+### Evidence
+
+The advisory covers every release up to 0.5.0; the fixed line is ESM-only. `query-string@7.1.3` loads it with `require('decode-uri-component')`, so an override to the fixed release breaks the import at runtime, and `@walletconnect/utils` pins `query-string` 7.x. The only way to drop the path is a wagmi major upgrade (v3), which is a wallet-connection change that needs its own testing and is out of scope for a dependency bump.
+
+The package runs in the visitor's browser only: `terminal/` is a static Vite bundle with no server-side rendering, so there is no shared process to exhaust. The input it parses is WalletConnect pairing/deep-link URIs, so the worst case is a visitor's own tab stalling after they open a crafted link. No keys, funds, or other users are reachable through it.
+
+### Compensating controls
+
+- CI ignores only `GHSA-qr28-fpjm-wq7f`, and only for `terminal/`; all other findings in every workspace stay blocking.
+- The package stays transitive; application code must not import `query-string` or `decode-uri-component` directly.
+- Remove this exception when wagmi is upgraded past the `query-string@7` path, or when WalletConnect ships a release that drops it — whichever comes first, and no later than the review date unless the evidence is renewed.
