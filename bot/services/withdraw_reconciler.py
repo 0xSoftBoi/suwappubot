@@ -26,6 +26,13 @@ resolves each one against real chain state:
         cycle. We never refund a row with an unresolved tx_hash purely due to
         age, because doing so risks a double-spend if the tx later confirms.
 
+Not every withdraw surface is ledger-funded. A row tagged
+SELF_CUSTODY_NO_LEDGER_REFUND in ``notes`` was funded straight from the user's
+OWN on-chain wallet (the WhatsApp custodial_flow withdraw), so no
+reserve_custodial_balance debit stands behind it. Those rows still get
+resolved and still get marked FAILED, but the ledger credit is skipped —
+crediting one would create balance the user never had reserved.
+
 This mirrors the fee_sweeper / tx_poller background-task pattern already used
 in api/main.py's lifespan.
 """
@@ -38,7 +45,7 @@ from decimal import Decimal
 from typing import Optional
 
 from bot.models.custodial import CustodialTransaction, TransactionStatus, TransactionType
-from bot.services.hot_wallet import hot_wallet_service
+from bot.services.hot_wallet import SELF_CUSTODY_NO_LEDGER_REFUND, hot_wallet_service
 from database.db import get_session as get_db_session
 
 logger = logging.getLogger(__name__)
@@ -124,6 +131,7 @@ class WithdrawReconciler:
                         "amount": row.amount,
                         "tx_hash": row.tx_hash,
                         "created_at": row.created_at,
+                        "notes": row.notes,
                     }
                 )
 
@@ -196,6 +204,21 @@ class WithdrawReconciler:
                 "Withdraw reconciler skipped refund for tx_id=%s — row was no longer PENDING "
                 "(already resolved by a concurrent finalize or reconciler pass)",
                 row["id"],
+            )
+            return
+
+        # Withdrawals funded from the user's OWN on-chain wallet never debited
+        # a custodial balance (no reserve_custodial_balance call), so there is
+        # nothing to give back on the ledger — crediting one here would mint
+        # balance out of a failed send. Mark FAILED (done above) and stop.
+        if SELF_CUSTODY_NO_LEDGER_REFUND in (row.get("notes") or ""):
+            logger.warning(
+                "Withdraw reconciler marked tx_id=%s user=%s %s %s FAILED without a ledger "
+                "refund (self-custody withdrawal — no custodial debit to reverse)",
+                row["id"],
+                row["user_id"],
+                row["amount"],
+                row["token_symbol"],
             )
             return
 

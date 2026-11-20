@@ -36,6 +36,17 @@ from bot.utils.http_client import get_session as get_http_session
 
 logger = logging.getLogger(__name__)
 
+# Marker written into CustodialTransaction.notes by withdraw surfaces whose
+# funding source is the USER's OWN on-chain wallet rather than a custodial
+# ledger balance (today: the WhatsApp custodial_flow withdraw).
+#
+# Those surfaces never call reserve_custodial_balance — there is no ledger
+# debit backing the send — so the withdraw reconciler must NOT credit the
+# custodial balance when it resolves one of their rows as never-confirmed.
+# Doing so would hand the user funds that were never reserved. Marked rows
+# still transition PENDING -> FAILED; only the ledger credit is skipped.
+SELF_CUSTODY_NO_LEDGER_REFUND = "self_custody:no_ledger_refund"
+
 
 class WithdrawalsPausedError(RuntimeError):
     """Raised when a withdrawal is attempted while the kill-switch is off."""
@@ -1191,9 +1202,20 @@ class HotWalletService:
         token_symbol: str,
         amount: Decimal,
         to_address: Optional[str] = None,
+        notes: Optional[str] = None,
+        from_address: Optional[str] = None,
     ) -> Optional[int]:
         """Atomically claim an idempotency key by inserting a PENDING
         placeholder row guarded by the unique index on idempotency_key.
+
+        ``notes`` / ``from_address`` are optional and recorded on the
+        placeholder at claim time, i.e. BEFORE any broadcast. ``notes`` is how
+        a caller tags the row with SELF_CUSTODY_NO_LEDGER_REFUND so the
+        withdraw reconciler knows this withdrawal has no custodial ledger
+        debit behind it and must never be refunded to the custodial balance.
+        It is set here rather than in a follow-up write so a crash between the
+        claim and the broadcast cannot leave an untagged row that the
+        reconciler would later blind-refund.
 
         This must be called BEFORE reserving/debiting the balance so the
         dedupe check itself has no TOCTOU window: if two requests race with
@@ -1216,6 +1238,8 @@ class HotWalletService:
                     token_address=token_address,
                     amount=str(amount),
                     to_address=to_address,
+                    from_address=from_address,
+                    notes=notes,
                     idempotency_key=idempotency_key,
                 )
                 session.add(tx)
