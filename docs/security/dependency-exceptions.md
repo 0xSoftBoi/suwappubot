@@ -9,13 +9,15 @@ Dependency audit exceptions are last-resort, reviewable controls. Each exception
 - Scope: Python dependency audit only, exact advisory ID `PYSEC-2026-1325`.
 - Owner: Suwappu maintainers.
 - Accepted: 2026-08-08.
-- Review by: 2026-11-06.
+- Review by: 2027-02-20 (renewed 2026-11-20; previous date 2026-11-06 had lapsed).
 
 ### Evidence
 
 The [OSV advisory](https://osv.dev/vulnerability/PYSEC-2026-1325) describes a Minerva timing attack against python-ecdsa's P-256 signing path and states that ECDSA signatures, key generation, and ECDH operations are affected; the project reports no planned fix.
 
 The locked graph installs `crypto-cpp-py==2.0.0`. Inspection of that exact published wheel found one code import from python-ecdsa: `ecdsa.rfc6979.generate_k`. It contains no `SigningKey`, `sign_digest`, or ECDH use. The matching [upstream utility source](https://github.com/software-mansion-labs/crypto-cpp-py/blob/main/crypto_cpp_py/utils.py) uses `generate_k` with Starknet's curve order rather than the affected P-256 signing/key-generation/ECDH APIs.
+
+Re-verified 2026-11-20: the lock still pins `crypto-cpp-py==2.0.0` and `ecdsa==0.19.2`; the published `crypto-cpp-py` 2.0.0 wheel still contains exactly one python-ecdsa import (`from ecdsa.rfc6979 import generate_k` in `crypto_cpp_py/utils.py`); 0.19.2 is still the newest python-ecdsa release and the OSV record lists no fixed version, so there is nothing to upgrade to.
 
 ### Compensating controls
 
