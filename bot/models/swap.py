@@ -97,6 +97,33 @@ class SwapTransaction(Base):
     # Transaction details
     status = Column(String(30), default=SwapStatus.PENDING.value)
     tx_hash = Column(String(255), nullable=True)  # Source chain tx hash
+
+    # Pre-broadcast EVM identity: who was about to send, and with which nonce.
+    #
+    # These exist for exactly one reason: a row whose broadcast outcome was
+    # never observed (the RPC call timed out, or the process died between
+    # send_raw_transaction and the tx_hash write) has NO hash, and a hash is
+    # the only thing tx_poller could previously look a swap up by. Such a row
+    # is unresolvable from the database alone and waits on a human to go read
+    # the chain — and it blocks resume_dca, which refuses while a tranche's
+    # swap is UNKNOWN.
+    #
+    # (sender_address, nonce) is the one identity that is known BEFORE the
+    # send and that the chain also indexes afterwards, so it survives exactly
+    # the failure that loses the hash. Written before broadcast, never after.
+    #
+    # EVM only. A Solana or Tron row leaves both NULL — those chains have no
+    # account nonce, and resolving them needs a recent blockhash or a
+    # pre-recorded signature instead (a separate design question, not this
+    # column). Resolution therefore keys off from_chain being an EVM chain,
+    # never off nonce being present alone.
+    #
+    # nonce is NULL on every row written before this column existed and on
+    # every non-EVM row, so NULL means "no nonce identity recorded", never
+    # nonce 0 — do not coalesce it. See bot/services/swap_nonce.py.
+    sender_address = Column(String(64), nullable=True)
+    nonce = Column(Integer, nullable=True)
+
     bridge_tx_hash = Column(String(255), nullable=True)  # Bridge tx hash if cross-chain
     destination_tx_hash = Column(String(255), nullable=True)  # Destination chain tx hash
 

@@ -14,6 +14,7 @@ from bot.models.swap import SwapTransaction, SwapStatus
 from bot.config.chains import get_chain_by_name, ChainType
 from bot.utils.http_client import get_session
 from database.db import get_session as get_db_session
+from database.db import run_in_db
 from bot.config.settings import settings
 from bot.services.rpc_manager import rpc_manager
 from bot.services.lifi_api import LiFiAPI
@@ -87,6 +88,15 @@ class TransactionPoller:
                 await redis_cache.set("service:tx_poller:heartbeat", time.time(), ttl_seconds=90)
             except Exception as e:
                 logger.error(f"Transaction poll error: {e}")
+
+            # Separate pass, and separate try: the hashless rows are the ones
+            # the main pass structurally cannot see (it filters on
+            # tx_hash IS NOT NULL), and a failure resolving them must not stop
+            # the ordinary polling above from reporting its heartbeat.
+            try:
+                await self._resolve_hashless_rows()
+            except Exception as e:
+                logger.error(f"Hashless swap resolution error: {e}")
 
             # Adaptive interval: poll faster while freshly-submitted txs are pending
             interval = (
@@ -221,6 +231,163 @@ class TransactionPoller:
                 return True
         return False
 
+    async def _resolve_hashless_rows(self) -> None:
+        """Resolve swaps that have no tx_hash, using (sender_address, nonce).
+
+        These are the rows the main pass cannot touch. `_check_pending_transactions`
+        filters on `tx_hash IS NOT NULL` because a hash is the only thing it
+        can look a swap up by, so a row that lost its hash — the RPC call timed
+        out, or the process died between `send_raw_transaction` and the hash
+        write — was unresolvable from the database alone and sat UNKNOWN until
+        a human read the chain. It also blocked `orders.resume_dca`, which
+        refuses to advance while a tranche's swap is UNKNOWN.
+
+        `swap_nonce.resolve_tx_by_sender_nonce` supplies the missing half. Its
+        verdicts are deliberately asymmetric and this method preserves that:
+
+        - NOT_MINED is conclusive and the nonce was never spent, so the swap
+          FAILED and no funds moved. This is the common case and the one worth
+          having: it clears the row and unblocks the DCA schedule with no
+          human and no explorer.
+        - RESOLVED means a transaction was found AND verified over our own RPC
+          as having this sender and this nonce. Its hash is adopted and its
+          receipt decides COMPLETED or FAILED.
+        - CONSUMED_UNKNOWN means the nonce was spent but we cannot say on
+          what. Left UNKNOWN on purpose — "something mined at that nonce" is
+          not grounds to claim a swap succeeded, and a replacement or cancel
+          at the same nonce looks identical from here.
+        - INDETERMINATE means we could not reach the chain. Retried next pass.
+
+        Only EVM rows are selected. Solana and Tron have no account nonce, so
+        their rows carry none and are excluded by construction.
+        """
+        from bot.services import swap_nonce
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=self._max_age_hours)
+
+        with get_db_session() as session:
+            rows = (
+                session.query(SwapTransaction)
+                .filter(
+                    SwapTransaction.tx_hash.is_(None),
+                    SwapTransaction.nonce.isnot(None),
+                    SwapTransaction.sender_address.isnot(None),
+                    SwapTransaction.status.in_(
+                        [
+                            SwapStatus.UNKNOWN.value,
+                            SwapStatus.EXECUTING.value,
+                            SwapStatus.SUBMITTED.value,
+                        ]
+                    ),
+                    SwapTransaction.created_at >= cutoff,
+                )
+                .limit(self.HASHLESS_RESOLVE_BATCH)
+                .all()
+            )
+            candidates = [
+                {
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "status": r.status,
+                    "from_chain": r.from_chain,
+                    "to_chain": r.to_chain,
+                    "from_token": r.from_token,
+                    "to_token": r.to_token,
+                    "route_provider": getattr(r, "route_provider", None),
+                    "route_data": getattr(r, "route_data", None),
+                    "from_amount": r.from_amount,
+                    "error_message": r.error_message,
+                    "created_at": r.created_at,
+                    # Null by definition — these rows are selected BECAUSE
+                    # they have no hash. Kept in the dict so the shape matches
+                    # the main pass's, since both feed _apply_status_update.
+                    "tx_hash": None,
+                    "sender_address": r.sender_address,
+                    "nonce": r.nonce,
+                }
+                for r in rows
+            ]
+
+        if not candidates:
+            return
+
+        logger.info("Resolving %d hashless swap row(s) by nonce", len(candidates))
+
+        for tx_dict in candidates:
+            chain = get_chain_by_name(tx_dict["from_chain"])
+            if not chain or chain.chain_type != ChainType.EVM:
+                continue
+
+            try:
+                result = await swap_nonce.resolve_tx_by_sender_nonce(
+                    tx_dict["from_chain"], tx_dict["sender_address"], tx_dict["nonce"]
+                )
+            except Exception as e:
+                logger.warning("Nonce resolution failed for swap %s: %s", tx_dict["id"], e)
+                continue
+
+            if result.verdict == swap_nonce.NOT_MINED:
+                logger.info(
+                    "Swap %s: nonce %s never consumed on %s (%s) — marking FAILED",
+                    tx_dict["id"],
+                    tx_dict["nonce"],
+                    tx_dict["from_chain"],
+                    result.detail,
+                )
+                tx_dict["error_message"] = self.NONCE_UNSPENT_REASON
+                await self._apply_status_update(tx_dict, SwapStatus.FAILED.value)
+
+            elif result.verdict == swap_nonce.RESOLVED:
+                logger.info(
+                    "Swap %s resolved by nonce %s -> %s (%s)",
+                    tx_dict["id"],
+                    tx_dict["nonce"],
+                    result.tx_hash,
+                    result.status,
+                )
+                # Adopt the hash first so the row is pollable by the ordinary
+                # pass from here on, even if the status write below loses a
+                # race with another worker.
+                await self._adopt_resolved_hash(tx_dict["id"], result.tx_hash)
+                tx_dict["tx_hash"] = result.tx_hash
+                await self._apply_status_update(tx_dict, result.status)
+
+            else:
+                logger.info(
+                    "Swap %s still unresolved by nonce %s: %s (%s)",
+                    tx_dict["id"],
+                    tx_dict["nonce"],
+                    result.verdict,
+                    result.detail,
+                )
+
+    async def _adopt_resolved_hash(self, swap_id: int, tx_hash: str) -> None:
+        """Write a nonce-resolved hash onto the row, if it still has none.
+
+        Guarded on `tx_hash IS NULL` so this can never overwrite a hash the
+        engine or another worker recorded in the meantime — that hash came
+        from our own broadcast and outranks one reconstructed from an index.
+        """
+
+        def _work():
+            with get_db_session() as session:
+                db_tx = (
+                    session.query(SwapTransaction)
+                    .filter(
+                        SwapTransaction.id == swap_id,
+                        SwapTransaction.tx_hash.is_(None),
+                    )
+                    .first()
+                )
+                if db_tx:
+                    db_tx.tx_hash = tx_hash
+                    session.commit()
+
+        try:
+            await run_in_db(_work)
+        except Exception as e:
+            logger.warning("Could not adopt resolved hash for swap %s: %s", swap_id, e)
+
     async def _apply_status_update(
         self, tx_dict: dict, new_status: str, dest_tx_hash: Optional[str] = None
     ):
@@ -260,13 +427,26 @@ class TransactionPoller:
                         SwapStatus.COMPLETED.value,
                         SwapStatus.FAILED.value,
                     )
-                    # UNKNOWN is settled only while there is nothing to check.
-                    # A swap that broadcast and then failed to persist its
-                    # status still has its hash (swap_engine records it on the
-                    # error path), and that row MUST stay pollable so it
-                    # resolves itself instead of waiting on a human. Without
-                    # the tx_hash condition this branch would strand it.
-                    or (tx.status == SwapStatus.UNKNOWN.value and tx.tx_hash is None)
+                    # UNKNOWN is settled only while there is genuinely nothing
+                    # to check. A swap that broadcast and then failed to
+                    # persist its status still has its hash (swap_engine
+                    # records it on the error path), and that row MUST stay
+                    # pollable so it resolves itself instead of waiting on a
+                    # human. Without the tx_hash condition this branch would
+                    # strand it.
+                    #
+                    # The nonce condition is the same argument for the rows
+                    # that have no hash at all: a recorded (sender, nonce) is
+                    # a second way to ask the chain what happened, so such a
+                    # row is NOT settled either, and _resolve_hashless_rows
+                    # exists to move it. Treating it as settled here would
+                    # reject that pass's own writes and leave the row exactly
+                    # as stuck as before.
+                    or (
+                        tx.status == SwapStatus.UNKNOWN.value
+                        and tx.tx_hash is None
+                        and tx.nonce is None
+                    )
                 ):
                     # The legacy status may already have been written by the
                     # websocket path or an older worker. Projection is
@@ -289,6 +469,16 @@ class TransactionPoller:
                         tx.realized_to_amount_usd = tx_dict.get("_realized_to_amount_usd")
                 if dest_tx_hash:
                     tx.destination_tx_hash = dest_tx_hash
+                if (
+                    new_status == SwapStatus.FAILED.value
+                    and tx_dict.get("error_message") == self.NONCE_UNSPENT_REASON
+                ):
+                    # Set by _resolve_hashless_rows: the sending wallet's nonce
+                    # was proven never consumed, so the swap definitively did
+                    # not execute. Worth persisting verbatim — "no funds moved"
+                    # is the single thing a user or an operator looking at this
+                    # row needs to know, and it is not inferable from FAILED.
+                    tx.error_message = self.NONCE_UNSPENT_REASON
                 if (
                     new_status == SwapStatus.FAILED.value
                     and tx_dict.get("error_message") == self.BRIDGE_UNSETTLED_TIMEOUT_REASON
@@ -479,6 +669,20 @@ class TransactionPoller:
     # i.e. the funds already left the wallet and are in the bridge, as
     # opposed to a genuine origin-tx revert where the funds never moved.
     BRIDGE_UNSETTLED_TIMEOUT_REASON = "bridge_unsettled_timeout"
+
+    # Written on rows whose broadcast outcome was never observed and whose
+    # sending nonce is proven never to have been consumed. The exact opposite
+    # of the reason above: there, the funds are in the bridge; here, they never
+    # left the wallet. See _resolve_hashless_rows.
+    NONCE_UNSPENT_REASON = (
+        "Broadcast outcome was never observed, and the sending wallet's nonce was "
+        "never used on-chain — this swap did not execute and no funds moved."
+    )
+
+    # Ceiling on hashless rows resolved per pass. Each one costs an
+    # eth_getTransactionCount and possibly an explorer crawl, so a backlog
+    # drains over several passes rather than stalling the poll loop.
+    HASHLESS_RESOLVE_BATCH = 25
 
     async def _check_zerox_crosschain_status_dict(
         self, tx_dict: dict

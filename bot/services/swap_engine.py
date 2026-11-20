@@ -74,6 +74,11 @@ from bot.utils.quote_validator import quote_validator
 from bot.utils.exceptions import SwapError
 from bot.services.event_bus import event_bus
 from database.db import get_session, run_in_db
+from bot.services.swap_nonce import (
+    enter_swap_nonce_scope,
+    exit_swap_nonce_scope,
+    record_intended_nonce,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1252,6 +1257,13 @@ class SwapEngine:
             "nonce": nonce,
             "chainId": chain_id,
         }
+        # This helper receives its nonce as a parameter and consumes it before
+        # returning nonce + 1 to the caller, so the caller's own recording (at
+        # its get_transaction_count) describes a nonce this send is about to
+        # spend first. Record it here so a lost broadcast of the zeroing
+        # approval is resolvable too — the swap transaction after it was never
+        # built, and this is the nonce the chain would show.
+        await record_intended_nonce(nonce, sender)
         signed_reset = await self.wallet_service.sign_evm_transaction(wallet, reset_tx)
         reset_hash = await asyncio.to_thread(
             lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed_reset.replace("0x", "")))
@@ -4440,6 +4452,16 @@ class SwapEngine:
             # failure — see _mark_failed in the except block below.
             broadcast_tx_hash: Optional[str] = None
 
+            # Everything the dispatch broadcasts belongs to THIS swap row, so
+            # the executors' pre-broadcast `record_intended_nonce` calls need
+            # to know which row that is. A ContextVar carries it instead of
+            # threading swap_id through ~19 executor signatures, and being
+            # per-task it cannot leak into a concurrent user's swap the way
+            # engine-instance state would (SwapEngine is shared across them).
+            # Released in the `finally` on this same try, so it does not
+            # outlive the dispatch on any exit path.
+            nonce_scope_token = enter_swap_nonce_scope(swap_id)
+
             try:
                 # Route to appropriate execution method based on provider
                 if quote.provider == "tempo_dex":
@@ -4540,15 +4562,16 @@ class SwapEngine:
                             db_tx.tx_hash = tx_hash
                             db_tx.status = SwapStatus.SUBMITTED.value
                             if quote.provider == "0x_crosschain":
-                                # Merge into the existing route_data instead
-                                # of replacing it wholesale -- it may already
-                                # carry intended_nonce (and other keys) from
-                                # _persist_0x_crosschain_route_data, written
-                                # BEFORE broadcast so it survives even if the
-                                # process dies before this write runs. A
-                                # bare replace here would silently drop that.
-                                # TODO(recovery): reconcile FAILED 0x-crosschain
-                                # rows with intended_nonce and no tx_hash.
+                                # Merge into the existing route_data rather
+                                # than replacing it wholesale, so any other
+                                # key written before broadcast survives this
+                                # write. The intended nonce used to be one of
+                                # those keys; it now has its own indexed
+                                # column (see SwapTransaction.nonce), which is
+                                # what closed the recovery gap this comment
+                                # used to carry a TODO for: tx_poller's
+                                # _resolve_hashless_rows reconciles rows with
+                                # a nonce and no tx_hash on its own.
                                 try:
                                     existing = json.loads(db_tx.route_data or "{}")
                                 except (TypeError, ValueError, json.JSONDecodeError):
@@ -4698,6 +4721,13 @@ class SwapEngine:
 
                 raise SwapError(f"Swap execution failed: {repr(e)}")
 
+            finally:
+                # The nonce scope covers the dispatch and nothing else. Any
+                # later `record_intended_nonce` in this task (a hot-wallet
+                # sweep, a relayer) must go back to being a no-op rather than
+                # stamping its nonce onto this swap's row.
+                exit_swap_nonce_scope(nonce_scope_token)
+
     async def _execute_lifi_swap(self, quote: SwapQuote, wallet_data: dict) -> str:
         """Execute a swap via Li.Fi."""
         tx_request = quote.raw_quote.get("transactionRequest", {})
@@ -4776,6 +4806,7 @@ class SwapEngine:
         """Execute an EVM Li.Fi route with a selected Web3 provider."""
         sender = Web3.to_checksum_address(wallet_data["address"])
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
 
         # ERC20 approval: if swapping a token (not native), approve the LiFi contract
         from_token_address = get_token_address(quote.from_token, quote.from_chain)
@@ -4879,6 +4910,7 @@ class SwapEngine:
 
         # Re-fetch nonce to account for any approval tx or pending txs
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
 
         # Build swap transaction - parse hex values from Li.Fi
         tx = {
@@ -5128,6 +5160,7 @@ class SwapEngine:
                 nonce = await asyncio.to_thread(
                     lambda: web3.eth.get_transaction_count(wallet_data["address"])
                 )
+                await record_intended_nonce(nonce, wallet_data["address"])
                 approval_tx = {
                     "to": Web3.to_checksum_address(approval_tx_data.get("to", token_address)),
                     "data": approval_tx_data.get("data", ""),
@@ -5157,6 +5190,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
         tx = {
             "to": Web3.to_checksum_address(socket_tx.to),
             "data": socket_tx.data,
@@ -5296,6 +5330,7 @@ class SwapEngine:
             nonce = await asyncio.to_thread(
                 lambda: web3.eth.get_transaction_count(wallet_data["address"])
             )
+            await record_intended_nonce(nonce, wallet_data["address"])
             approval_tx["nonce"] = nonce
             approval_tx["chainId"] = chain.chain_id
             approval_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
@@ -5319,6 +5354,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
 
         tx = {
             "to": Web3.to_checksum_address(transfer_data.router_address),
@@ -5398,6 +5434,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
         )
+        await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
         # Step 1: exact-amount ERC20 approval (skipped for native BTC input)
@@ -5562,6 +5599,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
         )
+        await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
         async def _send_and_wait(tx: dict, gas: int, label: str) -> None:
@@ -5578,6 +5616,12 @@ class SwapEngine:
                     "chainId": chain.chain_id,
                 }
             )
+            # This closure advances `nonce` via `nonlocal` on every send, so
+            # the one recording at the outer fetch only ever covered the first
+            # transaction. Re-record here so the column tracks the nonce
+            # actually in flight — which is the one resolution needs if THIS
+            # send is the broadcast whose outcome is lost.
+            await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
             signed = await self.wallet_service.sign_evm_transaction(wallet, tx)
             sent = await asyncio.to_thread(
                 lambda: web3.eth.send_raw_transaction(bytes.fromhex(signed.replace("0x", "")))
@@ -5763,6 +5807,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
         )
+        await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price) or 2_000_000_000
 
         calls = (
@@ -5881,6 +5926,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
         )
+        await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
         # Step 1: approve, ONLY when the quote says this chain needs one.
@@ -5996,6 +6042,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(Web3.to_checksum_address(sender))
         )
+        await record_intended_nonce(nonce, Web3.to_checksum_address(sender))
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
 
         # Step 1: ERC20 approval (wait for confirmation before sendToken)
@@ -6109,6 +6156,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
         approve_tx["gas"] = 60000
         approve_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         approve_tx["nonce"] = nonce
@@ -6142,6 +6190,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
         # V2 depositForBurn (7 args: adds destinationCaller/maxFee/minFinality
         # vs V1) does strictly more work than V1's 4-arg call, so a v1-sized
         # gas limit can be too low. Estimate live, with 200k kept only as the
@@ -6328,6 +6377,7 @@ class SwapEngine:
             nonce = await asyncio.to_thread(
                 lambda: web3.eth.get_transaction_count(wallet_data["address"])
             )
+            await record_intended_nonce(nonce, wallet_data["address"])
             approve_tx = {
                 "to": Web3.to_checksum_address(token_address),
                 "data": approve_data,
@@ -6361,6 +6411,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
         deposit_tx["gas"] = 300000
         deposit_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         deposit_tx["nonce"] = nonce
@@ -6431,6 +6482,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
         approve_tx = {
             "to": Web3.to_checksum_address(token_address),
             "data": approve_data,
@@ -6463,6 +6515,7 @@ class SwapEngine:
         nonce = await asyncio.to_thread(
             lambda: web3.eth.get_transaction_count(wallet_data["address"])
         )
+        await record_intended_nonce(nonce, wallet_data["address"])
         transfer_tx["gas"] = 300000
         transfer_tx["gasPrice"] = await asyncio.to_thread(lambda: web3.eth.gas_price)
         transfer_tx["nonce"] = nonce
@@ -6856,6 +6909,7 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                    await record_intended_nonce(nonce, sender)
                     gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
                     # 'exact' mode on a reset-required token (USDT mainnet): zero the
                     # allowance first, since approve() reverts non-zero -> non-zero.
@@ -6905,6 +6959,7 @@ class SwapEngine:
                     )
 
             nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+            await record_intended_nonce(nonce, sender)
             tx = {
                 "to": spender,
                 "data": tx_data.get("data", ""),
@@ -7001,6 +7056,7 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                await record_intended_nonce(nonce, sender)
                 gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
                 # 'exact' mode on a reset-required token (USDT mainnet): zero the
                 # allowance first, since approve() reverts non-zero -> non-zero.
@@ -7048,6 +7104,7 @@ class SwapEngine:
                 )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
         tx = {
             "to": spender,
             "data": tx_data.get("data", ""),
@@ -7159,6 +7216,7 @@ class SwapEngine:
 
                 if current_allowance < amount_needed:
                     nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                    await record_intended_nonce(nonce, sender)
                     gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
                     # 'exact' mode on a reset-required token (USDT mainnet): zero the
                     # allowance first, since approve() reverts non-zero -> non-zero.
@@ -7208,6 +7266,7 @@ class SwapEngine:
                     )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
         tx = {
             "to": tx_to,
             "data": tx_data.get("data", ""),
@@ -7229,10 +7288,20 @@ class SwapEngine:
         return tx_hash.hex()
 
     async def _persist_0x_crosschain_route_data(
-        self, swap_id: Optional[int], quote_id: str, nonce: Optional[int] = None
+        self, swap_id: Optional[int], quote_id: str
     ) -> None:
-        """Persist the freshly re-quoted quote_id (and intended nonce, if
-        known) to the swap record BEFORE the transaction is broadcast.
+        """Persist the freshly re-quoted quote_id to the swap record BEFORE
+        the transaction is broadcast.
+
+        This used to also stash the intended nonce here as
+        ``route_data["intended_nonce"]`` — a JSON blob no query could filter
+        on, which made the one nonce the codebase recorded unusable by the
+        poller that needed it. The nonce now lives in the indexed
+        ``SwapTransaction.nonce`` column, written for every EVM path by
+        ``record_intended_nonce`` (see ``bot/services/swap_nonce.py``), so
+        ``route_data`` is back to carrying route data only. Historical rows
+        are backfilled out of the JSON by
+        ``database/db.py::_add_swap_nonce_columns``.
 
         Writing this only after send_raw_transaction (the previous
         behavior) leaves a window where the broadcast succeeds on-chain but
@@ -7253,10 +7322,7 @@ class SwapEngine:
                 db_tx = session.query(SwapTransaction).filter(SwapTransaction.id == swap_id).first()
                 if not db_tx:
                     return
-                data = {"quote_id": quote_id}
-                if nonce is not None:
-                    data["intended_nonce"] = nonce
-                db_tx.route_data = json.dumps(data)
+                db_tx.route_data = json.dumps({"quote_id": quote_id})
 
         await run_in_db(_work)
 
@@ -7490,6 +7556,7 @@ class SwapEngine:
 
         if needs_approval:
             nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+            await record_intended_nonce(nonce, sender)
             gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
             nonce = await self._send_reset_approval_if_needed(
                 web3=web3,
@@ -7538,6 +7605,7 @@ class SwapEngine:
             )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
         tx = {
             "to": tx_to,
             "data": tx_data.get("data", ""),
@@ -7548,10 +7616,11 @@ class SwapEngine:
             "chainId": chain.chain_id,
         }
 
-        # Persist the fresh quote_id + intended nonce BEFORE broadcasting.
-        # See _persist_0x_crosschain_route_data docstring for why this must
-        # not wait until after send_raw_transaction.
-        await self._persist_0x_crosschain_route_data(swap_id, swap_result.quote_id, nonce)
+        # Persist the fresh quote_id BEFORE broadcasting. See
+        # _persist_0x_crosschain_route_data docstring for why this must not
+        # wait until after send_raw_transaction. The nonce is already on the
+        # row by now — record_intended_nonce wrote it at the fetch above.
+        await self._persist_0x_crosschain_route_data(swap_id, swap_result.quote_id)
 
         signed_tx_hex = await self.wallet_service.sign_evm_transaction(wallet, tx)
         tx_hash = await asyncio.to_thread(
@@ -7637,6 +7706,7 @@ class SwapEngine:
 
             if current_allowance < amount_needed:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                await record_intended_nonce(nonce, sender)
                 gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
                 # 'exact' mode on a reset-required token (USDT mainnet): zero the
                 # allowance first, since approve() reverts non-zero -> non-zero.
@@ -7685,6 +7755,7 @@ class SwapEngine:
                 )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
         tx = {
             "to": router,
             "data": tx_data.get("data", ""),
@@ -7824,6 +7895,7 @@ class SwapEngine:
 
             if current_allowance < amount_in:
                 nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+                await record_intended_nonce(nonce, sender)
                 gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
                 # 'exact' mode on a reset-required token (USDT mainnet): zero
                 # the allowance first, since approve() reverts non-zero ->
@@ -7917,6 +7989,7 @@ class SwapEngine:
             )
 
         nonce = await asyncio.to_thread(lambda: web3.eth.get_transaction_count(sender))
+        await record_intended_nonce(nonce, sender)
         gas_price = await asyncio.to_thread(lambda: web3.eth.gas_price)
         value = amount_in if is_native else 0
 

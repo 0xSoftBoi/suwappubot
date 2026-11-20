@@ -28,6 +28,17 @@ export const swapTransactions = pgTable('swap_transactions', {
 	// Transaction details
 	status: varchar('status', { length: 30 }).default('pending'),
 	txHash: varchar('tx_hash', { length: 255 }),
+
+	// Pre-broadcast EVM identity: the sender and the nonce the swap was about
+	// to spend. Written BEFORE send_raw_transaction, so they survive the one
+	// failure that loses txHash (RPC timeout / process death between the send
+	// and the hash write). (senderAddress, nonce) is what lets tx_poller
+	// resolve a hashless row against the chain instead of leaving it for a
+	// human. EVM only — NULL on Solana/Tron rows and on every row predating
+	// the column, so NULL means "no nonce identity recorded", never nonce 0.
+	senderAddress: varchar('sender_address', { length: 64 }),
+	nonce: integer('nonce'),
+
 	bridgeTxHash: varchar('bridge_tx_hash', { length: 255 }),
 	destinationTxHash: varchar('destination_tx_hash', { length: 255 }),
 
