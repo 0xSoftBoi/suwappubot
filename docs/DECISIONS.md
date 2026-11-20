@@ -242,3 +242,20 @@ ADRs 0001–0005.
   no IP/user agent/user id, so the team's own dashboard works without a PostHog
   login. See `docs/deployment/admin-dashboard.md`.
 
+
+## 2026-11-20 — Dependency audit gate: fix in range, override, then one scoped exception
+
+- **Context**: the `Dependency security scan` job blocks `CI gate`, and it had
+  drifted red across six lockfiles, so nothing could merge.
+- **Decision**: clear advisories in this order — in-range lockfile bump, then a
+  manifest `overrides` pin for a transitive package, and only then a documented
+  exception. Exceptions are one advisory and one workspace each
+  (`docs/security/dependency-exceptions.md`), wired as a per-directory
+  `--ignore` in `.github/workflows/test.yml`, never a global ignore.
+- **Gotchas**: `npm audit fix` / `npm update` crash in `webapp/` on a corrupt
+  arborist edge; delete only the affected `packages` entries from
+  `package-lock.json` and run `npm install --package-lock-only` (twice — the
+  first pass can leave an override's own dependencies out, which `npm ci` then
+  rejects). A `[skip ci]` journal commit must never be the head of a push that
+  also carries code commits: GitHub reads the head commit and skips the whole
+  push, so the code is never tested.
