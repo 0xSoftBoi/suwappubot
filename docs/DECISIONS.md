@@ -205,8 +205,10 @@ ADRs 0001–0005.
   bot strings) follows `docs/WRITING.md`: short declarative sentences, claim
   then limit in two sentences, no em-dashes or parentheticals as glue, numbers
   out of prose, one pull quote per long piece, a limits section in body text.
-  `scripts/copy_lint.py` enforces the mechanical rules, advisory, in the docs
-  verify lane. Evidence: `docs/design/reference-breakdown-kamino-letter.md`.
+  `scripts/copy_lint.py` enforces the mechanical rules in two tiers: published
+  surfaces are a hard gate at zero findings, and the `docs/` tree, which is
+  contributor material, stays advisory. Evidence:
+  `docs/design/reference-breakdown-kamino-letter.md`.
 - **Why**: our research openings ran 35 to 50 word sentences with stacked
   hedges, and a skimmer could not find the one sentence to remember.
 
