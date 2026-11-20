@@ -1536,7 +1536,8 @@ class HotWalletService:
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
-            raw_tx = signed.rawTransaction
+            # eth-account >= 0.13 uses raw_transaction (snake_case)
+            raw_tx = getattr(signed, "raw_transaction", None) or signed.rawTransaction
 
         tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
         return tx_hash.hex()
@@ -1837,7 +1838,8 @@ class HotWalletService:
             if not private_key.startswith("0x"):
                 private_key = "0x" + private_key
             signed = Account.sign_transaction(tx, private_key)
-            raw_tx = signed.rawTransaction
+            # eth-account >= 0.13 uses raw_transaction (snake_case)
+            raw_tx = getattr(signed, "raw_transaction", None) or signed.rawTransaction
 
         tx_hash = self._broadcast_evm_raw_tx(web3, raw_tx, claimed_tx_id=claimed_tx_id)
         return tx_hash.hex()

@@ -328,7 +328,9 @@ class PaymasterService:
 
             # Sign and send
             signed = Account.sign_transaction(swap_tx, private_key)
-            tx_hash = web3.eth.send_raw_transaction(signed.rawTransaction)
+            # eth-account >= 0.13 uses raw_transaction (snake_case)
+            raw_tx = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+            tx_hash = web3.eth.send_raw_transaction(raw_tx)
             tx_hash_hex = tx_hash.hex()
 
             # Record gas usage

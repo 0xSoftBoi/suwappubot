@@ -1,6 +1,8 @@
 """Custodial deposit/withdraw flows for WhatsApp."""
 
 import logging
+from decimal import Decimal
+
 from bot.services.whatsapp_flows.base import BaseWhatsAppFlow, FlowResponse
 from bot.services.whatsapp_flows import register_flow
 from bot.services.whatsapp_flows.flow_errors import user_safe_error
@@ -180,6 +182,10 @@ class WithdrawFlow(BaseWhatsAppFlow):
 
         try:
             from bot.services.wallet import WalletService
+            from bot.services.hot_wallet import (
+                _assert_recipient_compliant,
+                _assert_withdrawals_enabled,
+            )
             from database.db import get_session
             from bot.models.user import User
 
@@ -191,6 +197,12 @@ class WithdrawFlow(BaseWhatsAppFlow):
                 return FlowResponse("No active wallet found. Use *wallets* to create one first.")
 
             ws = WalletService()
+
+            # hot_wallet.send_native_token/send_token enforce the shared
+            # TERMINAL_WITHDRAW_ENABLED kill-switch internally. This flow builds
+            # and broadcasts its own tx, so it must call the guard directly or
+            # it would be the one withdraw surface the kill-switch cannot pause.
+            _assert_withdrawals_enabled()
 
             # Build and sign a transfer transaction
             # This is a simplified version - real implementation would handle
@@ -208,17 +220,26 @@ class WithdrawFlow(BaseWhatsAppFlow):
                     return FlowResponse("RPC not configured. Please try again later.")
 
                 w3 = Web3(Web3.HTTPProvider(rpc_url))
-                nonce = w3.eth.get_transaction_count(wallet.address)
+                nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(wallet.address))
+                destination = Web3.to_checksum_address(destination)
 
-                if token in ("ETH", "MATIC", "BNB", "AVAX", "FTM"):
+                # Only the chain's ACTUAL native asset may take the native
+                # branch. This flow is pinned to Ethereum mainnet (chainId 1 +
+                # ETHEREUM RPC), so sending e.g. MATIC here would move native
+                # ETH instead of the MATIC ERC-20 — a wrong-asset loss at
+                # ~1000x the intended value. MATIC/ARB/OP/LINK are all ERC-20s
+                # on mainnet and must go through the token branch.
+                native_symbol = (getattr(chain_cfg, "native_token", None) or "ETH").upper()
+                if token.upper() == native_symbol:
                     # Native transfer
+                    _assert_recipient_compliant(destination, "ethereum")
                     tx = {
                         "to": destination,
-                        "value": w3.to_wei(float(amount), "ether"),
+                        "value": w3.to_wei(Decimal(str(amount)), "ether"),
                         "gas": 21000,
                         "gasPrice": w3.eth.gas_price,
                         "nonce": nonce,
-                        "chainId": 1,
+                        "chainId": chain_cfg.chain_id,
                     }
                 else:
                     # ERC20 transfer - simplified
@@ -226,7 +247,16 @@ class WithdrawFlow(BaseWhatsAppFlow):
 
                     token_addr = get_token_address(token, "ethereum")
                     decimals = get_token_decimals(token, "ethereum")
-                    raw_amount = int(float(amount) * (10**decimals))
+                    # Fail closed on a token this chain has no address for
+                    # (e.g. AVAX/FTM/SOL from the menu) rather than building a
+                    # transfer against `None` and broadcasting something wrong.
+                    if not token_addr or decimals is None:
+                        return FlowResponse(
+                            f"{token} withdrawals are not supported on Ethereum yet.\n"
+                            "Please use the web dashboard."
+                        )
+                    _assert_recipient_compliant(destination, "ethereum", token_address=token_addr)
+                    raw_amount = int(Decimal(str(amount)) * (10**decimals))
 
                     erc20_abi = [
                         {
@@ -256,8 +286,11 @@ class WithdrawFlow(BaseWhatsAppFlow):
                         }
                     )
 
-                signed = await ws.sign_transaction(wallet.id, tx)
-                tx_hash = w3.eth.send_raw_transaction(signed)
+                # WalletService exposes sign_evm_transaction(wallet, tx) -> hex str
+                # (there is no sign_transaction method). Routes Turnkey vs local
+                # signing internally; the hex payload must be bytes to broadcast.
+                signed_hex = await ws.sign_evm_transaction(wallet, tx)
+                tx_hash = w3.eth.send_raw_transaction(bytes.fromhex(signed_hex.replace("0x", "")))
                 tx_hash_hex = tx_hash.hex()
 
                 from bot.utils.formatters import format_tx_link
