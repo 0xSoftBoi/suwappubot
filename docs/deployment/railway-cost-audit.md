@@ -21,13 +21,37 @@
 > weekly 30 GB balloon that motivated `memory_guard.py` has not recurred.
 > **The memory problem is solved; there is nothing left to chase there.**
 >
-> One regression worth knowing: `railway.python-worker.json` declares
-> `deploy.limitOverride` of 2 vCPU / 8 GiB, but the recreated service reports
-> `MEMORY_LIMIT_GB = 32` and its live deploy config carries no override — the
-> platform-level cap did **not** survive the service recreation. The real
-> protection is the in-process guard (soft 3 GB → tracemalloc report, hard
-> 6 GB → exit 137), which *is* armed, so this is a lost belt-and-braces
-> rather than live exposure. Re-apply the override when convenient.
+> ### The platform cap does not survive service recreation — re-apply it by hand
+>
+> `railway.python-worker.json` declares `deploy.limitOverride` of 2 vCPU /
+> 8 GiB, but the recreated service came up with **no override and a 32 GB
+> ceiling**. Config-as-code applied the file's healthcheck fields and did
+> *not* apply `limitOverride`, so the cap was lost silently — nothing failed,
+> nothing logged, the protection simply was not there.
+>
+> **Re-applied 2026-11-20** via the Railway API (`update-service` with
+> `limits: {vCPUs: 2, memoryGB: 8}`); the live deploy config now reads
+> `limitOverride: {containers: {cpu: 2, memoryBytes: 8000000000}}`. Limits
+> scale the running deployment immediately, so no redeploy was needed.
+>
+> Note the live value is 8 GB decimal, where the repo file asks for 8 GiB
+> (8589934592 bytes). Functionally identical here — both sit far above the
+> in-process guard's 6 GB hard exit — but do not treat the JSON as evidence
+> of what is live.
+>
+> Sizing rationale, measured rather than guessed: steady state over 72 hours
+> is ≤0.78 vCPU and ≤0.96 GB, so 2 vCPU is ~2.6x headroom and 8 GB is ~8x. A
+> single 33.5 vCPU minute appears in the 7-day window (3–7 days before
+> measurement, absent from the last 72h); a CPU limit **throttles** rather
+> than kills, so that event would have been slowed, not lost.
+>
+> **Defence in depth, in firing order:** the in-process guard arms
+> tracemalloc at 3 GB, exits 137 at 6 GB, and the platform cap at 8 GB is the
+> backstop for a leak too fast for the 15-second sampler. The guard is the
+> primary; the cap only matters if the guard is disabled or outrun.
+>
+> **If `python-worker` is ever recreated again, re-apply this cap** — it will
+> not come back on its own.
 >
 > Everything below is the original August audit, kept for the method and for
 > the findings that are still open (F3b, F4–F8). Treat its dollar figures as
