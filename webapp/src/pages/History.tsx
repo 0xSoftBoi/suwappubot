@@ -24,7 +24,8 @@ const statusConfig: Record<string, { color: string; icon: string; bg: string }> 
   failed: { color: 'text-red-600', icon: '✕', bg: 'bg-red-100' },
   cancelled: { color: 'text-gray-500', icon: '○', bg: 'bg-gray-100' },
   // Interrupted after the send may already have gone out. Deliberately not
-  // yellow/pending: nothing is still in flight and it will not resolve itself.
+  // yellow/pending: the outcome is unverified and retries are blocked. A row
+  // that kept its transaction hash still resolves itself once it settles.
   unknown: { color: 'text-amber-700', icon: '!', bg: 'bg-amber-100' },
 }
 

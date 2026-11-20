@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, notInArray, or } from 'drizzle-orm'
+import { and, desc, eq, notInArray } from 'drizzle-orm'
 import { Context, Effect, Exit, Fiber, Layer, Option } from 'effect'
 import { logger } from '../lib/logger'
 import { captureQuoteRoutes, shouldCapture } from '../lib/routeCapture'
@@ -786,14 +786,22 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 				Effect.mapError((e) => new DatabaseError({ message: e.message })),
 			)
 
-			// Idempotency: return any existing record unless we can see that
-			// nothing left the wallet. Retry is permitted ONLY for a failed or
-			// cancelled row whose txHash is still null — a failed row WITH a
-			// txHash means the origin leg was broadcast and may have mined, so
-			// retrying it would send the funds twice. Everything else,
-			// including 'unknown' ("may have broadcast, outcome unverified"),
-			// returns the existing record. Mirrors the Python guard in
-			// bot/services/swap_engine.py; keep the two in step.
+			// Idempotency: return an existing record only when it is NOT safe to
+			// re-execute.
+			//
+			// Do NOT widen this to also return failed/cancelled rows that carry
+			// a txHash, even though the Python engine's guard does exactly that.
+			// The shapes differ: Python's execute_swap returns the row and stops,
+			// whereas here both execution routes continue straight into signing
+			// and broadcasting after this record is created, with a freshly
+			// fetched nonce. Returning a broadcast-bearing row would therefore
+			// send a second origin transaction and overwrite the stored hash.
+			//
+			// Excluding those rows is what keeps this safe: the insert below
+			// then collides with the unique index on idempotencyKey and the
+			// request fails before anything is signed. A hard error, but no
+			// duplicate send. The database is doing the work here, not this
+			// predicate.
 			if (swap.idempotencyKey) {
 				const existing = yield* Effect.tryPromise({
 					try: () =>
@@ -803,11 +811,7 @@ export const SwapServiceLive = Layer.succeed(SwapService, {
 							.where(
 								and(
 									eq(swapTransactions.idempotencyKey, swap.idempotencyKey!),
-									// NOT (retryable-status AND nothing-broadcast)
-									or(
-										notInArray(swapTransactions.status, ['failed', 'cancelled']),
-										isNotNull(swapTransactions.txHash),
-									),
+									notInArray(swapTransactions.status, ['failed', 'cancelled']),
 								),
 							)
 							.limit(1),

@@ -4713,7 +4713,18 @@ class SwapEngine:
                         )
                         if db_tx:
                             if broadcast_tx_hash:
-                                db_tx.status = SwapStatus.UNKNOWN.value
+                                # Never walk back a settled outcome. The poller
+                                # can commit COMPLETED or FAILED off the hash
+                                # written moments ago, so an error raised later
+                                # in this same attempt must not overwrite it
+                                # with UNKNOWN — that would lose a real result
+                                # and reopen the retry question on a swap that
+                                # is already resolved.
+                                if db_tx.status not in (
+                                    SwapStatus.COMPLETED.value,
+                                    SwapStatus.FAILED.value,
+                                ):
+                                    db_tx.status = SwapStatus.UNKNOWN.value
                                 db_tx.tx_hash = db_tx.tx_hash or broadcast_tx_hash
                             else:
                                 db_tx.status = SwapStatus.FAILED.value
