@@ -92,8 +92,13 @@ says so, and so does `read_mandate`'s own payload.
    approved, unspent proposal is on the desk, and it refuses a replay once
    consumed. An agent cannot reach for a tool the human has not unlocked.
 5. **This page never holds a key.** The handoff opens Terminal
-   (`/alert-swap`, which prefills the ticket and still requires a human tap) or
-   the Telegram bot with a copy-ready `/s` command. A plan's handoff is
+   (`/alert-swap?from=&to=&chain=&side=&amount=` for a same-chain pair, or
+   `/bridge?from=&to=&token=&amount=` for a stable moving chains; both prefill
+   the form and still require a human tap) or the Telegram bot with a
+   copy-ready `/s` command. A cross-chain swap into a different token has no
+   Terminal form, so its handoff is the bot command alone and `terminalUrl`
+   is null; the desk never links to a form the human would have to refill
+   from memory. A plan's handoff is
    **sequenced**: one leg at a time, in order — the next leg's link does not
    exist until the human marks the current one signed on the desk, and signing
    the final leg spends the approval.
@@ -182,14 +187,14 @@ step detail.
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 92 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 93 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **92 assertions**, among them: that the ticket
+drives the real page through **93 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is

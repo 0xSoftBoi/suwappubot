@@ -9,6 +9,7 @@ import {
 import { useBridgeExecute } from "../hooks/useBridgeExecute";
 import { useBridgeTransfer } from "../hooks/useBridgeRoutes";
 import { usePersistentState } from "../lib/persist";
+import { useSearchParams } from "react-router-dom";
 
 /**
  * Bridge workspace: choose a route on the left, watch the hand-off on the right.
@@ -29,12 +30,23 @@ export function BridgeRoute() {
     [],
   );
   const execute = useBridgeExecute();
+  // Deep link from the Agent Desk's approved-trade handoff:
+  //   /bridge?from=<chain>&to=<chain>&token=USDC|USDT&amount=<amt>&ref=webmcp-desk
+  // Prefill only. Nothing is quoted or sent until the human picks a route and
+  // confirms; the panel ignores values it does not offer.
+  const [params] = useSearchParams();
 
   const failure = execute.error as { detail?: string } | null;
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-1.5 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] md:gap-2">
       <BridgePanel
+        prefill={{
+          fromChain: params.get("from"),
+          toChain: params.get("to"),
+          token: params.get("token"),
+          amount: params.get("amount"),
+        }}
         isSubmitting={execute.isPending}
         failureDetail={
           failure

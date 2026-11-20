@@ -560,6 +560,23 @@ await page.waitForFunction(() =>
 const handoff = await call('open_signing_handoff', { proposalId: blocked.proposalId });
 show('open_signing_handoff', handoff);
 check('handoff returns a signing link', Boolean(handoff.handoff?.[0]?.terminalUrl));
+// The link must carry the approved pair, not just the token sold: ETH -> PEPE
+// lands as that pair, with the amount in ETH, never as "buy ETH".
+check(
+  'handoff link carries the approved pair and side',
+  (() => {
+    const u = new URL(String(handoff.handoff?.[0]?.terminalUrl));
+    return (
+      u.pathname.endsWith('/alert-swap') &&
+      u.searchParams.get('from') === 'ETH' &&
+      u.searchParams.get('to') === 'PEPE' &&
+      u.searchParams.get('chain') === 'base' &&
+      u.searchParams.get('side') === 'buy' &&
+      u.searchParams.get('amount') === '0.5'
+    );
+  })(),
+  handoff.handoff?.[0]?.terminalUrl,
+);
 
 // Consuming the approval retires the tool: it leaves the page's tool list
 // entirely. Belt and braces — the handler refuses a replay too, in case an

@@ -227,21 +227,49 @@ const primaryBreach = (verdict: MandateVerdict | null) => {
 /**
  * The signing handoff. Nothing here signs — these are the surfaces that own
  * the user's keys, pre-filled with the approved trade.
+ *
+ * Terminal has two forms: the swap panel (same chain, any pair) and the bridge
+ * (same stable, across chains). A cross-chain swap into a different token has
+ * no Terminal form today, so for that leg the bot's `/s` command is the
+ * pre-filled path and `terminalUrl` is null, rather than a link to a form the
+ * human would have to fill in again from memory.
  */
+const BRIDGE_TOKENS = new Set(['USDC', 'USDT']);
+
 function buildHandoff(swap: SwapBody) {
-  const side = STABLES.has(swap.toToken.toUpperCase()) ? 'sell' : 'buy';
-  const terminalUrl = `${TERMINAL_URL}/alert-swap?${new URLSearchParams({
-    token: swap.fromToken,
-    chain: swap.fromChain,
-    side,
-    amount: swap.amount,
-    ref: 'webmcp-desk',
-  })}`;
+  const from = swap.fromToken.toUpperCase();
+  const to = swap.toToken.toUpperCase();
+  const ref = 'webmcp-desk';
+  let terminalUrl: string | null = null;
+  let terminalNote: string | null = null;
+  if (swap.fromChain === swap.toChain) {
+    // `amount` is in the from-token on both sides; alert-swap places the pair
+    // so that `from` is what the human pays.
+    const side = STABLES.has(to) ? 'sell' : 'buy';
+    terminalUrl = `${TERMINAL_URL}/alert-swap?${new URLSearchParams({
+      from: swap.fromToken,
+      to: swap.toToken,
+      chain: swap.fromChain,
+      side,
+      amount: swap.amount,
+      ref,
+    })}`;
+  } else if (from === to && BRIDGE_TOKENS.has(from)) {
+    terminalUrl = `${TERMINAL_URL}/bridge?${new URLSearchParams({
+      from: swap.fromChain,
+      to: swap.toChain,
+      token: from,
+      amount: swap.amount,
+      ref,
+    })}`;
+  } else {
+    terminalNote = `Terminal has no form for a ${swap.fromChain} → ${swap.toChain} swap into a different token; the bot command carries the whole trade.`;
+  }
   const telegramCommand =
     swap.fromChain === swap.toChain
       ? `/s ${swap.amount} ${swap.fromToken} ${swap.toToken}`
       : `/s ${swap.amount} ${swap.fromToken} ${swap.fromChain} ${swap.toToken} ${swap.toChain}`;
-  return { terminalUrl, telegramCommand, telegramUrl: TELEGRAM_URL };
+  return { terminalUrl, terminalNote, telegramCommand, telegramUrl: TELEGRAM_URL };
 }
 
 // ── Component ───────────────────────────────────────────────────────
@@ -2199,14 +2227,29 @@ export default function AgentDesk() {
                               )}
                               {state === 'active' && s.swap && (
                                 <span className={styles.actions}>
-                                  <a
-                                    className={styles.primary}
-                                    href={buildHandoff(s.swap).terminalUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                  >
-                                    Sign leg {legIdx + 1} in Terminal
-                                  </a>
+                                  {(() => {
+                                    const h = buildHandoff(s.swap);
+                                    const key = `${p.id}-leg-${legIdx}`;
+                                    return h.terminalUrl ? (
+                                      <a
+                                        className={styles.primary}
+                                        href={h.terminalUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                      >
+                                        Sign leg {legIdx + 1} in Terminal
+                                      </a>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className={styles.primary}
+                                        onClick={() => copy(key, h.telegramCommand)}
+                                        title={h.terminalNote ?? undefined}
+                                      >
+                                        {copied === key ? 'Copied' : `Copy ${h.telegramCommand}`}
+                                      </button>
+                                    );
+                                  })()}
                                   <button
                                     type="button"
                                     className={styles.ghost}
@@ -2359,22 +2402,35 @@ export default function AgentDesk() {
                       </p>
                       {legs.map((leg, i) => {
                         const h = buildHandoff(leg);
+                        const key = `${p.id}-${i}`;
                         return (
                           <div className={styles.actions} key={`${p.id}-h-${i}`}>
-                            <a
-                              className={styles.primary}
-                              href={h.terminalUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {legs.length > 1 ? `Leg ${i + 1} in Terminal` : 'Open in Terminal'}
-                            </a>
+                            {h.terminalUrl ? (
+                              <a
+                                className={styles.primary}
+                                href={h.terminalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {legs.length > 1 ? `Leg ${i + 1} in Terminal` : 'Open in Terminal'}
+                              </a>
+                            ) : (
+                              <a
+                                className={styles.ghost}
+                                href={h.telegramUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={h.terminalNote ?? undefined}
+                              >
+                                Open Telegram bot
+                              </a>
+                            )}
                             <button
                               type="button"
-                              className={styles.ghost}
-                              onClick={() => copy(`${p.id}-${i}`, h.telegramCommand)}
+                              className={h.terminalUrl ? styles.ghost : styles.primary}
+                              onClick={() => copy(key, h.telegramCommand)}
                             >
-                              {copied === `${p.id}-${i}` ? 'Copied' : `Copy ${h.telegramCommand}`}
+                              {copied === key ? 'Copied' : `Copy ${h.telegramCommand}`}
                             </button>
                           </div>
                         );
