@@ -520,6 +520,28 @@ export async function handleBrowseMppDirectory(args: Record<string, unknown>) {
 	}
 }
 
+// Human-in-the-loop hand-off. Every same-chain quote carries a terminal deep
+// link that PRE-FILLS the swap form; the user still reviews and signs in their
+// own wallet (terminal/src/routes/AlertSwap.tsx never auto-submits). This is
+// what lets any MCP client — Claude, ChatGPT, an agent — turn a quote into a
+// real, self-custodial trade with one tap. The terminal pairs every token with
+// USDC, so the side/amount are only prefilled when one leg is USDC.
+const TERMINAL_URL = (process.env.TERMINAL_URL || 'https://terminal.suwappu.bot').replace(/\/+$/, '')
+export function buildSignUrl(p: { fromToken: string; toToken: string; amount: string; chain: string; toChain?: string }): string | undefined {
+	if (p.toChain && p.toChain.toLowerCase() !== p.chain.toLowerCase()) return undefined
+	const from = p.fromToken.toUpperCase().trim()
+	const to = p.toToken.toUpperCase().trim()
+	const q = new URLSearchParams({ chain: p.chain.toLowerCase(), ref: 'mcp' })
+	if (from === 'USDC' && to !== 'USDC') {
+		q.set('token', p.toToken); q.set('side', 'buy'); q.set('amount', p.amount)
+	} else if (to === 'USDC' && from !== 'USDC') {
+		q.set('token', p.fromToken); q.set('side', 'sell'); q.set('amount', p.amount)
+	} else {
+		q.set('token', p.toToken); q.set('side', 'buy')
+	}
+	return `${TERMINAL_URL}/alert-swap?${q.toString()}`
+}
+
 async function handleGetQuote(args: Record<string, unknown>, agent: Agent | undefined) {
 	const { from_token, to_token, amount, chain, from_chain, to_chain, wallet_address, slippage } = args as {
 		from_token: string; to_token: string; amount: string; chain?: string
@@ -566,6 +588,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent | unde
 					price_impact: `${quote.priceImpactPct}%`,
 					route: quote.routePlan.map((r: any) => r.swapInfo.label).join(' -> '),
 					expires_in_seconds: 60,
+					sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: 'solana' }),
 				}
 			})
 		)
@@ -666,6 +689,7 @@ async function handleGetQuote(args: Record<string, unknown>, agent: Agent | unde
 				amount_in: amount, amount_out: outHuman.toFixed(6),
 				exchange_rate: quote.exchangeRate, gas_usd: quote.estimatedGasUsd,
 				route: quote.route, expires_in_seconds: 60,
+				sign_url: buildSignUrl({ fromToken: from_token, toToken: to_token, amount, chain: chainKey, toChain: to_chain }),
 				...(wallet_address ? {
 					transaction: {
 						to: quote.transactionRequest.to, value: quote.transactionRequest.value,
