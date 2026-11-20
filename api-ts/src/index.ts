@@ -63,6 +63,7 @@ async function main() {
 		allowedOrigins: env.ALLOWED_ORIGINS,
 		adminApiKey: env.ADMIN_API_KEY,
 		adminEmails: env.ADMIN_EMAILS,
+		adminSessionOrigins: env.ADMIN_SESSION_ORIGINS,
 		jwtSecret: env.JWT_SECRET,
 		internalApiKey: env.INTERNAL_API_KEY,
 		internalApiUrl: env.INTERNAL_API_URL,

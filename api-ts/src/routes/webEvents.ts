@@ -59,8 +59,12 @@ function cleanProps(value: unknown): string | null {
 webEventRoutes.post('/event', async (c) => {
 	const done = () => c.body(null, 204)
 
-	const length = Number(c.req.header('content-length') ?? '0')
-	if (!Number.isFinite(length) || length > MAX_BODY_BYTES) return done()
+	// Require an honest, small Content-Length. A chunked request (no length)
+	// would otherwise be buffered in full before the size check below; browsers
+	// always send the header for a string body, so only abuse loses out.
+	const declared = c.req.header('content-length')
+	const length = declared === undefined ? Number.NaN : Number(declared)
+	if (!Number.isInteger(length) || length <= 0 || length > MAX_BODY_BYTES) return done()
 
 	let body: Record<string, unknown>
 	try {

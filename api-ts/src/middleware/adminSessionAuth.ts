@@ -34,6 +34,22 @@ export interface AdminAuthOptions {
 	jwtSecret?: string | undefined
 	/** Lowercased allowlist from `parseAdminEmails`. Empty disables session login. */
 	adminEmails: string[]
+	/**
+	 * Origins whose pages may use the session path (the site that hosts /admin).
+	 * The session is a cookie and CORS allows credentials for every first-party
+	 * origin, so without this a script injected into ANY of them (terminal,
+	 * webapp, ...) could read admin data while a staff member is signed in.
+	 */
+	sessionOrigins: string[]
+}
+
+/** Parse `ADMIN_SESSION_ORIGINS`; defaults to the marketing site, plus localhost outside production. */
+export function parseAdminOrigins(raw: string | undefined, isProduction: boolean): string[] {
+	const configured = (raw ?? 'https://suwappu.bot,https://www.suwappu.bot')
+		.split(',')
+		.map((o) => o.trim().replace(/\/$/, ''))
+		.filter((o) => /^https?:\/\/[^/]+$/.test(o))
+	return isProduction ? configured : [...configured, 'http://localhost:3000', 'http://localhost:3111']
 }
 
 /**
@@ -47,6 +63,7 @@ export interface AdminAuthOptions {
  *  - Read-only: GET/HEAD only. The session rides a cookie, so allowing writes
  *    would need CSRF protection this surface does not have. Anything that
  *    mutates still requires the key.
+ *  - The request must come from the admin UI's own origin (`sessionOrigins`).
  *  - The token must verify (HS256, pinned) and carry a trusted `src`.
  *  - Authorisation is NOT the token's claims. It is a database fact: the
  *    token's user must own a Google identity whose email Google reports as
@@ -65,7 +82,10 @@ export function adminAuth(validKey: string | undefined, opts: AdminAuthOptions) 
 			!c.req.header('X-Admin-Key') &&
 			opts.adminEmails.length > 0 &&
 			Boolean(opts.jwtSecret) &&
-			(method === 'GET' || method === 'HEAD')
+			(method === 'GET' || method === 'HEAD') &&
+			// Browsers always send Origin on a cross-origin fetch and scripts cannot
+			// forge it. Missing or foreign Origin: key only.
+			opts.sessionOrigins.includes(c.req.header('Origin') ?? '')
 
 		if (sessionEligible) {
 			const email = await resolveAdminEmail(c, opts)

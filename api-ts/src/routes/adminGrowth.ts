@@ -43,9 +43,36 @@ const CONVERSION_EVENTS = [
 ]
 const inList = (values: string[]): SQL => sql.join(values.map((v) => sql`${v}`), sql`, `)
 
-// `context_json` is free text that normally holds JSON; never let one bad row
-// fail the whole report.
-const ctx = sql`(case when context_json ~ '^\\s*\\{' then context_json::jsonb else '{}'::jsonb end)`
+/**
+ * `context_json` is written from PUBLIC forms. It is valid JSON to Python but
+ * not always to Postgres (a \\u0000 escape, NaN, or a lone surrogate all make
+ * `::jsonb` throw), so casting it in SQL let one crafted submission fail the
+ * whole report. Parse it here instead, one row at a time, and treat anything
+ * unreadable as an empty object.
+ */
+function parseContext(raw: unknown): Record<string, unknown> {
+	if (typeof raw !== 'string' || raw.length > 20_000) return {}
+	try {
+		const parsed: unknown = JSON.parse(raw)
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {}
+	} catch {
+		return {}
+	}
+}
+/** A short, printable string field from a parsed context object. */
+const field = (obj: Record<string, unknown>, key: string, max = 300): string | null => {
+	const v = obj[key]
+	if (typeof v !== 'string') return null
+	// biome-ignore lint/suspicious/noControlRegex: stripping control characters is the point
+	const clean = v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+	return clean ? clean.slice(0, max) : null
+}
+const attributionOf = (obj: Record<string, unknown>): Record<string, unknown> => {
+	const a = obj.attribution
+	return a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, unknown>) : {}
+}
 
 adminGrowthRoutes.get('/growth', async (c) => {
 	const rawDays = parseInt(c.req.query('days') || '30', 10)
@@ -123,17 +150,7 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					),
 					run(
 						'recent leads',
-						sql`select id, status, created_at,
-								${ctx} ->> 'name' as name,
-								${ctx} ->> 'company' as company,
-								${ctx} ->> 'email' as email,
-								${ctx} ->> 'country' as country,
-								${ctx} ->> 'monthly_volume' as monthly_volume,
-								${ctx} ->> 'telegram' as telegram,
-								${ctx} ->> 'use_case' as use_case,
-								${ctx} -> 'attribution' ->> 'utm_source' as utm_source,
-								${ctx} -> 'attribution' ->> 'utm_campaign' as utm_campaign,
-								${ctx} -> 'attribution' ->> 'referrer' as referrer
+						sql`select id, status, created_at, context_json
 							from support_tickets
 							where kind = 'enterprise_lead'
 							order by created_at desc
@@ -148,12 +165,12 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					),
 					run(
 						'lead sources',
-						sql`select coalesce(nullif(${ctx} -> 'attribution' ->> 'utm_source', ''), 'direct / unknown') as source,
-								count(*) as n
+						sql`select context_json
 							from support_tickets
 							where created_at >= ${start}::timestamp
 								and kind in ('enterprise_lead', 'newsletter', 'mobile_waitlist')
-							group by 1 order by 2 desc limit 8`,
+							order by created_at desc
+							limit 5000`,
 					),
 					optional(
 						'visits by day',
@@ -334,21 +351,35 @@ adminGrowthRoutes.get('/growth', async (c) => {
 					count: num(r.n),
 					visitors: num(r.visitors),
 				})),
-				leadSources: leadSources.map((r) => ({ source: String(r.source), count: num(r.n) })),
-				recentLeads: recentLeads.map((r) => ({
-					id: num(r.id),
-					status: str(r.status) ?? 'open',
-					createdAt: r.created_at ? new Date(String(r.created_at)).toISOString() : null,
-					name: str(r.name),
-					company: str(r.company),
-					email: str(r.email),
-					country: str(r.country),
-					monthlyVolume: str(r.monthly_volume),
-					telegram: str(r.telegram),
-					useCase: str(r.use_case),
-					source: str(r.utm_source) ?? str(r.referrer) ?? null,
-					campaign: str(r.utm_campaign),
-				})),
+				leadSources: (() => {
+					const counts = new Map<string, number>()
+					for (const r of leadSources) {
+						const source = field(attributionOf(parseContext(r.context_json)), 'utm_source', 80) ?? 'direct / unknown'
+						counts.set(source, (counts.get(source) ?? 0) + 1)
+					}
+					return [...counts.entries()]
+						.sort((x, y) => y[1] - x[1])
+						.slice(0, 8)
+						.map(([source, count]) => ({ source, count }))
+				})(),
+				recentLeads: recentLeads.map((r) => {
+					const c = parseContext(r.context_json)
+					const attribution = attributionOf(c)
+					return {
+						id: num(r.id),
+						status: str(r.status) ?? 'open',
+						createdAt: r.created_at ? new Date(String(r.created_at)).toISOString() : null,
+						name: field(c, 'name'),
+						company: field(c, 'company'),
+						email: field(c, 'email', 320),
+						country: field(c, 'country'),
+						monthlyVolume: field(c, 'monthly_volume'),
+						telegram: field(c, 'telegram'),
+						useCase: field(c, 'use_case', 2000),
+						source: field(attribution, 'utm_source', 80) ?? field(attribution, 'referrer', 200),
+						campaign: field(attribution, 'utm_campaign', 80),
+					}
+				}),
 			}
 		}),
 	)

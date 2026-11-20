@@ -340,7 +340,7 @@ export default function GrowthSection({ load }: { load: (path: string) => Promis
                             </button>
                           </td>
                           <td>{lead.company ?? '—'}</td>
-                          <td>{lead.email ? <a className={styles.link} href={`mailto:${lead.email}`}>{lead.email}</a> : '—'}</td>
+                          <td>{lead.email ? <a className={styles.link} href={`mailto:${encodeURIComponent(lead.email)}`}>{lead.email}</a> : '—'}</td>
                           <td>{lead.monthlyVolume ?? '—'}</td>
                           <td>{lead.source ?? 'Not tagged'}</td>
                         </tr>,

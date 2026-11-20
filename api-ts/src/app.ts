@@ -13,7 +13,7 @@ import {
 	otelRequestTracing,
 } from './middleware'
 import { internalAuth } from './middleware/internalAuth'
-import { adminAuth, parseAdminEmails } from './middleware/adminSessionAuth'
+import { adminAuth, parseAdminEmails, parseAdminOrigins } from './middleware/adminSessionAuth'
 import { ipRateLimit } from './middleware/ipRateLimit'
 import { adminGrowthRoutes } from './routes/adminGrowth'
 import { webEventRoutes } from './routes/webEvents'
@@ -75,6 +75,8 @@ export interface AppConfig {
 	adminApiKey?: string | undefined
 	/** Comma-separated staff emails allowed to open /admin via Google sign-in. */
 	adminEmails?: string | undefined
+	/** Origins allowed to use staff-session admin auth (defaults to the marketing site). */
+	adminSessionOrigins?: string | undefined
 	jwtSecret?: string | undefined
 	internalApiKey?: string | undefined
 	internalApiUrl?: string | undefined
@@ -549,6 +551,10 @@ https://suwappu.bot/docs
 		adminAuth(config.adminApiKey, {
 			jwtSecret: config.jwtSecret,
 			adminEmails: parseAdminEmails(config.adminEmails),
+			sessionOrigins: parseAdminOrigins(
+				config.adminSessionOrigins,
+				process.env.NODE_ENV === 'production',
+			),
 		}),
 	)
 	app.route('/admin', adminRoutes)
