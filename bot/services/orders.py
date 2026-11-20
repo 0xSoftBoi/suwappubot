@@ -5,6 +5,8 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import and_, or_
+
 from bot.models.advanced import (
     LimitOrder,
     OrderStatus,
@@ -139,6 +141,26 @@ _TRIGGERED_GRACE = timedelta(minutes=30)
 # which would turn "record why the order failed" into "lose the order's
 # terminal status as well as the reason".
 _ERROR_MESSAGE_MAX = 500
+
+# Marks the one failure verdict that can be premature, so it can be revisited.
+#
+# The reconciler fails a TRIGGERED order that has no swap row once the grace
+# window expires. That verdict races an executor still inside get_quote on
+# another replica, and the window cannot bound it (quote plus balance checks
+# have no upper bound). A confirmed submit may therefore arrive after the
+# order was failed, and the order must then correct itself — but the
+# reconciler scans TRIGGERED only, so without a marker a prematurely failed
+# order would never be looked at again and the self-heal would be dead code.
+#
+# Only this reason is re-examined. A failure with a transaction hash, an
+# UNKNOWN outcome, or a genuinely failed swap is settled and must not be
+# reopened or re-notified.
+_PREMATURE_FAILURE_SENTINEL = "[unstarted]"
+
+# How long a prematurely failed order stays eligible for that correction.
+# Past this, an order with no swap row never had one, and re-scanning it
+# forever would grow the reconciler's working set without bound.
+_PREMATURE_REEXAMINE_WINDOW = timedelta(hours=24)
 
 
 def _truncate_reason(reason: str) -> str:
@@ -1023,9 +1045,25 @@ class OrderService:
         reading and acting and must not touch a detached instance.
         """
         with get_session() as session:
+            # TRIGGERED orders are the stall this pass exists to clear. The
+            # second arm re-examines ONLY orders this pass itself failed for
+            # "execution never started", which is the one verdict that can be
+            # wrong (see _PREMATURE_FAILURE_SENTINEL); a hash, an UNKNOWN
+            # outcome or a real swap failure is settled and is not reopened.
+            reexamine_cutoff = datetime.utcnow() - _PREMATURE_REEXAMINE_WINDOW
             orders = (
                 session.query(LimitOrder)
-                .filter(LimitOrder.status == OrderStatus.TRIGGERED.value)
+                .filter(
+                    or_(
+                        LimitOrder.status == OrderStatus.TRIGGERED.value,
+                        and_(
+                            LimitOrder.status == OrderStatus.FAILED.value,
+                            LimitOrder.tx_hash.is_(None),
+                            LimitOrder.error_message.like(f"{_PREMATURE_FAILURE_SENTINEL}%"),
+                            LimitOrder.updated_at >= reexamine_cutoff,
+                        ),
+                    )
+                )
                 .all()
             )
             out = []
@@ -1143,9 +1181,12 @@ class OrderService:
                 # insert. Nothing was ever sent, so this is safe to call
                 # failed — and it must be called something, or the order stays
                 # open forever in the user's order list.
+                # Sentinel-prefixed so this one verdict can be revisited if a
+                # confirmed submit turns up later (a slow executor on another
+                # replica). The prefix is stripped before the user sees it.
                 reason = (
-                    "The order was triggered but execution never started, so no funds were "
-                    "sent. Place a new order to try again."
+                    f"{_PREMATURE_FAILURE_SENTINEL} The order was triggered but execution "
+                    f"never started, so no funds were sent. Place a new order to try again."
                 )
                 needs_verification = False
             elif tx_hash:
@@ -1308,8 +1349,12 @@ class OrderService:
                 if db_order is None:
                     return False
                 db_order.executions_completed += 1
+                # `or 0` on both: the column has a "0" default but a row
+                # inserted outside SQLAlchemy can hold NULL, and this write is
+                # new code on a money field — an int(None) here would abort the
+                # booking of a tranche that already executed.
                 db_order.total_spent = str(
-                    int(db_order.total_spent) + int(order.amount_per_execution)
+                    int(db_order.total_spent or 0) + int(order.amount_per_execution or 0)
                 )
                 db_order.next_execution_at = datetime.utcnow() + timedelta(
                     hours=db_order.interval_hours
@@ -1785,6 +1830,10 @@ class OrderService:
         sent even when the user has turned order notifications off; an ordinary
         failure respects that preference.
         """
+        # The sentinel is bookkeeping for the reconciler, not copy. Strip it at
+        # the one boundary where text becomes user-visible, so no caller has to
+        # remember to.
+        reason = reason.replace(_PREMATURE_FAILURE_SENTINEL, "").strip()
         try:
             from bot.models.user import User
 
