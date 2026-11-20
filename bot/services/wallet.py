@@ -2228,7 +2228,17 @@ def _to_int(value) -> int | None:
 
 
 def _tx_type(tx: dict) -> int | None:
-    return _to_int(tx.get("type"))
+    """The tx's EIP-2718 type as an int, or None when absent.
+
+    Raises InvalidTransactionError, not the bare ValueError/TypeError `_to_int`
+    would, for an un-coercible `type` (`"0xzz"`, `[]`, ...): this runs before
+    the try in serialize_unsigned_evm_tx, so a bare one would reach
+    sign_evm_with_fallback as a Turnkey outage and cost a backup-key decrypt.
+    """
+    try:
+        return _to_int(tx.get("type"))
+    except (TypeError, ValueError) as e:
+        raise InvalidTransactionError(f"Unsignable EVM transaction: bad type field: {e}") from e
 
 
 def require_evm_chain_id(transaction: dict) -> int:
@@ -2252,6 +2262,17 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
 
     chainId is required: defaulting it (previously to 1) would sign a valid
     Ethereum-mainnet transaction that anyone could replay there.
+
+    Raises:
+        InvalidTransactionError: the transaction is unsignable as given — no
+            valid chainId, no explicit positive gas limit, or rejected by
+            eth_account's field validation or rlp's encoding. This is the only
+            exception type this function raises for a malformed transaction,
+            for typed (EIP-1559/2930) and legacy alike, which is what lets
+            `sign_evm_with_fallback` tell a bad transaction apart from a
+            signing-backend outage: it re-raises this without tripping the
+            Turnkey circuit breaker or decrypting the wallet's backup key to
+            retry. Any new code path added here must preserve that.
     """
     import rlp
     from eth_account._utils.legacy_transactions import (
@@ -2269,24 +2290,44 @@ def serialize_unsigned_evm_tx(transaction: dict) -> str:
         tx["data"] = tx.pop("input")
     if _tx_type(tx) == 0:
         tx.pop("type", None)  # eth_account rejects an explicit legacy type 0
+    # Checked before the typed/legacy split so both paths fail the same way. On
+    # the typed path a missing `gas` key otherwise surfaces as a bare TypeError
+    # from the encoding below (outside the try), which sign_evm_with_fallback
+    # reads as a backend outage: it trips the circuit breaker and decrypts the
+    # wallet's backup key to retry a transaction that is merely malformed.
+    try:
+        gas = _to_int(tx.get("gas"))
+    except (TypeError, ValueError):
+        gas = None
+    if gas is None or gas <= 0:
+        raise InvalidTransactionError(
+            "Refusing to sign EVM transaction without an explicit, positive gas limit"
+        )
+
     is_typed = "maxFeePerGas" in tx or _tx_type(tx) is not None
     if not is_typed:
         # Preserve the historical defaults for optional legacy fields (None too).
-        for key, default in (("nonce", 0), ("gas", 21000), ("value", 0), ("data", "0x")):
+        for key, default in (("nonce", 0), ("value", 0), ("data", "0x")):
             if tx.get(key) is None:
                 tx[key] = default
         if tx.get("gasPrice") is None:
             tx["gasPrice"] = 0
         if not tx.get("to"):
             tx.pop("to", None)
+    # The encoding is inside the try as well, not just the field validation
+    # above it. eth_account raises a bare TypeError from the typed encoding for
+    # any other absent required field (`nonce`, `maxFeePerGas`), and rlp raises
+    # RLPException — which is not a ValueError — for a negative one. Left
+    # uncaught, each of those reads to sign_evm_with_fallback as a Turnkey
+    # outage rather than a malformed transaction, with the same cost: a tripped
+    # circuit breaker and a KMS-decrypted backup key.
     try:
         unsigned = serializable_unsigned_transaction_from_dict(tx)
-    except (TypeError, ValueError) as e:
+        if isinstance(unsigned, TypedTransaction):
+            inner = unsigned.transaction
+            fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
+            body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
+            return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
+        return "0x" + rlp.encode(unsigned).hex()
+    except (TypeError, ValueError, rlp.exceptions.RLPException) as e:
         raise InvalidTransactionError(f"Unsignable EVM transaction: {e}") from e
-
-    if isinstance(unsigned, TypedTransaction):
-        inner = unsigned.transaction
-        fields = transaction_rpc_to_rlp_structure(dissoc(inner.dictionary, "v", "r", "s"))
-        body = rlp.encode(inner.__class__._unsigned_transaction_serializer.from_dict(fields))
-        return "0x" + (bytes([unsigned.transaction_type]) + body).hex()
-    return "0x" + rlp.encode(unsigned).hex()
