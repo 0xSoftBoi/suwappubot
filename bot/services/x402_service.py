@@ -21,6 +21,7 @@ from bot.models.subscription import (
     ConsumedPayment,
 )
 from bot.services.fee_service import TIER_FEE_RATES
+from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
 from bot.services.wallet import WalletService
 from database.db import get_session
 
@@ -687,7 +688,22 @@ class X402Service:
                         the caller MUST NOT credit.
         """
         norm_chain = (chain or "").strip().lower()
-        norm_tx = (tx_hash or "").strip().lower()
+        # Write the canonical spelling only (0x + lowercase; x402 is EVM-only), but
+        # CHECK every spelling: ledger rows consumed before canonicalization hold the
+        # bare form, and a canonical-only read would re-open the replay.
+        norm_tx = canonical_tx_hash((tx_hash or "").strip(), "evm")
+        variants = set(tx_hash_variants(norm_tx)) | {v.lower() for v in tx_hash_variants(tx_hash)}
+        if variants:
+            prior = (
+                session.query(ConsumedPayment.id)
+                .filter(
+                    ConsumedPayment.chain == norm_chain,
+                    ConsumedPayment.tx_hash.in_(variants),
+                )
+                .first()
+            )
+            if prior is not None:
+                return False
         try:
             with session.begin_nested():
                 session.add(

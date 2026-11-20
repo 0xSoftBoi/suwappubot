@@ -30,6 +30,7 @@ from typing import Dict, Optional, Tuple
 
 from sqlalchemy import text
 
+from bot.services.swap_nonce import canonical_tx_hash, tx_hash_variants
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.models.custodial import (
     CustodialTransaction,
@@ -157,9 +158,30 @@ class DepositWatcher:
         """
         from bot.services.hot_wallet import hot_wallet_service
 
+        # Source is always web3 ``log["transactionHash"].hex()``, which is BARE on
+        # hexbytes>=1.0 (and 0x-prefixed on older pins), so the spelling of the
+        # persisted key depends on the library version. Write the canonical form,
+        # but also treat a legacy-spelling key as "already credited" -- otherwise
+        # a re-scan of previously booked blocks would credit them a second time.
+        tx_hash = canonical_tx_hash(tx_hash, "evm")
         key = f"deposit:{chain}:{tx_hash}:{log_index}"
+        legacy_keys = {
+            f"deposit:{chain}:{v.lower()}:{log_index}" for v in tx_hash_variants(tx_hash)
+        } - {key}
         try:
             with get_session() as session:
+                if legacy_keys:
+                    seen = (
+                        session.query(CustodialTransaction.id)
+                        .filter(
+                            CustodialTransaction.user_id == user_id,
+                            CustodialTransaction.idempotency_key.in_(legacy_keys),
+                        )
+                        .first()
+                    )
+                    if seen is not None:
+                        logger.debug("Deposit %s already credited (legacy key)", key)
+                        return False
                 session.add(
                     CustodialTransaction(
                         user_id=user_id,

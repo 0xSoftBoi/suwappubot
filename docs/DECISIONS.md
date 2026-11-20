@@ -259,3 +259,53 @@ ADRs 0001–0005.
   rejects). A `[skip ci]` journal commit must never be the head of a push that
   also carries code commits: GitHub reads the head commit and skips the whole
   push, so the code is never tested.
+
+
+## 2026-11-20 — tx_hash has two spellings: canonicalize on write, stay tolerant on read
+
+- **Context**: `requirements.txt` pins `hexbytes==1.3.1` (via `web3==7.16.0`),
+  and from hexbytes 1.x on `HexBytes.hex()` returns the digest **without** the
+  `0x` prefix. Every EVM executor in `swap_engine` returns `tx_hash.hex()`, so
+  EVM swap rows carry bare hashes while provider/explorer hashes are prefixed.
+  `SwapTransaction.tx_hash` holds a mix, and so do `bridge_tx_hash`,
+  `destination_tx_hash`, `burn_tx_hash` and the x402 payment ledger.
+- **Decision**: `0x` + lowercase hex is canonical (what JSON-RPC requires, what
+  explorers expect, what `Web3.to_hex` produces). **Normalize on write** at the
+  single chokepoint — `swap_engine`'s `_update_tx_hash` closure, not the ~20
+  executor returns — and keep **every read tolerant of both forms** via
+  `tx_hash_variants()`, because existing rows are deliberately not rewritten.
+  Helpers live in `bot/utils/tx_hash.py` (re-exported as
+  `bot/services/swap_nonce.py`), mirrored in `api-ts/src/lib/txHash.ts` and
+  `webapp/src/lib/chains.ts`.
+- **Consequence if ignored**: two distinct failure modes, both verified live.
+  (1) **Raw JSON-RPC rejects a bare hash, provider-dependent.**
+  `ethereum-rpc.publicnode.com` accepts it; `eth.drpc.org` answers
+  `json: cannot unmarshal hex string without 0x prefix into Go`. `*.drpc.org`
+  is in the DEFAULT rotation for 14 chains in `bot/config/settings.py` and is
+  *first* for tempo. `tx_poller._check_evm_tx` built the receipt call by hand,
+  and a strict node's error response carries no `result`, which the poller read
+  as "not yet mined" — the swap sat at SUBMITTED forever. This is also the
+  broadcast-then-crash recovery path, so it failed exactly when needed.
+  (2) **Li.Fi does not recognize a bare hash at all**: `li.quest/v1/status`
+  answers "No event found, this transaction was not handled by LI.FI contracts"
+  for the prefixed form but "Transaction hash is not found in any chain" for
+  the bare one. Note `web3.py` *does* normalize internally, so paths going
+  through web3 were never broken — only the hand-built aiohttp payloads were.
+- **Gotcha — chain-awareness is not optional**: **TRON txids are canonically
+  BARE 64-char hex**, the exact shape of a bare EVM hash, and Solana signatures
+  are base58 and case-sensitive. A helper that prefixed any 64-hex string would
+  corrupt both, so `canonical_tx_hash` refuses to add a prefix unless it can
+  resolve the chain as EVM/Starknet. 43 of 46 configured chains are EVM and
+  exactly one is TRON — a near-miss that fails silently.
+- **Gotcha — a prefix-only fix can re-open a replay**: the x402/billing ledgers
+  key payment consumption on `(chain, tx_hash)`. Switching those reads to the
+  canonical key *alone* would make an already-consumed payment look unconsumed,
+  re-opening the double-redeem being closed. Always: **check all variants,
+  write the canonical form.**
+- **Backfill**: deliberately NOT in `_ensure_schema()` — see
+  `scripts/backfill_tx_hash_prefix.py`. It rewrites rows on a money-path table,
+  and `_ensure_schema` runs on every boot of every replica. The obvious SQL
+  (`... WHERE tx_hash NOT LIKE '0x%' AND length(tx_hash)=64`) is **wrong**: it
+  matches TRON exactly. Telling EVM from TRON needs the chain registry, which
+  is Python, not SQL. Reads are already tolerant, so the backfill is tidying,
+  not a correctness fix — an operator runs it after reading the dry run.
