@@ -59,17 +59,24 @@ class WithdrawReconciler:
         poll_interval_seconds: int = 60,
         stale_after_minutes: int = 3,
         never_broadcast_after_minutes: int = 30,
+        abandon_hashed_after_hours: int = 24,
     ):
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._poll_interval = poll_interval_seconds
         self._stale_after = timedelta(minutes=stale_after_minutes)
         self._never_broadcast_after = timedelta(minutes=never_broadcast_after_minutes)
+        # Only ever applied to SELF_CUSTODY_NO_LEDGER_REFUND rows, which have
+        # no ledger credit at stake — see _resolve_one. Generous on purpose: a
+        # transaction still absent from chain after this long cannot be mined.
+        self._abandon_hashed_after = timedelta(hours=abandon_hashed_after_hours)
         logger.info(
-            "Withdraw reconciler initialized (interval=%ss, stale_after=%sm, refund_after=%sm)",
+            "Withdraw reconciler initialized (interval=%ss, stale_after=%sm, refund_after=%sm, "
+            "abandon_hashed_after=%sh)",
             poll_interval_seconds,
             stale_after_minutes,
             never_broadcast_after_minutes,
+            abandon_hashed_after_hours,
         )
 
     async def start(self) -> None:
@@ -173,6 +180,27 @@ class WithdrawReconciler:
                 return
             # Unknown/still pending/RPC error — never refund a row with a
             # recorded hash purely on age; leave it for the next cycle.
+            #
+            # Exception: a SELF_CUSTODY_NO_LEDGER_REFUND row has no ledger
+            # credit at stake, so the double-spend risk that makes age-based
+            # resolution unsafe does not apply to it. Those rows can otherwise
+            # sit PENDING forever (a definitively-rejected broadcast leaves a
+            # hash for a tx that will never appear on chain), re-queried every
+            # cycle for good. After a long grace period, give up and mark it
+            # FAILED — no funds move either way; this only stops the row and
+            # the RPC churn accumulating without end.
+            if (
+                SELF_CUSTODY_NO_LEDGER_REFUND in (row.get("notes") or "")
+                and age >= self._abandon_hashed_after
+            ):
+                logger.warning(
+                    "Withdraw reconciler abandoning self-custody tx_id=%s (hash %s never "
+                    "appeared on-chain after %s) — marking FAILED, no ledger refund",
+                    row["id"],
+                    row["tx_hash"],
+                    age,
+                )
+                self._refund_and_fail(row)
             return
 
         # No tx_hash was ever recorded. With the pre-broadcast stamping above,

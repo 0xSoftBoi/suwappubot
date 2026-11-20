@@ -35,6 +35,43 @@ RECEIPT_TIMEOUT_SECONDS = 90
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
+# Node errors that mean the transaction was DEFINITIVELY not accepted into the
+# mempool. Treating these as ambiguous would strand the user: they'd be told
+# "submitted, do not re-send" over a transfer that never existed, and the row
+# would keep a hash the reconciler can never resolve against chain state.
+#
+# Deliberately conservative, and deliberately does NOT include "already known"
+# / "known transaction" — those mean the node ALREADY HAS the tx, i.e. it is
+# genuinely in flight and must stay ambiguous. Misclassifying an in-flight tx
+# as rejected is the dangerous direction, so a match here is only trusted
+# after the chain confirms the tx is absent (see _tx_absent).
+DEFINITIVE_REJECTIONS = (
+    "nonce too low",
+    "replacement transaction underpriced",
+    "transaction underpriced",
+    "intrinsic gas too low",
+    "insufficient funds",
+    "exceeds block gas limit",
+    "invalid sender",
+    "oversized data",
+    "negative value",
+)
+
+# A PENDING self-custody withdrawal younger than this blocks a new one, so a
+# user who ignores "do not re-send this withdrawal" cannot push a second
+# transfer out while the first is still unresolved.
+UNRESOLVED_WITHDRAW_BLOCK_MINUTES = 30
+
+
+class BroadcastRejected(RuntimeError):
+    """The node definitively refused the transaction: nothing was broadcast.
+
+    Distinct from PostBroadcastAmbiguous, which means the node may have
+    accepted it. This one is safe to report as a plain failure and safe to
+    release the idempotency claim for.
+    """
+
+
 # Per-withdrawal amount ceilings, in token units. Read at call time from the
 # environment (same approach as the TERMINAL_WITHDRAW_ENABLED kill-switch in
 # hot_wallet.py) so an operator can tighten a cap without a redeploy:
@@ -82,6 +119,45 @@ def _withdraw_cap(symbol: str) -> Decimal:
         logger.warning("Invalid withdraw cap %r for %s; using fallback", raw, sym)
         cap = Decimal(FALLBACK_WITHDRAW_CAP)
     return cap
+
+
+def _is_definitive_rejection(error_text: str) -> bool:
+    """True if the node's error says the tx was never accepted."""
+    low = (error_text or "").lower()
+    if "already known" in low or "known transaction" in low:
+        return False
+    return any(marker in low for marker in DEFINITIVE_REJECTIONS)
+
+
+def _has_unresolved_withdrawal(db_uid: int) -> bool:
+    """True if this user has a recent self-custody withdrawal still PENDING.
+
+    Used to refuse a *new* withdrawal while an earlier one is unresolved. The
+    idempotency key already stops one confirmation executing twice, but it
+    cannot stop a user who re-runs `withdraw` from scratch after being told an
+    earlier transfer might be in flight — which is exactly when a second send
+    would double-spend.
+    """
+    from datetime import datetime, timedelta
+
+    from bot.models.custodial import CustodialTransaction, TransactionStatus, TransactionType
+    from database.db import get_session
+    from bot.services.hot_wallet import SELF_CUSTODY_NO_LEDGER_REFUND
+
+    cutoff = datetime.utcnow() - timedelta(minutes=UNRESOLVED_WITHDRAW_BLOCK_MINUTES)
+    with get_session() as session:
+        return (
+            session.query(CustodialTransaction)
+            .filter(
+                CustodialTransaction.user_id == db_uid,
+                CustodialTransaction.tx_type == TransactionType.WITHDRAWAL.value,
+                CustodialTransaction.status == TransactionStatus.PENDING.value,
+                CustodialTransaction.notes == SELF_CUSTODY_NO_LEDGER_REFUND,
+                CustodialTransaction.created_at >= cutoff,
+            )
+            .first()
+            is not None
+        )
 
 
 def _hex0x(value) -> str:
@@ -442,6 +518,18 @@ class WithdrawFlow(BaseWhatsAppFlow):
             if wallet_err:
                 return FlowResponse(wallet_err)
 
+            # Refuse a second withdrawal while an earlier one is unresolved.
+            # The idempotency key stops one confirmation executing twice, but
+            # not a user who re-runs `withdraw` from scratch after being told
+            # a transfer might be in flight — and that is precisely the case
+            # where sending again double-spends.
+            if _has_unresolved_withdrawal(db_uid):
+                return FlowResponse(
+                    "⏳ You already have a withdrawal still confirming.\n\n"
+                    "Wait for it to finish before starting another — sending again "
+                    "now could move your funds twice. Check your wallet for status."
+                )
+
             # hot_wallet.send_native_token/send_token enforce the shared
             # TERMINAL_WITHDRAW_ENABLED kill-switch internally. This flow builds
             # and broadcasts its own tx, so it must call the guard directly or
@@ -500,12 +588,32 @@ class WithdrawFlow(BaseWhatsAppFlow):
                     f"{token}'s precision.\nSend *withdraw* to try again."
                 )
 
-            nonce = w3.eth.get_transaction_count(from_address)
+            # "pending", not web3's default "latest". This wallet is the
+            # USER's own — shared with the swap engine and with anything they
+            # drive from their own app — so a transaction of theirs sitting
+            # unmined in the mempool is normal, unlike the platform hot wallet
+            # which is serialized behind one flow. A "latest" nonce would build
+            # this withdrawal at an already-occupied nonce, which either
+            # replaces their pending transaction or is rejected outright.
+            nonce = w3.eth.get_transaction_count(from_address, "pending")
             gas_price = w3.eth.gas_price
             native_balance = w3.eth.get_balance(from_address)
 
             if is_native:
                 value = w3.to_wei(amount, "ether")
+                # Balance check BEFORE estimating gas. eth_estimateGas runs the
+                # call against the account's real balance, so when
+                # value > balance the node reverts with "insufficient funds"
+                # and the estimate raises — surfacing as the generic error
+                # instead of this specific, actionable message. Only the
+                # narrow `balance >= value but < value + gas` band would
+                # otherwise reach it.
+                if native_balance < value:
+                    return self._insufficient(
+                        token,
+                        have=Decimal(native_balance) / Decimal(10**18),
+                        need=amount,
+                    )
                 gas_limit = self._estimate_gas(
                     w3,
                     {"from": from_address, "to": destination, "value": value},
@@ -609,11 +717,28 @@ class WithdrawFlow(BaseWhatsAppFlow):
                 notes=SELF_CUSTODY_NO_LEDGER_REFUND,
             )
             if claimed_tx_id is None:
+                # claim_idempotency_key swallows every IntegrityError, not just
+                # a duplicate key, so None does NOT prove this key was already
+                # claimed (a FK violation on user_id lands here too). Only take
+                # the "already submitted, don't re-send" branch if a row really
+                # exists — telling a user not to retry when nothing was ever
+                # recorded or sent would strand them for no reason.
                 existing = hot_wallet_service.get_transaction_by_idempotency_key(
                     db_uid, idempotency_key
                 )
+                if existing is None:
+                    logger.error(
+                        "whatsapp withdraw claim failed with no row for user %s key %s "
+                        "— nothing was broadcast",
+                        db_uid,
+                        idempotency_key,
+                    )
+                    return FlowResponse(
+                        "❌ Couldn't start this withdrawal — nothing was sent and your "
+                        "funds are safe.\nSend *withdraw* to try again."
+                    )
                 tx_line = ""
-                if existing and existing.tx_hash:
+                if existing.tx_hash:
                     from bot.utils.formatters import format_tx_link
 
                     tx_line = f"\nTx: {format_tx_link(existing.tx_hash, WITHDRAW_CHAIN)}"
@@ -649,9 +774,23 @@ class WithdrawFlow(BaseWhatsAppFlow):
                 sent = w3.eth.send_raw_transaction(raw_tx)
                 tx_hash_hex = _hex0x(sent)
             except Exception as e:
-                # Ambiguous: the node may have accepted and propagated the tx
-                # even though this call raised (timeout, dropped response,
-                # "already known", transient 5xx).
+                # Default is ambiguous: the node may have accepted and
+                # propagated the tx even though this call raised (timeout,
+                # dropped response, "already known", transient 5xx).
+                #
+                # But some rejections are DEFINITIVE — the tx never entered the
+                # pool. Reporting one of those as "submitted, do not re-send"
+                # strands the user over a transfer that never existed AND
+                # leaves a row carrying a hash that will never appear on chain,
+                # which the reconciler can never resolve (it refuses to
+                # terminalize a hashed row on age). Downgrade to a definitive
+                # failure only when the error text says so AND the chain
+                # agrees the tx is absent; if that confirmation is itself
+                # unavailable we stay ambiguous, because misclassifying an
+                # in-flight tx as rejected is the dangerous direction.
+                if _is_definitive_rejection(str(e)) and self._tx_absent(w3, precomputed_hash):
+                    broadcast_attempted = False
+                    raise BroadcastRejected(str(e)) from e
                 raise PostBroadcastAmbiguous(
                     f"send_raw_transaction failed ambiguously "
                     f"(tx may already be broadcast): {e}",
@@ -688,6 +827,25 @@ class WithdrawFlow(BaseWhatsAppFlow):
                 "We couldn't confirm it reached the network right away. We're checking — "
                 "it will either complete or be marked failed.\n\n"
                 "*Do not re-send this withdrawal.* Check your wallet shortly for status."
+            )
+
+        except BroadcastRejected as exc:
+            # The node definitively refused it and the chain confirms no such
+            # tx exists, so nothing is in flight: release the claim (the key
+            # becomes reusable for a genuine retry) and say plainly that
+            # nothing was sent.
+            self._release(hot_wallet_service, claimed_tx_id, broadcast_attempted)
+            logger.warning(
+                "whatsapp withdraw definitively rejected by node for user %s (tx_id=%s): %s",
+                db_uid,
+                claimed_tx_id,
+                exc,
+            )
+            return FlowResponse(
+                "❌ The network rejected this withdrawal, so nothing was sent and "
+                "your funds are safe.\n\n"
+                "This usually means another transaction from your wallet is still "
+                "pending. Wait for it to confirm, then send *withdraw* to try again."
             )
 
         except WithdrawalsPausedError:
@@ -744,6 +902,30 @@ class WithdrawFlow(BaseWhatsAppFlow):
             logger.exception("Failed to release claimed withdraw tx %s", claimed_tx_id)
 
     @staticmethod
+    def _tx_absent(w3, tx_hash: str) -> bool:
+        """True only if the chain positively reports no such transaction.
+
+        Any other outcome (found, or the lookup itself failing) returns False,
+        so an unreachable node can never be mistaken for proof that nothing
+        was broadcast.
+        """
+        try:
+            from web3.exceptions import TransactionNotFound
+
+            try:
+                w3.eth.get_transaction(tx_hash)
+                return False
+            except TransactionNotFound:
+                return True
+        except Exception:
+            logger.warning(
+                "could not confirm absence of tx %s; treating as possibly in flight",
+                tx_hash,
+                exc_info=True,
+            )
+            return False
+
+    @staticmethod
     def _estimate_gas(w3, params: dict, floor: int, fn=None) -> int:
         """estimate_gas + buffer, never below ``floor``.
 
@@ -793,6 +975,20 @@ class WithdrawFlow(BaseWhatsAppFlow):
             # one pending withdrawal can't stall every other WhatsApp message.
             receipt = await asyncio.to_thread(
                 w3.eth.wait_for_transaction_receipt, tx_hash_hex, RECEIPT_TIMEOUT_SECONDS
+            )
+        except asyncio.CancelledError:
+            # App shutdown during the wait. CancelledError is a BaseException,
+            # so without this the handler would unwind past every `except
+            # Exception` below and the user would be told NOTHING about a
+            # transfer that is already on the network — the one situation most
+            # likely to make them re-send it. Swallow the cancellation and
+            # answer: the broadcast is done, there is no work left to abort,
+            # and the row stays PENDING for the reconciler either way.
+            logger.warning(
+                "whatsapp withdraw receipt wait cancelled (shutdown) for tx %s (tx_id=%s) "
+                "— reporting as sent, left PENDING for reconciler",
+                tx_hash_hex,
+                claimed_tx_id,
             )
         except Exception:
             logger.warning(
