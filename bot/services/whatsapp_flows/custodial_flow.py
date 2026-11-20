@@ -256,8 +256,11 @@ class WithdrawFlow(BaseWhatsAppFlow):
                         }
                     )
 
-                signed = await ws.sign_transaction(wallet.id, tx)
-                tx_hash = w3.eth.send_raw_transaction(signed)
+                # WalletService exposes sign_evm_transaction(wallet, tx) -> hex str
+                # (there is no sign_transaction method). Routes Turnkey vs local
+                # signing internally; the hex payload must be bytes to broadcast.
+                signed_hex = await ws.sign_evm_transaction(wallet, tx)
+                tx_hash = w3.eth.send_raw_transaction(bytes.fromhex(signed_hex.replace("0x", "")))
                 tx_hash_hex = tx_hash.hex()
 
                 from bot.utils.formatters import format_tx_link
