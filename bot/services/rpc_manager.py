@@ -543,6 +543,35 @@ class RPCManager:
                     )
                 )
 
+            # Tier 1: Helius (Solana only).
+            #
+            # Without this, Solana had NO keyed endpoint at all: it fell
+            # through to the Tier 2 defaults in ``settings.solana_rpc_url``
+            # (api.mainnet-beta.solana.com + solana-rpc.publicnode.com), both
+            # of which are shared public endpoints that 429 aggressively and
+            # are explicitly not for production use. The balance refresher
+            # walks every active wallet once a minute, so in production that
+            # meant a steady stream of
+            # "Solana RPC rate limited (429) fetching token accounts" — and
+            # because a failed fetch is deliberately not cached
+            # (wallet.py ``Skipping cache … due to RPC failures``), each 429
+            # guaranteed a refetch on the next pass. The harder it failed,
+            # the harder it retried.
+            #
+            # ``HELIUS_API_KEY`` was already set on python-worker and already
+            # used by the ``/webapp/solana/*`` proxy — it simply was never
+            # wired into the RPC pool the bot itself reads through. Putting it
+            # at PAID tier means the health-scored selector prefers it and the
+            # public endpoints become the fallback they were meant to be.
+            if chain_name == "solana" and settings.helius_api_key:
+                endpoints.append(
+                    RPCEndpoint(
+                        url=f"https://mainnet.helius-rpc.com/?api-key={settings.helius_api_key}",
+                        chain=chain_name,
+                        tier=RPCTier.PAID,
+                    )
+                )
+
             # Tier 2: Public RPCs from settings
             attr_name = f"{chain_name.lower().replace('-', '_')}_rpc_url"
             rpc_str = getattr(settings, attr_name, "") or ""

@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 import time
+import weakref
 import uuid
 from typing import Optional
 from web3 import Web3
@@ -34,6 +35,48 @@ from bot.models.user import Wallet
 from database.db import get_session
 
 logger = logging.getLogger(__name__)
+
+# Process-wide ceiling on concurrent Solana JSON-RPC requests.
+#
+# The balance refresher runs BATCH_SIZE (5) wallets concurrently and each
+# wallet costs 3 Solana calls (getBalance + getTokenAccountsByOwner per token
+# program), so a batch could put ~15 simultaneous requests on a single
+# endpoint. Providers rate-limit on requests/second, not on wallets, so that
+# burst 429'd the batch — and since a failed balance fetch is deliberately
+# not cached, every 429 guaranteed a refetch on the next pass.
+#
+# 4 keeps throughput well above what the once-a-minute refresher needs while
+# staying under a free-tier allowance (Helius free is ~10 req/s). Raise it
+# only alongside evidence from the 429 rate in logs.
+_SOLANA_RPC_MAX_CONCURRENCY = 4
+
+# Created lazily per event loop, never at import.
+#
+# An ``asyncio.Semaphore`` binds to the loop that first awaits it, so a
+# module-level instance raises "bound to a different event loop" for any
+# caller on a second loop. The monolith normally has one loop, but a
+# module-level semaphore would make that an invisible precondition — and it
+# is exactly the kind of import-time binding that explodes in a worker
+# thread or a test. Keying by the running loop keeps the cap correct without
+# assuming there is only ever one.
+_SOLANA_RPC_SEMAPHORES: (
+    "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]"
+) = weakref.WeakKeyDictionary()
+
+
+def _solana_rpc_semaphore() -> asyncio.Semaphore:
+    """The concurrency gate for the currently running event loop."""
+    loop = asyncio.get_running_loop()
+    sem = _SOLANA_RPC_SEMAPHORES.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(_SOLANA_RPC_MAX_CONCURRENCY)
+        _SOLANA_RPC_SEMAPHORES[loop] = sem
+    return sem
+
+
+# Upper bound on an honoured Retry-After, so a bad header cannot park a
+# worker task for minutes inside the refresher's 30s batch budget.
+_SOLANA_MAX_RETRY_AFTER_SECONDS = 5.0
 
 # Solana token program ids — one getTokenAccountsByOwner per program returns
 # every token account the owner has, so a portfolio fetch is 3 RPC calls
@@ -871,12 +914,36 @@ class WalletService:
         Reports the outcome to rpc_manager so rate-limited (429) or blocked
         (403) endpoints circuit-open and the next call rotates to another URL
         — without this the fetcher hammers the same dead endpoint forever.
+
+        Serialized through ``_SOLANA_RPC_SEMAPHORE``: the balance refresher
+        runs ``BATCH_SIZE`` wallets concurrently and each wallet costs three
+        Solana calls, so an unbounded batch put ~15 simultaneous requests on
+        one endpoint and 429'd itself. The semaphore caps in-flight Solana
+        requests process-wide, which is what every provider actually limits.
         """
+        async with _solana_rpc_semaphore():
+            return await self._solana_rpc_post_unthrottled(session, payload, context)
+
+    async def _solana_rpc_post_unthrottled(
+        self, session: aiohttp.ClientSession, payload: dict, context: str
+    ) -> dict:
+        """The actual POST. Call ``_solana_rpc_post`` instead — it rate-limits."""
         url = rpc_manager.get_rpc_url("solana")
         start = time.monotonic()
         async with session.post(url, json=payload) as resp:
             if resp.status == 429:
                 rpc_manager.report_failure("solana", url, "rate_limited_429")
+                # Respect the provider's own backoff when it sends one, so a
+                # rate-limited endpoint gets a pause rather than the next
+                # caller's immediate retry. Bounded: a hostile or mistaken
+                # Retry-After must not stall the batch budget.
+                retry_after = resp.headers.get("Retry-After", "")
+                try:
+                    delay = min(float(retry_after), _SOLANA_MAX_RETRY_AFTER_SECONDS)
+                except (TypeError, ValueError):
+                    delay = 0.0
+                if delay > 0:
+                    await asyncio.sleep(delay)
                 logger.warning(f"Solana RPC rate limited (429) {context}")
                 raise ConnectionError("Solana RPC rate limited")
             if resp.status >= 400:
