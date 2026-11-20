@@ -3176,7 +3176,7 @@
       "get": {
         "summary": "List spend policies",
         "operationId": "listSpendPolicies",
-        "description": "The server-enforced spend policies that gate this agent's swap execution: per-trade and daily USD caps, slippage and gas ceilings, chain and token allow/block lists, and maker-checker escalation. Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here. Rate-limited by tier.",
+        "description": "The server-enforced spend policies that gate this agent's swap execution: per-trade and daily USD caps, slippage and gas ceilings, chain and token allow/block lists, and maker-checker escalation. Evaluated server-side on every POST /swap and /swap/execute made with this agent token, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. USD caps bind on EVM quotes only: Solana quotes are not priced in USD yet, so chain and token rules are what bind there. Requests made with an organization key are governed by that organization's policies instead of these. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here. Rate-limited by tier.",
         "responses": {
           "200": {
             "description": "Spend policies on this agent, lowest priority number first",
@@ -3231,7 +3231,7 @@
                       "updated_at": "2026-11-20T23:30:00.000Z"
                     }
                   ],
-                  "enforcement": "Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here."
+                  "enforcement": "Evaluated server-side on every POST /swap and /swap/execute made with this agent token, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. USD caps bind on EVM quotes only: Solana quotes are not priced in USD yet, so chain and token rules are what bind there. Requests made with an organization key are governed by that organization's policies instead of these. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here."
                 }
               }
             }
@@ -3266,7 +3266,7 @@
       "post": {
         "summary": "Install a spend policy",
         "operationId": "createSpendPolicy",
-        "description": "Install a server-enforced spend policy on the calling agent. Every field maps onto one control the policy engine evaluates on each execute; at least one must be set. Pass `replaces` with the ids of earlier agent-scoped policies to retire them in the same transaction, so a re-applied envelope never overlaps its previous version. Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here. Rate-limited by tier.",
+        "description": "Install a server-enforced spend policy on the calling agent. Every field maps onto one control the policy engine evaluates on each execute; at least one must be set. Pass `replaces` with the ids of earlier agent-scoped policies to retire them in the same transaction, so a re-applied envelope never overlaps its previous version. Evaluated server-side on every POST /swap and /swap/execute made with this agent token, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. USD caps bind on EVM quotes only: Solana quotes are not priced in USD yet, so chain and token rules are what bind there. Requests made with an organization key are governed by that organization's policies instead of these. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here. Rate-limited by tier.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3340,13 +3340,13 @@
                     "created_at": "2026-11-20T23:30:00.000Z",
                     "updated_at": "2026-11-20T23:30:00.000Z"
                   },
-                  "enforcement": "Evaluated server-side on every POST /swap and /swap/execute by this agent, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here."
+                  "enforcement": "Evaluated server-side on every POST /swap and /swap/execute made with this agent token, before the transaction is built. Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. USD caps bind on EVM quotes only: Solana quotes are not priced in USD yet, so chain and token rules are what bind there. Requests made with an organization key are governed by that organization's policies instead of these. Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here."
                 }
               }
             }
           },
           "400": {
-            "description": "Validation error: no control set, bad list entry, or malformed expires_at",
+            "description": "Validation error: no control set, bad list entry, malformed expires_at, or an unknown chain (CHAIN_UNSUPPORTED)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3378,6 +3378,16 @@
                   "error": "UNAUTHORIZED",
                   "message": "Spend policies are scoped to an agent",
                   "hint": "Authenticate with the agent bearer token (suwappu_sk_...)"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This agent already has the maximum number of spend policies (20)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -5804,7 +5814,8 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 100
-            }
+            },
+            "description": "Chain keys (base, arbitrum, ethereum, solana, ...) or numeric EVM chain ids; stored as keys and matched against the quote's chain either way."
           },
           "blocked_chains": {
             "maxItems": 50,

@@ -75,10 +75,12 @@ else: "Enforce" installs the mandate as a spend policy (`POST
 the agent, with a managed wallet or a Suwappu-issued credential. `read_mandate`
 reports which it is (`enforcement.status`: `none`, `enforced`, or `stale` once
 an amendment has moved the desk past the installed version), and the receipt
-carries the same field. Two limits stay honest: a self-signing wallet that
-bypasses the API is outside the policy's reach, and anyone holding the agent's
-own token can change an agent-scoped policy, so rules the agent must not be
-able to lift belong on an organization key.
+carries the same field. Four limits stay honest: a self-signing wallet that
+bypasses the API is outside the policy's reach; anyone holding the agent's own
+token can change an agent-scoped policy, so rules the agent must not be able
+to lift belong on an organization key; requests made with an organization key
+are governed by that organization's policies, not these; and USD caps bind on
+EVM quotes only, because the API does not price Solana quotes in USD yet.
 
 The older Turnkey route (`POST /v1/agent/wallet/policy`) is not what the desk
 uses: Suwappu's signer is the root user of each agent sub-org, and Turnkey's

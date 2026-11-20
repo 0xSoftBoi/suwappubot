@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
 import { Context, Effect, Layer } from 'effect'
+import { CHAIN_ID_TO_KEY } from '../config/chains'
 import { type DrizzleService, requireDb } from '../db'
 import { approvalRequests } from '../db/schema/approvals'
 import { DatabaseError } from '../errors'
@@ -116,11 +117,25 @@ const lc = (s: string | null | undefined): string | null =>
  * Evaluate the per-transaction (stateless) rules of a single policy.
  * Returns a block reason, an approval reason, or null (passes).
  */
+/**
+ * Chains reach the engine in two spellings: the swap gate passes the numeric
+ * EVM chain id as a string ("8453"), while operators and the Agent Desk write
+ * chain keys ("base"). Compare on the key so a list written either way binds;
+ * a policy that matched only the spelling its author happened to use was a
+ * control that silently enforced nothing (or, worse, blocked everything).
+ */
+export function canonicalChain(v: string | null | undefined): string | null {
+	const s = lc(v)
+	if (!s) return null
+	if (/^\d+$/.test(s)) return CHAIN_ID_TO_KEY[Number(s)] ?? s
+	return s
+}
+
 function evalStateless(
 	p: Policy,
 	intent: PolicyIntent,
 ): { block?: string; approval?: string } {
-	const chain = lc(intent.chain)
+	const chain = canonicalChain(intent.chain)
 	const fromTok = lc(intent.fromToken)
 	const toTok = lc(intent.toToken)
 	const dest = lc(intent.destinationAddress)
@@ -139,11 +154,11 @@ function evalStateless(
 		return { block: `gas $${intent.gasUsd} exceeds limit $${p.maxGasUsd}` }
 	}
 	if (chain) {
-		if (p.blockedChains?.map((c) => c.toLowerCase()).includes(chain)) {
+		if (p.blockedChains?.map(canonicalChain).includes(chain)) {
 			return { block: `chain ${chain} is blocked` }
 		}
 		if (p.allowedChains && p.allowedChains.length > 0) {
-			if (!p.allowedChains.map((c) => c.toLowerCase()).includes(chain)) {
+			if (!p.allowedChains.map(canonicalChain).includes(chain)) {
 				return { block: `chain ${chain} is not in the allowlist` }
 			}
 		}

@@ -365,6 +365,8 @@ export function compileToSpendPolicy(
     `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version; re-apply so the installed policy and the negotiated envelope stay the same version.`,
     'The daily cap is a rolling 24-hour sum over the API\'s own decision log, so it counts every execute by this agent, not only trades proposed on this desk.',
     'Inside the envelope the agent executes without a server-side approval step; the desk is still where it must propose first. Set approval_mode to always_ask on the policy if you want the API itself to hold every trade for you.',
+    'Binds requests the agent makes with its own token. Requests made with an organization key are governed by that organization\'s policies instead.',
+    'USD caps bind on EVM quotes only: the API does not price Solana quotes in USD yet, so on Solana the chain list and token rules are what bind.',
   ];
   const deskOnly = [
     `Price impact ≤ ${mandate.maxPriceImpactPercent}%: the API has no price-impact control, so this stays a desk rule.`,

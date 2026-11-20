@@ -5,7 +5,7 @@ import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import openApiSpec from '../../openapi-agent.json'
-import { isStarknet } from '../config/chains'
+import { CHAIN_ID_TO_KEY, isStarknet } from '../config/chains'
 import { EnvService } from '../config/EnvService'
 import type { Agent } from '../db'
 import type { DbClient } from '../db/client'
@@ -45,6 +45,7 @@ import { fetchTokenPrices, SUPPORTED_PRICE_SYMBOLS } from '../lib/prices'
 import { buildEvmSimulationReport, buildSolanaSimulationReport } from '../lib/swapSimulation'
 import { verifyAuditChain, writeAuditLog } from '../services/audit'
 import type { PolicyIntent } from '../services'
+import { canonicalChain } from '../services/PolicyService'
 // HACKATHON (Tokyo 2026): trust-layer gates (Intercepta + ENSv2), merged into
 // the institutional verdict below. Flag-gated, default off; see
 // src/hackathon/gates.ts.
@@ -1323,6 +1324,7 @@ export async function enforcePolicyGateForFreshQuote(
 			// TODO: Solana quote carries no USD value; USD-based caps are
 			// skipped until we price the input mint. Chain/token rules apply.
 			valueUsd: 0,
+			slippageBps: Number.isFinite(jq.slippageBps) ? jq.slippageBps : null,
 		}
 	} else {
 		const evmQuote = quote as SwapQuote
@@ -1353,6 +1355,11 @@ export async function enforcePolicyGateForFreshQuote(
 			toToken: evmQuote.toToken?.address ?? null,
 			valueUsd,
 			gasUsd: parseFloat(evmQuote.estimatedGasUsd ?? '0') || 0,
+			// Quote slippage is a fraction (0.01 = 1%); policies hold bps. Without
+			// this a max_slippage_bps rule was a configured control that never ran.
+			slippageBps: Number.isFinite(evmQuote.slippage)
+				? Math.round(evmQuote.slippage * 10_000)
+				: null,
 			// The router/contract this trade would actually call. Without it an
 			// operator's allowedContracts allowlist can never match — a configured
 			// control that silently enforces nothing.
@@ -3715,9 +3722,16 @@ agentRoutes.delete('/wallet/policy/:policyId', async (c) => {
 // the token out of the agent's reach, or uses an organization key.
 
 const SPEND_POLICY_ENFORCEMENT =
-	'Evaluated server-side on every POST /v1/agent/swap and /v1/agent/swap/execute by this agent, before the transaction is built. ' +
+	'Evaluated server-side on every POST /v1/agent/swap and /v1/agent/swap/execute made with this agent token, before the transaction is built. ' +
 	'Hard enforcement for managed wallets and Suwappu-issued credentials; advisory for a self-signing wallet that can bypass this API. ' +
+	'USD caps bind on EVM quotes only: Solana quotes are not priced in USD yet, so chain and token rules are what bind there. ' +
+	"Requests made with an organization key are governed by that organization's policies instead of these. " +
 	'Any holder of this agent token can change agent-scoped policies; organization-scoped policies cannot be changed here.'
+
+/** Chain keys a policy may name; numeric EVM ids are accepted and stored as keys. */
+const KNOWN_CHAIN_KEYS = new Set<string>([...Object.values(CHAIN_ID_TO_KEY), 'solana', 'tron', 'starknet'])
+/** Rows per agent. Every execute loads them all, and more than this is a mistake, not a mandate. */
+const MAX_AGENT_POLICIES = 20
 
 type SpendPolicyRow = typeof policies.$inferSelect
 
@@ -3799,6 +3813,20 @@ agentRoutes.post('/policies', async (c) => {
 	const p = parsed.data
 	const lc = (xs: string[] | undefined) =>
 		xs && xs.length > 0 ? Array.from(new Set(xs.map((s) => s.toLowerCase()))) : null
+	// Chains are stored as canonical keys ("base"), which is also what the gate
+	// compares on after mapping the quote's numeric id. An unknown name would be
+	// a rule that silently blocks everything, so refuse it.
+	const chains = (xs: string[] | undefined) =>
+		xs && xs.length > 0 ? Array.from(new Set(xs.map((v) => canonicalChain(v) as string))) : null
+	const unknownChains = [...(p.allowed_chains ?? []), ...(p.blocked_chains ?? [])]
+		.map((v) => canonicalChain(v) as string)
+		.filter((v) => !KNOWN_CHAIN_KEYS.has(v))
+	if (unknownChains.length > 0) {
+		return agentError(c, 400, 'CHAIN_UNSUPPORTED', 'Unknown chain in allowed_chains/blocked_chains', {
+			details: { unknown: Array.from(new Set(unknownChains)) },
+			hint: 'Use chain keys such as base, arbitrum, ethereum, solana, or a numeric EVM chain id',
+		})
+	}
 
 	const result = await runEffectEither(
 		Effect.gen(function* () {
@@ -3806,6 +3834,17 @@ agentRoutes.post('/policies', async (c) => {
 			return yield* Effect.tryPromise({
 				try: () =>
 					db.transaction(async (tx) => {
+						const existing = await tx
+							.select({ id: policies.id })
+							.from(policies)
+							.where(and(isNull(policies.organizationId), eq(policies.agentId, agentId)))
+						const retiring = new Set(p.replaces ?? [])
+						const remaining = existing.filter((row) => !retiring.has(row.id)).length
+						if (remaining >= MAX_AGENT_POLICIES) {
+							throw new Error(
+								`POLICY_LIMIT:this agent already has ${remaining} spend policies (max ${MAX_AGENT_POLICIES}); retire one with DELETE /v1/agent/policies/:id or pass it in replaces`,
+							)
+						}
 						if (p.replaces && p.replaces.length > 0) {
 							// Only this agent's own org-less rows can be retired here.
 							await tx
@@ -3832,8 +3871,8 @@ agentRoutes.post('/policies', async (c) => {
 								dailyCapUsd: p.daily_cap_usd ?? null,
 								sessionCapUsd: p.session_cap_usd ?? null,
 								maxTxPerHour: p.max_tx_per_hour ?? null,
-								allowedChains: lc(p.allowed_chains),
-								blockedChains: lc(p.blocked_chains),
+								allowedChains: chains(p.allowed_chains),
+								blockedChains: chains(p.blocked_chains),
 								allowedTokens: lc(p.allowed_tokens),
 								blockedTokens: lc(p.blocked_tokens),
 								allowedContracts: lc(p.allowed_contracts),
@@ -3850,7 +3889,12 @@ agentRoutes.post('/policies', async (c) => {
 		})
 	)
 	if (Either.isLeft(result)) {
-		return agentError(c, 500, 'INTERNAL', result.left.message)
+		const msg = result.left.message
+		const limit = msg.indexOf('POLICY_LIMIT:')
+		if (limit !== -1) {
+			return agentError(c, 409, 'VALIDATION_ERROR', msg.slice(limit + 'POLICY_LIMIT:'.length))
+		}
+		return agentError(c, 500, 'INTERNAL', msg)
 	}
 	return c.json(
 		{ success: true, policy: spendPolicyView(result.right, agentId), enforcement: SPEND_POLICY_ENFORCEMENT },

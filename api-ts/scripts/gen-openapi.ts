@@ -210,6 +210,9 @@ const SCHEMA_MAP: Record<
 				allowed_tokens: {
 					description: 'Token contract addresses (lowercased on write). Applies to BOTH the token sold and the token bought.',
 				},
+				allowed_chains: {
+					description: 'Chain keys (base, arbitrum, ethereum, solana, ...) or numeric EVM chain ids; stored as keys and matched against the quote\'s chain either way.',
+				},
 				replaces: {
 					description:
 						"Ids of this agent's own policies to retire in the same transaction, so a re-applied envelope never overlaps its previous version.",

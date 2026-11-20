@@ -199,12 +199,12 @@ export const CreateSpendPolicySchema = z
 	.object({
 		name: z.string().trim().min(1).max(120),
 		// Per-transaction limits (stateless).
-		max_tx_usd: z.number().positive().optional(),
+		max_tx_usd: z.number().finite().positive().optional(),
 		max_slippage_bps: z.number().int().min(0).max(10_000).optional(),
-		max_gas_usd: z.number().positive().optional(),
+		max_gas_usd: z.number().finite().positive().optional(),
 		// Velocity / cumulative caps (stateful, against the decision log).
-		daily_cap_usd: z.number().positive().optional(),
-		session_cap_usd: z.number().positive().optional(),
+		daily_cap_usd: z.number().finite().positive().optional(),
+		session_cap_usd: z.number().finite().positive().optional(),
 		max_tx_per_hour: z.number().int().positive().optional(),
 		// Allow / block lists. Chains are chain keys; tokens, contracts and
 		// destinations are addresses. All are lowercased on write.
@@ -216,7 +216,7 @@ export const CreateSpendPolicySchema = z
 		destination_allowlist: lowercaseList(100),
 		// Maker-checker escalation.
 		approval_mode: z.enum(['always_ask', 'above_limit', 'autonomous']).optional(),
-		require_approval_above_usd: z.number().min(0).optional(),
+		require_approval_above_usd: z.number().finite().min(0).optional(),
 		// ISO-8601; an expired policy is skipped during evaluation.
 		expires_at: z
 			.string()
