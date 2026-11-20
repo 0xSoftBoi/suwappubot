@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { randomBytes, createHash } from 'node:crypto'
-import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm'
 import { Effect, Either, Option } from 'effect'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
@@ -16,6 +16,7 @@ import { PURCHASABLE_TIERS, SUBSCRIPTION_PERIOD_DAYS, TIER_PRICES_USD } from '..
 import { openApiToPostmanCollection } from '../lib/postman'
 import { type SpendPermission, validateSpendPermission } from '../lib/spendPermission'
 import { assertSenderBound, consumePayment } from '../lib/paymentConsumption'
+import { rpcTxHash, txHashVariants } from '../lib/txHash'
 import { verifyX402Payment } from '../lib/x402Verify'
 import { verifyTradeProof } from '../hackathon/tokyo2026/world-id/guardianGate'
 import { loadWorldIdConfig, isWorldIdConfigured } from '../hackathon/tokyo2026/world-id/config'
@@ -4107,7 +4108,11 @@ agentRoutes.post('/billing/topup', async (c) => {
 		)
 	}
 
-	const { txHash, chain, amount } = parsed.data
+	const { txHash: rawTxHash, chain, amount } = parsed.data
+	// Legacy rows may hold the bare / as-given spelling: CHECK against every variant,
+	// WRITE only the canonical (0x + lowercase) form. Strictly additive (lib/txHash.ts).
+	const txHashLookup = txHashVariants(rawTxHash)
+	const txHash = ['solana', 'tron'].includes(chain.trim().toLowerCase()) ? rawTxHash.trim() : String(rpcTxHash(rawTxHash))
 	if (!Number.isFinite(amount) || amount <= 0) {
 		return c.json(
 			{ success: false, error: 'amount must be a positive number (USDC)', error_code: 'VALIDATION_ERROR' },
@@ -4126,7 +4131,7 @@ agentRoutes.post('/billing/topup', async (c) => {
 					db
 						.select()
 						.from(agentCreditTopups)
-						.where(eq(agentCreditTopups.txHash, txHash))
+						.where(inArray(agentCreditTopups.txHash, txHashLookup))
 						.limit(1),
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
@@ -4311,7 +4316,11 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 		)
 	}
 
-	const { txHash, chain, amount, tier } = parsed.data
+	const { txHash: rawTxHash, chain, amount, tier } = parsed.data
+	// Legacy rows may hold the bare / as-given spelling: CHECK against every variant,
+	// WRITE only the canonical (0x + lowercase) form. Strictly additive (lib/txHash.ts).
+	const txHashLookup = txHashVariants(rawTxHash)
+	const txHash = ['solana', 'tron'].includes(chain.trim().toLowerCase()) ? rawTxHash.trim() : String(rpcTxHash(rawTxHash))
 	const price = TIER_PRICES_USD[tier]
 	if (price === undefined) {
 		return c.json({ success: false, error: `Unknown tier: ${tier}`, error_code: 'VALIDATION_ERROR', purchasable: PURCHASABLE_TIERS }, 400)
@@ -4335,7 +4344,7 @@ agentRoutes.post('/billing/subscribe', async (c) => {
 			// 1) Fast idempotency pre-check on the funding tx.
 			const existing = yield* Effect.tryPromise({
 				try: () =>
-					db.select().from(agentSubscriptions).where(eq(agentSubscriptions.txHash, txHash)).limit(1),
+					db.select().from(agentSubscriptions).where(inArray(agentSubscriptions.txHash, txHashLookup)).limit(1),
 				catch: (e) => new Error(`Database error: ${e}`),
 			})
 			if (existing[0]) {

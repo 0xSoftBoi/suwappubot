@@ -18,13 +18,42 @@
  *      user's inbound payment txHash (sender-spoof).
  */
 
+import { and, eq, inArray } from 'drizzle-orm'
 import { consumedPayments } from '../db/schema'
+import { rpcTxHash, txHashVariants } from './txHash'
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 
-/** Canonical (chain, txHash) key — lowercased, trimmed. */
+// Non-hex-prefixed chains: tx hash must NOT get a 0x (TRON bare hex, Solana base58).
+const NON_PREFIXED_CHAINS = new Set(['solana', 'tron'])
+
+/**
+ * Canonical ledger spelling: lowercase, trimmed, and (for EVM payments) `0x`-prefixed.
+ * `abc…` and `0xabc…` are the SAME transaction and must be the same key.
+ */
+function ledgerTxHash(chain: string, txHash: string): string {
+	const c = chain.trim().toLowerCase()
+	if (NON_PREFIXED_CHAINS.has(c)) return txHash.trim().toLowerCase()
+	return String(rpcTxHash(txHash)).toLowerCase()
+}
+
+/**
+ * Every lowercase spelling a (chain, txHash) may already be stored under.
+ *
+ * ADDITIVE / replay-safety: rows consumed BEFORE canonicalization hold the bare
+ * (or as-given) form. Switching reads to the canonical key alone would make an
+ * already-consumed payment look unconsumed and re-open the replay. So CHECKS match
+ * all variants; WRITES use only the canonical form (ledgerTxHash).
+ */
+function ledgerTxHashVariants(chain: string, txHash: string): string[] {
+	const c = chain.trim().toLowerCase()
+	if (NON_PREFIXED_CHAINS.has(c)) return [txHash.trim().toLowerCase()]
+	return [...new Set(txHashVariants(txHash).map((v) => v.toLowerCase()))]
+}
+
+/** Canonical (chain, txHash) key — lowercased, trimmed, 0x-normalized for EVM. */
 export function paymentKey(chain: string, txHash: string): string {
-	return `${chain.trim().toLowerCase()}:${txHash.trim().toLowerCase()}`
+	return `${chain.trim().toLowerCase()}:${ledgerTxHash(chain, txHash)}`
 }
 
 /**
@@ -45,11 +74,25 @@ export async function consumePayment(
 	tx: any,
 	args: { chain: string; txHash: string; purpose: string; consumedBy?: string | null },
 ): Promise<boolean> {
+	const chain = args.chain.trim().toLowerCase()
+	// Replay check across spellings (see ledgerTxHashVariants): a legacy bare-form row
+	// for the same transaction means it is already consumed. Fail closed.
+	const variants = ledgerTxHashVariants(chain, args.txHash)
+	if (variants.length > 0) {
+		const prior = await tx
+			.select({ id: consumedPayments.id })
+			.from(consumedPayments)
+			.where(and(eq(consumedPayments.chain, chain), inArray(consumedPayments.txHash, variants)))
+			.limit(1)
+		if (prior.length > 0) return false
+	}
+	// Write the canonical form only. The unique (chain, txHash) constraint still
+	// serializes concurrent same-spelling races (all new rows are canonical).
 	const inserted = await tx
 		.insert(consumedPayments)
 		.values({
-			chain: args.chain.trim().toLowerCase(),
-			txHash: args.txHash.trim().toLowerCase(),
+			chain,
+			txHash: ledgerTxHash(chain, args.txHash),
 			purpose: args.purpose,
 			consumedBy: args.consumedBy ?? null,
 		})

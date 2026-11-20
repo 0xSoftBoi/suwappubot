@@ -19,11 +19,68 @@ import { assertSenderBound, consumePayment, paymentKey } from '../lib/paymentCon
 // --- Minimal in-memory stand-in for a Drizzle tx honoring the (chain,txHash)
 //     UNIQUE constraint used by consumed_payments. Mirrors
 //     insert().values().onConflictDoNothing().returning() semantics: a row whose
-//     key already exists inserts nothing and returns []. ---
-function makeFakeLedger() {
+//     key already exists inserts nothing and returns [].
+//
+//     consumePayment() also issues a SELECT before inserting, to catch a row
+//     stored under a different spelling of the same hash (rows consumed before
+//     tx-hash canonicalization hold the bare, unprefixed form; see
+//     bot/utils/tx_hash.py). The fake therefore keeps real rows and answers
+//     that SELECT.
+//
+//     The WHERE is matched by collecting the bound literals out of the Drizzle
+//     condition rather than by re-deriving the variant list here -- re-deriving
+//     it would just restate the logic under test and prove nothing. A row
+//     matches when both its chain and its stored hash appear among the values
+//     the query was built with, so the SELECT only hits a legacy bare row if
+//     consumePayment actually asked for the bare spelling. ---
+
+/**
+ * Every primitive string bound into a Drizzle condition tree, flattened.
+ *
+ * `seen` is required: a Drizzle condition references its columns, which
+ * reference their table, which references its columns again, so an unguarded
+ * walk blows the stack.
+ */
+function boundStrings(
+	node: unknown,
+	acc: Set<string> = new Set(),
+	seen: WeakSet<object> = new WeakSet(),
+): Set<string> {
+	if (typeof node === 'string') {
+		acc.add(node)
+		return acc
+	}
+	if (node === null || typeof node !== 'object') return acc
+	if (seen.has(node as object)) return acc
+	seen.add(node as object)
+	for (const v of Object.values(node as Record<string, unknown>)) boundStrings(v, acc, seen)
+	return acc
+}
+
+function makeFakeLedger(seedRows: Array<{ chain: string; txHash: string }> = []) {
+	const rows: Array<{ id: number; chain: string; txHash: string }> = []
 	const seen = new Set<string>()
 	let nextId = 1
+
+	// Seed rows verbatim -- used to stand in for pre-canonicalization history.
+	for (const r of seedRows) {
+		rows.push({ id: nextId++, chain: r.chain, txHash: r.txHash })
+		seen.add(`${r.chain}:${r.txHash}`)
+	}
+
 	const tx = {
+		select: (_cols: unknown) => ({
+			from: (_table: unknown) => ({
+				where: (cond: unknown) => ({
+					limit: async (_n: number) => {
+						const values = boundStrings(cond)
+						return rows
+							.filter((r) => values.has(r.chain) && values.has(r.txHash))
+							.map((r) => ({ id: r.id }))
+					},
+				}),
+			}),
+		}),
 		insert: (_table: unknown) => ({
 			values: (v: { chain: string; txHash: string }) => ({
 				onConflictDoNothing: (_cfg: { target: unknown[] }) => ({
@@ -31,13 +88,15 @@ function makeFakeLedger() {
 						const key = paymentKey(v.chain, v.txHash)
 						if (seen.has(key)) return [] // unique violation → nothing inserted
 						seen.add(key)
+						seen.add(`${v.chain}:${v.txHash}`)
+						rows.push({ id: nextId, chain: v.chain, txHash: v.txHash })
 						return [{ id: nextId++ }]
 					},
 				}),
 			}),
 		}),
 	}
-	return { tx, seen }
+	return { tx, seen, rows }
 }
 
 describe('consumePayment — global (chain,txHash) replay/double-redeem guard', () => {
