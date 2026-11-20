@@ -24,11 +24,14 @@ Scope, deliberately narrow and stated rather than implied:
 
 import asyncio
 import logging
+import re
+import time
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import text
+from web3 import Web3
 
 from bot.config.tokens import get_token_address, get_token_decimals
 from bot.models.custodial import (
@@ -75,9 +78,33 @@ MIN_DEPOSIT: Dict[str, Decimal] = {"USDC": Decimal("1"), "USDT": Decimal("1")}
 # well under so one aggressive provider cannot stall a chain's cursor.
 MAX_BLOCK_RANGE = 2_000
 
+# Smallest range the watcher will shrink to when a provider rejects a range as
+# too large. Below this a provider is not capping range, it is just broken.
+MIN_BLOCK_RANGE = 100
+
+# Providers phrase "your range is too big" in many ways (BlockPI: "limited to
+# 1024 block range"; others "-32005 limit exceeded", "query returned more than
+# N results"). Halving the range is the fix for these; switching endpoint is
+# not, since the next provider usually has a cap of its own.
+_RANGE_LIMIT_ERROR = re.compile(
+    r"block range|range (?:is )?too|limit exceeded|-32005|more than \d+ results|"
+    r"query returned more|too many (?:logs|results|blocks)",
+    re.IGNORECASE,
+)
+
+# How long an endpoint that failed a log query is skipped for log queries only.
+LOGS_ENDPOINT_COOLDOWN = 600
+# Endpoints tried per range before giving up for this pass.
+MAX_LOG_ENDPOINTS = 3
+
 # Addresses per getLogs topic filter. The topic list goes in the URL-ish JSON
 # body and providers differ on how large a filter they accept.
 ADDRESS_CHUNK = 100
+
+
+class _RangeLimited(Exception):
+    """A provider rejected the block range as too large."""
+
 
 # How far back to start when a chain has never been scanned. Deposits sent
 # before the watcher existed are an ops question (see the runbook), not
@@ -103,6 +130,12 @@ class DepositWatcher:
         self.poll_seconds = poll_seconds
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        # Per-chain block range that the current providers accept, learned by
+        # halving on range errors so we stop re-probing an oversized range.
+        self._span: Dict[str, int] = {}
+        # (chain, url) -> monotonic time until which that endpoint is skipped
+        # for log queries. Local on purpose; see RPCManager.web3_for_url.
+        self._logs_cooldown: Dict[Tuple[str, str], float] = {}
 
     # --- cursor -----------------------------------------------------------
 
@@ -239,41 +272,136 @@ class DepositWatcher:
         cursor = self._get_cursor(chain)
         if cursor is None:
             cursor = max(0, safe_head - COLD_START_LOOKBACK)
+            # Persist the anchor NOW, before the first read. It used to live
+            # only in a local variable, so on a chain whose reads were failing
+            # every pass recomputed it from the current head: the window slid
+            # forward a minute at a time and any deposit that fell behind it
+            # was never scanned at all. Pinning it means a failed pass retries
+            # the same window instead of abandoning it.
+            self._set_cursor(chain, cursor)
             logger.info("Cold start for %s at block %s", chain, cursor)
 
         if cursor >= safe_head:
             return 0
 
         from_block = cursor + 1
-        to_block = min(safe_head, cursor + MAX_BLOCK_RANGE)
         addresses = list(by_address.keys())
-        credited = 0
+        # Filter by token contract as well as recipient. Allnodes/PublicNode
+        # reject an address-less log query outright ("Please specify an
+        # address"), which is what stalled base, polygon and bsc. It is also
+        # strictly narrower and loses nothing: _handle_log discards any log
+        # whose contract is not in `tokens` anyway.
+        token_addresses = [Web3.to_checksum_address(a) for a in tokens]
+        span = self._span.get(chain, MAX_BLOCK_RANGE)
 
-        for i in range(0, len(addresses), ADDRESS_CHUNK):
-            chunk_end = i + ADDRESS_CHUNK
-            chunk = addresses[i:chunk_end]
-            topics = [TRANSFER_TOPIC0, None, [_topic_for_address(a) for a in chunk]]
+        while True:
+            to_block = min(safe_head, cursor + span)
             try:
-                logs = await asyncio.to_thread(
-                    lambda: web3.eth.get_logs(
-                        {
-                            "fromBlock": from_block,
-                            "toBlock": to_block,
-                            "topics": topics,
-                        }
-                    )
+                logs = await self._fetch_range(
+                    chain, web3, from_block, to_block, token_addresses, addresses
                 )
+                break
+            except _RangeLimited as exc:
+                if span <= MIN_BLOCK_RANGE:
+                    logger.warning(
+                        "get_logs on %s rejects even %d blocks (%s); retrying next pass",
+                        chain,
+                        span,
+                        exc,
+                    )
+                    return 0
+                span = max(MIN_BLOCK_RANGE, span // 2)
+                self._span[chain] = span
+                logger.info("get_logs range on %s halved to %d blocks: %s", chain, span, exc)
             except Exception as exc:
                 # Do NOT advance the cursor past a range we failed to read —
                 # that is how a deposit goes missing permanently.
                 logger.warning("get_logs failed on %s %s-%s: %s", chain, from_block, to_block, exc)
-                return credited
+                return 0
 
-            for log in logs:
-                credited += 1 if self._handle_log(log, chain, tokens, by_address) else 0
+        credited = 0
+        for log in logs:
+            credited += 1 if self._handle_log(log, chain, tokens, by_address) else 0
 
         self._set_cursor(chain, to_block)
+        # Grow the range back after a success. A transient error that happens
+        # to match the range pattern would otherwise pin the span at the floor
+        # for the life of the process, and on a fast chain (bsc produces ~80
+        # blocks a minute) 100 blocks per pass cannot work through a backlog.
+        # On a provider with a hard cap this costs one rejected read per pass.
+        if span < MAX_BLOCK_RANGE:
+            self._span[chain] = min(MAX_BLOCK_RANGE, span * 2)
         return credited
+
+    async def _fetch_range(
+        self,
+        chain: str,
+        primary: Web3,
+        from_block: int,
+        to_block: int,
+        token_addresses: List[str],
+        addresses: List[str],
+    ) -> list:
+        """Every matching log in [from_block, to_block], or raise.
+
+        All recipient chunks must succeed for the range to count; a partial read
+        would let the cursor move past logs we never saw. Raises _RangeLimited
+        when a provider says the range is too large, so the caller can halve it,
+        and the last error otherwise.
+        """
+        out: list = []
+        for i in range(0, len(addresses), ADDRESS_CHUNK):
+            chunk_end = i + ADDRESS_CHUNK
+            chunk = addresses[i:chunk_end]
+            params = {
+                "fromBlock": from_block,
+                "toBlock": to_block,
+                "address": token_addresses,
+                "topics": [TRANSFER_TOPIC0, None, [_topic_for_address(a) for a in chunk]],
+            }
+            out.extend(await self._get_logs_with_failover(chain, primary, params))
+        return out
+
+    async def _get_logs_with_failover(self, chain: str, primary: Web3, params: dict) -> list:
+        """eth_getLogs, falling over to other endpoints when one rejects it.
+
+        The RPC manager never probes eth_getLogs, so an endpoint that answers
+        block-number and eth_call fine but rejects every log query stays healthy
+        and keeps getting selected — which is how ethereum sat on a Blastapi
+        endpoint returning HTTP 400 to every log query, pass after pass. Failed
+        endpoints are cooled down here, for log queries only.
+        """
+        from bot.services.rpc_manager import rpc_manager
+
+        now = time.monotonic()
+        primary_url = rpc_manager.current_url(chain)
+        candidates: List[Tuple[Optional[str], Web3]] = []
+        if primary_url is None or self._logs_cooldown.get((chain, primary_url), 0.0) <= now:
+            candidates.append((primary_url, primary))
+        for url in rpc_manager.get_healthy_urls(chain):
+            if len(candidates) >= MAX_LOG_ENDPOINTS:
+                break
+            if url == primary_url or self._logs_cooldown.get((chain, url), 0.0) > now:
+                continue
+            candidates.append((url, rpc_manager.web3_for_url(chain, url)))
+
+        if not candidates:
+            # Every endpoint is cooling down; fall back to the primary rather
+            # than skip the pass, since a cooldown is a guess and the read is cheap.
+            candidates.append((primary_url, primary))
+
+        last_exc: Optional[Exception] = None
+        for url, client in candidates:
+            try:
+                return await asyncio.to_thread(lambda c=client: c.eth.get_logs(params))
+            except Exception as exc:
+                if _RANGE_LIMIT_ERROR.search(str(exc)):
+                    raise _RangeLimited(str(exc)[:160]) from exc
+                last_exc = exc
+                if url is not None:
+                    self._logs_cooldown[(chain, url)] = time.monotonic() + LOGS_ENDPOINT_COOLDOWN
+        assert last_exc is not None
+        raise last_exc
 
     def _handle_log(
         self, log, chain: str, tokens: Dict[str, str], by_address: Dict[str, int]

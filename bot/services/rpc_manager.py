@@ -771,6 +771,23 @@ class RPCManager:
             # ~32 sessions per rebuild under the multicall executor.
             self._drop_web3(chain_name, url)
 
+    def current_url(self, chain_name: str) -> Optional[str]:
+        """URL backing the cached get_web3() client for a chain, if one is cached."""
+        cached = self._web3_cache.get(chain_name.lower())
+        return cached[1] if cached else None
+
+    def web3_for_url(self, chain_name: str, url: str) -> Web3:
+        """An uncached client pinned to one endpoint, on the shared session.
+
+        For callers that need to fail over across endpoints for a method the
+        health checker never probes. eth_getLogs is the case in point: an
+        endpoint can answer eth_blockNumber and eth_call perfectly — so it stays
+        healthy and keeps being selected — while rejecting every log query.
+        Reporting that through report_failure would also pull the endpoint out
+        of rotation for swaps it serves fine.
+        """
+        return self._create_web3(chain_name.lower(), url)
+
     def invalidate(self, chain_name: str):
         """Force re-selection of endpoint for a chain."""
         self._drop_web3(chain_name.lower())
