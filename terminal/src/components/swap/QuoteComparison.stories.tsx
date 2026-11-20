@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react";
 import { QuoteComparison } from "./QuoteComparison";
 import type { SwapQuote } from "../../types/api";
 
