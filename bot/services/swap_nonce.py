@@ -28,10 +28,15 @@ holds its nonce in a local before signing.
 `eth_getTransactionCount(sender, "latest")` is the authoritative half and
 needs nothing but the RPC we already use:
 
-- `mined_count <= nonce` proves the nonce was **never consumed**. Nothing the
-  swap built can ever land now (any later send reuses the nonce or a higher
-  one, and a reorg deep enough to undo this is outside what a poller should
-  reason about). The swap is safely FAILED: no funds moved.
+- `mined_count <= nonce` **and** the same count at `"pending"` also at or
+  below the nonce proves the nonce was never consumed and nothing is queued to
+  consume it. Nothing the swap built can land now. The swap is safely FAILED:
+  no funds moved. Both views are required — `"latest"` counts mined
+  transactions only, so a transaction still in the mempool reads there as
+  though the nonce were untouched, and calling that FAILED would both lie and
+  invite a retry of a swap that then mines.
+- `mined_count <= nonce` but pending above it means the transaction was built,
+  signed and broadcast and simply has not mined. Nothing to conclude yet.
 - `mined_count > nonce` proves *something* with that nonce mined — ours, or a
   replacement/cancel at the same nonce. That is not enough to call the swap
   done, so this half never resolves anything on its own.
@@ -138,7 +143,8 @@ _EXPLORER_TIMEOUT = 12.0
 
 
 # Resolution verdicts.
-NOT_MINED = "not_mined"  # nonce provably never consumed -> safe to FAIL
+NOT_MINED = "not_mined"  # nonce unspent AND nothing pending -> safe to FAIL
+PENDING_UNMINED = "pending_unmined"  # a tx at this nonce is in the mempool
 CONSUMED_UNKNOWN = "consumed_unknown"  # nonce spent, hash not identified yet
 RESOLVED = "resolved"  # hash identified and verified over our own RPC
 INDETERMINATE = "indeterminate"  # could not reach the chain; retry later
@@ -307,6 +313,17 @@ async def _rpc(rpc_url: str, method: str, params: list):
         return None
 
 
+async def _nonce_count(rpc_url: str, sender: str, block: str) -> Optional[int]:
+    """`eth_getTransactionCount` at `block` ("latest" or "pending"), parsed."""
+    raw = await _rpc(rpc_url, "eth_getTransactionCount", [sender, block])
+    if raw is None:
+        return None
+    try:
+        return int(raw, 16) if isinstance(raw, str) else int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _blockscout_base(chain_name: str) -> Optional[str]:
     """A keyless Blockscout base URL for `chain_name`, if one is known.
 
@@ -452,18 +469,37 @@ async def resolve_tx_by_sender_nonce(chain_name: str, sender: str, nonce: int) -
     if not rpc_url:
         return NonceResolution(INDETERMINATE, detail="no_rpc")
 
-    count_hex = await _rpc(rpc_url, "eth_getTransactionCount", [sender, "latest"])
-    if count_hex is None:
+    # BOTH counts are needed, and asking only for "latest" is a trap worth
+    # spelling out: it counts mined transactions only, so a transaction still
+    # sitting in the mempool (underpriced gas, a congested chain) reads as
+    # though the nonce were untouched. Concluding NOT_MINED there would mark a
+    # swap FAILED that goes on to mine minutes later — and FAILED is precisely
+    # what the engine's idempotency guard reads as "safe to retry", so it
+    # would invite a second send of a swap that did execute.
+    #
+    # "pending" includes the mempool, so NOT_MINED requires both to be at or
+    # below the nonce: nothing mined it and nothing is queued to.
+    mined_count = await _nonce_count(rpc_url, sender, "latest")
+    if mined_count is None:
         return NonceResolution(INDETERMINATE, detail="transaction_count_unavailable")
 
-    try:
-        mined_count = int(count_hex, 16) if isinstance(count_hex, str) else int(count_hex)
-    except (TypeError, ValueError):
-        return NonceResolution(INDETERMINATE, detail="unparseable_transaction_count")
+    pending_count = await _nonce_count(rpc_url, sender, "pending")
+    if pending_count is None:
+        # Without the mempool view we cannot safely say "never sent". Treat as
+        # retryable rather than guessing in the dangerous direction.
+        return NonceResolution(INDETERMINATE, detail="pending_count_unavailable")
 
     if mined_count <= nonce:
-        # Conclusive, and the direction that matters: the nonce was never
-        # spent, so nothing this swap built is on-chain or can get there.
+        if pending_count > nonce:
+            # Built, signed and broadcast — just not mined yet. Nothing to
+            # conclude: it will either mine or be dropped, and the next pass
+            # sees which.
+            return NonceResolution(
+                PENDING_UNMINED,
+                detail=f"mined={mined_count} pending={pending_count}",
+            )
+        # Conclusive: nothing mined this nonce and nothing is queued to. The
+        # transaction this swap built is not on-chain and cannot get there.
         return NonceResolution(NOT_MINED, detail=f"next_nonce={mined_count}")
 
     candidate = await _candidate_hash_from_explorer(chain.name, sender, nonce)

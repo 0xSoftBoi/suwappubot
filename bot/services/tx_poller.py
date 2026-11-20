@@ -256,6 +256,8 @@ class TransactionPoller:
           what. Left UNKNOWN on purpose — "something mined at that nonce" is
           not grounds to claim a swap succeeded, and a replacement or cancel
           at the same nonce looks identical from here.
+        - PENDING_UNMINED means a transaction at that nonce is in the mempool,
+          so the broadcast did happen and is simply waiting. Left alone.
         - INDETERMINATE means we could not reach the chain. Retried next pass.
 
         Only EVM rows are selected. Solana and Tron have no account nonce, so
@@ -264,6 +266,18 @@ class TransactionPoller:
         from bot.services import swap_nonce
 
         cutoff = datetime.now(timezone.utc) - timedelta(hours=self._max_age_hours)
+
+        # A swap records its nonce BEFORE it broadcasts, so for a short window
+        # a perfectly healthy in-flight swap looks exactly like the thing this
+        # method hunts: EXECUTING, no hash, nonce set. Resolving one of those
+        # would read "nonce not yet consumed", call it NOT_MINED and mark a
+        # swap FAILED while its broadcast was still on the wire — and FAILED
+        # is what the engine's idempotency guard reads as "safe to retry".
+        #
+        # So ignore anything recent enough to still be executing. The rows
+        # that matter here were stranded by a dead process or a timed-out RPC
+        # and are not going to resolve themselves in the next few minutes.
+        settle_after = datetime.now(timezone.utc) - timedelta(minutes=self.HASHLESS_MIN_AGE_MINUTES)
 
         with get_db_session() as session:
             rows = (
@@ -276,10 +290,10 @@ class TransactionPoller:
                         [
                             SwapStatus.UNKNOWN.value,
                             SwapStatus.EXECUTING.value,
-                            SwapStatus.SUBMITTED.value,
                         ]
                     ),
                     SwapTransaction.created_at >= cutoff,
+                    SwapTransaction.created_at <= settle_after,
                 )
                 .limit(self.HASHLESS_RESOLVE_BATCH)
                 .all()
@@ -740,6 +754,14 @@ class TransactionPoller:
     # eth_getTransactionCount and possibly an explorer crawl, so a backlog
     # drains over several passes rather than stalling the poll loop.
     HASHLESS_RESOLVE_BATCH = 25
+
+    # How old a hashless row must be before this pass will touch it. Covers
+    # the window in which a healthy swap has recorded its nonce but not yet
+    # returned a hash, so an in-flight broadcast is never mistaken for a
+    # stranded one. Generous on purpose: these rows have waited for a human
+    # until now, so minutes cost nothing, and a wrong FAILED costs a retry of
+    # a swap that already executed.
+    HASHLESS_MIN_AGE_MINUTES = 15
 
     async def _check_zerox_crosschain_status_dict(
         self, tx_dict: dict
