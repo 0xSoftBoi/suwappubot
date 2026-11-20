@@ -65,28 +65,35 @@
 One wallet, checked live: try to swap unverified and a **Uniswap v4 `beforeSwap` hook**
 ([`0xc72ab4dF…c080`](https://sepolia.etherscan.io/address/0xc72ab4dFd3d6B2C1b3af51816EA8331599e6c080))
 reverts at zero gas. Scan **World ID** and the server mints the wallet a real **ENSv2** subname under
-`suwappu-agents.eth` on Sepolia and allowlists it on the same hook. Swap again — it executes through
-the same pool. One verification, three sponsor integrations, all proven in one recorded per-wallet
-run. Every claim is backed by a real Sepolia transaction, not a mock — see
+`suwappu-agents.eth` on Sepolia, then allowlists it on the same hook. Swap again and it executes
+through the same pool.
+
+One verification, three sponsor integrations, all proven in one recorded per-wallet run. Every claim
+is backed by a real Sepolia transaction rather than a mock. See
 [`docs/ethglobal-tokyo2026/SUBMISSION.md`](docs/ethglobal-tokyo2026/SUBMISSION.md) for exact
 `file:line` pointers, tx hashes, and a 2-minute self-verification path per sponsor track
-(World ID/IDKit, ENSv2, Uniswap v4). Intercepta was explored but is explicitly out of scope for
-this submission — not demoed, no live API key provisioned.
+(World ID/IDKit, ENSv2, Uniswap v4). Intercepta was explored but is explicitly out of scope for this
+submission: not demoed, no live API key provisioned.
 
 ---
 
 ## NEAR HACKATHON 2026 — Suwappu Arbiter (“Proof of Done”)
 
 **Trustless milestone escrow for human and agent work. Delivery verified inside an OutLayer
-Intel TDX enclave; settlement enforced by the contract.** One-line problem: every agent
-marketplace holds money in escrow but can’t prove the work was done. Arbiter closes the loop —
-a hash-pinned arbiter WASM verifies the evidence (the enclave fetches the PR from the GitHub API itself; no shared secret, no caller-supplied evidence),
-and every verdict is anchored on-chain as a signed work attestation.
+Intel TDX enclave; settlement enforced by the contract.**
+
+One-line problem: every agent marketplace holds money in escrow but can’t prove the work was done.
+Arbiter closes the loop. A hash-pinned arbiter WASM verifies the evidence, and every verdict is
+anchored on-chain as a signed work attestation. The enclave fetches the PR from the GitHub API
+itself, so there is no shared secret and no caller-supplied evidence.
 
 **Live demo → [suwappu.bot/arbiter](https://www.suwappu.bot/arbiter)** (dry-run by default; no
-funds needed). Built as a product line — see [`ARBITER.md`](ARBITER.md) for the 12-month plan —
-with an open attestation spec at [`docs/arbiter-attestation-v1.md`](docs/arbiter-attestation-v1.md).
-Hackathon work (baseline commit `99161598`, the last commit before the build window): pull requests [#1096](https://github.com/0xSoftBoi/suwappubot/pull/1096), [#1098](https://github.com/0xSoftBoi/suwappubot/pull/1098), [#1099](https://github.com/0xSoftBoi/suwappubot/pull/1099); everything under `near/`, `showcase/src/app/arbiter/` and the Arbiter docs.
+funds needed). It is built as a product line, with the 12-month plan in
+[`ARBITER.md`](ARBITER.md) and an open attestation spec at
+[`docs/arbiter-attestation-v1.md`](docs/arbiter-attestation-v1.md).
+
+Hackathon work, measured from baseline commit `99161598`, the last commit before the build window:
+pull requests [#1096](https://github.com/0xSoftBoi/suwappubot/pull/1096), [#1098](https://github.com/0xSoftBoi/suwappubot/pull/1098) and [#1099](https://github.com/0xSoftBoi/suwappubot/pull/1099), plus everything under `near/`, `showcase/src/app/arbiter/` and the Arbiter docs.
 Judge steps (dry-run, then testnet commands) and honest scope notes are in
 [`docs/hackathon/arbiter.md`](docs/hackathon/arbiter.md).
 

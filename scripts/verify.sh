@@ -30,6 +30,12 @@ if [[ "$MODE" == "all" || "$MODE" == "python" ]]; then
   # send time. Nothing else in CI performs a real send, so the user just never
   # receives the message.
   echo "=== Telegram MarkdownV2 escaping ==="
+  # The checker's own cases run first: it has to know that a correct inline
+  # link is correct before its verdict on a real message means anything.
+  if ! python3 scripts/check_markdown_escapes.py --self-test; then
+    echo "✗ The escape checker's own cases fail; its findings cannot be trusted."
+    exit 1
+  fi
   if ! python3 scripts/check_markdown_escapes.py; then
     echo "✗ A bot message would be rejected by Telegram at send time."
     exit 1
@@ -93,6 +99,14 @@ if [[ "$MODE" == "all" || "$MODE" == "docs" ]]; then
   echo "=== Copy-lint self-test ==="
   if ! python3 scripts/test_copy_lint.py; then
     echo "✗ The prose linter's own tests fail; its findings cannot be trusted."
+    exit 1
+  fi
+  # The copy-only gate is what makes a large delegated rewrite safe to accept,
+  # so its own cases are a gate too. They pin the two ways it can lie: a
+  # changed expression inside a template literal, and a retargeted URL.
+  echo "=== Copy-only gate self-test ==="
+  if ! python3 scripts/check_ts_copy_only.py --self-test; then
+    echo "✗ The copy-only gate's own cases fail; it cannot certify a rewrite."
     exit 1
   fi
   # Two tiers, deliberately. PUBLISHED surfaces are what customers read, so they

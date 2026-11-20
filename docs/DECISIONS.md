@@ -324,7 +324,7 @@ ADRs 0001–0005.
 - **Rules from now on**: (1) a claim is "verified" only with an artifact — URL/tx
   hash/request id + timestamp — and it goes stale when the file it names changes.
   (2) Every external integration gets a committed smoke script that hits the real
-  sandbox and is re-run after deploy (`scripts/smoke/`). (3) One migration owner per
+  sandbox and is re-run after deploy. (3) One migration owner per
   table; the shared-DB CI job must diff `information_schema.columns` incl. defaults
   and identity. (4) Env parity: variable NAMES in Railway must match the env schema
   before a deploy (`.env.schema` vs `railway variables`). (5) Never drop an upstream

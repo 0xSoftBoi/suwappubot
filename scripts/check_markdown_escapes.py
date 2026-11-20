@@ -62,6 +62,44 @@ def text_nodes(call: ast.Call):
             yield kw.value
 
 
+def _link_at(text: str, i: int) -> tuple[int, str, str] | None:
+    """Match an inline link starting at text[i] == "[".
+
+    Returns (index just past the link, label, destination), or None when this
+    bracket does not open one. MarkdownV2 escaping is context-dependent: the
+    brackets and parentheses that form a link are syntax, and inside the
+    destination only ")" and "\\" need escaping. Treating the whole literal
+    with one reserved set rejects correct links, which is worse than useless in
+    a gate — it teaches people to work around it.
+    """
+    j = i + 1
+    while j < len(text):
+        if text[j] == "\\":
+            j += 2
+            continue
+        if text[j] == "]":
+            break
+        if text[j] == "\n":
+            return None
+        j += 1
+    else:
+        return None
+    if j + 1 >= len(text) or text[j + 1] != "(":
+        return None
+    label = text[i + 1 : j]
+    k = j + 2
+    while k < len(text):
+        if text[k] == "\\":
+            k += 2
+            continue
+        if text[k] == ")":
+            return k + 1, label, text[j + 2 : k]
+        if text[k] == "\n":
+            return None
+        k += 1
+    return None
+
+
 def unescaped(text: str) -> list[str]:
     bad: list[str] = []
     i = 0
@@ -76,13 +114,59 @@ def unescaped(text: str) -> list[str]:
             if j != -1:
                 i = j + 1
                 continue
+        if ch == "[":
+            link = _link_at(text, i)
+            if link is not None:
+                end, label, dest = link
+                # The label is ordinary text and carries the full rules.
+                bad.extend(unescaped(label))
+                # In the destination, only ")" needs escaping, and an
+                # unescaped one would have ended the link above — so a matched
+                # destination is valid by construction.
+                i = end
+                continue
         if ch in ALWAYS_RESERVED:
             bad.append(ch)
         i += 1
     return bad
 
 
+# Each case pins a rule this gate is relied on for. The link cases exist
+# because an earlier version applied one reserved set to the whole literal and
+# so reported a correct inline link as five errors.
+SELF_TEST = [
+    # (name, literal, the characters that must be reported)
+    ("valid inline link", "[Read docs](https://suwappu.bot/docs)", []),
+    ("valid link followed by prose", "[Docs](https://a.io/x) is ready", []),
+    ("unescaped period outside a link", "Done.", ["."]),
+    ("escaped period outside a link", "Done\\.", []),
+    ("label with an unescaped period", "[Read docs.](https://a.io)", ["."]),
+    ("label with an escaped period", "[Read docs\\.](https://a.io)", []),
+    ("destination with escaped parentheses", "[x](https://a.io/a\\(b\\))", []),
+    ("destination holding a period", "[a](https://a.io/v1.2/x)", []),
+    ("bare opening bracket is still reserved", "an [aside here", ["["]),
+    ("bracket pair with no destination", "see [this] thing", ["[", "]"]),
+    ("two links in one message", "[a](https://a.io) and [b](https://b.io)", []),
+    ("unescaped bang after a link", "[a](https://a.io)!", ["!"]),
+    ("format placeholder is left alone", "Swapped {amount} tokens", []),
+    ("hyphen outside a link", "pre-flight", ["-"]),
+]
+
+
+def self_test() -> int:
+    failed = 0
+    for name, literal, want in SELF_TEST:
+        got = unescaped(literal)
+        if got != want:
+            failed += 1
+            print(f"FAIL {name}: reported {got}, expected {want}")
+    print(f"{len(SELF_TEST) - failed}/{len(SELF_TEST)} passed")
+    return 1 if failed else 0
+
+
 def main() -> int:
+    if "--self-test" in sys.argv[1:]:
+        return self_test()
     findings: list[str] = []
     checked = 0
     skipped_code = 0
