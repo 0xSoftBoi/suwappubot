@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { API_BASE_URL } from '@/lib/links';
+import { API_BASE_URL, AUTH_BASE_URL } from '@/lib/links';
 import FinancePanel from './FinancePanel';
+import GrowthSection, { type GrowthReport } from './GrowthSection';
 import './admin.css';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -142,10 +143,15 @@ function DeltaBadge({ value }: { value: number }) {
 
 // ── Admin API fetch wrapper ──────────────────────────────────────────────────
 
+/** Sentinel "key" meaning: authenticate with the signed-in Google session
+ *  cookie instead of an X-Admin-Key header (api-ts adminSessionAuth.ts). */
+const SESSION_AUTH = '@session';
+
 async function adminFetch<T>(path: string, key: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'X-Admin-Key': key },
-  });
+  const res = await fetch(
+    `${API_BASE_URL}${path}`,
+    key === SESSION_AUTH ? { credentials: 'include' } : { headers: { 'X-Admin-Key': key } },
+  );
   if (res.status === 401) throw new Error('UNAUTHORIZED');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<T>;
@@ -905,10 +911,11 @@ function WebhooksTable({ apiKey }: { apiKey: string }) {
 
 // ── Auth Gate ─────────────────────────────────────────────────────────────────
 
-function AuthGate({ onAuth }: { onAuth: (key: string) => void }) {
+function AuthGate({ onAuth, notice }: { onAuth: (key: string) => void; notice?: string }) {
   const [value, setValue]     = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [showKey, setShowKey] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -916,43 +923,60 @@ function AuthGate({ onAuth }: { onAuth: (key: string) => void }) {
     setLoading(true);
     setError('');
     try {
-      await adminFetch('/admin/stats', value.trim());
+      await adminFetch('/admin/me', value.trim());
       localStorage.setItem(KEY_STORE, value.trim());
       onAuth(value.trim());
     } catch (err) {
       if (err instanceof Error && err.message === 'UNAUTHORIZED') {
-        setError('Invalid admin key: check your credentials.');
+        setError('That key was not accepted. Check it and try again.');
       } else {
-        setError('Could not reach the API. Check network connectivity.');
+        setError('Could not reach the server. Check your connection and try again.');
       }
     } finally {
       setLoading(false);
     }
   }
 
+  const returnTo = typeof window === 'undefined' ? 'https://suwappu.bot/admin' : `${window.location.origin}/admin`;
+
   return (
     <div className="adm-auth">
       <div className="adm-auth__card">
         <div className="adm-auth__logo">S</div>
-        <h1 className="adm-auth__title">Admin access</h1>
-        <p className="adm-auth__sub">Enter your admin key to continue.</p>
-        <form onSubmit={handleSubmit}>
-          <label className="adm-auth__label" htmlFor="adm-key">Admin key</label>
-          <input
-            id="adm-key"
-            type="password"
-            autoComplete="current-password"
-            className="adm-auth__input"
-            placeholder="sk-adm-••••••••"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            disabled={loading}
-          />
-          {error && <p className="adm-auth__error">{error}</p>}
-          <button type="submit" className="adm-auth__btn" disabled={loading || !value.trim()}>
-            {loading ? 'Verifying…' : 'Sign in'}
-          </button>
-        </form>
+        <h1 className="adm-auth__title">Suwappu admin</h1>
+        <p className="adm-auth__sub">See your visitors, sign-ups, sales leads and revenue.</p>
+
+        <a
+          className="adm-auth__btn adm-auth__btn--google"
+          href={`${AUTH_BASE_URL}/auth/oauth/google/authorize?redirect_url=${encodeURIComponent(returnTo)}`}
+        >
+          Continue with Google
+        </a>
+        {notice && <p className="adm-auth__error" role="alert">{notice}</p>}
+
+        <button type="button" className="adm-auth__toggle" aria-expanded={showKey} onClick={() => setShowKey((v) => !v)}>
+          {showKey ? 'Hide admin key sign-in' : 'Use an admin key instead'}
+        </button>
+        {showKey && (
+          <form onSubmit={handleSubmit}>
+            <label className="adm-auth__label" htmlFor="adm-key">Admin key</label>
+            <input
+              id="adm-key"
+              name="admin-key"
+              type="password"
+              autoComplete="current-password"
+              spellCheck={false}
+              className="adm-auth__input"
+              placeholder="Paste your admin key…"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            {error && <p className="adm-auth__error" role="alert">{error}</p>}
+            <button type="submit" className="adm-auth__btn" disabled={loading} aria-busy={loading}>
+              Sign in
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -960,13 +984,13 @@ function AuthGate({ onAuth }: { onAuth: (key: string) => void }) {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
-type Section = 'overview' | 'finance' | 'activity' | 'agents' | 'swaps' | 'webhooks';
+type Section = 'growth' | 'overview' | 'finance' | 'activity' | 'agents' | 'swaps' | 'webhooks';
 
-function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => void }) {
+function Dashboard({ apiKey, email, onSignOut }: { apiKey: string; email: string | null; onSignOut: () => void }) {
   const [stats, setStats]           = useState<AdminStats | null>(null);
   const [statsError, setStatsError] = useState('');
   const [timeseries, setTimeseries] = useState<AdminTimeseries | null>(null);
-  const [activeSection, setActiveSection] = useState<Section>('overview');
+  const [activeSection, setActiveSection] = useState<Section>('growth');
 
   useEffect(() => {
     adminFetch<AdminStats>('/admin/stats', apiKey)
@@ -979,10 +1003,14 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
       .catch(() => { /* silent: charts just stay empty */ });
   }, [apiKey]);
 
-  const keyPreview = apiKey.length > 10 ? `${apiKey.slice(0, 6)}••••${apiKey.slice(-3)}` : '••••••';
+  const keyPreview = apiKey === SESSION_AUTH
+    ? (email ?? 'Signed in with Google')
+    : apiKey.length > 10 ? `${apiKey.slice(0, 6)}••••${apiKey.slice(-3)}` : '••••••';
+  const loadGrowth = useCallback((path: string) => adminFetch<GrowthReport>(path, apiKey), [apiKey]);
 
   const navItems: { id: Section; label: string; icon: string }[] = [
-    { id: 'overview',  label: 'Overview',  icon: '◈' },
+    { id: 'growth',    label: 'Growth',    icon: '↗' },
+    { id: 'overview',  label: 'Product',   icon: '◈' },
     { id: 'finance',   label: 'Finance',   icon: '◇' },
     { id: 'activity',  label: 'Activity',  icon: '⟁' },
     { id: 'agents',    label: 'Agents',    icon: '⬡' },
@@ -1019,7 +1047,7 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
         </nav>
 
         <div className="adm-sidebar__footer">
-          <div style={{ marginBottom: 6 }}>Key: <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>{keyPreview}</span></div>
+          <div style={{ marginBottom: 6, overflowWrap: 'anywhere' }}>{apiKey === SESSION_AUTH ? 'Signed in as ' : 'Key: '}<span style={{ fontFamily: 'var(--font-mono, monospace)' }}>{keyPreview}</span></div>
           <button className="adm-signout-btn" onClick={onSignOut}>Sign out</button>
         </div>
       </aside>
@@ -1041,8 +1069,10 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
       <main className="adm-main">
         <div className="adm-topbar">
           <h1 className="adm-topbar__title">Dashboard</h1>
-          <span className="adm-topbar__key-badge">&#128273; {keyPreview}</span>
+          <span className="adm-topbar__key-badge">{keyPreview}</span>
         </div>
+
+        <GrowthSection load={loadGrowth} />
 
         {/* Overview: KPI cards */}
         <div id="overview" style={{ scrollMarginTop: 24 }}>
@@ -1071,23 +1101,49 @@ function Dashboard({ apiKey, onSignOut }: { apiKey: string; onSignOut: () => voi
 
 export default function AdminPage() {
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [email, setEmail]   = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
   const [ready, setReady]   = useState(false);
 
   useEffect(() => {
-    // Hydrate from localStorage after mount (avoids SSR mismatch).
+    // Hydrate after mount (avoids SSR mismatch). A stored key wins; otherwise
+    // see whether the visitor already has a staff Google session.
+    const url = new URL(window.location.href);
+    const cameFromGoogle = url.searchParams.has('auth') || url.searchParams.has('auth_error');
+    const googleFailed = url.searchParams.has('auth_error');
+    if (cameFromGoogle) {
+      ['auth', 'provider', 'auth_error'].forEach((k) => url.searchParams.delete(k));
+      window.history.replaceState(null, '', url.toString());
+    }
+
     const stored = localStorage.getItem(KEY_STORE);
-    setApiKey(stored);
-    setReady(true);
+    if (stored) { setApiKey(stored); setReady(true); return; }
+
+    let cancelled = false;
+    adminFetch<{ email: string | null }>('/admin/me', SESSION_AUTH)
+      .then((me) => { if (!cancelled) { setEmail(me.email); setApiKey(SESSION_AUTH); } })
+      .catch(() => {
+        if (cancelled || !cameFromGoogle) return;
+        setNotice(googleFailed
+          ? 'Google sign-in did not complete. Please try again.'
+          : 'You are signed in, but this Google account does not have admin access. Ask the account owner to add your email.');
+      })
+      .finally(() => { if (!cancelled) setReady(true); });
+    return () => { cancelled = true; };
   }, []);
 
   function handleAuth(key: string) { setApiKey(key); }
 
   function handleSignOut() {
     localStorage.removeItem(KEY_STORE);
+    if (apiKey === SESSION_AUTH) {
+      fetch(`${AUTH_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
+    }
     setApiKey(null);
+    setEmail(null);
   }
 
-  if (!ready) return null;
-  if (!apiKey) return <AuthGate onAuth={handleAuth} />;
-  return <Dashboard apiKey={apiKey} onSignOut={handleSignOut} />;
+  if (!ready) return <div className="adm-loading" role="status">Loading…</div>;
+  if (!apiKey) return <AuthGate onAuth={handleAuth} notice={notice} />;
+  return <Dashboard apiKey={apiKey} email={email} onSignOut={handleSignOut} />;
 }

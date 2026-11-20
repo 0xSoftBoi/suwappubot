@@ -315,8 +315,8 @@ adminGrowthRoutes.get('/growth', async (c) => {
 				// intent event), so the UI presents them as counts, not a strict funnel.
 				funnel: [
 					{ key: 'visitors', label: 'Visited the site', count: num(visit?.visitors) },
-					{ key: 'intent', label: 'Clicked a call to action', count: num(visit?.intent) },
-					{ key: 'converted', label: 'Submitted a form', count: num(visit?.converted) },
+					{ key: 'intent', label: 'Showed interest (clicked a main button or opened the contact form)', count: num(visit?.intent) },
+					{ key: 'converted', label: 'Sent in a form', count: num(visit?.converted) },
 				],
 				series: seriesList,
 				topPages: (topPages ?? []).map((r) => ({

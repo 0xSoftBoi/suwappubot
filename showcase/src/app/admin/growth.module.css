@@ -1,0 +1,70 @@
+/* Admin "Growth" section. Reuses the --adm-* variables from admin.css. */
+.root { margin-bottom: 48px; scroll-margin-top: 24px; }
+.head { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+.title { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -0.02em; color: var(--adm-ink); }
+.sub { margin: 6px 0 0; color: var(--adm-muted); font-size: 0.9375rem; }
+.ranges { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--adm-border); border-radius: 10px; }
+.range, .rangeActive { min-height: 36px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--adm-muted); font: inherit; font-size: 0.875rem; font-weight: 550; cursor: pointer; }
+.range:hover { color: var(--adm-ink); background: var(--adm-surface-hover); }
+.rangeActive { background: rgba(56, 189, 248, 0.16); color: var(--adm-ink); }
+.range:focus-visible, .rangeActive:focus-visible, .leadBtn:focus-visible, .hit:focus-visible { outline: 2px solid var(--adm-accent); outline-offset: 2px; }
+
+.headline { margin: 0 0 16px; max-width: 70ch; color: var(--adm-ink); font-size: 1.125rem; line-height: 1.55; text-wrap: pretty; }
+.notice { margin: 0 0 16px; padding: 12px 14px; border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--adm-radius-sm); background: rgba(245, 158, 11, 0.08); color: var(--adm-ink); font-size: 0.9375rem; line-height: 1.5; }
+.error { margin: 0 0 16px; padding: 12px 14px; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: var(--adm-radius-sm); background: rgba(239, 68, 68, 0.08); color: var(--adm-ink); }
+.empty { margin: 8px 0 0; color: var(--adm-muted); font-size: 0.9375rem; }
+.stale { opacity: 0.55; transition: opacity 0.15s; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile, .panel, .chart { margin: 0; padding: 18px; border: 1px solid var(--adm-border); border-radius: var(--adm-radius); background: var(--adm-surface); }
+.tileLabel { margin: 0; color: var(--adm-muted); font-size: 0.875rem; font-weight: 550; }
+.tileValue { margin: 6px 0 4px; color: var(--adm-ink); font-size: 2.25rem; font-weight: 650; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.tileHint { margin: 8px 0 0; color: var(--adm-muted); font-size: 0.8125rem; line-height: 1.45; }
+.changeUp, .changeDown, .changeFlat { display: block; font-size: 0.8125rem; font-weight: 550; }
+.changeUp { color: #4ade80; }
+.changeDown { color: #f87171; }
+.changeFlat { color: var(--adm-muted); }
+
+.charts, .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px; margin-bottom: 12px; }
+.chartHead { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.chartTitle, .panelTitle { margin: 0; color: var(--adm-ink); font-size: 1rem; font-weight: 600; }
+.chartReadout { color: var(--adm-muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.chartSvg { display: block; width: 100%; height: auto; overflow: visible; }
+.axis { stroke: var(--adm-border); stroke-width: 1; }
+.bar { fill: #38bdf8; opacity: 0.72; }
+.barActive { fill: #7dd3fc; }
+.tick { fill: var(--adm-muted); font-size: 11px; }
+.hit { cursor: default; outline-offset: -2px; }
+
+.panel { margin-bottom: 12px; }
+.grid2 .panel { margin-bottom: 0; }
+.panelHint { margin: 4px 0 14px; color: var(--adm-muted); font-size: 0.875rem; line-height: 1.45; }
+.rank, .funnel { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.rankRow { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.rankLabel { min-width: 0; overflow: hidden; color: var(--adm-ink); font-size: 0.9375rem; text-overflow: ellipsis; white-space: nowrap; }
+.rankValue { flex: none; color: var(--adm-ink); font-size: 0.9375rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rankValue em { color: var(--adm-muted); font-style: normal; font-weight: 400; }
+.rankTrack { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.06); }
+.rankFill { height: 100%; border-radius: 3px; background: #38bdf8; opacity: 0.8; }
+
+.tableWrap { overflow-x: auto; }
+.table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 0.9375rem; }
+.table th { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--adm-border); color: var(--adm-muted); font-size: 0.8125rem; font-weight: 550; text-align: left; white-space: nowrap; }
+.table td { padding: 12px 12px 12px 0; border-bottom: 1px solid var(--adm-border); color: var(--adm-ink); vertical-align: top; }
+.table .link { color: #7dd3fc; text-decoration: none; }
+.table .link:hover { text-decoration: underline; }
+.leadBtn { padding: 0; border: 0; background: none; color: var(--adm-ink); font: inherit; font-weight: 600; text-align: left; text-decoration: underline; text-decoration-color: var(--adm-faint); text-underline-offset: 3px; cursor: pointer; }
+.rowOpen td { border-bottom-color: transparent; }
+.detail td { padding-top: 0; }
+.detail dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 24px; margin: 0; padding: 14px; border-radius: var(--adm-radius-sm); background: rgba(255, 255, 255, 0.03); }
+.detail dt { color: var(--adm-muted); font-size: 0.8125rem; }
+.detail dd { margin: 2px 0 0; color: var(--adm-ink); overflow-wrap: anywhere; }
+.foot { margin: 16px 0 0; color: var(--adm-muted); font-size: 0.8125rem; }
+
+@media (prefers-reduced-motion: reduce) { .stale { transition: none; } }
+
+@media (min-width: 1100px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+.root { min-width: 0; }
+.rank > li, .funnel > li, .panel, .chart, .tile { min-width: 0; }
+.funnel .rankRow { flex-wrap: wrap; }
+.funnel .rankLabel { white-space: normal; }

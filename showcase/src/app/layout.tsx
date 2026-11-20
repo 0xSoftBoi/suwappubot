@@ -4,6 +4,7 @@ import { Archivo, Newsreader, JetBrains_Mono } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import Analytics from '@/components/Analytics';
+import PageViewTracker from '@/components/PageViewTracker';
 import AttributionCapture from '@/components/AttributionCapture';
 import './summer-token-vars.css';
 import './globals.css';
@@ -148,6 +149,7 @@ export default async function RootLayout({
       <body className="font-sans antialiased bg-[var(--suwappu-summer-canvas-warm)] text-[var(--suwappu-summer-ink)]">
         <a href="#main-content" className="skip-to-content">Skip to content</a>
         <Analytics />
+        <PageViewTracker />
         <AttributionCapture />
         <NextIntlClientProvider locale={locale} messages={messages}>
           {children}
