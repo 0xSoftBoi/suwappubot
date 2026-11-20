@@ -46,12 +46,16 @@ agent asking for more rope must never be able to phrase it as a tidy-up. Approve
 and the mandate really changes, persists, and governs the very next
 `check_mandate`.
 
-`compile_mandate_to_policy` then turns that negotiated envelope into
-`POST /v1/agent/wallet/policy` payloads — real Turnkey policies that gate
-managed execution server-side, where a browser page cannot reach. It reports
-honestly what did not survive the compile (a per-trade cap has no direct Turnkey
-equivalent; a token allow-list needs addresses, not symbols). You leave with a
-rule set, not a session.
+`compile_mandate_to_policy` then turns that negotiated envelope into the one
+body `POST /v1/agent/policies` accepts: the spend policy the API evaluates on
+every swap execute by the agent, before a transaction is built. The human
+installs it from the mandate panel ("Enforce") with the agent's API key; from
+the next call on, the per-trade cap, the rolling daily cap, the slippage
+ceiling and the chain list bind server-side, not only here. The tool reports
+honestly what stays desk-only (the price-impact ceiling, which the API has no
+control for, and the buy-token list, because the API's token allow-list binds
+both sides of a trade). You leave with a rule set the server holds, not a
+session.
 
 ### The agent can argue, but it cannot route around you
 
@@ -63,13 +67,22 @@ permission prompt, a negotiation.
 
 ### Honest scope
 
-The desk does not execute, so the mandate **cannot physically cap spending** —
-a user who ignores the desk and signs in their wallet is outside its reach. It
-governs what this page puts in front of you and what the agent is told before it
-asks. Binding enforcement lives server-side in Suwappu's wallet spending
-policies (`POST /v1/agent/wallet/policy`), which gate managed execution. The
-mandate is the browser-side sibling of that idea, not a replacement. The code
-says so, and so does `read_mandate`'s own payload.
+The desk does not execute, so by itself the mandate **cannot physically cap
+spending**: it governs what this page puts in front of you and what the agent
+is told before it asks. Binding enforcement is one click away, not somewhere
+else: "Enforce" installs the mandate as a spend policy (`POST
+/v1/agent/policies`) that the API's policy gate evaluates on every execute by
+the agent, with a managed wallet or a Suwappu-issued credential. `read_mandate`
+reports which it is (`enforcement.status`: `none`, `enforced`, or `stale` once
+an amendment has moved the desk past the installed version), and the receipt
+carries the same field. Two limits stay honest: a self-signing wallet that
+bypasses the API is outside the policy's reach, and anyone holding the agent's
+own token can change an agent-scoped policy, so rules the agent must not be
+able to lift belong on an organization key.
+
+The older Turnkey route (`POST /v1/agent/wallet/policy`) is not what the desk
+uses: Suwappu's signer is the root user of each agent sub-org, and Turnkey's
+root quorum bypasses policies, so those rows do not bind today.
 
 ## Design rules
 
@@ -91,7 +104,10 @@ says so, and so does `read_mandate`'s own payload.
    exists only while something is blocked; `open_signing_handoff` only while an
    approved, unspent proposal is on the desk, and it refuses a replay once
    consumed. An agent cannot reach for a tool the human has not unlocked.
-5. **This page never holds a key.** The handoff opens Terminal
+5. **This page never holds a signing key.** (If the human connects the agent's
+   API key to enforce the mandate, it lives in that tab's session storage, is
+   sent only to the Suwappu API, and never enters a tool result, the activity
+   log or the receipt.) The handoff opens Terminal
    (`/alert-swap?from=&to=&chain=&side=&amount=` for a same-chain pair, or
    `/bridge?from=&to=&token=&amount=` for a stable moving chains; both prefill
    the form and still require a human tap) or the Telegram bot with a
@@ -151,7 +167,7 @@ instruction-injection-shaped description is now gone.
 | --- | --- | --- |
 | `read_mandate` | read | The human's envelope, plus today's remaining budget |
 | `amend_mandate` | **completes** | Propose changing the envelope; approval rewrites it in place |
-| `compile_mandate_to_policy` | **completes** | Compile the envelope into enforceable wallet-policy payloads |
+| `compile_mandate_to_policy` | read | Compile the envelope into the spend policy the API enforces; report whether it is installed |
 | `navigate_desk` | read | Move the human's view to a section; report what lives there |
 | `check_mandate` | read | Silent dry-run: which rules a trade breaks, with limit vs actual |
 | `list_chains` | read | Chains Suwappu can route across |
@@ -187,14 +203,14 @@ step detail.
 ```bash
 cd showcase
 bun run dev                     # serve the desk (Next dev on :3000; set DESK_URL if elsewhere)
-bun run webmcp:smoke            # 93 assertions against a modelContext polyfill
+bun run webmcp:smoke            # 102 assertions against a modelContext polyfill
 bun run webmcp:evals:adversarial # 49 injection-under-the-skin checks
 bun run webmcp:lint             # imperative/injection-shaped description lint
 bun run webmcp:grade            # trajectory/pass^k/CuP grader self-test
 ```
 
 `scripts/webmcp-smoke.mjs` installs a spec-shaped `document.modelContext` and
-drives the real page through **93 assertions**, among them: that the ticket
+drives the real page through **102 assertions**, among them: that the ticket
 form is a declarative WebMCP tool (named, described, six described parameters,
 no `toolautosubmit`) and that submitting it prices for real; that a
 mandate-breaking proposal reports itself blocked **and** its Approve button is

@@ -199,7 +199,20 @@ export function evaluateMandate(
 }
 
 /** What the agent reads. Deliberately verbose — it is a contract, not a blob. */
-export function describeMandate(mandate: Mandate, spentTodayUsd: number) {
+/** What the desk knows about the server-side copy of this mandate. */
+export interface EnforcementSummary {
+  /** none: never applied. enforced: the installed policy matches this version. stale: a newer version is on the desk. */
+  status: 'none' | 'enforced' | 'stale';
+  policyId: string | null;
+  enforcedVersion: number | null;
+  since: string | null;
+}
+
+export function describeMandate(
+  mandate: Mandate,
+  spentTodayUsd: number,
+  enforcement: EnforcementSummary = { status: 'none', policyId: null, enforcedVersion: null, since: null },
+) {
   return {
     version: mandate.version,
     perTradeUsdCap: mandate.perTradeUsdCap,
@@ -215,9 +228,15 @@ export function describeMandate(mandate: Mandate, spentTodayUsd: number) {
       'A proposal outside the envelope is not blocked outright, but it is shown to the human in red with the exact ' +
       'rule it breaks, and Approve stays locked until they either edit the mandate or grant a one-time override. ' +
       'To ask for that override, call request_override; it only exists while a blocked proposal is on the desk.',
-    notEnforcement:
-      'The desk does not execute trades, so this cannot physically cap spending. Binding limits live in Suwappu ' +
-      'wallet spending policies server-side. Treat this as the human’s stated intent, and respect it.',
+    enforcement: {
+      ...enforcement,
+      meaning:
+        enforcement.status === 'enforced'
+          ? 'This version of the mandate is installed as a spend policy on the agent. The API evaluates it on every execute by the agent, before a transaction is built: the caps, slippage ceiling and chain list bind there, not only here.'
+          : enforcement.status === 'stale'
+            ? `Version ${enforcement.enforcedVersion} is installed server-side but the desk is on version ${mandate.version}. Ask the human to re-apply from the mandate panel so the two match.`
+            : 'Not installed server-side. The desk does not execute trades, so by itself this cannot physically cap spending: treat it as the human’s stated intent. The human can apply it as a spend policy from the mandate panel (Enforce); compile_mandate_to_policy shows exactly what would be installed.',
+    },
   };
 }
 
@@ -302,79 +321,58 @@ export function applyAmendment(current: Mandate, amendment: MandateAmendment): M
 
 // ── Compilation to enforceable policy ───────────────────────────────
 
-export interface WalletPolicyPayload {
-  type: 'spending_limit' | 'whitelist';
-  /** The mandate.version this payload was compiled from — see Mandate.version. */
-  mandateVersion: number;
-  params: {
-    maxAmountWei?: string;
-    timeWindowSeconds?: number;
-    allowedAddresses?: string[];
-  };
+/** Request body for `POST /v1/agent/policies` (snake_case, as the API takes it). */
+export interface SpendPolicyBody {
+  name: string;
+  max_tx_usd?: number;
+  daily_cap_usd?: number;
+  max_slippage_bps?: number;
+  allowed_chains?: string[];
+  approval_mode?: 'always_ask' | 'above_limit' | 'autonomous';
+  replaces?: string[];
 }
 
 /**
- * Compiles the browser-side mandate into the request bodies Suwappu's
- * `POST /v1/agent/wallet/policy` accepts — the endpoint that creates real
- * Turnkey policies gating managed execution.
+ * Compiles the browser-side mandate into the one request body Suwappu's
+ * `POST /v1/agent/policies` accepts. That endpoint writes the row the API's
+ * policy gate evaluates on every swap execute by the agent, before the
+ * transaction is built: a per-trade cap, a rolling daily cap, a slippage
+ * ceiling and a chain allow-list, each a server-side control with the same
+ * meaning the desk gives it.
  *
- * This is the bridge between the envelope the human negotiated here and
- * enforcement that actually binds. It produces the payloads; installing them
- * needs an agent key, which this page deliberately never holds.
+ * Two rules stay desk-only and are listed as such: the price-impact ceiling
+ * (the API has no such control) and the buy-token allow-list (the API's token
+ * allow-list binds BOTH sides of a trade and takes contract addresses, so
+ * installing the buy list alone would block every sale of a token not on it).
  */
-export function compileToWalletPolicies(
+export function compileToSpendPolicy(
   mandate: Mandate,
-  ethUsd: number,
-  tokenAddresses: string[] = [],
-): { policies: WalletPolicyPayload[]; notes: string[] } {
-  const notes: string[] = [];
-  const policies: WalletPolicyPayload[] = [];
+  replaces: string[] = [],
+): { body: SpendPolicyBody; notes: string[]; deskOnly: string[] } {
+  const body: SpendPolicyBody = {
+    name: `Agent Desk mandate v${mandate.version}`,
+    max_tx_usd: mandate.perTradeUsdCap,
+    daily_cap_usd: mandate.dailyUsdCap,
+    max_slippage_bps: Math.round(mandate.maxSlippagePercent * 100),
+    approval_mode: 'above_limit',
+  };
+  if (mandate.allowedChains.length > 0) {
+    body.allowed_chains = mandate.allowedChains.map((c) => c.toLowerCase());
+  }
+  if (replaces.length > 0) body.replaces = replaces;
 
-  if (!Number.isFinite(ethUsd) || ethUsd <= 0) {
-    notes.push(
-      'No ETH price was available, so the USD caps could not be converted to wei. Re-run once get_prices succeeds.',
-    );
-  } else {
-    // Turnkey conditions are denominated in wei against the native asset, so a
-    // USD cap only exists as a policy once it is priced.
-    const toWei = (usd: number) =>
-      BigInt(Math.floor((usd / ethUsd) * 1e18)).toString();
-
-    policies.push({
-      type: 'spending_limit',
-      mandateVersion: mandate.version,
-      params: { maxAmountWei: toWei(mandate.dailyUsdCap), timeWindowSeconds: 86_400 },
-    });
-    notes.push(
-      `Daily cap ${mandate.dailyUsdCap} USD converted at ${ethUsd} USD/ETH. Re-compile when the price moves materially: the policy is fixed in wei, the cap you meant is in dollars.`,
+  const notes = [
+    `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version; re-apply so the installed policy and the negotiated envelope stay the same version.`,
+    'The daily cap is a rolling 24-hour sum over the API\'s own decision log, so it counts every execute by this agent, not only trades proposed on this desk.',
+    'Inside the envelope the agent executes without a server-side approval step; the desk is still where it must propose first. Set approval_mode to always_ask on the policy if you want the API itself to hold every trade for you.',
+  ];
+  const deskOnly = [
+    `Price impact ≤ ${mandate.maxPriceImpactPercent}%: the API has no price-impact control, so this stays a desk rule.`,
+  ];
+  if (mandate.allowedBuyTokens.length > 0) {
+    deskOnly.push(
+      `Buy-token allow-list (${mandate.allowedBuyTokens.join(', ')}): the API\'s token allow-list binds both sides of a trade and takes contract addresses, so it is not installed from here.`,
     );
   }
-
-  if (tokenAddresses.length > 0) {
-    policies.push({
-      type: 'whitelist',
-      mandateVersion: mandate.version,
-      params: { allowedAddresses: tokenAddresses.map((a) => a.toLowerCase()) },
-    });
-  } else if (mandate.allowedBuyTokens.length > 0) {
-    notes.push(
-      'The token allow-list could not be compiled: a whitelist policy needs contract addresses, and only symbols were on the mandate. Resolve them with find_token first.',
-    );
-  }
-
-  notes.push(
-    'Installing these policies needs an agent key this page never holds. An agent without a subscription can still act under them: the API meters pay-per-call over HTTP 402 (x402), so the compiled envelope and the payment rail are both agent-native.',
-  );
-
-  notes.push(
-    `Compiled from mandate version ${mandate.version}. Approving a later amendment increments the version and does not rewrite this bundle; recompile after any amendment so the installed policy and the negotiated envelope stay the same version.`,
-  );
-
-  if (mandate.perTradeUsdCap < mandate.dailyUsdCap) {
-    notes.push(
-      `Per-trade cap (${mandate.perTradeUsdCap} USD) has no direct Turnkey equivalent: Turnkey limits per transaction, and a time-windowed daily limit is the closest primitive. The per-trade rule stays enforced by the desk only.`,
-    );
-  }
-
-  return { policies, notes };
+  return { body, notes, deskOnly };
 }

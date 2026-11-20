@@ -1234,3 +1234,57 @@ main.page {
   text-decoration-color: var(--suwappu-summer-line-strong, #42b8d7);
   text-underline-offset: 3px;
 }
+
+/* ── enforce (server-side copy of the mandate) ───────────────── */
+
+.enforce {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--suwappu-summer-radius-control, 10px);
+  background: color-mix(in srgb, var(--suwappu-summer-control-background, #fff) 70%, transparent);
+}
+
+.enforceStatus {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.enforceStatus code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.enforceStatus .ok {
+  color: var(--suwappu-summer-success, #1f7a4d);
+}
+
+.enforceStatus .stale {
+  color: var(--suwappu-summer-warning, #b45309);
+}
+
+.enforceRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.enforceRow .field {
+  flex: 1 1 220px;
+}
+
+.enforceRow .actions {
+  flex-wrap: wrap;
+}
+
+.enforceNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}

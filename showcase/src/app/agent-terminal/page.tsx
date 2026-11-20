@@ -130,7 +130,7 @@ const STEPS = [
   {
     n: '05',
     title: 'You approve, then you sign',
-    body: 'Approval unlocks the handoff tool, which opens Terminal or the bot with the trade pre-filled. This page never holds a key or signs a transaction.',
+    body: 'Approval unlocks the handoff tool, which opens Terminal or the bot with the trade pre-filled. This page never holds a signing key or signs a transaction. Apply the mandate from its panel and the API enforces it on every execute by your agent, not just here.',
   },
   {
     n: '06',

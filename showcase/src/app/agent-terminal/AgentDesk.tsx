@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TELEGRAM_URL, TERMINAL_URL } from '@/lib/links';
 import {
+  deleteSpendPolicy,
   findTokens,
   getPrices,
+  installSpendPolicy,
   listChains,
   previewHops,
   previewSwap,
@@ -14,9 +16,10 @@ import {
 } from './deskApi';
 import {
   applyAmendment,
-  compileToWalletPolicies,
+  compileToSpendPolicy,
   DEFAULT_MANDATE,
   describeMandate,
+  type EnforcementSummary,
   diffAmendment,
   evaluateMandate,
   RULE_META,
@@ -149,6 +152,21 @@ const PROPOSAL_TTL_MS = 10 * 60 * 1000;
 const MAX_WAIT_SECONDS = 120;
 const MANDATE_KEY = 'suwappu.desk.mandate.v1';
 const SESSION_KEY = 'suwappu.desk.session.v1';
+/** The server-side copy of the mandate: which policy row, compiled from which version. */
+const ENFORCEMENT_KEY = 'suwappu.desk.enforcement.v1';
+/**
+ * The agent's API bearer token, if the human connected one to enforce the
+ * mandate. Session storage only: it dies with the tab, never reaches
+ * localStorage, the receipt, the activity log, or any tool result.
+ */
+const AGENT_KEY_KEY = 'suwappu.desk.agentKey.v1';
+
+interface Enforcement {
+  policyId: string;
+  name: string;
+  mandateVersion: number;
+  appliedAt: number;
+}
 const STABLES = new Set(['USDC', 'USDT', 'DAI', 'USDS', 'FRAX', 'USDE']);
 
 const DEFAULT_TICKET: Ticket = {
@@ -298,6 +316,14 @@ export default function AgentDesk() {
   const [copied, setCopied] = useState<string | null>(null);
   const [mandateOpen, setMandateOpen] = useState(false);
   const [lastTool, setLastTool] = useState<string | null>(null);
+  const [enforcement, setEnforcement] = useState<Enforcement | null>(null);
+  const [agentKey, setAgentKey] = useState('');
+  const [enforceBusy, setEnforceBusy] = useState(false);
+  const [enforceError, setEnforceError] = useState<string | null>(null);
+  const enforcementRef = useRef<Enforcement | null>(null);
+  useEffect(() => {
+    enforcementRef.current = enforcement;
+  }, [enforcement]);
 
   const ticketRef = useRef(ticket);
   const mandateRef = useRef(mandate);
@@ -431,6 +457,126 @@ export default function AgentDesk() {
       /* private mode, blocked storage — the default mandate is fine */
     }
   }, []);
+
+  // The server-side copy of the mandate persists with the mandate; the agent
+  // key only for the tab's lifetime.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(ENFORCEMENT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<Enforcement>;
+        if (typeof parsed.policyId === 'string' && Number.isInteger(parsed.mandateVersion)) {
+          const next: Enforcement = {
+            policyId: parsed.policyId,
+            name: typeof parsed.name === 'string' ? parsed.name : 'Agent Desk mandate',
+            mandateVersion: parsed.mandateVersion as number,
+            appliedAt: typeof parsed.appliedAt === 'number' ? parsed.appliedAt : Date.now(),
+          };
+          enforcementRef.current = next;
+          setEnforcement(next);
+        }
+      }
+      const key = window.sessionStorage.getItem(AGENT_KEY_KEY);
+      if (key) setAgentKey(key);
+    } catch {
+      /* private mode, blocked storage */
+    }
+  }, []);
+
+  const commitEnforcement = useCallback((next: Enforcement | null) => {
+    enforcementRef.current = next;
+    setEnforcement(next);
+    try {
+      if (next) window.localStorage.setItem(ENFORCEMENT_KEY, JSON.stringify(next));
+      else window.localStorage.removeItem(ENFORCEMENT_KEY);
+    } catch {
+      /* not fatal */
+    }
+  }, []);
+
+  const rememberKey = useCallback((key: string) => {
+    setAgentKey(key);
+    try {
+      if (key) window.sessionStorage.setItem(AGENT_KEY_KEY, key);
+      else window.sessionStorage.removeItem(AGENT_KEY_KEY);
+    } catch {
+      /* not fatal */
+    }
+  }, []);
+
+  /** What read_mandate, the receipt and the desk itself say about the server-side copy. */
+  const enforcementSummary = useCallback((): EnforcementSummary => {
+    const e = enforcementRef.current;
+    if (!e) return { status: 'none', policyId: null, enforcedVersion: null, since: null };
+    return {
+      status: e.mandateVersion === mandateRef.current.version ? 'enforced' : 'stale',
+      policyId: e.policyId,
+      enforcedVersion: e.mandateVersion,
+      since: new Date(e.appliedAt).toISOString(),
+    };
+  }, []);
+
+  /**
+   * Install the current mandate as a spend policy on the agent, retiring the
+   * previously installed version in the same request. MONEY-PATH: this is the
+   * one call on the desk that changes server state, and it can only tighten
+   * what the agent may do; nothing here signs or moves funds.
+   */
+  const applyMandate = useCallback(async () => {
+    const key = agentKey.trim();
+    if (!key) {
+      setEnforceError('Paste the agent\'s API key first.');
+      return;
+    }
+    const mandateNow = mandateRef.current;
+    const previous = enforcementRef.current;
+    const { body } = compileToSpendPolicy(mandateNow, previous ? [previous.policyId] : []);
+    setEnforceBusy(true);
+    setEnforceError(null);
+    try {
+      const { policy } = await installSpendPolicy(key, body);
+      commitEnforcement({
+        policyId: policy.id,
+        name: policy.name,
+        mandateVersion: mandateNow.version,
+        appliedAt: Date.now(),
+      });
+      log(
+        'human',
+        'Mandate enforced server-side',
+        `v${mandateNow.version} installed as spend policy ${policy.id}${previous ? ` (replaced v${previous.mandateVersion})` : ''}: max ${fmtUsd(mandateNow.perTradeUsdCap)}/trade, ${fmtUsd(mandateNow.dailyUsdCap)}/day, slippage ≤ ${mandateNow.maxSlippagePercent}%${mandateNow.allowedChains.length ? `, chains ${mandateNow.allowedChains.join('/')}` : ''}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setEnforceError(msg);
+      log('human', 'Enforcement failed', msg, true);
+    } finally {
+      setEnforceBusy(false);
+    }
+  }, [agentKey, commitEnforcement, log]);
+
+  const revokeEnforcement = useCallback(async () => {
+    const key = agentKey.trim();
+    const current = enforcementRef.current;
+    if (!current) return;
+    if (!key) {
+      setEnforceError('Paste the agent\'s API key to remove the installed policy.');
+      return;
+    }
+    setEnforceBusy(true);
+    setEnforceError(null);
+    try {
+      await deleteSpendPolicy(key, current.policyId);
+      commitEnforcement(null);
+      log('human', 'Enforcement removed', `spend policy ${current.policyId} (mandate v${current.mandateVersion}) retired`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setEnforceError(msg);
+      log('human', 'Removing enforcement failed', msg, true);
+    } finally {
+      setEnforceBusy(false);
+    }
+  }, [agentKey, commitEnforcement, log]);
 
   /** USD approved today. Drives the daily-cap headroom the agent reads. */
   const spentToday = useCallback((list: Proposal[] = proposalsRef.current): number => {
@@ -667,7 +813,7 @@ export default function AgentDesk() {
       surface: 'Suwappu Agent Desk (WebMCP)',
       custody:
         'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
-      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      mandate: describeMandate(mandateRef.current, spentToday(list), enforcementSummary()),
       proposals: list.map((p) => ({
         id: p.id,
         kind: p.kind,
@@ -715,7 +861,7 @@ export default function AgentDesk() {
       surface: 'Suwappu Agent Desk (WebMCP)',
       custody:
         'This desk never signs. Every entry below is a proposal and a human decision, not an onchain action.',
-      mandate: describeMandate(mandateRef.current, spentToday(list)),
+      mandate: describeMandate(mandateRef.current, spentToday(list), enforcementSummary()),
       proposals: list.map((p) => ({
         id: p.id,
         kind: p.kind,
@@ -1013,7 +1159,7 @@ export default function AgentDesk() {
         const p = previewRef.current;
         return {
           ticket: t,
-          mandate: describeMandate(mandateRef.current, spentToday()),
+          mandate: describeMandate(mandateRef.current, spentToday(), enforcementSummary()),
           latestQuote: p
             ? {
                 out: `${fmtAmount(p.toAmount)} ${p.toToken.symbol}`,
@@ -1041,7 +1187,7 @@ export default function AgentDesk() {
       },
 
       readMandate() {
-        return describeMandate(mandateRef.current, spentToday());
+        return describeMandate(mandateRef.current, spentToday(), enforcementSummary());
       },
 
       navigateDesk({ section }) {
@@ -1133,46 +1279,26 @@ export default function AgentDesk() {
 
       async compileMandateToPolicy({ download }) {
         const mandateNow = mandateRef.current;
-        let ethUsd = 0;
-        try {
-          const prices = await getPrices(['ETH']);
-          ethUsd = prices.eth ?? 0;
-        } catch {
-          ethUsd = 0;
-        }
-
-        // A whitelist policy needs contract addresses, so resolve the symbols
-        // the human allowed into real addresses on their allowed chains.
-        const addresses: string[] = [];
-        const unresolved: string[] = [];
-        for (const symbol of mandateNow.allowedBuyTokens.slice(0, 8)) {
-          const chain = mandateNow.allowedChains[0] ?? 'base';
-          try {
-            const rows = await findTokens(symbol, chain);
-            const hit = rows.find((t) => t.symbol.toUpperCase() === symbol.toUpperCase());
-            if (hit?.address && /^0x[a-fA-F0-9]{40}$/.test(hit.address)) addresses.push(hit.address);
-            else unresolved.push(symbol);
-          } catch {
-            unresolved.push(symbol);
-          }
-        }
-
-        const { policies, notes } = compileToWalletPolicies(mandateNow, ethUsd, addresses);
-        if (unresolved.length > 0) {
-          notes.push(`Could not resolve an address for: ${unresolved.join(', ')}.`);
-        }
-
+        const current = enforcementRef.current;
+        const { body, notes, deskOnly } = compileToSpendPolicy(
+          mandateNow,
+          current ? [current.policyId] : [],
+        );
         const bundle = {
           generatedAt: new Date().toISOString(),
           source: 'Suwappu Agent Desk (WebMCP): negotiated mandate',
-          endpoint: 'POST /v1/agent/wallet/policy',
-          authentication:
-            'Requires a Suwappu agent API key. This page never holds one, by design.',
-          mandate: describeMandate(mandateNow, spentToday()),
-          policies,
+          endpoint: 'POST /v1/agent/policies',
+          body,
           notes,
+          deskOnly,
+          enforcement: enforcementSummary(),
+          howToApply:
+            'The human applies it from the mandate panel (Enforce) with the agent\'s API key, which stays in their tab. ' +
+            'Or send this body yourself: POST /v1/agent/policies with Authorization: Bearer <agent token>. ' +
+            'Either way the API evaluates it on every execute by the agent from the next call on.',
+          mandate: describeMandate(mandateNow, spentToday(), enforcementSummary()),
         };
-        if (download) downloadJson(bundle, 'suwappu-wallet-policy');
+        if (download) downloadJson(bundle, 'suwappu-spend-policy');
         return bundle;
       },
 
@@ -1797,6 +1923,89 @@ export default function AgentDesk() {
             </p>
           </div>
 
+          {/* ── Enforce: the server-side copy of the mandate ─────────── */}
+          <div className={styles.enforce} data-testid="enforce">
+            <p className={styles.enforceStatus}>
+              {enforcement ? (
+                enforcement.mandateVersion === mandate.version ? (
+                  <>
+                    <strong className={styles.ok}>Enforced server-side</strong> · mandate v
+                    {enforcement.mandateVersion} is live as spend policy{' '}
+                    <code>{enforcement.policyId.slice(0, 8)}</code>. The API checks every execute by
+                    the agent against it, before any transaction is built.
+                  </>
+                ) : (
+                  <>
+                    <strong className={styles.stale}>Out of date</strong> · v
+                    {enforcement.mandateVersion} is enforced, the desk is on v{mandate.version}.
+                    Re-apply so the server and the desk agree.
+                  </>
+                )
+              ) : (
+                <>
+                  <strong>Desk-only</strong> · the agent honours this envelope here, but nothing
+                  stops it elsewhere. Apply it as a spend policy and the API enforces the caps,
+                  slippage and chains on every execute by the agent.
+                </>
+              )}
+            </p>
+            <div className={styles.enforceRow}>
+              <label className={styles.field}>
+                <span>Agent API key</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="suwappu_sk_…"
+                  value={agentKey}
+                  onChange={(e) => rememberKey(e.target.value)}
+                  aria-describedby="enforce-key-note"
+                />
+              </label>
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={applyMandate}
+                  disabled={enforceBusy}
+                >
+                  {enforceBusy
+                    ? 'Working…'
+                    : enforcement
+                      ? enforcement.mandateVersion === mandate.version
+                        ? 'Re-apply'
+                        : `Apply v${mandate.version}`
+                      : 'Enforce on the agent'}
+                </button>
+                {enforcement && (
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    onClick={revokeEnforcement}
+                    disabled={enforceBusy}
+                  >
+                    Remove
+                  </button>
+                )}
+                {agentKey && (
+                  <button type="button" className={styles.ghost} onClick={() => rememberKey('')}>
+                    Forget key
+                  </button>
+                )}
+              </div>
+            </div>
+            <p id="enforce-key-note" className={styles.enforceNote}>
+              The key stays in this tab&apos;s session storage and is sent only to the Suwappu API.
+              It never enters the receipt, the activity log, or any tool result. Price impact and
+              the buy-token list stay desk-only rules; everything else binds server-side.
+            </p>
+            {enforceError && (
+              <p role="alert" className={styles.error}>
+                {enforceError}
+              </p>
+            )}
+          </div>
+
           {mandateOpen ? (
             <div className={styles.ticketGrid}>
               <label className={styles.field}>
@@ -1892,10 +2101,9 @@ export default function AgentDesk() {
           )}
 
           <p className={styles.finePrint}>
-            This desk never executes, so the mandate cannot physically cap spending. It governs
-            what the page will put in front of you and what the agent is told before it asks.
-            Binding limits live in Suwappu’s server-side wallet spending policies. Stored in this
-            browser only.
+            {enforcement && enforcement.mandateVersion === mandate.version
+              ? 'This desk never executes. It governs what the page puts in front of you and what the agent is told before it asks; the caps, slippage ceiling and chain list are also installed on the agent, where the API enforces them on every execute. The envelope itself is stored in this browser only.'
+              : 'This desk never executes, so by itself the mandate cannot physically cap spending. It governs what the page puts in front of you and what the agent is told before it asks. Apply it above and the API enforces it on the agent. Stored in this browser only.'}
           </p>
         </section>
 

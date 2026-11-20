@@ -176,3 +176,88 @@ export function previewSwap(
   if (params.slippage !== undefined) qs.set('slippage', String(params.slippage));
   return getJson<SwapPreview>(`/public/swap/preview?${qs}`, signal);
 }
+
+// ── Server-side enforcement: agent spend policies ───────────────────
+//
+// POST/GET/DELETE /v1/agent/policies. These rows are what the API's policy
+// gate evaluates on every swap execute by the agent, before a transaction is
+// built. The desk calls them with the agent's bearer token, which the human
+// pastes into the page and which lives only in this tab's session storage.
+
+export interface SpendPolicyBody {
+  name: string;
+  max_tx_usd?: number;
+  daily_cap_usd?: number;
+  max_slippage_bps?: number;
+  allowed_chains?: string[];
+  allowed_tokens?: string[];
+  approval_mode?: 'always_ask' | 'above_limit' | 'autonomous';
+  require_approval_above_usd?: number;
+  replaces?: string[];
+}
+
+export interface SpendPolicy {
+  id: string;
+  name: string;
+  scope: 'agent' | 'organization';
+  enabled: boolean;
+  max_tx_usd: number | null;
+  daily_cap_usd: number | null;
+  max_slippage_bps: number | null;
+  allowed_chains: string[] | null;
+  allowed_tokens: string[] | null;
+  approval_mode: string;
+  created_at: string;
+}
+
+async function authedJson<T>(
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  apiKey: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
+  });
+  const parsed = (await res.json().catch(() => null)) as
+    | (T & { error?: string; message?: string; hint?: string })
+    | null;
+  if (!res.ok || parsed === null) {
+    const detail =
+      (parsed && [parsed.message || parsed.error, parsed.hint].filter(Boolean).join(' — ')) ||
+      `${res.status} ${res.statusText}`;
+    throw new Error(detail);
+  }
+  return parsed as T;
+}
+
+export function installSpendPolicy(
+  apiKey: string,
+  body: SpendPolicyBody,
+  signal?: AbortSignal,
+): Promise<{ policy: SpendPolicy; enforcement: string }> {
+  return authedJson('POST', '/v1/agent/policies', apiKey, body, signal);
+}
+
+export function listSpendPolicies(
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<{ policies: SpendPolicy[]; enforcement: string }> {
+  return authedJson('GET', '/v1/agent/policies', apiKey, undefined, signal);
+}
+
+export function deleteSpendPolicy(
+  apiKey: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<{ deleted: boolean }> {
+  return authedJson('DELETE', `/v1/agent/policies/${encodeURIComponent(id)}`, apiKey, undefined, signal);
+}
