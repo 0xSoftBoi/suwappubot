@@ -8,7 +8,11 @@ export function createDbClient(databaseUrl: string) {
 		idle_timeout: 60,
 		connect_timeout: 10,
 		ssl: 'require',
-		connection: { statement_timeout: 30000 },
+		// Naive `timestamp` columns are filled by now() and compared against
+		// JS-computed UTC bounds (spend caps, usage windows, reports). That is
+		// only correct with a UTC session, so pin it rather than rely on the
+		// server default.
+		connection: { statement_timeout: 30000, TimeZone: 'UTC' },
 	})
 
 	return drizzle(queryClient, { schema })

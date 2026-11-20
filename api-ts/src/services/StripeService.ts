@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { Context, Effect, Layer } from 'effect'
 import { EnvService } from '../config/EnvService'
+import type { BalanceTxn } from '../lib/stripeMoney'
 
 export class StripeService extends Context.Tag('StripeService')<
 	StripeService,
@@ -53,6 +54,16 @@ export class StripeService extends Context.Tag('StripeService')<
 			limit?: number
 		}) => Effect.Effect<BillingInvoice[], Error>
 
+		/**
+		 * Read-only: balance transactions created at or after `sinceUnix`, newest
+		 * first, for the admin Growth report. Stops at `max` rows and says so
+		 * rather than paging without bound.
+		 */
+		listBalanceTransactions: (params: {
+			sinceUnix: number
+			max?: number
+		}) => Effect.Effect<{ txns: BalanceTxn[]; truncated: boolean }, Error>
+
 		constructWebhookEvent: (
 			payload: string,
 			signature: string,
@@ -96,6 +107,7 @@ export const StripeServiceLive = Layer.effect(
 				createBillingPortalSession: () =>
 					Effect.fail(new Error('Stripe not configured')),
 				listInvoices: () => Effect.fail(new Error('Stripe not configured')),
+				listBalanceTransactions: () => Effect.fail(new Error('Stripe not configured')),
 				constructWebhookEvent: () =>
 					Effect.fail(new Error('Stripe not configured')),
 				handleSubscriptionActivated: () => Effect.void,
@@ -272,6 +284,32 @@ export const StripeServiceLive = Layer.effect(
 								description: inv.description ?? null,
 							}),
 						)
+					},
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}),
+
+			listBalanceTransactions: ({ sinceUnix, max = 3000 }) =>
+				Effect.tryPromise({
+					try: async () => {
+						const txns: BalanceTxn[] = []
+						let truncated = false
+						for await (const t of stripe.balanceTransactions.list({
+							created: { gte: Math.floor(sinceUnix) },
+							limit: 100,
+						})) {
+							if (txns.length >= max) {
+								truncated = true
+								break
+							}
+							txns.push({
+								amount: t.amount,
+								fee: t.fee,
+								currency: t.currency,
+								created: t.created,
+								reporting_category: t.reporting_category,
+							})
+						}
+						return { txns, truncated }
 					},
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 				}),

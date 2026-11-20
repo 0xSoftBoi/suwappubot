@@ -31,6 +31,26 @@ class SwapStatus(enum.Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+    # "We may have broadcast this on-chain and cannot prove the outcome."
+    #
+    # Reserved for a swap whose process died between a successful broadcast and
+    # the tx_hash write (see api/main.py's startup orphan reconciliation). Such
+    # a row MUST NOT be marked FAILED: FAILED asserts no funds moved, and
+    # SwapEngine.execute_swap's idempotency guard treats FAILED as safe to
+    # retry — so claiming FAILED on a swap that actually landed lets the same
+    # swap re-broadcast with the user's funds.
+    #
+    # The guard's retryable list is a denylist ([FAILED, CANCELLED]), so every
+    # other status, this one included, blocks a retry. Do NOT add UNKNOWN to
+    # that list, and keep the list a denylist so new statuses stay safe by
+    # default.
+    #
+    # Resolving an UNKNOWN row needs an on-chain check against the sending
+    # wallet, which the row cannot currently support because it persists no
+    # nonce. Until that exists, UNKNOWN is terminal in practice and means
+    # "needs human verification", not "failed".
+    UNKNOWN = "unknown"
+
 
 class SwapTransaction(Base):
     """Swap transaction record."""

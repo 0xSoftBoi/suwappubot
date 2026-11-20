@@ -24,6 +24,7 @@ from typing import Optional, List
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from web3 import Web3
+from sqlalchemy.exc import IntegrityError
 import aiohttp
 import base64
 
@@ -4177,10 +4178,31 @@ class SwapEngine:
                             .filter(SwapTransaction.idempotency_key == idempotency_key)
                             .first()
                         )
-                        if existing and existing.status not in [
-                            SwapStatus.FAILED.value,
-                            SwapStatus.CANCELLED.value,
-                        ]:
+                        # Retry is permitted ONLY when we can see that nothing
+                        # left the wallet: a FAILED or CANCELLED row whose
+                        # tx_hash is still NULL. Status alone is not enough —
+                        # a FAILED row WITH a tx_hash means the origin leg was
+                        # broadcast and may well have mined (tx_poller writes
+                        # exactly that for a mined origin with an unsettled
+                        # bridge), so retrying it would send the funds twice.
+                        #
+                        # Everything else, UNKNOWN included, returns the
+                        # existing row. Keep this shape a denylist so a status
+                        # added later is non-retryable by default, and never
+                        # make UNKNOWN retryable: it means "may have
+                        # broadcast, outcome unverified".
+                        #
+                        # Callers must also keep the key stable across retries
+                        # (no time bucket), or the lookup misses and this guard
+                        # never runs at all.
+                        if existing and not (
+                            existing.status
+                            in (
+                                SwapStatus.FAILED.value,
+                                SwapStatus.CANCELLED.value,
+                            )
+                            and existing.tx_hash is None
+                        ):
                             return existing
                         return None
 
@@ -4326,12 +4348,90 @@ class SwapEngine:
                             None if savings_already_recorded else quote.runner_up_provider
                         ),
                     )
+                    # Reclaim rather than insert when a retryable attempt
+                    # already holds this key.
+                    #
+                    # The key is now stable across retries, so a second attempt
+                    # collides with the first row on UNIQUE(idempotency_key).
+                    # Inserting would raise, and the guard above has already
+                    # established this row is safe to retry (FAILED or
+                    # CANCELLED with no tx_hash, so nothing was broadcast), so
+                    # raising would mean a genuinely failed order could never
+                    # retry at all. The rotating key used to hide this by
+                    # producing a fresh key each time.
+                    #
+                    # One row per key, reused across attempts, is also the
+                    # correct idempotency semantics: the key identifies the
+                    # attempt, not the row.
+                    if idempotency_key:
+                        prior = (
+                            session.query(SwapTransaction)
+                            .filter(SwapTransaction.idempotency_key == idempotency_key)
+                            .with_for_update(nowait=False)
+                            .first()
+                            if session.bind.dialect.name != "sqlite"
+                            else session.query(SwapTransaction)
+                            .filter(SwapTransaction.idempotency_key == idempotency_key)
+                            .first()
+                        )
+                        if prior is not None:
+                            # Re-apply the retryability test while holding the
+                            # row, so a concurrent broadcast cannot be clobbered.
+                            if not (
+                                prior.status
+                                in (
+                                    SwapStatus.FAILED.value,
+                                    SwapStatus.CANCELLED.value,
+                                )
+                                and prior.tx_hash is None
+                            ):
+                                return prior.id
+                            prior.status = SwapStatus.EXECUTING.value
+                            prior.error_message = None
+                            prior.error_category = None
+                            prior.route_provider = quote.provider
+                            session.flush()
+                            quote._savings_recorded = True
+                            return prior.id
                     session.add(swap_tx)
                     session.flush()
                     quote._savings_recorded = True
                     return swap_tx.id
 
-            swap_id = await run_in_db(_create_swap_record)
+            try:
+                swap_id = await run_in_db(_create_swap_record)
+            except IntegrityError:
+                # Lost the UNIQUE(idempotency_key) race. The stable key makes
+                # that index a live path for the first time — a rotating key
+                # produced two different keys and never collided — and the
+                # index is the only serialisation point that spans replicas and
+                # restarts, which a per-process lock cannot.
+                #
+                # Fund-safe either way: this runs before the dispatch, so the
+                # loser never broadcast and the failed flush rolled back. But
+                # raising here would surface a raw DB error that the order
+                # paths' broad except turns into a spurious FAILED order while
+                # the winner executes fine. Replay the lookup and return the
+                # winner's row instead, which is the idempotent answer.
+                #
+                # If the winner is FAILED with no hash by now, the lookup
+                # returns None and we re-raise — correct, since nothing moved
+                # and a genuine retry is allowed.
+                #
+                # Only replay when a key was supplied: _check_idempotency is
+                # defined under that branch, and with no key there is nothing
+                # for the unique index to collide on, so the error is something
+                # else and must propagate.
+                if idempotency_key:
+                    existing = await run_in_db(_check_idempotency)
+                    if existing:
+                        logger.warning(
+                            "Idempotency race on key %s — returning the in-flight swap %s",
+                            idempotency_key,
+                            existing.id,
+                        )
+                        return existing
+                raise
 
             # Phase 2: Deep State Simulation (Solana Anti-Honeypot)
             if quote.from_chain == "solana" and quote.to_chain == "solana":
@@ -4378,6 +4478,12 @@ class SwapEngine:
                     logger.info(
                         f"Deep Simulation PASSED for {quote.to_token}. Proceeding with trade."
                     )
+
+            # Set the moment the provider dispatch returns a hash. Every
+            # statement after that point runs when funds have ALREADY moved
+            # on-chain, so a later exception must not be recorded as a plain
+            # failure — see _mark_failed in the except block below.
+            broadcast_tx_hash: Optional[str] = None
 
             try:
                 # Route to appropriate execution method based on provider
@@ -4457,6 +4563,15 @@ class SwapEngine:
                         "execute. This quote cannot be signed safely by another provider's "
                         "executor; the route should not have been offered."
                     )
+
+                # Past this line the transaction is on-chain. Record that fact
+                # before any further await: the two run_in_db calls that follow
+                # (_update_tx_hash, _refetch) can raise on a DB blip, failover,
+                # pool exhaustion or executor shutdown during a container stop,
+                # and without this flag the except block would mark a swap that
+                # actually sent as FAILED — which the idempotency guard would
+                # then treat as safe to retry.
+                broadcast_tx_hash = tx_hash
 
                 # Persist tx_hash to the database record
                 def _update_tx_hash():
@@ -4580,7 +4695,15 @@ class SwapEngine:
                 # so a nested function referencing `e` directly is unsafe.
                 error_message = str(e)
 
-                # Mark as failed
+                # Mark as failed — but only if nothing was broadcast.
+                #
+                # If the dispatch already returned a hash, the funds have moved
+                # and we must not claim otherwise: FAILED is what the
+                # idempotency guard reads as "safe to retry", so asserting it
+                # here would let the same swap send twice. Record UNKNOWN
+                # instead and persist the hash, which is still in scope — that
+                # turns an unresolvable orphan into a row tx_poller can finish
+                # on its own, with no human needed.
                 def _mark_failed():
                     with get_session() as session:
                         db_tx = (
@@ -4589,7 +4712,22 @@ class SwapEngine:
                             .first()
                         )
                         if db_tx:
-                            db_tx.status = SwapStatus.FAILED.value
+                            if broadcast_tx_hash:
+                                # Never walk back a settled outcome. The poller
+                                # can commit COMPLETED or FAILED off the hash
+                                # written moments ago, so an error raised later
+                                # in this same attempt must not overwrite it
+                                # with UNKNOWN — that would lose a real result
+                                # and reopen the retry question on a swap that
+                                # is already resolved.
+                                if db_tx.status not in (
+                                    SwapStatus.COMPLETED.value,
+                                    SwapStatus.FAILED.value,
+                                ):
+                                    db_tx.status = SwapStatus.UNKNOWN.value
+                                db_tx.tx_hash = db_tx.tx_hash or broadcast_tx_hash
+                            else:
+                                db_tx.status = SwapStatus.FAILED.value
                             db_tx.error_message = error_message
                             db_tx.error_category = error_category
 

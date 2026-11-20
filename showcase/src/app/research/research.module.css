@@ -6,7 +6,7 @@
 }
 
 .hero {
-  padding: clamp(3.5rem, 7vw, 6.5rem) 0 0;
+  padding: 0;
 }
 
 .heroTopline,
@@ -28,7 +28,7 @@
 .sectionLabel {
   color: var(--sw-muted);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -94,7 +94,7 @@
 .stats dt {
   margin: 0;
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: clamp(1.7rem, 3vw, 2.35rem);
   font-weight: 500;
   letter-spacing: -0.04em;
@@ -260,7 +260,7 @@
 
 .reportMetrics dt {
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: clamp(1.45rem, 2.5vw, 2rem);
   font-weight: 600;
   letter-spacing: -0.035em;
@@ -600,7 +600,7 @@
 .rowFigure figcaption {
   margin-top: 0.65rem;
   color: var(--sw-muted);
-  font-size: 0.7rem;
+  font-size: 0.875rem;
   line-height: 1.48;
 }
 
@@ -608,10 +608,10 @@
   max-width: 800px;
   margin: 0.9rem 0 0;
   color: var(--sw-ink);
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: clamp(1.3rem, 2vw, 1.7rem);
-  font-weight: 550;
-  letter-spacing: -0.025em;
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
   line-height: 1.18;
 }
 

@@ -39,9 +39,11 @@ function Digit({
   settled: boolean;
   startDelay: number;
 }) {
-  // Start with a random digit so we never flash the real value before the race
+  // Start on a placeholder digit so we never flash the real value before the
+  // race. It must be deterministic: Math.random() here rendered one digit on
+  // the server and another on the client, which is a hydration error (#418).
   const [display, setDisplay] = useState<string>(
-    () => DIGIT_CHARS[Math.floor(Math.random() * DIGIT_CHARS.length)]
+    () => DIGIT_CHARS[Math.abs(Math.round(startDelay)) % DIGIT_CHARS.length]
   );
   const [locked, setLocked] = useState(false);
 

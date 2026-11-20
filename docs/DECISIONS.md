@@ -221,3 +221,41 @@ ADRs 0001–0005.
   before a deploy (`.env.schema` vs `railway variables`). (5) Never drop an upstream
   error body; wrap with cause (`raise ... from e`, keep `res.text()`). (6) Parallel
   sessions use separate worktrees; `main` is PR-only.
+
+## 2026-11-20 — Admin sign-in by Google email; why a session token alone is not enough
+
+- **Context**: the admin dashboard needed a login a non-technical owner can use
+  ("Continue with Google") instead of pasting `ADMIN_API_KEY`.
+- **Trap**: the Google OAuth callback mints `src: "weak"`, the same class api-ts
+  already refuses for proof-of-possession, and `POST /public/swap/auth` mints a
+  token with **no** `src` for a caller-chosen user. "Any valid session JWT" must
+  therefore never unlock `/admin/*`.
+- **Decision** (`api-ts/src/middleware/adminSessionAuth.ts`): accept a session
+  only if it verifies (HS256 pinned), carries a known `src` (absent = reject),
+  the request is `GET`/`HEAD`, and the **database** says the token's user owns a
+  Google identity with `is_verified = true` whose email is on `ADMIN_EMAILS`.
+  Authorisation is a DB fact, not a token claim, so it survives refresh rotation
+  and cannot be minted. Non-Google providers are excluded (Twitter hard-codes
+  `email_verified=True`). Writes still require the key: the session is a cookie
+  and this surface has no CSRF protection.
+- **Also**: marketing funnel events are stored first-party in `web_events` with
+  no IP/user agent/user id, so the team's own dashboard works without a PostHog
+  login. See `docs/deployment/admin-dashboard.md`.
+
+
+## 2026-11-20 — Dependency audit gate: fix in range, override, then one scoped exception
+
+- **Context**: the `Dependency security scan` job blocks `CI gate`, and it had
+  drifted red across six lockfiles, so nothing could merge.
+- **Decision**: clear advisories in this order — in-range lockfile bump, then a
+  manifest `overrides` pin for a transitive package, and only then a documented
+  exception. Exceptions are one advisory and one workspace each
+  (`docs/security/dependency-exceptions.md`), wired as a per-directory
+  `--ignore` in `.github/workflows/test.yml`, never a global ignore.
+- **Gotchas**: `npm audit fix` / `npm update` crash in `webapp/` on a corrupt
+  arborist edge; delete only the affected `packages` entries from
+  `package-lock.json` and run `npm install --package-lock-only` (twice — the
+  first pass can leave an override's own dependencies out, which `npm ci` then
+  rejects). A `[skip ci]` journal commit must never be the head of a push that
+  also carries code commits: GitHub reads the head commit and skips the whole
+  push, so the code is never tested.

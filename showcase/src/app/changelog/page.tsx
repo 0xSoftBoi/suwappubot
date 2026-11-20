@@ -99,8 +99,9 @@ function withCode(s: string) {
 
 export default function ChangelogPage() {
   return (
-    <main id="main-content" className="summer-page docs-shell institutional-page">
+    <div className="summer-page docs-shell institutional-page">
       <SummerNav />
+      <main id="main-content">
       <div className="summer-shell mkt-page">
         <header className="mkt-hero">
           <p className="summer-kicker">Changelog</p>
@@ -134,7 +135,8 @@ export default function ChangelogPage() {
           ))}
         </div>
       </div>
+      </main>
       <SummerFooter />
-    </main>
+    </div>
   );
 }

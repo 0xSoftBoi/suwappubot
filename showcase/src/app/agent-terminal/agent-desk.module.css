@@ -613,7 +613,7 @@
 }
 
 .stepNum {
-  font-family: var(--font-display, Georgia, serif);
+  font-family: var(--type-display-font, Georgia, serif);
   font-size: 28px;
   line-height: 1.1;
   color: var(--suwappu-summer-muted, #4f6f7f);
@@ -682,7 +682,7 @@
    scrollport and silently kills every position:sticky inside it, the site
    nav included. This page verifies zero horizontal overflow at 390 and 1440,
    so release the clamp and let the nav and subnav actually stick. */
-main.page {
+div.page {
   overflow: visible;
 }
 

@@ -28,7 +28,7 @@
 .orgName {
   margin: 0;
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.22rem;
   font-weight: 700;
   line-height: 1;
@@ -165,7 +165,7 @@
 
 .kpiValue {
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.72rem;
   font-weight: 700;
   line-height: 1;
@@ -620,7 +620,7 @@
 .loginTitle {
   margin: 0 0 6px;
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.5rem;
   font-weight: 700;
 }
@@ -727,7 +727,7 @@
 .onboardTitle {
   margin: 0 0 8px;
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.35rem;
   font-weight: 700;
 }
@@ -1198,7 +1198,7 @@
 
 .kpiHeroValue {
   color: var(--summer-ink, #17324a);
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 2.45rem;
   font-weight: 700;
   line-height: 1.05;
@@ -1436,3 +1436,45 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+
+/* ═══ 2026-11 pass: plain-language summary, one top bar, phone-safe tables ═══ */
+
+/* Top bar: same language as the marketing header, wraps cleanly on phones. */
+.topbar { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid rgba(23, 50, 74, 0.1); background: rgba(255, 254, 251, 0.86); -webkit-backdrop-filter: saturate(1.4) blur(16px); backdrop-filter: saturate(1.4) blur(16px); }
+.topbarInner { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; max-width: 1200px; min-height: 60px; margin: 0 auto; padding: 8px 20px; }
+.topbarBrand { display: inline-flex; align-items: center; gap: 8px; color: var(--suwappu-summer-ink); font-size: 1.0625rem; font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
+.topbarLinks { display: flex; flex: 1; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.topbarLink { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 8px; color: var(--suwappu-summer-muted); font-size: 0.875rem; font-weight: 500; white-space: nowrap; text-decoration: none; }
+.topbarLink:hover { background: rgba(23, 50, 74, 0.06); color: var(--suwappu-summer-ink); }
+.topbarLink[aria-current='page'] { background: rgba(23, 50, 74, 0.08); color: var(--suwappu-summer-ink); font-weight: 600; }
+.topbarSignOut { min-height: 36px; padding: 0 14px; border: 1px solid rgba(23, 50, 74, 0.2); border-radius: 8px; background: #fff; color: var(--suwappu-summer-ink); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+.topbarSignOut:hover { border-color: rgba(23, 50, 74, 0.4); }
+.topbarBrand:focus-visible, .topbarLink:focus-visible, .topbarSignOut:focus-visible { outline: 2px solid var(--sw-accent-deep); outline-offset: 2px; box-shadow: none; }
+@media (max-width: 560px) {
+  .topbarInner { padding-inline: 16px; }
+  .topbarLinks { order: 3; flex-basis: 100%; margin-inline: -6px; }
+  .topbarSignOut { margin-inline-start: auto; }
+}
+
+/* Summary sentence above the numbers. */
+.health { margin: 0 0 16px; padding: 18px 20px; border: 1px solid rgba(47, 143, 91, 0.3); border-radius: 12px; background: rgba(47, 143, 91, 0.06); }
+.health[data-level='watch'] { border-color: rgba(201, 115, 29, 0.4); background: rgba(229, 141, 43, 0.08); }
+.health[data-level='problem'] { border-color: rgba(194, 65, 58, 0.45); background: rgba(194, 65, 58, 0.07); }
+.health[data-level='idle'] { border-color: rgba(23, 50, 74, 0.16); background: rgba(255, 255, 255, 0.7); }
+.healthHead { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--suwappu-summer-ink); font-size: 1.125rem; font-weight: 650; }
+.healthDot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #2f8f5b; }
+.health[data-level='watch'] .healthDot { background: #c9731d; }
+.health[data-level='problem'] .healthDot { background: #c2413a; }
+.health[data-level='idle'] .healthDot { background: #8aa0ad; }
+.healthBody { max-width: 78ch; margin: 8px 0 0; color: #33506a; font-size: 1rem; line-height: 1.6; text-wrap: pretty; }
+.healthBody strong { color: var(--suwappu-summer-ink); font-weight: 650; }
+
+/* Tables scroll sideways inside their card instead of being clipped. */
+.tableScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tableScroll > .table { min-width: 560px; overflow: visible; }
+
+/* Type floor: labels were 10px. */
+.kpiLabel, .table th, .pill, .kicker { font-size: 0.72rem; }
+.header { flex-wrap: wrap; row-gap: 8px; }
+
+.table td.mono:first-child { text-align: left; }

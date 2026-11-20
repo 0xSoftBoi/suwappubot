@@ -9,15 +9,33 @@ site (wrong nav, wrong palette, "some old library" look).
 
 Every page MUST use, unless it already deliberately doesn't:
 
-- **Nav:** `@/components/SummerNav` — sticky glass bar (light `rgba(255,255,255,.78)`
-  base that composes with dark pages), persimmon logo, "Launch Terminal" CTA.
-  This is the ONLY nav for new pages.
-- **Footer:** `@/components/SummerFooter`.
+- **Nav:** `@/components/SummerNav` — the ONLY header. Sticky glass bar:
+  brand · three panels (Products / Developers / Why Suwappu) · Pricing · Docs ·
+  language · one "Launch Terminal" CTA. Behaviour is `@ui-sdk/react`
+  (`navigation-menu`, `dialog`, `accordion`); styles are `src/app/nav.css`,
+  keyed on `data-slot` + state attributes. Dark pages get the dark header from
+  an ancestor `.sw-dark` / `.summer-page--cosmic` / `.summer-page--passport`,
+  or `<SummerNav tone="dark" />` — never re-patch header colours per page.
+  New routes go in `NavMenuData.ts` (+ `nav.menu.*` in all four locales), not
+  in the top row.
+- **Interactive widgets:** build menus, dialogs, accordions, comboboxes, tabs
+  and form fields on `@ui-sdk/react/<name>` (live examples: `SummerNav`,
+  `docs/DocsSearch`, `EnterpriseContactForm`, `FooterNewsletterForm`) (version-matched docs in
+  `node_modules/@ui-sdk/react/docs/`). Do not hand-roll `role=`/`aria-*` state.
+- **Footer:** `@/components/SummerFooter` (goes dark automatically under the
+  same dark ancestors as the header).
+- **Shared rules:** `src/app/foundation.css` (loaded last) owns the top offset
+  under the header (`--page-top`), hero gap, the button system, mobile gutters
+  and interaction defaults. Use `var(--page-top)` for a new page's first
+  padding; do not add header clearance by hand (the header is sticky, not fixed).
 - **Tokens/classes:** the `summer-*` classes (`summer-page`, `summer-shell`,
   `summer-kicker`, `summer-button`, `summer-actions`, `summer-code`) defined in
   `src/app/summer-token-vars.css` / `site.css`, plus the `mkt-*` layout classes
   and `institutional-*` section classes (both belong to the current era and
   compose with summer tokens).
+- **Display type:** use `--type-display-font` / `--type-d1…d4` /
+  `--type-display-weight` / `--type-display-tracking`. The old `--font-display`
+  alias (it resolved to sans) has been deleted; use `--font-sans` for UI text.
 - **Type:** the site's existing stack (serif display = Newsreader via the
   summer tokens; Archivo for body/UI; mono for labels). Never add a new font
   without a brand decision (see docs/design/serif-decision.md).
@@ -34,10 +52,14 @@ Every page MUST use, unless it already deliberately doesn't:
   only. The live home's hero styles are `src/app/hero.css`. Do not resurrect
   a dead route as "reference": an unlinked page is still a public URL that
   ships, builds, and drifts.
+- `/classic` and `/hero-a` … `/hero-e` also permanently redirect to `/`
+  (next.config.mjs), so old links land on the live home.
 
 ## Known traps
 
-- **No CSS reset is emitting anywhere.** `globals.css` uses Tailwind v3
+- **Reset is `foundation.css`, not Tailwind.** Global `box-sizing: border-box`
+  lives there. The paragraph below is why Preflight is absent:
+- **Tailwind Preflight does not emit.** `globals.css` uses Tailwind v3
   directives (`@tailwind base`) but the build runs the v4 PostCSS plugin, so
   Preflight never renders. UA defaults (body margin, etc.) are live on every
   route — set explicit margins/box-sizing; don't assume a reset. Repo-wide fix

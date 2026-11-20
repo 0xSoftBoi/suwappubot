@@ -20,6 +20,12 @@ export const EnvSchema = Schema.Struct({
 
 	// API Keys
 	ADMIN_API_KEY: Schema.optional(Schema.String),
+	// Comma-separated staff emails that may open the admin dashboard by signing
+	// in with Google (read-only). Unset = key-only admin access.
+	ADMIN_EMAILS: Schema.optional(Schema.String),
+	// Origins whose pages may use that Google session against /admin/*.
+	// Defaults to https://suwappu.bot (the site that hosts /admin).
+	ADMIN_SESSION_ORIGINS: Schema.optional(Schema.String),
 
 	// Turnkey
 	TURNKEY_API_PUBLIC_KEY: Schema.optional(Schema.String),

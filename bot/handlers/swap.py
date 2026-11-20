@@ -1917,6 +1917,7 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             SwapStatus.CONFIRMING.value: "⏳",
             SwapStatus.COMPLETED.value: "✅",
             SwapStatus.FAILED.value: "❌",
+            SwapStatus.UNKNOWN.value: "⚠️",
         }.get(swap_tx.status, "❓")
 
         text = (
@@ -1924,6 +1925,18 @@ async def check_swap_status(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"*{from_chain_config.logo_emoji} {swap_tx.from_token}* → *{to_chain_config.logo_emoji} {swap_tx.to_token}*\n\n"
             f"*Status:* {status_emoji} {swap_tx.status.upper()}\n\n"
         )
+
+        if swap_tx.status == SwapStatus.UNKNOWN.value:
+            # Say plainly that we do not know, rather than implying either
+            # outcome. This swap is not retried on purpose, so the user needs
+            # to know it will not resolve itself.
+            text += (
+                "This swap was interrupted after it may already have been sent. "
+                "We cannot confirm whether it went through, so it has not been "
+                "retried — sending again could spend your funds twice. "
+                "Please check your balance, and contact support to have it "
+                "verified on-chain.\n\n"
+            )
 
         if swap_tx.tx_hash:
             text += f"*Source TX:*\n{format_tx_link(swap_tx.tx_hash, swap_tx.from_chain)}\n\n"

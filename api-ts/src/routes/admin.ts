@@ -83,7 +83,11 @@ adminRoutes.get('/stats', async (c) => {
 						db
 							.select({
 								total: sql<number>`count(*)`,
-								last_24h: sql<number>`count(*) filter (where ${swapTransactions.createdAt} >= ${oneDayAgo})`,
+								// A Date interpolated into a raw sql`` fragment is not type-mapped by
+								// drizzle and postgres-js rejects it ("string argument must be of type
+								// string... Received an instance of Date"), which 500'd this whole
+								// endpoint. Pass ISO text and cast. Columns are naive UTC timestamps.
+								last_24h: sql<number>`count(*) filter (where ${swapTransactions.createdAt} >= ${oneDayAgo.toISOString()}::timestamp)`,
 							})
 							.from(swapTransactions),
 					catch: (e) => new Error(`Database error: ${e}`),
@@ -656,9 +660,9 @@ adminRoutes.get('/finance', async (c) => {
 						db
 							.select({
 								active: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active')`,
-								overdue: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active' and ${recurringSubscriptions.nextChargeAt} < ${now})`,
-								due7d: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active' and ${recurringSubscriptions.nextChargeAt} >= ${now} and ${recurringSubscriptions.nextChargeAt} <= ${sevenDaysFromNow})`,
-								due30d: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active' and ${recurringSubscriptions.nextChargeAt} >= ${now} and ${recurringSubscriptions.nextChargeAt} <= ${thirtyDaysFromNow})`,
+								overdue: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active' and ${recurringSubscriptions.nextChargeAt} < ${now.toISOString()}::timestamp)`,
+								due7d: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active' and ${recurringSubscriptions.nextChargeAt} >= ${now.toISOString()}::timestamp and ${recurringSubscriptions.nextChargeAt} <= ${sevenDaysFromNow.toISOString()}::timestamp)`,
+								due30d: sql<number>`count(*) filter (where ${recurringSubscriptions.status} = 'active' and ${recurringSubscriptions.nextChargeAt} >= ${now.toISOString()}::timestamp and ${recurringSubscriptions.nextChargeAt} <= ${thirtyDaysFromNow.toISOString()}::timestamp)`,
 							})
 							.from(recurringSubscriptions),
 					catch: (e) => new Error(`Database error: ${e}`),
@@ -668,7 +672,7 @@ adminRoutes.get('/finance', async (c) => {
 					try: () =>
 						db
 							.select({
-								expiring30d: sql<number>`count(*) filter (where lower(coalesce(${subscriptions.tier}, 'free')) <> 'free' and ${subscriptions.expiresAt} >= ${now} and ${subscriptions.expiresAt} <= ${thirtyDaysFromNow})`,
+								expiring30d: sql<number>`count(*) filter (where lower(coalesce(${subscriptions.tier}, 'free')) <> 'free' and ${subscriptions.expiresAt} >= ${now.toISOString()}::timestamp and ${subscriptions.expiresAt} <= ${thirtyDaysFromNow.toISOString()}::timestamp)`,
 							})
 							.from(subscriptions),
 					catch: (e) => new Error(`Database error: ${e}`),

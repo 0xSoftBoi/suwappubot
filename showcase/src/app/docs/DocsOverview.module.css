@@ -12,10 +12,10 @@
   margin: 3rem 0 0.5rem;
   padding-top: 2rem;
   border-top: 1px solid var(--sw-hairline);
-  font-family: var(--font-display);
+  font-family: var(--type-display-font);
   font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
   color: var(--summer-ink);
 }
 
